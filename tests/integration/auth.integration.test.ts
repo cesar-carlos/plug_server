@@ -65,6 +65,8 @@ describe("Auth API", () => {
       const response = await request(app).post("/api/v1/auth/login").send(testUser);
 
       expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.token).toBe(response.body.accessToken);
       expect(response.body.accessToken).toBeDefined();
       expect(response.body.refreshToken).toBeDefined();
       expect(response.headers["set-cookie"]).toBeDefined();
@@ -84,6 +86,21 @@ describe("Auth API", () => {
         .send({ email: "nobody@test.com", password: "Password1" });
 
       expect(response.status).toBe(401);
+    });
+  });
+
+  describe("POST /auth/login", () => {
+    it("should support the plug_agente login contract", async () => {
+      const response = await request(app).post("/auth/login").send({
+        username: testUser.email,
+        password: testUser.password,
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.token).toBeDefined();
+      expect(response.body.token).toBe(response.body.accessToken);
+      expect(response.body.refreshToken).toBeDefined();
     });
   });
 
@@ -138,6 +155,20 @@ describe("Auth API", () => {
         .send({ refreshToken: "not-a-valid-token" });
 
       expect(response.status).toBe(401);
+    });
+  });
+
+  describe("POST /auth/refresh", () => {
+    it("should support the plug_agente refresh contract", async () => {
+      const response = await request(app)
+        .post("/auth/refresh")
+        .send({ refreshToken });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.token).toBe(response.body.accessToken);
+      expect(response.body.refreshToken).toBeDefined();
+      refreshToken = response.body.refreshToken as string;
     });
   });
 

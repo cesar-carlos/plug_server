@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 
+import type { AuthResponseDto, AuthTokensDto } from "../../../application/dtos/auth.dto";
 import { badRequest } from "../../../shared/errors/http_errors";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
@@ -8,6 +9,11 @@ import { getValidated } from "../middlewares/validate.middleware";
 import type { LoginBody, LogoutBody, RefreshBody, RegisterBody } from "../validators/auth.validator";
 
 const refreshTokenCookieName = "refresh_token";
+
+type CompatibleAuthPayload<T extends AuthTokensDto> = T & {
+  readonly success: true;
+  readonly token: string;
+};
 
 const getRefreshTokenFromRequest = (
   request: Request,
@@ -31,7 +37,7 @@ const setRefreshTokenCookie = (response: Response, token: string): void => {
     httpOnly: true,
     secure: env.nodeEnv === "production",
     sameSite: "strict",
-    path: "/api/v1/auth",
+    path: "/",
   });
 };
 
@@ -40,8 +46,16 @@ const clearRefreshTokenCookie = (response: Response): void => {
     httpOnly: true,
     secure: env.nodeEnv === "production",
     sameSite: "strict",
-    path: "/api/v1/auth",
+    path: "/",
   });
+};
+
+const toCompatibleAuthPayload = <T extends AuthTokensDto>(payload: T): CompatibleAuthPayload<T> => {
+  return {
+    ...payload,
+    success: true,
+    token: payload.accessToken,
+  };
 };
 
 export const register = async (
@@ -53,7 +67,7 @@ export const register = async (
   const result = await container.authService.register(body);
   if (!result.ok) { next(result.error); return; }
   setRefreshTokenCookie(response, result.value.refreshToken);
-  response.status(201).json(result.value);
+  response.status(201).json(toCompatibleAuthPayload<AuthResponseDto>(result.value));
 };
 
 export const login = async (
@@ -62,10 +76,13 @@ export const login = async (
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<LoginBody>(response, "body");
-  const result = await container.authService.login(body);
+  const result = await container.authService.login({
+    email: body.email,
+    password: body.password,
+  });
   if (!result.ok) { next(result.error); return; }
   setRefreshTokenCookie(response, result.value.refreshToken);
-  response.status(200).json(result.value);
+  response.status(200).json(toCompatibleAuthPayload<AuthResponseDto>(result.value));
 };
 
 export const refresh = async (
@@ -83,7 +100,7 @@ export const refresh = async (
   const result = await container.authService.refresh(refreshToken);
   if (!result.ok) { next(result.error); return; }
   setRefreshTokenCookie(response, result.value.refreshToken);
-  response.status(200).json(result.value);
+  response.status(200).json(toCompatibleAuthPayload(result.value));
 };
 
 export const logout = async (

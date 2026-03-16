@@ -8,12 +8,28 @@ export const registerBodySchema = z.object({
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 
-export const loginBodySchema = z.object({
-  email: emailSchema,
-  password: nonEmptyStringSchema,
-});
+export const loginBodySchema = z
+  .object({
+    email: emailSchema.optional(),
+    username: nonEmptyStringSchema.optional(),
+    password: nonEmptyStringSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (!value.email && !value.username) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["email"],
+        message: "Email or username is required",
+      });
+    }
+  })
+  .transform((value) => ({
+    email: (value.email ?? value.username ?? "").trim().toLowerCase(),
+    password: value.password,
+    username: value.username?.trim(),
+  }));
 
-export type LoginBody = z.infer<typeof loginBodySchema>;
+export type LoginBody = z.output<typeof loginBodySchema>;
 
 export const refreshBodySchema = z.object({
   refreshToken: nonEmptyStringSchema.optional(),

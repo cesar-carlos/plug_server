@@ -11,6 +11,7 @@ import {
   globalRateLimit,
 } from "./presentation/http/middlewares/rate_limit.middleware";
 import { requestIdMiddleware } from "./presentation/http/middlewares/request_id.middleware";
+import { authRouter } from "./presentation/http/routes/auth.routes";
 import { httpRouter } from "./presentation/http/routes";
 import { env } from "./shared/config/env";
 
@@ -41,6 +42,8 @@ export const createApp = (): Express => {
   app.use(express.urlencoded({ extended: true, limit: env.requestBodyLimit }));
   app.use(cookieParser());
 
+  app.use("/auth", authRateLimit);
+  app.use("/auth", authRouter);
   app.use("/api/v1", globalRateLimit);
   app.use("/api/v1/auth", authRateLimit);
   app.use("/api/v1", httpRouter);
