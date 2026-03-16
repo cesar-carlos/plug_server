@@ -3,11 +3,13 @@ import { Router } from "express";
 import { getHealth, getHealthLive, getHealthReady } from "../controllers/health.controller";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { healthQuerySchema } from "../validators/health.validator";
+import { agentsRouter } from "./agents.routes";
 import { authRouter } from "./auth.routes";
 
 export const httpRouter = Router();
 
 httpRouter.use("/auth", authRouter);
+httpRouter.use("/agents", agentsRouter);
 
 /**
  * @openapi

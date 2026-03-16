@@ -16,6 +16,8 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
   JWT_ISSUER: z.string().min(1).default("plug_server"),
   JWT_AUDIENCE: z.string().min(1).default("plug_clients"),
+  PAYLOAD_SIGNING_KEY: z.string().optional(),
+  PAYLOAD_SIGNING_KEY_ID: z.string().optional(),
   SOCKET_AUTH_REQUIRED: z
     .enum(["true", "false"])
     .default("true")
@@ -55,6 +57,8 @@ export const env = {
   jwtRefreshExpiresIn: parsedEnv.JWT_REFRESH_EXPIRES_IN,
   jwtIssuer: parsedEnv.JWT_ISSUER,
   jwtAudience: parsedEnv.JWT_AUDIENCE,
+  payloadSigningKey: parsedEnv.PAYLOAD_SIGNING_KEY,
+  payloadSigningKeyId: parsedEnv.PAYLOAD_SIGNING_KEY_ID,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
 } as const;

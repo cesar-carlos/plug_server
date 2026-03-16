@@ -9,6 +9,7 @@ export interface RegisteredAgent {
 
 class InMemoryAgentRegistry {
   private readonly agents = new Map<string, RegisteredAgent>();
+  private readonly knownAgentIds = new Set<string>();
 
   upsert(input: {
     readonly agentId: string;
@@ -28,6 +29,7 @@ class InMemoryAgentRegistry {
       lastSeenAt: now,
     };
 
+    this.knownAgentIds.add(input.agentId);
     this.agents.set(input.agentId, agent);
     return agent;
   }
@@ -55,6 +57,18 @@ class InMemoryAgentRegistry {
     }
 
     return null;
+  }
+
+  listAll(): readonly RegisteredAgent[] {
+    return Array.from(this.agents.values());
+  }
+
+  findByAgentId(agentId: string): RegisteredAgent | null {
+    return this.agents.get(agentId) ?? null;
+  }
+
+  hasKnownAgentId(agentId: string): boolean {
+    return this.knownAgentIds.has(agentId);
   }
 }
 

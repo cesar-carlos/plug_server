@@ -87,6 +87,45 @@ const swaggerSpec = swaggerJSDoc({
             },
           ],
         },
+        SocketBridgeSecurityNotes: {
+          type: "object",
+          description: "Security and transport hardening notes applied to HTTP-to-Socket bridge flow.",
+          properties: {
+            maxCompressedPayloadBytes: {
+              type: "integer",
+              example: 10485760,
+              description: "Maximum accepted compressed PayloadFrame size in bytes.",
+            },
+            maxDecodedPayloadBytes: {
+              type: "integer",
+              example: 10485760,
+              description: "Maximum accepted decoded PayloadFrame size in bytes.",
+            },
+            maxInflationRatio: {
+              type: "number",
+              example: 20,
+              description: "Maximum allowed decoded/compressed ratio for gzip frames.",
+            },
+            signatureVerification: {
+              type: "object",
+              properties: {
+                enabledWhenSignaturePresent: {
+                  type: "boolean",
+                  example: true,
+                },
+                algorithm: {
+                  type: "string",
+                  example: "hmac-sha256",
+                },
+                requiredEnv: {
+                  type: "array",
+                  items: { type: "string" },
+                  example: ["PAYLOAD_SIGNING_KEY", "PAYLOAD_SIGNING_KEY_ID"],
+                },
+              },
+            },
+          },
+        },
       },
       responses: {
         Unauthorized: {
