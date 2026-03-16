@@ -1,16 +1,35 @@
-export class User {
-  constructor(
-    public readonly id: string,
-    public readonly username: string,
-    public readonly hashedPassword: string,
-    public readonly role: string
-  ) {}
+export type UserRole = "user" | "admin";
 
-  hasRole(role: string): boolean {
-    return this.role === role;
+export interface UserProps {
+  readonly id: string;
+  readonly email: string;
+  readonly passwordHash: string;
+  readonly role: UserRole;
+  readonly createdAt: Date;
+}
+
+export class User {
+  readonly id: string;
+  readonly email: string;
+  readonly passwordHash: string;
+  readonly role: UserRole;
+  readonly createdAt: Date;
+
+  constructor(props: UserProps) {
+    this.id = props.id;
+    this.email = props.email;
+    this.passwordHash = props.passwordHash;
+    this.role = props.role;
+    this.createdAt = props.createdAt;
   }
 
-  isAdmin(): boolean {
-    return this.role === "admin";
+  static create(props: Omit<UserProps, "id" | "createdAt"> & { id?: string; createdAt?: Date }): User {
+    return new User({
+      id: props.id ?? crypto.randomUUID(),
+      email: props.email,
+      passwordHash: props.passwordHash,
+      role: props.role,
+      createdAt: props.createdAt ?? new Date(),
+    });
   }
 }

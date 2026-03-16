@@ -1,0 +1,42 @@
+---
+description: "HTTP and routing conventions for the Express REST API"
+globs: ["src/app.ts", "src/**/*.controller.ts", "src/**/*.routes.ts", "src/**/*.middleware.ts", "src/presentation/**/*.ts"]
+alwaysApply: true
+---
+
+# Express REST API Conventions
+
+## Router structure
+
+- Each feature owns a dedicated router file named `feature.routes.ts` (e.g. `auth.routes.ts`, `users.routes.ts`).
+- `src/presentation/http/routes/index.ts` is the central aggregator: it imports every feature router and mounts it with `httpRouter.use("/feature", featureRouter)`. No business logic lives here.
+- Mount the central `httpRouter` in `app.ts` under the versioned prefix `/api/v1`.
+
+## Route definition
+
+- Use resource-oriented paths and consistent versioning, such as `/api/v1/users`.
+- The standard middleware order for every protected route is: `requireAuth → validateRequest → controller`.
+- Public routes omit `requireAuth` but still pass through `validateRequest` when input is expected.
+- Keep route handler callbacks in controller files; do not inline business logic inside route files. Only trivial utility routes (e.g. `/ping`) may use inline handlers.
+
+## Controllers
+
+- Keep controllers thin: retrieve validated input via `getValidated`, call the application/service layer, check the `Result`, and map to the appropriate HTTP status code.
+- Never access repositories, domain entities, or infrastructure adapters directly from a controller.
+
+## Validation
+
+- Validate request `body`, `params`, and `query` with `zod` schemas at the boundary using `validateRequest`.
+- Co-locate each feature's Zod schemas in `presentation/http/validators/feature.validator.ts`.
+
+## Middleware and error handling
+
+- Register the `404` handler after all routes and `errorMiddleware` as the very last middleware in `app.ts`.
+- Always call `next(error)` to propagate errors to the centralized error handler; never build ad hoc error responses inside controllers.
+- Always call `next()` when a middleware does not end the request-response cycle.
+
+## Response and logging
+
+- Return consistent JSON shapes for success and failure; avoid ad hoc response structures across controllers.
+- Use standard status codes intentionally: `200`, `201`, `204`, `400`, `401`, `403`, `404`, `409`, `422`, `500`.
+- Use `morgan` for HTTP access logs and keep `cors` configuration centralized in `app.ts`.

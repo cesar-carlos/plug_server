@@ -1,76 +1,18 @@
 ---
-description: "General coding standards and best practices for all code in the project"
-globs:
-  [
-    "**/*.ts",
-    "**/*.js",
-    "**/*.tsx",
-    "**/*.jsx",
-    "**/*.py",
-    "**/*.java",
-    "**/*.go",
-    "**/*.rb",
-  ]
+description: "General coding standards for the TypeScript backend"
+globs: ["src/**/*.ts", "tests/**/*.ts"]
 alwaysApply: true
 ---
 
-# Coding Standards & Best Practices
+# Coding Standards
 
-## General Philosophy
-
-1.  **KISS (Keep It Simple, Stupid)**: Complexity should be avoided. Simple solutions are easier to maintain and test.
-2.  **DRY (Don't Repeat Yourself)**: Avoid duplicating code. Extract common logic into functions or shared components.
-3.  **YAGNI (You Ain't Gonna Need It)**: Do not implement features or abstractions "just in case" for the future. Implement what is needed now.
-
-## Naming Conventions
-
-Consistent naming is crucial for readability. Use the language's standard convention, but generally:
-
-- **Classes / Interfaces / Types**: `PascalCase` (e.g., `UserRepository`, `PaymentService`).
-- **Methods / Variables**: `camelCase` (e.g., `calculateTotal`, `isActive`).
-- **Constants**: `camelCase` (e.g., `maxRetries`) or `SCREAMING_SNAKE_CASE` (e.g., `MAX_RETRIES`), depending on specific language idiom (default to `lowerCamelCase` if unsure).
-- **Files**: `snake_case` (e.g., `user_repository.ext`).
-
-## Code Style
-
-### Self-Documenting Code
-
-- **Names over Comments**: A variable named `daysUntilExpiration` is better than `int d; // days until expiration`.
-- **Small Functions**: Functions should do one thing. If a function is too long, break it down.
-
-### Magic Numbers
-
-- **Avoid**: `if (status == 2) ...`
-- **Prefer**: `const activeStatus = 2; if (status == activeStatus) ...`
-- Always extract literals (numbers, strings) into named constants if they have business meaning.
-
-### Comments
-
-- **Avoid Unnecessary Comments**: Code must be self-explanatory and expressive by itself. Use descriptive names instead of comments.
-- **No Comments for Obvious Code**: If the code is clear from reading it, do not add comments. Prefer refactoring to make the code clearer.
-- **Only Explain Why, Not What**: Code explains _what_ is happening. Comments should ONLY be used to explain _why_ a non-obvious business decision or workaround was made (rare cases).
-- **No Zombie Code**: Do not leave commented-out code blocks. Use Git history for that.
-
-### Error Handling
-
-- **Explicit Handling**: Do not silently swallow exceptions. Log them or handle them meaningfully.
-- **Result Pattern**: Consider using a Result/Either pattern instead of throwing exceptions for expected failures (e.g., "User not found").
-
-### Null Safety
-
-- **Avoid Nulls**: Design APIs to avoid `null` return values where possible. Return an "Empty" object or an `Option/Maybe` type.
-- **Explicit Nullability**: If a value can be missing, type it explicitly as nullable (e.g., `String?`) and handle both cases.
-
-### Documentation
-
-- **No Proactive Documentation**: Do NOT generate documentation files (README, API docs, etc.) unless explicitly requested by the user.
-- **Code is Documentation**: The code itself, with clear naming and structure, serves as the primary documentation.
-- **Documentation Only When Requested**: Only create documentation files when the user explicitly asks for them.
-
-## Review Checklist
-
-- [ ] Is the code simple and readable?
-- [ ] Are names descriptive?
-- [ ] Is logic duplicated?
-- [ ] Are magic numbers replaced by constants?
-- [ ] Are happy paths and edge cases handled?
+- Prefer simple modules and small functions over clever abstractions.
+- Keep files focused on one responsibility. Split large controllers, services, or middleware before they become hard to scan.
+- Use descriptive names from the domain or HTTP context, such as `createUser`, `accessToken`, or `authMiddleware`.
+- Follow the project naming pattern `feature.role.ts`, for example `auth.controller.ts` or `login.use_case.ts`.
+- Replace business-significant literals with named constants.
+- Comments should explain non-obvious intent or trade-offs, not restate the code.
+- Do not leave commented-out code, empty catch blocks, or unused exports behind.
+- Never generate documentation files (README, changelogs, API docs, wiki pages, etc.) unless the user explicitly requests it. Code with clear names and structure is the primary documentation.
+- Handle failures explicitly and return consistent error shapes through the centralized error flow.
+- Avoid premature abstractions. Duplicate once if needed, then extract when the pattern is real.

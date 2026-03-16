@@ -1,31 +1,58 @@
-import { logger } from "../utils/logger";
+import dotenv from "dotenv";
+import { z } from "zod";
 
-const requiredEnvVars = {
-  JWT_SECRET: process.env.JWT_SECRET,
-  CORS_ORIGIN: process.env.CORS_ORIGIN || "*",
-};
+dotenv.config();
 
-const missingVars: string[] = [];
+const envSchema = z.object({
+  APP_NAME: z.string().default("plug_server"),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  PORT: z.coerce.number().int().positive().default(3000),
+  CORS_ORIGIN: z.string().default("*"),
+  REQUEST_BODY_LIMIT: z.string().default("1mb"),
+  JWT_ACCESS_SECRET: z.string().min(16).default("change-me-access-development"),
+  JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
+  JWT_REFRESH_SECRET: z.string().min(16).default("change-me-refresh-development"),
+  JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
+  JWT_ISSUER: z.string().min(1).default("plug_server"),
+  JWT_AUDIENCE: z.string().min(1).default("plug_clients"),
+  SOCKET_AUTH_REQUIRED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  SWAGGER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+});
 
-if (!requiredEnvVars.JWT_SECRET) {
-  missingVars.push("JWT_SECRET");
-}
+const parsedEnv = envSchema.parse(process.env);
+const insecureSecrets = new Set(["change-me-access-development", "change-me-refresh-development"]);
 
-if (missingVars.length > 0) {
-  logger.fatal(
-    { missing: missingVars },
-    "Missing required environment variables"
-  );
-  process.exit(1);
+if (parsedEnv.NODE_ENV === "production") {
+  if (parsedEnv.CORS_ORIGIN === "*") {
+    throw new Error("Invalid production config: CORS_ORIGIN cannot be '*'.");
+  }
+
+  if (
+    insecureSecrets.has(parsedEnv.JWT_ACCESS_SECRET) ||
+    insecureSecrets.has(parsedEnv.JWT_REFRESH_SECRET)
+  ) {
+    throw new Error("Invalid production config: JWT secrets must be explicitly configured.");
+  }
 }
 
 export const env = {
-  JWT_SECRET: requiredEnvVars.JWT_SECRET!,
-  CORS_ORIGIN: requiredEnvVars.CORS_ORIGIN,
-  PORT: process.env.PORT || "3000",
-  LOG_LEVEL: process.env.LOG_LEVEL || "info",
-  NODE_ENV: process.env.NODE_ENV || "development",
-  DATABASE_PATH: process.env.DATABASE_PATH || "./data/plug_backend.db",
-  JWT_ACCESS_TOKEN_EXPIRES_IN: process.env.JWT_ACCESS_TOKEN_EXPIRES_IN || "15m",
-  JWT_REFRESH_TOKEN_EXPIRES_IN: process.env.JWT_REFRESH_TOKEN_EXPIRES_IN || "7d",
+  appName: parsedEnv.APP_NAME,
+  nodeEnv: parsedEnv.NODE_ENV,
+  port: parsedEnv.PORT,
+  corsOrigin: parsedEnv.CORS_ORIGIN,
+  requestBodyLimit: parsedEnv.REQUEST_BODY_LIMIT,
+  jwtAccessSecret: parsedEnv.JWT_ACCESS_SECRET,
+  jwtAccessExpiresIn: parsedEnv.JWT_ACCESS_EXPIRES_IN,
+  jwtRefreshSecret: parsedEnv.JWT_REFRESH_SECRET,
+  jwtRefreshExpiresIn: parsedEnv.JWT_REFRESH_EXPIRES_IN,
+  jwtIssuer: parsedEnv.JWT_ISSUER,
+  jwtAudience: parsedEnv.JWT_AUDIENCE,
+  socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
+  swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
 } as const;

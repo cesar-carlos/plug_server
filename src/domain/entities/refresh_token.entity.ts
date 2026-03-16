@@ -1,22 +1,50 @@
+export interface RefreshTokenProps {
+  readonly id: string;
+  readonly userId: string;
+  readonly expiresAt: Date;
+  readonly revokedAt?: Date;
+  readonly createdAt: Date;
+}
+
 export class RefreshToken {
-  constructor(
-    public readonly id: string,
-    public readonly userId: string,
-    public readonly token: string,
-    public readonly expiresAt: Date,
-    public readonly createdAt: Date,
-    public readonly revokedAt: Date | null = null
-  ) {}
+  readonly id: string;
+  readonly userId: string;
+  readonly expiresAt: Date;
+  readonly revokedAt?: Date;
+  readonly createdAt: Date;
 
-  isExpired(): boolean {
-    return new Date() > this.expiresAt;
+  constructor(props: RefreshTokenProps) {
+    this.id = props.id;
+    this.userId = props.userId;
+    this.expiresAt = props.expiresAt;
+    if (props.revokedAt !== undefined) {
+      this.revokedAt = props.revokedAt;
+    }
+    this.createdAt = props.createdAt;
   }
 
-  isRevoked(): boolean {
-    return this.revokedAt !== null;
+  get isRevoked(): boolean {
+    return this.revokedAt !== undefined;
   }
 
-  isValid(): boolean {
-    return !this.isExpired() && !this.isRevoked();
+  get isExpired(): boolean {
+    return this.expiresAt < new Date();
+  }
+
+  get isValid(): boolean {
+    return !this.isRevoked && !this.isExpired;
+  }
+
+  revoke(): RefreshToken {
+    return new RefreshToken({ ...this, revokedAt: new Date() });
+  }
+
+  static create(props: { id: string; userId: string; expiresAt: Date; createdAt?: Date }): RefreshToken {
+    return new RefreshToken({
+      id: props.id,
+      userId: props.userId,
+      expiresAt: props.expiresAt,
+      createdAt: props.createdAt ?? new Date(),
+    });
   }
 }

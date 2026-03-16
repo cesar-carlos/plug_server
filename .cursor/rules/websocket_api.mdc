@@ -1,0 +1,15 @@
+---
+description: "WebSocket conventions for real-time communication"
+globs: ["src/socket.ts", "src/**/*.gateway.ts", "src/**/*.handler.ts", "src/**/*.events.ts", "src/presentation/**/*.ts"]
+alwaysApply: false
+---
+
+# WebSocket Conventions
+
+- Use WebSocket for real-time updates, bidirectional messaging, presence, streaming progress, and room-based communication.
+- Keep event handlers thin: validate the event, resolve the authenticated context, call the application layer, and emit a normalized response.
+- Define and centralize event names, payload schemas, and outbound message shapes to avoid string duplication across the codebase.
+- Reuse the same use cases or services behind REST when the business action is the same.
+- Authenticate on connection, reject unauthorized clients early, and enforce room or channel authorization before joining or broadcasting.
+- Apply acknowledgements, timeouts, and error events consistently for operations that need client confirmation.
+- Guard against slow consumers with payload limits, rate limits, and backpressure-aware broadcasting strategies.

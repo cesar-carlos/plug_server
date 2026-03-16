@@ -1,52 +1,46 @@
-import type { RefreshTokenRepository } from "../repositories/refresh_token_repository.interface";
-import type { UserRepository } from "../repositories/user_repository.interface";
 import type { User } from "../entities/user.entity";
+import type { IUserRepository } from "../repositories/user.repository.interface";
+import type { IRefreshTokenRepository } from "../repositories/refresh_token.repository.interface";
+import { invalidToken, notFound } from "../../shared/errors/http_errors";
+import { type Result, ok, err } from "../../shared/errors/result";
 
-export interface RefreshTokenResult {
-  success: boolean;
-  user?: User;
-  error?: string;
+export interface RefreshTokenInput {
+  readonly tokenId: string;
+  readonly userId: string;
 }
 
 export class RefreshTokenUseCase {
   constructor(
-    private readonly refreshTokenRepository: RefreshTokenRepository,
-    private readonly userRepository: UserRepository
+    private readonly userRepository: IUserRepository,
+    private readonly refreshTokenRepository: IRefreshTokenRepository,
   ) {}
 
-  async execute(refreshToken: string): Promise<RefreshTokenResult> {
-    const tokenEntity = await this.refreshTokenRepository.findByToken(
-      refreshToken
-    );
+  async execute(input: RefreshTokenInput): Promise<Result<User>> {
+    const token = await this.refreshTokenRepository.findById(input.tokenId);
 
-    if (!tokenEntity) {
-      return {
-        success: false,
-        error: "Invalid refresh token",
-      };
+    if (!token) {
+      return err(invalidToken("Refresh token not found"));
     }
 
-    if (!tokenEntity.isValid()) {
-      return {
-        success: false,
-        error: "Refresh token expired or revoked",
-      };
+    if (token.userId !== input.userId) {
+      return err(invalidToken("Refresh token does not belong to this user"));
     }
 
-    const user = await this.userRepository.findById(tokenEntity.userId);
+    if (token.isRevoked) {
+      return err(invalidToken("Refresh token has been revoked"));
+    }
+
+    if (token.isExpired) {
+      return err(invalidToken("Refresh token has expired"));
+    }
+
+    const user = await this.userRepository.findById(input.userId);
     if (!user) {
-      await this.refreshTokenRepository.revokeToken(refreshToken);
-      return {
-        success: false,
-        error: "User not found",
-      };
+      return err(notFound("User"));
     }
 
-    await this.refreshTokenRepository.revokeToken(refreshToken);
+    await this.refreshTokenRepository.revoke(token.id);
 
-    return {
-      success: true,
-      user,
-    };
+    return ok(user);
   }
 }

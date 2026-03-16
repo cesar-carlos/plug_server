@@ -1,28 +1,21 @@
 ---
-description: "Security best practices and guidelines for handling authentication, authorization, and data protection"
-globs: ["**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx", "**/*.py", "**/*.java", "**/*.go", "**/*.rb"]
+description: "Security rules for the REST and WebSocket backend"
+globs: ["src/**/*.ts"]
 alwaysApply: true
 ---
 
 # Security Best Practices
 
-Security should be designed into the system from the start, not added as an afterthought.
-
-## Input Validation
-*   **Validate All Inputs**: Never trust data coming from outside user (API, UI, external systems).
-*   **Whitelisting**: Prefer allowing known good characters over blocking known bad ones.
-*   **Type Checking**: Ensure inputs match expected types (e.g., ensure age is an integer).
-
-## Authentication & Authorization
-*   **Principle of Least Privilege**: Users and services should only have the permissions necessary to perform their tasks.
-*   **Secure Storage**: Never store passwords in plain text. Use strong hashing algorithms (e.g., Argon2, bcrypt).
-*   **Token Management**: Use short-lived access tokens and secure refresh token flows.
-
-## Data Protection
-*   **Encryption at Rest**: Sensitive data (PII, credentials) should be encrypted in the database.
-*   **Encryption in Transit**: All network communication must use TLS/SSL (HTTPS).
-*   **No Sensitive Info in Logs**: Ensure logs do not contain passwords, API keys, or PII.
-
-## Code Security
-*   **Dependencies**: Regularly update libraries to patch known vulnerabilities.
-*   **Hardcoding**: Never hardcode secrets (API Keys, DB Passwords) in the source code. Use Environment Variables.
+- Validate `body`, `query`, `params`, headers, and every inbound WebSocket event payload at the boundary with `zod` or another schema-based validator.
+- Do not trust client input for authorization, ownership, or roles; derive those from trusted server-side context.
+- Use `helmet`, restrictive `cors`, request size limits, and rate limiting on public or sensitive endpoints.
+- Authenticate WebSocket connections during the handshake and reject invalid clients before accepting events.
+- Use `jsonwebtoken` carefully: validate signature, issuer, audience, expiration, and expected token type before trusting claims.
+- Validate allowed origins for WebSocket connections and use `wss://` in production.
+- Apply per-connection limits for message rate, payload size, and idle time to reduce abuse and resource exhaustion.
+- Never hardcode secrets. Load them through `dotenv`-managed environment variables and document required keys in `.env.example`.
+- Hash passwords with `bcryptjs`; never log or persist raw secrets.
+- Keep tokens short-lived, rotate refresh tokens when applicable, and revoke compromised credentials explicitly.
+- Return generic error responses to clients and keep stack traces or database details out of production responses.
+- Log only safe metadata. Never log passwords, tokens, cookies, raw event payloads, or sensitive personal data.
+- Use parameterized queries or safe ORM/query-builder APIs and keep database permissions minimal.

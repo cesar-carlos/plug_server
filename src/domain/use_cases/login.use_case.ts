@@ -1,44 +1,33 @@
-import type { UserRepository } from "../repositories/user_repository.interface";
 import type { User } from "../entities/user.entity";
-import type { PasswordHasher } from "../../shared/utils/password_hasher.interface";
+import type { IUserRepository } from "../repositories/user.repository.interface";
+import type { IPasswordHasher } from "../ports/password_hasher.port";
+import { unauthorized } from "../../shared/errors/http_errors";
+import { type Result, ok, err } from "../../shared/errors/result";
 
-export interface LoginResult {
-  success: boolean;
-  user?: User;
-  error?: string;
+export interface LoginInput {
+  readonly email: string;
+  readonly plainPassword: string;
 }
 
 export class LoginUseCase {
   constructor(
-    private readonly userRepository: UserRepository,
-    private readonly passwordHasher: PasswordHasher
+    private readonly userRepository: IUserRepository,
+    private readonly passwordHasher: IPasswordHasher,
   ) {}
 
-  async execute(username: string, password: string): Promise<LoginResult> {
-    const user = await this.userRepository.findByUsername(username);
+  async execute(input: LoginInput): Promise<Result<User>> {
+    const user = await this.userRepository.findByEmail(input.email);
 
+    // Use the same error for missing user and wrong password to prevent user enumeration
     if (!user) {
-      return {
-        success: false,
-        error: "Invalid credentials",
-      };
+      return err(unauthorized("Invalid email or password"));
     }
 
-    const isPasswordValid = await this.passwordHasher.compare(
-      password,
-      user.hashedPassword
-    );
-
-    if (!isPasswordValid) {
-      return {
-        success: false,
-        error: "Invalid credentials",
-      };
+    const isMatch = await this.passwordHasher.compare(input.plainPassword, user.passwordHash);
+    if (!isMatch) {
+      return err(unauthorized("Invalid email or password"));
     }
 
-    return {
-      success: true,
-      user,
-    };
+    return ok(user);
   }
 }

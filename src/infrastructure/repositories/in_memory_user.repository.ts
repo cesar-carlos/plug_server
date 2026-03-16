@@ -1,59 +1,25 @@
-import type { UserRepository } from "../../domain/repositories/user_repository.interface";
-import { User } from "../../domain/entities/user.entity";
+import type { User } from "../../domain/entities/user.entity";
+import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
 
-export class InMemoryUserRepository implements UserRepository {
-  private users: Map<string, User> = new Map();
-
-  constructor() {
-    const defaultUserPassword = process.env.DEFAULT_ADMIN_PASSWORD;
-
-    if (defaultUserPassword) {
-      this.users.set("admin", new User("1", "admin", "", "admin"));
-    }
-  }
-
-  async findByUsername(username: string): Promise<User | null> {
-    const user = this.users.get(username);
-    return user
-      ? new User(user.id, user.username, user.hashedPassword, user.role)
-      : null;
-  }
+export class InMemoryUserRepository implements IUserRepository {
+  private readonly store = new Map<string, User>();
 
   async findById(id: string): Promise<User | null> {
-    for (const user of this.users.values()) {
-      if (user.id === id) {
-        return new User(user.id, user.username, user.hashedPassword, user.role);
-      }
+    return this.store.get(id) ?? null;
+  }
+
+  async findByEmail(email: string): Promise<User | null> {
+    for (const user of this.store.values()) {
+      if (user.email === email) return user;
     }
     return null;
   }
 
-  async create(user: User): Promise<User> {
-    // Check if user already exists
-    if (this.users.has(user.username)) {
-      throw new Error(`User with username ${user.username} already exists`);
-    }
-
-    this.users.set(user.username, user);
-    return user;
+  async save(user: User): Promise<void> {
+    this.store.set(user.id, user);
   }
 
-  async setUserPassword(
-    username: string,
-    hashedPassword: string
-  ): Promise<void> {
-    const user = this.users.get(username);
-    if (user) {
-      const updatedUser = new User(
-        user.id,
-        user.username,
-        hashedPassword,
-        user.role
-      );
-      this.users.set(username, updatedUser);
-    } else {
-      const newUser = new User("1", username, hashedPassword, "admin");
-      this.users.set(username, newUser);
-    }
+  clear(): void {
+    this.store.clear();
   }
 }

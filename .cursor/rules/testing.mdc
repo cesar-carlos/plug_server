@@ -1,59 +1,19 @@
 ---
-description: "Testing standards and best practices for writing unit and integration tests"
+description: "Testing strategy for the REST and WebSocket backend"
+globs: ["tests/**/*.ts", "**/*.test.ts", "**/*.spec.ts"]
 alwaysApply: false
 ---
 
 # Testing Standards
 
-## Testing Strategy
-
-We follow the **Testing Pyramid**:
-
-1.  **Unit Tests** (Base): Fast, isolated, high volume. Cover Entities, Value Objects, Use Cases.
-2.  **Integration Tests** (Middle): Test interactions between layers (e.g., Repository with Database).
-
-## Structure and Organization
-
-- Test files should mirror the source directory structure.
-  - `src/domain/user.ext` -> `tests/domain/user_test.ext`
-- Each test suite should focus on a single class or module.
-
-## Unit Testing Best Practices
-
-### AAA Pattern
-
-Use the **Arrange-Act-Assert** pattern for clarity:
-
-```
-test('should calculate total correctly', () {
-  // Arrange: Setup data and mocks
-  const cart = new Cart();
-  cart.add(item);
-
-  // Act: Execute the function under test
-  const total = cart.total();
-
-  // Assert: Verify the result
-  expect(total).toBe(100);
-});
-```
-
-### Isolation
-
-- Tests must be independent. One test should not depend on the state left by another.
-- Use `setUp` and `tearDown` to reset state between tests.
-
-### Mocking
-
-- **Mock Dependencies**: When testing a Service, mock the Repository it depends on.
-- **No Mocks for Values**: Do not mock Entities or Value Objects; use real instances as they are simple data holders.
-
-### Naming Tests
-
-- **Format**: `[MethodName] should [ExpectedBehavior] when [Condition]`
-- **Example**: `calculateTotal should return zero when cart is empty`
-
-## Code Coverage
-
-- Aim for high coverage on **Domain Logic** (Entities, Use Cases).
-- Do not obsess over 100% coverage on trivial code (getters/setters).
+- Follow the testing pyramid: many unit tests, targeted integration tests, plus transport-level tests for critical REST routes and WebSocket events.
+- Mirror the source structure in `tests/` so the target module is obvious.
+- Keep `app` separate from the network listener so route tests can exercise Express without opening a real port.
+- Keep socket server setup composable so connection and event tests can run without full production bootstrap.
+- Unit-test domain rules, use cases, middleware, and utilities in isolation.
+- Integration-test repositories, database wiring, and external adapters with an isolated test environment.
+- Use `Supertest` or equivalent for HTTP-level tests against the real Express app.
+- Add event-level tests for connection auth, message validation, room or channel behavior, and server-to-client emissions.
+- Mock infrastructure boundaries in unit tests, but prefer real entities and value objects.
+- Use AAA naming and structure: `should return 404 when user does not exist`.
+- Reset data and mocks between tests; no test may depend on execution order.

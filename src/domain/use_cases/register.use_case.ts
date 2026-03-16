@@ -1,48 +1,30 @@
-import type { UserRepository } from "../repositories/user_repository.interface";
-import { User } from "../entities/user.entity";
-import type { PasswordHasher } from "../../shared/utils/password_hasher.interface";
+import { User, type UserRole } from "../entities/user.entity";
+import type { IUserRepository } from "../repositories/user.repository.interface";
+import { conflict } from "../../shared/errors/http_errors";
+import { type Result, ok, err } from "../../shared/errors/result";
 
-export interface RegisterResult {
-  success: boolean;
-  user?: User;
-  error?: string;
+export interface RegisterInput {
+  readonly email: string;
+  readonly passwordHash: string;
+  readonly role?: UserRole;
 }
 
 export class RegisterUseCase {
-  constructor(
-    private readonly userRepository: UserRepository,
-    private readonly passwordHasher: PasswordHasher
-  ) {}
+  constructor(private readonly userRepository: IUserRepository) {}
 
-  async execute(
-    username: string,
-    password: string,
-    role: string = "user"
-  ): Promise<RegisterResult> {
-    const existingUser = await this.userRepository.findByUsername(username);
-    if (existingUser) {
-      return {
-        success: false,
-        error: "Username already exists",
-      };
+  async execute(input: RegisterInput): Promise<Result<User>> {
+    const existing = await this.userRepository.findByEmail(input.email);
+    if (existing) {
+      return err(conflict("Email already in use"));
     }
 
-    const hashedPassword = await this.passwordHasher.hash(password);
+    const user = User.create({
+      email: input.email,
+      passwordHash: input.passwordHash,
+      role: input.role ?? "user",
+    });
 
-    const id = crypto.randomUUID();
-    const user = new User(id, username, hashedPassword, role);
-
-    try {
-      const createdUser = await this.userRepository.create(user);
-      return {
-        success: true,
-        user: createdUser,
-      };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : "Failed to create user",
-      };
-    }
+    await this.userRepository.save(user);
+    return ok(user);
   }
 }
