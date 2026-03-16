@@ -8,10 +8,9 @@ import { logger } from "./shared/utils/logger";
 
 const app = createApp();
 const httpServer = createServer(app);
+const io = createSocketServer(httpServer);
 
-createSocketServer(httpServer);
-
-httpServer.listen(env.port, () => {
+httpServer.listen(env.port, "0.0.0.0", () => {
   logger.info("HTTP server started", {
     appName: env.appName,
     port: env.port,
@@ -21,6 +20,7 @@ httpServer.listen(env.port, () => {
 
 const shutdown = async (signal: string): Promise<void> => {
   logger.info("Shutdown signal received", { signal });
+  io.close();
   await prismaClient.$disconnect();
   httpServer.close(() => {
     process.exit(0);

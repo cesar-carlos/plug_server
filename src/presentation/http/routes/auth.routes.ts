@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { getMe, login, logout, refresh, register } from "../controllers/auth.controller";
+import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuth } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
@@ -44,7 +45,7 @@ export const authRouter = Router();
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  */
-authRouter.post("/register", validateRequest({ body: registerBodySchema }), register);
+authRouter.post("/register", validateRequest({ body: registerBodySchema }), asyncHandler(register));
 
 /**
  * @openapi
@@ -75,7 +76,7 @@ authRouter.post("/register", validateRequest({ body: registerBodySchema }), regi
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-authRouter.post("/login", validateRequest({ body: loginBodySchema }), login);
+authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandler(login));
 
 /**
  * @openapi
@@ -103,7 +104,7 @@ authRouter.post("/login", validateRequest({ body: loginBodySchema }), login);
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-authRouter.post("/refresh", validateRequest({ body: refreshBodySchema }), refresh);
+authRouter.post("/refresh", validateRequest({ body: refreshBodySchema }), asyncHandler(refresh));
 
 /**
  * @openapi
@@ -125,7 +126,7 @@ authRouter.post("/refresh", validateRequest({ body: refreshBodySchema }), refres
  *       204:
  *         description: Logged out successfully
  */
-authRouter.post("/logout", validateRequest({ body: logoutBodySchema }), logout);
+authRouter.post("/logout", validateRequest({ body: logoutBodySchema }), asyncHandler(logout));
 
 /**
  * @openapi
@@ -141,4 +142,4 @@ authRouter.post("/logout", validateRequest({ body: logoutBodySchema }), logout);
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-authRouter.get("/me", requireAuth, getMe);
+authRouter.get("/me", requireAuth, asyncHandler(getMe));

@@ -39,7 +39,13 @@ export const errorMiddleware = (
     return;
   }
 
-  logger.error("Unhandled application error", { requestId, error });
+  const err = error instanceof Error ? error : new Error(String(error));
+  logger.error("Unhandled application error", {
+    requestId,
+    message: err.message,
+    stack: err.stack,
+    name: err.name,
+  });
 
   response.status(500).json({
     message: env.nodeEnv === "production" ? "Internal server error" : "Unhandled server error",
