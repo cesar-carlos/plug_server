@@ -9,12 +9,24 @@ import {
 } from "./presentation/socket/auth/socket_namespace_auth.middleware";
 import { agentRegistry } from "./presentation/socket/hub/agent_registry";
 import { handleAgentsCommand } from "./presentation/socket/consumers/agents_command.handler";
+import { handleAgentsStreamPull } from "./presentation/socket/consumers/agents_stream_pull.handler";
 import {
+  cleanupAgentStreamSubscriptions,
+  cleanupConversationStreamSubscriptions,
+  cleanupConsumerStreamSubscriptions,
   handleAgentBatchAck,
   handleAgentRpcAck,
+  handleAgentRpcChunk,
+  handleAgentRpcComplete,
   handleAgentRpcResponse,
+  registerConsumerBridgeServer,
   registerSocketBridgeServer,
 } from "./presentation/socket/hub/rpc_bridge";
+import { conversationRegistry } from "./presentation/socket/hub/conversation_registry";
+import { handleRelayConversationStart } from "./presentation/socket/consumers/relay_conversation_start.handler";
+import { handleRelayConversationEnd } from "./presentation/socket/consumers/relay_conversation_end.handler";
+import { handleRelayRpcRequest } from "./presentation/socket/consumers/relay_rpc_request.handler";
+import { handleRelayRpcStreamPull } from "./presentation/socket/consumers/relay_rpc_stream_pull.handler";
 import { env } from "./shared/config/env";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
@@ -41,7 +53,7 @@ const serverCapabilities = {
     signatureRequired: false,
     signatureScope: "transport-frame",
     signatureAlgorithms: [],
-    streamingResults: false,
+    streamingResults: true,
     plugProfile: "plug-jsonrpc-profile/2.4",
     orderedBatchResponses: true,
     notificationNullIdCompatibility: true,
@@ -112,6 +124,23 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   consumersNsp.use(authenticateConsumerSocket);
 
   registerSocketBridgeServer(agentsNsp);
+  registerConsumerBridgeServer(consumersNsp);
+
+  const conversationSweepTimer = setInterval(() => {
+    const expiredConversations = conversationRegistry.removeExpired(
+      env.socketRelayConversationIdleTimeoutMs,
+    );
+    for (const conversation of expiredConversations) {
+      cleanupConversationStreamSubscriptions(conversation.conversationId);
+      const consumerSocket = consumersNsp.sockets.get(conversation.consumerSocketId);
+      consumerSocket?.emit(socketEvents.relayConversationEnded, {
+        success: true,
+        conversationId: conversation.conversationId,
+        reason: "expired",
+      });
+    }
+  }, env.socketRelayConversationSweepIntervalMs);
+  conversationSweepTimer.unref?.();
 
   agentsNsp.on("connection", (socket: HubSocket) => {
     logger.info("Socket client connected", {
@@ -224,7 +253,27 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       handleAgentBatchAck(socket.id, rawPayload);
     });
 
+    socket.on(socketEvents.rpcChunk, (rawPayload: unknown) => {
+      handleAgentRpcChunk(socket.id, rawPayload);
+    });
+
+    socket.on(socketEvents.rpcComplete, (rawPayload: unknown) => {
+      handleAgentRpcComplete(socket.id, rawPayload);
+    });
+
     socket.on("disconnect", () => {
+      cleanupAgentStreamSubscriptions(socket.id);
+      const endedConversations = conversationRegistry.removeByAgentSocketId(socket.id);
+      for (const conversation of endedConversations) {
+        cleanupConversationStreamSubscriptions(conversation.conversationId);
+        const consumerSocket = consumersNsp.sockets.get(conversation.consumerSocketId);
+        consumerSocket?.emit(socketEvents.relayConversationEnded, {
+          success: true,
+          conversationId: conversation.conversationId,
+          reason: "agent_disconnected",
+        });
+      }
+
       const removedAgent = agentRegistry.removeBySocketId(socket.id);
       if (removedAgent) {
         logger.info("Agent disconnected from hub", {
@@ -250,6 +299,34 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
     socket.on(socketEvents.agentsCommand, (rawPayload: unknown) => {
       handleAgentsCommand(socket, rawPayload);
+    });
+
+    socket.on(socketEvents.agentsStreamPull, (rawPayload: unknown) => {
+      handleAgentsStreamPull(socket, rawPayload);
+    });
+
+    socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
+      handleRelayConversationStart(socket, rawPayload, agentsNsp);
+    });
+
+    socket.on(socketEvents.relayConversationEnd, (rawPayload: unknown) => {
+      handleRelayConversationEnd(socket, rawPayload);
+    });
+
+    socket.on(socketEvents.relayRpcRequest, (rawPayload: unknown) => {
+      handleRelayRpcRequest(socket, rawPayload);
+    });
+
+    socket.on(socketEvents.relayRpcStreamPull, (rawPayload: unknown) => {
+      handleRelayRpcStreamPull(socket, rawPayload);
+    });
+
+    socket.on("disconnect", () => {
+      cleanupConsumerStreamSubscriptions(socket.id);
+      const endedConversations = conversationRegistry.removeByConsumerSocketId(socket.id);
+      for (const conversation of endedConversations) {
+        cleanupConversationStreamSubscriptions(conversation.conversationId);
+      }
     });
   });
 

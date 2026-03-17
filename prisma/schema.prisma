@@ -35,3 +35,25 @@ model RefreshToken {
   @@index([expiresAt])
   @@map("refresh_tokens")
 }
+
+model AuditEvent {
+  id            String   @id
+  eventType     String   @map("event_type") @db.VarChar(120)
+  actorSocketId String?  @map("actor_socket_id")
+  actorUserId   String?  @map("actor_user_id")
+  actorRole     String?  @map("actor_role") @db.VarChar(40)
+  direction     String?  @db.VarChar(40)
+  conversationId String? @map("conversation_id")
+  agentId       String?  @map("agent_id")
+  requestId     String?  @map("request_id")
+  streamId      String?  @map("stream_id")
+  traceId       String?  @map("trace_id")
+  payloadJson   Json?    @map("payload_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([conversationId])
+  @@index([agentId])
+  @@index([requestId])
+  @@map("audit_events")
+}

@@ -15,8 +15,21 @@ valida, empacota em `PayloadFrame`, emite via Socket.IO no namespace `/agents`
 para o agente, aguarda a resposta e devolve ao cliente HTTP.
 
 Alternativa em tempo real: consumers podem conectar ao namespace `/consumers`
-e emitir `agents:command` com o mesmo payload; a resposta chega em `agents:command_response`.
+e emitir `agents:command` com o mesmo payload. A resposta inicial chega em
+`agents:command_response`. Quando a execucao entra em streaming, os chunks
+chegam em `agents:command_stream_chunk` e o encerramento em
+`agents:command_stream_complete`. Para controle de fluxo (backpressure), o
+consumer envia `agents:stream_pull` e recebe `agents:stream_pull_response`.
 
+Para modo chat-like com conversa isolada (`relay:*`) e `PayloadFrame` tambem no
+namespace `/consumers`, consulte `docs/socket_relay_protocol.md`.
+
+No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
+`plug_server` encapsula e desencapsula `PayloadFrame` binario (com
+`cmp: gzip|none`) apenas no enlace com `/agents`.
+
+> Escopo deste documento: ponte REST (`POST /api/v1/agents/commands`) e canal
+> Socket legado (`agents:*`). O modo relay (`relay:*`) e documentado a parte.
 **Compatibilidade com plug_agente:** O agente deve conectar ao namespace `/agents`
 (por exemplo, `io("/agents")`). Conexoes no namespace padrao `/` sao rejeitadas com
 `app:error` (code `NAMESPACE_DEPRECATED`) e desconectadas. O token deve ter `role` em `SOCKET_AGENT_ROLES`
@@ -731,8 +744,8 @@ com o que a API REST atualmente expoe ao consumer.
 | `api_version` na response                  | implementado  | exposto         | serializer preserva `api_version` e `meta` do agente |
 | `meta` na response (agent_id, timestamp)   | implementado  | exposto         | serializer preserva `meta` do agente     |
 | Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 422    |
-| Streaming chunked (`rpc:chunk`/`rpc:complete`) | implementado | **nao suportado** | limitacao documentada; bridge so trata request/response unico |
-| Backpressure (`rpc:stream.pull`)           | implementado  | **nao suportado** | limitacao documentada; sem emissao de `rpc:stream.pull` |
+| Streaming chunked (`rpc:chunk`/`rpc:complete`) | implementado | **nao suportado** | na rota REST nao ha repasse de chunks; no Socket /consumers ha repasse via legado (`agents:command_stream_chunk`) e relay (`relay:rpc.chunk`) |
+| Backpressure (`rpc:stream.pull`)           | implementado  | **nao suportado** | na rota REST nao existe pull; no Socket /consumers existe legado (`agents:stream_pull`) e relay (`relay:rpc.stream.pull`) |
 | Delivery guarantee (`rpc:request_ack`)     | implementado  | exposto         | hub registra ack e marca `acked` no pending request |
 | Batch ack (`rpc:batch_ack`)                | implementado  | exposto         | hub registra acks para cada request_id do batch |
 | Notification JSON-RPC (request sem `id`)   | implementado  | **nao suportado** | limitacao documentada; bridge exige `id` para correlacao |
@@ -764,10 +777,17 @@ observabilidade.
 #### Limitacoes documentadas (nao implementadas)
 
 **4. Streaming via REST** -- Os eventos `rpc:chunk`, `rpc:complete` e
-`rpc:stream.pull` nao possuem handler. O bridge opera em modo request/response
-unico. Resultados grandes enviados via streaming pelo agente nao sao acessiveis
-pelo consumer HTTP. O servidor anuncia `streamingResults: false` nas
-capabilities.
+`rpc:stream.pull` nao sao expostos no endpoint HTTP `POST /api/v1/agents/commands`.
+A rota REST permanece em modo request/response unico. Resultados grandes enviados
+via streaming pelo agente nao sao entregues ao cliente HTTP em tempo real.
+
+No canal Socket `/consumers`, o hub ja encaminha `rpc:chunk` e `rpc:complete`
+como `agents:command_stream_chunk` e `agents:command_stream_complete`, e aceita
+`agents:stream_pull` para emitir `rpc:stream.pull` ao agente.
+
+No modo relay (`relay:*`), o hub tambem encaminha `rpc:response`, `rpc:chunk`,
+`rpc:complete`, `rpc:request_ack`, `rpc:batch_ack` e `rpc:stream.pull` com
+isolamento por `conversationId`.
 
 **5. Notification JSON-RPC** -- O bridge sempre gera `id` quando ausente e
 registra pending request. Fire-and-forget (requests sem `id`) nao e suportado
@@ -786,8 +806,15 @@ via REST.
 | `src/presentation/socket/hub/rpc_bridge.ts`                      | Bridge: emit rpc:request no namespace /agents |
 | `src/presentation/socket/hub/agent_registry.ts`                  | Registry de agentes conectados         |
 | `src/presentation/socket/consumers/agents_command.handler.ts`   | Handler Socket para agents:command no /consumers |
+| `src/presentation/socket/consumers/agents_stream_pull.handler.ts` | Handler Socket para agents:stream_pull no /consumers |
+| `src/presentation/socket/consumers/relay_conversation_start.handler.ts` | Handler Socket relay:conversation.start |
+| `src/presentation/socket/consumers/relay_conversation_end.handler.ts` | Handler Socket relay:conversation.end |
+| `src/presentation/socket/consumers/relay_rpc_request.handler.ts` | Handler Socket relay:rpc.request |
+| `src/presentation/socket/consumers/relay_rpc_stream_pull.handler.ts` | Handler Socket relay:rpc.stream.pull |
+| `src/presentation/socket/hub/conversation_registry.ts`           | Registry de conversas relay por socket/agent |
 | `src/application/agent_commands/execute_agent_command.ts`        | Caso de uso compartilhado HTTP + Socket |
 | `src/application/agent_commands/command_transformers.ts`         | applyPaginationToCommand               |
+| `src/application/services/socket_audit.service.ts`               | Auditoria Socket e retencao automatica |
 | `src/shared/validators/agent_command.ts`                         | Schemas transport-agnosticos          |
 | `src/shared/utils/payload_frame.ts`                               | Encode/decode PayloadFrame             |
 | `src/shared/utils/rpc_types.ts`                                   | isRecord, toRequestId, toJsonRpcId      |

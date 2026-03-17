@@ -91,14 +91,15 @@ O ecossistema usa dois estilos de comunicacao complementares:
 
 - HTTP/REST para autenticacao, health checks e operacoes administrativas
 - Socket.IO com namespaces separados:
-  - `/agents` — agentes conectam aqui; ciclo de vida (register, heartbeat, rpc response/ack)
-  - `/consumers` — consumers conectam aqui; enviam `agents:command` e recebem `agents:command_response`
+  - `/agents` - agentes conectam aqui; ciclo de vida (register, heartbeat, rpc response/ack/chunk/complete)
+  - `/consumers` - consumers conectam aqui em dois modos:
+    - legado (`agents:*`) para bridge JSON
+    - relay (`relay:*`) para conversa isolada com `PayloadFrame`
 
 No projeto atual, a base HTTP inclui:
-
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
-- `POST /api/v1/auth/agent-login` — login para agentes (emite JWT com `role: agent` e `agent_id`); ver `docs/migracao_plug_agente_namespaces.md`
+- `POST /api/v1/auth/agent-login` - login para agentes (emite JWT com `role: agent` e `agent_id`); ver `docs/migracao_plug_agente_namespaces.md`
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
@@ -106,16 +107,36 @@ No projeto atual, a base HTTP inclui:
 - `GET /api/v1/health`
 - `GET /api/v1/health/live`
 - `GET /api/v1/health/ready`
-- `GET /api/v1/agents` — lista agentes registrados no namespace `/agents` (requer Bearer token); em dev inclui `_diagnostic.socketConnectionsInAgentsNamespace` para debug
-- `POST /api/v1/agents/commands` — proxy de comandos JSON-RPC ao agente (ver `docs/api_rest_bridge.md`)
+- `GET /api/v1/agents` - lista agentes registrados no namespace `/agents` (requer Bearer token); em dev inclui `_diagnostic.socketConnectionsInAgentsNamespace` para debug
+- `POST /api/v1/agents/commands` - proxy de comandos JSON-RPC ao agente (ver `docs/api_rest_bridge.md`)
 
 Canal Socket para consumers (namespace `/consumers`):
 
-- `agents:command` — envia comando ao agente (payload equivalente ao body da REST)
-- `agents:command_response` — resposta normalizada ou erro
+Modo legado:
+
+- `agents:command` - envia comando ao agente (payload equivalente ao body da REST)
+- `agents:command_response` - resposta inicial normalizada ou erro
+- `agents:command_stream_chunk` - chunk de streaming encaminhado pelo hub
+- `agents:command_stream_complete` - fim do streaming encaminhado pelo hub
+- `agents:stream_pull` - solicita mais chunks para um stream ativo
+- `agents:stream_pull_response` - confirmacao/erro do pull
+
+Modo relay:
+
+- `relay:conversation.start` / `relay:conversation.started`
+- `relay:conversation.end` / `relay:conversation.ended`
+- `relay:rpc.request` / `relay:rpc.accepted`
+- `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`
+- `relay:rpc.request_ack`, `relay:rpc.batch_ack`
+- `relay:rpc.stream.pull` / `relay:rpc.stream.pull_response`
+
+No modo legado em `/consumers`, o payload permanece logico (JSON) e o
+`PayloadFrame` e tratado apenas no enlace com `/agents`. No modo relay, o
+consumer envia/recebe `PayloadFrame` no proprio `/consumers`.
+Excecao no relay: eventos de controle (`relay:conversation.*`, `relay:rpc.accepted`
+e `relay:rpc.stream.pull_response`) permanecem em JSON logico.
 
 ## Fluxo macro do sistema
-
 ### 1. Conexao do agente
 
 1. O `plug_agente` abre uma conexao Socket.IO com o `plug_server` no namespace `/agents`.
@@ -133,7 +154,8 @@ Canal Socket para consumers (namespace `/consumers`):
 
 ### 3. Envio de comando
 
-1. O `consumer` solicita uma operacao (via REST ou Socket `agents:command`).
+1. O `consumer` solicita uma operacao via REST, Socket legado (`agents:command`)
+   ou Socket relay (`relay:rpc.request` dentro de uma `conversationId`).
 2. O `plug_server` valida autenticacao, autorizacao e formato do payload.
 3. O servidor identifica qual agente deve processar aquele comando.
 4. O comando e encaminhado ao `plug_agente` no namespace `/agents`.
@@ -217,6 +239,11 @@ em runtime:
 - correlacao de requests pendentes
 - caches temporarios de autenticacao e roteamento
 
+Excecao atual:
+
+- eventos de auditoria Socket (`audit_events`) sao persistidos em banco com
+  politica de retencao configuravel (default 90 dias)
+
 No futuro, o projeto pode evoluir para persistencia em banco de dados sem mudar
 o papel central do `plug_server` na arquitetura.
 
@@ -253,16 +280,34 @@ O projeto ja possui:
 - Socket.IO com namespaces `/agents` e `/consumers`; namespace padrao `/` rejeitado com `app:error` (code `NAMESPACE_DEPRECATED`)
 - registro de agentes em tempo real no namespace `/agents` (`agent:register`, `agent:capabilities`)
 - negociacao de capacidades com o agente
-- roteamento RPC via REST (`POST /api/v1/agents/commands`) — bridge HTTP para namespace `/agents`
+- roteamento RPC via REST (`POST /api/v1/agents/commands`) - bridge HTTP para namespace `/agents`
 - roteamento RPC via Socket (`agents:command` no namespace `/consumers`)
+- streaming via Socket para consumers (`agents:command_stream_chunk` e `agents:command_stream_complete`)
+- controle de backpressure via Socket (`agents:stream_pull` -> `rpc:stream.pull`)
+- modo relay Socket (`relay:*`) com isolamento por `conversationId`
+- idempotencia de relay por `client_request_id` (TTL)
+- timeout de request relay com resposta de erro JSON-RPC ao consumer
+- circuit breaker por agente para requests Socket
+- backpressure reforcado no relay com creditos de pull e buffer limitado
+- quotas de protecao (conversas, pending requests e streams)
+- expiracao automatica de conversa por inatividade
+- metricas de relay em memoria com log periodico
+- auditoria Socket com retencao configuravel (default 90 dias)
 - mapa de correlacao entre request e response (pending requests no bridge)
-- handlers para `rpc:request_ack` e `rpc:batch_ack` (delivery guarantee)
+- handlers para `rpc:request_ack`, `rpc:batch_ack`, `rpc:chunk` e `rpc:complete`
 - PayloadFrame binario com compressao GZIP e assinatura opcional
-
 Evolucoes futuras:
 
 - suportar streaming via REST (acumular chunks ou SSE)
 - suportar notification JSON-RPC (fire-and-forget) via REST
+
+## Socket Relay
+
+Documentacao do modo relay/chat-like com isolamento por conversa (N consumers
+para 1 agente), sem alterar REST:
+
+- `docs/socket_chat_relay_plan.md`
+- `docs/socket_relay_protocol.md`
 
 ## Resumo
 

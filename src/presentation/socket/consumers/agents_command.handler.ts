@@ -10,12 +10,14 @@ import { dispatchRpcCommandToAgent } from "../hub/rpc_bridge";
 import { normalizeAgentRpcResponse } from "../../http/serializers/agent_rpc_response.serializer";
 import { agentCommandBodySchema } from "../../../shared/validators/agent_command";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { isRecord } from "../../../shared/utils/rpc_types";
+import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 
 const emitCommandResponse = (
   socket: Socket,
-  payload: { success: true; requestId: string; response: unknown } | { success: false; requestId?: string; error: { code: string; message: string; statusCode?: number } },
+  payload:
+    | { success: true; requestId: string; response: unknown; streamId?: string }
+    | { success: false; requestId?: string; error: { code: string; message: string; statusCode?: number } },
 ): void => {
   socket.emit(socketEvents.agentsCommandResponse, payload);
 };
@@ -42,6 +44,15 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   }
 
   const body = parsed.data;
+  const streamHandlers = {
+    consumerSocketId: socket.id,
+    onChunk: (payload: Record<string, unknown>): void => {
+      socket.emit(socketEvents.agentsCommandStreamChunk, payload);
+    },
+    onComplete: (payload: Record<string, unknown>): void => {
+      socket.emit(socketEvents.agentsCommandStreamComplete, payload);
+    },
+  } as const;
 
   void executeAgentCommand(
     {
@@ -50,14 +61,28 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),
       ...(body.pagination !== undefined ? { pagination: body.pagination } : {}),
     },
-    dispatchRpcCommandToAgent,
+    (input) =>
+      dispatchRpcCommandToAgent({
+        ...input,
+        streamHandlers,
+      }),
     normalizeAgentRpcResponse,
   )
     .then((result) => {
+      const normalizedResponse = result.response;
+      const streamId = isRecord(normalizedResponse)
+        ? (() => {
+            const item = isRecord(normalizedResponse.item) ? normalizedResponse.item : null;
+            const rpcResult = item && isRecord(item.result) ? item.result : null;
+            return rpcResult ? toRequestId(rpcResult.stream_id) : null;
+          })()
+        : null;
+
       emitCommandResponse(socket, {
         success: true,
         requestId: result.requestId,
-        response: result.response,
+        response: normalizedResponse,
+        ...(streamId ? { streamId } : {}),
       });
     })
     .catch((err: unknown) => {

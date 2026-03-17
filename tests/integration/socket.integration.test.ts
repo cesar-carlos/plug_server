@@ -3,6 +3,10 @@ import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
+import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
+import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
+
+const testAgentId = "5b9ae809-4e2f-454f-8967-f0b535d5e8f5";
 
 const connectConsumer = (baseUrl: string, token: string) =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
@@ -14,10 +18,37 @@ const connectConsumer = (baseUrl: string, token: string) =>
     socket.on("connect_error", (err) => reject(err));
   });
 
+const connectAgent = (baseUrl: string, token: string) =>
+  new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
+    const socket = ioClient(`${baseUrl}/agents`, {
+      auth: { token },
+      transports: ["websocket"],
+    });
+    socket.on("connection:ready", () => resolve(socket));
+    socket.on("connect_error", (err) => reject(err));
+  });
+
+const waitForEvent = <T>(socket: ReturnType<typeof ioClient>, eventName: string, timeoutMs = 5_000) =>
+  new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.off(eventName, onEvent);
+      reject(new Error(`Timed out waiting for ${eventName}`));
+    }, timeoutMs);
+
+    const onEvent = (payload: T): void => {
+      clearTimeout(timeout);
+      socket.off(eventName, onEvent);
+      resolve(payload);
+    };
+
+    socket.on(eventName, onEvent);
+  });
+
 describe("Socket namespaces", () => {
   let server: Awaited<ReturnType<typeof createTestServer>>;
   let baseUrl: string;
   let accessToken: string;
+  let agentAccessToken: string;
 
   beforeAll(async () => {
     server = await createTestServer();
@@ -29,6 +60,15 @@ describe("Socket namespaces", () => {
 
     expect(registerRes.status).toBe(201);
     accessToken = registerRes.body.accessToken as string;
+
+    const agentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+      email: "socket@test.com",
+      password: "SocketTest1",
+      agentId: testAgentId,
+    });
+
+    expect(agentLoginRes.status).toBe(200);
+    agentAccessToken = agentLoginRes.body.accessToken as string;
   });
 
   afterAll(async () => {
@@ -90,6 +130,474 @@ describe("Socket namespaces", () => {
       expect(response.success).toBe(false);
       expect(response.error?.code).toMatch(/NOT_FOUND|COMMAND_FAILED/);
       socket.disconnect();
+    });
+
+    it("should stream agent chunks to consumer and allow stream pull", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        let streamIdForTest = "";
+        let requestIdForTest = "";
+        let pullCount = 0;
+
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: testAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+              extensions: {
+                streamingResults: true,
+              },
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+
+        const pullPayloadPromise = waitForEvent<unknown>(agentSocket, "rpc:stream.pull");
+        const commandResponsePromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          streamId?: string;
+          response?: Record<string, unknown>;
+        }>(consumerSocket, "agents:command_response");
+        const chunkEventsPromise = new Promise<readonly Record<string, unknown>[]>((resolve, reject) => {
+          const collected: Record<string, unknown>[] = [];
+          const timeout = setTimeout(() => {
+            consumerSocket.off("agents:command_stream_chunk", onChunk);
+            reject(new Error("Timed out waiting for stream chunk events"));
+          }, 8_000);
+
+          const onChunk = (payload: Record<string, unknown>): void => {
+            collected.push(payload);
+
+            if (collected.length >= 1) {
+              clearTimeout(timeout);
+              consumerSocket.off("agents:command_stream_chunk", onChunk);
+              resolve(collected);
+            }
+          };
+
+          consumerSocket.on("agents:command_stream_chunk", onChunk);
+        });
+        const completeEventPromise =
+          waitForEvent<Record<string, unknown>>(consumerSocket, "agents:command_stream_complete");
+        const pullResponsePromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          streamId?: string;
+          windowSize?: number;
+        }>(consumerSocket, "agents:stream_pull_response");
+
+        agentSocket.on("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+          requestIdForTest = requestId;
+          streamIdForTest = `stream-${requestId}`;
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: {
+                stream_id: streamIdForTest,
+                row_count: 0,
+              },
+            }),
+          );
+
+          agentSocket.emit(
+            "rpc:chunk",
+            encodePayloadFrame({
+              stream_id: streamIdForTest,
+              request_id: requestId,
+              chunk_index: 0,
+              rows: [{ id: 1, name: "alpha" }],
+            }),
+          );
+        });
+
+        pullPayloadPromise.then((payload) => {
+          const decoded = decodePayloadFrame(payload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const receivedRequestId = toRequestId(decoded.value.data.request_id);
+          const receivedStreamId = toRequestId(decoded.value.data.stream_id);
+          if (!receivedRequestId || !receivedStreamId) {
+            return;
+          }
+          pullCount += 1;
+
+          agentSocket.emit(
+            "rpc:chunk",
+            encodePayloadFrame({
+              stream_id: receivedStreamId,
+              request_id: receivedRequestId,
+              chunk_index: 1,
+              rows: [{ id: 2, name: "beta" }],
+            }),
+          );
+
+          agentSocket.emit(
+            "rpc:complete",
+            encodePayloadFrame({
+              stream_id: receivedStreamId,
+              request_id: receivedRequestId,
+              total_rows: 2,
+            }),
+          );
+        });
+
+        consumerSocket.emit("agents:command", {
+          agentId: testAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT * FROM users ORDER BY id",
+              client_token: "token-value",
+            },
+          },
+        });
+
+        const commandResponse = await commandResponsePromise;
+        expect(commandResponse.success).toBe(true);
+        expect(commandResponse.requestId).toBeDefined();
+        expect(commandResponse.streamId).toBeDefined();
+
+        streamIdForTest = commandResponse.streamId ?? "";
+        requestIdForTest = commandResponse.requestId ?? "";
+        expect(requestIdForTest).not.toBe("");
+
+        consumerSocket.emit("agents:stream_pull", {
+          requestId: requestIdForTest,
+          windowSize: 2,
+        });
+
+        const [pullResponse, pullPayloadRaw] = await Promise.all([
+          pullResponsePromise,
+          pullPayloadPromise,
+        ]);
+        expect(pullResponse.success).toBe(true);
+        expect(pullResponse.streamId).toBe(streamIdForTest);
+        expect(pullResponse.windowSize).toBe(2);
+
+        const decodedPullPayload = decodePayloadFrame(pullPayloadRaw);
+        expect(decodedPullPayload.ok).toBe(true);
+        const pullPayload = decodedPullPayload.ok && isRecord(decodedPullPayload.value.data)
+          ? decodedPullPayload.value.data
+          : null;
+        expect(pullPayload).not.toBeNull();
+
+        const [chunkEvents, completeEvent] = await Promise.all([
+          chunkEventsPromise,
+          completeEventPromise,
+        ]);
+
+        expect(commandResponse.streamId).toBe(streamIdForTest);
+
+        expect(toRequestId(pullPayload?.request_id)).toBe(requestIdForTest);
+        expect(toRequestId(pullPayload?.stream_id)).toBe(streamIdForTest);
+        expect(pullPayload?.window_size).toBe(2);
+
+        expect(chunkEvents.length).toBeGreaterThanOrEqual(1);
+        expect(toRequestId(chunkEvents[0]?.request_id)).toBe(requestIdForTest);
+        expect(toRequestId(completeEvent.request_id)).toBe(requestIdForTest);
+        expect(toRequestId(completeEvent.stream_id)).toBe(streamIdForTest);
+        expect(pullCount).toBe(1);
+      } finally {
+        agentSocket.disconnect();
+        consumerSocket.disconnect();
+      }
+    });
+
+    it("should isolate relay conversations for multiple consumers connected to the same agent", async () => {
+      const consumerA = await connectConsumer(baseUrl, accessToken);
+      const consumerB = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: testAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+              extensions: {
+                streamingResults: true,
+              },
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+
+        const startedA = waitForEvent<{ success: boolean; conversationId: string }>(
+          consumerA,
+          "relay:conversation.started",
+        );
+        consumerA.emit("relay:conversation.start", { agentId: testAgentId });
+
+        const startedB = waitForEvent<{ success: boolean; conversationId: string }>(
+          consumerB,
+          "relay:conversation.started",
+        );
+        consumerB.emit("relay:conversation.start", { agentId: testAgentId });
+
+        const [conversationA, conversationB] = await Promise.all([startedA, startedB]);
+        expect(conversationA.success).toBe(true);
+        expect(conversationB.success).toBe(true);
+        expect(conversationA.conversationId).not.toBe(conversationB.conversationId);
+
+        let foreignMessageInA = false;
+        let foreignMessageInB = false;
+
+        consumerA.on("relay:rpc.response", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const result = isRecord(decoded.value.data.result) ? decoded.value.data.result : null;
+          const responseConversationId = toRequestId(result?.conversation_id);
+          if (responseConversationId && responseConversationId !== conversationA.conversationId) {
+            foreignMessageInA = true;
+          }
+        });
+
+        consumerB.on("relay:rpc.response", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const result = isRecord(decoded.value.data.result) ? decoded.value.data.result : null;
+          const responseConversationId = toRequestId(result?.conversation_id);
+          if (responseConversationId && responseConversationId !== conversationB.conversationId) {
+            foreignMessageInB = true;
+          }
+        });
+
+        agentSocket.on("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+
+          const meta = isRecord(decoded.value.data.meta) ? decoded.value.data.meta : null;
+          const conversationId = toRequestId(meta?.conversation_id);
+          if (!conversationId) {
+            return;
+          }
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: {
+                conversation_id: conversationId,
+                ok: true,
+              },
+            }),
+          );
+        });
+
+        const acceptedA = waitForEvent<{ success: boolean; requestId?: string }>(
+          consumerA,
+          "relay:rpc.accepted",
+        );
+        const acceptedB = waitForEvent<{ success: boolean; requestId?: string }>(
+          consumerB,
+          "relay:rpc.accepted",
+        );
+        const responseA = waitForEvent<unknown>(consumerA, "relay:rpc.response", 8_000);
+        const responseB = waitForEvent<unknown>(consumerB, "relay:rpc.response", 8_000);
+
+        consumerA.emit("relay:rpc.request", {
+          conversationId: conversationA.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+              client_token: "token-a",
+            },
+          }),
+        });
+        consumerB.emit("relay:rpc.request", {
+          conversationId: conversationB.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+              client_token: "token-b",
+            },
+          }),
+        });
+
+        const [acceptedPayloadA, acceptedPayloadB, rawResponseA, rawResponseB] = await Promise.all([
+          acceptedA,
+          acceptedB,
+          responseA,
+          responseB,
+        ]);
+        expect(acceptedPayloadA.success).toBe(true);
+        expect(acceptedPayloadB.success).toBe(true);
+
+        const decodedA = decodePayloadFrame(rawResponseA);
+        const decodedB = decodePayloadFrame(rawResponseB);
+        expect(decodedA.ok).toBe(true);
+        expect(decodedB.ok).toBe(true);
+
+        const responseDataA = decodedA.ok && isRecord(decodedA.value.data) ? decodedA.value.data : null;
+        const responseDataB = decodedB.ok && isRecord(decodedB.value.data) ? decodedB.value.data : null;
+        const resultA = responseDataA && isRecord(responseDataA.result) ? responseDataA.result : null;
+        const resultB = responseDataB && isRecord(responseDataB.result) ? responseDataB.result : null;
+
+        expect(toRequestId(resultA?.conversation_id)).toBe(conversationA.conversationId);
+        expect(toRequestId(resultB?.conversation_id)).toBe(conversationB.conversationId);
+
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
+        expect(foreignMessageInA).toBe(false);
+        expect(foreignMessageInB).toBe(false);
+      } finally {
+        agentSocket.disconnect();
+        consumerA.disconnect();
+        consumerB.disconnect();
+      }
+    });
+
+    it("should deduplicate relay requests with the same client request id in a conversation", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: testAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+              extensions: {
+                streamingResults: true,
+              },
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+
+        const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
+          consumerSocket,
+          "relay:conversation.started",
+        );
+        consumerSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+
+        let rpcRequestCount = 0;
+        agentSocket.on("rpc:request", (rawPayload: unknown) => {
+          rpcRequestCount += 1;
+
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: {
+                ok: true,
+              },
+            }),
+          );
+        });
+
+        const acceptedFirst = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          deduplicated?: boolean;
+        }>(consumerSocket, "relay:rpc.accepted");
+        const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response", 8_000);
+
+        consumerSocket.emit("relay:rpc.request", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: "client-dup-1",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+              client_token: "dup-token",
+            },
+          }),
+        });
+
+        const firstAccepted = await acceptedFirst;
+        expect(firstAccepted.success).toBe(true);
+        expect(firstAccepted.requestId).toBeDefined();
+        expect(firstAccepted.deduplicated).not.toBe(true);
+
+        const acceptedSecond = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          deduplicated?: boolean;
+        }>(consumerSocket, "relay:rpc.accepted");
+
+        consumerSocket.emit("relay:rpc.request", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: "client-dup-1",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+              client_token: "dup-token",
+            },
+          }),
+        });
+
+        const secondAccepted = await acceptedSecond;
+        expect(secondAccepted.success).toBe(true);
+        expect(secondAccepted.requestId).toBe(firstAccepted.requestId);
+        expect(secondAccepted.deduplicated).toBe(true);
+
+        await responsePromise;
+        await new Promise<void>((resolve) => setTimeout(resolve, 150));
+        expect(rpcRequestCount).toBe(1);
+      } finally {
+        agentSocket.disconnect();
+        consumerSocket.disconnect();
+      }
     });
   });
 
