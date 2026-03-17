@@ -13,7 +13,7 @@ export const agentsRouter = Router();
  * /agents:
  *   get:
  *     summary: List all connected socket clients (agents)
- *     description: Returns all agents currently connected via WebSocket. Requires authentication.
+ *     description: Returns all agents currently connected in the /agents Socket.IO namespace. Requires authentication.
  *     tags: [Agents]
  *     security:
  *       - bearerAuth: []
@@ -59,8 +59,8 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *     summary: Proxy a JSON-RPC command to a connected agent
  *     description: >
  *       Authenticated HTTP bridge mode. The client informs `agentId` and a JSON-RPC command.
- *       The API forwards the command to the connected agent over Socket.IO, waits for the response,
- *       and returns a JSON response back to the client.
+ *       The API forwards the command to the connected agent over Socket.IO (namespace /agents),
+ *       waits for the response, and returns a JSON response back to the client.
  *       When `pagination` is provided, the API injects pagination options into
  *       `command.params.options` before dispatching to the agent.
  *       Socket payload hardening is enabled in the bridge layer:

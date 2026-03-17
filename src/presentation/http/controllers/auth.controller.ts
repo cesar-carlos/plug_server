@@ -7,6 +7,7 @@ import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
+  AgentLoginBody,
   ChangePasswordBody,
   LoginBody,
   LogoutBody,
@@ -89,6 +90,25 @@ export const login = async (
   if (!result.ok) { next(result.error); return; }
   setRefreshTokenCookie(response, result.value.refreshToken);
   response.status(200).json(toCompatibleAuthPayload<AuthResponseDto>(result.value));
+};
+
+export const agentLogin = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const body = getValidated<AgentLoginBody>(response, "body");
+  const result = await container.authService.agentLogin({
+    email: body.email,
+    password: body.password,
+    agentId: body.agentId,
+  });
+  if (!result.ok) { next(result.error); return; }
+  setRefreshTokenCookie(response, result.value.refreshToken);
+  response.status(200).json({
+    ...toCompatibleAuthPayload(result.value),
+    user: result.value.user,
+  });
 };
 
 export const refresh = async (

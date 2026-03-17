@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import {
+  agentLogin,
   changePassword,
   getMe,
   login,
@@ -12,6 +13,7 @@ import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuth } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
+  agentLoginBodySchema,
   changePasswordBodySchema,
   loginBodySchema,
   logoutBodySchema,
@@ -85,6 +87,46 @@ authRouter.post("/register", validateRequest({ body: registerBodySchema }), asyn
  *         $ref: '#/components/responses/Unauthorized'
  */
 authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandler(login));
+
+/**
+ * @openapi
+ * /auth/agent-login:
+ *   post:
+ *     summary: Login for agents (Socket.IO namespace /agents)
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password, agentId]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               username:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               agentId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Agent login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AgentAuthResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+authRouter.post(
+  "/agent-login",
+  validateRequest({ body: agentLoginBodySchema }),
+  asyncHandler(agentLogin),
+);
 
 /**
  * @openapi

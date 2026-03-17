@@ -11,7 +11,7 @@ const swaggerSpec = swaggerJSDoc({
     info: {
       title: "Plug Server API",
       version: "1.0.0",
-      description: "REST API documentation for the Plug Server backend.",
+      description: "REST API documentation for the Plug Server backend. The HTTP API fronts a dual-namespace Socket.IO architecture: agents connect to /agents, consumers to /consumers.",
     },
     servers: [
       {

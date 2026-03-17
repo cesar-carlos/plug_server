@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { emailSchema, nonEmptyStringSchema, passwordSchema } from "../../../shared/validators/schemas";
+import {
+  emailSchema,
+  nonEmptyStringSchema,
+  passwordSchema,
+  uuidSchema,
+} from "../../../shared/validators/schemas";
 
 export const registerBodySchema = z.object({
   email: emailSchema,
@@ -30,6 +35,30 @@ export const loginBodySchema = z
   }));
 
 export type LoginBody = z.output<typeof loginBodySchema>;
+
+export const agentLoginBodySchema = z
+  .object({
+    email: emailSchema.optional(),
+    username: nonEmptyStringSchema.optional(),
+    password: nonEmptyStringSchema,
+    agentId: uuidSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (!value.email && !value.username) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["email"],
+        message: "Email or username is required",
+      });
+    }
+  })
+  .transform((value) => ({
+    email: (value.email ?? value.username ?? "").trim().toLowerCase(),
+    password: value.password,
+    agentId: value.agentId,
+  }));
+
+export type AgentLoginBody = z.output<typeof agentLoginBodySchema>;
 
 export const refreshBodySchema = z.object({
   refreshToken: nonEmptyStringSchema.optional(),

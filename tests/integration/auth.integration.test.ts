@@ -104,6 +104,58 @@ describe("Auth API", () => {
     });
   });
 
+  // ─── Agent Login ───────────────────────────────────────────────────────────
+
+  describe("POST /api/v1/auth/agent-login", () => {
+    const agentId = "550e8400-e29b-41d4-a716-446655440000";
+
+    it("should login as agent and return tokens with role agent and agentId", async () => {
+      const response = await request(app)
+        .post("/api/v1/auth/agent-login")
+        .send({
+          email: testUser.email,
+          password: testUser.password,
+          agentId,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.accessToken).toBeDefined();
+      expect(response.body.refreshToken).toBeDefined();
+      expect(response.body.user).toMatchObject({
+        email: testUser.email,
+        role: "agent",
+        agentId,
+      });
+      expect(response.body.user.id).toBeDefined();
+    });
+
+    it("should return 401 for wrong password", async () => {
+      const response = await request(app)
+        .post("/api/v1/auth/agent-login")
+        .send({
+          email: testUser.email,
+          password: "WrongPass1",
+          agentId,
+        });
+
+      expect(response.status).toBe(401);
+    });
+
+    it("should return 400 for invalid agentId", async () => {
+      const response = await request(app)
+        .post("/api/v1/auth/agent-login")
+        .send({
+          email: testUser.email,
+          password: testUser.password,
+          agentId: "not-a-uuid",
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe("VALIDATION_ERROR");
+    });
+  });
+
   // ─── Refresh ───────────────────────────────────────────────────────────────
 
   describe("POST /api/v1/auth/refresh", () => {

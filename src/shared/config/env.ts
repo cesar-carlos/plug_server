@@ -22,6 +22,14 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
+  SOCKET_AGENT_ROLES: z
+    .string()
+    .default("agent")
+    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
+  SOCKET_CONSUMER_ROLES: z
+    .string()
+    .default("user,admin")
+    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
   SWAGGER_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -60,5 +68,7 @@ export const env = {
   payloadSigningKey: parsedEnv.PAYLOAD_SIGNING_KEY,
   payloadSigningKeyId: parsedEnv.PAYLOAD_SIGNING_KEY_ID,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
+  socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
+  socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES,
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
 } as const;

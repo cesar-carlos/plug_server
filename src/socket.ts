@@ -3,8 +3,12 @@ import type { Server as HttpServer } from "node:http";
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import { Server, type Socket } from "socket.io";
 
-import { authenticateSocket } from "./presentation/socket/auth/socket_auth.middleware";
+import {
+  authenticateAgentSocket,
+  authenticateConsumerSocket,
+} from "./presentation/socket/auth/socket_namespace_auth.middleware";
 import { agentRegistry } from "./presentation/socket/hub/agent_registry";
+import { handleAgentsCommand } from "./presentation/socket/consumers/agents_command.handler";
 import {
   handleAgentBatchAck,
   handleAgentRpcAck,
@@ -12,7 +16,7 @@ import {
   registerSocketBridgeServer,
 } from "./presentation/socket/hub/rpc_bridge";
 import { env } from "./shared/config/env";
-import { socketEvents } from "./shared/constants/socket_events";
+import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
 import { decodePayloadFrame, encodePayloadFrame } from "./shared/utils/payload_frame";
@@ -84,10 +88,15 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     },
   });
 
-  io.use(authenticateSocket);
-  registerSocketBridgeServer(io);
+  const agentsNsp = io.of(SOCKET_NAMESPACES.agents);
+  const consumersNsp = io.of(SOCKET_NAMESPACES.consumers);
 
-  io.on("connection", (socket: HubSocket) => {
+  agentsNsp.use(authenticateAgentSocket);
+  consumersNsp.use(authenticateConsumerSocket);
+
+  registerSocketBridgeServer(agentsNsp);
+
+  agentsNsp.on("connection", (socket: HubSocket) => {
     logger.info("Socket client connected", {
       socketId: socket.id,
       userId: getUserId(socket),
@@ -114,6 +123,16 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       const { agentId, capabilities } = decoded.value.data;
       if (typeof agentId !== "string" || agentId.trim() === "" || !isRecord(capabilities)) {
         emitAppError(socket, "agent:register payload is missing required fields");
+        return;
+      }
+
+      const tokenAgentId = socket.data.user?.agent_id;
+      if (
+        typeof tokenAgentId === "string" &&
+        tokenAgentId.trim() !== "" &&
+        tokenAgentId !== agentId
+      ) {
+        emitAppError(socket, "agent:register agentId does not match token claim");
         return;
       }
 
@@ -197,6 +216,23 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           userId: removedAgent.userId,
         });
       }
+    });
+  });
+
+  consumersNsp.on("connection", (socket: HubSocket) => {
+    logger.info("Consumer socket connected", {
+      socketId: socket.id,
+      userId: getUserId(socket),
+    });
+
+    socket.emit(socketEvents.connectionReady, {
+      id: socket.id,
+      message: "Consumer socket connected successfully",
+      user: socket.data.user ?? null,
+    });
+
+    socket.on(socketEvents.agentsCommand, (rawPayload: unknown) => {
+      handleAgentsCommand(socket, rawPayload);
     });
   });
 

@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
 
-import type { Server } from "socket.io";
+import type { Namespace } from "socket.io";
 
 import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
 import { logger } from "../../../shared/utils/logger";
+import { toRequestId } from "../../../shared/utils/rpc_types";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { decodePayloadFrame, encodePayloadFrame } from "../../../shared/utils/payload_frame";
 import { agentRegistry } from "./agent_registry";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
 interface PendingRequest {
   readonly socketId: string;
@@ -27,25 +31,11 @@ export interface DispatchRpcCommandResult {
 }
 
 const defaultRequestTimeoutMs = 15_000;
-let ioInstance: Server | null = null;
+let agentsNamespace: Namespace | null = null;
 const pendingRequests = new Map<string, PendingRequest>();
 
-const toRequestId = (value: unknown): string | null => {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed !== "" ? trimmed : null;
-  }
-
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-
-  return null;
-};
-
-const toRecord = (value: unknown): Record<string, unknown> | null => {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
-};
+const toRecord = (value: unknown): Record<string, unknown> | null =>
+  isRecord(value) ? value : null;
 
 const pickResponseId = (payload: unknown): string | null => {
   const record = toRecord(payload);
@@ -56,8 +46,8 @@ const pickResponseId = (payload: unknown): string | null => {
   return toRequestId(record.id);
 };
 
-export const registerSocketBridgeServer = (io: Server): void => {
-  ioInstance = io;
+export const registerSocketBridgeServer = (namespace: Namespace): void => {
+  agentsNamespace = namespace;
 };
 
 export const handleAgentRpcResponse = (socketId: string, rawPayload: unknown): void => {
@@ -139,8 +129,8 @@ export const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void
 export const dispatchRpcCommandToAgent = async (
   input: DispatchRpcCommandInput,
 ): Promise<DispatchRpcCommandResult> => {
-  const io = ioInstance;
-  if (!io) {
+  const nsp = agentsNamespace;
+  if (!nsp) {
     throw serviceUnavailable("Socket bridge is not initialized");
   }
 
@@ -153,7 +143,7 @@ export const dispatchRpcCommandToAgent = async (
     throw notFound(`Agent ${input.agentId}`);
   }
 
-  const agentSocket = io.sockets.sockets.get(registeredAgent.socketId);
+  const agentSocket = nsp.sockets.get(registeredAgent.socketId);
   if (!agentSocket) {
     throw serviceUnavailable("Agent socket is unavailable");
   }

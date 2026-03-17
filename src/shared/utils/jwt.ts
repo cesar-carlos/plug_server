@@ -12,6 +12,7 @@ export interface JwtAccessPayload {
   readonly sub: string;
   readonly email?: string;
   readonly role?: string;
+  readonly agent_id?: string;
   readonly tokenType: "access";
 }
 
@@ -52,6 +53,7 @@ export interface JwtRefreshPayload {
   readonly sub: string;
   readonly jti: string;
   readonly tokenType: "refresh";
+  readonly agent_id?: string;
 }
 
 export const signRefreshToken = (payload: JwtRefreshPayload): string => {
@@ -61,7 +63,14 @@ export const signRefreshToken = (payload: JwtRefreshPayload): string => {
     issuer: env.jwtIssuer,
     audience: env.jwtAudience,
   };
-  return jwt.sign({ sub: payload.sub, tokenType: "refresh" }, env.jwtRefreshSecret, options);
+  const tokenPayload: Record<string, unknown> = {
+    sub: payload.sub,
+    tokenType: "refresh",
+  };
+  if (typeof payload.agent_id === "string" && payload.agent_id.trim() !== "") {
+    tokenPayload.agent_id = payload.agent_id;
+  }
+  return jwt.sign(tokenPayload, env.jwtRefreshSecret, options);
 };
 
 export const verifyRefreshToken = (token: string): Result<JwtRefreshPayload> => {
@@ -80,7 +89,12 @@ export const verifyRefreshToken = (token: string): Result<JwtRefreshPayload> => 
       ) {
         throw invalidToken("Invalid refresh token payload");
       }
-      return decoded as JwtRefreshPayload;
+      const payload = decoded as Record<string, unknown>;
+      const agent_id =
+        typeof payload.agent_id === "string" && payload.agent_id.trim() !== ""
+          ? payload.agent_id
+          : undefined;
+      return { ...decoded, agent_id } as JwtRefreshPayload;
     },
     "Invalid or expired refresh token",
     { statusCode: 401, code: "INVALID_TOKEN" },

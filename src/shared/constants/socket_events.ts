@@ -9,4 +9,11 @@ export const socketEvents = {
   rpcResponse: "rpc:response",
   rpcRequestAck: "rpc:request_ack",
   rpcBatchAck: "rpc:batch_ack",
+  agentsCommand: "agents:command",
+  agentsCommandResponse: "agents:command_response",
+} as const;
+
+export const SOCKET_NAMESPACES = {
+  agents: "/agents",
+  consumers: "/consumers",
 } as const;

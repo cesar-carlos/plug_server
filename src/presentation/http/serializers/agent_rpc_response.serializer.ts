@@ -1,4 +1,4 @@
-type JsonRpcId = string | number | null;
+import { isRecord, toJsonRpcId, type JsonRpcId } from "../../../shared/utils/rpc_types";
 
 interface NormalizedRpcError {
   readonly code: number;
@@ -39,26 +39,6 @@ export type NormalizedAgentRpcResponse =
   | NormalizedRpcSingleResponse
   | NormalizedRpcBatchResponse
   | NormalizedRpcRawResponse;
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null;
-};
-
-const toJsonRpcId = (value: unknown): JsonRpcId => {
-  if (typeof value === "string" && value.trim() !== "") {
-    return value;
-  }
-
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (value === null) {
-    return null;
-  }
-
-  return null;
-};
 
 const normalizeRpcError = (value: unknown): NormalizedRpcError => {
   if (!isRecord(value)) {

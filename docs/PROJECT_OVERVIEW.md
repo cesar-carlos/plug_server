@@ -23,6 +23,9 @@ Em vez de o cliente se conectar diretamente ao agente, ambos se conectam ao
 Sem um hub central, cada `plug_agente` precisaria ser exposto diretamente para
 consumo remoto. Isso aumenta complexidade operacional e risco de seguranca.
 
+O Socket.IO usa dois namespaces isolados (`/agents` e `/consumers`) para evitar
+acoplamento entre papeis e tratamento acidental de eventos entre agentes e consumers.
+
 Com o `plug_server`:
 
 - o `plug_agente` inicia a conexao de saida para o servidor central
@@ -56,7 +59,7 @@ O `plug_agente` e o executador remoto das operacoes de negocio.
 
 No modelo arquitetural deste ecossistema, o agente:
 
-- conecta-se ao `plug_server` via Socket.IO
+- conecta-se ao `plug_server` via Socket.IO no namespace `/agents` (o `plug_agente` deve usar `io("/agents")` ao conectar)
 - autentica-se no handshake
 - registra sua identidade e capacidades
 - mantem uma conexao persistente com heartbeat e reconexao
@@ -69,7 +72,8 @@ hub central.
 
 ### Consumer
 
-O `consumer` e qualquer cliente que deseja utilizar um `plug_agente`.
+O `consumer` e qualquer cliente que deseja utilizar um `plug_agente`. Conecta-se
+ao namespace `/consumers` via Socket.IO ou usa a API REST para enviar comandos.
 
 Exemplos:
 
@@ -86,13 +90,15 @@ valida a requisicao, decide o roteamento e encaminha a mensagem.
 O ecossistema usa dois estilos de comunicacao complementares:
 
 - HTTP/REST para autenticacao, health checks e operacoes administrativas
-- Socket.IO para comunicacao em tempo real entre hub e agentes, e futuramente
-  para fluxos interativos com consumers
+- Socket.IO com namespaces separados:
+  - `/agents` — agentes conectam aqui; ciclo de vida (register, heartbeat, rpc response/ack)
+  - `/consumers` — consumers conectam aqui; enviam `agents:command` e recebem `agents:command_response`
 
 No projeto atual, a base HTTP inclui:
 
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
+- `POST /api/v1/auth/agent-login` — login para agentes (emite JWT com `role: agent` e `agent_id`); ver `docs/migracao_plug_agente_namespaces.md`
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
@@ -100,14 +106,19 @@ No projeto atual, a base HTTP inclui:
 - `GET /api/v1/health`
 - `GET /api/v1/health/live`
 - `GET /api/v1/health/ready`
-- `GET /api/v1/agents` — lista agentes conectados
+- `GET /api/v1/agents` — lista agentes conectados no namespace `/agents`
 - `POST /api/v1/agents/commands` — proxy de comandos JSON-RPC ao agente (ver `docs/api_rest_bridge.md`)
+
+Canal Socket para consumers (namespace `/consumers`):
+
+- `agents:command` — envia comando ao agente (payload equivalente ao body da REST)
+- `agents:command_response` — resposta normalizada ou erro
 
 ## Fluxo macro do sistema
 
 ### 1. Conexao do agente
 
-1. O `plug_agente` abre uma conexao Socket.IO com o `plug_server`.
+1. O `plug_agente` abre uma conexao Socket.IO com o `plug_server` no namespace `/agents`.
 2. O agente envia credenciais de autenticacao no handshake.
 3. O servidor valida o token recebido.
 4. Apos autenticacao, o agente registra sua identidade e suas capacidades.
@@ -118,14 +129,14 @@ No projeto atual, a base HTTP inclui:
 1. O `consumer` autentica-se via API HTTP.
 2. O servidor emite tokens de acesso e refresh.
 3. O consumer passa a operar autenticado.
-4. Em fluxos em tempo real, o consumer tambem podera abrir um socket autenticado.
+4. Para fluxos em tempo real, o consumer conecta ao namespace `/consumers` com JWT no handshake.
 
 ### 3. Envio de comando
 
-1. O `consumer` solicita uma operacao.
+1. O `consumer` solicita uma operacao (via REST ou Socket `agents:command`).
 2. O `plug_server` valida autenticacao, autorizacao e formato do payload.
 3. O servidor identifica qual agente deve processar aquele comando.
-4. O comando e encaminhado ao `plug_agente`.
+4. O comando e encaminhado ao `plug_agente` no namespace `/agents`.
 5. O agente executa a operacao localmente.
 6. O agente devolve uma resposta ao servidor.
 7. O servidor correlaciona a resposta com a requisicao original.
@@ -133,8 +144,8 @@ No projeto atual, a base HTTP inclui:
 
 ## Funcionamento esperado do Plug Agente
 
-Pela arquitetura e pela documentacao analisada no `plug_agente`, o comportamento
-esperado do agente dentro deste ecossistema e:
+O agente opera exclusivamente no namespace `/agents`. Pela arquitetura e pela
+documentacao analisada no `plug_agente`, o comportamento esperado e:
 
 - usar `Socket.IO` como transporte principal
 - preferir transporte `websocket`
@@ -213,6 +224,14 @@ o papel central do `plug_server` na arquitetura.
 
 O projeto exige autenticacao tanto para o `plug_agente` quanto para o `consumer`.
 
+Cada namespace aplica autenticacao no handshake e valida o `role` do JWT:
+- `/agents`: apenas roles em `SOCKET_AGENT_ROLES` (default: `agent`)
+- `/consumers`: apenas roles em `SOCKET_CONSUMER_ROLES` (default: `user`, `admin`), excluindo roles de agente
+
+Quando o token possui claim `agent_id`, o `agent:register` so e aceito se o `agentId` do payload coincidir.
+
+Nao ha tratamento de eventos entre namespaces; o hub realiza roteamento explicito entre canais.
+
 Diretrizes principais:
 
 - nenhum agente deve operar anonimamente
@@ -230,17 +249,17 @@ O projeto ja possui:
 - validacao com Zod
 - middlewares de seguranca
 - health checks
-- bootstrap de Socket.IO
-- registro de agentes em tempo real (`agent:register`, `agent:capabilities`)
+- Socket.IO com namespaces `/agents` e `/consumers`
+- registro de agentes em tempo real no namespace `/agents` (`agent:register`, `agent:capabilities`)
 - negociacao de capacidades com o agente
-- roteamento RPC via REST (`POST /api/v1/agents/commands`) — bridge HTTP para Socket.IO
+- roteamento RPC via REST (`POST /api/v1/agents/commands`) — bridge HTTP para namespace `/agents`
+- roteamento RPC via Socket (`agents:command` no namespace `/consumers`)
 - mapa de correlacao entre request e response (pending requests no bridge)
 - handlers para `rpc:request_ack` e `rpc:batch_ack` (delivery guarantee)
 - PayloadFrame binario com compressao GZIP e assinatura opcional
 
 Evolucoes futuras:
 
-- distinguir conexoes de agente e consumer no socket (namespace ou identificacao)
 - suportar streaming via REST (acumular chunks ou SSE)
 - suportar notification JSON-RPC (fire-and-forget) via REST
 
@@ -251,5 +270,6 @@ orquestracao do ecossistema Plug.
 
 Seu papel e servir como um hub central confiavel entre agentes e consumers,
 concentrando autenticacao, seguranca, comunicacao em tempo real e roteamento de
-comandos, enquanto o `plug_agente` permanece como executador especializado das
-operacoes remotas.
+comandos. O modelo de namespaces (`/agents` e `/consumers`) isola responsabilidades
+e evita acoplamento entre papeis. O `plug_agente` permanece como executador
+especializado das operacoes remotas.

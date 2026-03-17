@@ -4,13 +4,42 @@
 
 Esta rota e o ponto unico de entrada HTTP para enviar comandos a um agente
 conectado via Socket.IO. O servidor atua como proxy: recebe o request REST,
-valida, empacota em `PayloadFrame`, emite via Socket.IO para o agente, aguarda
-a resposta e devolve ao cliente HTTP.
+valida, empacota em `PayloadFrame`, emite via Socket.IO no namespace `/agents`
+para o agente, aguarda a resposta e devolve ao cliente HTTP.
+
+Alternativa em tempo real: consumers podem conectar ao namespace `/consumers`
+e emitir `agents:command` com o mesmo payload; a resposta chega em `agents:command_response`.
+
+**Compatibilidade com plug_agente:** O agente deve conectar ao namespace `/agents`
+(por exemplo, `io("/agents")`). Conexoes no namespace padrao `/` nao receberao
+eventos de registro nem comandos RPC. O token deve ter `role` em `SOCKET_AGENT_ROLES`
+(default: `agent`). Consumers usam `role` em `SOCKET_CONSUMER_ROLES` (default: `user`, `admin`).
+
+### Periodo de compatibilidade: SOCKET_AGENT_ROLES=agent,user
+
+Durante a migracao do plug_agente para o modelo de namespaces, o servidor pode
+aceitar tanto tokens com `role: agent` quanto `role: user` no namespace `/agents`.
+
+**Configuracao temporaria:** Em staging e producao, configure
+`SOCKET_AGENT_ROLES=agent,user` ate que o plug_agente migre para:
+
+1. Conectar ao namespace `/agents` (nao ao padrao `/`)
+2. Obter token via `POST /api/v1/auth/agent-login` ou `POST /auth/agent-login`
+   com `{ email, password, agentId }`, que emite JWT com `role: agent` e `agent_id`
+
+**Ordem de rollout recomendada:**
+
+1. Deploy plug_server com `SOCKET_AGENT_ROLES=agent,user` (permite agentes atuais)
+2. Deploy plug_agente com conexao em `/agents` e auth via agent-login
+3. Validar fluxo de comandos em staging
+4. Remover `user` de `SOCKET_AGENT_ROLES` para reforcar isolamento
+
+**Apos a migracao:** Remova `user` de `SOCKET_AGENT_ROLES` e mantenha apenas `agent`.
 
 ## Fluxo resumido
 
 ```
-Consumer (HTTP) -> plug_server (REST) -> plug_server (Socket bridge) -> plug_agente (Socket.IO)
+Consumer (HTTP) -> plug_server (REST) -> plug_server (Socket bridge) -> plug_agente (/agents)
                                                                      <-
 Consumer (HTTP) <- plug_server (REST) <- plug_server (Socket bridge) <-
 ```
@@ -741,11 +770,16 @@ via REST.
 | Arquivo                                                            | Papel                                  |
 | ------------------------------------------------------------------ | -------------------------------------- |
 | `src/presentation/http/routes/agents.routes.ts`                   | Definicao da rota e Swagger            |
-| `src/presentation/http/validators/agents.validator.ts`            | Schema Zod de validacao do body        |
-| `src/presentation/http/controllers/agents.controller.ts`          | Controller: paginacao + dispatch       |
+| `src/presentation/http/validators/agents.validator.ts`            | Reexporta schemas de `shared/validators/agent_command` |
+| `src/presentation/http/controllers/agents.controller.ts`          | Controller: chama executeAgentCommand  |
 | `src/presentation/http/serializers/agent_rpc_response.serializer.ts` | Normalizacao da resposta do agente  |
-| `src/presentation/socket/hub/rpc_bridge.ts`                      | Bridge: emit rpc:request, await rpc:response |
+| `src/presentation/socket/hub/rpc_bridge.ts`                      | Bridge: emit rpc:request no namespace /agents |
 | `src/presentation/socket/hub/agent_registry.ts`                  | Registry de agentes conectados         |
+| `src/presentation/socket/consumers/agents_command.handler.ts`   | Handler Socket para agents:command no /consumers |
+| `src/application/agent_commands/execute_agent_command.ts`        | Caso de uso compartilhado HTTP + Socket |
+| `src/application/agent_commands/command_transformers.ts`         | applyPaginationToCommand               |
+| `src/shared/validators/agent_command.ts`                         | Schemas transport-agnosticos          |
 | `src/shared/utils/payload_frame.ts`                               | Encode/decode PayloadFrame             |
-| `src/shared/constants/socket_events.ts`                           | Nomes dos eventos Socket.IO            |
-| `src/socket.ts`                                                    | Bootstrap do Socket.IO + handlers      |
+| `src/shared/utils/rpc_types.ts`                                   | isRecord, toRequestId, toJsonRpcId      |
+| `src/shared/constants/socket_events.ts`                           | Nomes dos eventos e namespaces         |
+| `src/socket.ts`                                                    | Bootstrap: namespaces /agents e /consumers |
