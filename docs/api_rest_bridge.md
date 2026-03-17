@@ -1,5 +1,12 @@
 # REST Bridge - POST /api/v1/agents/commands
 
+## Endpoint relacionado: GET /api/v1/agents
+
+Lista os agentes **registrados** no namespace `/agents` (nao apenas conectados).
+Requer `Authorization: Bearer <token>`. Em ambiente nao-producao, a resposta inclui
+`_diagnostic.socketConnectionsInAgentsNamespace` (conexoes brutas no namespace) para
+ajudar a debugar quando o agente conecta mas nao emite `agent:register` corretamente.
+
 ## Objetivo
 
 Esta rota e o ponto unico de entrada HTTP para enviar comandos a um agente
@@ -11,8 +18,8 @@ Alternativa em tempo real: consumers podem conectar ao namespace `/consumers`
 e emitir `agents:command` com o mesmo payload; a resposta chega em `agents:command_response`.
 
 **Compatibilidade com plug_agente:** O agente deve conectar ao namespace `/agents`
-(por exemplo, `io("/agents")`). Conexoes no namespace padrao `/` nao receberao
-eventos de registro nem comandos RPC. O token deve ter `role` em `SOCKET_AGENT_ROLES`
+(por exemplo, `io("/agents")`). Conexoes no namespace padrao `/` sao rejeitadas com
+`app:error` (code `NAMESPACE_DEPRECATED`) e desconectadas. O token deve ter `role` em `SOCKET_AGENT_ROLES`
 (default: `agent`). Consumers usam `role` em `SOCKET_CONSUMER_ROLES` (default: `user`, `admin`).
 
 ### Periodo de compatibilidade: SOCKET_AGENT_ROLES=agent,user
@@ -35,6 +42,9 @@ aceitar tanto tokens com `role: agent` quanto `role: user` no namespace `/agents
 4. Remover `user` de `SOCKET_AGENT_ROLES` para reforcar isolamento
 
 **Apos a migracao:** Remova `user` de `SOCKET_AGENT_ROLES` e mantenha apenas `agent`.
+
+Para o passo a passo completo da migracao no plug_agente (conexao, login, refresh e
+agent:register), consulte `docs/migracao_plug_agente_namespaces.md`.
 
 ## Fluxo resumido
 

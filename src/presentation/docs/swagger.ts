@@ -11,7 +11,7 @@ const swaggerSpec = swaggerJSDoc({
     info: {
       title: "Plug Server API",
       version: "1.0.0",
-      description: "REST API documentation for the Plug Server backend. The HTTP API fronts a dual-namespace Socket.IO architecture: agents connect to /agents, consumers to /consumers.",
+      description: "REST API documentation for the Plug Server backend. The HTTP API fronts a dual-namespace Socket.IO architecture: agents connect to /agents, consumers to /consumers. The default namespace (/) is deprecated and rejects connections with app:error (code NAMESPACE_DEPRECATED).",
     },
     servers: [
       {
@@ -83,6 +83,30 @@ const swaggerSpec = swaggerJSDoc({
               required: ["user"],
               properties: {
                 user: { $ref: "#/components/schemas/AuthUser" },
+              },
+            },
+          ],
+        },
+        AgentAuthUser: {
+          type: "object",
+          required: ["id", "email", "role", "agentId"],
+          properties: {
+            id: { type: "string", format: "uuid" },
+            email: { type: "string", format: "email" },
+            role: { type: "string", enum: ["agent"] },
+            agentId: { type: "string", format: "uuid" },
+          },
+        },
+        AgentAuthResponse: {
+          allOf: [
+            { $ref: "#/components/schemas/AuthTokens" },
+            {
+              type: "object",
+              required: ["user"],
+              properties: {
+                user: { $ref: "#/components/schemas/AgentAuthUser" },
+                success: { type: "boolean", example: true },
+                token: { type: "string", description: "Alias for accessToken" },
               },
             },
           ],

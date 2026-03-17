@@ -81,6 +81,8 @@ const withOptionalRequestId = (requestId: string | undefined): { readonly reques
   return requestId ? { requestId } : {};
 };
 
+export let agentsNamespace: ReturnType<Server["of"]> | null = null;
+
 export const createSocketServer = (httpServer: HttpServer): Server => {
   const io = new Server(httpServer, {
     cors: {
@@ -89,7 +91,22 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   });
 
   const agentsNsp = io.of(SOCKET_NAMESPACES.agents);
+  agentsNamespace = agentsNsp;
   const consumersNsp = io.of(SOCKET_NAMESPACES.consumers);
+
+  const defaultNsp = io.of("/");
+  defaultNsp.on("connection", (socket: Socket) => {
+    logger.warn("Client connected to default namespace (deprecated)", {
+      socketId: socket.id,
+      message: "Use /agents or /consumers instead",
+    });
+    socket.emit(socketEvents.appError, {
+      message:
+        "Default namespace (/) is deprecated. Connect to /agents (for agents) or /consumers (for consumers). See docs/migracao_plug_agente_namespaces.md",
+      code: "NAMESPACE_DEPRECATED",
+    });
+    socket.disconnect(true);
+  });
 
   agentsNsp.use(authenticateAgentSocket);
   consumersNsp.use(authenticateConsumerSocket);

@@ -106,7 +106,7 @@ No projeto atual, a base HTTP inclui:
 - `GET /api/v1/health`
 - `GET /api/v1/health/live`
 - `GET /api/v1/health/ready`
-- `GET /api/v1/agents` — lista agentes conectados no namespace `/agents`
+- `GET /api/v1/agents` — lista agentes registrados no namespace `/agents` (requer Bearer token); em dev inclui `_diagnostic.socketConnectionsInAgentsNamespace` para debug
 - `POST /api/v1/agents/commands` — proxy de comandos JSON-RPC ao agente (ver `docs/api_rest_bridge.md`)
 
 Canal Socket para consumers (namespace `/consumers`):
@@ -231,6 +231,7 @@ Cada namespace aplica autenticacao no handshake e valida o `role` do JWT:
 Quando o token possui claim `agent_id`, o `agent:register` so e aceito se o `agentId` do payload coincidir.
 
 Nao ha tratamento de eventos entre namespaces; o hub realiza roteamento explicito entre canais.
+Conexoes no namespace padrao `/` sao rejeitadas e desconectadas com `app:error` (code `NAMESPACE_DEPRECATED`).
 
 Diretrizes principais:
 
@@ -249,7 +250,7 @@ O projeto ja possui:
 - validacao com Zod
 - middlewares de seguranca
 - health checks
-- Socket.IO com namespaces `/agents` e `/consumers`
+- Socket.IO com namespaces `/agents` e `/consumers`; namespace padrao `/` rejeitado com `app:error` (code `NAMESPACE_DEPRECATED`)
 - registro de agentes em tempo real no namespace `/agents` (`agent:register`, `agent:capabilities`)
 - negociacao de capacidades com o agente
 - roteamento RPC via REST (`POST /api/v1/agents/commands`) — bridge HTTP para namespace `/agents`

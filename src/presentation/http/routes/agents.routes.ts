@@ -12,18 +12,22 @@ export const agentsRouter = Router();
  * @openapi
  * /agents:
  *   get:
- *     summary: List all connected socket clients (agents)
- *     description: Returns all agents currently connected in the /agents Socket.IO namespace. Requires authentication.
+ *     summary: List all registered agents
+ *     description: >
+ *       Returns agents that have successfully emitted agent:register in the /agents Socket.IO namespace.
+ *       Requires Bearer token. In non-production, includes _diagnostic.socketConnectionsInAgentsNamespace
+ *       (raw socket count) to help debug when agents connect but do not register.
  *     tags: [Agents]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: List of connected agents
+ *         description: List of registered agents
  *         content:
  *           application/json:
  *             schema:
  *               type: object
+ *               required: [agents, count]
  *               properties:
  *                 agents:
  *                   type: array
@@ -47,6 +51,13 @@ export const agentsRouter = Router();
  *                         format: date-time
  *                 count:
  *                   type: integer
+ *                 _diagnostic:
+ *                   type: object
+ *                   description: Present only in non-production
+ *                   properties:
+ *                     socketConnectionsInAgentsNamespace:
+ *                       type: integer
+ *                       description: Raw socket count in /agents namespace (for debugging)
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
