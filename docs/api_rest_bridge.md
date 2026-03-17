@@ -1,0 +1,751 @@
+# REST Bridge - POST /api/v1/agents/commands
+
+## Objetivo
+
+Esta rota e o ponto unico de entrada HTTP para enviar comandos a um agente
+conectado via Socket.IO. O servidor atua como proxy: recebe o request REST,
+valida, empacota em `PayloadFrame`, emite via Socket.IO para o agente, aguarda
+a resposta e devolve ao cliente HTTP.
+
+## Fluxo resumido
+
+```
+Consumer (HTTP) -> plug_server (REST) -> plug_server (Socket bridge) -> plug_agente (Socket.IO)
+                                                                     <-
+Consumer (HTTP) <- plug_server (REST) <- plug_server (Socket bridge) <-
+```
+
+1. Consumer envia `POST /api/v1/agents/commands` com Bearer token.
+2. Middleware `requireAuth` valida JWT do consumer.
+3. Middleware `validateRequest` valida o body com `agentCommandBodySchema`.
+4. Controller aplica paginacao em `command.params.options` quando presente.
+5. Bridge localiza o agente no registry, gera ou reutiliza `requestId`,
+   empacota o comando em `PayloadFrame` e emite `rpc:request`.
+6. Bridge aguarda `rpc:response` (com timeout).
+7. Serializer normaliza a resposta JSON-RPC para formato HTTP.
+8. Controller retorna `200` com a resposta normalizada.
+
+## Autenticacao
+
+| Header          | Obrigatorio | Descricao                                  |
+| --------------- | ----------- | ------------------------------------------ |
+| `Authorization` | sim         | `Bearer <access_token>` emitido pelo login |
+
+O token e validado por `requireAuth` antes de qualquer processamento.
+
+## Request body
+
+### Campos de primeiro nivel
+
+| Campo        | Tipo   | Obrigatorio | Restricoes         | Descricao                                      |
+| ------------ | ------ | ----------- | ------------------ | ---------------------------------------------- |
+| `agentId`    | string | sim         | nao vazio          | UUID do agente conectado                        |
+| `command`    | object | sim         | JSON-RPC 2.0       | Comando a enviar ao agente (ver abaixo)         |
+| `timeoutMs`  | number | nao         | 1..60000           | Timeout em ms para aguardar resposta do agente  |
+| `pagination` | object | nao         | regras combinadas  | Paginacao injetada em `command.params.options`   |
+
+### `command` (discriminated union por `method`)
+
+O campo `command` segue o contrato JSON-RPC 2.0. O `method` determina o schema
+de `params`.
+
+#### Campos comuns a todos os metodos
+
+| Campo     | Tipo             | Obrigatorio | Default  | Descricao                          |
+| --------- | ---------------- | ----------- | -------- | ---------------------------------- |
+| `jsonrpc` | `"2.0"`          | nao         | `"2.0"`  | Versao do protocolo                |
+| `method`  | string           | sim         | -        | Metodo RPC (ver metodos abaixo)    |
+| `id`      | string \| number | nao         | auto-gen | Identificador do request           |
+| `meta`    | object           | nao         | -        | Metadados de rastreabilidade       |
+
+Quando `id` nao e informado, o bridge gera um UUID automaticamente. O `meta`
+enviado pelo cliente (ex.: `traceparent`, `tracestate`) e preservado via merge;
+o bridge adiciona `request_id`, `agent_id`, `timestamp` e `trace_id`.
+
+---
+
+## Metodos suportados
+
+### `sql.execute`
+
+Executa um comando SQL no agente.
+
+#### `command.params`
+
+| Campo          | Tipo   | Obrigatorio | Descricao                                                               |
+| -------------- | ------ | ----------- | ----------------------------------------------------------------------- |
+| `sql`          | string | sim         | Comando SQL (SELECT, INSERT, UPDATE, DELETE, MERGE, WITH)               |
+| `params`       | object | nao         | Parametros nomeados para o SQL (ex: `{ "id": 1 }`)                     |
+| `client_token` | string | condicional | Token opaco ou JWT para autorizacao no agente                           |
+| `clientToken`  | string | condicional | Alias de `client_token`                                                 |
+| `auth`         | string | condicional | Alias de `client_token`                                                 |
+| `options`      | object | nao         | Opcoes de execucao (ver tabela abaixo)                                  |
+
+Token de autorizacao: pelo menos um entre `client_token`, `clientToken` ou
+`auth` e obrigatorio.
+
+#### `command.params.options`
+
+| Campo          | Tipo    | Obrigatorio | Restricoes                               | Descricao                                                      |
+| -------------- | ------- | ----------- | ---------------------------------------- | -------------------------------------------------------------- |
+| `timeout_ms`   | integer | nao         | >= 1                                     | Timeout de execucao SQL no agente (ms)                         |
+| `max_rows`     | integer | nao         | >= 1, default 50000                      | Maximo de linhas retornadas                                    |
+| `page`         | integer | nao         | >= 1, requer `page_size`                 | Numero da pagina (1-based)                                     |
+| `page_size`    | integer | nao         | >= 1, requer `page`                      | Linhas por pagina                                              |
+| `cursor`       | string  | nao         | exclusivo com `page`/`page_size`         | Token opaco de continuacao (keyset)                            |
+| `multi_result` | boolean | nao         | exclusivo com paginacao e `params`        | Habilita retorno de multiplos result sets                      |
+
+Regras de combinacao:
+- `page` e `page_size` devem ser enviados juntos.
+- `cursor` nao pode ser combinado com `page`/`page_size`.
+- `multi_result: true` nao pode ser combinado com paginacao nem `params`.
+
+#### Campos passthrough aceitos pelo agente
+
+| Campo             | Tipo   | Obrigatorio | Descricao                                                  |
+| ----------------- | ------ | ----------- | ---------------------------------------------------------- |
+| `idempotency_key` | string | nao         | Chave de deduplicacao (TTL 5min quando feature flag ativo) |
+| `database`        | string | nao         | Override de database/DSN alvo                              |
+
+Esses campos passam pelo servidor sem validacao explicita (`.passthrough()`) e
+sao validados pelo agente.
+
+---
+
+### `sql.executeBatch`
+
+Executa multiplos comandos SQL em sequencia.
+
+#### `command.params`
+
+| Campo          | Tipo   | Obrigatorio | Descricao                                                    |
+| -------------- | ------ | ----------- | ------------------------------------------------------------ |
+| `commands`     | array  | sim         | Array de comandos SQL (min 1 item)                           |
+| `client_token` | string | condicional | Token opaco ou JWT (ou alias `clientToken` / `auth`)         |
+| `clientToken`  | string | condicional | Alias de `client_token`                                      |
+| `auth`         | string | condicional | Alias de `client_token`                                      |
+| `options`      | object | nao         | Opcoes de execucao (ver abaixo)                              |
+
+#### `command.params.commands[]`
+
+| Campo    | Tipo   | Obrigatorio | Descricao                              |
+| -------- | ------ | ----------- | -------------------------------------- |
+| `sql`    | string | sim         | Comando SQL                            |
+| `params` | object | nao         | Parametros nomeados para o comando SQL |
+
+#### `command.params.options`
+
+| Campo         | Tipo    | Obrigatorio | Descricao                                     |
+| ------------- | ------- | ----------- | --------------------------------------------- |
+| `timeout_ms`  | integer | nao         | Timeout de execucao total do batch (ms)       |
+| `max_rows`    | integer | nao         | Maximo de linhas por comando                  |
+| `transaction` | boolean | nao         | Envolve os comandos em uma transacao unica    |
+
+#### Campos passthrough aceitos pelo agente
+
+| Campo             | Tipo   | Obrigatorio | Descricao                        |
+| ----------------- | ------ | ----------- | -------------------------------- |
+| `idempotency_key` | string | nao         | Chave de deduplicacao            |
+| `database`        | string | nao         | Override de database/DSN alvo    |
+
+---
+
+### `sql.cancel`
+
+Cancela uma execucao em streaming ativa.
+
+#### `command.params`
+
+| Campo          | Tipo   | Obrigatorio | Descricao                                           |
+| -------------- | ------ | ----------- | --------------------------------------------------- |
+| `execution_id` | string | condicional | ID da execucao a cancelar (pelo menos um dos dois)  |
+| `request_id`   | string | condicional | ID do request a cancelar (pelo menos um dos dois)   |
+
+Nao requer token de autorizacao.
+
+---
+
+### `rpc.discover`
+
+Retorna o documento OpenRPC do agente com o catalogo de metodos suportados.
+
+#### `command.params`
+
+| Campo | Tipo   | Obrigatorio | Descricao                   |
+| ----- | ------ | ----------- | --------------------------- |
+| (any) | object | nao         | Parametros livres (opcional) |
+
+Nao requer token de autorizacao.
+
+---
+
+## `pagination` (nivel do body, nao do command)
+
+Quando informado, o servidor injeta os valores em `command.params.options`
+antes de enviar ao agente. Isso simplifica o uso pelo cliente HTTP.
+
+| Campo      | Tipo    | Obrigatorio | Restricoes                          | Descricao                    |
+| ---------- | ------- | ----------- | ----------------------------------- | ---------------------------- |
+| `page`     | integer | condicional | >= 1, requer `pageSize`             | Numero da pagina (1-based)   |
+| `pageSize` | integer | condicional | 1..50000, requer `page`             | Linhas por pagina            |
+| `cursor`   | string  | condicional | exclusivo com `page`/`pageSize`     | Token de continuacao keyset  |
+
+Conversao automatica: `pageSize` (camelCase HTTP) -> `page_size` (snake_case
+agente).
+
+Regras:
+- `page` e `pageSize` devem ser enviados juntos.
+- `cursor` nao pode ser combinado com `page`/`pageSize`.
+- Quando `pagination` e informado, pelo menos uma das opcoes e obrigatoria.
+
+---
+
+## Exemplos de request
+
+### sql.execute simples
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-001",
+    "params": {
+      "sql": "SELECT * FROM users WHERE id = :id",
+      "params": { "id": 1 },
+      "client_token": "a1b2c3d4e5f6"
+    }
+  }
+}
+```
+
+### sql.execute com paginacao via body.pagination
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "timeoutMs": 20000,
+  "pagination": {
+    "page": 1,
+    "pageSize": 100
+  },
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-002",
+    "params": {
+      "sql": "SELECT * FROM users ORDER BY id",
+      "client_token": "a1b2c3d4e5f6"
+    }
+  }
+}
+```
+
+### sql.execute com cursor
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "pagination": {
+    "cursor": "eyJ2IjoyLCJwYWdlIjoyfQ"
+  },
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-003",
+    "params": {
+      "sql": "SELECT * FROM users ORDER BY id",
+      "client_token": "a1b2c3d4e5f6"
+    }
+  }
+}
+```
+
+### sql.execute com multi_result
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-004",
+    "params": {
+      "sql": "SELECT * FROM users; SELECT COUNT(*) FROM orders",
+      "client_token": "a1b2c3d4e5f6",
+      "options": {
+        "multi_result": true
+      }
+    }
+  }
+}
+```
+
+### sql.execute com idempotency_key
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-005",
+    "params": {
+      "sql": "INSERT INTO logs (msg) VALUES ('test')",
+      "client_token": "a1b2c3d4e5f6",
+      "idempotency_key": "idem-abc-123"
+    }
+  }
+}
+```
+
+### sql.executeBatch
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.executeBatch",
+    "id": "batch-001",
+    "params": {
+      "commands": [
+        { "sql": "SELECT * FROM users" },
+        { "sql": "SELECT COUNT(*) AS total FROM orders" }
+      ],
+      "client_token": "a1b2c3d4e5f6",
+      "options": {
+        "transaction": true,
+        "timeout_ms": 30000
+      }
+    }
+  }
+}
+```
+
+### sql.cancel
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.cancel",
+    "id": "cancel-001",
+    "params": {
+      "execution_id": "exec-456"
+    }
+  }
+}
+```
+
+### rpc.discover
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "rpc.discover",
+    "id": "discover-001"
+  }
+}
+```
+
+---
+
+## Response HTTP
+
+### Sucesso (200)
+
+```json
+{
+  "mode": "bridge",
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "requestId": "req-001",
+  "response": {
+    "type": "single",
+    "success": true,
+    "item": {
+      "id": "req-001",
+      "success": true,
+      "result": {
+        "execution_id": "exec-789",
+        "started_at": "2026-03-17T10:00:00Z",
+        "finished_at": "2026-03-17T10:00:01Z",
+        "rows": [{ "id": 1, "name": "Alice" }],
+        "row_count": 1,
+        "affected_rows": 0,
+        "column_metadata": [
+          { "name": "id", "type": "INTEGER" },
+          { "name": "name", "type": "TEXT" }
+        ]
+      }
+    }
+  }
+}
+```
+
+### Sucesso com paginacao
+
+O agente retorna `result.pagination` quando a request inclui
+`options.page` + `options.page_size` ou `options.cursor`:
+
+```json
+{
+  "mode": "bridge",
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "requestId": "req-002",
+  "response": {
+    "type": "single",
+    "success": true,
+    "item": {
+      "id": "req-002",
+      "success": true,
+      "result": {
+        "execution_id": "exec-790",
+        "started_at": "2026-03-17T10:00:00Z",
+        "finished_at": "2026-03-17T10:00:01Z",
+        "rows": [],
+        "row_count": 0,
+        "pagination": {
+          "page": 1,
+          "page_size": 100,
+          "returned_rows": 0,
+          "has_next_page": false,
+          "has_previous_page": false,
+          "current_cursor": "eyJ2IjoyLCJwYWdlIjoxfQ",
+          "next_cursor": "eyJ2IjoyLCJwYWdlIjoyfQ"
+        }
+      }
+    }
+  }
+}
+```
+
+### Sucesso com multi_result
+
+```json
+{
+  "mode": "bridge",
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "requestId": "req-004",
+  "response": {
+    "type": "single",
+    "success": true,
+    "item": {
+      "id": "req-004",
+      "success": true,
+      "result": {
+        "execution_id": "exec-791",
+        "started_at": "2026-03-17T10:00:00Z",
+        "finished_at": "2026-03-17T10:00:01Z",
+        "rows": [],
+        "row_count": 0,
+        "multi_result": true,
+        "result_set_count": 2,
+        "item_count": 2,
+        "result_sets": [
+          {
+            "index": 0,
+            "rows": [{ "id": 1, "name": "Alice" }],
+            "row_count": 1,
+            "column_metadata": [{ "name": "id" }, { "name": "name" }]
+          },
+          {
+            "index": 1,
+            "rows": [{ "orders_count": 5 }],
+            "row_count": 1,
+            "column_metadata": [{ "name": "orders_count" }]
+          }
+        ],
+        "items": [
+          {
+            "type": "result_set",
+            "index": 0,
+            "result_set_index": 0,
+            "rows": [{ "id": 1, "name": "Alice" }],
+            "row_count": 1
+          },
+          {
+            "type": "result_set",
+            "index": 1,
+            "result_set_index": 1,
+            "rows": [{ "orders_count": 5 }],
+            "row_count": 1
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+### Erro RPC do agente (200, erro no payload)
+
+O HTTP retorna 200 porque o proxy funcionou. O erro e indicado dentro de
+`response`:
+
+```json
+{
+  "mode": "bridge",
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "requestId": "req-001",
+  "response": {
+    "type": "single",
+    "success": false,
+    "item": {
+      "id": "req-001",
+      "success": false,
+      "error": {
+        "code": -32102,
+        "message": "SQL execution failed",
+        "data": {
+          "reason": "sql_execution_failed",
+          "category": "sql",
+          "retryable": false,
+          "user_message": "Nao foi possivel executar a consulta.",
+          "technical_message": "Database driver returned an execution error.",
+          "correlation_id": "corr-req-001",
+          "timestamp": "2026-03-17T10:00:01Z"
+        }
+      }
+    }
+  }
+}
+```
+
+### Erros HTTP (proxy)
+
+| Status | Causa                                     | Descricao                                  |
+| ------ | ----------------------------------------- | ------------------------------------------ |
+| 400    | Body invalido / validacao falhou          | `validateRequest` rejeitou o payload       |
+| 401    | Token ausente ou invalido                 | `requireAuth` rejeitou a autenticacao      |
+| 404    | Agente nunca registrado                   | `agentId` desconhecido                     |
+| 422    | Erro de validacao Zod                     | Schema mismatch detalhado                  |
+| 503    | Agente desconectado / timeout / bridge    | Agente offline ou nao respondeu a tempo    |
+
+---
+
+## Resposta do agente - formato JSON-RPC v2
+
+### sql.execute result
+
+| Campo             | Tipo    | Sempre presente | Descricao                                     |
+| ----------------- | ------- | --------------- | --------------------------------------------- |
+| `execution_id`    | string  | sim             | ID unico da execucao                          |
+| `started_at`      | string  | sim             | Inicio da execucao (ISO-8601)                 |
+| `finished_at`     | string  | sim             | Fim da execucao (ISO-8601)                    |
+| `rows`            | array   | sim             | Linhas retornadas                             |
+| `row_count`       | integer | sim             | Total de linhas retornadas                    |
+| `returned_rows`   | integer | nao             | Linhas efetivamente retornadas (paginacao)    |
+| `affected_rows`   | integer | nao             | Linhas afetadas (INSERT/UPDATE/DELETE)        |
+| `truncated`       | boolean | nao             | True se resultado foi truncado por limite     |
+| `column_metadata` | array   | nao             | Metadados das colunas retornadas              |
+| `multi_result`    | boolean | nao             | True quando multi-result ativo                |
+| `result_set_count`| integer | nao             | Quantidade de result sets (multi-result)      |
+| `item_count`      | integer | nao             | Quantidade de items (multi-result)            |
+| `result_sets`     | array   | nao             | Array de result sets (multi-result)           |
+| `items`           | array   | nao             | Array unificado de result sets e row counts   |
+| `pagination`      | object  | nao             | Presente apenas em requests paginadas         |
+| `stream_id`       | string  | nao             | Presente quando streaming ativo               |
+
+### sql.execute pagination
+
+| Campo               | Tipo    | Descricao                           |
+| ------------------- | ------- | ----------------------------------- |
+| `page`              | integer | Pagina atual                        |
+| `page_size`         | integer | Tamanho da pagina                   |
+| `returned_rows`     | integer | Linhas retornadas nesta pagina      |
+| `has_next_page`     | boolean | Se existe proxima pagina            |
+| `has_previous_page` | boolean | Se existe pagina anterior           |
+| `current_cursor`    | string  | Cursor da pagina atual (opcional)   |
+| `next_cursor`       | string  | Cursor para proxima pagina (quando cursor ativo) |
+
+### sql.executeBatch result
+
+| Campo                 | Tipo    | Sempre presente | Descricao                          |
+| --------------------- | ------- | --------------- | ---------------------------------- |
+| `execution_id`        | string  | sim             | ID unico do batch                  |
+| `started_at`          | string  | sim             | Inicio (ISO-8601)                  |
+| `finished_at`         | string  | sim             | Fim (ISO-8601)                     |
+| `items`               | array   | sim             | Resultado de cada comando          |
+| `total_commands`      | integer | sim             | Total de comandos no batch         |
+| `successful_commands` | integer | sim             | Comandos que tiveram sucesso       |
+| `failed_commands`     | integer | sim             | Comandos que falharam              |
+
+### sql.executeBatch items[]
+
+| Campo             | Tipo    | Descricao                               |
+| ----------------- | ------- | --------------------------------------- |
+| `index`           | integer | Indice do comando no array original     |
+| `ok`              | boolean | Se o comando foi executado com sucesso  |
+| `rows`            | array   | Linhas retornadas                       |
+| `row_count`       | integer | Total de linhas                         |
+| `affected_rows`   | integer | Linhas afetadas                         |
+| `error`           | string  | Mensagem de erro quando `ok: false`     |
+| `column_metadata` | array   | Metadados das colunas                   |
+
+### sql.cancel result
+
+| Campo          | Tipo    | Descricao                      |
+| -------------- | ------- | ------------------------------ |
+| `cancelled`    | boolean | Se o cancelamento foi aceito   |
+| `execution_id` | string  | ID da execucao cancelada       |
+| `request_id`   | string  | ID do request cancelado        |
+
+### Formato de erro RPC
+
+Quando o agente retorna erro, `response.item.error` segue:
+
+| Campo                 | Tipo    | Obrigatorio | Descricao                                |
+| --------------------- | ------- | ----------- | ---------------------------------------- |
+| `code`                | integer | sim         | Codigo de erro JSON-RPC                  |
+| `message`             | string  | sim         | Mensagem do erro                         |
+| `data.reason`         | string  | sim         | Identificador estavel do motivo          |
+| `data.category`       | string  | sim         | Classe do erro para roteamento           |
+| `data.retryable`      | boolean | sim         | Se retry automatico faz sentido          |
+| `data.user_message`   | string  | sim         | Mensagem amigavel para UI                |
+| `data.technical_message` | string | sim      | Detalhe tecnico para logs                |
+| `data.correlation_id` | string  | sim         | ID para correlacao de logs               |
+| `data.timestamp`      | string  | sim         | Instante UTC (ISO-8601)                  |
+
+---
+
+## Catalogo de erros RPC
+
+### JSON-RPC padrao
+
+| Codigo   | Descricao        | `reason`            |
+| -------- | ---------------- | ------------------- |
+| `-32700` | Parse error      | `json_parse_error`  |
+| `-32600` | Invalid request  | `invalid_request`   |
+| `-32601` | Method not found | `method_not_found`  |
+| `-32602` | Invalid params   | `invalid_params`    |
+| `-32603` | Internal error   | `internal_error`    |
+
+### Transporte
+
+| Codigo   | Descricao           | `reason`             | `retryable` |
+| -------- | ------------------- | -------------------- | ----------- |
+| `-32001` | Authentication      | `authentication_failed` / `missing_client_token` | false |
+| `-32002` | Unauthorized        | `unauthorized` / `token_revoked`                 | false |
+| `-32008` | Timeout             | `timeout`            | true        |
+| `-32009` | Invalid payload     | `invalid_payload`    | false       |
+| `-32010` | Decoding failed     | `decoding_failed`    | false       |
+| `-32011` | Compression failed  | `compression_failed` | false       |
+| `-32012` | Network error       | `network_error`      | true        |
+| `-32013` | Rate limit          | `rate_limited`       | false       |
+| `-32014` | Replay detected     | `replay_detected`    | false       |
+
+### Dominio SQL
+
+| Codigo   | Descricao                  | `reason`                     | `retryable` |
+| -------- | -------------------------- | ---------------------------- | ----------- |
+| `-32101` | SQL validation failed      | `sql_validation_failed`      | false       |
+| `-32102` | SQL execution failed       | `sql_execution_failed`       | false       |
+| `-32103` | Transaction failed         | `transaction_failed`         | false       |
+| `-32104` | Connection pool exhausted  | `connection_pool_exhausted`  | true        |
+| `-32105` | Result too large           | `result_too_large`           | false       |
+| `-32106` | Database connection failed | `database_connection_failed` | true        |
+| `-32107` | Query timeout              | `query_timeout`              | true        |
+| `-32108` | Invalid database config    | `invalid_database_config`    | false       |
+| `-32109` | Execution not found        | `execution_not_found`        | false       |
+| `-32110` | Execution cancelled        | `execution_cancelled`        | false       |
+
+### Orientacao para clientes HTTP
+
+- Exibir `error.data.user_message` ao usuario final.
+- Oferecer "Tentar novamente" quando `error.data.retryable` for `true`.
+- Registrar `error.data.correlation_id` nos logs para suporte.
+- Nunca exibir `technical_message` ou stack traces ao usuario.
+
+---
+
+## Analise de gaps: REST vs Socket
+
+A tabela abaixo compara os recursos disponiveis no protocolo Socket.IO do agente
+com o que a API REST atualmente expoe ao consumer.
+
+### Recursos disponiveis no agente vs cobertura REST
+
+| Recurso do agente                          | Socket status | REST status     | Gap                                      |
+| ------------------------------------------ | ------------- | --------------- | ---------------------------------------- |
+| `sql.execute`                              | implementado  | exposto         | -                                        |
+| `sql.executeBatch`                         | implementado  | exposto         | -                                        |
+| `sql.cancel`                               | implementado  | exposto         | -                                        |
+| `rpc.discover`                             | implementado  | exposto         | -                                        |
+| PayloadFrame encode/decode                 | implementado  | transparente    | -                                        |
+| Compressao GZIP + fallback none            | implementado  | transparente    | -                                        |
+| Assinatura de payload (HMAC-SHA256)        | implementado  | transparente    | -                                        |
+| Token carrier (client_token/clientToken/auth) | implementado | validado     | -                                        |
+| Paginacao (page/page_size)                 | implementado  | exposto         | -                                        |
+| Paginacao (cursor keyset)                  | implementado  | exposto         | -                                        |
+| `multi_result` (multiplos result sets)     | implementado  | passthrough     | -                                        |
+| `idempotency_key`                          | implementado  | passthrough     | -                                        |
+| `database` (override DSN)                  | implementado  | passthrough     | -                                        |
+| `options.timeout_ms` / `options.max_rows`  | implementado  | passthrough     | -                                        |
+| `options.transaction` (batch)              | implementado  | passthrough     | -                                        |
+| `api_version` no request                   | implementado  | exposto         | hub injeta `api_version: "2.4"` e faz merge de `meta` |
+| `meta` no request (trace_id, traceparent)  | implementado  | exposto         | hub faz merge preservando traceparent/tracestate; injeta request_id, agent_id, timestamp, trace_id |
+| `api_version` na response                  | implementado  | exposto         | serializer preserva `api_version` e `meta` do agente |
+| `meta` na response (agent_id, timestamp)   | implementado  | exposto         | serializer preserva `meta` do agente     |
+| Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 422    |
+| Streaming chunked (`rpc:chunk`/`rpc:complete`) | implementado | **nao suportado** | limitacao documentada; bridge so trata request/response unico |
+| Backpressure (`rpc:stream.pull`)           | implementado  | **nao suportado** | limitacao documentada; sem emissao de `rpc:stream.pull` |
+| Delivery guarantee (`rpc:request_ack`)     | implementado  | exposto         | hub registra ack e marca `acked` no pending request |
+| Batch ack (`rpc:batch_ack`)                | implementado  | exposto         | hub registra acks para cada request_id do batch |
+| Notification JSON-RPC (request sem `id`)   | implementado  | **nao suportado** | limitacao documentada; bridge exige `id` para correlacao |
+| Heartbeat (`agent:heartbeat`)              | implementado  | transparente    | -                                        |
+| Capabilities negotiation                   | implementado  | transparente    | -                                        |
+
+### Detalhe dos gaps
+
+#### Gaps cobertos (implementados)
+
+**1. `api_version` e `meta` no request** -- O bridge injeta `api_version: "2.4"`
+e `meta` com `request_id`, `agent_id`, `timestamp` e `trace_id` antes de emitir
+`rpc:request`. O `meta` enviado pelo cliente (ex.: `traceparent`, `tracestate`) e
+preservado via merge; campos obrigatorios sao sobrescritos. O `trace_id` e unico
+e compartilhado entre o payload logico e o `PayloadFrame` para correlacao.
+
+**2. `api_version` e `meta` na response** -- O serializer preserva `api_version`
+e `meta` do agente e propaga para o nivel da response HTTP em respostas single.
+
+**3. Batch max 32** -- O validator rejeita batches com mais de 32 comandos
+com mensagem `"Batch cannot exceed 32 commands"` (422).
+
+**6. Delivery guarantee acks** -- O hub registra handlers para `rpc:request_ack`
+e `rpc:batch_ack`, marcando `acked: true` no pending request. Logs estruturados
+sao emitidos: `rpc_ack_received`, `rpc_batch_ack_received`,
+`rpc_response_received_without_ack` e `rpc_timeout_without_ack` para
+observabilidade.
+
+#### Limitacoes documentadas (nao implementadas)
+
+**4. Streaming via REST** -- Os eventos `rpc:chunk`, `rpc:complete` e
+`rpc:stream.pull` nao possuem handler. O bridge opera em modo request/response
+unico. Resultados grandes enviados via streaming pelo agente nao sao acessiveis
+pelo consumer HTTP. O servidor anuncia `streamingResults: false` nas
+capabilities.
+
+**5. Notification JSON-RPC** -- O bridge sempre gera `id` quando ausente e
+registra pending request. Fire-and-forget (requests sem `id`) nao e suportado
+via REST.
+
+---
+
+## Mapa de arquivos relevantes
+
+| Arquivo                                                            | Papel                                  |
+| ------------------------------------------------------------------ | -------------------------------------- |
+| `src/presentation/http/routes/agents.routes.ts`                   | Definicao da rota e Swagger            |
+| `src/presentation/http/validators/agents.validator.ts`            | Schema Zod de validacao do body        |
+| `src/presentation/http/controllers/agents.controller.ts`          | Controller: paginacao + dispatch       |
+| `src/presentation/http/serializers/agent_rpc_response.serializer.ts` | Normalizacao da resposta do agente  |
+| `src/presentation/socket/hub/rpc_bridge.ts`                      | Bridge: emit rpc:request, await rpc:response |
+| `src/presentation/socket/hub/agent_registry.ts`                  | Registry de agentes conectados         |
+| `src/shared/utils/payload_frame.ts`                               | Encode/decode PayloadFrame             |
+| `src/shared/constants/socket_events.ts`                           | Nomes dos eventos Socket.IO            |
+| `src/socket.ts`                                                    | Bootstrap do Socket.IO + handlers      |

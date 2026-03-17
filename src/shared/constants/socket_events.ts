@@ -7,4 +7,6 @@ export const socketEvents = {
   hubHeartbeatAck: "hub:heartbeat_ack",
   rpcRequest: "rpc:request",
   rpcResponse: "rpc:response",
+  rpcRequestAck: "rpc:request_ack",
+  rpcBatchAck: "rpc:batch_ack",
 } as const;

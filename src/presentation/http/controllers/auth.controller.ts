@@ -6,7 +6,13 @@ import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { getValidated } from "../middlewares/validate.middleware";
-import type { LoginBody, LogoutBody, RefreshBody, RegisterBody } from "../validators/auth.validator";
+import type {
+  ChangePasswordBody,
+  LoginBody,
+  LogoutBody,
+  RefreshBody,
+  RegisterBody,
+} from "../validators/auth.validator";
 
 const refreshTokenCookieName = "refresh_token";
 
@@ -128,4 +134,26 @@ export const getMe = (
 ): void => {
   const authUser = response.locals.authUser as JwtAccessPayload;
   response.status(200).json({ user: authUser });
+};
+
+export const changePassword = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authUser = response.locals.authUser as JwtAccessPayload;
+  const body = getValidated<ChangePasswordBody>(response, "body");
+
+  const result = await container.authService.changePassword({
+    userId: authUser.sub,
+    currentPassword: body.currentPassword,
+    newPassword: body.newPassword,
+  });
+
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+
+  response.status(204).send();
 };

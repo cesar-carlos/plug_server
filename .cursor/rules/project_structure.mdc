@@ -16,3 +16,4 @@ alwaysApply: true
 - Place logger, error classes, response helpers, and common constants in `src/shared`.
 - Keep reusable adapters for `bcryptjs`, `jsonwebtoken`, `uuid`, `moment`, and external services in focused modules instead of scattering direct usage.
 - Avoid mixing route registration, business logic, and persistence code in the same folder or file.
+- Use Python for scripts in `scripts/` (e.g. test helpers, dev utilities). Prefer standard library; add `requests` only when needed.

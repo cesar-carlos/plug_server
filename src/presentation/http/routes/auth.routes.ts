@@ -1,10 +1,18 @@
 import { Router } from "express";
 
-import { getMe, login, logout, refresh, register } from "../controllers/auth.controller";
+import {
+  changePassword,
+  getMe,
+  login,
+  logout,
+  refresh,
+  register,
+} from "../controllers/auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuth } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
+  changePasswordBodySchema,
   loginBodySchema,
   logoutBodySchema,
   refreshBodySchema,
@@ -143,3 +151,39 @@ authRouter.post("/logout", validateRequest({ body: logoutBodySchema }), asyncHan
  *         $ref: '#/components/responses/Unauthorized'
  */
 authRouter.get("/me", requireAuth, asyncHandler(getMe));
+
+/**
+ * @openapi
+ * /auth/password:
+ *   patch:
+ *     summary: Change password for authenticated user
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [currentPassword, newPassword]
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       204:
+ *         description: Password changed successfully
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+authRouter.patch(
+  "/password",
+  requireAuth,
+  validateRequest({ body: changePasswordBodySchema }),
+  asyncHandler(changePassword),
+);

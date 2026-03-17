@@ -42,3 +42,15 @@ export const logoutBodySchema = z.object({
 });
 
 export type LogoutBody = z.infer<typeof logoutBodySchema>;
+
+export const changePasswordBodySchema = z
+  .object({
+    currentPassword: nonEmptyStringSchema,
+    newPassword: passwordSchema,
+  })
+  .refine((data) => data.currentPassword !== data.newPassword, {
+    message: "New password must be different from current password",
+    path: ["newPassword"],
+  });
+
+export type ChangePasswordBody = z.infer<typeof changePasswordBodySchema>;

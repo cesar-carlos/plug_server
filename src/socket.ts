@@ -5,7 +5,12 @@ import { Server, type Socket } from "socket.io";
 
 import { authenticateSocket } from "./presentation/socket/auth/socket_auth.middleware";
 import { agentRegistry } from "./presentation/socket/hub/agent_registry";
-import { handleAgentRpcResponse, registerSocketBridgeServer } from "./presentation/socket/hub/rpc_bridge";
+import {
+  handleAgentBatchAck,
+  handleAgentRpcAck,
+  handleAgentRpcResponse,
+  registerSocketBridgeServer,
+} from "./presentation/socket/hub/rpc_bridge";
 import { env } from "./shared/config/env";
 import { socketEvents } from "./shared/constants/socket_events";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
@@ -173,6 +178,14 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
     socket.on(socketEvents.rpcResponse, (rawPayload: unknown) => {
       handleAgentRpcResponse(socket.id, rawPayload);
+    });
+
+    socket.on(socketEvents.rpcRequestAck, (rawPayload: unknown) => {
+      handleAgentRpcAck(socket.id, rawPayload);
+    });
+
+    socket.on(socketEvents.rpcBatchAck, (rawPayload: unknown) => {
+      handleAgentBatchAck(socket.id, rawPayload);
     });
 
     socket.on("disconnect", () => {

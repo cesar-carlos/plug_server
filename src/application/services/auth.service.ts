@@ -4,6 +4,7 @@ import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { User } from "../../domain/entities/user.entity";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
+import type { ChangePasswordUseCase } from "../../domain/use_cases/change_password.use_case";
 import type { LoginUseCase } from "../../domain/use_cases/login.use_case";
 import type { LogoutUseCase } from "../../domain/use_cases/logout.use_case";
 import type { RefreshTokenUseCase } from "../../domain/use_cases/refresh_token.use_case";
@@ -24,10 +25,17 @@ export interface LoginServiceInput {
   readonly password: string;
 }
 
+export interface ChangePasswordServiceInput {
+  readonly userId: string;
+  readonly currentPassword: string;
+  readonly newPassword: string;
+}
+
 export class AuthService {
   constructor(
     private readonly registerUseCase: RegisterUseCase,
     private readonly loginUseCase: LoginUseCase,
+    private readonly changePasswordUseCase: ChangePasswordUseCase,
     private readonly refreshTokenUseCase: RefreshTokenUseCase,
     private readonly logoutUseCase: LogoutUseCase,
     private readonly passwordHasher: IPasswordHasher,
@@ -53,6 +61,10 @@ export class AuthService {
 
     const tokens = await this.issueTokens(result.value);
     return ok({ user: this.toUserDto(result.value), ...tokens });
+  }
+
+  async changePassword(input: ChangePasswordServiceInput): Promise<Result<void>> {
+    return this.changePasswordUseCase.execute(input);
   }
 
   async refresh(rawRefreshToken: string): Promise<Result<AuthTokensDto>> {

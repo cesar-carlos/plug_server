@@ -89,7 +89,7 @@ O ecossistema usa dois estilos de comunicacao complementares:
 - Socket.IO para comunicacao em tempo real entre hub e agentes, e futuramente
   para fluxos interativos com consumers
 
-No projeto atual, a base HTTP ja existe com rotas como:
+No projeto atual, a base HTTP inclui:
 
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
@@ -100,6 +100,8 @@ No projeto atual, a base HTTP ja existe com rotas como:
 - `GET /api/v1/health`
 - `GET /api/v1/health/live`
 - `GET /api/v1/health/ready`
+- `GET /api/v1/agents` — lista agentes conectados
+- `POST /api/v1/agents/commands` — proxy de comandos JSON-RPC ao agente (ver `docs/api_rest_bridge.md`)
 
 ## Fluxo macro do sistema
 
@@ -153,6 +155,8 @@ O protocolo documentado no agente utiliza eventos como:
 - `hub:heartbeat_ack`
 - `rpc:request`
 - `rpc:response`
+- `rpc:request_ack`
+- `rpc:batch_ack`
 - `rpc:chunk`
 - `rpc:complete`
 - `rpc:stream.pull`
@@ -217,27 +221,28 @@ Diretrizes principais:
 - a exposicao direta do agente deve ser evitada
 - mensagens devem ser validadas antes de serem processadas
 
-## Diferenca entre objetivo e base atual
+## Estado atual da implementacao
 
-O projeto ja possui fundacoes importantes:
+O projeto ja possui:
 
 - API HTTP com autenticacao
 - JWT access e refresh token
 - validacao com Zod
 - middlewares de seguranca
 - health checks
-- bootstrap inicial de Socket.IO
+- bootstrap de Socket.IO
+- registro de agentes em tempo real (`agent:register`, `agent:capabilities`)
+- negociacao de capacidades com o agente
+- roteamento RPC via REST (`POST /api/v1/agents/commands`) — bridge HTTP para Socket.IO
+- mapa de correlacao entre request e response (pending requests no bridge)
+- handlers para `rpc:request_ack` e `rpc:batch_ack` (delivery guarantee)
+- PayloadFrame binario com compressao GZIP e assinatura opcional
 
-Ao mesmo tempo, o objetivo maior do sistema ainda vai alem da base atual.
+Evolucoes futuras:
 
-As proximas evolucoes naturais do `plug_server` como hub sao:
-
-- registrar agentes em tempo real
-- distinguir conexoes de agente e consumer no socket
-- negociar capacidades com o agente
-- implementar roteamento RPC entre consumer e agente
-- manter mapa de correlacao entre request e response
-- suportar streaming e eventos avancados do protocolo
+- distinguir conexoes de agente e consumer no socket (namespace ou identificacao)
+- suportar streaming via REST (acumular chunks ou SSE)
+- suportar notification JSON-RPC (fire-and-forget) via REST
 
 ## Resumo
 

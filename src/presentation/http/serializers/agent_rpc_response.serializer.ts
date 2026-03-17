@@ -11,12 +11,16 @@ interface NormalizedRpcItem {
   readonly success: boolean;
   readonly result?: unknown;
   readonly error?: NormalizedRpcError;
+  readonly api_version?: string;
+  readonly meta?: Record<string, unknown>;
 }
 
 interface NormalizedRpcSingleResponse {
   readonly type: "single";
   readonly success: boolean;
   readonly item: NormalizedRpcItem;
+  readonly api_version?: string;
+  readonly meta?: Record<string, unknown>;
 }
 
 interface NormalizedRpcBatchResponse {
@@ -77,12 +81,22 @@ const normalizeRpcError = (value: unknown): NormalizedRpcError => {
   };
 };
 
+const extractMetaFields = (payload: Record<string, unknown>): Pick<NormalizedRpcItem, "api_version" | "meta"> => {
+  const api_version = typeof payload.api_version === "string" ? payload.api_version : undefined;
+  const meta = isRecord(payload.meta) ? payload.meta : undefined;
+  return {
+    ...(api_version ? { api_version } : {}),
+    ...(meta ? { meta } : {}),
+  };
+};
+
 const normalizeRpcItem = (payload: unknown): NormalizedRpcItem | null => {
   if (!isRecord(payload)) {
     return null;
   }
 
   const id = toJsonRpcId(payload.id);
+  const metaFields = extractMetaFields(payload);
   const hasError = payload.error !== undefined;
   const hasResult = payload.result !== undefined;
 
@@ -91,6 +105,7 @@ const normalizeRpcItem = (payload: unknown): NormalizedRpcItem | null => {
       id,
       success: false,
       error: normalizeRpcError(payload.error),
+      ...metaFields,
     };
   }
 
@@ -99,6 +114,7 @@ const normalizeRpcItem = (payload: unknown): NormalizedRpcItem | null => {
       id,
       success: true,
       result: payload.result,
+      ...metaFields,
     };
   }
 
@@ -109,6 +125,7 @@ const normalizeRpcItem = (payload: unknown): NormalizedRpcItem | null => {
       code: -32603,
       message: "RPC response missing both result and error",
     },
+    ...metaFields,
   };
 };
 
@@ -139,6 +156,8 @@ export const normalizeAgentRpcResponse = (payload: unknown): NormalizedAgentRpcR
       type: "single",
       success: singleItem.success,
       item: singleItem,
+      ...(singleItem.api_version ? { api_version: singleItem.api_version } : {}),
+      ...(singleItem.meta ? { meta: singleItem.meta } : {}),
     };
   }
 

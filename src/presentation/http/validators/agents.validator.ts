@@ -43,7 +43,8 @@ const sqlExecuteBatchParamsSchema = z
           })
           .passthrough(),
       )
-      .min(1, { message: "At least one SQL command is required" }),
+      .min(1, { message: "At least one SQL command is required" })
+      .max(32, { message: "Batch cannot exceed 32 commands" }),
     options: z.record(z.string(), z.unknown()).optional(),
   })
   .merge(tokenCarrierSchema)

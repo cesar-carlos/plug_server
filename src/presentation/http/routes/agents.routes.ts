@@ -77,6 +77,22 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *           schema:
  *             type: object
  *             required: [agentId, command]
+ *             example:
+ *               agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *               timeoutMs: 15000
+ *               pagination:
+ *                 page: 1
+ *                 pageSize: 100
+ *               command:
+ *                 jsonrpc: "2.0"
+ *                 method: "sql.execute"
+ *                 id: "req-123"
+ *                 params:
+ *                   sql: "SELECT 1"
+ *                   client_token: "token-value"
+ *                   options:
+ *                     page: 1
+ *                     page_size: 100
  *             properties:
  *               agentId:
  *                 type: string
@@ -90,7 +106,7 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *                 type: object
  *                 description: >
  *                   Optional pagination passthrough for agent commands.
- *                   Use either (`page` + `pageSize`) or `cursor`.
+ *                   Use EITHER (`page` + `pageSize`) OR `cursor` — never both.
  *                 properties:
  *                   page:
  *                     type: integer
