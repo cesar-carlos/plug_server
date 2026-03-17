@@ -158,6 +158,12 @@ class InMemoryConversationRegistry {
 
     return removed;
   }
+
+  clear(): void {
+    this.conversations.clear();
+    this.conversationsByConsumerSocket.clear();
+    this.conversationsByAgentSocket.clear();
+  }
 }
 
 export const conversationRegistry = new InMemoryConversationRegistry();

@@ -8,7 +8,7 @@ import type { Server as HttpServer } from "node:http";
 import type { Server as SocketServer } from "socket.io";
 
 import { createApp } from "../../src/app";
-import { createSocketServer } from "../../src/socket";
+import { closeSocketServer, createSocketServer } from "../../src/socket";
 
 export interface TestServerResult {
   readonly httpServer: HttpServer;
@@ -37,7 +37,7 @@ export const createTestServer = (): Promise<TestServerResult> => {
         getUrl: () => baseUrl,
         close: () =>
           new Promise<void>((closeResolve) => {
-            io.close(() => {
+            void closeSocketServer(io, "test_close").then(() => {
               httpServer.close(() => closeResolve());
             });
           }),

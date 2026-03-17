@@ -45,8 +45,12 @@ const envSchema = z.object({
   SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
   SOCKET_RELAY_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().default(30_000),
   SOCKET_RELAY_METRICS_LOG_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  SOCKET_RELAY_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(10_000),
+  SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS: z.coerce.number().int().positive().default(8),
+  SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(40),
   SOCKET_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
+  SOCKET_AUDIT_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
   SWAGGER_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -105,7 +109,12 @@ export const env = {
   socketRelayCircuitFailureThreshold: parsedEnv.SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD,
   socketRelayCircuitOpenMs: parsedEnv.SOCKET_RELAY_CIRCUIT_OPEN_MS,
   socketRelayMetricsLogIntervalMs: parsedEnv.SOCKET_RELAY_METRICS_LOG_INTERVAL_MS,
+  socketRelayRateLimitWindowMs: parsedEnv.SOCKET_RELAY_RATE_LIMIT_WINDOW_MS,
+  socketRelayRateLimitMaxConversationStarts:
+    parsedEnv.SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS,
+  socketRelayRateLimitMaxRequests: parsedEnv.SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS,
   socketAuditRetentionDays: parsedEnv.SOCKET_AUDIT_RETENTION_DAYS,
   socketAuditRetentionIntervalMinutes: parsedEnv.SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES,
+  socketAuditPruneBatchSize: parsedEnv.SOCKET_AUDIT_PRUNE_BATCH_SIZE,
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
 } as const;

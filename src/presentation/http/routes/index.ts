@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { getHealth, getHealthLive, getHealthReady } from "../controllers/health.controller";
+import { getMetrics } from "../controllers/metrics.controller";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { healthQuerySchema } from "../validators/health.validator";
 import { agentsRouter } from "./agents.routes";
@@ -34,6 +35,8 @@ httpRouter.use("/agents", agentsRouter);
 httpRouter.get("/ping", (_request, response) => {
   response.status(200).json({ message: "pong" });
 });
+
+httpRouter.get("/metrics", getMetrics);
 
 /**
  * @openapi

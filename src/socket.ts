@@ -14,15 +14,25 @@ import {
   cleanupAgentStreamSubscriptions,
   cleanupConversationStreamSubscriptions,
   cleanupConsumerStreamSubscriptions,
+  getRelayMetricsSnapshot,
   handleAgentBatchAck,
   handleAgentRpcAck,
   handleAgentRpcChunk,
   handleAgentRpcComplete,
   handleAgentRpcResponse,
   registerConsumerBridgeServer,
+  resetSocketBridgeState,
   registerSocketBridgeServer,
 } from "./presentation/socket/hub/rpc_bridge";
 import { conversationRegistry } from "./presentation/socket/hub/conversation_registry";
+import {
+  allowRelayConversationStart,
+  allowRelayRpcRequest,
+  clearRelayRateLimitStateByConsumerSocket,
+  getRelayRateLimitMetricsSnapshot,
+  resetRelayRateLimiterState,
+  sweepRelayRateLimitState,
+} from "./presentation/socket/hub/consumer_relay_rate_limiter";
 import { handleRelayConversationStart } from "./presentation/socket/consumers/relay_conversation_start.handler";
 import { handleRelayConversationEnd } from "./presentation/socket/consumers/relay_conversation_end.handler";
 import { handleRelayRpcRequest } from "./presentation/socket/consumers/relay_rpc_request.handler";
@@ -94,6 +104,63 @@ const withOptionalRequestId = (requestId: string | undefined): { readonly reques
 };
 
 export let agentsNamespace: ReturnType<Server["of"]> | null = null;
+let activeSocketServer: Server | null = null;
+let conversationSweepTimer: NodeJS.Timeout | null = null;
+
+const emitServerShutdownNotice = (io: Server, signal: string): void => {
+  const payload = {
+    message: `Server is shutting down (${signal}). Reconnect after a few seconds.`,
+    code: "SERVER_SHUTDOWN",
+  };
+
+  io.of(SOCKET_NAMESPACES.agents).emit(socketEvents.appError, payload);
+  io.of(SOCKET_NAMESPACES.consumers).emit(socketEvents.appError, payload);
+};
+
+export const getSocketMetricsSnapshot = (): {
+  readonly namespaces: {
+    readonly agents: number;
+    readonly consumers: number;
+  };
+  readonly relay: ReturnType<typeof getRelayMetricsSnapshot>;
+  readonly relayRateLimit: ReturnType<typeof getRelayRateLimitMetricsSnapshot>;
+} => {
+  const io = activeSocketServer;
+  return {
+    namespaces: {
+      agents: io?.of(SOCKET_NAMESPACES.agents).sockets.size ?? 0,
+      consumers: io?.of(SOCKET_NAMESPACES.consumers).sockets.size ?? 0,
+    },
+    relay: getRelayMetricsSnapshot(),
+    relayRateLimit: getRelayRateLimitMetricsSnapshot(),
+  };
+};
+
+export const closeSocketServer = async (
+  io: Server,
+  signal = "shutdown",
+): Promise<void> => {
+  emitServerShutdownNotice(io, signal);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  if (conversationSweepTimer) {
+    clearInterval(conversationSweepTimer);
+    conversationSweepTimer = null;
+  }
+
+  resetRelayRateLimiterState();
+  resetSocketBridgeState();
+  conversationRegistry.clear();
+  agentRegistry.clear();
+  if (activeSocketServer === io) {
+    activeSocketServer = null;
+  }
+  agentsNamespace = null;
+
+  await new Promise<void>((resolve) => {
+    io.close(() => resolve());
+  });
+};
 
 export const createSocketServer = (httpServer: HttpServer): Server => {
   const io = new Server(httpServer, {
@@ -104,6 +171,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
   const agentsNsp = io.of(SOCKET_NAMESPACES.agents);
   agentsNamespace = agentsNsp;
+  activeSocketServer = io;
   const consumersNsp = io.of(SOCKET_NAMESPACES.consumers);
 
   const defaultNsp = io.of("/");
@@ -126,7 +194,11 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   registerSocketBridgeServer(agentsNsp);
   registerConsumerBridgeServer(consumersNsp);
 
-  const conversationSweepTimer = setInterval(() => {
+  if (conversationSweepTimer) {
+    clearInterval(conversationSweepTimer);
+  }
+  conversationSweepTimer = setInterval(() => {
+    sweepRelayRateLimitState();
     const expiredConversations = conversationRegistry.removeExpired(
       env.socketRelayConversationIdleTimeoutMs,
     );
@@ -306,6 +378,18 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
+      if (!allowRelayConversationStart(socket.id)) {
+        socket.emit(socketEvents.relayConversationStarted, {
+          success: false,
+          error: {
+            code: "RATE_LIMITED",
+            message: "Rate limit exceeded for relay:conversation.start",
+            statusCode: 429,
+          },
+        });
+        return;
+      }
+
       handleRelayConversationStart(socket, rawPayload, agentsNsp);
     });
 
@@ -314,6 +398,18 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayRpcRequest, (rawPayload: unknown) => {
+      if (!allowRelayRpcRequest(socket.id)) {
+        socket.emit(socketEvents.relayRpcAccepted, {
+          success: false,
+          error: {
+            code: "RATE_LIMITED",
+            message: "Rate limit exceeded for relay:rpc.request",
+            statusCode: 429,
+          },
+        });
+        return;
+      }
+
       handleRelayRpcRequest(socket, rawPayload);
     });
 
@@ -323,6 +419,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
     socket.on("disconnect", () => {
       cleanupConsumerStreamSubscriptions(socket.id);
+      clearRelayRateLimitStateByConsumerSocket(socket.id);
       const endedConversations = conversationRegistry.removeByConsumerSocketId(socket.id);
       for (const conversation of endedConversations) {
         cleanupConversationStreamSubscriptions(conversation.conversationId);

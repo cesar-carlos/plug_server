@@ -53,7 +53,9 @@ model AuditEvent {
 
   @@index([createdAt])
   @@index([conversationId])
+  @@index([conversationId, createdAt])
   @@index([agentId])
   @@index([requestId])
+  @@index([streamId])
   @@map("audit_events")
 }

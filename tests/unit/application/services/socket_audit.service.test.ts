@@ -31,10 +31,15 @@ describe("socket_audit.service", () => {
   it("should prune audit events older than the configured retention", async () => {
     vi.resetModules();
 
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([{ exists: true }])
+      .mockResolvedValueOnce([{ deleted: 3 }]);
+
     vi.doMock("../../../../src/infrastructure/database/prisma/client", () => ({
       prismaClient: {
-        $queryRaw: vi.fn().mockResolvedValue([{ exists: true }]),
-        $executeRaw: vi.fn().mockResolvedValue(3),
+        $queryRaw: queryRaw,
+        $executeRaw: vi.fn(),
       },
     }));
     vi.doMock("../../../../src/shared/utils/logger", () => ({
@@ -46,5 +51,6 @@ describe("socket_audit.service", () => {
     );
 
     await expect(pruneSocketAuditOlderThanDays(90)).resolves.toBe(3);
+    expect(queryRaw).toHaveBeenCalledTimes(2);
   });
 });

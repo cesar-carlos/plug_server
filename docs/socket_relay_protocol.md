@@ -133,6 +133,9 @@ Variaveis principais do relay:
 - `SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD`
 - `SOCKET_RELAY_CIRCUIT_OPEN_MS`
 - `SOCKET_RELAY_METRICS_LOG_INTERVAL_MS`
+- `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS`
+- `SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS`
+- `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS`
 
 ## Auditoria Socket e retencao
 
@@ -148,6 +151,22 @@ Variaveis de ambiente:
 
 - `SOCKET_AUDIT_RETENTION_DAYS` (default `90`)
 - `SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES` (default `1440`)
+- `SOCKET_AUDIT_PRUNE_BATCH_SIZE` (default `5000`)
+
+## Observabilidade
+
+Endpoint de metricas:
+
+- `GET /metrics` (Prometheus text)
+- `GET /api/v1/metrics` (mesmo payload, sob prefixo da API)
+
+Inclui:
+
+- throughput relay, dedupe, timeout, drop de chunk
+- gauges de pending requests, streams e circuit breaker
+- latencia por agente (count/avg/max)
+- rate-limit allow/reject no relay
+- escrita e limpeza da auditoria
 
 ## Migracao de banco
 
@@ -165,3 +184,9 @@ Arquivo da migration:
 
 Fluxo legado Socket (`agents:command` e `agents:stream_pull`) permanece ativo.
 REST nao foi alterado.
+
+## SDK cliente
+
+Exemplo minimo de cliente relay:
+
+- `docs/socket_client_sdk.md`

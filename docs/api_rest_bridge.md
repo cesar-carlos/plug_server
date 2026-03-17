@@ -812,9 +812,11 @@ via REST.
 | `src/presentation/socket/consumers/relay_rpc_request.handler.ts` | Handler Socket relay:rpc.request |
 | `src/presentation/socket/consumers/relay_rpc_stream_pull.handler.ts` | Handler Socket relay:rpc.stream.pull |
 | `src/presentation/socket/hub/conversation_registry.ts`           | Registry de conversas relay por socket/agent |
+| `src/presentation/socket/hub/consumer_relay_rate_limiter.ts`    | Rate-limit por consumer para relay |
 | `src/application/agent_commands/execute_agent_command.ts`        | Caso de uso compartilhado HTTP + Socket |
 | `src/application/agent_commands/command_transformers.ts`         | applyPaginationToCommand               |
 | `src/application/services/socket_audit.service.ts`               | Auditoria Socket e retencao automatica |
+| `src/presentation/http/controllers/metrics.controller.ts`        | Endpoint `/metrics` (Prometheus text) |
 | `src/shared/validators/agent_command.ts`                         | Schemas transport-agnosticos          |
 | `src/shared/utils/payload_frame.ts`                               | Encode/decode PayloadFrame             |
 | `src/shared/utils/rpc_types.ts`                                   | isRecord, toRequestId, toJsonRpcId      |

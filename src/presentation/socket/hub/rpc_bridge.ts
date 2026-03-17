@@ -81,6 +81,12 @@ interface RelayRequestRoute {
   timedOut?: boolean;
 }
 
+interface AgentRelayLatencyStats {
+  count: number;
+  totalMs: number;
+  maxMs: number;
+}
+
 interface DispatchRelayRpcInput {
   readonly conversationId: string;
   readonly consumerSocketId: string;
@@ -127,6 +133,7 @@ const relayBufferedChunksByRequestId = new Map<string, Record<string, unknown>[]
 const relayPendingCompleteByRequestId = new Map<string, Record<string, unknown>>();
 let relayTotalBufferedChunks = 0;
 const relayCircuitByAgentId = new Map<string, { failures: number; openUntilMs: number }>();
+const relayLatencyByAgentId = new Map<string, AgentRelayLatencyStats>();
 const relayMetrics = {
   requestsAccepted: 0,
   requestsDeduplicated: 0,
@@ -234,13 +241,22 @@ const registerAgentSuccess = (agentId: string): void => {
   }
 };
 
-const clearRelayRequestTimeout = (requestId: string): void => {
-  const route = relayRequestsByRequestId.get(requestId);
-  if (!route) {
+const observeRelayResponseLatency = (route: RelayRequestRoute): void => {
+  const elapsedMs = Math.max(0, Date.now() - route.createdAtMs);
+  const existing = relayLatencyByAgentId.get(route.agentId);
+  if (existing) {
+    existing.count += 1;
+    existing.totalMs += elapsedMs;
+    existing.maxMs = Math.max(existing.maxMs, elapsedMs);
+    relayLatencyByAgentId.set(route.agentId, existing);
     return;
   }
 
-  clearTimeout(route.timeoutHandle);
+  relayLatencyByAgentId.set(route.agentId, {
+    count: 1,
+    totalMs: elapsedMs,
+    maxMs: elapsedMs,
+  });
 };
 
 const clearRelayFlowState = (requestId: string): void => {
@@ -259,17 +275,73 @@ const scheduleRelayMetricsLogger = (): void => {
   }
 
   relayMetricsTimer = setInterval(() => {
-    cleanupExpiredIdempotency();
+    const snapshot = getRelayMetricsSnapshot();
     logger.info("socket_relay_metrics", {
-      ...relayMetrics,
-      pendingRelayRequests: relayRequestsByRequestId.size,
-      activeStreams: activeStreamsByRequestId.size,
-      bufferedChunks: relayTotalBufferedChunks,
-      openCircuits: Array.from(relayCircuitByAgentId.values()).filter((state) => state.openUntilMs > Date.now())
-        .length,
+      ...snapshot.counters,
+      ...snapshot.gauges,
     });
   }, env.socketRelayMetricsLogIntervalMs);
   relayMetricsTimer.unref?.();
+};
+
+export const stopRelayMetricsLogger = (): void => {
+  if (!relayMetricsTimer) {
+    return;
+  }
+  clearInterval(relayMetricsTimer);
+  relayMetricsTimer = null;
+};
+
+export const getRelayMetricsSnapshot = (): {
+  readonly counters: {
+    readonly requestsAccepted: number;
+    readonly requestsDeduplicated: number;
+    readonly responsesForwarded: number;
+    readonly chunksForwarded: number;
+    readonly chunksBuffered: number;
+    readonly chunksDropped: number;
+    readonly streamPulls: number;
+    readonly requestTimeouts: number;
+    readonly circuitOpenRejects: number;
+  };
+  readonly gauges: {
+    readonly pendingRelayRequests: number;
+    readonly activeStreams: number;
+    readonly bufferedChunks: number;
+    readonly openCircuits: number;
+  };
+  readonly latencyByAgent: readonly {
+    readonly agentId: string;
+    readonly count: number;
+    readonly avgMs: number;
+    readonly maxMs: number;
+  }[];
+} => {
+  cleanupExpiredIdempotency();
+
+  const openCircuits = Array.from(relayCircuitByAgentId.values()).filter(
+    (state) => state.openUntilMs > Date.now(),
+  ).length;
+
+  const latencyByAgent = Array.from(relayLatencyByAgentId.entries()).map(([agentId, stats]) => ({
+    agentId,
+    count: stats.count,
+    avgMs: stats.count > 0 ? Number((stats.totalMs / stats.count).toFixed(2)) : 0,
+    maxMs: stats.maxMs,
+  }));
+
+  return {
+    counters: {
+      ...relayMetrics,
+    },
+    gauges: {
+      pendingRelayRequests: relayRequestsByRequestId.size,
+      activeStreams: activeStreamsByRequestId.size,
+      bufferedChunks: relayTotalBufferedChunks,
+      openCircuits,
+    },
+    latencyByAgent,
+  };
 };
 
 const pickResponseId = (payload: unknown): string | null => {
@@ -633,6 +705,7 @@ export const handleAgentRpcResponse = (socketId: string, rawPayload: unknown): v
   const responseFrame = encodePayloadFrame(decoded.value.data, { requestId: responseId });
   emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
   relayMetrics.responsesForwarded += 1;
+  observeRelayResponseLatency(relayRoute);
   registerAgentSuccess(relayRoute.agentId);
   clearTimeout(relayRoute.timeoutHandle);
   conversationRegistry.touch(relayRoute.conversationId);
@@ -861,6 +934,42 @@ export const cleanupConversationStreamSubscriptions = (conversationId: string): 
     idempotencyMap.clear();
     relayIdempotencyByConversation.delete(conversationId);
   }
+};
+
+export const resetSocketBridgeState = (): void => {
+  for (const pending of pendingRequests.values()) {
+    clearTimeout(pending.timeoutHandle);
+  }
+  pendingRequests.clear();
+
+  for (const route of relayRequestsByRequestId.values()) {
+    clearTimeout(route.timeoutHandle);
+  }
+  relayRequestsByRequestId.clear();
+
+  activeStreamsByRequestId.clear();
+  activeStreamsByStreamId.clear();
+  relayIdempotencyByConversation.clear();
+  relayStreamCreditsByRequestId.clear();
+  relayBufferedChunksByRequestId.clear();
+  relayPendingCompleteByRequestId.clear();
+  relayCircuitByAgentId.clear();
+  relayLatencyByAgentId.clear();
+  relayTotalBufferedChunks = 0;
+
+  relayMetrics.requestsAccepted = 0;
+  relayMetrics.requestsDeduplicated = 0;
+  relayMetrics.responsesForwarded = 0;
+  relayMetrics.chunksForwarded = 0;
+  relayMetrics.chunksBuffered = 0;
+  relayMetrics.chunksDropped = 0;
+  relayMetrics.streamPulls = 0;
+  relayMetrics.requestTimeouts = 0;
+  relayMetrics.circuitOpenRejects = 0;
+
+  stopRelayMetricsLogger();
+  agentsNamespace = null;
+  consumersNamespace = null;
 };
 
 export const requestAgentStreamPull = (

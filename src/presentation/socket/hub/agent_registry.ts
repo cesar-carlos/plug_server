@@ -70,6 +70,11 @@ class InMemoryAgentRegistry {
   hasKnownAgentId(agentId: string): boolean {
     return this.knownAgentIds.has(agentId);
   }
+
+  clear(): void {
+    this.agents.clear();
+    this.knownAgentIds.clear();
+  }
 }
 
 export const agentRegistry = new InMemoryAgentRegistry();

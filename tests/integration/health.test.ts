@@ -70,4 +70,14 @@ describe("GET /api/v1/health", () => {
       code: "ROUTE_NOT_FOUND",
     });
   });
+
+  it("should expose metrics in prometheus text format", async () => {
+    const response = await request(app).get("/metrics");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.text).toContain("plug_socket_relay_requests_accepted_total");
+    expect(response.text).toContain("plug_socket_relay_rate_limit_request_rejected_total");
+    expect(response.text).toContain("plug_socket_audit_prune_runs_total");
+  });
 });

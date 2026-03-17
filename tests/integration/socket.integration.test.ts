@@ -5,8 +5,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestServer } from "../helpers/test_server";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
+import { env } from "../../src/shared/config/env";
 
 const testAgentId = "5b9ae809-4e2f-454f-8967-f0b535d5e8f5";
+const makeLargeText = (length: number): string => {
+  const alphabet =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_!@#$%^&*()+=[]{}";
+  let output = "";
+  for (let index = 0; index < length; index += 1) {
+    output += alphabet[(index * 17) % alphabet.length];
+  }
+  return output;
+};
 
 const connectConsumer = (baseUrl: string, token: string) =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
@@ -594,6 +604,279 @@ describe("Socket namespaces", () => {
         await responsePromise;
         await new Promise<void>((resolve) => setTimeout(resolve, 150));
         expect(rpcRequestCount).toBe(1);
+      } finally {
+        agentSocket.disconnect();
+        consumerSocket.disconnect();
+      }
+    });
+
+    it("should support relay contract with gzip frames, ack and stream pull", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: testAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["gzip", "none"],
+              extensions: {
+                streamingResults: true,
+              },
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+
+        const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
+          consumerSocket,
+          "relay:conversation.started",
+        );
+        consumerSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+
+        let routedRequestId = "";
+        let streamId = "";
+
+        agentSocket.on("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+          routedRequestId = requestId;
+          streamId = `stream-${requestId}`;
+
+          agentSocket.emit(
+            "rpc:request_ack",
+            encodePayloadFrame(
+              {
+                request_id: requestId,
+                status: "accepted",
+              },
+              { compressionThreshold: 1 },
+            ),
+          );
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame(
+              {
+                jsonrpc: "2.0",
+                id: requestId,
+                result: {
+                  stream_id: streamId,
+                  note: makeLargeText(2500),
+                },
+              },
+              { compressionThreshold: 1 },
+            ),
+          );
+
+          agentSocket.emit(
+            "rpc:chunk",
+            encodePayloadFrame(
+              {
+                stream_id: streamId,
+                request_id: requestId,
+                chunk_index: 0,
+                rows: [{ row: 1, payload: makeLargeText(2600) }],
+              },
+              { compressionThreshold: 1 },
+            ),
+          );
+        });
+
+        const acceptedPromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          error?: { code?: string; message?: string; statusCode?: number };
+        }>(
+          consumerSocket,
+          "relay:rpc.accepted",
+        );
+        const ackPromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.request_ack");
+        const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response");
+
+        const receivedChunks: unknown[] = [];
+        consumerSocket.on("relay:rpc.chunk", (payload: unknown) => {
+          receivedChunks.push(payload);
+        });
+
+        consumerSocket.emit("relay:rpc.request", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame(
+            {
+              jsonrpc: "2.0",
+              id: "client-relay-gzip-1",
+              method: "sql.execute",
+                params: {
+                  sql: "SELECT * FROM users",
+                  client_token: "relay-gzip-token",
+                  large_blob: makeLargeText(4000),
+                },
+              },
+              { compressionThreshold: 1 },
+          ),
+        });
+
+        const accepted = await acceptedPromise;
+        if (!accepted.success) {
+          throw new Error(`relay:rpc.accepted failed: ${JSON.stringify(accepted.error ?? null)}`);
+        }
+        expect(accepted.success).toBe(true);
+        expect(accepted.requestId).toBeDefined();
+
+        const [rawAck, rawResponse] = await Promise.all([ackPromise, responsePromise]);
+        const decodedAck = decodePayloadFrame(rawAck);
+        const decodedResponse = decodePayloadFrame(rawResponse);
+
+        expect(decodedAck.ok).toBe(true);
+        expect(decodedResponse.ok).toBe(true);
+        if (decodedAck.ok) {
+          expect(decodedAck.value.frame.cmp).toBe("none");
+        }
+        if (decodedResponse.ok) {
+          expect(decodedResponse.value.frame.cmp).toBe("gzip");
+        }
+
+        await new Promise<void>((resolve) => setTimeout(resolve, 200));
+        expect(receivedChunks.length).toBe(0);
+
+        const pullResponsePromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          streamId?: string;
+          windowSize?: number;
+        }>(consumerSocket, "relay:rpc.stream.pull_response");
+        const agentPullPayloadPromise = waitForEvent<unknown>(agentSocket, "rpc:stream.pull");
+        const completePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.complete", 8_000);
+
+        consumerSocket.emit("relay:rpc.stream.pull", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame(
+            {
+              request_id: accepted.requestId,
+              window_size: 2,
+            },
+            { compressionThreshold: 1 },
+          ),
+        });
+
+        const pullResponse = await pullResponsePromise;
+        expect(pullResponse.success).toBe(true);
+        expect(pullResponse.windowSize).toBe(2);
+
+        const rawAgentPull = await agentPullPayloadPromise;
+        const decodedAgentPull = decodePayloadFrame(rawAgentPull);
+        expect(decodedAgentPull.ok).toBe(true);
+
+        agentSocket.emit(
+          "rpc:chunk",
+          encodePayloadFrame(
+            {
+              stream_id: streamId,
+              request_id: routedRequestId,
+              chunk_index: 1,
+              rows: [{ row: 2, payload: makeLargeText(2200) }],
+            },
+            { compressionThreshold: 1 },
+          ),
+        );
+        agentSocket.emit(
+          "rpc:complete",
+          encodePayloadFrame(
+            {
+              stream_id: streamId,
+              request_id: routedRequestId,
+              total_rows: 2,
+            },
+            { compressionThreshold: 1 },
+          ),
+        );
+
+        const rawComplete = await completePromise;
+        const decodedComplete = decodePayloadFrame(rawComplete);
+        expect(decodedComplete.ok).toBe(true);
+        if (decodedComplete.ok) {
+          expect(decodedComplete.value.frame.cmp).toBe("none");
+        }
+
+        await new Promise<void>((resolve) => setTimeout(resolve, 200));
+        expect(receivedChunks.length).toBeGreaterThanOrEqual(2);
+        const decodedFirstChunk = decodePayloadFrame(receivedChunks[0]);
+        expect(decodedFirstChunk.ok).toBe(true);
+        if (decodedFirstChunk.ok) {
+          expect(decodedFirstChunk.value.frame.cmp).toBe("gzip");
+          const firstChunkPayload = isRecord(decodedFirstChunk.value.data) ? decodedFirstChunk.value.data : null;
+          expect(toRequestId(firstChunkPayload?.request_id)).toBe(accepted.requestId);
+        }
+      } finally {
+        agentSocket.disconnect();
+        consumerSocket.disconnect();
+      }
+    });
+
+    it("should enforce relay conversation start rate limit per consumer", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: testAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+              extensions: {
+                streamingResults: true,
+              },
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+
+        const rateLimitedPromise = new Promise<{
+          success: false;
+          error: { code?: string; statusCode?: number };
+        }>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            consumerSocket.off("relay:conversation.started", onStarted);
+            reject(new Error("Timed out waiting for relay conversation rate limit"));
+          }, 8_000);
+
+          const onStarted = (payload: {
+            success: boolean;
+            error?: { code?: string; statusCode?: number };
+          }): void => {
+            if (payload.success === false && payload.error?.code === "RATE_LIMITED") {
+              clearTimeout(timeout);
+              consumerSocket.off("relay:conversation.started", onStarted);
+              resolve(payload as { success: false; error: { code?: string; statusCode?: number } });
+            }
+          };
+
+          consumerSocket.on("relay:conversation.started", onStarted);
+        });
+
+        const attempts = env.socketRelayRateLimitMaxConversationStarts + 3;
+        for (let i = 0; i < attempts; i += 1) {
+          consumerSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        }
+
+        const rejected = await rateLimitedPromise;
+        expect(rejected.error.code).toBe("RATE_LIMITED");
+        expect(rejected.error.statusCode).toBe(429);
       } finally {
         agentSocket.disconnect();
         consumerSocket.disconnect();

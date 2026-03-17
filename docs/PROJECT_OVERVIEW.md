@@ -107,6 +107,8 @@ No projeto atual, a base HTTP inclui:
 - `GET /api/v1/health`
 - `GET /api/v1/health/live`
 - `GET /api/v1/health/ready`
+- `GET /metrics` - metricas operacionais no formato Prometheus
+- `GET /api/v1/metrics` - mesmo payload de metricas sob prefixo da API
 - `GET /api/v1/agents` - lista agentes registrados no namespace `/agents` (requer Bearer token); em dev inclui `_diagnostic.socketConnectionsInAgentsNamespace` para debug
 - `POST /api/v1/agents/commands` - proxy de comandos JSON-RPC ao agente (ver `docs/api_rest_bridge.md`)
 
@@ -290,9 +292,12 @@ O projeto ja possui:
 - circuit breaker por agente para requests Socket
 - backpressure reforcado no relay com creditos de pull e buffer limitado
 - quotas de protecao (conversas, pending requests e streams)
+- rate-limit por consumer para `relay:conversation.start` e `relay:rpc.request`
 - expiracao automatica de conversa por inatividade
 - metricas de relay em memoria com log periodico
 - auditoria Socket com retencao configuravel (default 90 dias)
+- prune de auditoria em lote (batch delete) para reduzir impacto em volume alto
+- shutdown gracioso com aviso aos clientes Socket e drenagem de auditoria pendente
 - mapa de correlacao entre request e response (pending requests no bridge)
 - handlers para `rpc:request_ack`, `rpc:batch_ack`, `rpc:chunk` e `rpc:complete`
 - PayloadFrame binario com compressao GZIP e assinatura opcional
@@ -308,6 +313,7 @@ para 1 agente), sem alterar REST:
 
 - `docs/socket_chat_relay_plan.md`
 - `docs/socket_relay_protocol.md`
+- `docs/socket_client_sdk.md`
 
 ## Resumo
 
