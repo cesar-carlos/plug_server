@@ -1,5 +1,8 @@
 import type { RefreshToken } from "../../domain/entities/refresh_token.entity";
-import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
+import type {
+  ConsumeRefreshTokenStatus,
+  IRefreshTokenRepository,
+} from "../../domain/repositories/refresh_token.repository.interface";
 
 export class InMemoryRefreshTokenRepository implements IRefreshTokenRepository {
   private readonly store = new Map<string, RefreshToken>();
@@ -17,6 +20,28 @@ export class InMemoryRefreshTokenRepository implements IRefreshTokenRepository {
     if (token) {
       this.store.set(id, token.revoke());
     }
+  }
+
+  async consume(id: string, userId: string, now: Date): Promise<ConsumeRefreshTokenStatus> {
+    const token = this.store.get(id);
+    if (!token) {
+      return "not_found";
+    }
+
+    if (token.userId !== userId) {
+      return "user_mismatch";
+    }
+
+    if (token.isRevoked) {
+      return "revoked";
+    }
+
+    if (token.expiresAt <= now) {
+      return "expired";
+    }
+
+    this.store.set(id, token.revoke());
+    return "consumed";
   }
 
   clear(): void {

@@ -8,6 +8,7 @@ const makeTokenRepo = (): IRefreshTokenRepository => ({
   findById: vi.fn(),
   save: vi.fn(),
   revoke: vi.fn(),
+  consume: vi.fn(),
 });
 
 const activeToken = RefreshToken.create({

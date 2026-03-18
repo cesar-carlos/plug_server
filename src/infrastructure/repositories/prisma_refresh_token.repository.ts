@@ -1,7 +1,10 @@
 import type { RefreshToken as PrismaRefreshToken } from "@prisma/client";
 
 import { RefreshToken } from "../../domain/entities/refresh_token.entity";
-import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
+import type {
+  ConsumeRefreshTokenStatus,
+  IRefreshTokenRepository,
+} from "../../domain/repositories/refresh_token.repository.interface";
 import { prismaClient } from "../database/prisma/client";
 
 export class PrismaRefreshTokenRepository implements IRefreshTokenRepository {
@@ -49,6 +52,53 @@ export class PrismaRefreshTokenRepository implements IRefreshTokenRepository {
         revokedAt: new Date(),
       },
     });
+  }
+
+  async consume(id: string, userId: string, now: Date): Promise<ConsumeRefreshTokenStatus> {
+    const consumeResult = await prismaClient.refreshToken.updateMany({
+      where: {
+        id,
+        userId,
+        revokedAt: null,
+        expiresAt: {
+          gt: now,
+        },
+      },
+      data: {
+        revokedAt: now,
+      },
+    });
+
+    if (consumeResult.count === 1) {
+      return "consumed";
+    }
+
+    const token = await prismaClient.refreshToken.findUnique({
+      where: { id },
+      select: {
+        userId: true,
+        revokedAt: true,
+        expiresAt: true,
+      },
+    });
+
+    if (!token) {
+      return "not_found";
+    }
+
+    if (token.userId !== userId) {
+      return "user_mismatch";
+    }
+
+    if (token.revokedAt !== null) {
+      return "revoked";
+    }
+
+    if (token.expiresAt <= now) {
+      return "expired";
+    }
+
+    return "revoked";
   }
 
   private toDomain(token: PrismaRefreshToken): RefreshToken {

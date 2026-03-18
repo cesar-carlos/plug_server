@@ -30,11 +30,19 @@ export const listConnectedAgents = (_request: Request, response: Response): void
 };
 
 export const proxyCommandToAgent = async (
-  _request: Request,
+  request: Request,
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<AgentCommandBody>(response, "body");
+  const abortController = new AbortController();
+  const abortOnClientDisconnect = (): void => {
+    if (!response.writableEnded && !abortController.signal.aborted) {
+      abortController.abort();
+    }
+  };
+  request.on("aborted", abortOnClientDisconnect);
+  response.on("close", abortOnClientDisconnect);
 
   try {
     const result = await executeAgentCommand(
@@ -43,10 +51,25 @@ export const proxyCommandToAgent = async (
         command: body.command,
         ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),
         ...(body.pagination !== undefined ? { pagination: body.pagination } : {}),
+        signal: abortController.signal,
       },
       dispatchRpcCommandToAgent,
       normalizeAgentRpcResponse,
     );
+
+    if ("notification" in result && result.notification) {
+      response.status(202).json({
+        mode: "bridge",
+        agentId: body.agentId,
+        requestId: result.requestId,
+        notification: true,
+        acceptedCommands: result.acceptedCommands,
+      });
+      return;
+    }
+    if (!("response" in result)) {
+      throw new Error("Invalid command result: missing response payload");
+    }
 
     response.status(200).json({
       mode: "bridge",
@@ -56,5 +79,8 @@ export const proxyCommandToAgent = async (
     });
   } catch (error: unknown) {
     next(error);
+  } finally {
+    request.off("aborted", abortOnClientDisconnect);
+    response.off("close", abortOnClientDisconnect);
   }
 };

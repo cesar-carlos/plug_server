@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { getHealth, getHealthLive, getHealthReady } from "../controllers/health.controller";
 import { getMetrics } from "../controllers/metrics.controller";
+import { requireAuth } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { healthQuerySchema } from "../validators/health.validator";
 import { agentsRouter } from "./agents.routes";
@@ -36,7 +37,27 @@ httpRouter.get("/ping", (_request, response) => {
   response.status(200).json({ message: "pong" });
 });
 
-httpRouter.get("/metrics", getMetrics);
+/**
+ * @openapi
+ * /metrics:
+ *   get:
+ *     summary: Prometheus metrics
+ *     description: Returns application metrics in Prometheus text format.
+ *     tags:
+ *       - Health
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Metrics payload
+ *         content:
+ *           text/plain:
+ *             schema:
+ *               type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+httpRouter.get("/metrics", requireAuth, getMetrics);
 
 /**
  * @openapi

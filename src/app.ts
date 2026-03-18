@@ -7,6 +7,7 @@ import morgan from "morgan";
 import { setupSwagger } from "./presentation/docs/swagger";
 import { errorMiddleware } from "./presentation/http/middlewares/error.middleware";
 import { getMetrics } from "./presentation/http/controllers/metrics.controller";
+import { requireAuth } from "./presentation/http/middlewares/auth.middleware";
 import {
   authRateLimit,
   globalRateLimit,
@@ -43,7 +44,7 @@ export const createApp = (): Express => {
   app.use(express.urlencoded({ extended: true, limit: env.requestBodyLimit }));
   app.use(cookieParser());
 
-  app.get("/metrics", getMetrics);
+  app.get("/metrics", requireAuth, getMetrics);
 
   app.use("/auth", authRateLimit);
   app.use("/auth", authRouter);

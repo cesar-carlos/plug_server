@@ -9,16 +9,34 @@ export interface RegisteredAgent {
 
 class InMemoryAgentRegistry {
   private readonly agents = new Map<string, RegisteredAgent>();
+  private readonly agentIdBySocketId = new Map<string, string>();
   private readonly knownAgentIds = new Set<string>();
+  private readonly ownerByAgentId = new Map<string, string>();
 
   upsert(input: {
     readonly agentId: string;
     readonly socketId: string;
     readonly userId: string | null;
     readonly capabilities: Record<string, unknown>;
-  }): RegisteredAgent {
+  }): { ok: true; agent: RegisteredAgent } | { ok: false; reason: "OWNED_BY_ANOTHER_USER" } {
+    const ownerUserId = this.ownerByAgentId.get(input.agentId);
+    if (
+      typeof ownerUserId === "string" &&
+      ownerUserId !== "" &&
+      (!input.userId || input.userId !== ownerUserId)
+    ) {
+      return { ok: false, reason: "OWNED_BY_ANOTHER_USER" };
+    }
+
+    if (!ownerUserId && input.userId) {
+      this.ownerByAgentId.set(input.agentId, input.userId);
+    }
+
     const now = new Date().toISOString();
     const existing = this.agents.get(input.agentId);
+    if (existing && existing.socketId !== input.socketId) {
+      this.agentIdBySocketId.delete(existing.socketId);
+    }
 
     const agent: RegisteredAgent = {
       agentId: input.agentId,
@@ -31,7 +49,8 @@ class InMemoryAgentRegistry {
 
     this.knownAgentIds.add(input.agentId);
     this.agents.set(input.agentId, agent);
-    return agent;
+    this.agentIdBySocketId.set(input.socketId, input.agentId);
+    return { ok: true, agent };
   }
 
   touch(agentId: string): RegisteredAgent | null {
@@ -49,14 +68,19 @@ class InMemoryAgentRegistry {
   }
 
   removeBySocketId(socketId: string): RegisteredAgent | null {
-    for (const [agentId, agent] of this.agents.entries()) {
-      if (agent.socketId === socketId) {
-        this.agents.delete(agentId);
-        return agent;
-      }
+    const agentId = this.agentIdBySocketId.get(socketId);
+    if (!agentId) {
+      return null;
     }
 
-    return null;
+    this.agentIdBySocketId.delete(socketId);
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      return null;
+    }
+
+    this.agents.delete(agentId);
+    return agent;
   }
 
   listAll(): readonly RegisteredAgent[] {
@@ -73,7 +97,9 @@ class InMemoryAgentRegistry {
 
   clear(): void {
     this.agents.clear();
+    this.agentIdBySocketId.clear();
     this.knownAgentIds.clear();
+    this.ownerByAgentId.clear();
   }
 }
 

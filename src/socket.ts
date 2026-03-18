@@ -14,6 +14,7 @@ import {
   cleanupAgentStreamSubscriptions,
   cleanupConversationStreamSubscriptions,
   cleanupConsumerStreamSubscriptions,
+  cleanupPendingRequestsForAgentSocket,
   getRelayMetricsSnapshot,
   handleAgentBatchAck,
   handleAgentRpcAck,
@@ -256,12 +257,16 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
       socket.data.agentId = agentId;
       socket.data.capabilities = capabilities;
-      agentRegistry.upsert({
+      const registration = agentRegistry.upsert({
         agentId,
         socketId: socket.id,
         userId: getUserId(socket),
         capabilities,
       });
+      if (!registration.ok) {
+        emitAppError(socket, "agent:register denied because this agentId belongs to another user");
+        return;
+      }
 
       logger.info("Agent registered on hub", {
         socketId: socket.id,
@@ -334,6 +339,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on("disconnect", () => {
+      const cleanedPendingRequests = cleanupPendingRequestsForAgentSocket(socket.id);
       cleanupAgentStreamSubscriptions(socket.id);
       const endedConversations = conversationRegistry.removeByAgentSocketId(socket.id);
       for (const conversation of endedConversations) {
@@ -352,6 +358,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           socketId: socket.id,
           agentId: removedAgent.agentId,
           userId: removedAgent.userId,
+          cleanedPendingRequests,
         });
       }
     });

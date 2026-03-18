@@ -92,7 +92,7 @@ O token e validado por `requireAuth` antes de qualquer processamento.
 | Campo        | Tipo   | Obrigatorio | Restricoes         | Descricao                                      |
 | ------------ | ------ | ----------- | ------------------ | ---------------------------------------------- |
 | `agentId`    | string | sim         | nao vazio          | UUID do agente conectado                        |
-| `command`    | object | sim         | JSON-RPC 2.0       | Comando a enviar ao agente (ver abaixo)         |
+| `command`    | object \| array | sim | JSON-RPC 2.0       | Comando unico ou batch JSON-RPC (max 32)         |
 | `timeoutMs`  | number | nao         | 1..60000           | Timeout em ms para aguardar resposta do agente  |
 | `pagination` | object | nao         | regras combinadas  | Paginacao injetada em `command.params.options`   |
 
@@ -103,16 +103,19 @@ de `params`.
 
 #### Campos comuns a todos os metodos
 
-| Campo     | Tipo             | Obrigatorio | Default  | Descricao                          |
-| --------- | ---------------- | ----------- | -------- | ---------------------------------- |
-| `jsonrpc` | `"2.0"`          | nao         | `"2.0"`  | Versao do protocolo                |
-| `method`  | string           | sim         | -        | Metodo RPC (ver metodos abaixo)    |
-| `id`      | string \| number | nao         | auto-gen | Identificador do request           |
-| `meta`    | object           | nao         | -        | Metadados de rastreabilidade       |
+| Campo     | Tipo                    | Obrigatorio | Default | Descricao                          |
+| --------- | ----------------------- | ----------- | ------- | ---------------------------------- |
+| `jsonrpc` | `"2.0"`                 | nao         | `"2.0"` | Versao do protocolo                |
+| `method`  | string                  | sim         | -       | Metodo RPC (ver metodos abaixo)    |
+| `id`      | string \| number \| null | nao        | -       | Identificador do request           |
+| `meta`    | object                  | nao         | -       | Metadados de rastreabilidade       |
 
-Quando `id` nao e informado, o bridge gera um UUID automaticamente. O `meta`
-enviado pelo cliente (ex.: `traceparent`, `tracestate`) e preservado via merge;
-o bridge adiciona `request_id`, `agent_id`, `timestamp` e `trace_id`.
+Sem `id` (ou com `id: null`), o item e tratado como **notification**:
+o servidor encaminha ao agente, mas nao aguarda `rpc:response`. Quando todos os
+itens do payload sao notifications, a rota retorna HTTP `202 Accepted`.
+
+O `meta` enviado pelo cliente (ex.: `traceparent`, `tracestate`) e preservado
+via merge; o bridge adiciona `request_id`, `agent_id`, `timestamp` e `trace_id`.
 
 ---
 
@@ -134,7 +137,7 @@ Executa um comando SQL no agente.
 | `options`      | object | nao         | Opcoes de execucao (ver tabela abaixo)                                  |
 
 Token de autorizacao: pelo menos um entre `client_token`, `clientToken` ou
-`auth` e obrigatorio.
+`auth` e obrigatorio quando `enableClientTokenAuthorization` estiver ativo no agente.
 
 #### `command.params.options`
 
@@ -152,15 +155,14 @@ Regras de combinacao:
 - `cursor` nao pode ser combinado com `page`/`page_size`.
 - `multi_result: true` nao pode ser combinado com paginacao nem `params`.
 
-#### Campos passthrough aceitos pelo agente
+#### Campos opcionais validados e encaminhados ao agente
 
 | Campo             | Tipo   | Obrigatorio | Descricao                                                  |
 | ----------------- | ------ | ----------- | ---------------------------------------------------------- |
 | `idempotency_key` | string | nao         | Chave de deduplicacao (TTL 5min quando feature flag ativo) |
 | `database`        | string | nao         | Override de database/DSN alvo                              |
 
-Esses campos passam pelo servidor sem validacao explicita (`.passthrough()`) e
-sao validados pelo agente.
+Esses campos sao validados no bridge REST e encaminhados ao agente.
 
 ---
 
@@ -184,6 +186,7 @@ Executa multiplos comandos SQL em sequencia.
 | -------- | ------ | ----------- | -------------------------------------- |
 | `sql`    | string | sim         | Comando SQL                            |
 | `params` | object | nao         | Parametros nomeados para o comando SQL |
+| `execution_order` | integer | nao | Ordem explicita de execucao (>= 0). Itens com `execution_order` executam antes dos itens sem ordem, em ordem crescente |
 
 #### `command.params.options`
 
@@ -193,7 +196,7 @@ Executa multiplos comandos SQL em sequencia.
 | `max_rows`    | integer | nao         | Maximo de linhas por comando                  |
 | `transaction` | boolean | nao         | Envolve os comandos em uma transacao unica    |
 
-#### Campos passthrough aceitos pelo agente
+#### Campos opcionais validados e encaminhados ao agente
 
 | Campo             | Tipo   | Obrigatorio | Descricao                        |
 | ----------------- | ------ | ----------- | -------------------------------- |
@@ -228,6 +231,56 @@ Retorna o documento OpenRPC do agente com o catalogo de metodos suportados.
 | (any) | object | nao         | Parametros livres (opcional) |
 
 Nao requer token de autorizacao.
+
+---
+
+## Batch JSON-RPC nativo (array em `command`)
+
+Alem do metodo `sql.executeBatch` (batch semantico do agente), a rota tambem
+aceita **batch JSON-RPC nativo** no campo `command` (array de requests).
+
+Regras:
+- min 1 item, max 32 itens.
+- IDs devem ser unicos (desconsiderando notifications).
+- Itens sem `id` (ou `id: null`) sao notifications e nao geram item na response.
+- Batch com pelo menos um item com `id` retorna HTTP 200 com `response.type = "batch"`.
+- Batch somente com notifications retorna HTTP 202.
+
+### Exemplo de batch JSON-RPC misto
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": [
+    {
+      "jsonrpc": "2.0",
+      "method": "sql.execute",
+      "id": "q1",
+      "params": {
+        "sql": "SELECT 1",
+        "client_token": "a1b2c3d4e5f6"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "sql.execute",
+      "params": {
+        "sql": "INSERT INTO logs (msg) VALUES ('ok')",
+        "client_token": "a1b2c3d4e5f6"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "sql.execute",
+      "id": "q2",
+      "params": {
+        "sql": "SELECT 2",
+        "client_token": "a1b2c3d4e5f6"
+      }
+    }
+  ]
+}
+```
 
 ---
 
@@ -266,6 +319,28 @@ Regras:
     "params": {
       "sql": "SELECT * FROM users WHERE id = :id",
       "params": { "id": 1 },
+      "client_token": "a1b2c3d4e5f6"
+    }
+  }
+}
+```
+
+### sql.execute com `api_version` e `meta`
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-meta-001",
+    "api_version": "2.4",
+    "meta": {
+      "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+      "tracestate": "vendor=value"
+    },
+    "params": {
+      "sql": "SELECT 1",
       "client_token": "a1b2c3d4e5f6"
     }
   }
@@ -363,7 +438,7 @@ Regras:
     "id": "batch-001",
     "params": {
       "commands": [
-        { "sql": "SELECT * FROM users" },
+        { "sql": "SELECT * FROM users", "execution_order": 0 },
         { "sql": "SELECT COUNT(*) AS total FROM orders" }
       ],
       "client_token": "a1b2c3d4e5f6",
@@ -436,6 +511,21 @@ Regras:
       }
     }
   }
+}
+```
+
+### Notification aceita (202)
+
+Quando o payload contem apenas notifications (todos os itens sem `id` ou com
+`id: null`), o bridge nao aguarda `rpc:response` e retorna:
+
+```json
+{
+  "mode": "bridge",
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "requestId": "95dd8edc-ceec-4541-b98d-fec17d61f32e",
+  "notification": true,
+  "acceptedCommands": 1
 }
 ```
 
@@ -575,8 +665,23 @@ O HTTP retorna 200 porque o proxy funcionou. O erro e indicado dentro de
 | 400    | Body invalido / validacao falhou          | `validateRequest` rejeitou o payload       |
 | 401    | Token ausente ou invalido                 | `requireAuth` rejeitou a autenticacao      |
 | 404    | Agente nunca registrado                   | `agentId` desconhecido                     |
-| 422    | Erro de validacao Zod                     | Schema mismatch detalhado                  |
-| 503    | Agente desconectado / timeout / bridge    | Agente offline ou nao respondeu a tempo    |
+| 400    | Erro de validacao Zod                     | Schema mismatch detalhado                  |
+| 503    | Agente desconectado / timeout / overload  | Agente offline, nao respondeu a tempo ou fila do agente saturada |
+
+Quando o `503` for causado por overload (fila cheia ou espera em fila expirada),
+o servidor inclui:
+
+- Header `Retry-After` (segundos)
+- `details.retry_after_ms` no body (ambiente nao-producao)
+
+### Controles de overload REST por agente
+
+| Variavel                              | Default | Descricao |
+| ------------------------------------- | ------- | --------- |
+| `SOCKET_REST_MAX_PENDING_REQUESTS`    | `10000` | Limite global de requests REST correlacionadas pendentes |
+| `SOCKET_REST_AGENT_MAX_INFLIGHT`      | `8`     | Quantas requests simultaneas por `agentId` podem ficar em voo |
+| `SOCKET_REST_AGENT_MAX_QUEUE`         | `16`    | Quantas requests adicionais por `agentId` podem esperar fila |
+| `SOCKET_REST_AGENT_QUEUE_WAIT_MS`     | `150`   | Tempo maximo de espera na fila por agente antes de rejeitar |
 
 ---
 
@@ -734,21 +839,23 @@ com o que a API REST atualmente expoe ao consumer.
 | Token carrier (client_token/clientToken/auth) | implementado | validado     | -                                        |
 | Paginacao (page/page_size)                 | implementado  | exposto         | -                                        |
 | Paginacao (cursor keyset)                  | implementado  | exposto         | -                                        |
-| `multi_result` (multiplos result sets)     | implementado  | passthrough     | -                                        |
-| `idempotency_key`                          | implementado  | passthrough     | -                                        |
-| `database` (override DSN)                  | implementado  | passthrough     | -                                        |
-| `options.timeout_ms` / `options.max_rows`  | implementado  | passthrough     | -                                        |
-| `options.transaction` (batch)              | implementado  | passthrough     | -                                        |
+| `multi_result` (multiplos result sets)     | implementado  | validado        | -                                        |
+| `idempotency_key`                          | implementado  | validado        | -                                        |
+| `database` (override DSN)                  | implementado  | validado        | -                                        |
+| `options.timeout_ms` / `options.max_rows`  | implementado  | validado        | -                                        |
+| `options.transaction` (batch)              | implementado  | validado        | -                                        |
 | `api_version` no request                   | implementado  | exposto         | hub injeta `api_version: "2.4"` e faz merge de `meta` |
 | `meta` no request (trace_id, traceparent)  | implementado  | exposto         | hub faz merge preservando traceparent/tracestate; injeta request_id, agent_id, timestamp, trace_id |
 | `api_version` na response                  | implementado  | exposto         | serializer preserva `api_version` e `meta` do agente |
 | `meta` na response (agent_id, timestamp)   | implementado  | exposto         | serializer preserva `meta` do agente     |
-| Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 422    |
+| Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 400    |
+| Capacidade de pendencias REST              | implementado  | validado        | limite global (`SOCKET_REST_MAX_PENDING_REQUESTS`) + limite/fila por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `SOCKET_REST_AGENT_MAX_QUEUE`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`) com `Retry-After` em overload |
 | Streaming chunked (`rpc:chunk`/`rpc:complete`) | implementado | **nao suportado** | na rota REST nao ha repasse de chunks; no Socket /consumers ha repasse via legado (`agents:command_stream_chunk`) e relay (`relay:rpc.chunk`) |
 | Backpressure (`rpc:stream.pull`)           | implementado  | **nao suportado** | na rota REST nao existe pull; no Socket /consumers existe legado (`agents:stream_pull`) e relay (`relay:rpc.stream.pull`) |
 | Delivery guarantee (`rpc:request_ack`)     | implementado  | exposto         | hub registra ack e marca `acked` no pending request |
 | Batch ack (`rpc:batch_ack`)                | implementado  | exposto         | hub registra acks para cada request_id do batch |
-| Notification JSON-RPC (request sem `id`)   | implementado  | **nao suportado** | limitacao documentada; bridge exige `id` para correlacao |
+| Notification JSON-RPC (request sem `id`)   | implementado  | exposto         | payload somente notification retorna 202 e nao aguarda response |
+| Falha rapida em disconnect do agente       | implementado  | exposto         | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout |
 | Heartbeat (`agent:heartbeat`)              | implementado  | transparente    | -                                        |
 | Capabilities negotiation                   | implementado  | transparente    | -                                        |
 
@@ -766,17 +873,35 @@ e compartilhado entre o payload logico e o `PayloadFrame` para correlacao.
 e `meta` do agente e propaga para o nivel da response HTTP em respostas single.
 
 **3. Batch max 32** -- O validator rejeita batches com mais de 32 comandos
-com mensagem `"Batch cannot exceed 32 commands"` (422).
+com mensagem `"Batch cannot exceed 32 commands"` (400).
 
-**6. Delivery guarantee acks** -- O hub registra handlers para `rpc:request_ack`
+**4. Delivery guarantee acks** -- O hub registra handlers para `rpc:request_ack`
 e `rpc:batch_ack`, marcando `acked: true` no pending request. Logs estruturados
 sao emitidos: `rpc_ack_received`, `rpc_batch_ack_received`,
 `rpc_response_received_without_ack` e `rpc_timeout_without_ack` para
 observabilidade.
 
+**5. Notification JSON-RPC** -- Requests sem `id` (ou com `id: null`) sao
+tratados como notifications. O bridge nao cria pending request para payloads
+somente notification e retorna HTTP `202 Accepted` com `notification: true`.
+Em batch misto, apenas itens com `id` participam da correlacao da response.
+
+**6. Overload por agente + `Retry-After`** -- Alem do limite global de
+pendencias REST, o bridge aplica limite de inflight/fila por `agentId`. Quando
+a fila esta cheia (ou expira o tempo de espera), o endpoint retorna `503` com
+`Retry-After` e `details.retry_after_ms` (em nao-producao).
+
+**7. Cancelamento por abort do cliente HTTP** -- Se o cliente aborta a conexao
+antes da resposta do agente, o bridge remove imediatamente a pending request e
+encerra o fluxo sem manter correlacao pendurada.
+
+**8. Observabilidade de frames malformados** -- Falhas de decode de
+`PayloadFrame` sao contabilizadas em metrica dedicada e logs amostrados
+(`rpc_frame_decode_failed`) para reduzir ruido sob flood de payload invalido.
+
 #### Limitacoes documentadas (nao implementadas)
 
-**4. Streaming via REST** -- Os eventos `rpc:chunk`, `rpc:complete` e
+**1. Streaming via REST** -- Os eventos `rpc:chunk`, `rpc:complete` e
 `rpc:stream.pull` nao sao expostos no endpoint HTTP `POST /api/v1/agents/commands`.
 A rota REST permanece em modo request/response unico. Resultados grandes enviados
 via streaming pelo agente nao sao entregues ao cliente HTTP em tempo real.
@@ -789,9 +914,16 @@ No modo relay (`relay:*`), o hub tambem encaminha `rpc:response`, `rpc:chunk`,
 `rpc:complete`, `rpc:request_ack`, `rpc:batch_ack` e `rpc:stream.pull` com
 isolamento por `conversationId`.
 
-**5. Notification JSON-RPC** -- O bridge sempre gera `id` quando ausente e
-registra pending request. Fire-and-forget (requests sem `id`) nao e suportado
-via REST.
+## Checklist final de gaps REST (intencionais)
+
+- [ ] **Streaming em tempo real no endpoint REST** (`rpc:chunk` e `rpc:complete`):
+  continua fora do escopo REST; suportado no canal Socket (`/consumers`).
+- [ ] **Backpressure/pull no endpoint REST** (`rpc:stream.pull`):
+  continua fora do escopo REST; suportado no canal Socket (`/consumers`).
+- [ ] **Coordenacao de estado pendente entre replicas HTTP sem afinidade**:
+  arquitetura atual usa estado em memoria para correlacao (sem Redis/sticky),
+  logo o caminho recomendado segue single-instance ou afinidade de sessao quando
+  houver multiplas replicas.
 
 ---
 

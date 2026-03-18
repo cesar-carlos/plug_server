@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { RefreshToken } from "../../../../src/domain/entities/refresh_token.entity";
 import { User } from "../../../../src/domain/entities/user.entity";
 import type { IRefreshTokenRepository } from "../../../../src/domain/repositories/refresh_token.repository.interface";
 import type { IUserRepository } from "../../../../src/domain/repositories/user.repository.interface";
@@ -16,15 +15,10 @@ const makeTokenRepo = (): IRefreshTokenRepository => ({
   findById: vi.fn(),
   save: vi.fn(),
   revoke: vi.fn(),
+  consume: vi.fn(),
 });
 
 const testUser = User.create({ email: "user@test.com", passwordHash: "hash", role: "user" });
-
-const validToken = RefreshToken.create({
-  id: "token-id-1",
-  userId: testUser.id,
-  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-});
 
 describe("RefreshTokenUseCase", () => {
   let userRepository: IUserRepository;
@@ -38,19 +32,22 @@ describe("RefreshTokenUseCase", () => {
   });
 
   it("should return the user and revoke the old token on success", async () => {
-    vi.mocked(refreshTokenRepository.findById).mockResolvedValue(validToken);
+    vi.mocked(refreshTokenRepository.consume).mockResolvedValue("consumed");
     vi.mocked(userRepository.findById).mockResolvedValue(testUser);
-    vi.mocked(refreshTokenRepository.revoke).mockResolvedValue();
 
-    const result = await useCase.execute({ tokenId: validToken.id, userId: testUser.id });
+    const result = await useCase.execute({ tokenId: "token-id-1", userId: testUser.id });
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.id).toBe(testUser.id);
-    expect(refreshTokenRepository.revoke).toHaveBeenCalledWith(validToken.id);
+    expect(refreshTokenRepository.consume).toHaveBeenCalledWith(
+      "token-id-1",
+      testUser.id,
+      expect.any(Date),
+    );
   });
 
   it("should return error when token is not found", async () => {
-    vi.mocked(refreshTokenRepository.findById).mockResolvedValue(null);
+    vi.mocked(refreshTokenRepository.consume).mockResolvedValue("not_found");
 
     const result = await useCase.execute({ tokenId: "missing", userId: testUser.id });
 
@@ -59,33 +56,27 @@ describe("RefreshTokenUseCase", () => {
   });
 
   it("should return error when token userId does not match", async () => {
-    vi.mocked(refreshTokenRepository.findById).mockResolvedValue(validToken);
+    vi.mocked(refreshTokenRepository.consume).mockResolvedValue("user_mismatch");
 
-    const result = await useCase.execute({ tokenId: validToken.id, userId: "different-user" });
+    const result = await useCase.execute({ tokenId: "token-id-1", userId: "different-user" });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.statusCode).toBe(401);
   });
 
   it("should return error when token is revoked", async () => {
-    const revokedToken = validToken.revoke();
-    vi.mocked(refreshTokenRepository.findById).mockResolvedValue(revokedToken);
+    vi.mocked(refreshTokenRepository.consume).mockResolvedValue("revoked");
 
-    const result = await useCase.execute({ tokenId: revokedToken.id, userId: testUser.id });
+    const result = await useCase.execute({ tokenId: "token-id-1", userId: testUser.id });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain("revoked");
   });
 
   it("should return error when token is expired", async () => {
-    const expiredToken = RefreshToken.create({
-      id: "expired-id",
-      userId: testUser.id,
-      expiresAt: new Date(Date.now() - 1000),
-    });
-    vi.mocked(refreshTokenRepository.findById).mockResolvedValue(expiredToken);
+    vi.mocked(refreshTokenRepository.consume).mockResolvedValue("expired");
 
-    const result = await useCase.execute({ tokenId: expiredToken.id, userId: testUser.id });
+    const result = await useCase.execute({ tokenId: "expired-id", userId: testUser.id });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain("expired");

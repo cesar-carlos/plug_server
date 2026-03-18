@@ -7,14 +7,14 @@ import type { AgentCommandBody } from "../../shared/validators/agent_command";
 import { isRecord } from "../../shared/utils/rpc_types";
 
 export const applyPaginationToCommand = (
-  command: Record<string, unknown>,
+  command: AgentCommandBody["command"],
   pagination: AgentCommandBody["pagination"],
-): Record<string, unknown> => {
-  if (!pagination) {
+): AgentCommandBody["command"] => {
+  if (!pagination || Array.isArray(command) || command.method !== "sql.execute") {
     return command;
   }
 
-  const currentParams = isRecord(command.params) ? command.params : {};
+  const currentParams = command.params;
   const currentOptions = isRecord(currentParams.options) ? currentParams.options : {};
 
   const paginationOptions =

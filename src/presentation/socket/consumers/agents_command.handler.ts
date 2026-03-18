@@ -69,6 +69,22 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     normalizeAgentRpcResponse,
   )
     .then((result) => {
+      if ("notification" in result && result.notification) {
+        emitCommandResponse(socket, {
+          success: true,
+          requestId: result.requestId,
+          response: {
+            type: "notification",
+            accepted: true,
+            acceptedCommands: result.acceptedCommands,
+          },
+        });
+        return;
+      }
+      if (!("response" in result)) {
+        throw new Error("Invalid command result: missing response payload");
+      }
+
       const normalizedResponse = result.response;
       const streamId = isRecord(normalizedResponse)
         ? (() => {

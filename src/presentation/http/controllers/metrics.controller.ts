@@ -44,7 +44,10 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_relay_stream_pulls_total", relay.counters.streamPulls));
   lines.push(metricLine("plug_socket_relay_request_timeouts_total", relay.counters.requestTimeouts));
   lines.push(metricLine("plug_socket_relay_circuit_open_rejects_total", relay.counters.circuitOpenRejects));
+  lines.push(metricLine("plug_socket_relay_rest_pending_rejected_total", relay.counters.restPendingRejected));
+  lines.push(metricLine("plug_socket_relay_rpc_frame_decode_failed_total", relay.counters.rpcFrameDecodeFailed));
   lines.push(metricLine("plug_socket_relay_pending_requests", relay.gauges.pendingRelayRequests));
+  lines.push(metricLine("plug_socket_relay_rest_pending_requests", relay.gauges.pendingRestRequests));
   lines.push(metricLine("plug_socket_relay_active_streams", relay.gauges.activeStreams));
   lines.push(metricLine("plug_socket_relay_buffered_chunks", relay.gauges.bufferedChunks));
   lines.push(metricLine("plug_socket_relay_open_circuits", relay.gauges.openCircuits));
@@ -62,6 +65,16 @@ export const getMetrics = (_request: Request, response: Response): void => {
     );
     lines.push(
       metricLine("plug_socket_relay_agent_latency_max_ms", latency.maxMs, {
+        agent_id: latency.agentId,
+      }),
+    );
+    lines.push(
+      metricLine("plug_socket_relay_agent_latency_p95_ms", latency.p95Ms, {
+        agent_id: latency.agentId,
+      }),
+    );
+    lines.push(
+      metricLine("plug_socket_relay_agent_latency_p99_ms", latency.p99Ms, {
         agent_id: latency.agentId,
       }),
     );
@@ -100,4 +113,3 @@ export const getMetrics = (_request: Request, response: Response): void => {
   response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
   response.status(200).send(`${lines.join("\n")}\n`);
 };
-

@@ -16,21 +16,24 @@ export class RefreshTokenUseCase {
   ) {}
 
   async execute(input: RefreshTokenInput): Promise<Result<User>> {
-    const token = await this.refreshTokenRepository.findById(input.tokenId);
-
-    if (!token) {
+    const consumeStatus = await this.refreshTokenRepository.consume(
+      input.tokenId,
+      input.userId,
+      new Date(),
+    );
+    if (consumeStatus === "not_found") {
       return err(invalidToken("Refresh token not found"));
     }
 
-    if (token.userId !== input.userId) {
+    if (consumeStatus === "user_mismatch") {
       return err(invalidToken("Refresh token does not belong to this user"));
     }
 
-    if (token.isRevoked) {
+    if (consumeStatus === "revoked") {
       return err(invalidToken("Refresh token has been revoked"));
     }
 
-    if (token.isExpired) {
+    if (consumeStatus === "expired") {
       return err(invalidToken("Refresh token has expired"));
     }
 
@@ -38,8 +41,6 @@ export class RefreshTokenUseCase {
     if (!user) {
       return err(notFound("User"));
     }
-
-    await this.refreshTokenRepository.revoke(token.id);
 
     return ok(user);
   }

@@ -71,12 +71,29 @@ describe("GET /api/v1/health", () => {
     });
   });
 
-  it("should expose metrics in prometheus text format", async () => {
+  it("should require auth to access metrics", async () => {
     const response = await request(app).get("/metrics");
+    expect(response.status).toBe(401);
+  });
+
+  it("should expose metrics in prometheus text format", async () => {
+    const registerResponse = await request(app).post("/api/v1/auth/register").send({
+      email: `metrics-${Date.now()}@test.com`,
+      password: "MetricsTest1",
+    });
+    expect(registerResponse.status).toBe(201);
+    const accessToken = registerResponse.body.accessToken as string;
+
+    const response = await request(app)
+      .get("/metrics")
+      .set("Authorization", `Bearer ${accessToken}`);
 
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toContain("text/plain");
     expect(response.text).toContain("plug_socket_relay_requests_accepted_total");
+    expect(response.text).toContain("plug_socket_relay_rest_pending_rejected_total");
+    expect(response.text).toContain("plug_socket_relay_rpc_frame_decode_failed_total");
+    expect(response.text).toContain("plug_socket_relay_rest_pending_requests");
     expect(response.text).toContain("plug_socket_relay_rate_limit_request_rejected_total");
     expect(response.text).toContain("plug_socket_audit_prune_runs_total");
   });

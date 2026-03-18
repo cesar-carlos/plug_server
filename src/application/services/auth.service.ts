@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 
 import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
+import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { User } from "../../domain/entities/user.entity";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
 import type { ChangePasswordUseCase } from "../../domain/use_cases/change_password.use_case";
@@ -10,6 +11,7 @@ import type { LogoutUseCase } from "../../domain/use_cases/logout.use_case";
 import type { RefreshTokenUseCase } from "../../domain/use_cases/refresh_token.use_case";
 import type { RegisterUseCase } from "../../domain/use_cases/register.use_case";
 import { env } from "../../shared/config/env";
+import { forbidden } from "../../shared/errors/http_errors";
 import { type Result, ok } from "../../shared/errors/result";
 import { parseExpiryToDate } from "../../shared/utils/date";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
@@ -51,6 +53,7 @@ export class AuthService {
     private readonly logoutUseCase: LogoutUseCase,
     private readonly passwordHasher: IPasswordHasher,
     private readonly refreshTokenRepository: IRefreshTokenRepository,
+    private readonly agentIdentityRepository: IAgentIdentityRepository,
   ) {}
 
   async register(input: RegisterServiceInput): Promise<Result<AuthResponseDto>> {
@@ -80,6 +83,9 @@ export class AuthService {
       plainPassword: input.password,
     });
     if (!result.ok) return result;
+
+    const ownership = await this.ensureAgentOwnership(input.agentId, result.value.id);
+    if (!ownership.ok) return ownership;
 
     const tokens = await this.issueAgentTokens(result.value, input.agentId);
     return ok({
@@ -169,5 +175,25 @@ export class AuthService {
 
   private toUserDto(user: User): AuthUserDto {
     return { id: user.id, email: user.email, role: user.role };
+  }
+
+  private async ensureAgentOwnership(agentId: string, userId: string): Promise<Result<void>> {
+    const ownerUserId = await this.agentIdentityRepository.findOwnerUserId(agentId);
+    if (ownerUserId && ownerUserId !== userId) {
+      return {
+        ok: false,
+        error: forbidden("Agent id is already linked to another user"),
+      };
+    }
+
+    const bindStatus = await this.agentIdentityRepository.bindIfUnbound(agentId, userId);
+    if (bindStatus === "bound_to_other_user") {
+      return {
+        ok: false,
+        error: forbidden("Agent id is already linked to another user"),
+      };
+    }
+
+    return ok(undefined);
   }
 }

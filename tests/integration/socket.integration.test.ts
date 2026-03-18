@@ -276,6 +276,7 @@ describe("Socket namespaces", () => {
           command: {
             jsonrpc: "2.0",
             method: "sql.execute",
+            id: "stream-request-1",
             params: {
               sql: "SELECT * FROM users ORDER BY id",
               client_token: "token-value",

@@ -26,6 +26,18 @@ export const errorMiddleware = (
   }
 
   if (error instanceof AppError) {
+    if (
+      (error.statusCode === 503 || error.statusCode === 429) &&
+      typeof error.details === "object" &&
+      error.details !== null &&
+      "retry_after_ms" in error.details
+    ) {
+      const retryAfterMs = (error.details as Record<string, unknown>).retry_after_ms;
+      if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+        response.setHeader("Retry-After", Math.max(1, Math.ceil(retryAfterMs / 1000)).toString());
+      }
+    }
+
     if (error.statusCode >= 500) {
       logger.error(error.message, { requestId, code: error.code, details: error.details });
     }

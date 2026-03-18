@@ -4,7 +4,12 @@ import type { Namespace } from "socket.io";
 
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { env } from "../../../shared/config/env";
+import { AppError } from "../../../shared/errors/app_error";
 import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
+import type {
+  BridgeBatchCommand,
+  BridgeCommand,
+} from "../../../shared/validators/agent_command";
 import { logger } from "../../../shared/utils/logger";
 import { toRequestId } from "../../../shared/utils/rpc_types";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -16,9 +21,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 interface PendingRequest {
+  readonly primaryRequestId: string;
+  readonly correlationIds: readonly string[];
   readonly socketId: string;
   readonly agentId: string;
+  readonly createdAtMs: number;
   readonly resolve: (payload: unknown) => void;
+  readonly reject: (error: Error) => void;
   readonly timeoutHandle: NodeJS.Timeout;
   readonly streamHandlers?: StreamEventHandlers;
   acked: boolean;
@@ -45,15 +54,26 @@ interface ActiveStreamRoute {
 
 interface DispatchRpcCommandInput {
   readonly agentId: string;
-  readonly command: Record<string, unknown>;
+  readonly command: BridgeCommand;
   readonly timeoutMs?: number;
   readonly streamHandlers?: StreamEventHandlers;
+  readonly signal?: AbortSignal;
 }
 
-export interface DispatchRpcCommandResult {
+interface DispatchRpcCommandResponseResult {
   readonly requestId: string;
   readonly response: unknown;
 }
+
+interface DispatchRpcCommandNotificationResult {
+  readonly requestId: string;
+  readonly notification: true;
+  readonly acceptedCommands: number;
+}
+
+export type DispatchRpcCommandResult =
+  | DispatchRpcCommandResponseResult
+  | DispatchRpcCommandNotificationResult;
 
 interface RequestAgentStreamPullInput {
   readonly consumerSocketId: string;
@@ -81,10 +101,18 @@ interface RelayRequestRoute {
   timedOut?: boolean;
 }
 
-interface AgentRelayLatencyStats {
+interface AgentLatencyStats {
   count: number;
   totalMs: number;
   maxMs: number;
+  samplesMs: number[];
+}
+
+interface AgentQueueWaiter {
+  readonly resolve: () => void;
+  readonly reject: (error: Error) => void;
+  readonly enqueuedAtMs: number;
+  readonly timeoutHandle: NodeJS.Timeout;
 }
 
 interface DispatchRelayRpcInput {
@@ -118,22 +146,33 @@ const relayMaxTotalBufferedChunks = env.socketRelayMaxTotalBufferedChunks;
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
 const relayCircuitFailureThreshold = env.socketRelayCircuitFailureThreshold;
 const relayCircuitOpenMs = env.socketRelayCircuitOpenMs;
+const restAgentMaxInflight = env.socketRestAgentMaxInflight;
+const restAgentMaxQueue = env.socketRestAgentMaxQueue;
+const restAgentQueueWaitMs = env.socketRestAgentQueueWaitMs;
 let agentsNamespace: Namespace | null = null;
 let consumersNamespace: Namespace | null = null;
 const pendingRequests = new Map<string, PendingRequest>();
+let pendingRequestCount = 0;
+const agentInflightById = new Map<string, number>();
+const agentQueueById = new Map<string, AgentQueueWaiter[]>();
 const activeStreamsByRequestId = new Map<string, ActiveStreamRoute>();
 const activeStreamsByStreamId = new Map<string, ActiveStreamRoute>();
+const activeStreamRequestIdsByConversation = new Map<string, Set<string>>();
 const relayRequestsByRequestId = new Map<string, RelayRequestRoute>();
 const relayIdempotencyByConversation = new Map<
   string,
   Map<string, { requestId: string; expiresAtMs: number; responseFrame?: unknown }>
 >();
+const relayPendingCountByConversation = new Map<string, number>();
+const relayPendingCountByConsumer = new Map<string, number>();
+const relayRequestIdsByConversation = new Map<string, Set<string>>();
 const relayStreamCreditsByRequestId = new Map<string, number>();
 const relayBufferedChunksByRequestId = new Map<string, Record<string, unknown>[]>();
 const relayPendingCompleteByRequestId = new Map<string, Record<string, unknown>>();
 let relayTotalBufferedChunks = 0;
 const relayCircuitByAgentId = new Map<string, { failures: number; openUntilMs: number }>();
-const relayLatencyByAgentId = new Map<string, AgentRelayLatencyStats>();
+const latencySamplesPerAgent = 256;
+const latencyByAgentId = new Map<string, AgentLatencyStats>();
 const relayMetrics = {
   requestsAccepted: 0,
   requestsDeduplicated: 0,
@@ -144,14 +183,243 @@ const relayMetrics = {
   streamPulls: 0,
   requestTimeouts: 0,
   circuitOpenRejects: 0,
+  restPendingRejected: 0,
 };
 let relayMetricsTimer: NodeJS.Timeout | null = null;
+let rpcFrameDecodeFailureCount = 0;
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
 
 const withAppendedMessage = (base: string, extra: string): string =>
   extra.trim() === "" ? base : `${base}. ${extra}`;
+
+const serviceUnavailableWithRetry = (
+  message: string,
+  retryAfterMs: number,
+): AppError => {
+  return new AppError(message, {
+    statusCode: 503,
+    code: "SERVICE_UNAVAILABLE",
+    details: { retry_after_ms: Math.max(0, Math.floor(retryAfterMs)) },
+  });
+};
+
+const incrementCounter = (counterMap: Map<string, number>, key: string): void => {
+  counterMap.set(key, (counterMap.get(key) ?? 0) + 1);
+};
+
+const decrementCounter = (counterMap: Map<string, number>, key: string): void => {
+  const nextValue = (counterMap.get(key) ?? 0) - 1;
+  if (nextValue > 0) {
+    counterMap.set(key, nextValue);
+    return;
+  }
+
+  counterMap.delete(key);
+};
+
+const addToIndex = (index: Map<string, Set<string>>, key: string, value: string): void => {
+  const existing = index.get(key);
+  if (existing) {
+    existing.add(value);
+    return;
+  }
+  index.set(key, new Set([value]));
+};
+
+const removeFromIndex = (index: Map<string, Set<string>>, key: string, value: string): void => {
+  const existing = index.get(key);
+  if (!existing) {
+    return;
+  }
+
+  existing.delete(value);
+  if (existing.size === 0) {
+    index.delete(key);
+  }
+};
+
+const logRpcFrameDecodeFailure = (input: {
+  readonly eventName: string;
+  readonly socketId: string;
+  readonly reason: string;
+}): void => {
+  rpcFrameDecodeFailureCount += 1;
+
+  // Keep logs useful under malformed frame floods: first 5 and then each 100th.
+  if (rpcFrameDecodeFailureCount <= 5 || rpcFrameDecodeFailureCount % 100 === 0) {
+    logger.warn("rpc_frame_decode_failed", {
+      event: input.eventName,
+      socketId: input.socketId,
+      reason: input.reason,
+      count: rpcFrameDecodeFailureCount,
+    });
+  }
+};
+
+const percentile = (values: readonly number[], p: number): number => {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[rank] ?? 0;
+};
+
+const getAgentInflight = (agentId: string): number => agentInflightById.get(agentId) ?? 0;
+
+const setAgentInflight = (agentId: string, value: number): void => {
+  if (value <= 0) {
+    agentInflightById.delete(agentId);
+    return;
+  }
+  agentInflightById.set(agentId, value);
+};
+
+const drainAgentQueue = (agentId: string): void => {
+  const inflight = getAgentInflight(agentId);
+  if (inflight >= restAgentMaxInflight) {
+    return;
+  }
+
+  const queue = agentQueueById.get(agentId);
+  if (!queue || queue.length === 0) {
+    if (queue && queue.length === 0) {
+      agentQueueById.delete(agentId);
+    }
+    return;
+  }
+
+  const next = queue.shift();
+  if (queue.length === 0) {
+    agentQueueById.delete(agentId);
+  } else {
+    agentQueueById.set(agentId, queue);
+  }
+
+  if (!next) {
+    return;
+  }
+
+  clearTimeout(next.timeoutHandle);
+  setAgentInflight(agentId, inflight + 1);
+  next.resolve();
+};
+
+const releaseAgentDispatchSlot = (agentId: string): void => {
+  const current = getAgentInflight(agentId);
+  setAgentInflight(agentId, current - 1);
+  drainAgentQueue(agentId);
+};
+
+const removeQueuedWaiter = (agentId: string, waiter: AgentQueueWaiter): void => {
+  const queue = agentQueueById.get(agentId);
+  if (!queue || queue.length === 0) {
+    return;
+  }
+
+  const index = queue.indexOf(waiter);
+  if (index < 0) {
+    return;
+  }
+
+  queue.splice(index, 1);
+  if (queue.length === 0) {
+    agentQueueById.delete(agentId);
+  } else {
+    agentQueueById.set(agentId, queue);
+  }
+};
+
+const acquireAgentDispatchSlot = async (
+  agentId: string,
+  signal?: AbortSignal,
+): Promise<() => void> => {
+  if (signal?.aborted) {
+    throw serviceUnavailable("HTTP request aborted by client");
+  }
+
+  const inflight = getAgentInflight(agentId);
+  if (inflight < restAgentMaxInflight) {
+    setAgentInflight(agentId, inflight + 1);
+    return () => {
+      releaseAgentDispatchSlot(agentId);
+    };
+  }
+
+  const queue = agentQueueById.get(agentId) ?? [];
+  if (queue.length >= restAgentMaxQueue) {
+    relayMetrics.restPendingRejected += 1;
+    throw serviceUnavailableWithRetry(
+      withAppendedMessage("Agent is overloaded", "queue is full"),
+      restAgentQueueWaitMs,
+    );
+  }
+
+  const release = await new Promise<() => void>((resolve, reject) => {
+    let settled = false;
+
+    const rejectOnce = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (signalListener) {
+        signal?.removeEventListener("abort", signalListener);
+      }
+      reject(error);
+    };
+
+    const resolveOnce = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (signalListener) {
+        signal?.removeEventListener("abort", signalListener);
+      }
+      resolve(() => {
+        releaseAgentDispatchSlot(agentId);
+      });
+    };
+
+    const timeoutHandle = setTimeout(() => {
+      removeQueuedWaiter(agentId, waiter);
+      relayMetrics.restPendingRejected += 1;
+      rejectOnce(
+        serviceUnavailableWithRetry(
+          withAppendedMessage("Agent is overloaded", "queue wait timeout"),
+          restAgentQueueWaitMs,
+        ),
+      );
+    }, restAgentQueueWaitMs);
+
+    const waiter: AgentQueueWaiter = {
+      resolve: resolveOnce,
+      reject: rejectOnce,
+      enqueuedAtMs: Date.now(),
+      timeoutHandle,
+    };
+
+    const signalListener = signal
+      ? () => {
+          clearTimeout(timeoutHandle);
+          removeQueuedWaiter(agentId, waiter);
+          rejectOnce(serviceUnavailable("HTTP request aborted by client"));
+        }
+      : null;
+
+    queue.push(waiter);
+    agentQueueById.set(agentId, queue);
+    if (signal && signalListener) {
+      signal.addEventListener("abort", signalListener, { once: true });
+    }
+  });
+
+  return release;
+};
 
 const cleanupExpiredIdempotency = (): void => {
   const nowMs = Date.now();
@@ -181,23 +449,11 @@ const getConversationIdempotencyMap = (
 };
 
 const getRelayPendingRequestCountForConversation = (conversationId: string): number => {
-  let count = 0;
-  for (const item of relayRequestsByRequestId.values()) {
-    if (item.conversationId === conversationId) {
-      count++;
-    }
-  }
-  return count;
+  return relayPendingCountByConversation.get(conversationId) ?? 0;
 };
 
 const getRelayPendingRequestCountForConsumer = (consumerSocketId: string): number => {
-  let count = 0;
-  for (const item of relayRequestsByRequestId.values()) {
-    if (item.consumerSocketId === consumerSocketId) {
-      count++;
-    }
-  }
-  return count;
+  return relayPendingCountByConsumer.get(consumerSocketId) ?? 0;
 };
 
 const getCircuitState = (agentId: string): { failures: number; openUntilMs: number } => {
@@ -241,21 +497,26 @@ const registerAgentSuccess = (agentId: string): void => {
   }
 };
 
-const observeRelayResponseLatency = (route: RelayRequestRoute): void => {
-  const elapsedMs = Math.max(0, Date.now() - route.createdAtMs);
-  const existing = relayLatencyByAgentId.get(route.agentId);
+const observeAgentLatency = (agentId: string, elapsedMs: number): void => {
+  const safeElapsedMs = Math.max(0, elapsedMs);
+  const existing = latencyByAgentId.get(agentId);
   if (existing) {
     existing.count += 1;
-    existing.totalMs += elapsedMs;
-    existing.maxMs = Math.max(existing.maxMs, elapsedMs);
-    relayLatencyByAgentId.set(route.agentId, existing);
+    existing.totalMs += safeElapsedMs;
+    existing.maxMs = Math.max(existing.maxMs, safeElapsedMs);
+    existing.samplesMs.push(safeElapsedMs);
+    if (existing.samplesMs.length > latencySamplesPerAgent) {
+      existing.samplesMs.splice(0, existing.samplesMs.length - latencySamplesPerAgent);
+    }
+    latencyByAgentId.set(agentId, existing);
     return;
   }
 
-  relayLatencyByAgentId.set(route.agentId, {
+  latencyByAgentId.set(agentId, {
     count: 1,
-    totalMs: elapsedMs,
-    maxMs: elapsedMs,
+    totalMs: safeElapsedMs,
+    maxMs: safeElapsedMs,
+    samplesMs: [safeElapsedMs],
   });
 };
 
@@ -303,9 +564,12 @@ export const getRelayMetricsSnapshot = (): {
     readonly streamPulls: number;
     readonly requestTimeouts: number;
     readonly circuitOpenRejects: number;
+    readonly restPendingRejected: number;
+    readonly rpcFrameDecodeFailed: number;
   };
   readonly gauges: {
     readonly pendingRelayRequests: number;
+    readonly pendingRestRequests: number;
     readonly activeStreams: number;
     readonly bufferedChunks: number;
     readonly openCircuits: number;
@@ -315,6 +579,8 @@ export const getRelayMetricsSnapshot = (): {
     readonly count: number;
     readonly avgMs: number;
     readonly maxMs: number;
+    readonly p95Ms: number;
+    readonly p99Ms: number;
   }[];
 } => {
   cleanupExpiredIdempotency();
@@ -323,19 +589,23 @@ export const getRelayMetricsSnapshot = (): {
     (state) => state.openUntilMs > Date.now(),
   ).length;
 
-  const latencyByAgent = Array.from(relayLatencyByAgentId.entries()).map(([agentId, stats]) => ({
+  const latencyByAgent = Array.from(latencyByAgentId.entries()).map(([agentId, stats]) => ({
     agentId,
     count: stats.count,
     avgMs: stats.count > 0 ? Number((stats.totalMs / stats.count).toFixed(2)) : 0,
     maxMs: stats.maxMs,
+    p95Ms: Number(percentile(stats.samplesMs, 95).toFixed(2)),
+    p99Ms: Number(percentile(stats.samplesMs, 99).toFixed(2)),
   }));
 
   return {
     counters: {
       ...relayMetrics,
+      rpcFrameDecodeFailed: rpcFrameDecodeFailureCount,
     },
     gauges: {
       pendingRelayRequests: relayRequestsByRequestId.size,
+      pendingRestRequests: pendingRequestCount,
       activeStreams: activeStreamsByRequestId.size,
       bufferedChunks: relayTotalBufferedChunks,
       openCircuits,
@@ -344,13 +614,121 @@ export const getRelayMetricsSnapshot = (): {
   };
 };
 
-const pickResponseId = (payload: unknown): string | null => {
-  const record = toRecord(payload);
-  if (!record) {
-    return null;
+const pickResponseIds = (payload: unknown): readonly string[] => {
+  if (Array.isArray(payload)) {
+    const ids: string[] = [];
+    for (const item of payload) {
+      const record = toRecord(item);
+      if (!record) {
+        continue;
+      }
+      const id = toRequestId(record.id);
+      if (!id) {
+        continue;
+      }
+      ids.push(id);
+    }
+    return ids;
   }
 
-  return toRequestId(record.id);
+  const record = toRecord(payload);
+  if (!record) {
+    return [];
+  }
+
+  const id = toRequestId(record.id);
+  return id ? [id] : [];
+};
+
+const isBatchCommand = (command: BridgeCommand): command is BridgeBatchCommand => {
+  return Array.isArray(command);
+};
+
+const toCorrelationIds = (command: BridgeCommand): readonly string[] => {
+  if (isBatchCommand(command)) {
+    const ids: string[] = [];
+    for (const item of command) {
+      const id = toRequestId(item.id);
+      if (id) {
+        ids.push(id);
+      }
+    }
+    return ids;
+  }
+
+  const singleId = toRequestId(command.id);
+  return singleId ? [singleId] : [];
+};
+
+const withBridgeMeta = (
+  command: BridgeCommand,
+  input: { readonly requestId: string; readonly agentId: string; readonly traceId: string; readonly timestamp: string },
+): BridgeCommand => {
+  if (isBatchCommand(command)) {
+    return command.map((item) => {
+      const existingMeta = toRecord(item.meta) ?? {};
+      const itemRequestId = toRequestId(item.id) ?? input.requestId;
+      return {
+        ...item,
+        api_version: "2.4",
+        meta: {
+          ...existingMeta,
+          request_id: itemRequestId,
+          agent_id: input.agentId,
+          timestamp: input.timestamp,
+          trace_id: input.traceId,
+        },
+      };
+    });
+  }
+
+  const existingMeta = toRecord(command.meta) ?? {};
+  return {
+    ...command,
+    api_version: "2.4",
+    meta: {
+      ...existingMeta,
+      request_id: input.requestId,
+      agent_id: input.agentId,
+      timestamp: input.timestamp,
+      trace_id: input.traceId,
+    },
+  };
+};
+
+const registerPendingRequest = (pending: PendingRequest): void => {
+  for (const requestId of pending.correlationIds) {
+    pendingRequests.set(requestId, pending);
+  }
+  pendingRequestCount += 1;
+};
+
+const clearPendingRequest = (pending: PendingRequest): void => {
+  let removed = false;
+  for (const requestId of pending.correlationIds) {
+    const existing = pendingRequests.get(requestId);
+    if (existing === pending) {
+      pendingRequests.delete(requestId);
+      removed = true;
+    }
+  }
+
+  if (removed) {
+    pendingRequestCount = Math.max(0, pendingRequestCount - 1);
+  }
+};
+
+const findPendingRequestByIds = (
+  socketId: string,
+  ids: readonly string[],
+): PendingRequest | null => {
+  for (const id of ids) {
+    const pending = pendingRequests.get(id);
+    if (pending && pending.socketId === socketId) {
+      return pending;
+    }
+  }
+  return null;
 };
 
 const pickRequestIdFromStreamPayload = (payload: unknown): string | null => {
@@ -390,6 +768,9 @@ const removeActiveStreamRoute = (route: ActiveStreamRoute): void => {
   if (route.streamId) {
     activeStreamsByStreamId.delete(route.streamId);
   }
+  if (route.conversationId) {
+    removeFromIndex(activeStreamRequestIdsByConversation, route.conversationId, route.requestId);
+  }
 };
 
 const upsertActiveStreamRoute = (
@@ -426,6 +807,9 @@ const upsertActiveStreamRoute = (
   activeStreamsByRequestId.set(route.requestId, route);
   if (route.streamId) {
     activeStreamsByStreamId.set(route.streamId, route);
+  }
+  if (route.conversationId) {
+    addToIndex(activeStreamRequestIdsByConversation, route.conversationId, route.requestId);
   }
   return route;
 };
@@ -624,6 +1008,9 @@ const removeRelayRequestRoute = (requestId: string): RelayRequestRoute | null =>
 
   clearTimeout(route.timeoutHandle);
   relayRequestsByRequestId.delete(requestId);
+  decrementCounter(relayPendingCountByConversation, route.conversationId);
+  decrementCounter(relayPendingCountByConsumer, route.consumerSocketId);
+  removeFromIndex(relayRequestIdsByConversation, route.conversationId, requestId);
   clearRelayFlowState(requestId);
   return route;
 };
@@ -659,28 +1046,42 @@ const emitRelayTimeoutResponse = (route: RelayRequestRoute): void => {
 export const handleAgentRpcResponse = (socketId: string, rawPayload: unknown): void => {
   const decoded = decodePayloadFrame(rawPayload);
   if (!decoded.ok) {
+    logRpcFrameDecodeFailure({
+      eventName: socketEvents.rpcResponse,
+      socketId,
+      reason: decoded.error.message,
+    });
     return;
   }
 
-  const responseId = pickResponseId(decoded.value.data);
-  if (!responseId) {
+  const frameRequestId = toRequestId(decoded.value.frame.requestId);
+  const responseIds = pickResponseIds(decoded.value.data);
+  const candidateIds = Array.from(
+    new Set([
+      ...responseIds,
+      ...(frameRequestId ? [frameRequestId] : []),
+    ]),
+  );
+
+  if (candidateIds.length === 0) {
     return;
   }
 
   const streamId = extractStreamIdFromRpcResponse(decoded.value.data);
-  const pendingRequest = pendingRequests.get(responseId);
-  if (pendingRequest && pendingRequest.socketId === socketId) {
+  const pendingRequest = findPendingRequestByIds(socketId, candidateIds);
+  if (pendingRequest) {
+    const pendingRequestId = pendingRequest.primaryRequestId;
     if (pendingRequest.streamHandlers) {
       if (streamId) {
         upsertActiveStreamRoute({
-          requestId: responseId,
+          requestId: pendingRequestId,
           agentSocketId: socketId,
           streamHandlers: pendingRequest.streamHandlers,
           streamId,
         });
-        logger.info("rpc_stream_registered", { requestId: responseId, streamId, socketId });
+        logger.info("rpc_stream_registered", { requestId: pendingRequestId, streamId, socketId });
       } else {
-        const existingStream = activeStreamsByRequestId.get(responseId);
+        const existingStream = activeStreamsByRequestId.get(pendingRequestId);
         if (existingStream && existingStream.agentSocketId === socketId) {
           removeActiveStreamRoute(existingStream);
         }
@@ -688,24 +1089,30 @@ export const handleAgentRpcResponse = (socketId: string, rawPayload: unknown): v
     }
 
     if (!pendingRequest.acked) {
-      logger.info("rpc_response_received_without_ack", { requestId: responseId, socketId });
+      logger.info("rpc_response_received_without_ack", { requestId: pendingRequestId, socketId });
     }
 
     registerAgentSuccess(pendingRequest.agentId);
+    observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
     clearTimeout(pendingRequest.timeoutHandle);
-    pendingRequests.delete(responseId);
+    clearPendingRequest(pendingRequest);
     pendingRequest.resolve(decoded.value.data);
   }
 
-  const relayRoute = relayRequestsByRequestId.get(responseId);
-  if (!relayRoute || relayRoute.agentSocketId !== socketId) {
+  const relayRoute = candidateIds
+    .map((id) => relayRequestsByRequestId.get(id))
+    .find((route): route is RelayRequestRoute => route !== undefined && route.agentSocketId === socketId);
+
+  if (!relayRoute) {
     return;
   }
+
+  const responseId = relayRoute.requestId;
 
   const responseFrame = encodePayloadFrame(decoded.value.data, { requestId: responseId });
   emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
   relayMetrics.responsesForwarded += 1;
-  observeRelayResponseLatency(relayRoute);
+  observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
   registerAgentSuccess(relayRoute.agentId);
   clearTimeout(relayRoute.timeoutHandle);
   conversationRegistry.touch(relayRoute.conversationId);
@@ -749,6 +1156,11 @@ export const handleAgentRpcResponse = (socketId: string, rawPayload: unknown): v
 export const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void => {
   const decoded = decodePayloadFrame(rawPayload);
   if (!decoded.ok) {
+    logRpcFrameDecodeFailure({
+      eventName: socketEvents.rpcChunk,
+      socketId,
+      reason: decoded.error.message,
+    });
     return;
   }
 
@@ -780,6 +1192,11 @@ export const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void
 export const handleAgentRpcComplete = (socketId: string, rawPayload: unknown): void => {
   const decoded = decodePayloadFrame(rawPayload);
   if (!decoded.ok) {
+    logRpcFrameDecodeFailure({
+      eventName: socketEvents.rpcComplete,
+      socketId,
+      reason: decoded.error.message,
+    });
     return;
   }
 
@@ -812,6 +1229,11 @@ export const handleAgentRpcComplete = (socketId: string, rawPayload: unknown): v
 export const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void => {
   const decoded = decodePayloadFrame(rawPayload);
   if (!decoded.ok) {
+    logRpcFrameDecodeFailure({
+      eventName: socketEvents.rpcRequestAck,
+      socketId,
+      reason: decoded.error.message,
+    });
     return;
   }
 
@@ -844,6 +1266,11 @@ export const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void =
 export const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void => {
   const decoded = decodePayloadFrame(rawPayload);
   if (!decoded.ok) {
+    logRpcFrameDecodeFailure({
+      eventName: socketEvents.rpcBatchAck,
+      socketId,
+      reason: decoded.error.message,
+    });
     return;
   }
 
@@ -913,20 +1340,47 @@ export const cleanupAgentStreamSubscriptions = (agentSocketId: string): void => 
   }
 };
 
-export const cleanupConversationStreamSubscriptions = (conversationId: string): void => {
-  for (const route of Array.from(activeStreamsByRequestId.values())) {
-    if (route.conversationId === conversationId) {
-      if (route.mode === "relay") {
-        removeRelayRequestRoute(route.requestId);
-      }
-      removeActiveStreamRoute(route);
+export const cleanupPendingRequestsForAgentSocket = (agentSocketId: string): number => {
+  const uniquePending = new Set<PendingRequest>();
+  let cleaned = 0;
+
+  for (const pending of pendingRequests.values()) {
+    if (pending.socketId === agentSocketId) {
+      uniquePending.add(pending);
     }
   }
 
-  for (const [requestId, route] of relayRequestsByRequestId.entries()) {
-    if (route.conversationId === conversationId) {
-      removeRelayRequestRoute(requestId);
+  for (const pending of uniquePending) {
+    clearTimeout(pending.timeoutHandle);
+    clearPendingRequest(pending);
+    const existingStream = activeStreamsByRequestId.get(pending.primaryRequestId);
+    if (existingStream && existingStream.agentSocketId === agentSocketId) {
+      removeActiveStreamRoute(existingStream);
     }
+    registerAgentFailure(pending.agentId);
+    pending.reject(serviceUnavailable("Agent disconnected while waiting for response"));
+    cleaned += 1;
+  }
+
+  return cleaned;
+};
+
+export const cleanupConversationStreamSubscriptions = (conversationId: string): void => {
+  const streamRequestIds = Array.from(activeStreamRequestIdsByConversation.get(conversationId) ?? []);
+  for (const requestId of streamRequestIds) {
+    const route = activeStreamsByRequestId.get(requestId);
+    if (!route) {
+      continue;
+    }
+    if (route.mode === "relay") {
+      removeRelayRequestRoute(route.requestId);
+    }
+    removeActiveStreamRoute(route);
+  }
+
+  const relayRequestIds = Array.from(relayRequestIdsByConversation.get(conversationId) ?? []);
+  for (const requestId of relayRequestIds) {
+    removeRelayRequestRoute(requestId);
   }
 
   const idempotencyMap = relayIdempotencyByConversation.get(conversationId);
@@ -941,6 +1395,7 @@ export const resetSocketBridgeState = (): void => {
     clearTimeout(pending.timeoutHandle);
   }
   pendingRequests.clear();
+  pendingRequestCount = 0;
 
   for (const route of relayRequestsByRequestId.values()) {
     clearTimeout(route.timeoutHandle);
@@ -949,13 +1404,25 @@ export const resetSocketBridgeState = (): void => {
 
   activeStreamsByRequestId.clear();
   activeStreamsByStreamId.clear();
+  activeStreamRequestIdsByConversation.clear();
   relayIdempotencyByConversation.clear();
+  relayPendingCountByConversation.clear();
+  relayPendingCountByConsumer.clear();
+  relayRequestIdsByConversation.clear();
   relayStreamCreditsByRequestId.clear();
   relayBufferedChunksByRequestId.clear();
   relayPendingCompleteByRequestId.clear();
   relayCircuitByAgentId.clear();
-  relayLatencyByAgentId.clear();
+  latencyByAgentId.clear();
   relayTotalBufferedChunks = 0;
+  agentInflightById.clear();
+  for (const queue of agentQueueById.values()) {
+    for (const waiter of queue) {
+      clearTimeout(waiter.timeoutHandle);
+      waiter.reject(serviceUnavailable("REST agent queue has been reset"));
+    }
+  }
+  agentQueueById.clear();
 
   relayMetrics.requestsAccepted = 0;
   relayMetrics.requestsDeduplicated = 0;
@@ -966,6 +1433,8 @@ export const resetSocketBridgeState = (): void => {
   relayMetrics.streamPulls = 0;
   relayMetrics.requestTimeouts = 0;
   relayMetrics.circuitOpenRejects = 0;
+  relayMetrics.restPendingRejected = 0;
+  rpcFrameDecodeFailureCount = 0;
 
   stopRelayMetricsLogger();
   agentsNamespace = null;
@@ -1122,6 +1591,11 @@ export const dispatchRelayRpcToAgent = (
 
   const decoded = decodePayloadFrame(input.rawFramePayload);
   if (!decoded.ok) {
+    logRpcFrameDecodeFailure({
+      eventName: socketEvents.relayRpcRequest,
+      socketId: input.consumerSocketId,
+      reason: decoded.error.message,
+    });
     throw badRequest(decoded.error.message);
   }
 
@@ -1248,6 +1722,9 @@ export const dispatchRelayRpcToAgent = (
   };
 
   relayRequestsByRequestId.set(requestId, relayRoute);
+  incrementCounter(relayPendingCountByConversation, relayRoute.conversationId);
+  incrementCounter(relayPendingCountByConsumer, relayRoute.consumerSocketId);
+  addToIndex(relayRequestIdsByConversation, relayRoute.conversationId, relayRoute.requestId);
   relayStreamCreditsByRequestId.set(requestId, 0);
   relayBufferedChunksByRequestId.set(requestId, []);
   upsertActiveStreamRoute({
@@ -1296,6 +1773,11 @@ export const requestRelayStreamPull = (
 ): RequestAgentStreamPullResult => {
   const decoded = decodePayloadFrame(input.rawFramePayload);
   if (!decoded.ok) {
+    logRpcFrameDecodeFailure({
+      eventName: socketEvents.relayRpcStreamPull,
+      socketId: input.consumerSocketId,
+      reason: decoded.error.message,
+    });
     throw badRequest(decoded.error.message);
   }
 
@@ -1339,7 +1821,9 @@ export const requestRelayStreamPull = (
 export const dispatchRpcCommandToAgent = async (
   input: DispatchRpcCommandInput,
 ): Promise<DispatchRpcCommandResult> => {
-  ensureAgentCircuitClosed(input.agentId);
+  if (input.signal?.aborted) {
+    throw serviceUnavailable("HTTP request aborted by client");
+  }
 
   const nsp = agentsNamespace;
   if (!nsp) {
@@ -1359,66 +1843,37 @@ export const dispatchRpcCommandToAgent = async (
   if (!agentSocket) {
     throw serviceUnavailable("Agent socket is unavailable");
   }
+  ensureAgentCircuitClosed(input.agentId);
 
-  const command = toRecord(input.command);
-  if (!command) {
-    throw badRequest("Command must be a JSON object");
+  if (!isRecord(input.command) && !Array.isArray(input.command)) {
+    throw badRequest("Command must be a JSON object or JSON-RPC batch array");
   }
 
-  const explicitRequestId = toRequestId(command.id);
-  const requestId = explicitRequestId ?? randomUUID();
+  const command = input.command;
+  const correlationIds = toCorrelationIds(command);
+  const firstCorrelationId = correlationIds.at(0);
+  const requestId = !isBatchCommand(command) && firstCorrelationId ? firstCorrelationId : randomUUID();
   const traceId = randomUUID();
-  const baseCommand = explicitRequestId ? command : { ...command, id: requestId };
-  const existingMeta = toRecord(command.meta) ?? {};
-  const commandPayload = {
-    ...baseCommand,
-    api_version: "2.4",
-    meta: {
-      ...existingMeta,
-      request_id: requestId,
-      agent_id: input.agentId,
-      timestamp: new Date().toISOString(),
-      trace_id: traceId,
-    },
-  };
+  const commandPayload = withBridgeMeta(command, {
+    requestId,
+    agentId: input.agentId,
+    traceId,
+    timestamp: new Date().toISOString(),
+  });
   const timeoutMs = input.timeoutMs ?? defaultRequestTimeoutMs;
-  if (pendingRequests.has(requestId) || activeStreamsByRequestId.has(requestId)) {
-    throw badRequest("A request with this JSON-RPC id is already pending");
+
+  for (const correlationId of correlationIds) {
+    if (
+      pendingRequests.has(correlationId) ||
+      activeStreamsByRequestId.has(correlationId) ||
+      relayRequestsByRequestId.has(correlationId)
+    ) {
+      throw badRequest("A request with this JSON-RPC id is already pending");
+    }
   }
 
-  const response = await new Promise<unknown>((resolve, reject) => {
-    const timeoutHandle = setTimeout(() => {
-      const pending = pendingRequests.get(requestId);
-      const hadAck = pending?.acked ?? false;
-      pendingRequests.delete(requestId);
-      const existingStream = activeStreamsByRequestId.get(requestId);
-      if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
-        removeActiveStreamRoute(existingStream);
-      }
-      if (!hadAck) {
-        logger.info("rpc_timeout_without_ack", { requestId, socketId: registeredAgent.socketId });
-      }
-      registerAgentFailure(input.agentId);
-      reject(serviceUnavailable("Timed out waiting for agent response"));
-    }, timeoutMs);
-
-    pendingRequests.set(requestId, {
-      socketId: registeredAgent.socketId,
-      agentId: input.agentId,
-      resolve,
-      timeoutHandle,
-      ...(input.streamHandlers ? { streamHandlers: input.streamHandlers } : {}),
-      acked: false,
-    });
-
-    if (input.streamHandlers) {
-      upsertActiveStreamRoute({
-        requestId,
-        agentSocketId: registeredAgent.socketId,
-        streamHandlers: input.streamHandlers,
-      });
-    }
-
+  if (correlationIds.length === 0) {
+    const releaseAgentSlot = await acquireAgentDispatchSlot(input.agentId, input.signal);
     try {
       agentSocket.emit(
         socketEvents.rpcRequest,
@@ -1427,20 +1882,146 @@ export const dispatchRpcCommandToAgent = async (
           traceId,
         }),
       );
-    } catch (error: unknown) {
-      clearTimeout(timeoutHandle);
-      pendingRequests.delete(requestId);
-      const existingStream = activeStreamsByRequestId.get(requestId);
-      if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
-        removeActiveStreamRoute(existingStream);
-      }
-      registerAgentFailure(input.agentId);
-      reject(error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request"));
-    }
-  });
 
-  return {
-    requestId,
-    response,
-  };
+      return {
+        requestId,
+        notification: true,
+        acceptedCommands: isBatchCommand(command) ? command.length : 1,
+      };
+    } catch (error: unknown) {
+      registerAgentFailure(input.agentId);
+      throw error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
+    } finally {
+      releaseAgentSlot();
+    }
+  }
+
+  if (pendingRequestCount >= env.socketRestMaxPendingRequests) {
+    relayMetrics.restPendingRejected += 1;
+    throw serviceUnavailableWithRetry(
+      "REST bridge pending request capacity reached",
+      restAgentQueueWaitMs,
+    );
+  }
+
+  const releaseAgentSlot = await acquireAgentDispatchSlot(input.agentId, input.signal);
+  try {
+    const response = await new Promise<unknown>((resolve, reject) => {
+      let settled = false;
+      let signalListener: (() => void) | null = null;
+
+      const rejectOnce = (error: Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (signalListener) {
+          input.signal?.removeEventListener("abort", signalListener);
+        }
+        reject(error);
+      };
+
+      const resolveOnce = (payload: unknown): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (signalListener) {
+          input.signal?.removeEventListener("abort", signalListener);
+        }
+        resolve(payload);
+      };
+
+      const timeoutHandle = setTimeout(() => {
+        const hadAck = pendingRequest.acked;
+        clearPendingRequest(pendingRequest);
+        const existingStream = activeStreamsByRequestId.get(pendingRequest.primaryRequestId);
+        if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          removeActiveStreamRoute(existingStream);
+        }
+        if (!hadAck) {
+          logger.info("rpc_timeout_without_ack", {
+            requestId: pendingRequest.primaryRequestId,
+            socketId: registeredAgent.socketId,
+          });
+        }
+        registerAgentFailure(input.agentId);
+        rejectOnce(serviceUnavailable("Timed out waiting for agent response"));
+      }, timeoutMs);
+
+      const pendingRequest: PendingRequest = {
+        primaryRequestId: requestId,
+        correlationIds,
+        socketId: registeredAgent.socketId,
+        agentId: input.agentId,
+        createdAtMs: Date.now(),
+        resolve: resolveOnce,
+        reject: rejectOnce,
+        timeoutHandle,
+        ...(
+          !isBatchCommand(command) &&
+          command.method === "sql.execute" &&
+          input.streamHandlers &&
+          correlationIds.length === 1
+            ? { streamHandlers: input.streamHandlers }
+            : {}
+        ),
+        acked: false,
+      };
+
+      signalListener = () => {
+        clearTimeout(timeoutHandle);
+        clearPendingRequest(pendingRequest);
+        const existingStream = activeStreamsByRequestId.get(pendingRequest.primaryRequestId);
+        if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          removeActiveStreamRoute(existingStream);
+        }
+        rejectOnce(serviceUnavailable("HTTP request aborted by client"));
+      };
+
+      if (input.signal) {
+        input.signal.addEventListener("abort", signalListener, { once: true });
+        if (input.signal.aborted) {
+          signalListener();
+          return;
+        }
+      }
+
+      registerPendingRequest(pendingRequest);
+
+      if (pendingRequest.streamHandlers) {
+        upsertActiveStreamRoute({
+          requestId,
+          agentSocketId: registeredAgent.socketId,
+          streamHandlers: pendingRequest.streamHandlers,
+        });
+      }
+
+      try {
+        agentSocket.emit(
+          socketEvents.rpcRequest,
+          encodePayloadFrame(commandPayload, {
+            requestId,
+            traceId,
+          }),
+        );
+      } catch (error: unknown) {
+        clearTimeout(timeoutHandle);
+        clearPendingRequest(pendingRequest);
+        const existingStream = activeStreamsByRequestId.get(requestId);
+        if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          removeActiveStreamRoute(existingStream);
+        }
+        registerAgentFailure(input.agentId);
+        rejectOnce(error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request"));
+      }
+    });
+
+    return {
+      requestId,
+      response,
+    };
+  } finally {
+    releaseAgentSlot();
+  }
 };

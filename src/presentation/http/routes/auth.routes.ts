@@ -35,11 +35,16 @@ export const authRouter = Router();
  *         application/json:
  *           schema:
  *             type: object
- *             required: [email, password]
+ *             required: [password]
+ *             anyOf:
+ *               - required: [email]
+ *               - required: [username]
  *             properties:
  *               email:
  *                 type: string
  *                 format: email
+ *               username:
+ *                 type: string
  *               password:
  *                 type: string
  *                 minLength: 8
@@ -100,7 +105,10 @@ authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandl
  *         application/json:
  *           schema:
  *             type: object
- *             required: [email, password, agentId]
+ *             required: [password, agentId]
+ *             anyOf:
+ *               - required: [email]
+ *               - required: [username]
  *             properties:
  *               email:
  *                 type: string
@@ -121,6 +129,8 @@ authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandl
  *               $ref: '#/components/schemas/AgentAuthResponse'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Agent id already linked to another user
  */
 authRouter.post(
   "/agent-login",
@@ -135,12 +145,11 @@ authRouter.post(
  *     summary: Rotate refresh token and issue new access token
  *     tags: [Auth]
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [refreshToken]
  *             properties:
  *               refreshToken:
  *                 type: string
@@ -163,12 +172,11 @@ authRouter.post("/refresh", validateRequest({ body: refreshBodySchema }), asyncH
  *     summary: Revoke the refresh token
  *     tags: [Auth]
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [refreshToken]
  *             properties:
  *               refreshToken:
  *                 type: string

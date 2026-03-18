@@ -304,7 +304,6 @@ O projeto ja possui:
 Evolucoes futuras:
 
 - suportar streaming via REST (acumular chunks ou SSE)
-- suportar notification JSON-RPC (fire-and-forget) via REST
 
 ## Socket Relay
 

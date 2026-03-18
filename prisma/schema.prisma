@@ -13,12 +13,13 @@ enum UserRole {
 }
 
 model User {
-  id           String         @id @default(uuid())
-  email        String         @unique @db.VarChar(255)
-  passwordHash String         @map("password_hash")
-  role         UserRole       @default(user)
-  createdAt    DateTime       @default(now()) @map("created_at")
-  refreshTokens RefreshToken[]
+  id              String          @id @default(uuid())
+  email           String          @unique @db.VarChar(255)
+  passwordHash    String          @map("password_hash")
+  role            UserRole        @default(user)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  refreshTokens   RefreshToken[]
+  agentIdentities AgentIdentity[]
 
   @@map("users")
 }
@@ -34,6 +35,17 @@ model RefreshToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+model AgentIdentity {
+  agentId   String   @id @map("agent_id")
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("agent_identities")
 }
 
 model AuditEvent {

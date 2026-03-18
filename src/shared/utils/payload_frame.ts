@@ -7,6 +7,7 @@ import { err, ok } from "../errors/result";
 import { badRequest } from "../errors/http_errors";
 
 const defaultCompressionThreshold = 1024;
+const maxCompressionInputBytes = 512 * 1024;
 const maxCompressedPayloadBytes = 10 * 1024 * 1024;
 const maxDecodedPayloadBytes = 10 * 1024 * 1024;
 const maxInflationRatio = 20;
@@ -165,7 +166,7 @@ export const encodePayloadFrame = (
 ): PayloadFrameEnvelope => {
   const encoded = Buffer.from(JSON.stringify(data), "utf8");
   const threshold = options?.compressionThreshold ?? defaultCompressionThreshold;
-  const shouldCompress = encoded.length >= threshold;
+  const shouldCompress = encoded.length >= threshold && encoded.length <= maxCompressionInputBytes;
   const wireBytes = shouldCompress ? gzipSync(encoded) : encoded;
 
   return {
