@@ -15,7 +15,19 @@ import { normalizeCommandForAgent } from "../../../application/agent_commands/co
 import { logger } from "../../../shared/utils/logger";
 import { toRequestId } from "../../../shared/utils/rpc_types";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { decodePayloadFrame, encodePayloadFrame } from "../../../shared/utils/payload_frame";
+import {
+  decodePayloadFrame,
+  encodePayloadFrame,
+  finishPayloadFrameEnvelope,
+  preencodePayloadFrameJson,
+} from "../../../shared/utils/payload_frame";
+import {
+  createLatencyRingBuffer,
+  latencyRingBufferValues,
+  pushLatencyRingBuffer,
+  type LatencyRingBuffer,
+} from "../../../shared/utils/latency_ring_buffer";
+import { percentile } from "../../../shared/utils/percentile";
 import { agentRegistry } from "./agent_registry";
 import { conversationRegistry } from "./conversation_registry";
 
@@ -107,7 +119,7 @@ interface AgentLatencyStats {
   count: number;
   totalMs: number;
   maxMs: number;
-  samplesMs: number[];
+  ring: LatencyRingBuffer;
 }
 
 interface AgentQueueWaiter {
@@ -169,6 +181,10 @@ const relayIdempotencyByConversation = new Map<
 const relayPendingCountByConversation = new Map<string, number>();
 const relayPendingCountByConsumer = new Map<string, number>();
 const relayRequestIdsByConversation = new Map<string, Set<string>>();
+const relayRequestIdsByConsumer = new Map<string, Set<string>>();
+const relayRequestIdsByAgent = new Map<string, Set<string>>();
+const streamRequestIdsByConsumer = new Map<string, Set<string>>();
+const streamRequestIdsByAgent = new Map<string, Set<string>>();
 const relayStreamCreditsByRequestId = new Map<string, number>();
 const relayBufferedChunksByRequestId = new Map<string, Record<string, unknown>[]>();
 const relayPendingCompleteByRequestId = new Map<string, Record<string, unknown>>();
@@ -260,46 +276,6 @@ const logRpcFrameDecodeFailure = (input: {
       count: rpcFrameDecodeFailureCount,
     });
   }
-};
-
-/** Quickselect-based percentile: O(n) average vs O(n log n) for full sort. */
-const percentile = (values: readonly number[], p: number): number => {
-  if (values.length === 0) {
-    return 0;
-  }
-
-  const arr = [...values];
-  const rank = Math.min(arr.length - 1, Math.max(0, Math.ceil((p / 100) * arr.length) - 1));
-
-  const partition = (lo: number, hi: number, pivotIdx: number): number => {
-    const pivot = arr[pivotIdx]!;
-    [arr[pivotIdx], arr[hi]] = [arr[hi]!, arr[pivotIdx]!];
-    let store = lo;
-    for (let i = lo; i < hi; i++) {
-      if (arr[i]! <= pivot) {
-        [arr[store], arr[i]] = [arr[i]!, arr[store]!];
-        store += 1;
-      }
-    }
-    [arr[store], arr[hi]] = [arr[hi]!, arr[store]!];
-    return store;
-  };
-
-  let lo = 0;
-  let hi = arr.length - 1;
-  while (lo < hi) {
-    const pivotIdx = Math.floor((lo + hi) / 2);
-    const pIdx = partition(lo, hi, pivotIdx);
-    if (pIdx === rank) {
-      return arr[rank] ?? 0;
-    }
-    if (pIdx < rank) {
-      lo = pIdx + 1;
-    } else {
-      hi = pIdx - 1;
-    }
-  }
-  return arr[rank] ?? 0;
 };
 
 const getAgentInflight = (agentId: string): number => agentInflightById.get(agentId) ?? 0;
@@ -538,19 +514,18 @@ const observeAgentLatency = (agentId: string, elapsedMs: number): void => {
     existing.count += 1;
     existing.totalMs += safeElapsedMs;
     existing.maxMs = Math.max(existing.maxMs, safeElapsedMs);
-    existing.samplesMs.push(safeElapsedMs);
-    if (existing.samplesMs.length > latencySamplesPerAgent) {
-      existing.samplesMs.splice(0, existing.samplesMs.length - latencySamplesPerAgent);
-    }
+    pushLatencyRingBuffer(existing.ring, safeElapsedMs);
     latencyByAgentId.set(agentId, existing);
     return;
   }
 
+  const ring = createLatencyRingBuffer(latencySamplesPerAgent);
+  pushLatencyRingBuffer(ring, safeElapsedMs);
   latencyByAgentId.set(agentId, {
     count: 1,
     totalMs: safeElapsedMs,
     maxMs: safeElapsedMs,
-    samplesMs: [safeElapsedMs],
+    ring,
   });
 };
 
@@ -638,14 +613,17 @@ export const getRelayMetricsSnapshot = (): {
     (state) => state.openUntilMs > Date.now(),
   ).length;
 
-  const latencyByAgent = Array.from(latencyByAgentId.entries()).map(([agentId, stats]) => ({
-    agentId,
-    count: stats.count,
-    avgMs: stats.count > 0 ? Number((stats.totalMs / stats.count).toFixed(2)) : 0,
-    maxMs: stats.maxMs,
-    p95Ms: Number(percentile(stats.samplesMs, 95).toFixed(2)),
-    p99Ms: Number(percentile(stats.samplesMs, 99).toFixed(2)),
-  }));
+  const latencyByAgent = Array.from(latencyByAgentId.entries()).map(([agentId, stats]) => {
+    const sampleSlice = latencyRingBufferValues(stats.ring);
+    return {
+      agentId,
+      count: stats.count,
+      avgMs: stats.count > 0 ? Number((stats.totalMs / stats.count).toFixed(2)) : 0,
+      maxMs: stats.maxMs,
+      p95Ms: Number(percentile(sampleSlice, 95).toFixed(2)),
+      p99Ms: Number(percentile(sampleSlice, 99).toFixed(2)),
+    };
+  });
 
   return {
     counters: {
@@ -820,6 +798,8 @@ const removeActiveStreamRoute = (route: ActiveStreamRoute): void => {
   if (route.conversationId) {
     removeFromIndex(activeStreamRequestIdsByConversation, route.conversationId, route.requestId);
   }
+  removeFromIndex(streamRequestIdsByConsumer, route.consumerSocketId, route.requestId);
+  removeFromIndex(streamRequestIdsByAgent, route.agentSocketId, route.requestId);
 };
 
 const upsertActiveStreamRoute = (
@@ -852,6 +832,9 @@ const upsertActiveStreamRoute = (
     onComplete: input.streamHandlers.onComplete,
     ...(input.streamId ? { streamId: input.streamId } : {}),
   };
+
+  addToIndex(streamRequestIdsByConsumer, route.consumerSocketId, route.requestId);
+  addToIndex(streamRequestIdsByAgent, route.agentSocketId, route.requestId);
 
   activeStreamsByRequestId.set(route.requestId, route);
   if (route.streamId) {
@@ -1061,6 +1044,8 @@ const removeRelayRequestRoute = (requestId: string): RelayRequestRoute | null =>
   decrementCounter(relayPendingCountByConversation, route.conversationId);
   decrementCounter(relayPendingCountByConsumer, route.consumerSocketId);
   removeFromIndex(relayRequestIdsByConversation, route.conversationId, requestId);
+  removeFromIndex(relayRequestIdsByConsumer, route.consumerSocketId, requestId);
+  removeFromIndex(relayRequestIdsByAgent, route.agentSocketId, requestId);
   clearRelayFlowState(requestId);
   return route;
 };
@@ -1129,7 +1114,7 @@ export const handleAgentRpcResponse = (socketId: string, rawPayload: unknown): v
           streamHandlers: pendingRequest.streamHandlers,
           streamId,
         });
-        logger.info("rpc_stream_registered", { requestId: pendingRequestId, streamId, socketId });
+        logger.debug("rpc_stream_registered", { requestId: pendingRequestId, streamId, socketId });
       } else {
         const existingStream = activeStreamsByRequestId.get(pendingRequestId);
         if (existingStream && existingStream.agentSocketId === socketId) {
@@ -1300,7 +1285,7 @@ export const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void =
   const pending = pendingRequests.get(requestId);
   if (pending && pending.socketId === socketId) {
     pending.acked = true;
-    logger.info("rpc_ack_received", { requestId, socketId });
+    logger.debug("rpc_ack_received", { requestId, socketId });
   }
 
   const relayRoute = relayRequestsByRequestId.get(requestId);
@@ -1333,6 +1318,9 @@ export const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void
     ? (data.request_ids as unknown[]).map((id) => toRequestId(id)).filter((id): id is string => id !== null)
     : [];
 
+  const preencodedBatchAck =
+    requestIds.length > 1 ? preencodePayloadFrameJson(data) : null;
+
   let ackedCount = 0;
   for (const requestId of requestIds) {
     const pending = pendingRequests.get(requestId);
@@ -1343,50 +1331,58 @@ export const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void
 
     const relayRoute = relayRequestsByRequestId.get(requestId);
     if (relayRoute && relayRoute.agentSocketId === socketId) {
-      emitToConsumer(
-        relayRoute.consumerSocketId,
-        socketEvents.relayRpcBatchAck,
-        encodePayloadFrame(data, { requestId }),
-      );
+      const frame =
+        preencodedBatchAck !== null
+          ? finishPayloadFrameEnvelope(preencodedBatchAck, { requestId })
+          : encodePayloadFrame(data, { requestId });
+      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcBatchAck, frame);
     }
   }
   if (ackedCount > 0) {
-    logger.info("rpc_batch_ack_received", { requestIds: requestIds.slice(0, 5), ackedCount, socketId });
+    logger.debug("rpc_batch_ack_received", { requestIds: requestIds.slice(0, 5), ackedCount, socketId });
   }
 };
 
 export const cleanupConsumerStreamSubscriptions = (consumerSocketId: string): void => {
-  for (const route of Array.from(activeStreamsByRequestId.values())) {
-    if (route.consumerSocketId === consumerSocketId) {
-      if (route.mode === "relay") {
-        removeRelayRequestRoute(route.requestId);
-      }
-      removeActiveStreamRoute(route);
+  const streamIds = Array.from(streamRequestIdsByConsumer.get(consumerSocketId) ?? []);
+  for (const requestId of streamIds) {
+    const route = activeStreamsByRequestId.get(requestId);
+    if (!route || route.consumerSocketId !== consumerSocketId) {
+      continue;
     }
+    if (route.mode === "relay") {
+      removeRelayRequestRoute(route.requestId);
+    }
+    removeActiveStreamRoute(route);
   }
 
-  for (const [requestId, route] of relayRequestsByRequestId.entries()) {
-    if (route.consumerSocketId === consumerSocketId) {
-      removeRelayRequestRoute(requestId);
-    }
+  const relayIds = Array.from(relayRequestIdsByConsumer.get(consumerSocketId) ?? []);
+  for (const requestId of relayIds) {
+    removeRelayRequestRoute(requestId);
   }
 };
 
 export const cleanupAgentStreamSubscriptions = (agentSocketId: string): void => {
-  for (const route of Array.from(activeStreamsByRequestId.values())) {
-    if (route.agentSocketId === agentSocketId) {
-      if (route.mode === "relay") {
-        removeRelayRequestRoute(route.requestId);
-      }
-      removeActiveStreamRoute(route);
+  const streamIds = Array.from(streamRequestIdsByAgent.get(agentSocketId) ?? []);
+  for (const requestId of streamIds) {
+    const route = activeStreamsByRequestId.get(requestId);
+    if (!route || route.agentSocketId !== agentSocketId) {
+      continue;
     }
+    if (route.mode === "relay") {
+      removeRelayRequestRoute(route.requestId);
+    }
+    removeActiveStreamRoute(route);
   }
 
-  for (const [requestId, route] of relayRequestsByRequestId.entries()) {
-    if (route.agentSocketId === agentSocketId) {
-      registerAgentFailure(route.agentId);
-      removeRelayRequestRoute(requestId);
+  const relayAgentIds = Array.from(relayRequestIdsByAgent.get(agentSocketId) ?? []);
+  for (const requestId of relayAgentIds) {
+    const route = relayRequestsByRequestId.get(requestId);
+    if (!route || route.agentSocketId !== agentSocketId) {
+      continue;
     }
+    registerAgentFailure(route.agentId);
+    removeRelayRequestRoute(requestId);
   }
 };
 
@@ -1459,6 +1455,10 @@ export const resetSocketBridgeState = (): void => {
   relayPendingCountByConversation.clear();
   relayPendingCountByConsumer.clear();
   relayRequestIdsByConversation.clear();
+  relayRequestIdsByConsumer.clear();
+  relayRequestIdsByAgent.clear();
+  streamRequestIdsByConsumer.clear();
+  streamRequestIdsByAgent.clear();
   relayStreamCreditsByRequestId.clear();
   relayBufferedChunksByRequestId.clear();
   relayPendingCompleteByRequestId.clear();
@@ -1782,6 +1782,8 @@ export const dispatchRelayRpcToAgent = (
   incrementCounter(relayPendingCountByConversation, relayRoute.conversationId);
   incrementCounter(relayPendingCountByConsumer, relayRoute.consumerSocketId);
   addToIndex(relayRequestIdsByConversation, relayRoute.conversationId, relayRoute.requestId);
+  addToIndex(relayRequestIdsByConsumer, relayRoute.consumerSocketId, relayRoute.requestId);
+  addToIndex(relayRequestIdsByAgent, relayRoute.agentSocketId, relayRoute.requestId);
   relayStreamCreditsByRequestId.set(requestId, 0);
   relayBufferedChunksByRequestId.set(requestId, []);
   upsertActiveStreamRoute({

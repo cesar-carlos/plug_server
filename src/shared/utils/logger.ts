@@ -22,7 +22,7 @@ const serializeValue = (value: unknown): unknown => {
 };
 
 const formatLogLine = (
-  level: "INFO" | "WARN" | "ERROR",
+  level: "INFO" | "WARN" | "ERROR" | "DEBUG",
   message: string,
   context?: Record<string, unknown>,
 ): string => {
@@ -46,5 +46,13 @@ export const logger = {
 
   error(message: string, context?: Record<string, unknown>): void {
     console.error(formatLogLine("ERROR", message, context));
+  },
+
+  /** Development-only; no output in `test` or `production`. */
+  debug(message: string, context?: Record<string, unknown>): void {
+    if (process.env.NODE_ENV !== "development") {
+      return;
+    }
+    console.debug(formatLogLine("DEBUG", message, context));
   },
 };

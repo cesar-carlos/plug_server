@@ -3,6 +3,8 @@
  * Exposed via GET /metrics for observability.
  */
 
+import { percentile } from "../../shared/utils/percentile";
+
 const latencySamplesMax = 256;
 const latencySamples: number[] = [];
 let latencyCount = 0;
@@ -34,13 +36,6 @@ export const observeRestBridgeLatency = (elapsedMs: number): void => {
   if (latencySamples.length > latencySamplesMax) {
     latencySamples.shift();
   }
-};
-
-const percentile = (values: readonly number[], p: number): number => {
-  if (values.length === 0) return 0;
-  const arr = [...values].sort((a, b) => a - b);
-  const rank = Math.min(arr.length - 1, Math.max(0, Math.ceil((p / 100) * arr.length) - 1));
-  return arr[rank] ?? 0;
 };
 
 export const getRestBridgeMetricsSnapshot = (): {

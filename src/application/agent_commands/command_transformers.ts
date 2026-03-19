@@ -3,11 +3,59 @@
  * Shared between HTTP controller and Socket consumer handler.
  */
 
+import { randomUUID } from "node:crypto";
+
 import type { AgentCommandBody } from "../../shared/validators/agent_command";
 import { isRecord } from "../../shared/utils/rpc_types";
 
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
+
+const logAutoAssignedJsonRpcId = (context: {
+  readonly method: string;
+  readonly assignedId: string;
+  readonly batchIndex?: number;
+}): void => {
+  const payload = {
+    event: "bridge_jsonrpc_id_assigned",
+    method: context.method,
+    assigned_id: context.assignedId,
+    ...(context.batchIndex !== undefined ? { batch_index: context.batchIndex } : {}),
+  };
+
+  if (env.bridgeLogJsonRpcAutoId) {
+    logger.info("bridge_jsonrpc_id_assigned", payload);
+  } else {
+    logger.debug("bridge_jsonrpc_id_assigned", payload);
+  }
+};
+
+/**
+ * JSON-RPC 2.0: when `id` is omitted, the bridge assigns a UUID before forwarding so the agent can
+ * correlate `rpc:response`. Explicit `id: null` stays a **notification** (no response); do not inject.
+ */
+export const ensureJsonRpcIdsForBridge = (
+  command: AgentCommandBody["command"],
+): AgentCommandBody["command"] => {
+  if (Array.isArray(command)) {
+    return command.map((item, batchIndex) => {
+      if (item.id !== undefined) {
+        return item;
+      }
+      const assignedId = randomUUID();
+      logAutoAssignedJsonRpcId({ method: item.method, assignedId, batchIndex });
+      return { ...item, id: assignedId };
+    }) as AgentCommandBody["command"];
+  }
+
+  if (command.id === undefined) {
+    const assignedId = randomUUID();
+    logAutoAssignedJsonRpcId({ method: command.method, assignedId });
+    return { ...command, id: assignedId } as AgentCommandBody["command"];
+  }
+
+  return command;
+};
 
 /**
  * Normalizes command options before sending to agent.

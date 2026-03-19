@@ -74,8 +74,9 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *       object or a JSON-RPC batch array (max 32 items). The API forwards the payload to the connected
  *       agent over Socket.IO (/agents), waits for response when at least one command has non-null `id`,
  *       and returns a normalized response.
- *       Commands without `id` (or with `id: null`) are treated as notifications.
- *       Notification-only payloads return `202 Accepted` and do not wait for `rpc:response`.
+ *       If `id` is omitted, the server assigns a UUID before forwarding so the agent can correlate
+ *       `rpc:response` (HTTP `200`). Explicit `id: null` is a JSON-RPC notification: no response is
+ *       awaited and the route returns `202 Accepted` when every item is a notification.
  *       Top-level `pagination` is supported only for single `sql.execute` and is injected into
  *       `command.params.options` before dispatch.
  *       Socket payload hardening is enabled in the bridge layer:
@@ -191,6 +192,7 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *                       sql: "SELECT 1"
  *                   - jsonrpc: "2.0"
  *                     method: "sql.execute"
+ *                     id: null
  *                     params:
  *                       sql: "INSERT INTO logs (msg) VALUES ('ok')"
  *                   - jsonrpc: "2.0"

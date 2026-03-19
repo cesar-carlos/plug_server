@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { Prisma } from "@prisma/client";
+
 import { prismaClient } from "../../infrastructure/database/prisma/client";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
@@ -82,63 +84,160 @@ export interface SocketAuditEventInput {
   readonly payload?: unknown;
 }
 
+const auditEventQueue: SocketAuditEventInput[] = [];
+let auditBatchDebounceTimer: NodeJS.Timeout | null = null;
+/** Chains flush work so concurrent producers do not drop batches. */
+let auditFlushChain: Promise<void> = Promise.resolve();
+
+const insertAuditEventRow = async (
+  client: Pick<Prisma.TransactionClient, "$executeRaw">,
+  input: SocketAuditEventInput,
+): Promise<void> => {
+  await client.$executeRaw`
+    INSERT INTO audit_events (
+      id,
+      event_type,
+      actor_socket_id,
+      actor_user_id,
+      actor_role,
+      direction,
+      conversation_id,
+      agent_id,
+      request_id,
+      stream_id,
+      trace_id,
+      payload_json
+    ) VALUES (
+      ${randomUUID()},
+      ${input.eventType},
+      ${input.actorSocketId ?? null},
+      ${input.actorUserId ?? null},
+      ${input.actorRole ?? null},
+      ${input.direction ?? null},
+      ${input.conversationId ?? null},
+      ${input.agentId ?? null},
+      ${input.requestId ?? null},
+      ${input.streamId ?? null},
+      ${input.traceId ?? null},
+      ${JSON.stringify(input.payload ?? null)}::jsonb
+    )
+  `;
+};
+
+const performAuditFlush = async (): Promise<void> => {
+  if (auditBatchDebounceTimer) {
+    clearTimeout(auditBatchDebounceTimer);
+    auditBatchDebounceTimer = null;
+  }
+
+  while (auditEventQueue.length > 0) {
+    if (!(await canUseAuditTable())) {
+      const dropped = auditEventQueue.length;
+      auditMetrics.writesSkippedTableMissing += dropped;
+      auditEventQueue.length = 0;
+      return;
+    }
+
+    const batch = auditEventQueue.splice(0, env.socketAuditBatchMax);
+    await trackPendingAuditOperation(
+      (async () => {
+        try {
+          await prismaClient.$transaction(async (tx) => {
+            for (const row of batch) {
+              await insertAuditEventRow(tx, row);
+            }
+          });
+          auditMetrics.writesSucceeded += batch.length;
+        } catch (error: unknown) {
+          if (isAuditTableMissing(error)) {
+            auditTableState = "missing";
+            auditMetrics.writesSkippedTableMissing += batch.length;
+            if (!missingTableLogged) {
+              logger.warn("socket_audit_table_missing", { message: toErrorMessage(error) });
+              missingTableLogged = true;
+            }
+            return;
+          }
+
+          auditMetrics.writesFailed += batch.length;
+          logger.warn("socket_audit_write_failed", { message: toErrorMessage(error) });
+        }
+      })(),
+    );
+  }
+};
+
+const queueAuditFlush = (): void => {
+  auditFlushChain = auditFlushChain
+    .then(() => performAuditFlush())
+    .catch((error: unknown) => {
+      logger.warn("socket_audit_flush_chain_failed", { message: toErrorMessage(error) });
+    });
+};
+
+const scheduleDebouncedAuditFlush = (): void => {
+  if (auditBatchDebounceTimer) {
+    return;
+  }
+  auditBatchDebounceTimer = setTimeout(() => {
+    auditBatchDebounceTimer = null;
+    queueAuditFlush();
+  }, env.socketAuditBatchFlushMs);
+  auditBatchDebounceTimer.unref?.();
+};
+
+/** Await during shutdown so queued batched events hit the database. */
+export const flushPendingSocketAuditEvents = async (): Promise<void> => {
+  if (env.socketAuditBatchMax <= 1) {
+    return;
+  }
+  if (auditBatchDebounceTimer) {
+    clearTimeout(auditBatchDebounceTimer);
+    auditBatchDebounceTimer = null;
+  }
+  queueAuditFlush();
+  await auditFlushChain;
+};
+
 export const recordSocketAuditEvent = async (input: SocketAuditEventInput): Promise<void> => {
   auditMetrics.writesAttempted += 1;
 
-  if (!(await canUseAuditTable())) {
-    auditMetrics.writesSkippedTableMissing += 1;
+  if (env.socketAuditBatchMax <= 1) {
+    if (!(await canUseAuditTable())) {
+      auditMetrics.writesSkippedTableMissing += 1;
+      return;
+    }
+
+    await trackPendingAuditOperation(
+      (async () => {
+        try {
+          await insertAuditEventRow(prismaClient, input);
+          auditMetrics.writesSucceeded += 1;
+        } catch (error: unknown) {
+          if (isAuditTableMissing(error)) {
+            auditTableState = "missing";
+            auditMetrics.writesSkippedTableMissing += 1;
+            if (!missingTableLogged) {
+              logger.warn("socket_audit_table_missing", { message: toErrorMessage(error) });
+              missingTableLogged = true;
+            }
+            return;
+          }
+
+          auditMetrics.writesFailed += 1;
+          logger.warn("socket_audit_write_failed", { message: toErrorMessage(error) });
+        }
+      })(),
+    );
     return;
   }
 
-  await trackPendingAuditOperation(
-    (async () => {
-      try {
-        await prismaClient.$executeRaw`
-          INSERT INTO audit_events (
-            id,
-            event_type,
-            actor_socket_id,
-            actor_user_id,
-            actor_role,
-            direction,
-            conversation_id,
-            agent_id,
-            request_id,
-            stream_id,
-            trace_id,
-            payload_json
-          ) VALUES (
-            ${randomUUID()},
-            ${input.eventType},
-            ${input.actorSocketId ?? null},
-            ${input.actorUserId ?? null},
-            ${input.actorRole ?? null},
-            ${input.direction ?? null},
-            ${input.conversationId ?? null},
-            ${input.agentId ?? null},
-            ${input.requestId ?? null},
-            ${input.streamId ?? null},
-            ${input.traceId ?? null},
-            ${JSON.stringify(input.payload ?? null)}::jsonb
-          )
-        `;
-        auditMetrics.writesSucceeded += 1;
-      } catch (error: unknown) {
-        if (isAuditTableMissing(error)) {
-          auditTableState = "missing";
-          auditMetrics.writesSkippedTableMissing += 1;
-          if (!missingTableLogged) {
-            logger.warn("socket_audit_table_missing", { message: toErrorMessage(error) });
-            missingTableLogged = true;
-          }
-          return;
-        }
-
-        auditMetrics.writesFailed += 1;
-        logger.warn("socket_audit_write_failed", { message: toErrorMessage(error) });
-      }
-    })(),
-  );
+  auditEventQueue.push(input);
+  if (auditEventQueue.length >= env.socketAuditBatchMax) {
+    queueAuditFlush();
+  } else {
+    scheduleDebouncedAuditFlush();
+  }
 };
 
 const toNumber = (value: unknown): number => {
@@ -285,6 +384,7 @@ export const getSocketAuditMetricsSnapshot = (): {
   readonly pruneDeleted: number;
   readonly pruneFailed: number;
   readonly pendingOperations: number;
+  readonly queuedEvents: number;
 } => ({
   writesAttempted: auditMetrics.writesAttempted,
   writesSucceeded: auditMetrics.writesSucceeded,
@@ -294,5 +394,6 @@ export const getSocketAuditMetricsSnapshot = (): {
   pruneDeleted: auditMetrics.pruneDeleted,
   pruneFailed: auditMetrics.pruneFailed,
   pendingOperations: pendingAuditOperations.size,
+  queuedEvents: auditEventQueue.length,
 });
 

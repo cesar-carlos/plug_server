@@ -110,9 +110,34 @@ de `params`.
 | `id`      | string \| number \| null | nao        | -       | Identificador do request           |
 | `meta`    | object                  | nao         | -       | Metadados de rastreabilidade       |
 
-Sem `id` (ou com `id: null`), o item e tratado como **notification**:
-o servidor encaminha ao agente, mas nao aguarda `rpc:response`. Quando todos os
-itens do payload sao notifications, a rota retorna HTTP `202 Accepted`.
+Comportamento do `id` nesta API:
+
+- **`id` omitido:** o servidor gera um **UUID** antes de encaminhar ao agente e **aguarda**
+  `rpc:response` (HTTP `200` com resultado normalizado). O valor gerado e o `id` JSON-RPC
+  no fio com o agente (o `requestId` do envelope HTTP costuma coincidir com esse `id` em
+  comando unico).
+- **`id: null`:** trata-se de **notification** JSON-RPC: encaminha ao agente, **nao** registra
+  pending e **nao** aguarda `rpc:response`. Comando unico com `id: null`, ou batch em que **cada**
+  item tem `id: null`, faz a rota retornar HTTP `202 Accepted` (sem corpo de resultado JSON-RPC).
+- **`id` string ou number:** correlacao normal; o valor e repassado ao agente (com metadados
+  de bridge em `meta`).
+
+### Hub (REST / `agents:command`) vs agente direto (Socket no /agents)
+
+No **padrao JSON-RPC 2.0 puro**, request **sem** `id` costuma ser tratado como **notification**
+(no fio direto com o `plug_agente`, conforme documentacao do agente).
+
+Neste **hub** (`POST /api/v1/agents/commands` e evento Socket `agents:command` no namespace
+`/consumers`), a semantica e **estendida** para UX do integrador:
+
+| Onde | `id` omitido | `id: null` |
+| ---- | ------------ | ---------- |
+| **Hub plug_server** | servidor gera UUID e aguarda resposta (`200` / `agents:command_response` com resultado) | notification (`202` ou resposta tipo notification no Socket) |
+| **Agente direto** (contrato do plug_agente) | notification (sem resposta JSON-RPC) | notification |
+
+O **relay** (`relay:rpc.request`) continua com modelo proprio: o frame usa `id` interno gerado
+pelo servidor; o `id` do cliente vira `meta.client_request_id` para idempotencia (ver
+`docs/socket_relay_protocol.md` / `socket_client_sdk.md`).
 
 O `meta` enviado pelo cliente (ex.: `traceparent`, `tracestate`) e preservado
 via merge; o bridge adiciona `request_id`, `agent_id`, `timestamp` e `trace_id`.
@@ -245,10 +270,15 @@ aceita **batch JSON-RPC nativo** no campo `command` (array de requests).
 
 Regras:
 - min 1 item, max 32 itens.
-- IDs devem ser unicos (desconsiderando notifications).
-- Itens sem `id` (ou `id: null`) sao notifications e nao geram item na response.
-- Batch com pelo menos um item com `id` retorna HTTP 200 com `response.type = "batch"`.
-- Batch somente com notifications retorna HTTP 202.
+- IDs devem ser unicos entre itens que ja tem `id` definido (string/number); itens com `id: null`
+  sao notifications e ficam de fora dessa checagem.
+- Itens **sem** a propriedade `id` recebem UUID gerado pelo servidor (como comando unico) e passam
+  a aguardar resposta para esse `id`.
+- Itens com **`id: null`** sao notifications e nao entram na lista de correlacao; a resposta
+  normalizada do batch so inclui itens para os quais houve `rpc:response` com `id` nao-nulo.
+- Batch com pelo menos um item que nao e notification (omitido `id` ou `id` nao-nulo) retorna HTTP 200
+  com `response.type = "batch"` quando todas as respostas esperadas chegam.
+- Batch somente com notifications (`id: null` em todos os itens) retorna HTTP 202.
 
 ### Exemplo de batch JSON-RPC misto
 
@@ -268,6 +298,7 @@ Regras:
     {
       "jsonrpc": "2.0",
       "method": "sql.execute",
+      "id": null,
       "params": {
         "sql": "INSERT INTO logs (msg) VALUES ('ok')",
         "client_token": "a1b2c3d4e5f6"
@@ -628,8 +659,10 @@ Regras:
 
 ### Notification aceita (202)
 
-Quando o payload contem apenas notifications (todos os itens sem `id` ou com
-`id: null`), o bridge nao aguarda `rpc:response` e retorna:
+Quando o payload e **somente notification** JSON-RPC: comando unico com `id: null`,
+ou batch em que **cada** item tem `id: null`. (`id` omitido **nao** e notification
+nesta API: o servidor gera UUID e aguarda resposta.) O bridge nao aguarda
+`rpc:response` e retorna:
 
 ```json
 {
@@ -973,7 +1006,7 @@ com o que a API REST atualmente expoe ao consumer.
 | Backpressure (`rpc:stream.pull`)           | implementado  | **nao suportado** | na rota REST nao existe pull; no Socket /consumers existe legado (`agents:stream_pull`) e relay (`relay:rpc.stream.pull`) |
 | Delivery guarantee (`rpc:request_ack`)     | implementado  | exposto         | hub registra ack e marca `acked` no pending request |
 | Batch ack (`rpc:batch_ack`)                | implementado  | exposto         | hub registra acks para cada request_id do batch |
-| Notification JSON-RPC (request sem `id`)   | implementado  | exposto         | payload somente notification retorna 202 e nao aguarda response |
+| Notification JSON-RPC (`id: null`)       | implementado  | exposto         | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202 |
 | Falha rapida em disconnect do agente       | implementado  | exposto         | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout |
 | Heartbeat (`agent:heartbeat`)              | implementado  | transparente    | -                                        |
 | Capabilities negotiation                   | implementado  | transparente    | -                                        |
@@ -1000,10 +1033,12 @@ sao emitidos: `rpc_ack_received`, `rpc_batch_ack_received`,
 `rpc_response_received_without_ack` e `rpc_timeout_without_ack` para
 observabilidade.
 
-**5. Notification JSON-RPC** -- Requests sem `id` (ou com `id: null`) sao
-tratados como notifications. O bridge nao cria pending request para payloads
-somente notification e retorna HTTP `202 Accepted` com `notification: true`.
-Em batch misto, apenas itens com `id` participam da correlacao da response.
+**5. Notification JSON-RPC** -- `id: null` e notification: o bridge nao cria pending
+para esse item. Se **todos** os itens forem notifications (`id: null`), a rota retorna
+HTTP `202 Accepted` com `notification: true`. Se `id` for **omitido**, o servidor
+atribui UUID antes do envio ao agente e aguarda `rpc:response` (200). Em batch misto,
+itens com `id: null` nao entram na correlacao; os demais (id omitido ou string/number)
+sim.
 
 **6. Overload por agente + `Retry-After`** -- Alem do limite global de
 pendencias REST, o bridge aplica limite de inflight/fila por `agentId`. Quando
@@ -1073,6 +1108,18 @@ O endpoint `POST /api/v1/agents/commands` possui rate limit proprio, alem do glo
 
 Ajuste conforme capacidade dos agentes e padrao de uso.
 
+### Log de `id` JSON-RPC auto-atribuido
+
+Quando o hub gera UUID para `id` omitido (`ensureJsonRpcIdsForBridge`), pode registrar um evento
+estruturado para suporte:
+
+| Variavel | Default | Descricao |
+| -------- | ------- | --------- |
+| `BRIDGE_LOG_JSONRPC_AUTO_ID` | `false` | Se `true`, emite **INFO** `bridge_jsonrpc_id_assigned` com `method`, `assigned_id` e opcionalmente `batch_index`. |
+
+Em `NODE_ENV=development`, o mesmo evento e emitido em nivel **DEBUG** (via `console.debug`) sem
+precisar da variavel — util para depuracao local sem poluir producao.
+
 ### Variaveis de ambiente do relay (tuning)
 
 Para cenarios de alto volume ou muitos consumers, considere:
@@ -1085,7 +1132,25 @@ Para cenarios de alto volume ou muitos consumers, considere:
 | `SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` | 3 | Limpeza de estado | Multiplicador sobre `RATE_LIMIT_WINDOW_MS` para considerar estado stale |
 | `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS` | 60000 | Limpeza de idempotencia | Intervalo do timer em background |
 
+Acks de alto volume (`rpc:request_ack`, `rpc:batch_ack`, registro de stream) sao logados em nivel
+**DEBUG** (visivel em `NODE_ENV=development`); use metricas Prometheus para paineis em producao.
+
+### Auditoria Socket (batch insert)
+
+| Variavel | Default | Descricao |
+| -------- | ------- | --------- |
+| `SOCKET_AUDIT_BATCH_MAX` | `1` | `1` = um `INSERT` por evento (comportamento anterior). `> 1` agrupa eventos na fila e grava em transacao (flush por tamanho ou tempo). |
+| `SOCKET_AUDIT_BATCH_FLUSH_MS` | `100` | Debounce do flush quando a fila nao atingiu `SOCKET_AUDIT_BATCH_MAX`. |
+
+No shutdown HTTP, `flushPendingSocketAuditEvents()` drena a fila antes de `waitForSocketAuditDrain`.
+Metrica: `plug_socket_audit_queued_events`.
+
 ---
+
+## Roadmap tecnico
+
+Refatoracao futura sugerida: **dividir `rpc_bridge.ts`** (relay, pending REST, streaming, metricas,
+PayloadFrame) em modulos menores. Acompanhamento: [CHANGELOG.md](../CHANGELOG.md) (secao *Roadmap tecnico*).
 
 ## Mapa de arquivos relevantes
 
@@ -1106,11 +1171,13 @@ Para cenarios de alto volume ou muitos consumers, considere:
 | `src/presentation/socket/hub/conversation_registry.ts`           | Registry de conversas relay por socket/agent |
 | `src/presentation/socket/hub/consumer_relay_rate_limiter.ts`    | Rate-limit por consumer para relay |
 | `src/application/agent_commands/execute_agent_command.ts`        | Caso de uso compartilhado HTTP + Socket |
-| `src/application/agent_commands/command_transformers.ts`         | applyPaginationToCommand               |
-| `src/application/services/socket_audit.service.ts`               | Auditoria Socket e retencao automatica |
+| `src/application/agent_commands/command_transformers.ts`         | Paginacao, `preserve_sql`, `ensureJsonRpcIdsForBridge` |
+| `src/application/services/socket_audit.service.ts`               | Auditoria Socket (INSERT simples ou em lote), retencao, flush no shutdown |
 | `src/presentation/http/controllers/metrics.controller.ts`        | Endpoint `/metrics` (Prometheus text) |
 | `src/shared/validators/agent_command.ts`                         | Schemas transport-agnosticos          |
-| `src/shared/utils/payload_frame.ts`                               | Encode/decode PayloadFrame             |
+| `src/shared/utils/payload_frame.ts`                               | Encode/decode PayloadFrame; preencode para batch ack |
+| `src/shared/utils/percentile.ts`                                  | Percentil quickselect (metricas)        |
+| `src/shared/utils/latency_ring_buffer.ts`                         | Buffer circular de amostras de latencia |
 | `src/shared/utils/rpc_types.ts`                                   | isRecord, toRequestId, toJsonRpcId      |
 | `src/shared/constants/socket_events.ts`                           | Nomes dos eventos e namespaces         |
 | `src/socket.ts`                                                    | Bootstrap: namespaces /agents e /consumers |

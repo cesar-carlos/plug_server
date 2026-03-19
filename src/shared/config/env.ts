@@ -57,12 +57,19 @@ const envSchema = z.object({
   SOCKET_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
   SOCKET_AUDIT_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
+  /** Max events per DB transaction when > 1; 1 disables batching (legacy single INSERT). */
+  SOCKET_AUDIT_BATCH_MAX: z.coerce.number().int().positive().max(500).default(1),
+  SOCKET_AUDIT_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(100),
   SWAGGER_ENABLED: z
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
   REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   REST_AGENTS_COMMANDS_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  BRIDGE_LOG_JSONRPC_AUTO_ID: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
 });
 
 const parsedEnv = envSchema.parse(process.env);
@@ -130,7 +137,10 @@ export const env = {
   socketAuditRetentionDays: parsedEnv.SOCKET_AUDIT_RETENTION_DAYS,
   socketAuditRetentionIntervalMinutes: parsedEnv.SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES,
   socketAuditPruneBatchSize: parsedEnv.SOCKET_AUDIT_PRUNE_BATCH_SIZE,
+  socketAuditBatchMax: parsedEnv.SOCKET_AUDIT_BATCH_MAX,
+  socketAuditBatchFlushMs: parsedEnv.SOCKET_AUDIT_BATCH_FLUSH_MS,
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
   restAgentsCommandsRateLimitWindowMs: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS,
   restAgentsCommandsRateLimitMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_MAX,
+  bridgeLogJsonRpcAutoId: parsedEnv.BRIDGE_LOG_JSONRPC_AUTO_ID,
 } as const;

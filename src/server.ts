@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 
 import { createApp } from "./app";
 import {
+  flushPendingSocketAuditEvents,
   waitForSocketAuditDrain,
   startSocketAuditRetentionScheduler,
   stopSocketAuditRetentionScheduler,
@@ -51,6 +52,7 @@ const shutdown = async (signal: string): Promise<void> => {
 
   try {
     stopSocketAuditRetentionScheduler();
+    await flushPendingSocketAuditEvents();
     const auditDrain = await waitForSocketAuditDrain(2_500);
     if (!auditDrain.drained) {
       logger.warn("socket_audit_drain_timeout", { pending: auditDrain.pending });

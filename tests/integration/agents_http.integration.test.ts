@@ -330,7 +330,7 @@ describe("Agents HTTP bridge", () => {
     expect(response.status).toBe(200);
   });
 
-  it("should accept JSON-RPC notification without id and return 202", async () => {
+  it("should assign UUID when JSON-RPC id is omitted and return 200", async () => {
     if (!agentSocket) {
       throw new Error("Agent socket not initialized");
     }
@@ -346,9 +346,69 @@ describe("Agents HTTP bridge", () => {
           return;
         }
 
-        if ("id" in decoded.value.data) {
+        const wireId = toRequestId(decoded.value.data.id);
+        if (!wireId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(wireId)) {
           clearTimeout(timeout);
-          reject(new Error("Notification payload should not include id"));
+          reject(new Error("Expected auto-generated UUID in command.id"));
+          return;
+        }
+
+        agentSocket?.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: wireId,
+            result: { ok: true, source: "auto-id" },
+          }),
+        );
+
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    const responsePromise = request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        agentId: testAgentId,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          params: {
+            sql: "SELECT 1",
+            client_token: "token-value",
+          },
+        },
+      });
+
+    const [response] = await Promise.all([responsePromise, rpcHandled]);
+    expect(response.status).toBe(200);
+    expect(response.body.mode).toBe("bridge");
+    expect(response.body.agentId).toBe(testAgentId);
+    expect(response.body.requestId).toBeDefined();
+    expect(response.body.response?.item?.result?.source).toBe("auto-id");
+  });
+
+  it("should treat JSON-RPC id null as notification and return 202", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    const rpcHandled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok || !isRecord(decoded.value.data)) {
+          clearTimeout(timeout);
+          reject(new Error("Invalid rpc:request payload"));
+          return;
+        }
+
+        if (decoded.value.data.id !== null) {
+          clearTimeout(timeout);
+          reject(new Error("Expected id: null for notification"));
           return;
         }
 
@@ -365,6 +425,7 @@ describe("Agents HTTP bridge", () => {
         command: {
           jsonrpc: "2.0",
           method: "sql.execute",
+          id: null,
           params: {
             sql: "INSERT INTO logs (msg) VALUES ('ping')",
             client_token: "token-value",
@@ -549,6 +610,7 @@ describe("Agents HTTP bridge", () => {
           {
             jsonrpc: "2.0",
             method: "sql.execute",
+            id: null,
             params: {
               sql: "INSERT INTO logs (msg) VALUES ('ok')",
             },

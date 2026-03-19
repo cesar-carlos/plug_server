@@ -2,10 +2,94 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyPaginationToCommand,
+  ensureJsonRpcIdsForBridge,
   normalizeCommandForAgent,
 } from "../../../../src/application/agent_commands/command_transformers";
 
 describe("command_transformers", () => {
+  describe("ensureJsonRpcIdsForBridge", () => {
+    it("should inject UUID when single command id is omitted", () => {
+      const command = {
+        jsonrpc: "2.0" as const,
+        method: "sql.execute" as const,
+        params: { sql: "SELECT 1" },
+      };
+
+      const result = ensureJsonRpcIdsForBridge(command);
+
+      if (!Array.isArray(result)) {
+        expect(typeof result.id).toBe("string");
+        expect(result.id).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        );
+      }
+    });
+
+    it("should not replace explicit id or null", () => {
+      const withId = ensureJsonRpcIdsForBridge({
+        jsonrpc: "2.0" as const,
+        method: "sql.execute" as const,
+        id: "client-1",
+        params: { sql: "SELECT 1" },
+      });
+      if (!Array.isArray(withId)) {
+        expect(withId.id).toBe("client-1");
+      }
+
+      const withNull = ensureJsonRpcIdsForBridge({
+        jsonrpc: "2.0" as const,
+        method: "sql.execute" as const,
+        id: null,
+        params: { sql: "SELECT 1" },
+      });
+      if (!Array.isArray(withNull)) {
+        expect(withNull.id).toBeNull();
+      }
+    });
+
+    it("should inject UUID only for batch items with omitted id", () => {
+      const command = [
+        {
+          jsonrpc: "2.0" as const,
+          method: "sql.execute" as const,
+          id: "q1",
+          params: { sql: "SELECT 1" },
+        },
+        {
+          jsonrpc: "2.0" as const,
+          method: "sql.execute" as const,
+          params: { sql: "SELECT 2" },
+        },
+      ];
+
+      const result = ensureJsonRpcIdsForBridge(command) as typeof command;
+
+      expect(result[0].id).toBe("q1");
+      expect(typeof result[1].id).toBe("string");
+      expect(result[1].id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+    });
+
+    it("should assign unique UUIDs for every batch item with omitted id", () => {
+      const command = Array.from({ length: 8 }, (_, index) => ({
+        jsonrpc: "2.0" as const,
+        method: "sql.execute" as const,
+        params: { sql: `SELECT ${index}` },
+      }));
+
+      const result = ensureJsonRpcIdsForBridge(command) as Array<{ id: string }>;
+
+      const ids = result.map((item) => item.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      for (const id of ids) {
+        expect(id).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        );
+      }
+    });
+  });
+
   describe("normalizeCommandForAgent", () => {
     it("should convert preserve_sql to execution_mode preserve and remove preserve_sql", () => {
       const command = {

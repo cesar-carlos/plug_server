@@ -19,7 +19,7 @@ describe("agentCommandBodySchema", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("should accept single notification without id", () => {
+  it("should accept single command with id omitted (bridge assigns UUID before dispatch)", () => {
     const parsed = agentCommandBodySchema.safeParse({
       agentId: "agent-1",
       command: {
@@ -41,7 +41,7 @@ describe("agentCommandBodySchema", () => {
     }
   });
 
-  it("should accept JSON-RPC batch with mixed notifications and request ids", () => {
+  it("should accept JSON-RPC batch with explicit null id notification and string ids", () => {
     const parsed = agentCommandBodySchema.safeParse({
       agentId: "agent-1",
       command: [
@@ -57,6 +57,7 @@ describe("agentCommandBodySchema", () => {
         {
           jsonrpc: "2.0",
           method: "sql.execute",
+          id: null,
           params: {
             sql: "INSERT INTO logs (msg) VALUES ('ok')",
             client_token: "token-value",

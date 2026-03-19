@@ -106,6 +106,45 @@ O agente pode retornar (v2.5+ e schema de result):
 - **`api_rest_bridge.md`**: mesma orientacao na secao `pagination` (nivel do body)
 - **`communication_sync_plug_agente.md`**: `effective_max_rows` listado nos novos campos de response; tabela de arquivos atualizada
 
+## Melhorias aplicadas (2026-03-19) - `id` JSON-RPC opcional no bridge REST/consumers
+
+- **`ensureJsonRpcIdsForBridge`** (`command_transformers.ts`): se `id` estiver **omitido**, o servidor gera **UUID** antes do dispatch; **`id: null`** continua sendo notification (202 quando tudo e notification).
+- **`execute_agent_command.ts`**: aplica o passo acima apos paginacao e `normalizeCommandForAgent` (HTTP e Socket `agents:command`).
+- **Relay direto** (`dispatchRelayRpcToAgent`): ja sobrescrevia `id` com UUID interno; sem mudanca.
+- **Documentacao**: `api_rest_bridge.md`, OpenAPI em `agents.routes.ts`, testes de integracao e unitarios.
+
+| Arquivo | Alteração |
+| ------- | --------- |
+| `src/application/agent_commands/command_transformers.ts` | `ensureJsonRpcIdsForBridge` |
+| `src/application/agent_commands/execute_agent_command.ts` | chama `ensureJsonRpcIdsForBridge` |
+| `docs/api_rest_bridge.md` | semantica `id` omitido vs `null`, batch, gaps |
+| `src/presentation/http/routes/agents.routes.ts` | descricao OpenAPI + exemplo batch com `id: null` |
+| `tests/integration/agents_http.integration.test.ts` | 200 com id omitido; 202 com `id: null`; batch misto |
+| `tests/unit/.../command_transformers.test.ts` | testes do novo transformer |
+| `tests/unit/.../agent_command.test.ts` | batch misto com `id: null` explicito |
+
+## Melhorias aplicadas (2026-03-19) - performance bridge, auditoria e metricas
+
+- **`shared/utils/percentile.ts`**: quickselect compartilhado (REST bridge + relay)
+- **`shared/utils/latency_ring_buffer.ts`**: amostras de latencia por agente sem `splice`
+- **`rpc_bridge.ts`**: indices `streamRequestIdsByConsumer` / `ByAgent`, `relayRequestIdsByConsumer` / `ByAgent`; cleanup O(k); batch ack com `preencodePayloadFrameJson`; acks em `logger.debug`
+- **`payload_frame.ts`**: `preencodePayloadFrameJson` + `finishPayloadFrameEnvelope`
+- **`socket_audit.service.ts`**: fila + transacao em lote (`SOCKET_AUDIT_BATCH_*`), `flushPendingSocketAuditEvents`, metrica `plug_socket_audit_queued_events`
+- **`server.ts`**: flush de auditoria antes do drain no shutdown
+- **Docs**: `api_rest_bridge.md` (auditoria batch, acks DEBUG), `CHANGELOG.md`
+
+## Melhorias aplicadas (2026-03-19) - documentacao e observabilidade do `id`
+
+- **`api_rest_bridge.md`**: secao *Hub vs agente direto*; tuning `BRIDGE_LOG_JSONRPC_AUTO_ID`; mapa de arquivos (`command_transformers`)
+- **`CHANGELOG.md`**: breaking/migracao (`id` omitido), roadmap `rpc_bridge`
+- **`README.md`**: links para CHANGELOG e `api_rest_bridge`
+- **`socket_client_sdk.md`**: secao `agents:command` e semantica de `id`
+- **`swagger.ts`**: descricoes em `JsonRpcId` e `BridgeCommand`
+- **`logger.ts`**: metodo `debug` (somente `NODE_ENV=development`)
+- **`env`**: `BRIDGE_LOG_JSONRPC_AUTO_ID`
+- **`command_transformers`**: log estruturado ao auto-atribuir `id`
+- **Testes**: integracao Socket `agents:command` sem `id`; unicidade de UUIDs em batch
+
 ## Próximas sincronizações
 
 Ao atualizar o plug_agente, verificar:

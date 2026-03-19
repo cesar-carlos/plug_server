@@ -11,6 +11,11 @@ API backend em TypeScript com Express e Socket.IO.
 - JWT access + refresh token rotation
 - Vitest + Supertest
 
+## Documentacao e historico
+
+- [CHANGELOG.md](./CHANGELOG.md) — mudancas, migracao e roadmap tecnico
+- [docs/api_rest_bridge.md](./docs/api_rest_bridge.md) — contrato HTTP/Socket do bridge de comandos
+
 ## Scripts
 
 - `npm run dev` - desenvolvimento

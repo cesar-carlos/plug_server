@@ -157,6 +157,8 @@ const swaggerSpec = swaggerJSDoc({
           },
         },
         JsonRpcId: {
+          description:
+            "JSON-RPC request id. Omit: hub assigns a UUID before forwarding (await response). null: JSON-RPC notification (no response). String or number: forwarded as-is.",
           nullable: true,
           oneOf: [{ type: "string", minLength: 1 }, { type: "number" }],
         },
@@ -328,6 +330,8 @@ const swaggerSpec = swaggerJSDoc({
           items: { $ref: "#/components/schemas/BridgeSingleCommand" },
         },
         BridgeCommand: {
+          description:
+            "Single JSON-RPC object or batch array (max 32). Missing id is auto-filled with a UUID by the server for REST and agents:command; use id: null for fire-and-forget notifications.",
           oneOf: [
             { $ref: "#/components/schemas/BridgeSingleCommand" },
             { $ref: "#/components/schemas/BridgeBatchCommand" },

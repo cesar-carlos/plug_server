@@ -142,6 +142,86 @@ describe("Socket namespaces", () => {
       socket.disconnect();
     });
 
+    it("should assign JSON-RPC id for agents:command without id and return normalized success", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: testAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+
+        const rpcHandled = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+          agentSocket.once("rpc:request", (rawPayload: unknown) => {
+            const decoded = decodePayloadFrame(rawPayload);
+            if (!decoded.ok || !isRecord(decoded.value.data)) {
+              clearTimeout(timeout);
+              reject(new Error("Invalid rpc:request payload"));
+              return;
+            }
+
+            const wireId = toRequestId(decoded.value.data.id);
+            if (!wireId || !/^[0-9a-f-]{36}$/i.test(wireId)) {
+              clearTimeout(timeout);
+              reject(new Error("Expected auto-generated UUID in command.id"));
+              return;
+            }
+
+            agentSocket.emit(
+              "rpc:response",
+              encodePayloadFrame({
+                jsonrpc: "2.0",
+                id: wireId,
+                result: { ok: true, via: "socket-bridge-auto-id" },
+              }),
+            );
+
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+
+        const commandResponsePromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          response?: { type?: string; item?: { result?: { via?: string } } };
+        }>(consumerSocket, "agents:command_response");
+
+        consumerSocket.emit("agents:command", {
+          agentId: testAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+              client_token: "token-value",
+            },
+          },
+        });
+
+        const [, response] = await Promise.all([rpcHandled, commandResponsePromise]);
+
+        expect(response.success).toBe(true);
+        expect(response.requestId).toBeDefined();
+        expect(response.response?.type).toBe("single");
+        expect(response.response?.item?.result?.via).toBe("socket-bridge-auto-id");
+      } finally {
+        consumerSocket.disconnect();
+        agentSocket.disconnect();
+      }
+    });
+
     it("should stream agent chunks to consumer and allow stream pull", async () => {
       const consumerSocket = await connectConsumer(baseUrl, accessToken);
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);

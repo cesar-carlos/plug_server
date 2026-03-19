@@ -73,3 +73,21 @@ const decodeFrame = (frame: PayloadFrame) => {
   - `relay:conversation.start`
   - `relay:rpc.request`
 
+## Bridge de comandos (`agents:command` no `/consumers`)
+
+Fora do relay, o mesmo namespace `/consumers` expoe **`agents:command`**, que encaminha JSON-RPC ao
+agente via hub (PayloadFrame em `rpc:request` no `/agents`), com o mesmo caso de uso que
+`POST /api/v1/agents/commands`.
+
+Semantica do campo JSON-RPC **`id`** (alinhada ao REST):
+
+| `id` no payload | Comportamento |
+| ----------------- | ------------- |
+| **omitido** | O servidor gera **UUID** e aguarda resposta; `agents:command_response` traz o resultado normalizado (como HTTP 200). |
+| **`null`** | **Notification**: sem pending; resposta de aceitacao com tipo notification (como HTTP 202). |
+| **string / number** | Correlacao explicita; repassado ao agente. |
+
+**Diferenca em relacao ao plug_agente direto:** no socket direto ao agente, omitir `id` costuma ser
+notification; no **hub plug_server** a omissao e preenchida para facilitar integracao. Detalhes:
+`docs/api_rest_bridge.md` (secao *Hub vs agente direto*).
+

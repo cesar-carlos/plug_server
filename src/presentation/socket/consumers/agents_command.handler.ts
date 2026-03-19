@@ -1,6 +1,6 @@
 /**
  * Socket handler for consumer commands to agents.
- * Reuses executeAgentCommand use case and shared validation.
+ * Reuses executeAgentCommand use case and shared validation (including auto JSON-RPC `id` when omitted).
  */
 
 import type { Socket } from "socket.io";

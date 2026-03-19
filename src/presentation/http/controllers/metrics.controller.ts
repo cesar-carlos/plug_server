@@ -120,6 +120,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_audit_prune_deleted_total", audit.pruneDeleted));
   lines.push(metricLine("plug_socket_audit_prune_failed_total", audit.pruneFailed));
   lines.push(metricLine("plug_socket_audit_pending_operations", audit.pendingOperations));
+  lines.push(metricLine("plug_socket_audit_queued_events", audit.queuedEvents));
 
   response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
   response.status(200).send(`${lines.join("\n")}\n`);

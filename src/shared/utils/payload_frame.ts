@@ -156,6 +156,46 @@ export const isPayloadFrameEnvelope = (payload: unknown): payload is PayloadFram
   );
 };
 
+/** JSON body encoded once; reuse with `finishPayloadFrameEnvelope` for multiple frames (e.g. batch ack). */
+export interface PreencodedPayloadFrameBody {
+  readonly originalSize: number;
+  readonly wireBytes: Buffer;
+  readonly cmp: "none" | "gzip";
+}
+
+export const preencodePayloadFrameJson = (
+  data: unknown,
+  compressionThreshold?: number,
+): PreencodedPayloadFrameBody => {
+  const encoded = Buffer.from(JSON.stringify(data), "utf8");
+  const threshold = compressionThreshold ?? defaultCompressionThreshold;
+  const shouldCompress = encoded.length >= threshold && encoded.length <= maxCompressionInputBytes;
+  const wireBytes = shouldCompress ? gzipSync(encoded) : encoded;
+  return {
+    originalSize: encoded.length,
+    wireBytes,
+    cmp: shouldCompress ? "gzip" : "none",
+  };
+};
+
+export const finishPayloadFrameEnvelope = (
+  body: PreencodedPayloadFrameBody,
+  options?: {
+    readonly requestId?: string;
+    readonly traceId?: string;
+  },
+): PayloadFrameEnvelope => ({
+  schemaVersion: "1.0",
+  enc: "json",
+  cmp: body.cmp,
+  contentType: "application/json",
+  originalSize: body.originalSize,
+  compressedSize: body.wireBytes.length,
+  payload: body.wireBytes,
+  ...(options?.traceId ? { traceId: options.traceId } : { traceId: randomUUID() }),
+  ...(options?.requestId ? { requestId: options.requestId } : {}),
+});
+
 export const encodePayloadFrame = (
   data: unknown,
   options?: {
@@ -164,22 +204,8 @@ export const encodePayloadFrame = (
     readonly traceId?: string;
   },
 ): PayloadFrameEnvelope => {
-  const encoded = Buffer.from(JSON.stringify(data), "utf8");
-  const threshold = options?.compressionThreshold ?? defaultCompressionThreshold;
-  const shouldCompress = encoded.length >= threshold && encoded.length <= maxCompressionInputBytes;
-  const wireBytes = shouldCompress ? gzipSync(encoded) : encoded;
-
-  return {
-    schemaVersion: "1.0",
-    enc: "json",
-    cmp: shouldCompress ? "gzip" : "none",
-    contentType: "application/json",
-    originalSize: encoded.length,
-    compressedSize: wireBytes.length,
-    payload: wireBytes,
-    ...(options?.traceId ? { traceId: options.traceId } : { traceId: randomUUID() }),
-    ...(options?.requestId ? { requestId: options.requestId } : {}),
-  };
+  const body = preencodePayloadFrameJson(data, options?.compressionThreshold);
+  return finishPayloadFrameEnvelope(body, options);
 };
 
 export const decodePayloadFrame = (payload: unknown): Result<DecodedPayloadFrame> => {
