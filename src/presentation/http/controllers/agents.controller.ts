@@ -1,6 +1,13 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { executeAgentCommand } from "../../../application/agent_commands/execute_agent_command";
+import {
+  incrementRestBridgeRequest,
+  incrementRestBridgeRequestFailed,
+  incrementRestBridgeRequestSuccess,
+  observeRestBridgeLatency,
+} from "../../../application/services/rest_bridge_metrics.service";
+import { notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
 import { agentRegistry } from "../../socket/hub/agent_registry";
 import { agentsNamespace } from "../../../socket";
 import { dispatchRpcCommandToAgent } from "../../socket/hub/rpc_bridge";
@@ -44,6 +51,18 @@ export const proxyCommandToAgent = async (
   request.on("aborted", abortOnClientDisconnect);
   response.on("close", abortOnClientDisconnect);
 
+  incrementRestBridgeRequest();
+
+  const registeredAgent = agentRegistry.findByAgentId(body.agentId);
+  if (!registeredAgent) {
+    incrementRestBridgeRequestFailed();
+    if (agentRegistry.hasKnownAgentId(body.agentId)) {
+      throw serviceUnavailable(`Agent ${body.agentId} is disconnected`);
+    }
+    throw notFound(`Agent ${body.agentId}`);
+  }
+
+  const startMs = Date.now();
   try {
     const result = await executeAgentCommand(
       {
@@ -58,6 +77,8 @@ export const proxyCommandToAgent = async (
     );
 
     if ("notification" in result && result.notification) {
+      incrementRestBridgeRequestSuccess();
+      observeRestBridgeLatency(Date.now() - startMs);
       response.status(202).json({
         mode: "bridge",
         agentId: body.agentId,
@@ -71,6 +92,8 @@ export const proxyCommandToAgent = async (
       throw new Error("Invalid command result: missing response payload");
     }
 
+    incrementRestBridgeRequestSuccess();
+    observeRestBridgeLatency(Date.now() - startMs);
     response.status(200).json({
       mode: "bridge",
       agentId: body.agentId,
@@ -78,6 +101,8 @@ export const proxyCommandToAgent = async (
       response: result.response,
     });
   } catch (error: unknown) {
+    incrementRestBridgeRequestFailed();
+    observeRestBridgeLatency(Date.now() - startMs);
     next(error);
   } finally {
     request.off("aborted", abortOnClientDisconnect);

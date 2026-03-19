@@ -75,7 +75,7 @@ export const clearRelayRateLimitStateByConsumerSocket = (consumerSocketId: strin
 
 export const sweepRelayRateLimitState = (): void => {
   const nowMs = Date.now();
-  const staleAfterMs = env.socketRelayRateLimitWindowMs * 3;
+  const staleAfterMs = env.socketRelayRateLimitWindowMs * env.socketRelayRateLimitSweepStaleMultiplier;
   for (const [consumerSocketId, state] of statesByConsumerSocketId.entries()) {
     if (nowMs - state.lastSeenAtMs >= staleAfterMs) {
       statesByConsumerSocketId.delete(consumerSocketId);

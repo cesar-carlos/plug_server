@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 
+import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getSocketMetricsSnapshot } from "../../../socket";
 
@@ -24,11 +25,21 @@ const metricLine = (
 
 export const getMetrics = (_request: Request, response: Response): void => {
   const socket = getSocketMetricsSnapshot();
+  const restBridge = getRestBridgeMetricsSnapshot();
   const relay = socket.relay;
   const rateLimit = socket.relayRateLimit;
   const audit = getSocketAuditMetricsSnapshot();
 
   const lines: string[] = [];
+
+  lines.push(metricLine("plug_rest_bridge_requests_total", restBridge.requestsTotal));
+  lines.push(metricLine("plug_rest_bridge_requests_success_total", restBridge.requestsSuccessTotal));
+  lines.push(metricLine("plug_rest_bridge_requests_failed_total", restBridge.requestsFailedTotal));
+  lines.push(metricLine("plug_rest_bridge_latency_count", restBridge.latencyCount));
+  lines.push(metricLine("plug_rest_bridge_latency_avg_ms", restBridge.latencyAvgMs));
+  lines.push(metricLine("plug_rest_bridge_latency_max_ms", restBridge.latencyMaxMs));
+  lines.push(metricLine("plug_rest_bridge_latency_p95_ms", restBridge.latencyP95Ms));
+  lines.push(metricLine("plug_rest_bridge_latency_p99_ms", restBridge.latencyP99Ms));
 
   lines.push(metricLine("plug_socket_namespace_connections", socket.namespaces.agents, { namespace: "agents" }));
   lines.push(

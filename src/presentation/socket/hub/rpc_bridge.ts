@@ -10,6 +10,8 @@ import type {
   BridgeBatchCommand,
   BridgeCommand,
 } from "../../../shared/validators/agent_command";
+import { bridgeCommandSchema } from "../../../shared/validators/agent_command";
+import { normalizeCommandForAgent } from "../../../application/agent_commands/command_transformers";
 import { logger } from "../../../shared/utils/logger";
 import { toRequestId } from "../../../shared/utils/rpc_types";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -144,6 +146,7 @@ const relayMaxActiveStreams = env.socketRelayMaxActiveStreams;
 const relayMaxBufferedChunksPerRequest = env.socketRelayMaxBufferedChunksPerRequest;
 const relayMaxTotalBufferedChunks = env.socketRelayMaxTotalBufferedChunks;
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
+const relayIdempotencyCleanupIntervalMs = env.socketRelayIdempotencyCleanupIntervalMs;
 const relayCircuitFailureThreshold = env.socketRelayCircuitFailureThreshold;
 const relayCircuitOpenMs = env.socketRelayCircuitOpenMs;
 const restAgentMaxInflight = env.socketRestAgentMaxInflight;
@@ -186,6 +189,7 @@ const relayMetrics = {
   restPendingRejected: 0,
 };
 let relayMetricsTimer: NodeJS.Timeout | null = null;
+let idempotencyCleanupTimer: NodeJS.Timeout | null = null;
 let rpcFrameDecodeFailureCount = 0;
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
@@ -258,14 +262,44 @@ const logRpcFrameDecodeFailure = (input: {
   }
 };
 
+/** Quickselect-based percentile: O(n) average vs O(n log n) for full sort. */
 const percentile = (values: readonly number[], p: number): number => {
   if (values.length === 0) {
     return 0;
   }
 
-  const sorted = [...values].sort((a, b) => a - b);
-  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
-  return sorted[rank] ?? 0;
+  const arr = [...values];
+  const rank = Math.min(arr.length - 1, Math.max(0, Math.ceil((p / 100) * arr.length) - 1));
+
+  const partition = (lo: number, hi: number, pivotIdx: number): number => {
+    const pivot = arr[pivotIdx]!;
+    [arr[pivotIdx], arr[hi]] = [arr[hi]!, arr[pivotIdx]!];
+    let store = lo;
+    for (let i = lo; i < hi; i++) {
+      if (arr[i]! <= pivot) {
+        [arr[store], arr[i]] = [arr[i]!, arr[store]!];
+        store += 1;
+      }
+    }
+    [arr[store], arr[hi]] = [arr[hi]!, arr[store]!];
+    return store;
+  };
+
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo < hi) {
+    const pivotIdx = Math.floor((lo + hi) / 2);
+    const pIdx = partition(lo, hi, pivotIdx);
+    if (pIdx === rank) {
+      return arr[rank] ?? 0;
+    }
+    if (pIdx < rank) {
+      lo = pIdx + 1;
+    } else {
+      hi = pIdx - 1;
+    }
+  }
+  return arr[rank] ?? 0;
 };
 
 const getAgentInflight = (agentId: string): number => agentInflightById.get(agentId) ?? 0;
@@ -545,12 +579,29 @@ const scheduleRelayMetricsLogger = (): void => {
   relayMetricsTimer.unref?.();
 };
 
+const scheduleIdempotencyCleanupTimer = (): void => {
+  if (idempotencyCleanupTimer) {
+    return;
+  }
+
+  idempotencyCleanupTimer = setInterval(cleanupExpiredIdempotency, relayIdempotencyCleanupIntervalMs);
+  idempotencyCleanupTimer.unref?.();
+};
+
 export const stopRelayMetricsLogger = (): void => {
   if (!relayMetricsTimer) {
     return;
   }
   clearInterval(relayMetricsTimer);
   relayMetricsTimer = null;
+};
+
+const stopIdempotencyCleanupTimer = (): void => {
+  if (!idempotencyCleanupTimer) {
+    return;
+  }
+  clearInterval(idempotencyCleanupTimer);
+  idempotencyCleanupTimer = null;
 };
 
 export const getRelayMetricsSnapshot = (): {
@@ -583,8 +634,6 @@ export const getRelayMetricsSnapshot = (): {
     readonly p99Ms: number;
   }[];
 } => {
-  cleanupExpiredIdempotency();
-
   const openCircuits = Array.from(relayCircuitByAgentId.values()).filter(
     (state) => state.openUntilMs > Date.now(),
   ).length;
@@ -670,7 +719,7 @@ const withBridgeMeta = (
       const itemRequestId = toRequestId(item.id) ?? input.requestId;
       return {
         ...item,
-        api_version: "2.4",
+        api_version: "2.5",
         meta: {
           ...existingMeta,
           request_id: itemRequestId,
@@ -685,7 +734,7 @@ const withBridgeMeta = (
   const existingMeta = toRecord(command.meta) ?? {};
   return {
     ...command,
-    api_version: "2.4",
+    api_version: "2.5",
     meta: {
       ...existingMeta,
       request_id: input.requestId,
@@ -841,6 +890,7 @@ export const registerSocketBridgeServer = (namespace: Namespace): void => {
 export const registerConsumerBridgeServer = (namespace: Namespace): void => {
   consumersNamespace = namespace;
   scheduleRelayMetricsLogger();
+  scheduleIdempotencyCleanupTimer();
 };
 
 const emitToConsumer = (
@@ -1437,6 +1487,7 @@ export const resetSocketBridgeState = (): void => {
   rpcFrameDecodeFailureCount = 0;
 
   stopRelayMetricsLogger();
+  stopIdempotencyCleanupTimer();
   agentsNamespace = null;
   consumersNamespace = null;
 };
@@ -1587,8 +1638,6 @@ export const requestAgentStreamPull = (
 export const dispatchRelayRpcToAgent = (
   input: DispatchRelayRpcInput,
 ): DispatchRelayRpcResult => {
-  cleanupExpiredIdempotency();
-
   const decoded = decodePayloadFrame(input.rawFramePayload);
   if (!decoded.ok) {
     logRpcFrameDecodeFailure({
@@ -1599,10 +1648,24 @@ export const dispatchRelayRpcToAgent = (
     throw badRequest(decoded.error.message);
   }
 
-  const command = toRecord(decoded.value.data);
-  if (!command) {
+  const rawCommand = toRecord(decoded.value.data);
+  if (!rawCommand) {
     throw badRequest("relay:rpc.request frame must contain a JSON object payload");
   }
+
+  const parsed = bridgeCommandSchema.safeParse(rawCommand);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const message = firstIssue ? `${firstIssue.path.join(".") || "command"}: ${firstIssue.message}` : "Invalid RPC command";
+    throw badRequest(message);
+  }
+
+  const command = parsed.data;
+  if (Array.isArray(command)) {
+    throw badRequest("relay:rpc.request does not support batch; send a single JSON-RPC request");
+  }
+
+  const normalizedCommand = normalizeCommandForAgent(command);
 
   const conversation = conversationRegistry.findByConversationId(input.conversationId);
   if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
@@ -1639,7 +1702,8 @@ export const dispatchRelayRpcToAgent = (
     throw serviceUnavailable("Agent socket is unavailable");
   }
 
-  const clientRequestId = toRequestId(command.id);
+  const cmdRecord = normalizedCommand as Record<string, unknown>;
+  const clientRequestId = toRequestId(cmdRecord.id);
   if (clientRequestId) {
     const idempotencyMap = getConversationIdempotencyMap(conversation.conversationId);
     const existing = idempotencyMap.get(clientRequestId);
@@ -1667,21 +1731,14 @@ export const dispatchRelayRpcToAgent = (
     throw serviceUnavailable("Relay active stream capacity reached");
   }
 
-  let requestId = randomUUID();
-  while (
-    pendingRequests.has(requestId) ||
-    relayRequestsByRequestId.has(requestId) ||
-    activeStreamsByRequestId.has(requestId)
-  ) {
-    requestId = randomUUID();
-  }
+  const requestId = randomUUID();
 
   const traceId = toRequestId(decoded.value.frame.traceId) ?? randomUUID();
-  const existingMeta = toRecord(command.meta) ?? {};
+  const existingMeta = toRecord(cmdRecord.meta) ?? {};
   const commandPayload: Record<string, unknown> = {
-    ...command,
+    ...normalizedCommand,
     id: requestId,
-    api_version: "2.4",
+    api_version: "2.5",
     meta: {
       ...existingMeta,
       conversation_id: conversation.conversationId,

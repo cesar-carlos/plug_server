@@ -38,6 +38,7 @@ import { handleRelayConversationStart } from "./presentation/socket/consumers/re
 import { handleRelayConversationEnd } from "./presentation/socket/consumers/relay_conversation_end.handler";
 import { handleRelayRpcRequest } from "./presentation/socket/consumers/relay_rpc_request.handler";
 import { handleRelayRpcStreamPull } from "./presentation/socket/consumers/relay_rpc_stream_pull.handler";
+import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { env } from "./shared/config/env";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
@@ -65,7 +66,7 @@ const serverCapabilities = {
     signatureScope: "transport-frame",
     signatureAlgorithms: [],
     streamingResults: true,
-    plugProfile: "plug-jsonrpc-profile/2.4",
+    plugProfile: "plug-jsonrpc-profile/2.5",
     orderedBatchResponses: true,
     notificationNullIdCompatibility: true,
     paginationModes: ["page-offset", "cursor-keyset"],
@@ -151,6 +152,7 @@ export const closeSocketServer = async (
 
   resetRelayRateLimiterState();
   resetSocketBridgeState();
+  resetRestBridgeMetrics();
   conversationRegistry.clear();
   agentRegistry.clear();
   if (activeSocketServer === io) {

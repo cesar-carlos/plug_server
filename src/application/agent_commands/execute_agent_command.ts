@@ -5,7 +5,7 @@
  */
 
 import type { AgentCommandBody } from "../../shared/validators/agent_command";
-import { applyPaginationToCommand } from "./command_transformers";
+import { applyPaginationToCommand, normalizeCommandForAgent } from "./command_transformers";
 
 export interface ExecuteAgentCommandInput {
   readonly agentId: string;
@@ -58,10 +58,11 @@ export const executeAgentCommand = async (
   normalize: RpcResponseNormalizer,
 ): Promise<ExecuteAgentCommandResult> => {
   const commandWithPagination = applyPaginationToCommand(input.command, input.pagination);
+  const normalizedCommand = normalizeCommandForAgent(commandWithPagination);
 
   const result = await dispatch({
     agentId: input.agentId,
-    command: commandWithPagination,
+    command: normalizedCommand,
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
   });

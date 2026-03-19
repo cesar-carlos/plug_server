@@ -499,6 +499,94 @@ describe("Socket namespaces", () => {
       }
     });
 
+    it("should relay execution_mode preserve and normalize preserve_sql before sending to agent", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: testAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+
+        const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
+          consumerSocket,
+          "relay:conversation.started",
+        );
+        consumerSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+
+        const acceptedPromise = waitForEvent<{ success: boolean }>(consumerSocket, "relay:rpc.accepted");
+        const rpcRequestPromise = waitForEvent<unknown>(agentSocket, "rpc:request", 8_000);
+        const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response", 8_000);
+
+        consumerSocket.emit("relay:rpc.request", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: "relay-exec-mode-1",
+            params: {
+              sql: "SELECT 1",
+              client_token: "token",
+              options: { execution_mode: "preserve" },
+            },
+          }),
+        });
+
+        const [accepted, rawPayload] = await Promise.all([acceptedPromise, rpcRequestPromise]);
+        expect(accepted.success).toBe(true);
+
+        const decoded = decodePayloadFrame(rawPayload);
+        expect(decoded.ok).toBe(true);
+        const data = decoded.ok && isRecord(decoded.value.data) ? decoded.value.data : null;
+        const params = data && isRecord(data.params) ? data.params : {};
+        const options = isRecord(params.options) ? params.options : {};
+        expect(options.execution_mode).toBe("preserve");
+
+        const requestId = toRequestId(data?.id);
+        expect(requestId).toBeDefined();
+
+        agentSocket.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: requestId,
+            result: {
+              execution_id: "exec-relay-1",
+              started_at: new Date().toISOString(),
+              finished_at: new Date().toISOString(),
+              sql_handling_mode: "preserve",
+              rows: [],
+              row_count: 0,
+              affected_rows: 0,
+              column_metadata: [],
+            },
+          }),
+        );
+
+        const response = await responsePromise;
+        const responseDecoded = decodePayloadFrame(response);
+        expect(responseDecoded.ok).toBe(true);
+        const result = responseDecoded.ok && isRecord(responseDecoded.value.data)
+          ? responseDecoded.value.data.result
+          : null;
+        expect(isRecord(result) ? result.sql_handling_mode : null).toBe("preserve");
+      } finally {
+        agentSocket.disconnect();
+        consumerSocket.disconnect();
+      }
+    });
+
     it("should deduplicate relay requests with the same client request id in a conversation", async () => {
       const consumerSocket = await connectConsumer(baseUrl, accessToken);
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
@@ -719,13 +807,13 @@ describe("Socket namespaces", () => {
               jsonrpc: "2.0",
               id: "client-relay-gzip-1",
               method: "sql.execute",
-                params: {
-                  sql: "SELECT * FROM users",
-                  client_token: "relay-gzip-token",
-                  large_blob: makeLargeText(4000),
-                },
+              params: {
+                sql: "SELECT * FROM users",
+                client_token: "relay-gzip-token",
+                params: { placeholder: makeLargeText(4000) },
               },
-              { compressionThreshold: 1 },
+            },
+            { compressionThreshold: 1 },
           ),
         });
 

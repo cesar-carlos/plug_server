@@ -48,6 +48,23 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 - `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`)
 - `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`) ou erro
 
+## Contrato RPC e metodos suportados
+
+O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
+`plug_agente/docs/communication/socket_communication_standard.md`.
+
+**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`.
+
+**Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
+`preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
+
+O servidor valida o payload com o schema do bridge antes de encaminhar. Payloads
+invalidos retornam erro `VALIDATION_ERROR` em `relay:rpc.accepted`. O relay **nao**
+suporta batch JSON-RPC (array); envie um unico request por `relay:rpc.request`.
+
+O servidor normaliza `preserve_sql: true` para `execution_mode: "preserve"` antes
+de enviar ao agente.
+
 ## Payload
 
 No relay, o consumer envia `PayloadFrame` em:

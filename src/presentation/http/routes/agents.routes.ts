@@ -3,6 +3,7 @@ import { Router } from "express";
 import { listConnectedAgents, proxyCommandToAgent } from "../controllers/agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuth } from "../middlewares/auth.middleware";
+import { agentsCommandsRateLimit } from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { agentCommandBodySchema } from "../validators/agents.validator";
 
@@ -100,7 +101,7 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *                   jsonrpc: "2.0"
  *                   method: "sql.execute"
  *                   id: "req-123"
- *                   api_version: "2.4"
+ *                   api_version: "2.5"
  *                   meta:
  *                     traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
  *                     tracestate: "vendor=value"
@@ -120,6 +121,64 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *                     client_token: "token-value"
  *                     options:
  *                       multi_result: true
+ *             sqlExecuteUpdate:
+ *               summary: Single sql.execute with UPDATE
+ *               value:
+ *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *                 command:
+ *                   jsonrpc: "2.0"
+ *                   method: "sql.execute"
+ *                   id: "update-1"
+ *                   params:
+ *                     sql: "UPDATE users SET status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :id"
+ *                     params:
+ *                       id: 42
+ *                       status: "inactive"
+ *                     client_token: "token-value"
+ *             sqlExecuteDelete:
+ *               summary: Single sql.execute with DELETE
+ *               value:
+ *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *                 command:
+ *                   jsonrpc: "2.0"
+ *                   method: "sql.execute"
+ *                   id: "delete-1"
+ *                   params:
+ *                     sql: "DELETE FROM sessions WHERE expires_at < :cutoff"
+ *                     params:
+ *                       cutoff: "2026-03-01T00:00:00Z"
+ *                     client_token: "token-value"
+ *             sqlExecuteBatchDml:
+ *               summary: sql.executeBatch with SELECT, INSERT, UPDATE and DELETE
+ *               value:
+ *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *                 command:
+ *                   jsonrpc: "2.0"
+ *                   method: "sql.executeBatch"
+ *                   id: "batch-dml-1"
+ *                   params:
+ *                     commands:
+ *                       - sql: "SELECT id, status FROM users WHERE id = :id"
+ *                         params:
+ *                           id: 42
+ *                         execution_order: 0
+ *                       - sql: "INSERT INTO audit_logs (entity, entity_id, action) VALUES ('user', :id, 'status_change')"
+ *                         params:
+ *                           id: 42
+ *                         execution_order: 1
+ *                       - sql: "UPDATE users SET status = :status WHERE id = :id"
+ *                         params:
+ *                           id: 42
+ *                           status: "inactive"
+ *                         execution_order: 2
+ *                       - sql: "DELETE FROM user_sessions WHERE user_id = :id"
+ *                         params:
+ *                           id: 42
+ *                         execution_order: 3
+ *                     client_token: "token-value"
+ *                     options:
+ *                       transaction: true
+ *                       timeout_ms: 30000
  *             batchMixedNotification:
  *               summary: JSON-RPC batch with notification item
  *               value:
@@ -164,6 +223,7 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
 agentsRouter.post(
   "/commands",
   requireAuth,
+  agentsCommandsRateLimit,
   validateRequest({ body: agentCommandBodySchema }),
   asyncHandler(proxyCommandToAgent),
 );

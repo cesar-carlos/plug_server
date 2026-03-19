@@ -180,6 +180,17 @@ const swaggerSpec = swaggerJSDoc({
             page: { type: "integer", minimum: 1 },
             page_size: { type: "integer", minimum: 1 },
             cursor: { type: "string", minLength: 1 },
+            execution_mode: {
+              type: "string",
+              enum: ["managed", "preserve"],
+              description:
+                "SQL handling mode. managed (default) allows agent-managed pagination rewriting. preserve executes SQL exactly as sent. Cannot be combined with page, page_size or cursor.",
+            },
+            preserve_sql: {
+              type: "boolean",
+              description:
+                "Deprecated alias for execution_mode=preserve. Cannot be combined with page, page_size or cursor.",
+            },
             multi_result: { type: "boolean" },
           },
           additionalProperties: false,

@@ -110,6 +110,18 @@ const normalizeRpcItem = (payload: unknown): NormalizedRpcItem | null => {
 };
 
 export const normalizeAgentRpcResponse = (payload: unknown): NormalizedAgentRpcResponse => {
+  try {
+    return normalizeAgentRpcResponseUnsafe(payload);
+  } catch {
+    return {
+      type: "raw",
+      success: false,
+      payload,
+    };
+  }
+};
+
+const normalizeAgentRpcResponseUnsafe = (payload: unknown): NormalizedAgentRpcResponse => {
   if (Array.isArray(payload)) {
     const items = payload
       .map((item) => normalizeRpcItem(item))

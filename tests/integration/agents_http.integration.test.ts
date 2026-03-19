@@ -177,6 +177,159 @@ describe("Agents HTTP bridge", () => {
     expect(response.body.response?.success).toBe(true);
   });
 
+  it("should proxy command with execution_mode preserve and preserve sql_handling_mode in response", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    const rpcHandled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok || !isRecord(decoded.value.data)) {
+          clearTimeout(timeout);
+          reject(new Error("Invalid rpc:request payload"));
+          return;
+        }
+
+        const data = decoded.value.data as Record<string, unknown>;
+        const params = isRecord(data.params) ? data.params : {};
+        const options = isRecord(params.options) ? params.options : {};
+        if (options.execution_mode !== "preserve") {
+          clearTimeout(timeout);
+          reject(new Error("Expected execution_mode preserve in forwarded request"));
+          return;
+        }
+
+        const requestId = toRequestId(data.id);
+        if (!requestId) {
+          clearTimeout(timeout);
+          reject(new Error("Missing rpc request id"));
+          return;
+        }
+
+        agentSocket?.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: requestId,
+            result: {
+              execution_id: "exec-preserve-1",
+              started_at: "2026-03-19T10:00:00Z",
+              finished_at: "2026-03-19T10:00:01Z",
+              sql_handling_mode: "preserve",
+              max_rows_handling: "response_truncation",
+              rows: [{ id: 1 }],
+              row_count: 1,
+              affected_rows: 0,
+              column_metadata: [{ name: "id" }],
+            },
+          }),
+        );
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    const responsePromise = request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        agentId: testAgentId,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "req-preserve-1",
+          params: {
+            sql: "SELECT * FROM users LIMIT 10",
+            client_token: "token-value",
+            options: { execution_mode: "preserve" },
+          },
+        },
+      });
+
+    const [response] = await Promise.all([responsePromise, rpcHandled]);
+    expect(response.status).toBe(200);
+    expect(response.body.response?.type).toBe("single");
+    expect(response.body.response?.success).toBe(true);
+    const result = response.body.response?.item?.result;
+    expect(result).toBeDefined();
+    expect(result?.sql_handling_mode).toBe("preserve");
+    expect(result?.max_rows_handling).toBe("response_truncation");
+  });
+
+  it("should normalize preserve_sql to execution_mode before sending to agent", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    const rpcHandled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok || !isRecord(decoded.value.data)) {
+          clearTimeout(timeout);
+          reject(new Error("Invalid rpc:request payload"));
+          return;
+        }
+
+        const data = decoded.value.data as Record<string, unknown>;
+        const params = isRecord(data.params) ? data.params : {};
+        const options = isRecord(params.options) ? params.options : {};
+        expect(options.execution_mode).toBe("preserve");
+        expect(options.preserve_sql).toBeUndefined();
+
+        const requestId = toRequestId(data.id);
+        if (!requestId) {
+          clearTimeout(timeout);
+          reject(new Error("Missing rpc request id"));
+          return;
+        }
+
+        agentSocket?.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: requestId,
+            result: {
+              execution_id: "exec-norm-1",
+              started_at: "2026-03-19T10:00:00Z",
+              finished_at: "2026-03-19T10:00:01Z",
+              rows: [],
+              row_count: 0,
+              affected_rows: 0,
+              column_metadata: [],
+            },
+          }),
+        );
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    const responsePromise = request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        agentId: testAgentId,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "req-preserve-sql-1",
+          params: {
+            sql: "SELECT 1",
+            client_token: "token-value",
+            options: { preserve_sql: true },
+          },
+        },
+      });
+
+    const [response] = await Promise.all([responsePromise, rpcHandled]);
+    expect(response.status).toBe(200);
+  });
+
   it("should accept JSON-RPC notification without id and return 202", async () => {
     if (!agentSocket) {
       throw new Error("Agent socket not initialized");

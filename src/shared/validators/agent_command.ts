@@ -31,13 +31,24 @@ const tokenCarrierSchema = z
     auth: nonEmptyStringSchema.optional(),
   });
 
-const sqlExecuteOptionsSchema = z
+/** Maximum allowed value for options.max_rows, aligned with plug_agente negotiated limits. */
+export const AGENT_MAX_ROWS_LIMIT = 1_000_000;
+
+/** Maximum allowed value for options.timeout_ms (5 minutes). */
+export const AGENT_TIMEOUT_MS_LIMIT = 300_000;
+
+/** Maximum allowed value for options.page_size and body.pagination.pageSize. */
+export const AGENT_PAGE_SIZE_LIMIT = 50_000;
+
+export const sqlExecuteOptionsSchema = z
   .object({
-    timeout_ms: z.number().int().positive().optional(),
-    max_rows: z.number().int().positive().optional(),
+    timeout_ms: z.number().int().positive().max(AGENT_TIMEOUT_MS_LIMIT).optional(),
+    max_rows: z.number().int().positive().max(AGENT_MAX_ROWS_LIMIT).optional(),
     page: z.number().int().positive().optional(),
-    page_size: z.number().int().positive().optional(),
+    page_size: z.number().int().positive().max(AGENT_PAGE_SIZE_LIMIT).optional(),
     cursor: nonEmptyStringSchema.optional(),
+    execution_mode: z.enum(["managed", "preserve"]).optional(),
+    preserve_sql: z.boolean().optional(),
     multi_result: z.boolean().optional(),
   })
   .strict()
@@ -45,6 +56,10 @@ const sqlExecuteOptionsSchema = z
     const hasPage = value.page !== undefined || value.page_size !== undefined;
     const hasPageAndSize = value.page !== undefined && value.page_size !== undefined;
     const hasCursor = value.cursor !== undefined;
+    const hasPagination = hasPage || hasCursor;
+    const isPreserve =
+      value.execution_mode === "preserve" || value.preserve_sql === true;
+
     if (hasPage && !hasPageAndSize) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -61,11 +76,28 @@ const sqlExecuteOptionsSchema = z
       });
     }
 
-    if (value.multi_result === true && (hasPage || hasCursor)) {
+    if (value.multi_result === true && hasPagination) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["multi_result"],
         message: "`multi_result` cannot be combined with pagination",
+      });
+    }
+
+    if (isPreserve && hasPagination) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["execution_mode"],
+        message:
+          "`execution_mode: preserve` and `preserve_sql` cannot be combined with `page`, `page_size` or `cursor`",
+      });
+    }
+
+    if (value.execution_mode === "managed" && value.preserve_sql === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["execution_mode"],
+        message: "`execution_mode: managed` cannot be combined with `preserve_sql: true`",
       });
     }
   });
@@ -100,8 +132,8 @@ const sqlExecuteBatchCommandItemSchema = z
 
 const sqlExecuteBatchOptionsSchema = z
   .object({
-    timeout_ms: z.number().int().positive().optional(),
-    max_rows: z.number().int().positive().optional(),
+    timeout_ms: z.number().int().positive().max(AGENT_TIMEOUT_MS_LIMIT).optional(),
+    max_rows: z.number().int().positive().max(AGENT_MAX_ROWS_LIMIT).optional(),
     transaction: z.boolean().optional(),
   })
   .strict();
@@ -224,7 +256,7 @@ export type BridgeCommand = z.infer<typeof bridgeCommandSchema>;
 export const agentCommandPaginationSchema = z
   .object({
     page: z.coerce.number().int().positive().optional(),
-    pageSize: z.coerce.number().int().positive().max(50_000).optional(),
+    pageSize: z.coerce.number().int().positive().max(AGENT_PAGE_SIZE_LIMIT).optional(),
     cursor: nonEmptyStringSchema.optional(),
   })
   .superRefine((value, ctx) => {
@@ -293,6 +325,18 @@ export const agentCommandBodySchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ["pagination"],
         message: "`pagination` cannot be combined with `options.multi_result=true`",
+      });
+    }
+
+    const isPreserve =
+      value.command.params.options?.execution_mode === "preserve" ||
+      value.command.params.options?.preserve_sql === true;
+    if (isPreserve) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["pagination"],
+        message:
+          "`pagination` cannot be combined with `options.execution_mode=preserve` or `options.preserve_sql=true`",
       });
     }
   });

@@ -141,18 +141,21 @@ Token de autorizacao: pelo menos um entre `client_token`, `clientToken` ou
 
 #### `command.params.options`
 
-| Campo          | Tipo    | Obrigatorio | Restricoes                               | Descricao                                                      |
-| -------------- | ------- | ----------- | ---------------------------------------- | -------------------------------------------------------------- |
-| `timeout_ms`   | integer | nao         | >= 1                                     | Timeout de execucao SQL no agente (ms)                         |
-| `max_rows`     | integer | nao         | >= 1, default 50000                      | Maximo de linhas retornadas                                    |
-| `page`         | integer | nao         | >= 1, requer `page_size`                 | Numero da pagina (1-based)                                     |
-| `page_size`    | integer | nao         | >= 1, requer `page`                      | Linhas por pagina                                              |
-| `cursor`       | string  | nao         | exclusivo com `page`/`page_size`         | Token opaco de continuacao (keyset)                            |
-| `multi_result` | boolean | nao         | exclusivo com paginacao e `params`        | Habilita retorno de multiplos result sets                      |
+| Campo             | Tipo    | Obrigatorio | Restricoes                               | Descricao                                                      |
+| ----------------- | ------- | ----------- | ---------------------------------------- | -------------------------------------------------------------- |
+| `timeout_ms`      | integer | nao         | 1..300000 (5 min)                        | Timeout de execucao SQL no agente (ms)                         |
+| `max_rows`        | integer | nao         | 1..1000000, default 50000                | Maximo de linhas retornadas (limite alinhado ao agente)        |
+| `page`            | integer | nao         | >= 1, requer `page_size`                 | Numero da pagina (1-based)                                     |
+| `page_size`      | integer | nao         | 1..50000, requer `page`                  | Linhas por pagina                                              |
+| `cursor`         | string  | nao         | exclusivo com `page`/`page_size`         | Token opaco de continuacao (keyset)                            |
+| `execution_mode` | string  | nao         | `managed` \| `preserve`                  | Modo de tratamento da SQL. `managed` (default) permite reescrita gerenciada para paginacao. `preserve` executa a SQL exatamente como enviada, sem reescrita. Nao pode ser combinado com `page`, `page_size` ou `cursor` |
+| `preserve_sql`   | boolean | nao         | exclusivo com paginacao                  | Alias legado para `execution_mode: "preserve"`. Nao pode ser combinado com `page`, `page_size` ou `cursor` |
+| `multi_result`   | boolean | nao         | exclusivo com paginacao e `params`       | Habilita retorno de multiplos result sets                      |
 
 Regras de combinacao:
 - `page` e `page_size` devem ser enviados juntos.
 - `cursor` nao pode ser combinado com `page`/`page_size`.
+- `execution_mode: "preserve"` e `preserve_sql: true` nao podem ser combinados com `page`, `page_size` ou `cursor`.
 - `multi_result: true` nao pode ser combinado com paginacao nem `params`.
 
 #### Campos opcionais validados e encaminhados ao agente
@@ -289,6 +292,10 @@ Regras:
 Quando informado, o servidor injeta os valores em `command.params.options`
 antes de enviar ao agente. Isso simplifica o uso pelo cliente HTTP.
 
+**Precedencia:** Quando `body.pagination` e `command.params.options` definem
+paginacao (page/page_size ou cursor), os valores de `body.pagination` tem
+precedencia e sobrescrevem os de `command.params.options`.
+
 | Campo      | Tipo    | Obrigatorio | Restricoes                          | Descricao                    |
 | ---------- | ------- | ----------- | ----------------------------------- | ---------------------------- |
 | `page`     | integer | condicional | >= 1, requer `pageSize`             | Numero da pagina (1-based)   |
@@ -334,7 +341,7 @@ Regras:
     "jsonrpc": "2.0",
     "method": "sql.execute",
     "id": "req-meta-001",
-    "api_version": "2.4",
+    "api_version": "2.5",
     "meta": {
       "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
       "tracestate": "vendor=value"
@@ -342,6 +349,26 @@ Regras:
     "params": {
       "sql": "SELECT 1",
       "client_token": "a1b2c3d4e5f6"
+    }
+  }
+}
+```
+
+### sql.execute com execution_mode preserve (passthrough)
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-preserve-001",
+    "params": {
+      "sql": "SELECT * FROM users LIMIT 10",
+      "client_token": "a1b2c3d4e5f6",
+      "options": {
+        "execution_mode": "preserve"
+      }
     }
   }
 }
@@ -427,6 +454,47 @@ Regras:
 }
 ```
 
+### sql.execute com UPDATE
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-006",
+    "params": {
+      "sql": "UPDATE users SET status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :id",
+      "params": {
+        "id": 42,
+        "status": "inactive"
+      },
+      "client_token": "a1b2c3d4e5f6"
+    }
+  }
+}
+```
+
+### sql.execute com DELETE
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-007",
+    "params": {
+      "sql": "DELETE FROM sessions WHERE expires_at < :cutoff",
+      "params": {
+        "cutoff": "2026-03-01T00:00:00Z"
+      },
+      "client_token": "a1b2c3d4e5f6"
+    }
+  }
+}
+```
+
 ### sql.executeBatch
 
 ```json
@@ -440,6 +508,48 @@ Regras:
       "commands": [
         { "sql": "SELECT * FROM users", "execution_order": 0 },
         { "sql": "SELECT COUNT(*) AS total FROM orders" }
+      ],
+      "client_token": "a1b2c3d4e5f6",
+      "options": {
+        "transaction": true,
+        "timeout_ms": 30000
+      }
+    }
+  }
+}
+```
+
+### sql.executeBatch com SELECT, INSERT, UPDATE e DELETE
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.executeBatch",
+    "id": "batch-002",
+    "params": {
+      "commands": [
+        {
+          "sql": "SELECT id, status FROM users WHERE id = :id",
+          "params": { "id": 42 },
+          "execution_order": 0
+        },
+        {
+          "sql": "INSERT INTO audit_logs (entity, entity_id, action) VALUES ('user', :id, 'status_change')",
+          "params": { "id": 42 },
+          "execution_order": 1
+        },
+        {
+          "sql": "UPDATE users SET status = :status WHERE id = :id",
+          "params": { "id": 42, "status": "inactive" },
+          "execution_order": 2
+        },
+        {
+          "sql": "DELETE FROM user_sessions WHERE user_id = :id",
+          "params": { "id": 42 },
+          "execution_order": 3
+        }
       ],
       "client_token": "a1b2c3d4e5f6",
       "options": {
@@ -707,6 +817,8 @@ o servidor inclui:
 | `items`           | array   | nao             | Array unificado de result sets e row counts   |
 | `pagination`      | object  | nao             | Presente apenas em requests paginadas         |
 | `stream_id`       | string  | nao             | Presente quando streaming ativo               |
+| `sql_handling_mode` | string | nao           | Modo efetivo usado: `managed` ou `preserve` (v2.5+) |
+| `max_rows_handling` | string | nao           | Politica ativa para `max_rows` (ex.: `response_truncation`) (v2.5+) |
 
 ### sql.execute pagination
 
@@ -843,8 +955,10 @@ com o que a API REST atualmente expoe ao consumer.
 | `idempotency_key`                          | implementado  | validado        | -                                        |
 | `database` (override DSN)                  | implementado  | validado        | -                                        |
 | `options.timeout_ms` / `options.max_rows`  | implementado  | validado        | -                                        |
-| `options.transaction` (batch)              | implementado  | validado        | -                                        |
-| `api_version` no request                   | implementado  | exposto         | hub injeta `api_version: "2.4"` e faz merge de `meta` |
+| `options.execution_mode` (managed/preserve) | implementado  | validado        | -                                        |
+| `options.preserve_sql` (alias legado)       | implementado  | validado        | -                                        |
+| `options.transaction` (batch)               | implementado  | validado        | -                                        |
+| `api_version` no request                   | implementado  | exposto         | hub injeta `api_version: "2.5"` e faz merge de `meta` |
 | `meta` no request (trace_id, traceparent)  | implementado  | exposto         | hub faz merge preservando traceparent/tracestate; injeta request_id, agent_id, timestamp, trace_id |
 | `api_version` na response                  | implementado  | exposto         | serializer preserva `api_version` e `meta` do agente |
 | `meta` na response (agent_id, timestamp)   | implementado  | exposto         | serializer preserva `meta` do agente     |
@@ -863,7 +977,7 @@ com o que a API REST atualmente expoe ao consumer.
 
 #### Gaps cobertos (implementados)
 
-**1. `api_version` e `meta` no request** -- O bridge injeta `api_version: "2.4"`
+**1. `api_version` e `meta` no request** -- O bridge injeta `api_version: "2.5"`
 e `meta` com `request_id`, `agent_id`, `timestamp` e `trace_id` antes de emitir
 `rpc:request`. O `meta` enviado pelo cliente (ex.: `traceparent`, `tracestate`) e
 preservado via merge; campos obrigatorios sao sobrescritos. O `trace_id` e unico
@@ -924,6 +1038,47 @@ isolamento por `conversationId`.
   arquitetura atual usa estado em memoria para correlacao (sem Redis/sticky),
   logo o caminho recomendado segue single-instance ou afinidade de sessao quando
   houver multiplas replicas.
+
+---
+
+## Configuracao e tuning
+
+### REQUEST_BODY_LIMIT e tamanho de payload
+
+O Express limita o body das requisicoes via `REQUEST_BODY_LIMIT` (default: `1mb`).
+O PayloadFrame interno suporta ate 10MB (compressao e decodificacao).
+
+Para comandos com `params.params` grandes (ex.: muitos parametros ou valores longos),
+aumente o limite:
+
+```bash
+REQUEST_BODY_LIMIT=2mb   # ou 5mb conforme necessidade
+```
+
+O valor deve ser menor ou igual ao limite do PayloadFrame (10MB).
+
+### Rate limit do endpoint commands
+
+O endpoint `POST /api/v1/agents/commands` possui rate limit proprio, alem do global:
+
+| Variavel | Default | Descricao |
+| -------- | ------- | --------- |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` | 60000 | Janela em ms (1 min) |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` | 100 | Max requests por janela por IP |
+
+Ajuste conforme capacidade dos agentes e padrao de uso.
+
+### Variaveis de ambiente do relay (tuning)
+
+Para cenarios de alto volume ou muitos consumers, considere:
+
+| Variavel | Default | Cenario | Sugestao |
+| -------- | ------- | ------- | -------- |
+| `SOCKET_RELAY_MAX_PENDING_REQUESTS` | 10000 | Muitos consumers | Aumentar se houver capacidade |
+| `SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONSUMER` | 128 | Consumer com muitas requests | Ajustar por perfil |
+| `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` | 40 | Janela 10s | Aumentar para workloads intensos |
+| `SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` | 3 | Limpeza de estado | Multiplicador sobre `RATE_LIMIT_WINDOW_MS` para considerar estado stale |
+| `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS` | 60000 | Limpeza de idempotencia | Intervalo do timer em background |
 
 ---
 
