@@ -1,19 +1,18 @@
----
-description: "Testing strategy for the REST and WebSocket backend"
+description: "Universal testing strategy"
 globs: ["tests/**/*.ts", "**/*.test.ts", "**/*.spec.ts"]
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Testing Standards
 
-- Follow the testing pyramid: many unit tests, targeted integration tests, plus transport-level tests for critical REST routes and WebSocket events.
+- This is a universal rule file. Transport-specific test requirements live in the HTTP, WebSocket, and security rule files.
+- Follow the testing pyramid: many unit tests, targeted integration tests, plus transport-level tests for critical public interfaces.
 - Mirror the source structure in `tests/` so the target module is obvious.
-- Keep `app` separate from the network listener so route tests can exercise Express without opening a real port.
-- Keep socket server setup composable so connection and event tests can run without full production bootstrap.
 - Unit-test domain rules, use cases, middleware, and utilities in isolation.
 - Integration-test repositories, database wiring, and external adapters with an isolated test environment.
-- Use `Supertest` or equivalent for HTTP-level tests against the real Express app.
-- Add event-level tests for connection auth, message validation, room or channel behavior, and server-to-client emissions.
+- Add contract tests for critical public interfaces and compatibility shims.
 - Mock infrastructure boundaries in unit tests, but prefer real entities and value objects.
+- Every intentional compatibility alias or migration shim must have a regression test so the exception stays localized.
+- Update or add tests whenever behavior, contracts, or compatibility shims change.
 - Use AAA naming and structure: `should return 404 when user does not exist`.
 - Reset data and mocks between tests; no test may depend on execution order.

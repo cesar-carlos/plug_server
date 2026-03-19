@@ -1,0 +1,14 @@
+description: "Node.js-specific performance and runtime efficiency guidance"
+globs: ["src/**/*.ts"]
+alwaysApply: true
+---
+
+# Performance Standards
+
+- This is a stack-specific rule file for Node.js runtime behavior.
+- Optimize only after identifying the hot path, bottleneck, or operational limit being addressed.
+- Keep request and event handlers non-blocking. Avoid CPU-heavy work, large synchronous loops, and blocking I/O on hot paths.
+- For large payloads or long-running transfers, prefer streams and backpressure-aware APIs over buffering entire datasets in memory.
+- Reuse shared serializers, validators, and transport helpers on hot paths instead of rebuilding equivalent logic per feature.
+- Avoid accidental quadratic work in controllers, handlers, serializers, and mappers when processing lists or streams.
+- When a change targets performance-sensitive behavior, document the assumption being optimized and verify the result with measurement or profiling.

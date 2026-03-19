@@ -1,0 +1,25 @@
+description: "Universal rule governance and verification workflow"
+globs: ["src/**/*.ts", "tests/**/*.ts"]
+alwaysApply: true
+---
+
+# Rule Governance
+
+- This is a universal rule file. It owns rule precedence, exception policy, architectural enforcement, and task-completion verification.
+- Organize rule files into three groups: `universal`, `stack-specific`, and `project-specific`.
+- Keep TypeScript, Node.js, Express, Socket.IO, or library-specific guidance out of universal files unless the point cannot be expressed generically.
+- Resolve rule conflicts in this order: `security` -> `architecture` and boundary rules -> transport-specific rules (`express_api`, `websocket_api`) -> `typescript` -> `testing` -> `coding_standards`.
+- Keep each rule file focused on one concern. Prefer pointing to the owning rule rather than restating detailed guidance in multiple files.
+- When two rules can both be satisfied, choose the stricter option instead of weakening the higher-priority rule.
+- Legacy compatibility is allowed only through narrow adapters, serializers, route aliases, or migration shims.
+- Every intentional exception must be local, named, covered by tests, and documented with its reason plus a removal condition.
+- Avoid spreading one compatibility concern across multiple layers.
+- Prefer static enforcement in CI for architectural boundaries using ESLint import rules, dependency-cruiser, or equivalent tooling.
+- Before concluding a long or multi-file task, run `npm run lint` plus the relevant automated tests, and resolve reported errors and warnings when they are caused by the current work.
+- Before concluding a refactor, run `npm run lint` plus the relevant automated tests; escalate to `npm run test` when shared contracts, core infrastructure, or cross-cutting behavior changed.
+- Run `npm run typecheck` when shared types, transport contracts, tsconfig-sensitive behavior, or broad refactors change TypeScript assumptions across files.
+- If lint or tests cannot be run, or if failures remain outside the current scope, say so explicitly in the final handoff.
+- `src/domain` must not import `application`, `presentation`, `infrastructure`, or framework libraries.
+- `src/application` must not import `presentation` or concrete `infrastructure` implementations.
+- `src/presentation` must not call repositories or datasources directly; it should enter through application services or use cases.
+- Tests may use helpers or fixtures that cross boundaries when necessary, but production code must keep the architectural imports clean.

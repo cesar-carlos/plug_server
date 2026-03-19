@@ -1,19 +1,21 @@
----
-description: "Folder structure conventions for the Express and Socket.IO backend"
+description: "Project-specific folder structure conventions for this backend"
 globs: ["src/**/*.ts"]
 alwaysApply: true
 ---
 
 # Project Structure
 
+- This is a project-specific rule file. It defines where code lives in this repository, not a universal folder layout for all projects.
 - Prefer feature-based organization inside `src`, while preserving the architecture boundaries of `domain`, `application`, `infrastructure`, `presentation`, and `shared`.
+- Keep the layer roots under `src`: `domain`, `application`, `infrastructure`, `presentation`, and `shared`.
 - Keep the bootstrap files at the root of `src`, such as `app.ts`, `server.ts`, and `socket.ts`, when they compose the application.
 - Use `src/presentation/http` for REST routes, controllers, request validators, and HTTP middleware.
 - Use `src/presentation/socket` for Socket.IO namespaces, gateways, event handlers, and socket auth helpers.
 - Use `src/presentation/docs` or `src/docs` for Swagger/OpenAPI setup and schema registration.
 - Keep feature modules grouped by business area when helpful, such as `auth`, `users`, `health`, `notifications`, or `chat`.
 - Place environment parsing and app configuration in `src/shared/config`.
-- Place logger, error classes, response helpers, and common constants in `src/shared`.
+- Place logger, error classes, response helpers, transport contracts, and common constants in `src/shared`.
 - Keep reusable adapters for `bcryptjs`, `jsonwebtoken`, `uuid`, `moment`, and external services in focused modules instead of scattering direct usage.
+- Keep compatibility shims in serializers, adapters, or clearly named migration modules rather than mixing them into core business code.
 - Avoid mixing route registration, business logic, and persistence code in the same folder or file.
 - Use Python for scripts in `scripts/` (e.g. test helpers, dev utilities). Prefer standard library; add `requests` only when needed.

@@ -1,17 +1,21 @@
----
-description: "TypeScript standards for the Express backend"
+description: "TypeScript-specific coding standards"
 globs: ["src/**/*.ts", "tests/**/*.ts"]
 alwaysApply: true
 ---
 
 # TypeScript Standards
 
+- This is a stack-specific rule file for TypeScript language features and compiler-driven safety.
 - Keep `strict: true` enabled and prefer enabling other strict compiler flags instead of weakening types.
+- Prefer strong, explicit typing because narrow types make the code easier to read, review, and refactor safely.
 - Never introduce `any` when `unknown`, generics, unions, or narrowing solve the problem.
 - Add explicit return types to exported functions and public methods.
 - Use `interface` for object contracts and `type` for unions, mapped types, and branded primitives.
+- Prefer types that communicate domain intent clearly at the call site instead of broad structural shapes that hide meaning.
 - Prefer named exports and `import type` where appropriate.
 - Model API states and domain outcomes with unions or result objects instead of magic strings.
+- Prefer discriminated unions for finite state or message variants, and enforce exhaustive handling with `never` when branching on them.
+- Prefer utility types such as `Pick`, `Omit`, `Readonly`, `Partial`, `Record`, and `Awaited` over manually duplicating type shapes.
 - Validate external data at the boundary before treating it as a trusted TypeScript type.
 - Catch errors as `unknown` and narrow them before reading properties.
 - Prefer `readonly`, `as const`, and immutable transforms for shared data structures.

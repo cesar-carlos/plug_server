@@ -1,16 +1,21 @@
----
-description: "Domain and use case rules for the backend core"
+description: "Universal domain and application layer guidelines"
 globs: ["src/domain/**/*.ts", "src/application/**/*.ts"]
-alwaysApply: false
+alwaysApply: true
 ---
 
-# Domain Layer Guidelines
+# Domain and Application Layer Guidelines
 
-- Keep domain code framework-agnostic. No `express`, ORM decorators, HTTP types, or env access in `domain`.
+- This is a universal rule file. Transport-specific and framework-specific constraints belong in stack rules, not here.
+- `src/domain` models the business language: entities, value objects, domain services, and repository contracts.
+- `src/application` models business actions: use cases, workflow services, DTOs, and coordination across repositories or external ports.
+- Keep domain code framework-agnostic. No transport frameworks, ORM decorators, HTTP types, env access, or persistence DTOs in `domain`.
+- Do not place new use cases in `domain`. If legacy files still live there, treat them as migration debt and move future use cases to `application`.
+- Transport and persistence DTOs do not belong in `domain`.
 - Entities protect business invariants and identity.
 - Value objects must be immutable, self-validating, and compared by value.
+- Prefer rich domain behavior when the rule truly belongs to the entity or value object.
 - Each use case should represent one business action and expose a small input/output contract.
 - Repository interfaces belong to the domain and must use domain language, not SQL or transport language.
-- Infrastructure implements repository contracts; use cases never depend on concrete persistence details.
-- Prefer rich domain behavior when the rule truly belongs to the entity or value object.
-- Return explicit failures that can later be mapped to HTTP responses in the presentation layer.
+- Infrastructure implements repository contracts; application logic never depends on concrete persistence details.
+- Return explicit outcomes through `Result` objects or typed unions rather than booleans or magic strings.
+- Domain and application failures must remain transport-agnostic so presentation can map them to HTTP or socket responses later.

@@ -1,21 +1,16 @@
----
-description: "Architecture rules for this backend with REST and WebSocket"
+description: "Project-specific architecture rules for this TypeScript backend"
 globs: ["src/**/*.ts"]
 alwaysApply: true
 ---
 
 # Backend Communication Architecture
 
+- This is a project-specific rule file. It defines runtime flow and dependency direction for this backend. Folder placement, verification workflow, and detailed layer responsibilities live in their own rule files.
 - Build the project in `TypeScript` with `Express` for REST and `socket.io` for real-time communication.
 - Keep `app.ts` and the HTTP server bootstrap separate so tests can import the app without opening a port.
 - Preferred REST flow: `route -> middleware -> controller -> use_case/service -> repository -> datasource`.
 - Preferred WebSocket flow: `connection/auth -> event handler -> use_case/service -> repository -> datasource`.
 - Transport layers must stay thin. Controllers and socket handlers translate protocol input/output only.
 - Business rules should live in shared use cases or services so REST and WebSocket do not duplicate behavior.
-- API documentation should be exposed through `Swagger`/`OpenAPI` and kept aligned with the real request and response contracts.
-- `src/domain` contains pure business rules, entities, value objects, and repository contracts. It must not import `express`, database libraries, or framework-specific code.
-- `src/application` orchestrates use cases, DTOs, and service workflows. It depends only on `domain`.
-- `src/infrastructure` contains repository implementations, database clients, and external integrations.
-- `src/presentation` contains routes, controllers, validators, serializers, HTTP middleware, socket gateways, and event handlers.
-- `src/shared` contains cross-cutting concerns such as config, logger, errors, and reusable helpers.
 - Prefer inward dependency flow even when organizing by feature.
+- API documentation should be exposed through `Swagger`/`OpenAPI` and kept aligned with the real request and response contracts.

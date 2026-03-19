@@ -1,21 +1,23 @@
----
-description: "HTTP and routing conventions for the Express REST API"
+description: "Express-specific HTTP and routing conventions"
 globs: ["src/app.ts", "src/**/*.controller.ts", "src/**/*.routes.ts", "src/**/*.middleware.ts", "src/presentation/**/*.ts"]
 alwaysApply: true
 ---
 
 # Express REST API Conventions
 
+- This is a stack-specific rule file for the Express transport.
+
 ## Router structure
 
 - Each feature owns a dedicated router file named `feature.routes.ts` (e.g. `auth.routes.ts`, `users.routes.ts`).
-- `src/presentation/http/routes/index.ts` is the central aggregator: it imports every feature router and mounts it with `httpRouter.use("/feature", featureRouter)`. No business logic lives here.
-- Mount the central `httpRouter` in `app.ts` under the versioned prefix `/api/v1`.
+- `src/presentation/http/routes/index.ts` is the canonical aggregator: it imports every feature router and mounts it with `httpRouter.use("/feature", featureRouter)`. No business logic lives here.
+- Mount the canonical `httpRouter` in `app.ts` under the versioned prefix `/api/v1`.
+- Temporary compatibility aliases may also be mounted in `app.ts` only when required by an existing public contract. Keep them thin, document why they exist, and add a removal condition.
 
 ## Route definition
 
 - Use resource-oriented paths and consistent versioning, such as `/api/v1/users`.
-- The standard middleware order for every protected route is: `requireAuth → validateRequest → controller`.
+- The standard middleware order for every protected route is: `requireAuth -> validateRequest -> controller`.
 - Public routes omit `requireAuth` but still pass through `validateRequest` when input is expected.
 - Keep route handler callbacks in controller files; do not inline business logic inside route files. Only trivial utility routes (e.g. `/ping`) may use inline handlers.
 
@@ -23,11 +25,21 @@ alwaysApply: true
 
 - Keep controllers thin: retrieve validated input via `getValidated`, call the application/service layer, check the `Result`, and map to the appropriate HTTP status code.
 - Never access repositories, domain entities, or infrastructure adapters directly from a controller.
+- Use serializers or response helpers when a feature exposes multiple endpoints with the same response shape or when legacy compatibility fields must be preserved.
 
 ## Validation
 
 - Validate request `body`, `params`, and `query` with `zod` schemas at the boundary using `validateRequest`.
+- Validate headers explicitly when authentication, idempotency, trace propagation, or custom protocol headers depend on them.
 - Co-locate each feature's Zod schemas in `presentation/http/validators/feature.validator.ts`.
+
+## Response contract
+
+- For new JSON endpoints, use a consistent envelope by default: success responses with a body should follow `{ success: true, data, meta?, requestId? }`.
+- Failure responses must come from the centralized error flow and follow `{ success: false, error: { code, message, details? }, requestId? }`.
+- `204` responses must not send a body.
+- Non-JSON exceptions such as `/metrics` or intentionally minimal utility endpoints are allowed only when documented in the route contract and tests.
+- If a public endpoint keeps a legacy response shape, isolate that compatibility in a serializer or controller helper and cover it with contract tests.
 
 ## Middleware and error handling
 
@@ -35,8 +47,15 @@ alwaysApply: true
 - Always call `next(error)` to propagate errors to the centralized error handler; never build ad hoc error responses inside controllers.
 - Always call `next()` when a middleware does not end the request-response cycle.
 
+## Testing
+
+- Keep `app` separate from the network listener so HTTP tests can import the real Express app without opening a port.
+- Use `Supertest` or equivalent for HTTP-level tests against the real app.
+- Add contract tests for response envelopes, centralized error shapes, `requestId` propagation, and any documented legacy response exceptions.
+- When auth flows accept cookies or more than one token source, add transport-level tests for precedence and CSRF or origin protections.
+
 ## Response and logging
 
-- Return consistent JSON shapes for success and failure; avoid ad hoc response structures across controllers.
-- Use standard status codes intentionally: `200`, `201`, `204`, `400`, `401`, `403`, `404`, `409`, `422`, `500`.
-- Use `morgan` for HTTP access logs and keep `cors` configuration centralized in `app.ts`.
+- Return intentional status codes: `200`, `201`, `202`, `204`, `400`, `401`, `403`, `404`, `409`, `422`, `429`, `500`, `503`.
+- Attach `requestId` to JSON responses whenever request-scoped middleware provides one.
+- Keep HTTP access logging and cross-cutting middleware registration centralized in `app.ts`.

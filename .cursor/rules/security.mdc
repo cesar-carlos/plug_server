@@ -1,11 +1,11 @@
----
-description: "Security rules for the REST and WebSocket backend"
+description: "Stack-specific security rules for the REST and WebSocket backend"
 globs: ["src/**/*.ts"]
 alwaysApply: true
 ---
 
 # Security Best Practices
 
+- This is a stack-specific rule file for transport, token, and integration security in this backend.
 - Validate `body`, `query`, `params`, headers, and every inbound WebSocket event payload at the boundary with `zod` or another schema-based validator.
 - Do not trust client input for authorization, ownership, or roles; derive those from trusted server-side context.
 - Use `helmet`, restrictive `cors`, request size limits, and rate limiting on public or sensitive endpoints.
@@ -14,8 +14,14 @@ alwaysApply: true
 - Validate allowed origins for WebSocket connections and use `wss://` in production.
 - Apply per-connection limits for message rate, payload size, and idle time to reduce abuse and resource exhaustion.
 - Never hardcode secrets. Load them through `dotenv`-managed environment variables and document required keys in `.env.example`.
+- Browser-facing refresh token flows should use `HttpOnly`, `Secure` cookies with an explicit `SameSite` policy as the canonical transport.
+- Non-browser clients may use an explicit body or header transport only on dedicated endpoints or documented compatibility paths.
+- Do not silently accept multiple refresh token sources without deterministic precedence. If compatibility requires more than one source, document the precedence rule and cover it with tests.
+- If cookies are accepted on unsafe methods, enforce CSRF mitigations such as `SameSite`, origin checks, and CSRF tokens when needed; never rely on CORS alone.
 - Hash passwords with `bcryptjs`; never log or persist raw secrets.
 - Keep tokens short-lived, rotate refresh tokens when applicable, and revoke compromised credentials explicitly.
+- Centralize JWT signing keys, payload-signing keys, and secret parsing so key rotation can support overlapping active keys or `kid`-based validation during rollout.
 - Return generic error responses to clients and keep stack traces or database details out of production responses.
-- Log only safe metadata. Never log passwords, tokens, cookies, raw event payloads, or sensitive personal data.
+- Log only safe metadata. Never log passwords, tokens, cookies, `set-cookie`, raw event payloads, or sensitive personal data.
+- Keep a centralized redaction policy in the logger for auth headers, cookies, API keys, refresh tokens, and other known secret-bearing fields.
 - Use parameterized queries or safe ORM/query-builder APIs and keep database permissions minimal.

@@ -1,18 +1,20 @@
----
-description: "General coding standards for the TypeScript backend"
+description: "Universal coding standards"
 globs: ["src/**/*.ts", "tests/**/*.ts"]
 alwaysApply: true
 ---
 
 # Coding Standards
 
+- This is a universal rule file. Keep language-specific guidance in dedicated stack rules such as `typescript.mdc`.
 - Prefer simple modules and small functions over clever abstractions.
 - Keep files focused on one responsibility. Split large controllers, services, or middleware before they become hard to scan.
 - Use descriptive names from the domain or HTTP context, such as `createUser`, `accessToken`, or `authMiddleware`.
-- Follow the project naming pattern `feature.role.ts`, for example `auth.controller.ts` or `login.use_case.ts`.
+- Follow the project naming pattern consistently and prefer names that reveal feature plus responsibility.
 - Replace business-significant literals with named constants.
 - Comments should explain non-obvious intent or trade-offs, not restate the code.
+- When comments are necessary, write them in English.
 - Do not leave commented-out code, empty catch blocks, or unused exports behind.
-- Never generate documentation files (README, changelogs, API docs, wiki pages, etc.) unless the user explicitly requests it. Code with clear names and structure is the primary documentation.
-- Handle failures explicitly and return consistent error shapes through the centralized error flow.
+- Never generate standalone documentation files (README, changelogs, exported API docs, wiki pages, etc.) unless the user explicitly requests it. Inline OpenAPI annotations, schema registration, and other code-first documentation that lives with the code are allowed.
+- Handle failures explicitly instead of swallowing or hiding them.
 - Avoid premature abstractions. Duplicate once if needed, then extract when the pattern is real.
+- Optimize for readability first: names, types, module boundaries, and control flow should help a reviewer understand the code quickly.
