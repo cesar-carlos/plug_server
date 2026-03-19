@@ -157,6 +157,7 @@ Regras de combinacao:
 - `cursor` nao pode ser combinado com `page`/`page_size`.
 - `execution_mode: "preserve"` e `preserve_sql: true` nao podem ser combinados com `page`, `page_size` ou `cursor`.
 - `multi_result: true` nao pode ser combinado com paginacao nem `params`.
+- **Paginacao e `ORDER BY` (contrato plug_agente v2.4+):** com `page`+`page_size` ou com `cursor`, a SQL deve declarar **`ORDER BY` explicito**. Sem ordenacao estavel, paginacao offset/keyset pode ser inconsistente ou o agente pode rejeitar/validar a consulta. Para `cursor` keyset, use ordenacao deterministica (ex.: chave unica ou desempate por coluna unica).
 
 #### Campos opcionais validados e encaminhados ao agente
 
@@ -309,6 +310,7 @@ Regras:
 - `page` e `pageSize` devem ser enviados juntos.
 - `cursor` nao pode ser combinado com `page`/`pageSize`.
 - Quando `pagination` e informado, pelo menos uma das opcoes e obrigatoria.
+- A SQL do `sql.execute` deve incluir **`ORDER BY` explicito** quando houver paginacao (mesma regra que `command.params.options`; ver secao acima).
 
 ---
 
@@ -819,8 +821,11 @@ o servidor inclui:
 | `stream_id`       | string  | nao             | Presente quando streaming ativo               |
 | `sql_handling_mode` | string | nao           | Modo efetivo usado: `managed` ou `preserve` (v2.5+) |
 | `max_rows_handling` | string | nao           | Politica ativa para `max_rows` (ex.: `response_truncation`) (v2.5+) |
+| `effective_max_rows` | integer | nao        | Limite efetivo de linhas apos negociacao (min entre solicitado e limite do transporte); util para debug e suporte (schema `rpc.result.sql-execute` no plug_agente) |
 
 ### sql.execute pagination
+
+Objeto presente quando a requisicao inclui `page`+`page_size` ou `cursor`. A requisicao paginada deve usar SQL com **`ORDER BY` explicito** (ver regras em `command.params.options`).
 
 | Campo               | Tipo    | Descricao                           |
 | ------------------- | ------- | ----------------------------------- |

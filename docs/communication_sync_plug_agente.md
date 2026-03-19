@@ -33,10 +33,11 @@ O agente v2.5 introduziu:
 
 ### 2. Novos campos na response de `sql.execute`
 
-O agente pode retornar (v2.5+):
+O agente pode retornar (v2.5+ e schema de result):
 
 - **`sql_handling_mode`**: modo efetivo usado (`managed` ou `preserve`)
 - **`max_rows_handling`**: política ativa para `max_rows` (ex.: `response_truncation`)
+- **`effective_max_rows`**: limite de linhas efetivamente aplicado após negociação (documentado no standard do agente e em `schemas/rpc.result.sql-execute.schema.json`; o bridge repassa o `result` sem remover o campo)
 
 ### 3. Atualização de versão
 
@@ -47,7 +48,7 @@ O agente pode retornar (v2.5+):
 
 | Arquivo | Alteração |
 | ------- | --------- |
-| `docs/api_rest_bridge.md` | `execution_mode`, `preserve_sql`, exemplos, api_version 2.5, tabela de gaps, `sql_handling_mode`, `max_rows_handling` |
+| `docs/api_rest_bridge.md` | `execution_mode`, `preserve_sql`, exemplos, api_version 2.5, tabela de gaps, `sql_handling_mode`, `max_rows_handling`, `effective_max_rows`, regra `ORDER BY` para paginacao |
 | `src/shared/validators/agent_command.ts` | `execution_mode`, `preserve_sql`, validações de combinação |
 | `src/presentation/socket/hub/rpc_bridge.ts` | `api_version: "2.5"` |
 | `src/presentation/docs/swagger.ts` | schemas `execution_mode`, `preserve_sql` |
@@ -97,6 +98,13 @@ O agente pode retornar (v2.5+):
 - **Config**: `SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` (3)
 - **Config**: `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` e `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX`
 - **Documentacao**: secao "Configuracao e tuning" em `api_rest_bridge.md` (REQUEST_BODY_LIMIT, rate limit, env vars)
+
+## Melhorias aplicadas (2026-03-19) - documentacao alinhada ao plug_agente
+
+- **`api_rest_bridge.md`**: campo `effective_max_rows` na tabela de resultado de `sql.execute` (alinhado a `rpc.result.sql-execute.schema.json`)
+- **`api_rest_bridge.md`**: regra explicita de **`ORDER BY` obrigatorio** para paginacao (`page`/`page_size` e `cursor`), referencia ao contrato v2.4+ do agente
+- **`api_rest_bridge.md`**: mesma orientacao na secao `pagination` (nivel do body)
+- **`communication_sync_plug_agente.md`**: `effective_max_rows` listado nos novos campos de response; tabela de arquivos atualizada
 
 ## Próximas sincronizações
 
