@@ -120,7 +120,7 @@ export const createRequestAgentStreamPull = (
         emitToConsumer(
           route.consumerSocketId,
           socketEvents.relayRpcChunk,
-          encodePayloadFrame(chunk, { requestId: route.requestId }),
+          encodePayloadFrame(chunk, { requestId: route.requestId, omitTraceId: true }),
         );
         relayMetrics.chunksForwarded += 1;
 
@@ -150,7 +150,7 @@ export const createRequestAgentStreamPull = (
           emitToConsumer(
             route.consumerSocketId,
             socketEvents.relayRpcComplete,
-            encodePayloadFrame(pendingComplete, { requestId: route.requestId }),
+            encodePayloadFrame(pendingComplete, { requestId: route.requestId, omitTraceId: true }),
           );
 
           const relayRoute = getRelayRequestRoute(route.requestId);

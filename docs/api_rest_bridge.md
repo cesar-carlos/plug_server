@@ -878,6 +878,7 @@ o servidor inclui:
 | `SOCKET_REST_AGENT_QUEUE_WAIT_MS`     | `200`   | Tempo maximo de espera na fila por agente antes de rejeitar |
 | `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `96`    | Tamanho da janela por pull no REST materializado (creditos por pull; maior = menos pulls, mais pico de memoria por stream) |
 | `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub |
+| `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame |
 
 ---
 
@@ -1164,6 +1165,11 @@ O endpoint `POST /api/v1/agents/commands` possui rate limit proprio, alem do glo
 | `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX` | `0` (desligado) | Opcional: max por **IP** na mesma janela. `> 0` ativa um segundo limitador (ex.: `300` em NAT). Atras de proxy, configurar `trust proxy` no Express para `req.ip` correto. |
 
 Ajuste conforme capacidade dos agentes e padrao de uso.
+
+**Nota (Socket):** o evento `agents:command` no `/consumers` usa o **mesmo** body e validacao e um
+rate limit **por Socket** com os **mesmos** `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` e
+`REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` por JWT `sub` (contador separado do Express). Relay: `SOCKET_RELAY_RATE_LIMIT_*`.
+Ver `docs/socket_client_sdk.md`.
 
 ### Log de `id` JSON-RPC auto-atribuido
 

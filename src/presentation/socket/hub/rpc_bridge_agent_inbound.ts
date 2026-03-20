@@ -339,7 +339,7 @@ export const createRpcBridgeAgentInboundHandlers = (
       emitToConsumer(
         relayRoute.consumerSocketId,
         socketEvents.relayRpcRequestAck,
-        encodePayloadFrame(data, { requestId }),
+        encodePayloadFrame(data, { requestId, omitTraceId: true }),
       );
     }
   };
@@ -379,8 +379,8 @@ export const createRpcBridgeAgentInboundHandlers = (
       if (relayRoute && relayRoute.agentSocketId === socketId) {
         const frame =
           preencodedBatchAck !== null
-            ? finishPayloadFrameEnvelope(preencodedBatchAck, { requestId })
-            : encodePayloadFrame(data, { requestId });
+            ? finishPayloadFrameEnvelope(preencodedBatchAck, { requestId, omitTraceId: true })
+            : encodePayloadFrame(data, { requestId, omitTraceId: true });
         emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcBatchAck, frame);
       }
     }

@@ -19,6 +19,10 @@ rate(plug_rest_sql_stream_materialize_pulls_total[5m])
 # Relay: pedidos aceites vs rejeitados por rate-limit
 rate(plug_socket_relay_rate_limit_request_allowed_total[5m])
 rate(plug_socket_relay_rate_limit_request_rejected_total[5m])
+
+# Socket legado agents:command (mesma janela/max que REST por utilizador; contador separado)
+rate(plug_socket_agents_command_rate_limit_allowed_total[5m])
+rate(plug_socket_agents_command_rate_limit_rejected_total[5m])
 ```
 
 Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos contadores expostos (podem evoluir com o CHANGELOG).

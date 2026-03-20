@@ -51,7 +51,7 @@ export const createRelayStreamHandlers = (
       emitToConsumer(
         route.consumerSocketId,
         socketEvents.relayRpcChunk,
-        encodePayloadFrame(chunk, { requestId: route.requestId }),
+        encodePayloadFrame(chunk, { requestId: route.requestId, omitTraceId: true }),
       );
       relayMetrics.chunksForwarded += 1;
 
@@ -87,7 +87,7 @@ export const createRelayStreamHandlers = (
     emitToConsumer(
       route.consumerSocketId,
       socketEvents.relayRpcComplete,
-      encodePayloadFrame(pendingComplete, { requestId: route.requestId }),
+      encodePayloadFrame(pendingComplete, { requestId: route.requestId, omitTraceId: true }),
     );
 
     const streamId = toRequestId(pendingComplete.stream_id);
@@ -120,7 +120,7 @@ export const createRelayStreamHandlers = (
         emitToConsumer(
           route.consumerSocketId,
           socketEvents.relayRpcChunk,
-          encodePayloadFrame(payload, { requestId: route.requestId }),
+          encodePayloadFrame(payload, { requestId: route.requestId, omitTraceId: true }),
         );
         relayMetrics.chunksForwarded += 1;
 

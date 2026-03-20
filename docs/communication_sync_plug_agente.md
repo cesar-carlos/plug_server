@@ -192,6 +192,13 @@ Documentacao plug_agente (`socket_communication_standard.md`, `socketio_client_b
 - **`socket_client_sdk.md`**: exemplo `encodeFrame` com politica **auto** (gzip so se menor que UTF-8), coerente com `payload_frame.ts` / plug_agente.
 - **`agents.routes.ts` (OpenAPI)**: exemplo `sqlExecutePayloadFrameCompression` + nota na descricao do POST.
 
+### Verificacao com plug_agente (2026-03-20) — standard + guia binario
+
+- **`socket_communication_standard.md`**: eventos `rpc:*` / `PayloadFrame`, limites (`max_payload_bytes` 10 MiB, `maxInflationRatio` 20), perfil v2.5, `execution_mode` / `execution_order`, compressao outbound auto vs sempre GZIP — **coerentes** com `src/socket.ts`, `payload_frame.ts`, validadores e relay/REST.
+- **`socketio_client_binary_transport.md`**: o **texto normativo** (passos do emissor, `cmp` gzip ou none, auto acima do limiar) alinha-se ao hub; o **exemplo Node.js** no ficheiro do plug_agente ainda faz `gzipSync` sempre que `length >= threshold` (nao compara tamanhos). Clientes devem seguir os bullets do guia / o nosso `docs/socket_client_sdk.md` e `docs/snippets/payload_frame_client_encode.ts`, nao esse snippet isolado.
+- **Handshake hub**: `extensions.signatureAlgorithms` passou a anunciar `["hmac-sha256"]` como no exemplo de capabilities do standard (assinatura continua opcional enquanto `signatureRequired: false`).
+- **Detalhe de implementacao**: gzip outbound limitado a entradas ate `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES` UTF-8 (defeito **512 KiB**); acima disso o frame vai em claro (`cmp: none`) ate ao teto de 10 MiB — ver `docs/socket_relay_protocol.md` e `docs/configuration.md`.
+
 ## Próximas sincronizações
 
 Ao atualizar o plug_agente, verificar:

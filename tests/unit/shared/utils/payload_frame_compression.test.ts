@@ -37,6 +37,21 @@ describe("encodePayloadFrame compression policy", () => {
     expect(frame.cmp).toBe("none");
   });
 
+  it("omitTraceId skips envelope traceId when no explicit traceId", () => {
+    const frame = encodePayloadFrame(small, { requestId: "r1", omitTraceId: true });
+    expect(frame.requestId).toBe("r1");
+    expect(frame.traceId).toBeUndefined();
+  });
+
+  it("explicit traceId wins over omitTraceId", () => {
+    const frame = encodePayloadFrame(small, {
+      requestId: "r1",
+      traceId: "fixed",
+      omitTraceId: true,
+    });
+    expect(frame.traceId).toBe("fixed");
+  });
+
   it("always preference forces gzip on small payload", () => {
     const frame = encodePayloadFrame(small, {
       requestId: "r1",
@@ -108,5 +123,31 @@ describe("preencodePayloadFrameJson backward compat (numeric second arg)", () =>
     const body = preencodePayloadFrameJson({ x: "y".repeat(2000) }, 1024);
     expect(body.originalSize).toBeGreaterThanOrEqual(1024);
     expect(["gzip", "none"]).toContain(body.cmp);
+  });
+});
+
+describe("preencodePayloadFrameJson maxGzipInputBytes", () => {
+  it("skips gzip when JSON exceeds maxGzipInputBytes (compressible payload)", () => {
+    const data = { blob: "a".repeat(600_000) };
+    const body = preencodePayloadFrameJson(data, {
+      compressionThreshold: 1024,
+      compressionPolicy: "auto",
+      maxGzipInputBytes: 512 * 1024,
+    });
+    expect(body.originalSize).toBeGreaterThan(512 * 1024);
+    expect(body.cmp).toBe("none");
+    expect(body.wireBytes.length).toBe(body.originalSize);
+  });
+
+  it("allows gzip above default ceiling when maxGzipInputBytes is raised", () => {
+    const data = { blob: "a".repeat(600_000) };
+    const body = preencodePayloadFrameJson(data, {
+      compressionThreshold: 1024,
+      compressionPolicy: "auto",
+      maxGzipInputBytes: 2 * 1024 * 1024,
+    });
+    expect(body.originalSize).toBeGreaterThan(512 * 1024);
+    expect(body.cmp).toBe("gzip");
+    expect(body.wireBytes.length).toBeLessThan(body.originalSize);
   });
 });

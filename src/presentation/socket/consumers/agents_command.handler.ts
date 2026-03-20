@@ -12,6 +12,7 @@ import { agentCommandBodySchema } from "../../../shared/validators/agent_command
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
+import { allowAgentsCommandSocket } from "../hub/agents_command_socket_rate_limiter";
 
 const emitCommandResponse = (
   socket: Socket,
@@ -39,6 +40,19 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     emitCommandResponse(socket, {
       success: false,
       error: { code: "VALIDATION_ERROR", message },
+    });
+    return;
+  }
+
+  const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
+  if (!allowAgentsCommandSocket(userSub, socket.id)) {
+    emitCommandResponse(socket, {
+      success: false,
+      error: {
+        code: "TOO_MANY_REQUESTS",
+        message: "Too many agent commands, please try again later.",
+        statusCode: 429,
+      },
     });
     return;
   }

@@ -198,10 +198,10 @@ Risco: crescimento de estado em memoria.
 Mitigacao: TTL de conversa inativa + cleanup em disconnect/complete/end.
 
 Risco: cliente usar relay para metodos fora de politica.
-Mitigacao: allowlist de metodos por role/conversa (configuravel).
+Mitigacao: **implementado** — o mesmo `bridgeCommandSchema` do REST valida o payload apos decode do `PayloadFrame` (`dispatchRelayRpcToAgent`); apenas `sql.execute`, `sql.executeBatch`, `sql.cancel` e `rpc.discover`. Uma allowlist **por role/conversa** (mais fina) continua como evolucao opcional.
 
 ## Decisoes pendentes antes da codificacao
 
 1. Evento final para payload de dados: `relay:rpc.*` (recomendado) ou reutilizar `rpc:*` em `/consumers`.
-2. Nivel de validacao de metodo no relay: pass-through total ou allowlist inicial.
+2. ~~Nivel de validacao de metodo no relay~~ — resolvido: validacao estrita via `bridgeCommandSchema` (sem batch JSON-RPC no relay).
 3. Timeouts padrao por conversa e limite maximo de conversas por consumer.

@@ -22,6 +22,21 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  /**
+   * Max UTF-8 bytes of JSON before hub attempts gzip in `preencodePayloadFrameJson`.
+   * Larger logical payloads are sent with `cmp: none` (still within 10 MiB frame limits).
+   */
+  PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1024)
+    .max(10 * 1024 * 1024)
+    .default(512 * 1024),
+  /** Optional zlib level 1–9 for PayloadFrame gzip (unset = Node default ~6). Lower = faster CPU, larger wire. */
+  PAYLOAD_FRAME_GZIP_LEVEL: z.preprocess(
+    (val) => (val === undefined || val === "" ? undefined : val),
+    z.coerce.number().int().min(1).max(9).optional(),
+  ),
   SOCKET_AUTH_REQUIRED: z
     .enum(["true", "false"])
     .default("true")
@@ -103,6 +118,26 @@ const envSchema = z.object({
         });
       }
     }),
+  /** Hub API: do not serve socket.io client assets from this server (less HTTP surface, default off). */
+  SOCKET_IO_SERVE_CLIENT: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** Engine.IO compression for long-polling responses; set false with `SOCKET_IO_TRANSPORTS=websocket` to save CPU. */
+  SOCKET_IO_HTTP_COMPRESSION: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  /** Override Engine.IO ping interval (ms). Omit for default 25000. */
+  SOCKET_IO_PING_INTERVAL_MS: z.preprocess(
+    (val) => (val === undefined || val === "" ? undefined : val),
+    z.coerce.number().int().positive().max(120_000).optional(),
+  ),
+  /** Override Engine.IO ping timeout (ms). Omit for default 20000. */
+  SOCKET_IO_PING_TIMEOUT_MS: z.preprocess(
+    (val) => (val === undefined || val === "" ? undefined : val),
+    z.coerce.number().int().positive().max(120_000).optional(),
+  ),
   SOCKET_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
   SOCKET_AUDIT_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
@@ -159,6 +194,8 @@ export const env = {
   payloadSigningKey: parsedEnv.PAYLOAD_SIGNING_KEY,
   payloadSigningKeyId: parsedEnv.PAYLOAD_SIGNING_KEY_ID,
   payloadSignOutbound: parsedEnv.PAYLOAD_SIGN_OUTBOUND,
+  payloadFrameMaxGzipInputBytes: parsedEnv.PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES,
+  payloadFrameGzipLevel: parsedEnv.PAYLOAD_FRAME_GZIP_LEVEL,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES,
@@ -194,6 +231,10 @@ export const env = {
   socketIoMaxHttpBufferBytes: parsedEnv.SOCKET_IO_MAX_HTTP_BUFFER_BYTES,
   socketIoPerMessageDeflate: parsedEnv.SOCKET_IO_PER_MESSAGE_DEFLATE,
   socketIoTransports: parsedEnv.SOCKET_IO_TRANSPORTS as ("websocket" | "polling")[],
+  socketIoServeClient: parsedEnv.SOCKET_IO_SERVE_CLIENT,
+  socketIoHttpCompression: parsedEnv.SOCKET_IO_HTTP_COMPRESSION,
+  socketIoPingIntervalMs: parsedEnv.SOCKET_IO_PING_INTERVAL_MS,
+  socketIoPingTimeoutMs: parsedEnv.SOCKET_IO_PING_TIMEOUT_MS,
   socketAuditRetentionDays: parsedEnv.SOCKET_AUDIT_RETENTION_DAYS,
   socketAuditRetentionIntervalMinutes: parsedEnv.SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES,
   socketAuditPruneBatchSize: parsedEnv.SOCKET_AUDIT_PRUNE_BATCH_SIZE,

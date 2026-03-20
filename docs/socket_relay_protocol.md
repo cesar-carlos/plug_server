@@ -87,12 +87,13 @@ Campos relevantes do frame:
 - `contentType` (`application/json`)
 - `originalSize` / `compressedSize`
 - `payload` (binario: `Buffer`, `Uint8Array` ou array de bytes)
-- `traceId` e `requestId` (quando aplicavel)
+- `requestId` no envelope (quando aplicavel); `traceId` opcional — em mensagens de stream relay de alto debito (`relay:rpc.chunk`, `relay:rpc.complete`, acks relay) o hub pode omitir `traceId` e correlacionar apenas por `requestId`
 - `signature` opcional (`hmac-sha256`)
 
 Regras atuais no servidor:
 
 - compressao de saida: acima do limiar, modo **automatico** (gzip so se menor que JSON UTF-8) no hub por defeito; `payloadFrameCompression: always` forca gzip como no agente “sempre GZIP”
+- para JSON UTF-8 **acima do teto configuravel** (`PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **512 KiB**), o hub **nao tenta** gzip na codificacao interna (`preencodePayloadFrameJson` em `payload_frame.ts`); o frame segue com `cmp: none` ate ao limite de `10 MB` no fio
 - limite de payload comprimido: `10 MB`
 - limite de payload decodificado: `10 MB`
 - limite de inflacao gzip: `20x`

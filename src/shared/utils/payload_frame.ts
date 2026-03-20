@@ -21,6 +21,8 @@ export type PayloadFrameOutboundCompressionPolicy = "auto" | "always_gzip";
 export interface PreencodePayloadFrameJsonOptions {
   readonly compressionThreshold?: number;
   readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
+  /** Override max UTF-8 length eligible for gzip attempt (default: `env.payloadFrameMaxGzipInputBytes`). */
+  readonly maxGzipInputBytes?: number;
 }
 
 /**
@@ -40,7 +42,6 @@ export const payloadFrameEncodeOptionsFromPreference = (
   }
   return { compressionThreshold: 1, compressionPolicy: "always_gzip" };
 };
-const maxCompressionInputBytes = 512 * 1024;
 const maxCompressedPayloadBytes = 10 * 1024 * 1024;
 const maxDecodedPayloadBytes = 10 * 1024 * 1024;
 const maxInflationRatio = 20;
@@ -239,9 +240,10 @@ export const preencodePayloadFrameJson = (
   const encoded = Buffer.from(JSON.stringify(data), "utf8");
   const threshold = opts.compressionThreshold ?? defaultCompressionThreshold;
   const policy = opts.compressionPolicy ?? "auto";
+  const maxGzipInputBytes = opts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
 
   const belowThreshold = encoded.length < threshold;
-  const aboveMaxInput = encoded.length > maxCompressionInputBytes;
+  const aboveMaxInput = encoded.length > maxGzipInputBytes;
   if (belowThreshold || aboveMaxInput || threshold === Number.POSITIVE_INFINITY) {
     return {
       originalSize: encoded.length,
@@ -250,7 +252,9 @@ export const preencodePayloadFrameJson = (
     };
   }
 
-  const compressed = gzipSync(encoded);
+  const gzipLevel = env.payloadFrameGzipLevel;
+  const compressed =
+    gzipLevel !== undefined ? gzipSync(encoded, { level: gzipLevel }) : gzipSync(encoded);
   if (policy === "always_gzip") {
     return {
       originalSize: encoded.length,
@@ -279,9 +283,18 @@ export const finishPayloadFrameEnvelope = (
   options?: {
     readonly requestId?: string;
     readonly traceId?: string;
+    /** Skip traceId on the envelope (saves UUID work on high-frequency stream paths; use requestId for correlation). */
+    readonly omitTraceId?: boolean;
   },
-): PayloadFrameEnvelope =>
-  signOutboundFrameIfConfigured({
+): PayloadFrameEnvelope => {
+  const traceFields =
+    options?.traceId !== undefined
+      ? { traceId: options.traceId }
+      : options?.omitTraceId === true
+        ? {}
+        : { traceId: randomUUID() };
+
+  return signOutboundFrameIfConfigured({
     schemaVersion: "1.0",
     enc: "json",
     cmp: body.cmp,
@@ -289,22 +302,26 @@ export const finishPayloadFrameEnvelope = (
     originalSize: body.originalSize,
     compressedSize: body.wireBytes.length,
     payload: body.wireBytes,
-    ...(options?.traceId ? { traceId: options.traceId } : { traceId: randomUUID() }),
+    ...traceFields,
     ...(options?.requestId ? { requestId: options.requestId } : {}),
   });
+};
 
 export const encodePayloadFrame = (
   data: unknown,
   options?: {
     readonly compressionThreshold?: number;
     readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
+    readonly maxGzipInputBytes?: number;
     readonly requestId?: string;
     readonly traceId?: string;
+    readonly omitTraceId?: boolean;
   },
 ): PayloadFrameEnvelope => {
   const body = preencodePayloadFrameJson(data, {
     ...(options?.compressionThreshold !== undefined ? { compressionThreshold: options.compressionThreshold } : {}),
     ...(options?.compressionPolicy !== undefined ? { compressionPolicy: options.compressionPolicy } : {}),
+    ...(options?.maxGzipInputBytes !== undefined ? { maxGzipInputBytes: options.maxGzipInputBytes } : {}),
   });
   return finishPayloadFrameEnvelope(body, options);
 };

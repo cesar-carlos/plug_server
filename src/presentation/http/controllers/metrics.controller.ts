@@ -28,6 +28,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const restBridge = getRestBridgeMetricsSnapshot();
   const relay = socket.relay;
   const rateLimit = socket.relayRateLimit;
+  const agentsCommandRl = socket.agentsCommandSocketRateLimit;
   const audit = getSocketAuditMetricsSnapshot();
 
   const lines: string[] = [];
@@ -113,6 +114,16 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_relay_rate_limit_request_allowed_total", rateLimit.counters.relayRequestAllowed));
   lines.push(
     metricLine("plug_socket_relay_rate_limit_request_rejected_total", rateLimit.counters.relayRequestRejected),
+  );
+
+  lines.push(metricLine("plug_socket_agents_command_rate_limit_window_ms", agentsCommandRl.windowMs));
+  lines.push(metricLine("plug_socket_agents_command_rate_limit_max_per_window", agentsCommandRl.maxPerWindow));
+  lines.push(metricLine("plug_socket_agents_command_rate_limit_tracked_keys", agentsCommandRl.trackedKeys));
+  lines.push(
+    metricLine("plug_socket_agents_command_rate_limit_allowed_total", agentsCommandRl.allowedTotal),
+  );
+  lines.push(
+    metricLine("plug_socket_agents_command_rate_limit_rejected_total", agentsCommandRl.rejectedTotal),
   );
 
   lines.push(metricLine("plug_socket_audit_writes_attempted_total", audit.writesAttempted));

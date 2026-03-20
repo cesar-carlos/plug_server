@@ -7,9 +7,16 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 ## Transporte Socket.IO
 
 - **PayloadFrame** já aplica gzip no nível da aplicação (modo **auto** por defeito: só gzip se menor que JSON UTF-8). O Engine.IO, por defeito, pode aplicar **permessage-deflate** no WebSocket — compressão duplicada e CPU extra.
+- **Teto interno de gzip** (`payload_frame.ts` + `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **524288**): JSON UTF-8 acima desse tamanho não passa por tentativa de gzip na codificação do hub (`cmp: none`); subir o valor (até **10 MiB**) se precisares de gzip em cargas grandes; payloads seguem dentro do limite de **10 MB** do contrato.
+- **`PAYLOAD_FRAME_GZIP_LEVEL`** (opcional, `1`–`9`): nível zlib para `gzipSync` do hub. Omitir mantém o default do Node (~6). Valores **1–3** reduzem CPU em hubs com muito tráfego comprimido, à custa de frames ligeiramente maiores.
+- **`SOCKET_IO_SERVE_CLIENT=false`** (defeito): o hub não expõe o ficheiro cliente `socket.io` por HTTP — menos trabalho no pipeline e superfície menor. Clientes devem usar `socket.io-client` via npm/CDN.
+- **`SOCKET_IO_HTTP_COMPRESSION`**: compressão zlib nas respostas do transporte **polling**. Se em produção só usas **`SOCKET_IO_TRANSPORTS=websocket`**, definir `SOCKET_IO_HTTP_COMPRESSION=false` evita trabalho inútil em upgrades/handshake ocasional de polling.
 - **`SOCKET_IO_PER_MESSAGE_DEFLATE=false`** (recomendado): desliga deflate na camada WS quando se usa `PayloadFrame` com gzip opcional.
 - **`SOCKET_IO_MAX_HTTP_BUFFER_BYTES`**: deve cobrir o teto de frame do contrato (**10 MB** alinhado a `payload_frame.ts`). Valores abaixo disso podem falhar em payloads grandes mesmo com JSON-RPC válido.
 - **`SOCKET_IO_TRANSPORTS`**: `websocket,polling` (defeito) para compatibilidade; em produção com clientes estáveis, `websocket` reduz handshake inicial e evita long-polling.
+- **Heartbeat** (`SOCKET_IO_PING_INTERVAL_MS`, `SOCKET_IO_PING_TIMEOUT_MS`): opcionais; defaults Engine.IO **25000** / **20000** ms. Intervalos maiores reduzem tráfego e CPU com muitas ligações lentas; garantir `pingInterval > pingTimeout` e ajustar timeouts de cliente/rede em conjunto.
+- **`SOCKET_IO_TRANSPORTS=websocket`**: o hub define `allowUpgrades: false` no Engine.IO (sem tentativa de upgrade polling→WS quando só existe transporte WebSocket).
+- **PayloadFrame em streams relay** (`relay:rpc.chunk` / `relay:rpc.complete`, acks em batch): o envelope pode **omitir `traceId`** para evitar `randomUUID()` por mensagem em caminhos de alto débito; a correlação continua via `requestId` no envelope e nos dados JSON-RPC.
 
 ## REST vs streaming
 
@@ -25,7 +32,9 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 | `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` / `..._CONVERSATION_STARTS` | Teto de pedidos relay por janela; subir em workloads intensos (com cuidado). |
 | `SOCKET_RELAY_MAX_BUFFERED_CHUNKS_*` | Backpressure relay; mais buffer = mais throughput até ao limite de memória. |
 | `SOCKET_AUDIT_BATCH_MAX` / `FLUSH_MS` | Menos round-trips à DB em auditoria. |
-| `REST_AGENTS_COMMANDS_RATE_LIMIT_*` | Limite por IP no REST; produção pode precisar subir com muitos clientes legítimos. |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_*` | Limite por utilizador (`sub`) no REST + opcional por IP; `agents:command` usa os mesmos números (contador Socket separado). |
+| `PAYLOAD_FRAME_GZIP_LEVEL` | Trade-off CPU vs tamanho no gzip do `PayloadFrame` (hub → agente / relay). |
+| `SOCKET_IO_SERVE_CLIENT` / `HTTP_COMPRESSION` / `PING_*` | Ver secção *Transporte Socket.IO* acima. |
 
 ## Escala horizontal
 

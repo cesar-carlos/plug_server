@@ -34,6 +34,12 @@ import {
   resetRelayRateLimiterState,
   sweepRelayRateLimitState,
 } from "./presentation/socket/hub/consumer_relay_rate_limiter";
+import {
+  clearAgentsCommandSocketRateLimitStateForSocketId,
+  getAgentsCommandSocketRateLimitMetricsSnapshot,
+  resetAgentsCommandSocketRateLimitState,
+  sweepAgentsCommandSocketRateLimitState,
+} from "./presentation/socket/hub/agents_command_socket_rate_limiter";
 import { handleRelayConversationStart } from "./presentation/socket/consumers/relay_conversation_start.handler";
 import { handleRelayConversationEnd } from "./presentation/socket/consumers/relay_conversation_end.handler";
 import { handleRelayRpcRequest } from "./presentation/socket/consumers/relay_rpc_request.handler";
@@ -66,7 +72,8 @@ const serverCapabilities = {
     maxInflationRatio: 20,
     signatureRequired: false,
     signatureScope: "transport-frame",
-    signatureAlgorithms: [],
+    /** Aligned with plug_agente capabilities example (`hmac-sha256` transport-frame signing). */
+    signatureAlgorithms: ["hmac-sha256"],
     streamingResults: true,
     plugProfile: "plug-jsonrpc-profile/2.5",
     orderedBatchResponses: true,
@@ -128,6 +135,7 @@ export const getSocketMetricsSnapshot = (): {
   };
   readonly relay: ReturnType<typeof getRelayMetricsSnapshot>;
   readonly relayRateLimit: ReturnType<typeof getRelayRateLimitMetricsSnapshot>;
+  readonly agentsCommandSocketRateLimit: ReturnType<typeof getAgentsCommandSocketRateLimitMetricsSnapshot>;
 } => {
   const io = activeSocketServer;
   return {
@@ -137,6 +145,7 @@ export const getSocketMetricsSnapshot = (): {
     },
     relay: getRelayMetricsSnapshot(),
     relayRateLimit: getRelayRateLimitMetricsSnapshot(),
+    agentsCommandSocketRateLimit: getAgentsCommandSocketRateLimitMetricsSnapshot(),
   };
 };
 
@@ -153,6 +162,7 @@ export const closeSocketServer = async (
   }
 
   resetRelayRateLimiterState();
+  resetAgentsCommandSocketRateLimitState();
   resetSocketBridgeState();
   resetRestBridgeMetrics();
   conversationRegistry.clear();
@@ -168,6 +178,9 @@ export const closeSocketServer = async (
 };
 
 export const createSocketServer = (httpServer: HttpServer): Server => {
+  const websocketOnly =
+    env.socketIoTransports.length === 1 && env.socketIoTransports[0] === "websocket";
+
   const io = new Server(httpServer, {
     cors: {
       origin: env.corsOrigin,
@@ -175,6 +188,11 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     maxHttpBufferSize: env.socketIoMaxHttpBufferBytes,
     perMessageDeflate: env.socketIoPerMessageDeflate,
     transports: env.socketIoTransports,
+    serveClient: env.socketIoServeClient,
+    httpCompression: env.socketIoHttpCompression,
+    ...(websocketOnly ? { allowUpgrades: false } : {}),
+    ...(env.socketIoPingIntervalMs !== undefined ? { pingInterval: env.socketIoPingIntervalMs } : {}),
+    ...(env.socketIoPingTimeoutMs !== undefined ? { pingTimeout: env.socketIoPingTimeoutMs } : {}),
   });
 
   const agentsNsp = io.of(SOCKET_NAMESPACES.agents);
@@ -207,6 +225,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   }
   conversationSweepTimer = setInterval(() => {
     sweepRelayRateLimitState();
+    sweepAgentsCommandSocketRateLimitState();
     const expiredConversations = conversationRegistry.removeExpired(
       env.socketRelayConversationIdleTimeoutMs,
     );
@@ -434,6 +453,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     socket.on("disconnect", () => {
       cleanupConsumerStreamSubscriptions(socket.id);
       clearRelayRateLimitStateByConsumerSocket(socket.id);
+      clearAgentsCommandSocketRateLimitStateForSocketId(socket.id);
       const endedConversations = conversationRegistry.removeByConsumerSocketId(socket.id);
       for (const conversation of endedConversations) {
         cleanupConversationStreamSubscriptions(conversation.conversationId);
