@@ -61,6 +61,8 @@ const serverCapabilities = {
     batchSupport: true,
     binaryPayload: true,
     compressionThreshold: 1024,
+    /** Aligned with plug_agente OutboundCompressionMode.auto: gzip only when smaller than raw UTF-8. */
+    outboundCompressionMode: "auto",
     maxInflationRatio: 20,
     signatureRequired: false,
     signatureScope: "transport-frame",
@@ -170,6 +172,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     cors: {
       origin: env.corsOrigin,
     },
+    maxHttpBufferSize: env.socketIoMaxHttpBufferBytes,
+    perMessageDeflate: env.socketIoPerMessageDeflate,
+    transports: env.socketIoTransports,
   });
 
   const agentsNsp = io.of(SOCKET_NAMESPACES.agents);

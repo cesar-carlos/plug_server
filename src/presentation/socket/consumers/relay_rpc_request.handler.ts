@@ -6,11 +6,13 @@ import { dispatchRelayRpcToAgent } from "../hub/rpc_bridge";
 import { AppError } from "../../../shared/errors/app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
+import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
 const relayRpcEnvelopeSchema = z.object({
   conversationId: nonEmptyStringSchema,
   frame: z.unknown(),
+  payloadFrameCompression: payloadFrameCompressionSchema.optional(),
 });
 
 type RelayRpcAcceptedPayload =
@@ -51,6 +53,9 @@ export const handleRelayRpcRequest = (
       conversationId: parsed.data.conversationId,
       consumerSocketId: socket.id,
       rawFramePayload: parsed.data.frame,
+      ...(parsed.data.payloadFrameCompression !== undefined
+        ? { payloadFrameCompression: parsed.data.payloadFrameCompression }
+        : {}),
     });
 
     emitRelayRpcAccepted(socket, {

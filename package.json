@@ -29,6 +29,7 @@
     "lint": "eslint \"src/**/*.ts\"",
     "lint:fix": "eslint --fix \"src/**/*.ts\"",
     "test": "vitest run",
+    "test:contract": "vitest run tests/contract",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },

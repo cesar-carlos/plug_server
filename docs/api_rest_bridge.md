@@ -14,6 +14,12 @@ conectado via Socket.IO. O servidor atua como proxy: recebe o request REST,
 valida, empacota em `PayloadFrame`, emite via Socket.IO no namespace `/agents`
 para o agente, aguarda a resposta e devolve ao cliente HTTP.
 
+### REST vs Socket no consumer (mesmo comando, canais diferentes)
+
+- **Dois canais** chegam ao mesmo fluxo interno (`executeAgentCommand` → dispatch para o agente): **HTTP** (`POST /api/v1/agents/commands`) ou **Socket** (`agents:command` no `/consumers`, ou relay `relay:rpc.request`).
+- O cliente pode usar **apenas REST** (sem abrir Socket de consumer), **apenas Socket**, ou **misturar** (ex.: login e `GET /agents` por HTTP e comandos por Socket).
+- **Streaming**: no REST, o hub **nao** envia chunks progressivos ao cliente HTTP; quando o agente devolve `stream_id`, o servidor **materializa** o stream por dentro e responde com **um** JSON final. Para chunks em tempo real e `stream_pull`, usar o canal Socket (legado ou relay). Ver `docs/project_overview.md` (*Dois canais para comandos ao agente*) e `docs/performance_hub_agent.md`.
+
 Alternativa em tempo real: consumers podem conectar ao namespace `/consumers`
 e emitir `agents:command` com o mesmo payload. A resposta inicial chega em
 `agents:command_response`. Quando a execucao entra em streaming, os chunks
@@ -73,9 +79,15 @@ Consumer (HTTP) <- plug_server (REST) <- plug_server (Socket bridge) <-
 4. Controller aplica paginacao em `command.params.options` quando presente.
 5. Bridge localiza o agente no registry, gera ou reutiliza `requestId`,
    empacota o comando em `PayloadFrame` e emite `rpc:request`.
-6. Bridge aguarda `rpc:response` (com timeout).
-7. Serializer normaliza a resposta JSON-RPC para formato HTTP.
-8. Controller retorna `200` com a resposta normalizada.
+6. Bridge aguarda `rpc:response` (timeout efetivo: veja `timeoutMs` abaixo).
+7. Se for `sql.execute` **unico** pelo REST e a resposta trouxer `stream_id`, o hub concede
+   creditos de entrega como no relay: um `rpc:stream.pull` inicial com
+   `window_size = SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, depois novo pull apenas quando os
+   creditos chegam a zero (cada `rpc:chunk` consome um), reduzindo round-trips sem violar
+   backpressure do agente. Acumula `rpc:chunk` ate `rpc:complete` e devolve **uma** resposta
+   JSON-RPC com todas as `rows`.
+8. Serializer normaliza a resposta JSON-RPC para formato HTTP.
+9. Controller retorna `200` com a resposta normalizada.
 
 ## Autenticacao
 
@@ -85,6 +97,10 @@ Consumer (HTTP) <- plug_server (REST) <- plug_server (Socket bridge) <-
 
 O token e validado por `requireAuth` antes de qualquer processamento.
 
+### OpenAPI (Swagger)
+
+Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` (execute e batch) ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `sql.cancel` e `rpc.discover`.
+
 ## Request body
 
 ### Campos de primeiro nivel
@@ -93,8 +109,9 @@ O token e validado por `requireAuth` antes de qualquer processamento.
 | ------------ | ------ | ----------- | ------------------ | ---------------------------------------------- |
 | `agentId`    | string | sim         | nao vazio          | UUID do agente conectado                        |
 | `command`    | object \| array | sim | JSON-RPC 2.0       | Comando unico ou batch JSON-RPC (max 32)         |
-| `timeoutMs`  | number | nao         | 1..60000           | Timeout em ms para aguardar resposta do agente  |
+| `timeoutMs`  | number | nao         | 1..360000          | Teto de espera HTTP (ms). O servidor **eleva** o valor efetivo ate cobrir `options.timeout_ms` de `sql.execute` / `sql.executeBatch` (ate teto interno `300000 + 5s`, limitado a 360000 ms) |
 | `pagination` | object | nao         | regras combinadas  | Paginacao injetada em `command.params.options`   |
+| `payloadFrameCompression` | `"default"` \| `"none"` \| `"always"` | nao | — | Politica de gzip do **PayloadFrame** que o hub emite no `rpc:request` para o agente (alinhado a `socket_communication_standard.md` / `socketio_client_binary_transport.md` do plug_agente). `default`: limiar 1024 bytes, modo **automatico** — gzip so se o bloco comprimido for **menor** que o JSON UTF-8 bruto; caso contrario `cmp: none`. `none`: nunca gzip. `always`: modo **sempre GZIP** — gzip sempre que o payload couber no limite de entrada (mesmo se o gzip nao reduzir tamanho). Nao altera respostas do agente. |
 
 ### `command` (discriminated union por `method`)
 
@@ -163,6 +180,18 @@ Executa um comando SQL no agente.
 
 Token de autorizacao: pelo menos um entre `client_token`, `clientToken` ou
 `auth` e obrigatorio quando `enableClientTokenAuthorization` estiver ativo no agente.
+
+#### Limites de tamanho (JSON logico, UTF-8)
+
+Validacao no hub antes do `PayloadFrame` (constantes em `agent_command.ts`):
+
+| Campo | Teto |
+| ----- | ---- |
+| `sql` (`sql.execute` e cada item de `sql.executeBatch`) | **1 MiB** UTF-8 |
+| `params` nomeado (objeto serializado em JSON) | **2 MiB** UTF-8 |
+| `rpc.discover` `params` (objeto serializado) | **64 KiB** UTF-8 |
+
+O limite HTTP total continua a ser `REQUEST_BODY_LIMIT`; estes tetos evitam cargas JSON enormes mesmo com body permitido maior.
 
 #### `command.params.options`
 
@@ -359,6 +388,26 @@ Regras:
     "params": {
       "sql": "SELECT * FROM users WHERE id = :id",
       "params": { "id": 1 },
+      "client_token": "a1b2c3d4e5f6"
+    }
+  }
+}
+```
+
+### sql.execute com `payloadFrameCompression` (frame hub → agente)
+
+O campo opcional afeta apenas o `PayloadFrame` que o hub emite em `rpc:request` no `/agents` (nao o corpo HTTP em si). Mesmos valores que no relay: `default` (auto + limiar 1024), `none`, `always`.
+
+```json
+{
+  "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+  "payloadFrameCompression": "always",
+  "command": {
+    "jsonrpc": "2.0",
+    "method": "sql.execute",
+    "id": "req-compress-001",
+    "params": {
+      "sql": "SELECT 1",
       "client_token": "a1b2c3d4e5f6"
     }
   }
@@ -824,9 +873,11 @@ o servidor inclui:
 | Variavel                              | Default | Descricao |
 | ------------------------------------- | ------- | --------- |
 | `SOCKET_REST_MAX_PENDING_REQUESTS`    | `10000` | Limite global de requests REST correlacionadas pendentes |
-| `SOCKET_REST_AGENT_MAX_INFLIGHT`      | `8`     | Quantas requests simultaneas por `agentId` podem ficar em voo |
-| `SOCKET_REST_AGENT_MAX_QUEUE`         | `16`    | Quantas requests adicionais por `agentId` podem esperar fila |
-| `SOCKET_REST_AGENT_QUEUE_WAIT_MS`     | `150`   | Tempo maximo de espera na fila por agente antes de rejeitar |
+| `SOCKET_REST_AGENT_MAX_INFLIGHT`      | `24`    | Quantas requests simultaneas por `agentId` podem ficar em voo |
+| `SOCKET_REST_AGENT_MAX_QUEUE`         | `48`    | Quantas requests adicionais por `agentId` podem esperar fila |
+| `SOCKET_REST_AGENT_QUEUE_WAIT_MS`     | `200`   | Tempo maximo de espera na fila por agente antes de rejeitar |
+| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `96`    | Tamanho da janela por pull no REST materializado (creditos por pull; maior = menos pulls, mais pico de memoria por stream) |
+| `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub |
 
 ---
 
@@ -984,8 +1035,8 @@ com o que a API REST atualmente expoe ao consumer.
 | `sql.cancel`                               | implementado  | exposto         | -                                        |
 | `rpc.discover`                             | implementado  | exposto         | -                                        |
 | PayloadFrame encode/decode                 | implementado  | transparente    | -                                        |
-| Compressao GZIP + fallback none            | implementado  | transparente    | -                                        |
-| Assinatura de payload (HMAC-SHA256)        | implementado  | transparente    | -                                        |
+| Compressao GZIP (modo **auto** por defeito; `payloadFrameCompression`) | implementado  | transparente    | cliente escolhe `default` / `none` / `always` no body REST ou envelope relay |
+| Assinatura de payload (HMAC-SHA256)        | implementado  | opcional saida  | verificacao de frames **do** agente quando assinados; assinatura **de saida** do hub com `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY` |
 | Token carrier (client_token/clientToken/auth) | implementado | validado     | -                                        |
 | Paginacao (page/page_size)                 | implementado  | exposto         | -                                        |
 | Paginacao (cursor keyset)                  | implementado  | exposto         | -                                        |
@@ -996,14 +1047,14 @@ com o que a API REST atualmente expoe ao consumer.
 | `options.execution_mode` (managed/preserve) | implementado  | validado        | -                                        |
 | `options.preserve_sql` (alias legado)       | implementado  | validado        | -                                        |
 | `options.transaction` (batch)               | implementado  | validado        | -                                        |
-| `api_version` no request                   | implementado  | exposto         | hub injeta `api_version: "2.5"` e faz merge de `meta` |
+| `api_version` no request                   | implementado  | exposto         | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.5"`; merge de `meta` |
 | `meta` no request (trace_id, traceparent)  | implementado  | exposto         | hub faz merge preservando traceparent/tracestate; injeta request_id, agent_id, timestamp, trace_id |
 | `api_version` na response                  | implementado  | exposto         | serializer preserva `api_version` e `meta` do agente |
 | `meta` na response (agent_id, timestamp)   | implementado  | exposto         | serializer preserva `meta` do agente     |
 | Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 400    |
 | Capacidade de pendencias REST              | implementado  | validado        | limite global (`SOCKET_REST_MAX_PENDING_REQUESTS`) + limite/fila por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `SOCKET_REST_AGENT_MAX_QUEUE`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`) com `Retry-After` em overload |
-| Streaming chunked (`rpc:chunk`/`rpc:complete`) | implementado | **nao suportado** | na rota REST nao ha repasse de chunks; no Socket /consumers ha repasse via legado (`agents:command_stream_chunk`) e relay (`relay:rpc.chunk`) |
-| Backpressure (`rpc:stream.pull`)           | implementado  | **nao suportado** | na rota REST nao existe pull; no Socket /consumers existe legado (`agents:stream_pull`) e relay (`relay:rpc.stream.pull`) |
+| Streaming chunked (`rpc:chunk`/`rpc:complete`) | implementado | **materializado** | REST (`sql.execute` unico): hub faz pull interno, agrega linhas e devolve **uma** resposta HTTP (sem streaming progressivo). Socket /consumers continua com eventos em tempo real |
+| Backpressure (`rpc:stream.pull`)           | implementado  | **interno**     | REST nao expoe pull ao cliente; o hub emite `rpc:stream.pull` com `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`. Controle fino permanece no Socket (`agents:stream_pull` / relay) |
 | Delivery guarantee (`rpc:request_ack`)     | implementado  | exposto         | hub registra ack e marca `acked` no pending request |
 | Batch ack (`rpc:batch_ack`)                | implementado  | exposto         | hub registra acks para cada request_id do batch |
 | Notification JSON-RPC (`id: null`)       | implementado  | exposto         | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202 |
@@ -1015,8 +1066,9 @@ com o que a API REST atualmente expoe ao consumer.
 
 #### Gaps cobertos (implementados)
 
-**1. `api_version` e `meta` no request** -- O bridge injeta `api_version: "2.5"`
-e `meta` com `request_id`, `agent_id`, `timestamp` e `trace_id` antes de emitir
+**1. `api_version` e `meta` no request** -- O bridge define `api_version` como a
+string enviada pelo cliente quando presente; caso contrario usa `"2.5"`. Injeta
+`meta` com `request_id`, `agent_id`, `timestamp` e `trace_id` antes de emitir
 `rpc:request`. O `meta` enviado pelo cliente (ex.: `traceparent`, `tracestate`) e
 preservado via merge; campos obrigatorios sao sobrescritos. O `trace_id` e unico
 e compartilhado entre o payload logico e o `PayloadFrame` para correlacao.
@@ -1055,14 +1107,16 @@ encerra o fluxo sem manter correlacao pendurada.
 
 #### Limitacoes documentadas (nao implementadas)
 
-**1. Streaming via REST** -- Os eventos `rpc:chunk`, `rpc:complete` e
-`rpc:stream.pull` nao sao expostos no endpoint HTTP `POST /api/v1/agents/commands`.
-A rota REST permanece em modo request/response unico. Resultados grandes enviados
-via streaming pelo agente nao sao entregues ao cliente HTTP em tempo real.
+**1. Streaming via REST** -- Nao ha entrega **progressiva** por HTTP (sem SSE nem
+chunked JSON). Para `sql.execute` **unico** sem handlers de stream do consumer, o hub
+**materializa** o resultado: modelo de **creditos** por janela (como o relay), novo
+`rpc:stream.pull` so quando a janela se esgota, acumula `rpc:chunk` e fecha com
+`rpc:complete`, devolvendo um unico JSON com todas as `rows` (e `total_rows`).
+Metrica Prometheus: `plug_rest_sql_stream_materialize_pulls_total`.
+Batch, relay e notificacoes nao usam esse caminho.
 
-No canal Socket `/consumers`, o hub ja encaminha `rpc:chunk` e `rpc:complete`
-como `agents:command_stream_chunk` e `agents:command_stream_complete`, e aceita
-`agents:stream_pull` para emitir `rpc:stream.pull` ao agente.
+No canal Socket `/consumers`, o hub continua encaminhando `rpc:chunk` e `rpc:complete`
+em tempo real (`agents:command_stream_*`) e aceita `agents:stream_pull`.
 
 No modo relay (`relay:*`), o hub tambem encaminha `rpc:response`, `rpc:chunk`,
 `rpc:complete`, `rpc:request_ack`, `rpc:batch_ack` e `rpc:stream.pull` com
@@ -1070,10 +1124,10 @@ isolamento por `conversationId`.
 
 ## Checklist final de gaps REST (intencionais)
 
-- [ ] **Streaming em tempo real no endpoint REST** (`rpc:chunk` e `rpc:complete`):
-  continua fora do escopo REST; suportado no canal Socket (`/consumers`).
-- [ ] **Backpressure/pull no endpoint REST** (`rpc:stream.pull`):
-  continua fora do escopo REST; suportado no canal Socket (`/consumers`).
+- [ ] **Streaming em tempo real no endpoint REST** (`rpc:chunk` / `rpc:complete` ao vivo):
+  fora do escopo; usar Socket `/consumers`. REST agrega resultado final apos pull interno.
+- [x] **Pull explicito pelo cliente HTTP** (`rpc:stream.pull`): nao exposto; o servidor puxa
+  automaticamente para materializar `sql.execute` unico.
 - [ ] **Coordenacao de estado pendente entre replicas HTTP sem afinidade**:
   arquitetura atual usa estado em memoria para correlacao (sem Redis/sticky),
   logo o caminho recomendado segue single-instance ou afinidade de sessao quando
@@ -1082,6 +1136,8 @@ isolamento por `conversationId`.
 ---
 
 ## Configuracao e tuning
+
+Guia agregado (Socket.IO, REST vs streaming, escala): `docs/performance_hub_agent.md`.
 
 ### REQUEST_BODY_LIMIT e tamanho de payload
 
@@ -1104,7 +1160,8 @@ O endpoint `POST /api/v1/agents/commands` possui rate limit proprio, alem do glo
 | Variavel | Default | Descricao |
 | -------- | ------- | --------- |
 | `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` | 60000 | Janela em ms (1 min) |
-| `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` | 100 | Max requests por janela por IP |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` | 100 | Max requests por janela por **utilizador** (JWT `sub`) |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX` | `0` (desligado) | Opcional: max por **IP** na mesma janela. `> 0` ativa um segundo limitador (ex.: `300` em NAT). Atras de proxy, configurar `trust proxy` no Express para `req.ip` correto. |
 
 Ajuste conforme capacidade dos agentes e padrao de uso.
 
@@ -1128,9 +1185,9 @@ Para cenarios de alto volume ou muitos consumers, considere:
 | -------- | ------- | ------- | -------- |
 | `SOCKET_RELAY_MAX_PENDING_REQUESTS` | 10000 | Muitos consumers | Aumentar se houver capacidade |
 | `SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONSUMER` | 128 | Consumer com muitas requests | Ajustar por perfil |
-| `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` | 40 | Janela 10s | Aumentar para workloads intensos |
+| `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` | 64 | Janela 10s (fixa) | Aumentar para workloads intensos |
 | `SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` | 3 | Limpeza de estado | Multiplicador sobre `RATE_LIMIT_WINDOW_MS` para considerar estado stale |
-| `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS` | 60000 | Limpeza de idempotencia | Intervalo do timer em background |
+| `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS` | 120000 | Limpeza de idempotencia | Intervalo do timer em background (menos CPU que intervalos muito curtos) |
 
 Acks de alto volume (`rpc:request_ack`, `rpc:batch_ack`, registro de stream) sao logados em nivel
 **DEBUG** (visivel em `NODE_ENV=development`); use metricas Prometheus para paineis em producao.
@@ -1139,8 +1196,8 @@ Acks de alto volume (`rpc:request_ack`, `rpc:batch_ack`, registro de stream) sao
 
 | Variavel | Default | Descricao |
 | -------- | ------- | --------- |
-| `SOCKET_AUDIT_BATCH_MAX` | `1` | `1` = um `INSERT` por evento (comportamento anterior). `> 1` agrupa eventos na fila e grava em transacao (flush por tamanho ou tempo). |
-| `SOCKET_AUDIT_BATCH_FLUSH_MS` | `100` | Debounce do flush quando a fila nao atingiu `SOCKET_AUDIT_BATCH_MAX`. |
+| `SOCKET_AUDIT_BATCH_MAX` | `32` | `1` = um `INSERT` por evento. Default maior agrupa eventos na fila e grava em transacao (flush por tamanho ou tempo). |
+| `SOCKET_AUDIT_BATCH_FLUSH_MS` | `150` | Debounce do flush quando a fila nao atingiu `SOCKET_AUDIT_BATCH_MAX`. |
 
 No shutdown HTTP, `flushPendingSocketAuditEvents()` drena a fila antes de `waitForSocketAuditDrain`.
 Metrica: `plug_socket_audit_queued_events`.
@@ -1149,8 +1206,19 @@ Metrica: `plug_socket_audit_queued_events`.
 
 ## Roadmap tecnico
 
-Refatoracao futura sugerida: **dividir `rpc_bridge.ts`** (relay, pending REST, streaming, metricas,
-PayloadFrame) em modulos menores. Acompanhamento: [CHANGELOG.md](../CHANGELOG.md) (secao *Roadmap tecnico*).
+Refatoracao incremental de **`rpc_bridge.ts`**: `rest_sql_stream_materialize.ts` (stream SQL REST),
+`rest_agent_dispatch_queue.ts` (fila/inflight por agente), `rest_pending_requests.ts` (pending JSON-RPC
+REST por correlation id), `relay_idempotency_store.ts` (idempotencia relay por conversa),
+`relay_stream_flow_state.ts` (buffer/creditos de stream relay), `relay_request_registry.ts` (rotas
+relay pendentes e indices), `bridge_relay_health_metrics.ts` (circuit, latencia, contadores, snapshot
+`/metrics`), `active_stream_registry.ts` (streams ativos agente↔cliente), `rpc_bridge_command_helpers.ts`
+(helpers puros `BridgeCommand`/JSON-RPC), `rpc_bridge_relay_stream.ts` (handlers de stream relay + timeout),
+`rpc_bridge_agent_inbound.ts` (respostas/chunks/complete/acks vindos do agente),
+`rpc_bridge_stream_pull.ts` / `rpc_bridge_dispatch_relay.ts` / `rpc_bridge_dispatch_command.ts` (stream pull, dispatch relay, dispatch REST/Socket).
+O que resta em `rpc_bridge.ts` e sobretudo **wiring** (namespaces, `emitToConsumer`, factories) e **`resetSocketBridgeState`** (delega stores a `rpc_bridge_lifecycle.ts`); pode
+seguir o mesmo padrao. Acompanhamento:
+[CHANGELOG.md](../CHANGELOG.md)
+(secao *Roadmap tecnico*).
 
 ## Mapa de arquivos relevantes
 
@@ -1161,6 +1229,22 @@ PayloadFrame) em modulos menores. Acompanhamento: [CHANGELOG.md](../CHANGELOG.md
 | `src/presentation/http/controllers/agents.controller.ts`          | Controller: chama executeAgentCommand  |
 | `src/presentation/http/serializers/agent_rpc_response.serializer.ts` | Normalizacao da resposta do agente  |
 | `src/presentation/socket/hub/rpc_bridge.ts`                      | Bridge: emit rpc:request no namespace /agents |
+| `src/presentation/socket/hub/rest_sql_stream_materialize.ts`     | Creditos + estado do stream REST materializado (`sql.execute`) |
+| `src/presentation/socket/hub/rest_agent_dispatch_queue.ts`       | Fila + inflight por `agentId` no bridge REST (`SOCKET_REST_AGENT_*`) |
+| `src/presentation/socket/hub/rest_pending_requests.ts`         | Mapa correlation id -> `PendingRequest`, capacidade `SOCKET_REST_MAX_PENDING_REQUESTS` |
+| `src/presentation/socket/hub/relay_idempotency_store.ts`       | Idempotencia relay (`client_request_id` por conversa), TTL e timer de limpeza |
+| `src/presentation/socket/hub/relay_stream_flow_state.ts`       | Estado de backpressure do stream relay (creditos, fila de chunks, complete pendente) |
+| `src/presentation/socket/hub/relay_request_registry.ts`        | Registo de `RelayRequestRoute`, limites `SOCKET_RELAY_MAX_PENDING_*`, cleanup por conversa/socket |
+| `src/presentation/socket/hub/bridge_relay_health_metrics.ts`   | Circuit por agente, latencia, `relayMetrics`, snapshot Prometheus (via `rpc_bridge.getRelayMetricsSnapshot`) |
+| `src/presentation/socket/hub/active_stream_registry.ts`        | Rotas `ActiveStreamRoute` (legacy + relay), limite `SOCKET_RELAY_MAX_ACTIVE_STREAMS` (gauge) |
+| `src/presentation/socket/hub/rpc_bridge_command_helpers.ts`  | Helpers puros: ids de resposta/correlation, `withBridgeMeta`, `api_version`, `stream_id` em resultados |
+| `src/presentation/socket/hub/rpc_bridge_relay_stream.ts`      | Stream relay: `createRelayStreamHandlers`, `emitRelayTimeoutResponse` (backpressure + idempotencia no timeout) |
+| `src/presentation/socket/hub/rpc_bridge_agent_inbound.ts`   | Handlers de entrada do agente: `createRpcBridgeAgentInboundHandlers` → `handleAgentRpc*` (reexportados em `rpc_bridge.ts`) |
+| `src/presentation/socket/hub/rpc_bridge_stream_pull.ts`    | `createRequestAgentStreamPull` — pull de stream (legacy + creditos relay apos emit ao agente) |
+| `src/presentation/socket/hub/rpc_bridge_dispatch_relay.ts` | `createRpcBridgeRelayDispatch` — `dispatchRelayRpcToAgent`, `requestRelayStreamPull` |
+| `src/presentation/socket/hub/rpc_bridge_dispatch_command.ts` | `createDispatchRpcCommandToAgent` — `dispatchRpcCommandToAgent` (HTTP + `agents:command`) |
+| `src/presentation/socket/hub/rpc_bridge_lifecycle.ts`       | Cleanup por socket/conversa, `resetRpcBridgeMutableStores` (reexport cleanup via `rpc_bridge.ts`) |
+| `src/application/agent_commands/merge_sql_stream_rpc_response.ts` | Junta `rpc:response` inicial + chunks + `rpc:complete` em uma resposta JSON-RPC |
 | `src/presentation/socket/hub/agent_registry.ts`                  | Registry de agentes conectados         |
 | `src/presentation/socket/consumers/agents_command.handler.ts`   | Handler Socket para agents:command no /consumers |
 | `src/presentation/socket/consumers/agents_stream_pull.handler.ts` | Handler Socket para agents:stream_pull no /consumers |

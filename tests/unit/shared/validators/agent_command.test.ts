@@ -1,8 +1,46 @@
 import { describe, expect, it } from "vitest";
 
-import { agentCommandBodySchema } from "../../../../src/shared/validators/agent_command";
+import {
+  AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES,
+  AGENT_SQL_MAX_UTF8_BYTES,
+  AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES,
+  agentCommandBodySchema,
+} from "../../../../src/shared/validators/agent_command";
 
 describe("agentCommandBodySchema", () => {
+  it("should accept optional payloadFrameCompression", () => {
+    for (const payloadFrameCompression of ["default", "none", "always"] as const) {
+      const parsed = agentCommandBodySchema.safeParse({
+        agentId: "agent-1",
+        payloadFrameCompression,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "q1",
+          params: { sql: "SELECT 1", client_token: "t" },
+        },
+      });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.payloadFrameCompression).toBe(payloadFrameCompression);
+      }
+    }
+  });
+
+  it("should reject invalid payloadFrameCompression", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      payloadFrameCompression: "maybe",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q1",
+        params: { sql: "SELECT 1", client_token: "t" },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
   it("should accept sql.execute without token carrier for optional-agent-auth mode", () => {
     const parsed = agentCommandBodySchema.safeParse({
       agentId: "agent-1",
@@ -392,6 +430,69 @@ describe("agentCommandBodySchema", () => {
       },
     });
 
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should reject sql.execute when SQL exceeds max UTF-8 bytes", () => {
+    const sql = `${"a".repeat(AGENT_SQL_MAX_UTF8_BYTES)}é`;
+    expect(Buffer.byteLength(sql, "utf8")).toBeGreaterThan(AGENT_SQL_MAX_UTF8_BYTES);
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q1",
+        params: { sql, client_token: "t" },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should reject sql.execute when named params JSON exceeds max UTF-8 bytes", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q1",
+        params: {
+          sql: "SELECT 1",
+          client_token: "t",
+          params: { p: "x".repeat(AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES + 1) },
+        },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should reject rpc.discover when params JSON exceeds max UTF-8 bytes", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "rpc.discover",
+        id: "d1",
+        params: { k: "y".repeat(AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES + 1) },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should reject sql.executeBatch item when SQL exceeds max UTF-8 bytes", () => {
+    const sql = `${"b".repeat(AGENT_SQL_MAX_UTF8_BYTES)}é`;
+    expect(Buffer.byteLength(sql, "utf8")).toBeGreaterThan(AGENT_SQL_MAX_UTF8_BYTES);
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.executeBatch",
+        id: "b1",
+        params: {
+          commands: [{ sql }],
+          client_token: "t",
+        },
+      },
+    });
     expect(parsed.success).toBe(false);
   });
 });

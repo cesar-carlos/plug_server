@@ -96,6 +96,18 @@ O ecossistema usa dois estilos de comunicacao complementares:
     - legado (`agents:*`) para bridge JSON
     - relay (`relay:*`) para conversa isolada com `PayloadFrame`
 
+### Dois canais para comandos ao agente (REST vs Socket)
+
+O **consumer** pode enviar o mesmo tipo de comando JSON-RPC ao agente por **dois caminhos**, consoante a arquitetura da aplicacao cliente:
+
+| Canal | Entrada | Streaming para o cliente |
+| ----- | ------- | ------------------------- |
+| **REST** | `POST /api/v1/agents/commands` (Bearer) | **Nao progressivo**: o hub fala com o agente por Socket (incluindo `rpc:chunk` / `rpc:stream.pull` por dentro quando ha `stream_id`), mas **agrega** o resultado e devolve **uma** resposta HTTP JSON. Nao ha SSE nem chunked JSON no contrato atual. |
+| **Socket** | Namespace `/consumers`: `agents:command` (legado), `relay:rpc.request` (relay), etc. | **Tempo real**: chunks (`agents:command_stream_*` ou `relay:rpc.chunk` / `complete`) e **pull** explicito para backpressure. |
+
+- **Escolha do cliente**: e valido usar **so REST** (sem Socket no consumer), **so Socket**, ou **combinar** (ex.: autenticacao e listagem de agentes por HTTP, comandos por Socket — ou o inverso para comandos REST apos login HTTP). O **agente** continua sempre ligado ao hub via `/agents`.
+- **Limitacao arquitetural do REST**: por desenho do endpoint HTTP, o streaming do agente e **materializado no servidor** antes da resposta; para volumes muito grandes ou latencia por chunk, preferir o canal Socket. Ver `docs/api_rest_bridge.md` (gaps / materializacao) e `docs/performance_hub_agent.md`.
+
 No projeto atual, a base HTTP inclui:
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
@@ -109,6 +121,7 @@ No projeto atual, a base HTTP inclui:
 - `GET /api/v1/health/ready`
 - `GET /metrics` - metricas operacionais no formato Prometheus
 - `GET /api/v1/metrics` - mesmo payload de metricas sob prefixo da API
+  - inclui contadores de relay, REST bridge (latencia), materializacao de stream SQL REST (`plug_rest_sql_stream_materialize_pulls_total`), auditoria Socket, etc.
 - `GET /api/v1/agents` - lista agentes registrados no namespace `/agents` (requer Bearer token); em dev inclui `_diagnostic.socketConnectionsInAgentsNamespace` para debug
 - `POST /api/v1/agents/commands` - proxy de comandos JSON-RPC ao agente (ver `docs/api_rest_bridge.md`)
 
@@ -313,6 +326,11 @@ para 1 agente), sem alterar REST:
 - `docs/socket_chat_relay_plan.md`
 - `docs/socket_relay_protocol.md`
 - `docs/socket_client_sdk.md`
+
+## Desempenho (hub ↔ plug_agente)
+
+- `docs/performance_hub_agent.md` — Socket.IO (buffer, deflate), REST vs streaming, variáveis de env, escala.
+
 
 ## Resumo
 

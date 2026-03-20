@@ -47,3 +47,11 @@ export const internalError = (message = "Internal server error", details?: unkno
 
 export const serviceUnavailable = (message = "Service temporarily unavailable"): AppError =>
   new AppError(message, { statusCode: 503, code: "SERVICE_UNAVAILABLE" });
+
+/** 503 with `details.retry_after_ms` for overload / Retry-After style clients. */
+export const serviceUnavailableWithRetry = (message: string, retryAfterMs: number): AppError =>
+  new AppError(message, {
+    statusCode: 503,
+    code: "SERVICE_UNAVAILABLE",
+    details: { retry_after_ms: Math.max(0, Math.floor(retryAfterMs)) },
+  });

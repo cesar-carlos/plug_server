@@ -4,6 +4,14 @@ import swaggerUi from "swagger-ui-express";
 import path from "node:path";
 
 import { env } from "../../shared/config/env";
+import {
+  AGENT_MAX_ROWS_LIMIT,
+  AGENT_PAGE_SIZE_LIMIT,
+  AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES,
+  AGENT_SQL_MAX_UTF8_BYTES,
+  AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES,
+  AGENT_TIMEOUT_MS_LIMIT,
+} from "../../shared/validators/agent_command";
 
 const routeDocGlobs =
   env.nodeEnv === "production"
@@ -176,11 +184,12 @@ const swaggerSpec = swaggerJSDoc({
         },
         SqlExecuteOptions: {
           type: "object",
+          description: `Numeric limits match Zod validation: timeout_ms max ${AGENT_TIMEOUT_MS_LIMIT}, max_rows max ${AGENT_MAX_ROWS_LIMIT}, page_size max ${AGENT_PAGE_SIZE_LIMIT}.`,
           properties: {
-            timeout_ms: { type: "integer", minimum: 1 },
-            max_rows: { type: "integer", minimum: 1 },
+            timeout_ms: { type: "integer", minimum: 1, maximum: AGENT_TIMEOUT_MS_LIMIT },
+            max_rows: { type: "integer", minimum: 1, maximum: AGENT_MAX_ROWS_LIMIT },
             page: { type: "integer", minimum: 1 },
-            page_size: { type: "integer", minimum: 1 },
+            page_size: { type: "integer", minimum: 1, maximum: AGENT_PAGE_SIZE_LIMIT },
             cursor: { type: "string", minLength: 1 },
             execution_mode: {
               type: "string",
@@ -200,9 +209,18 @@ const swaggerSpec = swaggerJSDoc({
         SqlExecuteParams: {
           type: "object",
           required: ["sql"],
+          description: `Logical JSON limits before PayloadFrame (UTF-8 bytes): \`sql\` max ${AGENT_SQL_MAX_UTF8_BYTES}; serialized \`params\` max ${AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES}.`,
           properties: {
-            sql: { type: "string", minLength: 1 },
-            params: { type: "object", additionalProperties: true },
+            sql: {
+              type: "string",
+              minLength: 1,
+              description: `Max ${AGENT_SQL_MAX_UTF8_BYTES} UTF-8 bytes (matches Zod).`,
+            },
+            params: {
+              type: "object",
+              additionalProperties: true,
+              description: `Named parameters; JSON max ${AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES} UTF-8 bytes when serialized.`,
+            },
             client_token: { type: "string", minLength: 1 },
             clientToken: { type: "string", minLength: 1 },
             auth: { type: "string", minLength: 1 },
@@ -216,17 +234,26 @@ const swaggerSpec = swaggerJSDoc({
           type: "object",
           required: ["sql"],
           properties: {
-            sql: { type: "string", minLength: 1 },
-            params: { type: "object", additionalProperties: true },
+            sql: {
+              type: "string",
+              minLength: 1,
+              description: `Max ${AGENT_SQL_MAX_UTF8_BYTES} UTF-8 bytes per command (matches Zod).`,
+            },
+            params: {
+              type: "object",
+              additionalProperties: true,
+              description: `JSON max ${AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES} UTF-8 bytes when serialized.`,
+            },
             execution_order: { type: "integer", minimum: 0 },
           },
           additionalProperties: false,
         },
         SqlExecuteBatchOptions: {
           type: "object",
+          description: `timeout_ms max ${AGENT_TIMEOUT_MS_LIMIT} and max_rows max ${AGENT_MAX_ROWS_LIMIT}, same as sql.execute options.`,
           properties: {
-            timeout_ms: { type: "integer", minimum: 1 },
-            max_rows: { type: "integer", minimum: 1 },
+            timeout_ms: { type: "integer", minimum: 1, maximum: AGENT_TIMEOUT_MS_LIMIT },
+            max_rows: { type: "integer", minimum: 1, maximum: AGENT_MAX_ROWS_LIMIT },
             transaction: { type: "boolean" },
           },
           additionalProperties: false,
@@ -262,6 +289,7 @@ const swaggerSpec = swaggerJSDoc({
         RpcDiscoverParams: {
           type: "object",
           additionalProperties: true,
+          description: `Optional free-form params; serialized JSON max ${AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES} UTF-8 bytes (Zod).`,
         },
         RpcSqlExecuteCommand: {
           type: "object",
@@ -341,7 +369,7 @@ const swaggerSpec = swaggerJSDoc({
           type: "object",
           properties: {
             page: { type: "integer", minimum: 1 },
-            pageSize: { type: "integer", minimum: 1, maximum: 50000 },
+            pageSize: { type: "integer", minimum: 1, maximum: AGENT_PAGE_SIZE_LIMIT },
             cursor: { type: "string", minLength: 1 },
           },
           additionalProperties: false,
@@ -353,9 +381,22 @@ const swaggerSpec = swaggerJSDoc({
           required: ["agentId", "command"],
           properties: {
             agentId: { type: "string", minLength: 1, example: "3183a9f2-429b-46d6-a339-3580e5e5cb31" },
-            timeoutMs: { type: "integer", minimum: 1, maximum: 60000, example: 15000 },
+            timeoutMs: {
+              type: "integer",
+              minimum: 1,
+              maximum: 360_000,
+              example: 15000,
+              description:
+                "Max wait for agent response (ms). Raised automatically toward sql.execute/sql.executeBatch options.timeout_ms when higher.",
+            },
             pagination: { $ref: "#/components/schemas/AgentCommandPagination" },
             command: { $ref: "#/components/schemas/BridgeCommand" },
+            payloadFrameCompression: {
+              type: "string",
+              enum: ["default", "none", "always"],
+              description:
+                "Optional gzip for hub-originated PayloadFrames on `rpc:request` to the agent. `default`: above 1024 bytes, gzip only if smaller than raw JSON (auto, aligned with plug_agente). `none`: never gzip. `always`: gzip whenever eligible (always_gzip), even if compressed size is larger.",
+            },
           },
           additionalProperties: false,
         },

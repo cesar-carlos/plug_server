@@ -3,7 +3,7 @@ import { Router } from "express";
 import { listConnectedAgents, proxyCommandToAgent } from "../controllers/agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuth } from "../middlewares/auth.middleware";
-import { agentsCommandsRateLimit } from "../middlewares/rate_limit.middleware";
+import { agentsCommandsIpRateLimit, agentsCommandsUserRateLimit } from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { agentCommandBodySchema } from "../validators/agents.validator";
 
@@ -82,6 +82,10 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *       Socket payload hardening is enabled in the bridge layer:
  *       compressed payload max 10MB, decoded payload max 10MB, max inflation ratio 20x,
  *       and optional HMAC signature verification when the frame includes `signature`.
+ *       Optional `payloadFrameCompression` on the body selects gzip policy for PayloadFrames the hub
+ *       emits on `rpc:request` toward the agent (`default` = auto above 1024 B, `none`, `always`).
+ *       Rate limits: per JWT `sub` (`REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` / `_WINDOW_MS`); optional per-IP cap
+ *       when `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX` > 0 (use `trust proxy` behind reverse proxies).
  *       See `components.schemas.SocketBridgeSecurityNotes` for the documented hardening profile.
  *     tags: [Agents]
  *     security:
@@ -109,6 +113,53 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *                   params:
  *                     sql: "SELECT 1"
  *                     client_token: "token-value"
+ *             sqlExecuteWithPagination:
+ *               summary: sql.execute with top-level body.pagination (injected into params.options)
+ *               value:
+ *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *                 pagination:
+ *                   page: 1
+ *                   pageSize: 100
+ *                 command:
+ *                   jsonrpc: "2.0"
+ *                   method: "sql.execute"
+ *                   id: "page-1"
+ *                   params:
+ *                     sql: "SELECT id, name FROM users ORDER BY id"
+ *                     client_token: "token-value"
+ *             sqlExecutePreserve:
+ *               summary: sql.execute with execution_mode preserve (no managed pagination rewrite)
+ *               value:
+ *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *                 command:
+ *                   jsonrpc: "2.0"
+ *                   method: "sql.execute"
+ *                   id: "req-preserve-001"
+ *                   params:
+ *                     sql: "SELECT * FROM users LIMIT 10"
+ *                     client_token: "token-value"
+ *                     options:
+ *                       execution_mode: "preserve"
+ *             sqlCancel:
+ *               summary: sql.cancel by execution_id or request_id
+ *               value:
+ *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *                 command:
+ *                   jsonrpc: "2.0"
+ *                   method: "sql.cancel"
+ *                   id: "req-cancel-1"
+ *                   params:
+ *                     execution_id: "exec-456"
+ *                     request_id: "stream-req-1"
+ *             rpcDiscover:
+ *               summary: rpc.discover (OpenRPC catalog from agent)
+ *               value:
+ *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *                 command:
+ *                   jsonrpc: "2.0"
+ *                   method: "rpc.discover"
+ *                   id: "discover-1"
+ *                   params: {}
  *             sqlExecuteMultiResult:
  *               summary: Single sql.execute with multi_result enabled
  *               value:
@@ -180,6 +231,18 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *                     options:
  *                       transaction: true
  *                       timeout_ms: 30000
+ *             sqlExecutePayloadFrameCompression:
+ *               summary: sql.execute with hub→agent PayloadFrame gzip policy (always)
+ *               value:
+ *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
+ *                 payloadFrameCompression: "always"
+ *                 command:
+ *                   jsonrpc: "2.0"
+ *                   method: "sql.execute"
+ *                   id: "req-compress-1"
+ *                   params:
+ *                     sql: "SELECT 1"
+ *                     client_token: "token-value"
  *             batchMixedNotification:
  *               summary: JSON-RPC batch with notification item
  *               value:
@@ -225,7 +288,8 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
 agentsRouter.post(
   "/commands",
   requireAuth,
-  agentsCommandsRateLimit,
+  agentsCommandsIpRateLimit,
+  agentsCommandsUserRateLimit,
   validateRequest({ body: agentCommandBodySchema }),
   asyncHandler(proxyCommandToAgent),
 );

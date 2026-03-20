@@ -60,6 +60,9 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       command: body.command,
       ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),
       ...(body.pagination !== undefined ? { pagination: body.pagination } : {}),
+      ...(body.payloadFrameCompression !== undefined
+        ? { payloadFrameCompression: body.payloadFrameCompression }
+        : {}),
     },
     (input) =>
       dispatchRpcCommandToAgent({

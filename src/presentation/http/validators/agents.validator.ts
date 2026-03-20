@@ -8,4 +8,5 @@ export {
   bridgeCommandSchema,
   type AgentCommandBody,
   type BridgeCommand,
+  type PayloadFrameCompression,
 } from "../../../shared/validators/agent_command";

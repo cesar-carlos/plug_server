@@ -18,6 +18,10 @@ const envSchema = z.object({
   JWT_AUDIENCE: z.string().min(1).default("plug_clients"),
   PAYLOAD_SIGNING_KEY: z.string().optional(),
   PAYLOAD_SIGNING_KEY_ID: z.string().optional(),
+  PAYLOAD_SIGN_OUTBOUND: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   SOCKET_AUTH_REQUIRED: z
     .enum(["true", "false"])
     .default("true")
@@ -39,33 +43,84 @@ const envSchema = z.object({
   SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONVERSATION: z.coerce.number().int().positive().default(32),
   SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONSUMER: z.coerce.number().int().positive().default(128),
   SOCKET_RELAY_MAX_ACTIVE_STREAMS: z.coerce.number().int().positive().default(5_000),
-  SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST: z.coerce.number().int().positive().default(100),
-  SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS: z.coerce.number().int().positive().default(10_000),
+  SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST: z.coerce.number().int().positive().default(128),
+  SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS: z.coerce.number().int().positive().default(12_800),
   SOCKET_RELAY_IDEMPOTENCY_TTL_MS: z.coerce.number().int().positive().default(300_000),
-  SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  /** Background prune of relay idempotency maps; larger interval = less CPU, slower reclamation of empty maps. */
+  SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
   SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
   SOCKET_RELAY_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().default(30_000),
   SOCKET_RELAY_METRICS_LOG_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   SOCKET_RELAY_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(10_000),
   SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS: z.coerce.number().int().positive().default(8),
-  SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(40),
+  SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(64),
   SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER: z.coerce.number().positive().default(3),
   SOCKET_REST_MAX_PENDING_REQUESTS: z.coerce.number().int().positive().default(10_000),
-  SOCKET_REST_AGENT_MAX_INFLIGHT: z.coerce.number().int().positive().default(8),
-  SOCKET_REST_AGENT_MAX_QUEUE: z.coerce.number().int().nonnegative().default(16),
-  SOCKET_REST_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(150),
+  SOCKET_REST_AGENT_MAX_INFLIGHT: z.coerce.number().int().positive().default(24),
+  SOCKET_REST_AGENT_MAX_QUEUE: z.coerce.number().int().nonnegative().default(48),
+  SOCKET_REST_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(200),
+  /** Window size for automatic `rpc:stream.pull` when the REST bridge materializes a streaming `sql.execute` result. */
+  SOCKET_REST_STREAM_PULL_WINDOW_SIZE: z.coerce.number().int().positive().max(10_000).default(96),
+  /**
+   * Max Engine.IO packet size (bytes). Must fit PayloadFrame compressed ceiling (10 MB).
+   * Default 10 MiB matches `payload_frame` limits.
+   */
+  SOCKET_IO_MAX_HTTP_BUFFER_BYTES: z.coerce.number().int().positive().max(20 * 1024 * 1024).default(10 * 1024 * 1024),
+  /**
+   * When false, disables WebSocket permessage-deflate (PayloadFrame already handles gzip at app layer).
+   */
+  SOCKET_IO_PER_MESSAGE_DEFLATE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /**
+   * Comma-separated: `websocket`, `polling`. Example: `websocket` only in production for lower latency.
+   */
+  SOCKET_IO_TRANSPORTS: z
+    .string()
+    .default("websocket,polling")
+    .transform((v) => {
+      const parts = v
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+      return [...new Set(parts)];
+    })
+    .superRefine((arr, ctx) => {
+      const allowed = new Set(["websocket", "polling"]);
+      for (const t of arr) {
+        if (!allowed.has(t)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Invalid SOCKET_IO_TRANSPORTS entry "${t}" (allowed: websocket, polling)`,
+          });
+        }
+      }
+      if (arr.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "SOCKET_IO_TRANSPORTS must list at least one transport",
+        });
+      }
+    }),
   SOCKET_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
   SOCKET_AUDIT_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
   /** Max events per DB transaction when > 1; 1 disables batching (legacy single INSERT). */
-  SOCKET_AUDIT_BATCH_MAX: z.coerce.number().int().positive().max(500).default(1),
-  SOCKET_AUDIT_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(100),
+  SOCKET_AUDIT_BATCH_MAX: z.coerce.number().int().positive().max(500).default(32),
+  SOCKET_AUDIT_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(150),
   SWAGGER_ENABLED: z
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
   REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  /** Max requests per window per authenticated user (JWT `sub`). */
   REST_AGENTS_COMMANDS_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  /**
+   * Optional second limiter on `POST /agents/commands` keyed by `req.ip` (same window as above).
+   * `0` disables. Use behind `trust proxy` when the server is behind a reverse proxy.
+   */
+  REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX: z.coerce.number().int().nonnegative().default(0),
   BRIDGE_LOG_JSONRPC_AUTO_ID: z
     .enum(["true", "false"])
     .default("false")
@@ -103,6 +158,7 @@ export const env = {
   jwtAudience: parsedEnv.JWT_AUDIENCE,
   payloadSigningKey: parsedEnv.PAYLOAD_SIGNING_KEY,
   payloadSigningKeyId: parsedEnv.PAYLOAD_SIGNING_KEY_ID,
+  payloadSignOutbound: parsedEnv.PAYLOAD_SIGN_OUTBOUND,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES,
@@ -134,6 +190,10 @@ export const env = {
   socketRestAgentMaxInflight: parsedEnv.SOCKET_REST_AGENT_MAX_INFLIGHT,
   socketRestAgentMaxQueue: parsedEnv.SOCKET_REST_AGENT_MAX_QUEUE,
   socketRestAgentQueueWaitMs: parsedEnv.SOCKET_REST_AGENT_QUEUE_WAIT_MS,
+  socketRestStreamPullWindowSize: parsedEnv.SOCKET_REST_STREAM_PULL_WINDOW_SIZE,
+  socketIoMaxHttpBufferBytes: parsedEnv.SOCKET_IO_MAX_HTTP_BUFFER_BYTES,
+  socketIoPerMessageDeflate: parsedEnv.SOCKET_IO_PER_MESSAGE_DEFLATE,
+  socketIoTransports: parsedEnv.SOCKET_IO_TRANSPORTS as ("websocket" | "polling")[],
   socketAuditRetentionDays: parsedEnv.SOCKET_AUDIT_RETENTION_DAYS,
   socketAuditRetentionIntervalMinutes: parsedEnv.SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES,
   socketAuditPruneBatchSize: parsedEnv.SOCKET_AUDIT_PRUNE_BATCH_SIZE,
@@ -142,5 +202,6 @@ export const env = {
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
   restAgentsCommandsRateLimitWindowMs: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS,
   restAgentsCommandsRateLimitMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_MAX,
+  restAgentsCommandsRateLimitIpMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX,
   bridgeLogJsonRpcAutoId: parsedEnv.BRIDGE_LOG_JSONRPC_AUTO_ID,
 } as const;

@@ -10,6 +10,10 @@ export interface RegisteredAgent {
 class InMemoryAgentRegistry {
   private readonly agents = new Map<string, RegisteredAgent>();
   private readonly agentIdBySocketId = new Map<string, string>();
+  /**
+   * Agent IDs ever registered in this process; retained after disconnect so REST can
+   * distinguish "unknown id" vs "known but offline". Not pruned — unbounded if many ephemeral IDs.
+   */
   private readonly knownAgentIds = new Set<string>();
   private readonly ownerByAgentId = new Map<string, string>();
 

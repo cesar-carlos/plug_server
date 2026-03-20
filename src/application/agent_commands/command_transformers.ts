@@ -5,7 +5,10 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { AgentCommandBody } from "../../shared/validators/agent_command";
+import {
+  AGENT_TIMEOUT_MS_LIMIT,
+  type AgentCommandBody,
+} from "../../shared/validators/agent_command";
 import { isRecord } from "../../shared/utils/rpc_types";
 
 import { env } from "../../shared/config/env";
@@ -109,6 +112,54 @@ export const normalizeCommandForAgent = (
       options: { ...rest, execution_mode: "preserve" },
     },
   };
+};
+
+const REST_BRIDGE_TIMEOUT_BUFFER_MS = 5_000;
+const REST_BRIDGE_TIMEOUT_CEILING_MS = AGENT_TIMEOUT_MS_LIMIT + 60_000;
+
+/**
+ * Largest `options.timeout_ms` declared on `sql.execute` / `sql.executeBatch` in a command (batch = max per item).
+ */
+export const extractSqlStatementTimeoutMs = (
+  command: AgentCommandBody["command"],
+): number | undefined => {
+  if (Array.isArray(command)) {
+    let max: number | undefined;
+    for (const item of command) {
+      if (item.method === "sql.execute" || item.method === "sql.executeBatch") {
+        const t = item.params.options?.timeout_ms;
+        if (typeof t === "number" && Number.isFinite(t)) {
+          max = max === undefined ? t : Math.max(max, t);
+        }
+      }
+    }
+    return max;
+  }
+
+  if (command.method === "sql.execute" || command.method === "sql.executeBatch") {
+    const t = command.params.options?.timeout_ms;
+    return typeof t === "number" && Number.isFinite(t) ? t : undefined;
+  }
+
+  return undefined;
+};
+
+/**
+ * HTTP/Socket bridge wait: at least the client `timeoutMs` (or default), bumped to cover `options.timeout_ms` on SQL commands.
+ */
+export const computeBridgeWaitTimeoutMs = (
+  command: AgentCommandBody["command"],
+  explicitTimeoutMs?: number,
+): number => {
+  const defaultMs = 15_000;
+  const sqlTimeout = extractSqlStatementTimeoutMs(command);
+  const base = explicitTimeoutMs ?? defaultMs;
+  if (sqlTimeout === undefined) {
+    return base;
+  }
+
+  const needed = sqlTimeout + REST_BRIDGE_TIMEOUT_BUFFER_MS;
+  return Math.min(REST_BRIDGE_TIMEOUT_CEILING_MS, Math.max(base, needed));
 };
 
 export const applyPaginationToCommand = (

@@ -1,6 +1,6 @@
 # Socket Relay Protocol (N:1)
 
-Data: 2026-03-17
+Data: 2026-03-20
 
 ## Objetivo
 
@@ -58,7 +58,7 @@ O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 **Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
 
-O servidor valida o payload com o schema do bridge antes de encaminhar. Payloads
+O servidor valida o payload com o schema do bridge (`bridgeCommandSchema`, o mesmo nucleo que REST) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). Payloads
 invalidos retornam erro `VALIDATION_ERROR` em `relay:rpc.accepted`. O relay **nao**
 suporta batch JSON-RPC (array); envie um unico request por `relay:rpc.request`.
 
@@ -71,6 +71,8 @@ No relay, o consumer envia `PayloadFrame` em:
 
 - `relay:rpc.request` (campo `frame`)
 - `relay:rpc.stream.pull` (campo `frame`)
+
+Envelope JSON de `relay:rpc.request`: `conversationId`, `frame` (PayloadFrame) e, opcional, `payloadFrameCompression`: `default` \| `none` \| `always` — define gzip do frame que o hub **re-encoda** ao emitir `rpc:request` para o agente (o consumer frame e sempre descodificado antes).
 
 O servidor encaminha para o agente como `rpc:*` e reenvelopa respostas/chunks em
 `PayloadFrame` para o consumer.
@@ -90,7 +92,7 @@ Campos relevantes do frame:
 
 Regras atuais no servidor:
 
-- compressao de saida automatica acima de `1024` bytes
+- compressao de saida: acima do limiar, modo **automatico** (gzip so se menor que JSON UTF-8) no hub por defeito; `payloadFrameCompression: always` forca gzip como no agente “sempre GZIP”
 - limite de payload comprimido: `10 MB`
 - limite de payload decodificado: `10 MB`
 - limite de inflacao gzip: `20x`
@@ -154,6 +156,12 @@ Variaveis principais do relay:
 - `SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS`
 - `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS`
 
+### Rate limit por consumer (janela fixa)
+
+Os limites `SOCKET_RELAY_RATE_LIMIT_*` aplicam-se por `consumer` (socket) e usam **janela fixa**: quando decorre `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS` desde o inicio da janela, os contadores de `relay:conversation.start` e de pedidos relay (`relay:rpc.request`) **zeram** de uma vez. Nao e *sliding window*; o trafego pode concentrar-se nos limites de cada janela. Estados inativos sao removidos pelo sweep periodico (`SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` x duracao da janela) e ao disconnect do consumer.
+
+Métricas Prometheus em `GET /metrics`: `plug_socket_relay_rate_limit_conversation_start_allowed_total`, `..._rejected_total`, `plug_socket_relay_rate_limit_request_allowed_total`, `..._rejected_total`, etc.
+
 ## Auditoria Socket e retencao
 
 Foi adicionada auditoria de eventos Socket em `audit_events` com limpeza
@@ -200,7 +208,11 @@ Arquivo da migration:
 ## Compatibilidade
 
 Fluxo legado Socket (`agents:command` e `agents:stream_pull`) permanece ativo.
-REST nao foi alterado.
+O mesmo contrato de comando ao agente existe em **paralelo** via
+`POST /api/v1/agents/commands` (REST): o cliente pode usar **só REST**, **só Socket**
+ou **combinar** (ex.: auth HTTP + comandos Socket). O REST **nao** expoe streaming
+progressivo ao cliente (materializacao no hub); ver `docs/project_overview.md`
+(*Dois canais para comandos ao agente*).
 
 ## SDK cliente
 

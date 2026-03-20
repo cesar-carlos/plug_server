@@ -5,6 +5,13 @@ describe("socket_audit.service", () => {
     vi.resetModules();
     const warn = vi.fn();
 
+    vi.doMock("../../../../src/shared/config/env", () => ({
+      env: {
+        socketAuditBatchMax: 1,
+        socketAuditBatchFlushMs: 150,
+        socketAuditPruneBatchSize: 5000,
+      },
+    }));
     vi.doMock("../../../../src/infrastructure/database/prisma/client", () => ({
       prismaClient: {
         $queryRaw: vi.fn().mockResolvedValue([{ exists: true }]),

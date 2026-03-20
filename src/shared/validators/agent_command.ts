@@ -40,6 +40,53 @@ export const AGENT_TIMEOUT_MS_LIMIT = 300_000;
 /** Maximum allowed value for options.page_size and body.pagination.pageSize. */
 export const AGENT_PAGE_SIZE_LIMIT = 50_000;
 
+/** Max UTF-8 bytes for a single SQL string (logical JSON-RPC before PayloadFrame). */
+export const AGENT_SQL_MAX_UTF8_BYTES = 1 * 1024 * 1024;
+
+/** Max UTF-8 bytes for JSON-serialized named `params` on `sql.execute` / batch command items. */
+export const AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Max UTF-8 bytes for serialized `params` on `rpc.discover`. */
+export const AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
+
+const utf8ByteLength = (value: string): number => Buffer.byteLength(value, "utf8");
+
+const refineSqlTextAndNamedParams = (
+  sql: string,
+  params: Record<string, unknown> | undefined,
+  ctx: z.RefinementCtx,
+  pathPrefix: (string | number)[],
+): void => {
+  if (utf8ByteLength(sql) > AGENT_SQL_MAX_UTF8_BYTES) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [...pathPrefix, "sql"],
+      message: `SQL text exceeds max UTF-8 size (${AGENT_SQL_MAX_UTF8_BYTES} bytes)`,
+    });
+  }
+  if (params === undefined) {
+    return;
+  }
+  let encoded: string;
+  try {
+    encoded = JSON.stringify(params);
+  } catch {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [...pathPrefix, "params"],
+      message: "`params` must be JSON-serializable",
+    });
+    return;
+  }
+  if (utf8ByteLength(encoded) > AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [...pathPrefix, "params"],
+      message: `Named params JSON exceeds max UTF-8 size (${AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES} bytes)`,
+    });
+  }
+};
+
 export const sqlExecuteOptionsSchema = z
   .object({
     timeout_ms: z.number().int().positive().max(AGENT_TIMEOUT_MS_LIMIT).optional(),
@@ -112,6 +159,7 @@ const sqlExecuteParamsSchema = z
   })
   .merge(tokenCarrierSchema)
   .superRefine((value, ctx) => {
+    refineSqlTextAndNamedParams(value.sql, value.params, ctx, []);
     if (value.options?.multi_result === true && value.params !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -128,7 +176,10 @@ const sqlExecuteBatchCommandItemSchema = z
     params: z.record(z.string(), z.unknown()).optional(),
     execution_order: z.number().int().min(0).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((item, ctx) => {
+    refineSqlTextAndNamedParams(item.sql, item.params, ctx, []);
+  });
 
 const sqlExecuteBatchOptionsSchema = z
   .object({
@@ -205,7 +256,30 @@ const rpcDiscoverCommandSchema = z
     params: z.record(z.string(), z.unknown()).optional(),
   })
   .merge(rpcEnvelopeExtensionsSchema)
-  .passthrough();
+  .passthrough()
+  .superRefine((value, ctx) => {
+    if (value.params === undefined) {
+      return;
+    }
+    let encoded: string;
+    try {
+      encoded = JSON.stringify(value.params);
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["params"],
+        message: "`params` must be JSON-serializable",
+      });
+      return;
+    }
+    if (utf8ByteLength(encoded) > AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["params"],
+        message: `rpc.discover params exceed max UTF-8 size (${AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES} bytes)`,
+      });
+    }
+  });
 
 export const supportedAgentRpcMethods = [
   "sql.execute",
@@ -291,11 +365,22 @@ export const agentCommandPaginationSchema = z
 
 export type AgentCommandPagination = z.infer<typeof agentCommandPaginationSchema>;
 
+/** Gzip policy for hub-originated PayloadFrames to the agent (REST, agents:command). */
+export const payloadFrameCompressionSchema = z.enum(["default", "none", "always"]);
+export type PayloadFrameCompression = z.infer<typeof payloadFrameCompressionSchema>;
+
 export const agentCommandBodySchema = z.object({
   agentId: nonEmptyStringSchema,
   command: bridgeCommandSchema,
-  timeoutMs: z.coerce.number().int().positive().max(60_000).optional(),
+  /** Bridge wait (HTTP/Socket): aligned with `computeBridgeWaitTimeoutMs` ceiling (`AGENT_TIMEOUT_MS_LIMIT` + 60s headroom). */
+  timeoutMs: z.coerce.number().int().positive().max(360_000).optional(),
   pagination: agentCommandPaginationSchema.optional(),
+  /**
+   * Optional gzip policy for `rpc:request` PayloadFrames emitted to the agent.
+   * Omitted or `default`: threshold 1024, **auto** — gzip only if strictly smaller than raw JSON (plug_agente OutboundCompressionMode.auto).
+   * `none`: never gzip. `always`: threshold 1, **always_gzip** — gzip even if larger (plug_agente “sempre GZIP”).
+   */
+  payloadFrameCompression: payloadFrameCompressionSchema.optional(),
 })
   .superRefine((value, ctx) => {
     if (!value.pagination) {

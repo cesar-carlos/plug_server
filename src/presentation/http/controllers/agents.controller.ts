@@ -70,6 +70,9 @@ export const proxyCommandToAgent = async (
         command: body.command,
         ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),
         ...(body.pagination !== undefined ? { pagination: body.pagination } : {}),
+        ...(body.payloadFrameCompression !== undefined
+          ? { payloadFrameCompression: body.payloadFrameCompression }
+          : {}),
         signal: abortController.signal,
       },
       dispatchRpcCommandToAgent,

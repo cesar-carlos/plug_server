@@ -140,7 +140,7 @@ class InMemoryConversationRegistry {
   removeExpired(idleTimeoutMs: number): readonly RelayConversation[] {
     const timeoutMs = Math.max(1, Math.floor(idleTimeoutMs));
     const now = Date.now();
-    const removed: RelayConversation[] = [];
+    const expiredIds: string[] = [];
 
     for (const conversation of this.conversations.values()) {
       const lastSeenMs = Date.parse(conversation.lastSeenAt);
@@ -149,10 +149,15 @@ class InMemoryConversationRegistry {
       }
 
       if (now - lastSeenMs >= timeoutMs) {
-        const item = this.removeByConversationId(conversation.conversationId);
-        if (item) {
-          removed.push(item);
-        }
+        expiredIds.push(conversation.conversationId);
+      }
+    }
+
+    const removed: RelayConversation[] = [];
+    for (const conversationId of expiredIds) {
+      const item = this.removeByConversationId(conversationId);
+      if (item) {
+        removed.push(item);
       }
     }
 

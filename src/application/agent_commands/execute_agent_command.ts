@@ -8,6 +8,7 @@
 import type { AgentCommandBody } from "../../shared/validators/agent_command";
 import {
   applyPaginationToCommand,
+  computeBridgeWaitTimeoutMs,
   ensureJsonRpcIdsForBridge,
   normalizeCommandForAgent,
 } from "./command_transformers";
@@ -17,6 +18,7 @@ export interface ExecuteAgentCommandInput {
   readonly command: AgentCommandBody["command"];
   readonly timeoutMs?: number;
   readonly pagination?: AgentCommandBody["pagination"];
+  readonly payloadFrameCompression?: AgentCommandBody["payloadFrameCompression"];
   readonly signal?: AbortSignal;
 }
 
@@ -53,6 +55,7 @@ export type AgentCommandDispatcher = (input: {
   readonly command: AgentCommandBody["command"];
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
+  readonly payloadFrameCompression?: AgentCommandBody["payloadFrameCompression"];
 }) => Promise<DispatchRpcResult>;
 
 export type RpcResponseNormalizer = (payload: unknown) => unknown;
@@ -65,12 +68,16 @@ export const executeAgentCommand = async (
   const commandWithPagination = applyPaginationToCommand(input.command, input.pagination);
   const normalizedCommand = normalizeCommandForAgent(commandWithPagination);
   const commandForAgent = ensureJsonRpcIdsForBridge(normalizedCommand);
+  const timeoutMs = computeBridgeWaitTimeoutMs(commandForAgent, input.timeoutMs);
 
   const result = await dispatch({
     agentId: input.agentId,
     command: commandForAgent,
-    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+    timeoutMs,
     ...(input.signal ? { signal: input.signal } : {}),
+    ...(input.payloadFrameCompression !== undefined
+      ? { payloadFrameCompression: input.payloadFrameCompression }
+      : {}),
   });
 
   if ("notification" in result && result.notification) {

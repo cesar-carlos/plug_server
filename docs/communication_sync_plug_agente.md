@@ -41,7 +41,7 @@ O agente pode retornar (v2.5+ e schema de result):
 
 ### 3. Atualização de versão
 
-- **api_version**: `2.4` → `2.5` (bridge injeta `api_version: "2.5"`)
+- **api_version**: default do bridge `"2.5"`; valor enviado pelo cliente e **preservado** quando presente
 - **plugProfile**: `plug-jsonrpc-profile/2.5`
 
 ## Arquivos alterados no plug_server
@@ -50,7 +50,7 @@ O agente pode retornar (v2.5+ e schema de result):
 | ------- | --------- |
 | `docs/api_rest_bridge.md` | `execution_mode`, `preserve_sql`, exemplos, api_version 2.5, tabela de gaps, `sql_handling_mode`, `max_rows_handling`, `effective_max_rows`, regra `ORDER BY` para paginacao |
 | `src/shared/validators/agent_command.ts` | `execution_mode`, `preserve_sql`, validações de combinação |
-| `src/presentation/socket/hub/rpc_bridge.ts` | `api_version: "2.5"` |
+| `src/presentation/socket/hub/rpc_bridge.ts` | `api_version` default `2.5`, preservacao do cliente |
 | `src/presentation/docs/swagger.ts` | schemas `execution_mode`, `preserve_sql` |
 | `src/presentation/http/routes/agents.routes.ts` | exemplo `api_version: "2.5"` |
 | `src/socket.ts` | `plugProfile: "plug-jsonrpc-profile/2.5"` |
@@ -94,10 +94,31 @@ O agente pode retornar (v2.5+ e schema de result):
 - **REST bridge**: rate limit especifico para `POST /agents/commands` (100 req/min por IP)
 - **REST bridge**: metricas de latencia (avg, max, p95, p99)
 - **REST bridge**: validacao antecipada de `agentId` (fail-fast)
-- **Config**: `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS` (60_000)
+- **Config**: `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS` (default 120_000)
 - **Config**: `SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` (3)
 - **Config**: `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` e `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX`
 - **Documentacao**: secao "Configuracao e tuning" em `api_rest_bridge.md` (REQUEST_BODY_LIMIT, rate limit, env vars)
+
+## Melhorias aplicadas (2026-03-20) - OpenAPI e exemplos alinhados ao validador
+
+- **`swagger.ts`**: `maximum` em `timeout_ms`, `max_rows`, `page_size` (e batch) e `pagination.pageSize` iguais ao Zod; import de `AGENT_*_LIMIT` de `agent_command.ts`.
+- **`agents.routes.ts`**: exemplos OpenAPI para `body.pagination`, `execution_mode: preserve`, `sql.cancel`, `rpc.discover`.
+- **`api_rest_bridge.md`**: secao *OpenAPI (Swagger)* com referencia aos tetos e exemplos.
+- **`socket_client_sdk.md`**, **`socket_relay_protocol.md`**: data de revisao atualizada.
+
+## Melhorias aplicadas (2026-03-20) - REST: streaming materializado, timeout, api_version, assinatura
+
+- **`rpc_bridge.ts`** + **`rest_sql_stream_materialize.ts`**: REST materializado usa **creditos** por `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` (menos pulls que 1:1 por chunk) + merge em `merge_sql_stream_rpc_response.ts`; metrica `plug_rest_sql_stream_materialize_pulls_total`.
+- **`rest_agent_dispatch_queue.ts`**: overload REST por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `MAX_QUEUE`, `QUEUE_WAIT_MS`) fora do ficheiro monolitico do bridge.
+- **`rest_pending_requests.ts`**: estado de pedidos REST pendentes (ids JSON-RPC / batch), contagem para metricas e limite global.
+- **`relay_idempotency_store.ts`**, **`relay_stream_flow_state.ts`**, **`relay_request_registry.ts`**, **`bridge_relay_health_metrics.ts`**, **`active_stream_registry.ts`**, **`rpc_bridge_command_helpers.ts`**, **`rpc_bridge_relay_stream.ts`**, **`rpc_bridge_agent_inbound.ts`**, **`rpc_bridge_stream_pull.ts`**, **`rpc_bridge_dispatch_relay.ts`**, **`rpc_bridge_dispatch_command.ts`**, **`rpc_bridge_lifecycle.ts`**: idempotencia relay, buffer/creditos, rotas pendentes, circuit/latencia/metricas, streams ativos, helpers JSON-RPC/`BridgeCommand`, stream relay (handlers + timeout), inbound do agente, stream pull, dispatch relay, dispatch REST/Socket, cleanup/reset de stores extraidos de `rpc_bridge.ts`.
+- **`command_transformers.ts`**: `extractSqlStatementTimeoutMs`, `computeBridgeWaitTimeoutMs` (teto `AGENT_TIMEOUT_MS_LIMIT + 60s`, max body `timeoutMs` 360000).
+- **`execute_agent_command.ts`**: passa timeout efetivo ao dispatcher (HTTP e Socket `agents:command`).
+- **`agent_command.ts`**: `timeoutMs` no body ate **360000**.
+- **`withBridgeMeta` / relay**: preservam `api_version` do cliente quando informado; default `"2.5"`.
+- **`payload_frame.ts`**: assinatura HMAC opcional em frames **de saida** quando `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY` (via `finishPayloadFrameEnvelope`).
+- **`env`**: `PAYLOAD_SIGN_OUTBOUND`, `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`.
+- **Docs**: `api_rest_bridge.md` (fluxo, gaps, tabela de recursos); `.env.example`.
 
 ## Melhorias aplicadas (2026-03-19) - documentacao alinhada ao plug_agente
 
@@ -144,6 +165,32 @@ O agente pode retornar (v2.5+ e schema de result):
 - **`env`**: `BRIDGE_LOG_JSONRPC_AUTO_ID`
 - **`command_transformers`**: log estruturado ao auto-atribuir `id`
 - **Testes**: integracao Socket `agents:command` sem `id`; unicidade de UUIDs em batch
+
+## Melhorias aplicadas (2026-03-20) - compressao outbound auto vs sempre GZIP
+
+Documentacao plug_agente (`socket_communication_standard.md`, `socketio_client_binary_transport.md`):
+
+- Modo **automatico**: acima do limiar, GZIP so quando o bloco comprimido e **menor** que o JSON UTF-8; senao `cmp: none`.
+- Modo **sempre GZIP**: comprimir sempre que o tamanho atinge o limiar, mesmo se o gzip expandir.
+
+**plug_server** (`payload_frame.ts`):
+
+- Politica interna `auto` \| `always_gzip` em `preencodePayloadFrameJson` / `encodePayloadFrame`.
+- Comportamento por defeito (sem `payloadFrameCompression` no body): limiar 1024 + **auto**.
+- `payloadFrameCompression: "always"`: limiar 1 + **always_gzip**.
+- Capabilities do hub: `extensions.outboundCompressionMode: "auto"`.
+
+### Melhorias aplicadas (2026-03-20) — rate limit REST por utilizador, tetos SQL e docs de operacao
+
+- **Rate limit** `POST /agents/commands`: contagem por JWT `sub`; opcional por IP (`REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX`). Middlewares `agentsCommandsIpRateLimit` + `agentsCommandsUserRateLimit`.
+- **Tetos UTF-8** no JSON logico: `AGENT_SQL_MAX_UTF8_BYTES`, `AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES`, `AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES` em `agent_command.ts` (REST e relay via `bridgeCommandSchema`).
+- **Docs**: `docs/configuration.md`, `docs/observability.md`, `docs/scaling_and_roadmap.md`, `docs/snippets/payload_frame_client_encode.ts`; script `npm run test:contract` + `tests/contract/plug_agente_optional.contract.test.ts`.
+
+### Ajuste de documentacao e exemplos (2026-03-20)
+
+- **`api_rest_bridge.md`**: tabela *Controles de overload REST* com defaults iguais a `src/shared/config/env.ts` (`SOCKET_REST_AGENT_MAX_INFLIGHT=24`, `MAX_QUEUE=48`, `SOCKET_REST_STREAM_PULL_WINDOW_SIZE=96`); tabela de tuning relay com `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS=64`; exemplo de request com `payloadFrameCompression`; linha de gaps sobre compressao e preferencia do cliente.
+- **`socket_client_sdk.md`**: exemplo `encodeFrame` com politica **auto** (gzip so se menor que UTF-8), coerente com `payload_frame.ts` / plug_agente.
+- **`agents.routes.ts` (OpenAPI)**: exemplo `sqlExecutePayloadFrameCompression` + nota na descricao do POST.
 
 ## Próximas sincronizações
 

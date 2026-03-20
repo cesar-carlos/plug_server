@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyPaginationToCommand,
+  computeBridgeWaitTimeoutMs,
   ensureJsonRpcIdsForBridge,
+  extractSqlStatementTimeoutMs,
   normalizeCommandForAgent,
 } from "../../../../src/application/agent_commands/command_transformers";
 
@@ -254,6 +256,50 @@ describe("command_transformers", () => {
       });
 
       expect(result).toEqual(command);
+    });
+  });
+
+  describe("extractSqlStatementTimeoutMs / computeBridgeWaitTimeoutMs", () => {
+    it("should read timeout from sql.execute options", () => {
+      const cmd = {
+        jsonrpc: "2.0" as const,
+        method: "sql.execute" as const,
+        id: "a",
+        params: { sql: "SELECT 1", options: { timeout_ms: 120_000 } },
+      };
+      expect(extractSqlStatementTimeoutMs(cmd)).toBe(120_000);
+      expect(computeBridgeWaitTimeoutMs(cmd, 15_000)).toBe(125_000);
+    });
+
+    it("should use max timeout in batch", () => {
+      const batch = [
+        {
+          jsonrpc: "2.0" as const,
+          method: "sql.execute" as const,
+          id: "a",
+          params: { sql: "SELECT 1", options: { timeout_ms: 10_000 } },
+        },
+        {
+          jsonrpc: "2.0" as const,
+          method: "sql.executeBatch" as const,
+          id: "b",
+          params: {
+            commands: [{ sql: "SELECT 1" }],
+            options: { timeout_ms: 200_000 },
+          },
+        },
+      ];
+      expect(extractSqlStatementTimeoutMs(batch)).toBe(200_000);
+    });
+
+    it("should cap bridge wait at ceiling", () => {
+      const cmd = {
+        jsonrpc: "2.0" as const,
+        method: "sql.execute" as const,
+        id: "a",
+        params: { sql: "SELECT 1", options: { timeout_ms: 300_000 } },
+      };
+      expect(computeBridgeWaitTimeoutMs(cmd, 500_000)).toBe(360_000);
     });
   });
 });

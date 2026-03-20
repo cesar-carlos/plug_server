@@ -53,6 +53,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_relay_chunks_buffered_total", relay.counters.chunksBuffered));
   lines.push(metricLine("plug_socket_relay_chunks_dropped_total", relay.counters.chunksDropped));
   lines.push(metricLine("plug_socket_relay_stream_pulls_total", relay.counters.streamPulls));
+  lines.push(
+    metricLine("plug_rest_sql_stream_materialize_pulls_total", relay.counters.restSqlStreamMaterializePulls),
+  );
   lines.push(metricLine("plug_socket_relay_request_timeouts_total", relay.counters.requestTimeouts));
   lines.push(metricLine("plug_socket_relay_circuit_open_rejects_total", relay.counters.circuitOpenRejects));
   lines.push(metricLine("plug_socket_relay_rest_pending_rejected_total", relay.counters.restPendingRejected));

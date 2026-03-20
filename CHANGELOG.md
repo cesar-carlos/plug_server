@@ -8,6 +8,18 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ### Changed
 
+- **REST `POST /agents/commands` rate limit**: o limite configuravel por `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` passa a contar por **utilizador** (JWT `sub`), nao por IP. Opcional: segundo limitador por IP (`REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX`, `0` = desligado). Ver `docs/api_rest_bridge.md`.
+- **Validacao JSON logica**: tetos UTF-8 em `sql` (1 MiB), `params` nomeado serializado (2 MiB) e `rpc.discover` `params` (64 KiB) em `agent_command.ts` + OpenAPI; ver `docs/api_rest_bridge.md`.
+- **Desempenho Socket.IO**: `maxHttpBufferSize` alinhado a 10 MiB (PayloadFrame); `perMessageDeflate` desligado por defeito (`SOCKET_IO_PER_MESSAGE_DEFLATE`); `SOCKET_IO_TRANSPORTS` configurável (defeito `websocket,polling`). Ver `docs/performance_hub_agent.md`.
+- **Defaults de throughput**: `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` **96**, `SOCKET_REST_AGENT_MAX_INFLIGHT` **24**, `SOCKET_REST_AGENT_MAX_QUEUE` **48**, `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` **64**, buffers relay **128** / **12800** chunks.
+- **Hub Socket**: `conversationRegistry.removeExpired` e `pruneExpiredRelayIdempotencyEntries` passam a recolher ids expirados antes de remover (evita apagar durante iteracao sobre `Map`). Resposta **503** com `retry_after_ms` partilhada em `serviceUnavailableWithRetry` (`shared/errors/http_errors.ts`); `rest_agent_dispatch_queue` e `rpc_bridge_dispatch_command` deixam de duplicar o helper. Documentacao do relay: secao **Rate limit por consumer (janela fixa)** em `socket_relay_protocol.md`. `agent_registry.knownAgentIds` documentado (retido pos-disconnect; sem prune).
+- **Defaults de desempenho (env)**: tetos de REST/relay/auditoria evoluiram ao longo do tempo; estado atual em `.env.example` e `docs/performance_hub_agent.md`. `SOCKET_AUDIT_BATCH_MAX` **32**, `SOCKET_AUDIT_BATCH_FLUSH_MS` **150**; `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS` **120000**. `traceId` gerado pelo hub em pulls/`rpc:request` usa `randomBytes(16).toString("hex")` em vez de `randomUUID()` onde aplicavel.
+- **REST bridge (`sql.execute` unico)**: materializacao de stream com **creditos por janela** (como o relay): um pull inicial e novos `rpc:stream.pull` apenas quando a janela se esgota, em vez de um pull por chunk. Metrica `plug_rest_sql_stream_materialize_pulls_total`.
+- **Timeout do bridge**: espera HTTP/Socket alinhada a `options.timeout_ms` de `sql.execute` / `sql.executeBatch` (`computeBridgeWaitTimeoutMs`); `body.timeoutMs` aceita ate **360000** ms (Zod + OpenAPI).
+- **`api_version`**: repasse ao agente **preserva** o valor enviado pelo cliente; se ausente, usa `"2.5"` (REST batch item, comando unico e relay).
+- **PayloadFrame (saida)**: opcao `PAYLOAD_SIGN_OUTBOUND=true` assina frames gerados pelo hub quando `PAYLOAD_SIGNING_KEY` esta configurada (`finishPayloadFrameEnvelope` / `encodePayloadFrame`).
+- **OpenAPI**: schemas `SqlExecuteOptions`, `SqlExecuteBatchOptions` e `AgentCommandPagination` passam a declarar os mesmos `maximum` que o validador Zod (`AGENT_TIMEOUT_MS_LIMIT`, `AGENT_MAX_ROWS_LIMIT`, `AGENT_PAGE_SIZE_LIMIT`).
+- **Documentacao**: `api_rest_bridge.md` (secao OpenAPI/Swagger); exemplos adicionais em `POST /agents/commands` (`pagination`, `execution_mode` preserve, `sql.cancel`, `rpc.discover`).
 - **Métricas REST bridge**: percentis p95/p99 de latencia usam **quickselect** compartilhado (`shared/utils/percentile.ts`).
 - **Relay / `rpc_bridge`**: amostras de latencia por agente em **buffer circular** (`shared/utils/latency_ring_buffer.ts`); cleanup de streams/relay indexado por consumer/agent (**O(k)** no disconnect); `rpc:batch_ack` com varios IDs reutiliza **um** `JSON.stringify`+gzip por payload; logs de ack/stream em **DEBUG**.
 - **Auditoria Socket**: opcao de **lote** (`SOCKET_AUDIT_BATCH_MAX` / `SOCKET_AUDIT_BATCH_FLUSH_MS`), flush no shutdown, gauge `plug_socket_audit_queued_events`.
@@ -15,6 +27,7 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ### Migration
 
+- **Operacao**: se precisares do comportamento anterior (auditoria 1 INSERT por evento, menos paralelismo REST, janela de pull menor, prune de idempotencia mais frequente, buffer Engine.IO 1 MB, deflate WS ativo), define explicitamente `SOCKET_AUDIT_BATCH_MAX=1`, `SOCKET_REST_AGENT_MAX_INFLIGHT=8`, `SOCKET_REST_AGENT_MAX_QUEUE=16`, `SOCKET_REST_STREAM_PULL_WINDOW_SIZE=32`, `SOCKET_IO_MAX_HTTP_BUFFER_BYTES=1000000`, `SOCKET_IO_PER_MESSAGE_DEFLATE=true`, `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS=60000`, etc.
 - Clientes que dependiam de **HTTP 202** ao **omitir** `id` devem:
   - passar a omitir `id` e consumir **HTTP 200** com `response` normalizada, **ou**
   - enviar explicitamente **`"id": null`** se o comportamento desejado continuar sendo fire-and-forget (notification).
@@ -22,9 +35,29 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ### Added
 
+- **Documentacao**: `docs/configuration.md`, `docs/observability.md`, `docs/scaling_and_roadmap.md`, snippet `docs/snippets/payload_frame_client_encode.ts`.
+- **Testes de contrato opcionais**: `tests/contract/plug_agente_optional.contract.test.ts` + script `npm run test:contract` (definir `PLUG_AGENTE_ROOT` apontando ao checkout do `plug_agente`).
+- **PayloadFrame gzip (hub → agente)**: campo opcional `payloadFrameCompression` (`default` \| `none` \| `always`) no body de `POST /api/v1/agents/commands`, em `agents:command` e no envelope JSON de `relay:rpc.request` (junto a `conversationId` e `frame`). `default` usa modo **auto** (gzip so se menor que JSON UTF-8, como plug_agente `OutboundCompressionMode.auto`); `always` forca gzip mesmo quando expande. Capabilities do hub incluem `outboundCompressionMode: "auto"`.
+- **`rest_sql_stream_materialize.ts`**: estado e passo puro de creditos do stream REST materializado extraidos de `rpc_bridge.ts` (modularizacao incremental).
+- **`rest_agent_dispatch_queue.ts`**: fila e limite de inflight por agente (`acquireRestAgentDispatchSlot`) extraidos de `rpc_bridge.ts`; hook `wireRestAgentDispatchQueueMetrics` para `restPendingRejected`.
+- **`rest_pending_requests.ts`**: mapa de JSON-RPC `id` (correlation) -> `PendingRequest`, contagem logica e helpers (`registerRestPendingRequest`, `forEachUniqueRestPendingRequest`, etc.) extraidos de `rpc_bridge.ts`.
+- **`relay_idempotency_store.ts`**: mapas de idempotencia por conversa, timer de limpeza e `pruneExpiredRelayIdempotencyEntries` extraidos de `rpc_bridge.ts`.
+- **`relay_stream_flow_state.ts`**: estado mutavel de backpressure do stream relay (creditos, chunks bufferizados, complete pendente) extraido de `rpc_bridge.ts`.
+- **`relay_request_registry.ts`**: rotas relay pendentes (`RelayRequestRoute`), contagens por conversa/consumer, indices por socket e `registerRelayRequestRoute` / `removeRelayRequestRoute` extraidos de `rpc_bridge.ts`.
+- **`bridge_relay_health_metrics.ts`**: circuit breaker por agente, amostras de latencia, contadores `relayMetrics`, falhas de decode de frame, `buildRelayHubMetricsSnapshot`, logger periodico (`scheduleRelayHubMetricsLogger`) e `resetRelayHubHealthAndMetrics` extraidos de `rpc_bridge.ts`.
+- **`active_stream_registry.ts`**: rotas de stream ativas (REST + relay), indices por consumer/agent/conversa, `upsertActiveStreamRoute` / `removeActiveStreamRoute` / `resolveActiveStreamRoute` e integracao com `restSqlStreamMaterializeClearRequest` extraidos de `rpc_bridge.ts`.
+- **`rpc_bridge_command_helpers.ts`**: helpers puros JSON-RPC / `BridgeCommand` (`pickResponseIds`, `toCorrelationIds`, `withBridgeMeta`, `resolveOutboundApiVersion`, `extractStreamIdFromRpcResponse`, `isBatchCommand`) extraidos de `rpc_bridge.ts`.
+- **`rpc_bridge_relay_stream.ts`**: `createRelayStreamHandlers` e `emitRelayTimeoutResponse` (stream relay agente→consumer, backpressure, timeout + idempotencia) extraidos de `rpc_bridge.ts`; emissao ao consumer injetada via `EmitToConsumerFn`.
+- **`rpc_bridge_agent_inbound.ts`**: eventos **do agente** (`rpc:response`, chunk, complete, ack, batch_ack) — REST pendente + relay + materializacao SQL stream — via `createRpcBridgeAgentInboundHandlers` (deps: `emitToConsumer`, `emitRpcStreamPullForRoute`); `rpc_bridge.ts` reexporta os mesmos nomes publicos.
+- **`rpc_bridge_stream_pull.ts`**: `createRequestAgentStreamPull` — `agents:stream.pull` / creditos relay apos `rpc:stream.pull` ao agente (deps: `getAgentsNamespace`, `emitToConsumer`).
+- **`rpc_bridge_dispatch_relay.ts`**: `createRpcBridgeRelayDispatch` — `dispatchRelayRpcToAgent`, `requestRelayStreamPull` (validacao frame, limites relay, idempotencia, timeout, emissao `rpc:request`).
+- **`rpc_bridge_dispatch_command.ts`**: `createDispatchRpcCommandToAgent` — REST + Socket `agents:command` (pending requests, notificacao sem `id`, `sql.execute` stream aggregate); exporta `DispatchRpcCommandInput` / `DispatchRpcCommandResult`.
+- **`rpc_bridge_lifecycle.ts`**: `cleanupConsumerStreamSubscriptions`, `cleanupAgentStreamSubscriptions`, `cleanupPendingRequestsForAgentSocket`, `cleanupConversationStreamSubscriptions`, `resetRpcBridgeMutableStores` (stores + timers); `rpc_bridge.resetSocketBridgeState` chama `resetRpcBridgeMutableStores` e anula refs aos namespaces Socket.IO.
+- **`PAYLOAD_SIGN_OUTBOUND`**, **`SOCKET_REST_STREAM_PULL_WINDOW_SIZE`** (`env` + `.env.example`).
+- **`merge_sql_stream_rpc_response.ts`**, **`extractSqlStatementTimeoutMs` / `computeBridgeWaitTimeoutMs`** em `command_transformers.ts`.
 - Variavel de ambiente **`BRIDGE_LOG_JSONRPC_AUTO_ID`**: quando `true`, log **INFO** estruturado ao auto-atribuir `id`.
 - Em **`NODE_ENV=development`**, o mesmo evento e emitido em nivel **DEBUG** (sem variavel).
 
 ## Roadmap tecnico
 
-- **Modularizar `rpc_bridge.ts`**: extrair filas/pending REST, relay, streaming, metricas e PayloadFrame em modulos menores para reduzir acoplamento e risco de regressao (ver `docs/api_rest_bridge.md` — mapa de arquivos).
+- **Modularizar `rpc_bridge.ts`**: *feito* — modulos acima + `rpc_bridge_stream_pull.ts`, `rpc_bridge_dispatch_relay.ts`, `rpc_bridge_dispatch_command.ts`, `rpc_bridge_lifecycle.ts`; `rpc_bridge.ts` concentra namespaces Socket.IO, `emitToConsumer`, metricas e composicao das factories.

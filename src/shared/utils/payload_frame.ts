@@ -7,6 +7,39 @@ import { err, ok } from "../errors/result";
 import { badRequest } from "../errors/http_errors";
 
 const defaultCompressionThreshold = 1024;
+
+/** Hub → agent PayloadFrame gzip policy (see `payloadFrameEncodeOptionsFromPreference`). */
+export type PayloadFrameCompressionPreference = "default" | "none" | "always";
+
+/**
+ * Aligned with plug_agente `OutboundCompressionMode`:
+ * - `auto`: above threshold, gzip only if strictly smaller than raw UTF-8.
+ * - `always_gzip`: above threshold, always gzip (even if larger).
+ */
+export type PayloadFrameOutboundCompressionPolicy = "auto" | "always_gzip";
+
+export interface PreencodePayloadFrameJsonOptions {
+  readonly compressionThreshold?: number;
+  readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
+}
+
+/**
+ * Maps API `payloadFrameCompression` to `encodePayloadFrame` options.
+ * - `default` / `undefined`: threshold 1024, policy **auto** (gzip only if smaller than raw JSON).
+ * - `none`: never gzip.
+ * - `always`: threshold 1, policy **always_gzip** (matches agent "sempre GZIP").
+ */
+export const payloadFrameEncodeOptionsFromPreference = (
+  preference: PayloadFrameCompressionPreference | undefined,
+): PreencodePayloadFrameJsonOptions => {
+  if (preference === undefined || preference === "default") {
+    return {};
+  }
+  if (preference === "none") {
+    return { compressionThreshold: Number.POSITIVE_INFINITY };
+  }
+  return { compressionThreshold: 1, compressionPolicy: "always_gzip" };
+};
 const maxCompressionInputBytes = 512 * 1024;
 const maxCompressedPayloadBytes = 10 * 1024 * 1024;
 const maxDecodedPayloadBytes = 10 * 1024 * 1024;
@@ -88,6 +121,32 @@ const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer)
   return Buffer.concat([Buffer.from(metadata, "utf8"), Buffer.from([0]), binaryPayload]);
 };
 
+const signOutboundFrameIfConfigured = (frame: PayloadFrameEnvelope): PayloadFrameEnvelope => {
+  if (!env.payloadSignOutbound || !env.payloadSigningKey || env.payloadSigningKey.trim() === "") {
+    return frame;
+  }
+
+  const binaryPayload = toBuffer(frame.payload);
+  if (!binaryPayload) {
+    return frame;
+  }
+
+  const value = createHmac("sha256", env.payloadSigningKey)
+    .update(buildSignatureInput(frame, binaryPayload))
+    .digest("base64");
+
+  return {
+    ...frame,
+    signature: {
+      alg: "hmac-sha256",
+      value,
+      ...(env.payloadSigningKeyId && env.payloadSigningKeyId.trim() !== ""
+        ? { key_id: env.payloadSigningKeyId }
+        : {}),
+    },
+  };
+};
+
 const validateFrameSignature = (
   frame: PayloadFrameEnvelope,
   binaryPayload: Buffer,
@@ -163,18 +222,55 @@ export interface PreencodedPayloadFrameBody {
   readonly cmp: "none" | "gzip";
 }
 
+const normalizePreencodeOptions = (
+  options?: number | PreencodePayloadFrameJsonOptions,
+): PreencodePayloadFrameJsonOptions => {
+  if (typeof options === "number") {
+    return { compressionThreshold: options };
+  }
+  return options ?? {};
+};
+
 export const preencodePayloadFrameJson = (
   data: unknown,
-  compressionThreshold?: number,
+  options?: number | PreencodePayloadFrameJsonOptions,
 ): PreencodedPayloadFrameBody => {
+  const opts = normalizePreencodeOptions(options);
   const encoded = Buffer.from(JSON.stringify(data), "utf8");
-  const threshold = compressionThreshold ?? defaultCompressionThreshold;
-  const shouldCompress = encoded.length >= threshold && encoded.length <= maxCompressionInputBytes;
-  const wireBytes = shouldCompress ? gzipSync(encoded) : encoded;
+  const threshold = opts.compressionThreshold ?? defaultCompressionThreshold;
+  const policy = opts.compressionPolicy ?? "auto";
+
+  const belowThreshold = encoded.length < threshold;
+  const aboveMaxInput = encoded.length > maxCompressionInputBytes;
+  if (belowThreshold || aboveMaxInput || threshold === Number.POSITIVE_INFINITY) {
+    return {
+      originalSize: encoded.length,
+      wireBytes: encoded,
+      cmp: "none",
+    };
+  }
+
+  const compressed = gzipSync(encoded);
+  if (policy === "always_gzip") {
+    return {
+      originalSize: encoded.length,
+      wireBytes: compressed,
+      cmp: "gzip",
+    };
+  }
+
+  if (compressed.length < encoded.length) {
+    return {
+      originalSize: encoded.length,
+      wireBytes: compressed,
+      cmp: "gzip",
+    };
+  }
+
   return {
     originalSize: encoded.length,
-    wireBytes,
-    cmp: shouldCompress ? "gzip" : "none",
+    wireBytes: encoded,
+    cmp: "none",
   };
 };
 
@@ -184,27 +280,32 @@ export const finishPayloadFrameEnvelope = (
     readonly requestId?: string;
     readonly traceId?: string;
   },
-): PayloadFrameEnvelope => ({
-  schemaVersion: "1.0",
-  enc: "json",
-  cmp: body.cmp,
-  contentType: "application/json",
-  originalSize: body.originalSize,
-  compressedSize: body.wireBytes.length,
-  payload: body.wireBytes,
-  ...(options?.traceId ? { traceId: options.traceId } : { traceId: randomUUID() }),
-  ...(options?.requestId ? { requestId: options.requestId } : {}),
-});
+): PayloadFrameEnvelope =>
+  signOutboundFrameIfConfigured({
+    schemaVersion: "1.0",
+    enc: "json",
+    cmp: body.cmp,
+    contentType: "application/json",
+    originalSize: body.originalSize,
+    compressedSize: body.wireBytes.length,
+    payload: body.wireBytes,
+    ...(options?.traceId ? { traceId: options.traceId } : { traceId: randomUUID() }),
+    ...(options?.requestId ? { requestId: options.requestId } : {}),
+  });
 
 export const encodePayloadFrame = (
   data: unknown,
   options?: {
     readonly compressionThreshold?: number;
+    readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
     readonly requestId?: string;
     readonly traceId?: string;
   },
 ): PayloadFrameEnvelope => {
-  const body = preencodePayloadFrameJson(data, options?.compressionThreshold);
+  const body = preencodePayloadFrameJson(data, {
+    ...(options?.compressionThreshold !== undefined ? { compressionThreshold: options.compressionThreshold } : {}),
+    ...(options?.compressionPolicy !== undefined ? { compressionPolicy: options.compressionPolicy } : {}),
+  });
   return finishPayloadFrameEnvelope(body, options);
 };
 
