@@ -9,6 +9,9 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 - **PayloadFrame** já aplica gzip no nível da aplicação (modo **auto** por defeito: só gzip se menor que JSON UTF-8). O Engine.IO, por defeito, pode aplicar **permessage-deflate** no WebSocket — compressão duplicada e CPU extra.
 - **Teto interno de gzip** (`payload_frame.ts` + `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **524288**): JSON UTF-8 acima desse tamanho não passa por tentativa de gzip na codificação do hub (`cmp: none`); subir o valor (até **10 MiB**) se precisares de gzip em cargas grandes; payloads seguem dentro do limite de **10 MB** do contrato.
 - **`PAYLOAD_FRAME_GZIP_LEVEL`** (opcional, `1`–`9`): nível zlib para `gzipSync` do hub. Omitir mantém o default do Node (~6). Valores **1–3** reduzem CPU em hubs com muito tráfego comprimido, à custa de frames ligeiramente maiores.
+- **`PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`** (defeito **262144**): no caminho bridge (`encodePayloadFrameBridge` para `rpc:request` ao agente), payloads JSON **elegíveis para gzip** com pelo menos este tamanho em UTF-8 usam **gzip assíncrono** (`zlib.gzip` via `promisify`) em vez de `gzipSync`, aliviando bloqueios longos no event loop em frames grandes. **`0`** força sempre gzip síncrono (comportamento antigo).
+- **Envelope `traceId` em pedidos ao agente**: `rpc:request` (REST/relay) e `rpc:stream.pull` usam **`omitTraceId: true`** no envelope; a correlação fica em `requestId` / `meta.trace_id` no JSON-RPC quando aplicável.
+- **Inbound `decodePayloadFrameAsync`**: `rpc:response` e acks do agente, e decode do relay (`relay:rpc.request` / `relay:rpc.stream.pull`), usam decode assíncrono; para `cmp: gzip` e comprimido ≥ **`PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES`** (defeito **131072**), **gunzip assíncrono**. **`rpc:chunk` / `rpc:complete` permanecem síncronos** para não reordenar chunks sob carga. `0` = sempre síncrono em todos os usos async.
 - **`SOCKET_IO_SERVE_CLIENT=false`** (defeito): o hub não expõe o ficheiro cliente `socket.io` por HTTP — menos trabalho no pipeline e superfície menor. Clientes devem usar `socket.io-client` via npm/CDN.
 - **`SOCKET_IO_HTTP_COMPRESSION`**: compressão zlib nas respostas do transporte **polling**. Se em produção só usas **`SOCKET_IO_TRANSPORTS=websocket`**, definir `SOCKET_IO_HTTP_COMPRESSION=false` evita trabalho inútil em upgrades/handshake ocasional de polling.
 - **`SOCKET_IO_PER_MESSAGE_DEFLATE=false`** (recomendado): desliga deflate na camada WS quando se usa `PayloadFrame` com gzip opcional.
@@ -34,6 +37,10 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 | `SOCKET_AUDIT_BATCH_MAX` / `FLUSH_MS` | Menos round-trips à DB em auditoria. |
 | `REST_AGENTS_COMMANDS_RATE_LIMIT_*` | Limite por utilizador (`sub`) no REST + opcional por IP; `agents:command` usa os mesmos números (contador Socket separado). |
 | `PAYLOAD_FRAME_GZIP_LEVEL` | Trade-off CPU vs tamanho no gzip do `PayloadFrame` (hub → agente / relay). |
+| `PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES` | Gzip assíncrono no bridge para JSON grande elegível; `0` = só síncrono. |
+| `PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES` | Gunzip assíncrono inbound para frames gzip grandes; `0` = só síncrono. |
+| `SOCKET_AGENT_KNOWN_IDS_MAX` | Limite do conjunto de agentIds offline lembrados (`0` = ilimitado). |
+| `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT` | Amostragem de auditoria em `relay:rpc.chunk` (100 = todos). |
 | `SOCKET_IO_SERVE_CLIENT` / `HTTP_COMPRESSION` / `PING_*` | Ver secção *Transporte Socket.IO* acima. |
 
 ## Escala horizontal

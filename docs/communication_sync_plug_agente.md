@@ -188,7 +188,7 @@ Documentacao plug_agente (`socket_communication_standard.md`, `socketio_client_b
 
 ### Ajuste de documentacao e exemplos (2026-03-20)
 
-- **`api_rest_bridge.md`**: tabela *Controles de overload REST* com defaults iguais a `src/shared/config/env.ts` (`SOCKET_REST_AGENT_MAX_INFLIGHT=24`, `MAX_QUEUE=48`, `SOCKET_REST_STREAM_PULL_WINDOW_SIZE=96`); tabela de tuning relay com `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS=64`; exemplo de request com `payloadFrameCompression`; linha de gaps sobre compressao e preferencia do cliente.
+- **`api_rest_bridge.md`**: tabela *Controles de overload REST* com defaults iguais a `src/shared/config/env.ts` (`SOCKET_REST_AGENT_MAX_INFLIGHT=24`, `MAX_QUEUE=48`, `SOCKET_REST_STREAM_PULL_WINDOW_SIZE=128`); tabela de tuning relay com `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS=64`; exemplo de request com `payloadFrameCompression`; linha de gaps sobre compressao e preferencia do cliente.
 - **`socket_client_sdk.md`**: exemplo `encodeFrame` com politica **auto** (gzip so se menor que UTF-8), coerente com `payload_frame.ts` / plug_agente.
 - **`agents.routes.ts` (OpenAPI)**: exemplo `sqlExecutePayloadFrameCompression` + nota na descricao do POST.
 

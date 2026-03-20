@@ -45,42 +45,44 @@ export const handleRelayRpcStreamPull = (
     return;
   }
 
-  try {
-    const result = requestRelayStreamPull({
-      consumerSocketId: socket.id,
-      conversationId: parsed.data.conversationId,
-      rawFramePayload: parsed.data.frame,
-    });
+  void (async () => {
+    try {
+      const result = await requestRelayStreamPull({
+        consumerSocketId: socket.id,
+        conversationId: parsed.data.conversationId,
+        rawFramePayload: parsed.data.frame,
+      });
 
-    emitRelayStreamPullResponse(socket, {
-      success: true,
-      conversationId: parsed.data.conversationId,
-      requestId: result.requestId,
-      streamId: result.streamId,
-      windowSize: result.windowSize,
-    });
+      emitRelayStreamPullResponse(socket, {
+        success: true,
+        conversationId: parsed.data.conversationId,
+        requestId: result.requestId,
+        streamId: result.streamId,
+        windowSize: result.windowSize,
+      });
 
-    const actorRole = resolveRole(socket.data.user);
-    void recordSocketAuditEvent({
-      eventType: socketEvents.relayRpcStreamPull,
-      actorSocketId: socket.id,
-      actorUserId: socket.data.user?.sub ?? null,
-      ...(actorRole ? { actorRole } : {}),
-      direction: "consumer_to_agent",
-      conversationId: parsed.data.conversationId,
-      requestId: result.requestId,
-      streamId: result.streamId,
-      payload: { windowSize: result.windowSize },
-    });
-  } catch (err: unknown) {
-    const appError = err instanceof AppError ? err : undefined;
-    emitRelayStreamPullResponse(socket, {
-      success: false,
-      error: {
-        code: appError?.code ?? "RELAY_STREAM_PULL_FAILED",
-        message: err instanceof Error ? err.message : "Failed to pull stream",
-        ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
-      },
-    });
-  }
+      const actorRole = resolveRole(socket.data.user);
+      void recordSocketAuditEvent({
+        eventType: socketEvents.relayRpcStreamPull,
+        actorSocketId: socket.id,
+        actorUserId: socket.data.user?.sub ?? null,
+        ...(actorRole ? { actorRole } : {}),
+        direction: "consumer_to_agent",
+        conversationId: parsed.data.conversationId,
+        requestId: result.requestId,
+        streamId: result.streamId,
+        payload: { windowSize: result.windowSize },
+      });
+    } catch (err: unknown) {
+      const appError = err instanceof AppError ? err : undefined;
+      emitRelayStreamPullResponse(socket, {
+        success: false,
+        error: {
+          code: appError?.code ?? "RELAY_STREAM_PULL_FAILED",
+          message: err instanceof Error ? err.message : "Failed to pull stream",
+          ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
+        },
+      });
+    }
+  })();
 };

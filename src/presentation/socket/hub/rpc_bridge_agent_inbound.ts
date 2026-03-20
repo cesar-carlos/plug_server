@@ -5,6 +5,7 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { logger } from "../../../shared/utils/logger";
 import {
   decodePayloadFrame,
+  decodePayloadFrameAsync,
   encodePayloadFrame,
   finishPayloadFrameEnvelope,
   preencodePayloadFrameJson,
@@ -75,18 +76,19 @@ export const createRpcBridgeAgentInboundHandlers = (
   const { emitToConsumer, emitRpcStreamPullForRoute } = deps;
 
   const handleAgentRpcResponse = (socketId: string, rawPayload: unknown): void => {
-    const decoded = decodePayloadFrame(rawPayload);
-    if (!decoded.ok) {
-      logRpcFrameDecodeFailure({
-        eventName: socketEvents.rpcResponse,
-        socketId,
-        reason: decoded.error.message,
-      });
-      return;
-    }
+    void decodePayloadFrameAsync(rawPayload).then((result) => {
+      if (!result.ok) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcResponse,
+          socketId,
+          reason: result.error.message,
+        });
+        return;
+      }
 
-    const frameRequestId = toRequestId(decoded.value.frame.requestId);
-    const responseIds = pickResponseIds(decoded.value.data);
+      const decoded = result.value;
+      const frameRequestId = toRequestId(decoded.frame.requestId);
+      const responseIds = pickResponseIds(decoded.data);
     const candidateIds = Array.from(
       new Set([
         ...responseIds,
@@ -98,14 +100,14 @@ export const createRpcBridgeAgentInboundHandlers = (
       return;
     }
 
-    const streamId = extractStreamIdFromRpcResponse(decoded.value.data);
+    const streamId = extractStreamIdFromRpcResponse(decoded.data);
     const pendingRequest = findRestPendingRequestByIds(socketId, candidateIds);
     if (pendingRequest) {
       const pendingRequestId = pendingRequest.primaryRequestId;
       const deferredRestStream = Boolean(streamId) && pendingRequest.restStreamAggregate === true;
 
       if (deferredRestStream) {
-        const initialJson = decoded.value.data;
+        const initialJson = decoded.data;
         const timeoutHandle = pendingRequest.timeoutHandle;
         const resolveOnce = pendingRequest.resolve;
         const rejectOnce = pendingRequest.reject;
@@ -179,7 +181,7 @@ export const createRpcBridgeAgentInboundHandlers = (
       observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
       clearTimeout(pendingRequest.timeoutHandle);
       clearRestPendingRequest(pendingRequest);
-      pendingRequest.resolve(decoded.value.data);
+      pendingRequest.resolve(decoded.data);
     }
 
     const relayRoute = findRelayRequestRouteForAgentSocket(candidateIds, socketId);
@@ -190,7 +192,10 @@ export const createRpcBridgeAgentInboundHandlers = (
 
     const responseId = relayRoute.requestId;
 
-    const responseFrame = encodePayloadFrame(decoded.value.data, { requestId: responseId });
+    const responseFrame = encodePayloadFrame(decoded.data, {
+      requestId: responseId,
+      omitTraceId: true,
+    });
     emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
     relayMetrics.responsesForwarded += 1;
     observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
@@ -232,20 +237,22 @@ export const createRpcBridgeAgentInboundHandlers = (
       requestId: responseId,
       ...(streamId ? { streamId } : {}),
     });
+    });
   };
 
   const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void => {
-    const decoded = decodePayloadFrame(rawPayload);
-    if (!decoded.ok) {
+    /** Sync decode preserves chunk ordering per socket (async gunzip could reorder under load). */
+    const result = decodePayloadFrame(rawPayload);
+    if (!result.ok) {
       logRpcFrameDecodeFailure({
         eventName: socketEvents.rpcChunk,
         socketId,
-        reason: decoded.error.message,
+        reason: result.error.message,
       });
       return;
     }
 
-    const data = toRecord(decoded.value.data);
+    const data = toRecord(result.value.data);
     if (!data) {
       return;
     }
@@ -271,17 +278,17 @@ export const createRpcBridgeAgentInboundHandlers = (
   };
 
   const handleAgentRpcComplete = (socketId: string, rawPayload: unknown): void => {
-    const decoded = decodePayloadFrame(rawPayload);
-    if (!decoded.ok) {
+    const result = decodePayloadFrame(rawPayload);
+    if (!result.ok) {
       logRpcFrameDecodeFailure({
         eventName: socketEvents.rpcComplete,
         socketId,
-        reason: decoded.error.message,
+        reason: result.error.message,
       });
       return;
     }
 
-    const data = toRecord(decoded.value.data);
+    const data = toRecord(result.value.data);
     if (!data) {
       return;
     }
@@ -308,85 +315,87 @@ export const createRpcBridgeAgentInboundHandlers = (
   };
 
   const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void => {
-    const decoded = decodePayloadFrame(rawPayload);
-    if (!decoded.ok) {
-      logRpcFrameDecodeFailure({
-        eventName: socketEvents.rpcRequestAck,
-        socketId,
-        reason: decoded.error.message,
-      });
-      return;
-    }
+    void decodePayloadFrameAsync(rawPayload).then((result) => {
+      if (!result.ok) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcRequestAck,
+          socketId,
+          reason: result.error.message,
+        });
+        return;
+      }
 
-    const data = toRecord(decoded.value.data);
-    if (!data) {
-      return;
-    }
+      const data = toRecord(result.value.data);
+      if (!data) {
+        return;
+      }
 
-    const requestId = toRequestId(data.request_id);
-    if (!requestId) {
-      return;
-    }
+      const requestId = toRequestId(data.request_id);
+      if (!requestId) {
+        return;
+      }
 
-    const pending = getRestPendingRequestByCorrelationId(requestId);
-    if (pending && pending.socketId === socketId) {
-      pending.acked = true;
-      logger.debug("rpc_ack_received", { requestId, socketId });
-    }
-
-    const relayRoute = getRelayRequestRoute(requestId);
-    if (relayRoute && relayRoute.agentSocketId === socketId) {
-      emitToConsumer(
-        relayRoute.consumerSocketId,
-        socketEvents.relayRpcRequestAck,
-        encodePayloadFrame(data, { requestId, omitTraceId: true }),
-      );
-    }
-  };
-
-  const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void => {
-    const decoded = decodePayloadFrame(rawPayload);
-    if (!decoded.ok) {
-      logRpcFrameDecodeFailure({
-        eventName: socketEvents.rpcBatchAck,
-        socketId,
-        reason: decoded.error.message,
-      });
-      return;
-    }
-
-    const data = toRecord(decoded.value.data);
-    if (!data) {
-      return;
-    }
-
-    const requestIds = Array.isArray(data.request_ids)
-      ? (data.request_ids as unknown[]).map((id) => toRequestId(id)).filter((id): id is string => id !== null)
-      : [];
-
-    const preencodedBatchAck =
-      requestIds.length > 1 ? preencodePayloadFrameJson(data) : null;
-
-    let ackedCount = 0;
-    for (const requestId of requestIds) {
       const pending = getRestPendingRequestByCorrelationId(requestId);
       if (pending && pending.socketId === socketId) {
         pending.acked = true;
-        ackedCount++;
+        logger.debug("rpc_ack_received", { requestId, socketId });
       }
 
       const relayRoute = getRelayRequestRoute(requestId);
       if (relayRoute && relayRoute.agentSocketId === socketId) {
-        const frame =
-          preencodedBatchAck !== null
-            ? finishPayloadFrameEnvelope(preencodedBatchAck, { requestId, omitTraceId: true })
-            : encodePayloadFrame(data, { requestId, omitTraceId: true });
-        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcBatchAck, frame);
+        emitToConsumer(
+          relayRoute.consumerSocketId,
+          socketEvents.relayRpcRequestAck,
+          encodePayloadFrame(data, { requestId, omitTraceId: true }),
+        );
       }
-    }
-    if (ackedCount > 0) {
-      logger.debug("rpc_batch_ack_received", { requestIds: requestIds.slice(0, 5), ackedCount, socketId });
-    }
+    });
+  };
+
+  const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void => {
+    void decodePayloadFrameAsync(rawPayload).then((result) => {
+      if (!result.ok) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcBatchAck,
+          socketId,
+          reason: result.error.message,
+        });
+        return;
+      }
+
+      const data = toRecord(result.value.data);
+      if (!data) {
+        return;
+      }
+
+      const requestIds = Array.isArray(data.request_ids)
+        ? (data.request_ids as unknown[]).map((id) => toRequestId(id)).filter((id): id is string => id !== null)
+        : [];
+
+      const preencodedBatchAck =
+        requestIds.length > 1 ? preencodePayloadFrameJson(data) : null;
+
+      let ackedCount = 0;
+      for (const requestId of requestIds) {
+        const pending = getRestPendingRequestByCorrelationId(requestId);
+        if (pending && pending.socketId === socketId) {
+          pending.acked = true;
+          ackedCount++;
+        }
+
+        const relayRoute = getRelayRequestRoute(requestId);
+        if (relayRoute && relayRoute.agentSocketId === socketId) {
+          const frame =
+            preencodedBatchAck !== null
+              ? finishPayloadFrameEnvelope(preencodedBatchAck, { requestId, omitTraceId: true })
+              : encodePayloadFrame(data, { requestId, omitTraceId: true });
+          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcBatchAck, frame);
+        }
+      }
+      if (ackedCount > 0) {
+        logger.debug("rpc_batch_ack_received", { requestIds: requestIds.slice(0, 5), ackedCount, socketId });
+      }
+    });
   };
 
   return {

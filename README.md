@@ -28,7 +28,8 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - [docs/socket_client_sdk.md](./docs/socket_client_sdk.md) — relay `PayloadFrame`, `agents:command`, exemplos
 - [docs/socket_relay_protocol.md](./docs/socket_relay_protocol.md) — contrato relay (`relay:*`), quotas e metricas
 - [docs/performance_hub_agent.md](./docs/performance_hub_agent.md) — tuning hub ↔ agente
-- [docs/observability.md](./docs/observability.md) — métricas, `test:contract`, tracing
+- [docs/observability.md](./docs/observability.md) — métricas, `test:contract`, tracing, exemplos de alertas
+- [docs/load_testing.md](./docs/load_testing.md) — notas para carga HTTP/Socket
 - [docs/scaling_and_roadmap.md](./docs/scaling_and_roadmap.md) — multi-instância, SSE, OpenTelemetry, SDK
 
 ## Scripts

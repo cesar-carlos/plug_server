@@ -4,7 +4,10 @@ import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
 import {
+  decodePayloadFrame,
+  decodePayloadFrameAsync,
   encodePayloadFrame,
+  encodePayloadFrameBridge,
   payloadFrameEncodeOptionsFromPreference,
   preencodePayloadFrameJson,
 } from "../../../../src/shared/utils/payload_frame";
@@ -115,6 +118,63 @@ describe("encodePayloadFrame compression policy", () => {
       },
     );
     expect(frame.cmp).toBe("none");
+  });
+});
+
+describe("encodePayloadFrameBridge", () => {
+  it("with asyncGzipMinUtf8Bytes 0 delegates to sync encode", async () => {
+    const small = { jsonrpc: "2.0", method: "rpc.discover", id: "a" };
+    const frame = await encodePayloadFrameBridge(small, {
+      requestId: "r1",
+      omitTraceId: true,
+      asyncGzipMinUtf8Bytes: 0,
+    });
+    expect(frame.cmp).toBe("none");
+    expect(frame.requestId).toBe("r1");
+    expect(frame.traceId).toBeUndefined();
+  });
+
+  it("uses async gzip path when eligible and over async threshold", async () => {
+    const largeSql = "SELECT 1 " + "x".repeat(2000);
+    const data = {
+      jsonrpc: "2.0",
+      method: "sql.execute",
+      id: "q",
+      params: { sql: largeSql, client_token: "t" },
+    };
+    const frame = await encodePayloadFrameBridge(data, {
+      requestId: "r1",
+      omitTraceId: true,
+      compressionPolicy: "auto",
+      compressionThreshold: 1024,
+      asyncGzipMinUtf8Bytes: 1024,
+    });
+    expect(frame.cmp).toBe("gzip");
+  });
+});
+
+describe("decodePayloadFrameAsync", () => {
+  it("matches sync decode for uncompressed frame", async () => {
+    const small = { jsonrpc: "2.0", method: "rpc.discover", id: "a" };
+    const frame = encodePayloadFrame(small, { requestId: "r1", omitTraceId: true });
+    const sync = decodePayloadFrame(frame);
+    const asyncResult = await decodePayloadFrameAsync(frame);
+    expect(asyncResult).toEqual(sync);
+  });
+
+  it("matches sync decode for gzip frame", async () => {
+    const largeSql = "SELECT 1 " + "x".repeat(2000);
+    const data = {
+      jsonrpc: "2.0",
+      method: "sql.execute",
+      id: "q",
+      params: { sql: largeSql, client_token: "t" },
+    };
+    const frame = encodePayloadFrame(data, { compressionPolicy: "auto", compressionThreshold: 1024 });
+    expect(frame.cmp).toBe("gzip");
+    const sync = decodePayloadFrame(frame);
+    const asyncResult = await decodePayloadFrameAsync(frame);
+    expect(asyncResult).toEqual(sync);
   });
 });
 

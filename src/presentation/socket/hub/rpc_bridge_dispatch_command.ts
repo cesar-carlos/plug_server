@@ -13,7 +13,11 @@ import type { BridgeCommand, PayloadFrameCompression } from "../../../shared/val
 import { logger } from "../../../shared/utils/logger";
 import { isRecord } from "../../../shared/utils/rpc_types";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { encodePayloadFrame, payloadFrameEncodeOptionsFromPreference } from "../../../shared/utils/payload_frame";
+import {
+  encodePayloadFrameBridge,
+  payloadFrameEncodeOptionsFromPreference,
+  type PayloadFrameEnvelope,
+} from "../../../shared/utils/payload_frame";
 import { agentRegistry } from "./agent_registry";
 import {
   getActiveStreamRouteByRequestId,
@@ -42,11 +46,11 @@ const defaultRequestTimeoutMs = 15_000;
 export interface DispatchRpcCommandInput {
   readonly agentId: string;
   readonly command: BridgeCommand;
-  readonly timeoutMs?: number;
-  readonly streamHandlers?: StreamEventHandlers;
-  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number | undefined;
+  readonly streamHandlers?: StreamEventHandlers | undefined;
+  readonly signal?: AbortSignal | undefined;
   /** Hub → agent PayloadFrame gzip policy for this dispatch. */
-  readonly payloadFrameCompression?: PayloadFrameCompression;
+  readonly payloadFrameCompression?: PayloadFrameCompression | undefined;
 }
 
 interface DispatchRpcCommandResponseResult {
@@ -131,9 +135,9 @@ export const createDispatchRpcCommandToAgent = (
       try {
         agentSocket.emit(
           socketEvents.rpcRequest,
-          encodePayloadFrame(commandPayload, {
+          await encodePayloadFrameBridge(commandPayload, {
             requestId,
-            traceId,
+            omitTraceId: true,
             ...payloadFrameEncodeOpts,
           }),
         );
@@ -161,6 +165,18 @@ export const createDispatchRpcCommandToAgent = (
 
     const releaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
     try {
+      let wireFrame: PayloadFrameEnvelope;
+      try {
+        wireFrame = await encodePayloadFrameBridge(commandPayload, {
+          requestId,
+          omitTraceId: true,
+          ...payloadFrameEncodeOpts,
+        });
+      } catch (error: unknown) {
+        registerAgentFailure(input.agentId);
+        throw error instanceof Error ? error : serviceUnavailable("Failed to encode rpc:request");
+      }
+
       const response = await new Promise<unknown>((resolve, reject) => {
         let settled = false;
         let signalListener: (() => void) | null = null;
@@ -260,14 +276,7 @@ export const createDispatchRpcCommandToAgent = (
         }
 
         try {
-          agentSocket.emit(
-            socketEvents.rpcRequest,
-            encodePayloadFrame(commandPayload, {
-              requestId,
-              traceId,
-              ...payloadFrameEncodeOpts,
-            }),
-          );
+          agentSocket.emit(socketEvents.rpcRequest, wireFrame);
         } catch (error: unknown) {
           clearTimeout(timeoutHandle);
           clearRestPendingRequest(pendingRequest);

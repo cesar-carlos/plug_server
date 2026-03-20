@@ -1,3 +1,5 @@
+import { env } from "../../../shared/config/env";
+
 export interface RegisteredAgent {
   readonly agentId: string;
   readonly socketId: string;
@@ -12,10 +14,28 @@ class InMemoryAgentRegistry {
   private readonly agentIdBySocketId = new Map<string, string>();
   /**
    * Agent IDs ever registered in this process; retained after disconnect so REST can
-   * distinguish "unknown id" vs "known but offline". Not pruned — unbounded if many ephemeral IDs.
+   * distinguish "unknown id" vs "known but offline". When `SOCKET_AGENT_KNOWN_IDS_MAX` > 0,
+   * prunes disconnected IDs if the set grows beyond the cap.
    */
   private readonly knownAgentIds = new Set<string>();
   private readonly ownerByAgentId = new Map<string, string>();
+
+  private pruneKnownAgentIdsIfOverCap(): void {
+    const max = env.socketAgentKnownIdsMax;
+    if (max <= 0 || this.knownAgentIds.size <= max) {
+      return;
+    }
+
+    const connected = new Set(this.agents.keys());
+    for (const id of [...this.knownAgentIds]) {
+      if (this.knownAgentIds.size <= max) {
+        break;
+      }
+      if (!connected.has(id)) {
+        this.knownAgentIds.delete(id);
+      }
+    }
+  }
 
   upsert(input: {
     readonly agentId: string;
@@ -54,6 +74,7 @@ class InMemoryAgentRegistry {
     this.knownAgentIds.add(input.agentId);
     this.agents.set(input.agentId, agent);
     this.agentIdBySocketId.set(input.socketId, input.agentId);
+    this.pruneKnownAgentIdsIfOverCap();
     return { ok: true, agent };
   }
 

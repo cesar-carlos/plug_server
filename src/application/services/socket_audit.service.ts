@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 
 import { prismaClient } from "../../infrastructure/database/prisma/client";
+import { socketEvents } from "../../shared/constants/socket_events";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
@@ -20,6 +21,7 @@ const auditMetrics = {
   writesSucceeded: 0,
   writesFailed: 0,
   writesSkippedTableMissing: 0,
+  writesSampleSkipped: 0,
   pruneRuns: 0,
   pruneDeleted: 0,
   pruneFailed: 0,
@@ -27,6 +29,17 @@ const auditMetrics = {
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const shouldSampleSkipHighVolumeAudit = (input: SocketAuditEventInput): boolean => {
+  const pct = env.socketAuditHighVolumeSamplePercent;
+  if (pct >= 100) {
+    return false;
+  }
+  if (input.eventType !== socketEvents.relayRpcChunk) {
+    return false;
+  }
+  return Math.random() * 100 >= pct;
+};
 
 const isAuditTableMissing = (error: unknown): boolean => {
   const message = toErrorMessage(error).toLowerCase();
@@ -201,6 +214,11 @@ export const flushPendingSocketAuditEvents = async (): Promise<void> => {
 
 export const recordSocketAuditEvent = async (input: SocketAuditEventInput): Promise<void> => {
   auditMetrics.writesAttempted += 1;
+
+  if (shouldSampleSkipHighVolumeAudit(input)) {
+    auditMetrics.writesSampleSkipped += 1;
+    return;
+  }
 
   if (env.socketAuditBatchMax <= 1) {
     if (!(await canUseAuditTable())) {
@@ -380,6 +398,7 @@ export const getSocketAuditMetricsSnapshot = (): {
   readonly writesSucceeded: number;
   readonly writesFailed: number;
   readonly writesSkippedTableMissing: number;
+  readonly writesSampleSkipped: number;
   readonly pruneRuns: number;
   readonly pruneDeleted: number;
   readonly pruneFailed: number;
@@ -390,6 +409,7 @@ export const getSocketAuditMetricsSnapshot = (): {
   writesSucceeded: auditMetrics.writesSucceeded,
   writesFailed: auditMetrics.writesFailed,
   writesSkippedTableMissing: auditMetrics.writesSkippedTableMissing,
+  writesSampleSkipped: auditMetrics.writesSampleSkipped,
   pruneRuns: auditMetrics.pruneRuns,
   pruneDeleted: auditMetrics.pruneDeleted,
   pruneFailed: auditMetrics.pruneFailed,

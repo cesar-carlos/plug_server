@@ -11,8 +11,8 @@ import {
 } from "../../../shared/validators/agent_command";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import {
-  decodePayloadFrame,
-  encodePayloadFrame,
+  decodePayloadFrameAsync,
+  encodePayloadFrameBridge,
   payloadFrameEncodeOptionsFromPreference,
 } from "../../../shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
@@ -89,8 +89,10 @@ export interface RpcBridgeRelayDispatchDeps {
 }
 
 export type RpcBridgeRelayDispatchHandlers = {
-  readonly dispatchRelayRpcToAgent: (input: DispatchRelayRpcInput) => DispatchRelayRpcResult;
-  readonly requestRelayStreamPull: (input: RequestRelayStreamPullInput) => RequestAgentStreamPullResult;
+  readonly dispatchRelayRpcToAgent: (input: DispatchRelayRpcInput) => Promise<DispatchRelayRpcResult>;
+  readonly requestRelayStreamPull: (
+    input: RequestRelayStreamPullInput,
+  ) => Promise<RequestAgentStreamPullResult>;
 };
 
 export const createRpcBridgeRelayDispatch = (
@@ -98,8 +100,10 @@ export const createRpcBridgeRelayDispatch = (
 ): RpcBridgeRelayDispatchHandlers => {
   const { getAgentsNamespace, emitToConsumer, requestAgentStreamPull } = deps;
 
-  const dispatchRelayRpcToAgent = (input: DispatchRelayRpcInput): DispatchRelayRpcResult => {
-    const decoded = decodePayloadFrame(input.rawFramePayload);
+  const dispatchRelayRpcToAgent = async (
+    input: DispatchRelayRpcInput,
+  ): Promise<DispatchRelayRpcResult> => {
+    const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
     if (!decoded.ok) {
       logRpcFrameDecodeFailure({
         eventName: socketEvents.relayRpcRequest,
@@ -253,9 +257,9 @@ export const createRpcBridgeRelayDispatch = (
     try {
       agentSocket.emit(
         socketEvents.rpcRequest,
-        encodePayloadFrame(commandPayload, {
+        await encodePayloadFrameBridge(commandPayload, {
           requestId,
-          traceId,
+          omitTraceId: true,
           ...relayPayloadFrameOpts,
         }),
       );
@@ -286,8 +290,10 @@ export const createRpcBridgeRelayDispatch = (
     };
   };
 
-  const requestRelayStreamPull = (input: RequestRelayStreamPullInput): RequestAgentStreamPullResult => {
-    const decoded = decodePayloadFrame(input.rawFramePayload);
+  const requestRelayStreamPull = async (
+    input: RequestRelayStreamPullInput,
+  ): Promise<RequestAgentStreamPullResult> => {
+    const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
     if (!decoded.ok) {
       logRpcFrameDecodeFailure({
         eventName: socketEvents.relayRpcStreamPull,

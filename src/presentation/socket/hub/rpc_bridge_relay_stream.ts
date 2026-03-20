@@ -183,7 +183,7 @@ export const emitRelayTimeoutResponse = (
     },
   };
 
-  const frame = encodePayloadFrame(errorPayload, { requestId: route.requestId });
+  const frame = encodePayloadFrame(errorPayload, { requestId: route.requestId, omitTraceId: true });
   emitToConsumer(route.consumerSocketId, socketEvents.relayRpcResponse, frame);
 
   const idempotencyMap = getRelayIdempotencyMap(route.conversationId);

@@ -35,6 +35,14 @@ type PayloadFrame = {
 
 Em alguns eventos de **alto debito** (`relay:rpc.chunk`, `relay:rpc.complete`, acks relay), o servidor pode omitir `traceId` no envelope; usar `requestId` para correlacao.
 
+## Limites e comportamento do hub (resumo)
+
+- **Tamanho de frame**: até **10 MiB** comprimido/decodificado no contrato do hub (`payload_frame.ts`); validar no cliente antes de enviar SQL/parametros enormes.
+- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`) e `agents:command` no namespace `/consumers` têm tetos por janela; REST `POST /agents/commands` por utilizador (e opcionalmente por IP). Respostas **429** quando excedido.
+- **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks até um teto e depois **descartar** (`plug_socket_relay_chunks_dropped_total` em `/metrics`).
+- **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
+- **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; várias instâncias sem afinidade partilhada degradam o comportamento — ver `docs/scaling_and_roadmap.md`.
+
 ## Exemplo de encode/decode no cliente (Node.js)
 
 Alinhado ao modo **automatico** do hub / plug_agente: acima do limiar (1024 bytes UTF-8), usar **gzip so se** o bloco comprimido for **estritamente menor** que o JSON bruto; caso contrario `cmp: "none"`. (No REST/relay, `payloadFrameCompression: "always"` no envelope controla a re-encodacao **hub → agente** apos o servidor descodificar o teu frame.)

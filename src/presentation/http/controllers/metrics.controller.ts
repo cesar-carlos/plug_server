@@ -130,6 +130,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_audit_writes_succeeded_total", audit.writesSucceeded));
   lines.push(metricLine("plug_socket_audit_writes_failed_total", audit.writesFailed));
   lines.push(metricLine("plug_socket_audit_writes_skipped_table_missing_total", audit.writesSkippedTableMissing));
+  lines.push(metricLine("plug_socket_audit_writes_sample_skipped_total", audit.writesSampleSkipped));
   lines.push(metricLine("plug_socket_audit_prune_runs_total", audit.pruneRuns));
   lines.push(metricLine("plug_socket_audit_prune_deleted_total", audit.pruneDeleted));
   lines.push(metricLine("plug_socket_audit_prune_failed_total", audit.pruneFailed));

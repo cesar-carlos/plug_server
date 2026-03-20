@@ -306,7 +306,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           {
             capabilities: serverCapabilities,
           },
-          withOptionalRequestId(decoded.value.frame.requestId),
+          { ...withOptionalRequestId(decoded.value.frame.requestId), omitTraceId: true },
         ),
       );
     });
@@ -339,7 +339,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
             timestamp: new Date().toISOString(),
             status: "ok",
           },
-          withOptionalRequestId(decoded.value.frame.requestId),
+          { ...withOptionalRequestId(decoded.value.frame.requestId), omitTraceId: true },
         ),
       );
     });

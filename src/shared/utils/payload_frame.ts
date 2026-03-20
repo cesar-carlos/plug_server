@@ -1,5 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { promisify } from "node:util";
+import { gunzip as zlibGunzip, gunzipSync, gzip as zlibGzip, gzipSync } from "node:zlib";
 
 import { env } from "../config/env";
 import type { Result } from "../errors/result";
@@ -7,6 +8,9 @@ import { err, ok } from "../errors/result";
 import { badRequest } from "../errors/http_errors";
 
 const defaultCompressionThreshold = 1024;
+
+const gzipAsync = promisify(zlibGzip);
+const gunzipAsync = promisify(zlibGunzip);
 
 /** Hub → agent PayloadFrame gzip policy (see `payloadFrameEncodeOptionsFromPreference`). */
 export type PayloadFrameCompressionPreference = "default" | "none" | "always";
@@ -232,12 +236,10 @@ const normalizePreencodeOptions = (
   return options ?? {};
 };
 
-export const preencodePayloadFrameJson = (
-  data: unknown,
-  options?: number | PreencodePayloadFrameJsonOptions,
+const preencodeUtf8Buffer = (
+  encoded: Buffer,
+  opts: PreencodePayloadFrameJsonOptions,
 ): PreencodedPayloadFrameBody => {
-  const opts = normalizePreencodeOptions(options);
-  const encoded = Buffer.from(JSON.stringify(data), "utf8");
   const threshold = opts.compressionThreshold ?? defaultCompressionThreshold;
   const policy = opts.compressionPolicy ?? "auto";
   const maxGzipInputBytes = opts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
@@ -278,6 +280,59 @@ export const preencodePayloadFrameJson = (
   };
 };
 
+const preencodeUtf8BufferAsync = async (
+  encoded: Buffer,
+  opts: PreencodePayloadFrameJsonOptions,
+): Promise<PreencodedPayloadFrameBody> => {
+  const threshold = opts.compressionThreshold ?? defaultCompressionThreshold;
+  const policy = opts.compressionPolicy ?? "auto";
+  const maxGzipInputBytes = opts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
+
+  const belowThreshold = encoded.length < threshold;
+  const aboveMaxInput = encoded.length > maxGzipInputBytes;
+  if (belowThreshold || aboveMaxInput || threshold === Number.POSITIVE_INFINITY) {
+    return {
+      originalSize: encoded.length,
+      wireBytes: encoded,
+      cmp: "none",
+    };
+  }
+
+  const gzipLevel = env.payloadFrameGzipLevel;
+  const zlibOpts = gzipLevel !== undefined ? { level: gzipLevel } : {};
+  const compressed = await gzipAsync(encoded, zlibOpts);
+  if (policy === "always_gzip") {
+    return {
+      originalSize: encoded.length,
+      wireBytes: compressed,
+      cmp: "gzip",
+    };
+  }
+
+  if (compressed.length < encoded.length) {
+    return {
+      originalSize: encoded.length,
+      wireBytes: compressed,
+      cmp: "gzip",
+    };
+  }
+
+  return {
+    originalSize: encoded.length,
+    wireBytes: encoded,
+    cmp: "none",
+  };
+};
+
+export const preencodePayloadFrameJson = (
+  data: unknown,
+  options?: number | PreencodePayloadFrameJsonOptions,
+): PreencodedPayloadFrameBody => {
+  const opts = normalizePreencodeOptions(options);
+  const encoded = Buffer.from(JSON.stringify(data), "utf8");
+  return preencodeUtf8Buffer(encoded, opts);
+};
+
 export const finishPayloadFrameEnvelope = (
   body: PreencodedPayloadFrameBody,
   options?: {
@@ -307,16 +362,23 @@ export const finishPayloadFrameEnvelope = (
   });
 };
 
+export type EncodePayloadFrameOptions = {
+  readonly compressionThreshold?: number;
+  readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
+  readonly maxGzipInputBytes?: number;
+  readonly requestId?: string;
+  readonly traceId?: string;
+  readonly omitTraceId?: boolean;
+  /**
+   * Override `env.payloadFrameAsyncGzipMinUtf8Bytes`. When > 0 and the payload is eligible for gzip,
+   * uses async zlib (thread pool) instead of `gzipSync` for frames at least this many UTF-8 bytes.
+   */
+  readonly asyncGzipMinUtf8Bytes?: number;
+};
+
 export const encodePayloadFrame = (
   data: unknown,
-  options?: {
-    readonly compressionThreshold?: number;
-    readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
-    readonly maxGzipInputBytes?: number;
-    readonly requestId?: string;
-    readonly traceId?: string;
-    readonly omitTraceId?: boolean;
-  },
+  options?: EncodePayloadFrameOptions,
 ): PayloadFrameEnvelope => {
   const body = preencodePayloadFrameJson(data, {
     ...(options?.compressionThreshold !== undefined ? { compressionThreshold: options.compressionThreshold } : {}),
@@ -326,7 +388,49 @@ export const encodePayloadFrame = (
   return finishPayloadFrameEnvelope(body, options);
 };
 
-export const decodePayloadFrame = (payload: unknown): Result<DecodedPayloadFrame> => {
+/**
+ * Hub bridge helper: one `JSON.stringify`, optional async gzip for large eligible payloads
+ * (see `PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`), then envelope.
+ */
+export const encodePayloadFrameBridge = async (
+  data: unknown,
+  options?: EncodePayloadFrameOptions,
+): Promise<PayloadFrameEnvelope> => {
+  const minAsync =
+    options?.asyncGzipMinUtf8Bytes ?? env.payloadFrameAsyncGzipMinUtf8Bytes;
+  if (minAsync <= 0) {
+    return encodePayloadFrame(data, options);
+  }
+
+  const preOpts: PreencodePayloadFrameJsonOptions = {
+    ...(options?.compressionThreshold !== undefined ? { compressionThreshold: options.compressionThreshold } : {}),
+    ...(options?.compressionPolicy !== undefined ? { compressionPolicy: options.compressionPolicy } : {}),
+    ...(options?.maxGzipInputBytes !== undefined ? { maxGzipInputBytes: options.maxGzipInputBytes } : {}),
+  };
+
+  const encoded = Buffer.from(JSON.stringify(data), "utf8");
+  const threshold = preOpts.compressionThreshold ?? defaultCompressionThreshold;
+  const maxGzipInputBytes = preOpts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
+  const belowThreshold = encoded.length < threshold;
+  const aboveMaxInput = encoded.length > maxGzipInputBytes;
+  const gzipEligible =
+    !belowThreshold && !aboveMaxInput && threshold !== Number.POSITIVE_INFINITY;
+
+  const body =
+    gzipEligible && encoded.length >= minAsync
+      ? await preencodeUtf8BufferAsync(encoded, preOpts)
+      : preencodeUtf8Buffer(encoded, preOpts);
+
+  return finishPayloadFrameEnvelope(body, {
+    ...(options?.requestId !== undefined ? { requestId: options.requestId } : {}),
+    ...(options?.traceId !== undefined ? { traceId: options.traceId } : {}),
+    ...(options?.omitTraceId === true ? { omitTraceId: true as const } : {}),
+  });
+};
+
+const validatePayloadFrameForDecode = (
+  payload: unknown,
+): Result<{ readonly envelope: PayloadFrameEnvelope; readonly binaryPayload: Buffer }> => {
   if (!isPayloadFrameEnvelope(payload)) {
     return err(badRequest("Socket payload must be a valid PayloadFrame"));
   }
@@ -349,26 +453,27 @@ export const decodePayloadFrame = (payload: unknown): Result<DecodedPayloadFrame
     return signatureValidation;
   }
 
-  let decodedBytes: Buffer;
-  try {
-    decodedBytes = payload.cmp === "gzip" ? gunzipSync(binaryPayload) : binaryPayload;
-  } catch {
-    return err(badRequest("Failed to decompress PayloadFrame payload"));
-  }
+  return ok({ envelope: payload, binaryPayload });
+};
 
-  if (decodedBytes.length > maxDecodedPayloadBytes || payload.originalSize > maxDecodedPayloadBytes) {
+const finalizeDecodedPayloadBytes = (
+  envelope: PayloadFrameEnvelope,
+  binaryPayload: Buffer,
+  decodedBytes: Buffer,
+): Result<DecodedPayloadFrame> => {
+  if (decodedBytes.length > maxDecodedPayloadBytes || envelope.originalSize > maxDecodedPayloadBytes) {
     return err(badRequest("PayloadFrame decoded payload exceeds limit"));
   }
 
   if (
-    payload.cmp === "gzip" &&
+    envelope.cmp === "gzip" &&
     binaryPayload.length > 0 &&
     decodedBytes.length / binaryPayload.length > maxInflationRatio
   ) {
     return err(badRequest("PayloadFrame inflation ratio exceeds limit"));
   }
 
-  if (decodedBytes.length !== payload.originalSize) {
+  if (decodedBytes.length !== envelope.originalSize) {
     return err(badRequest("PayloadFrame original size mismatch"));
   }
 
@@ -376,7 +481,7 @@ export const decodePayloadFrame = (payload: unknown): Result<DecodedPayloadFrame
     const decoded = JSON.parse(decodedBytes.toString("utf8"));
     return ok({
       frame: {
-        ...payload,
+        ...envelope,
         payload: binaryPayload,
       },
       data: decoded,
@@ -384,4 +489,62 @@ export const decodePayloadFrame = (payload: unknown): Result<DecodedPayloadFrame
   } catch {
     return err(badRequest("Failed to decode PayloadFrame JSON payload"));
   }
+};
+
+const decompressPayloadFrameSync = (
+  envelope: PayloadFrameEnvelope,
+  binaryPayload: Buffer,
+): Result<Buffer> => {
+  try {
+    return ok(envelope.cmp === "gzip" ? gunzipSync(binaryPayload) : binaryPayload);
+  } catch {
+    return err(badRequest("Failed to decompress PayloadFrame payload"));
+  }
+};
+
+export const decodePayloadFrame = (payload: unknown): Result<DecodedPayloadFrame> => {
+  const prep = validatePayloadFrameForDecode(payload);
+  if (!prep.ok) {
+    return prep;
+  }
+
+  const { envelope, binaryPayload } = prep.value;
+  const decompressed = decompressPayloadFrameSync(envelope, binaryPayload);
+  if (!decompressed.ok) {
+    return decompressed;
+  }
+
+  return finalizeDecodedPayloadBytes(envelope, binaryPayload, decompressed.value);
+};
+
+/**
+ * Same as `decodePayloadFrame` but uses async zlib gunzip for large **compressed** payloads when
+ * `PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES` is set (> 0) and `cmp === "gzip"`.
+ */
+export const decodePayloadFrameAsync = async (
+  payload: unknown,
+): Promise<Result<DecodedPayloadFrame>> => {
+  const prep = validatePayloadFrameForDecode(payload);
+  if (!prep.ok) {
+    return prep;
+  }
+
+  const { envelope, binaryPayload } = prep.value;
+  const minAsync = env.payloadFrameAsyncGunzipMinCompressedBytes;
+  let decodedBytes: Buffer;
+  try {
+    if (envelope.cmp === "gzip") {
+      if (minAsync > 0 && binaryPayload.length >= minAsync) {
+        decodedBytes = await gunzipAsync(binaryPayload);
+      } else {
+        decodedBytes = gunzipSync(binaryPayload);
+      }
+    } else {
+      decodedBytes = binaryPayload;
+    }
+  } catch {
+    return err(badRequest("Failed to decompress PayloadFrame payload"));
+  }
+
+  return finalizeDecodedPayloadBytes(envelope, binaryPayload, decodedBytes);
 };

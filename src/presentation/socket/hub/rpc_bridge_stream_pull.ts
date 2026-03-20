@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-
 import type { Namespace } from "socket.io";
 
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
@@ -87,8 +85,6 @@ export const createRequestAgentStreamPull = (
       typeof input.windowSize === "number" && Number.isFinite(input.windowSize)
         ? Math.max(1, Math.floor(input.windowSize))
         : defaultStreamWindowSize;
-    const traceId = randomBytes(16).toString("hex");
-
     agentSocket.emit(
       socketEvents.rpcStreamPull,
       encodePayloadFrame(
@@ -99,7 +95,7 @@ export const createRequestAgentStreamPull = (
         },
         {
           requestId: route.requestId,
-          traceId,
+          omitTraceId: true,
         },
       ),
     );

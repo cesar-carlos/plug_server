@@ -27,6 +27,25 @@ rate(plug_socket_agents_command_rate_limit_rejected_total[5m])
 
 Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos contadores expostos (podem evoluir com o CHANGELOG).
 
+### Alertas sugeridos (exemplos)
+
+Ajusta `for` e limiares ao teu tráfego.
+
+```promql
+# Relay: chunks descartados por backpressure (deveria ser raro)
+rate(plug_socket_relay_chunks_dropped_total[5m]) > 0.1
+
+# Circuito do agente a abrir frequentemente
+rate(plug_socket_relay_circuit_open_rejects_total[5m]) > 0.05
+
+# REST bridge: muitas falhas
+rate(plug_rest_bridge_requests_failed_total[5m])
+  / clamp_min(rate(plug_rest_bridge_requests_total[5m]), 0.001) > 0.15
+
+# Auditoria: eventos descartados por amostragem (esperado se SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT < 100)
+rate(plug_socket_audit_writes_sample_skipped_total[5m])
+```
+
 ## Logs e tracing
 
 - O bridge preserva `traceparent` / `tracestate` no `meta` JSON-RPC quando o cliente envia.

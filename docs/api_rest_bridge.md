@@ -876,7 +876,7 @@ o servidor inclui:
 | `SOCKET_REST_AGENT_MAX_INFLIGHT`      | `24`    | Quantas requests simultaneas por `agentId` podem ficar em voo |
 | `SOCKET_REST_AGENT_MAX_QUEUE`         | `48`    | Quantas requests adicionais por `agentId` podem esperar fila |
 | `SOCKET_REST_AGENT_QUEUE_WAIT_MS`     | `200`   | Tempo maximo de espera na fila por agente antes de rejeitar |
-| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `96`    | Tamanho da janela por pull no REST materializado (creditos por pull; maior = menos pulls, mais pico de memoria por stream) |
+| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `128`   | Tamanho da janela por pull no REST materializado (creditos por pull; maior = menos pulls, mais pico de memoria por stream) |
 | `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub |
 | `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame |
 

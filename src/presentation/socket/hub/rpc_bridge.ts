@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-
 import type { Namespace } from "socket.io";
 
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -59,7 +57,6 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
     return;
   }
 
-  const traceId = randomBytes(16).toString("hex");
   const cappedWindow = Math.max(1, Math.floor(windowSize));
   agentSocket.emit(
     socketEvents.rpcStreamPull,
@@ -69,7 +66,7 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
         request_id: route.requestId,
         window_size: cappedWindow,
       },
-      { requestId: route.requestId, traceId },
+      { requestId: route.requestId, omitTraceId: true },
     ),
   );
   relayMetrics.restSqlStreamMaterializePulls += 1;

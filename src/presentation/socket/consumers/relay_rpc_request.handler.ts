@@ -48,49 +48,51 @@ export const handleRelayRpcRequest = (
     return;
   }
 
-  try {
-    const result = dispatchRelayRpcToAgent({
-      conversationId: parsed.data.conversationId,
-      consumerSocketId: socket.id,
-      rawFramePayload: parsed.data.frame,
-      ...(parsed.data.payloadFrameCompression !== undefined
-        ? { payloadFrameCompression: parsed.data.payloadFrameCompression }
-        : {}),
-    });
+  void (async () => {
+    try {
+      const result = await dispatchRelayRpcToAgent({
+        conversationId: parsed.data.conversationId,
+        consumerSocketId: socket.id,
+        rawFramePayload: parsed.data.frame,
+        ...(parsed.data.payloadFrameCompression !== undefined
+          ? { payloadFrameCompression: parsed.data.payloadFrameCompression }
+          : {}),
+      });
 
-    emitRelayRpcAccepted(socket, {
-      success: true,
-      conversationId: parsed.data.conversationId,
-      requestId: result.requestId,
-      ...(result.clientRequestId ? { clientRequestId: result.clientRequestId } : {}),
-      ...(result.deduplicated ? { deduplicated: true } : {}),
-      ...(result.replayed ? { replayed: true } : {}),
-    });
+      emitRelayRpcAccepted(socket, {
+        success: true,
+        conversationId: parsed.data.conversationId,
+        requestId: result.requestId,
+        ...(result.clientRequestId ? { clientRequestId: result.clientRequestId } : {}),
+        ...(result.deduplicated ? { deduplicated: true } : {}),
+        ...(result.replayed ? { replayed: true } : {}),
+      });
 
-    const actorRole = resolveRole(socket.data.user);
-    void recordSocketAuditEvent({
-      eventType: socketEvents.relayRpcRequest,
-      actorSocketId: socket.id,
-      actorUserId: socket.data.user?.sub ?? null,
-      ...(actorRole ? { actorRole } : {}),
-      direction: "consumer_to_agent",
-      conversationId: parsed.data.conversationId,
-      requestId: result.requestId,
-      payload: {
-        clientRequestId: result.clientRequestId ?? null,
-        deduplicated: result.deduplicated === true,
-        replayed: result.replayed === true,
-      },
-    });
-  } catch (err: unknown) {
-    const appError = err instanceof AppError ? err : undefined;
-    emitRelayRpcAccepted(socket, {
-      success: false,
-      error: {
-        code: appError?.code ?? "RELAY_RPC_REQUEST_FAILED",
-        message: err instanceof Error ? err.message : "Failed to relay request",
-        ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
-      },
-    });
-  }
+      const actorRole = resolveRole(socket.data.user);
+      void recordSocketAuditEvent({
+        eventType: socketEvents.relayRpcRequest,
+        actorSocketId: socket.id,
+        actorUserId: socket.data.user?.sub ?? null,
+        ...(actorRole ? { actorRole } : {}),
+        direction: "consumer_to_agent",
+        conversationId: parsed.data.conversationId,
+        requestId: result.requestId,
+        payload: {
+          clientRequestId: result.clientRequestId ?? null,
+          deduplicated: result.deduplicated === true,
+          replayed: result.replayed === true,
+        },
+      });
+    } catch (err: unknown) {
+      const appError = err instanceof AppError ? err : undefined;
+      emitRelayRpcAccepted(socket, {
+        success: false,
+        error: {
+          code: appError?.code ?? "RELAY_RPC_REQUEST_FAILED",
+          message: err instanceof Error ? err.message : "Failed to relay request",
+          ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
+        },
+      });
+    }
+  })();
 };

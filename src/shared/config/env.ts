@@ -37,6 +37,26 @@ const envSchema = z.object({
     (val) => (val === undefined || val === "" ? undefined : val),
     z.coerce.number().int().min(1).max(9).optional(),
   ),
+  /**
+   * When > 0, hub→agent `encodePayloadFrameBridge` uses async zlib for gzip-eligible JSON at least this many UTF-8 bytes
+   * (offloads CPU from the event loop). 0 = always synchronous gzip (previous behaviour).
+   */
+  PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES: z.coerce.number().int().min(0).max(10 * 1024 * 1024).default(262_144),
+  /**
+   * When > 0 and `cmp === gzip`, inbound `decodePayloadFrameAsync` uses async gunzip for compressed payloads
+   * at least this many bytes. 0 = always synchronous gunzip.
+   */
+  PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10 * 1024 * 1024)
+    .default(131_072),
+  /**
+   * Max entries in `agentRegistry` known-agent set (offline IDs retained for REST 503 vs 404). 0 = unlimited.
+   * When exceeded, removes known IDs that are not currently connected until under the cap.
+   */
+  SOCKET_AGENT_KNOWN_IDS_MAX: z.coerce.number().int().min(0).max(10_000_000).default(0),
   SOCKET_AUTH_REQUIRED: z
     .enum(["true", "false"])
     .default("true")
@@ -75,7 +95,7 @@ const envSchema = z.object({
   SOCKET_REST_AGENT_MAX_QUEUE: z.coerce.number().int().nonnegative().default(48),
   SOCKET_REST_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(200),
   /** Window size for automatic `rpc:stream.pull` when the REST bridge materializes a streaming `sql.execute` result. */
-  SOCKET_REST_STREAM_PULL_WINDOW_SIZE: z.coerce.number().int().positive().max(10_000).default(96),
+  SOCKET_REST_STREAM_PULL_WINDOW_SIZE: z.coerce.number().int().positive().max(10_000).default(128),
   /**
    * Max Engine.IO packet size (bytes). Must fit PayloadFrame compressed ceiling (10 MB).
    * Default 10 MiB matches `payload_frame` limits.
@@ -142,8 +162,12 @@ const envSchema = z.object({
   SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
   SOCKET_AUDIT_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
   /** Max events per DB transaction when > 1; 1 disables batching (legacy single INSERT). */
-  SOCKET_AUDIT_BATCH_MAX: z.coerce.number().int().positive().max(500).default(32),
-  SOCKET_AUDIT_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(150),
+  SOCKET_AUDIT_BATCH_MAX: z.coerce.number().int().positive().max(500).default(48),
+  SOCKET_AUDIT_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(200),
+  /**
+   * Percentage (0–100) of `relay:rpc.chunk` audit events persisted. 100 = all. Lower reduces DB load on high chunk volume.
+   */
+  SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT: z.coerce.number().int().min(0).max(100).default(100),
   SWAGGER_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -196,6 +220,9 @@ export const env = {
   payloadSignOutbound: parsedEnv.PAYLOAD_SIGN_OUTBOUND,
   payloadFrameMaxGzipInputBytes: parsedEnv.PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES,
   payloadFrameGzipLevel: parsedEnv.PAYLOAD_FRAME_GZIP_LEVEL,
+  payloadFrameAsyncGzipMinUtf8Bytes: parsedEnv.PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES,
+  payloadFrameAsyncGunzipMinCompressedBytes: parsedEnv.PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES,
+  socketAgentKnownIdsMax: parsedEnv.SOCKET_AGENT_KNOWN_IDS_MAX,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES,
@@ -240,6 +267,7 @@ export const env = {
   socketAuditPruneBatchSize: parsedEnv.SOCKET_AUDIT_PRUNE_BATCH_SIZE,
   socketAuditBatchMax: parsedEnv.SOCKET_AUDIT_BATCH_MAX,
   socketAuditBatchFlushMs: parsedEnv.SOCKET_AUDIT_BATCH_FLUSH_MS,
+  socketAuditHighVolumeSamplePercent: parsedEnv.SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT,
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
   restAgentsCommandsRateLimitWindowMs: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS,
   restAgentsCommandsRateLimitMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_MAX,
