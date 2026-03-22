@@ -30,6 +30,7 @@ const traceMetrics = {
   writesSkippedTableMissing: 0,
   writesDroppedQueueFull: 0,
   persistSkipped: 0,
+  phasesMismatchTotal: 0,
   pruneRuns: 0,
   pruneDeleted: 0,
   pruneFailed: 0,
@@ -183,7 +184,43 @@ export const recordBridgeLatencyTracePersistSkipped = (): void => {
   traceMetrics.persistSkipped += 1;
 };
 
+export const applyPrivacyToBridgeLatencyRow = (
+  row: BridgeLatencyTraceRowInput,
+  cfg: { readonly redactUserId: boolean; readonly truncateRequestIdChars: number },
+): BridgeLatencyTraceRowInput => {
+  let requestId = row.requestId;
+  if (cfg.truncateRequestIdChars > 0 && requestId.length > cfg.truncateRequestIdChars) {
+    requestId = requestId.slice(0, cfg.truncateRequestIdChars);
+  }
+  return {
+    ...row,
+    requestId,
+    userId: cfg.redactUserId ? null : row.userId,
+  };
+};
+
+const applyBridgeLatencyTraceRowPrivacy = (row: BridgeLatencyTraceRowInput): BridgeLatencyTraceRowInput =>
+  applyPrivacyToBridgeLatencyRow(row, {
+    redactUserId: env.bridgeLatencyTraceRedactUserId,
+    truncateRequestIdChars: env.bridgeLatencyTraceTruncateRequestIdChars,
+  });
+
 export const enqueueBridgeLatencyTrace = (row: BridgeLatencyTraceRowInput): void => {
+  const warnMs = env.bridgeLatencyTracePhasesMismatchWarnMs;
+  if (warnMs > 0) {
+    const diff = Math.abs(row.totalMs - row.phasesSumMs);
+    if (diff > warnMs) {
+      traceMetrics.phasesMismatchTotal += 1;
+      logger.debug("bridge_latency_trace_phases_mismatch", {
+        diff,
+        totalMs: row.totalMs,
+        phasesSumMs: row.phasesSumMs,
+        requestId: row.requestId,
+        channel: row.channel,
+      });
+    }
+  }
+
   const maxQ = env.bridgeLatencyTraceMaxQueue;
   if (maxQ > 0 && traceQueue.length >= maxQ) {
     traceMetrics.writesDroppedQueueFull += 1;
@@ -192,13 +229,15 @@ export const enqueueBridgeLatencyTrace = (row: BridgeLatencyTraceRowInput): void
 
   traceMetrics.enqueued += 1;
 
+  const rowOut = applyBridgeLatencyTraceRowPrivacy(row);
+
   if (env.bridgeLatencyTraceBatchMax <= 1) {
-    traceQueue.push(row);
+    traceQueue.push(rowOut);
     queueFlush();
     return;
   }
 
-  traceQueue.push(row);
+  traceQueue.push(rowOut);
   if (traceQueue.length >= env.bridgeLatencyTraceBatchMax) {
     queueFlush();
   } else {
@@ -246,8 +285,11 @@ const toNumber = (value: unknown): number => {
 };
 
 export const pruneBridgeLatencyTracesOlderThanDays = async (
-  retentionDays: number,
-  options?: { readonly batchSize?: number },
+  options?: {
+    readonly defaultRetentionDays?: number;
+    readonly relayRetentionDays?: number;
+    readonly batchSize?: number;
+  },
 ): Promise<number> => {
   traceMetrics.pruneRuns += 1;
 
@@ -255,11 +297,19 @@ export const pruneBridgeLatencyTracesOlderThanDays = async (
     return 0;
   }
 
-  const safeDays = Number.isFinite(retentionDays) ? Math.max(1, Math.floor(retentionDays)) : 90;
+  const safeDefaultDays = Math.max(
+    1,
+    Math.floor(options?.defaultRetentionDays ?? env.bridgeLatencyTraceRetentionDays),
+  );
+  const safeRelayDays = Math.max(
+    1,
+    Math.floor(options?.relayRetentionDays ?? env.bridgeLatencyTraceRelayRetentionDays),
+  );
   const safeBatchSize = Number.isFinite(options?.batchSize)
     ? Math.max(100, Math.floor(options?.batchSize ?? env.bridgeLatencyTracePruneBatchSize))
     : env.bridgeLatencyTracePruneBatchSize;
-  const cutoff = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
+  const defaultCutoff = new Date(Date.now() - safeDefaultDays * 24 * 60 * 60 * 1000);
+  const relayCutoff = new Date(Date.now() - safeRelayDays * 24 * 60 * 60 * 1000);
 
   return trackPending(
     (async () => {
@@ -271,7 +321,10 @@ export const pruneBridgeLatencyTracesOlderThanDays = async (
             WITH candidate AS (
               SELECT id
               FROM bridge_latency_traces
-              WHERE created_at < ${cutoff}
+              WHERE (
+                (channel = 'relay' AND created_at < ${relayCutoff})
+                OR (channel <> 'relay' AND created_at < ${defaultCutoff})
+              )
               ORDER BY created_at ASC
               LIMIT ${safeBatchSize}
             ),
@@ -296,7 +349,8 @@ export const pruneBridgeLatencyTracesOlderThanDays = async (
         if (totalDeleted > 0) {
           logger.info("bridge_latency_traces_pruned", {
             deleted: totalDeleted,
-            retentionDays: safeDays,
+            defaultRetentionDays: safeDefaultDays,
+            relayRetentionDays: safeRelayDays,
             batchSize: safeBatchSize,
           });
         }
@@ -321,7 +375,6 @@ export const pruneBridgeLatencyTracesOlderThanDays = async (
 };
 
 export const startBridgeLatencyTraceRetentionScheduler = (options?: {
-  readonly retentionDays?: number;
   readonly intervalMs?: number;
   readonly batchSize?: number;
 }): void => {
@@ -329,13 +382,12 @@ export const startBridgeLatencyTraceRetentionScheduler = (options?: {
     return;
   }
 
-  const retentionDays = options?.retentionDays ?? env.bridgeLatencyTraceRetentionDays;
   const intervalMs =
     options?.intervalMs ?? env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000;
   const batchSize = options?.batchSize ?? env.bridgeLatencyTracePruneBatchSize;
 
   const run = (): void => {
-    void pruneBridgeLatencyTracesOlderThanDays(retentionDays, { batchSize });
+    void pruneBridgeLatencyTracesOlderThanDays({ batchSize });
   };
 
   run();
@@ -358,6 +410,7 @@ export const getBridgeLatencyTraceMetricsSnapshot = (): {
   readonly writesSkippedTableMissing: number;
   readonly writesDroppedQueueFull: number;
   readonly persistSkipped: number;
+  readonly phasesMismatchTotal: number;
   readonly pruneRuns: number;
   readonly pruneDeleted: number;
   readonly pruneFailed: number;
@@ -369,6 +422,7 @@ export const getBridgeLatencyTraceMetricsSnapshot = (): {
   writesSkippedTableMissing: traceMetrics.writesSkippedTableMissing,
   writesDroppedQueueFull: traceMetrics.writesDroppedQueueFull,
   persistSkipped: traceMetrics.persistSkipped,
+  phasesMismatchTotal: traceMetrics.phasesMismatchTotal,
   pruneRuns: traceMetrics.pruneRuns,
   pruneDeleted: traceMetrics.pruneDeleted,
   pruneFailed: traceMetrics.pruneFailed,
@@ -390,6 +444,7 @@ export const resetBridgeLatencyTraceServiceForTests = (): void => {
   traceMetrics.writesSkippedTableMissing = 0;
   traceMetrics.writesDroppedQueueFull = 0;
   traceMetrics.persistSkipped = 0;
+  traceMetrics.phasesMismatchTotal = 0;
   traceMetrics.pruneRuns = 0;
   traceMetrics.pruneDeleted = 0;
   traceMetrics.pruneFailed = 0;

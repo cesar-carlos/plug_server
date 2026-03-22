@@ -43,9 +43,28 @@ Com `BRIDGE_LATENCY_TRACE_ENABLED=true`, o hub regista tempos por comando para: 
 
 **Colunas uteis:** `phases_sum_ms` (soma das fases em `phases_ms`), `phases_schema_version` (versao do conjunto de chaves; hoje 1), `total_ms` (parede). Comparar `phases_sum_ms` com `total_ms` ajuda a detetar fases em falta.
 
-**Prometheus:** `plug_bridge_latency_trace_*` em `GET /metrics` (fila, escritas, drops, `persist_skipped`, prune).
+**Prometheus:** `plug_bridge_latency_trace_*` em `GET /metrics` (fila, escritas, drops, `persist_skipped`, `phases_mismatch`, prune). **Nao** expor `conversation_id` ou outros IDs de alta cardinalidade como *labels* Prometheus; correlacao fica na tabela / traces, nao nas series agregadas.
 
 **OpenTelemetry:** `BRIDGE_LATENCY_TRACE_OTEL_ENABLED=true` cria span `bridge.command` por sessao (e necessario tracer configurado na app).
+
+**Privacidade (antes de enfileirar):** `BRIDGE_LATENCY_TRACE_REDACT_USER_ID=true` grava `user_id` como NULL. `BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS` (> 0) corta o `request_id` persistido (reduz vazamento de correlacao em logs/DB).
+
+**Consistencia `total_ms` vs fases:** `BRIDGE_LATENCY_TRACE_PHASES_MISMATCH_WARN_MS` (> 0) incrementa `plug_bridge_latency_trace_phases_mismatch_total` e regista DEBUG quando `|total_ms - phases_sum_ms|` excede o limiar (fases em falta ou relogio).
+
+**Retencao relay:** `BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS` (opcional) aplica-se apenas a linhas com `channel = 'relay'`; se vazio, usa o mesmo prazo que `BRIDGE_LATENCY_TRACE_RETENTION_DAYS`.
+
+### Vista SQL `bridge_latency_trace_hourly_rollups`
+
+Migracao que cria vista (nao materializada) para dashboards SQL/Grafana — agregacao por hora UTC, `channel`, `outcome`, `json_rpc_method`, percentis de `total_ms` e p95 de `agent_to_hub_ms` quando existir em `phases_ms`:
+
+```sql
+SELECT * FROM bridge_latency_trace_hourly_rollups
+WHERE hour_utc > now() AT TIME ZONE 'UTC' - interval '24 hours'
+ORDER BY hour_utc DESC, request_count DESC
+LIMIT 50;
+```
+
+Exemplo minimo de dashboard Grafana (Prometheus): `docs/grafana/bridge_latency_trace_minimal.json` — apos importar, associa um datasource Prometheus ao painel.
 
 Fases tipicas em `phases_ms` (REST / consumer; relay inclui `consumer_frame_decode_ms`, `relay_preflight_ms`, `relay_forward_to_consumer_ms`, `relay_stream_duration_ms` quando aplicavel):
 
@@ -93,6 +112,15 @@ rate(plug_rest_bridge_requests_failed_total[5m])
 
 # Auditoria: eventos descartados por amostragem (esperado se amostragem < 100; em produção o defeito sem env é 25)
 rate(plug_socket_audit_writes_sample_skipped_total[5m])
+
+# Bridge latency traces: fila em memoria cheia (perda de amostras)
+rate(plug_bridge_latency_trace_writes_dropped_queue_full_total[5m]) > 0
+
+# Bridge latency traces: falhas de escrita persistentes
+rate(plug_bridge_latency_trace_writes_failed_total[5m]) > 0.1
+
+# Bridge latency traces: discrepancia total_ms vs soma das fases (definir limiar com PHASES_MISMATCH_WARN_MS)
+rate(plug_bridge_latency_trace_phases_mismatch_total[5m]) > 0
 ```
 
 ## Logs e tracing

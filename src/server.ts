@@ -29,7 +29,6 @@ startSocketAuditRetentionScheduler({
 });
 
 startBridgeLatencyTraceRetentionScheduler({
-  retentionDays: env.bridgeLatencyTraceRetentionDays,
   intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
   batchSize: env.bridgeLatencyTracePruneBatchSize,
 });

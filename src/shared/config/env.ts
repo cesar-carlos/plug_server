@@ -243,6 +243,24 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  /**
+   * If |total_ms - phases_sum_ms| exceeds this, increment metric and log at debug (0 = off).
+   */
+  BRIDGE_LATENCY_TRACE_PHASES_MISMATCH_WARN_MS: z.coerce.number().int().min(0).default(0),
+  /** When true, `user_id` is not stored in `bridge_latency_traces`. */
+  BRIDGE_LATENCY_TRACE_REDACT_USER_ID: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** Max UTF-8 characters of `request_id` to persist (0 = full string). */
+  BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS: z.coerce.number().int().min(0).max(128).default(0),
+  /**
+   * Retention for `channel = relay` only. If unset/empty, uses `BRIDGE_LATENCY_TRACE_RETENTION_DAYS`.
+   */
+  BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS: z.preprocess(
+    (val) => (val === undefined || val === "" ? undefined : val),
+    z.coerce.number().int().positive().optional(),
+  ),
 });
 
 const parsedEnv = envSchema.parse(process.env);
@@ -342,4 +360,9 @@ export const env = {
   bridgeLatencyTraceRetentionIntervalMinutes: parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_INTERVAL_MINUTES,
   bridgeLatencyTracePruneBatchSize: parsedEnv.BRIDGE_LATENCY_TRACE_PRUNE_BATCH_SIZE,
   bridgeLatencyTraceOtelEnabled: parsedEnv.BRIDGE_LATENCY_TRACE_OTEL_ENABLED,
+  bridgeLatencyTracePhasesMismatchWarnMs: parsedEnv.BRIDGE_LATENCY_TRACE_PHASES_MISMATCH_WARN_MS,
+  bridgeLatencyTraceRedactUserId: parsedEnv.BRIDGE_LATENCY_TRACE_REDACT_USER_ID,
+  bridgeLatencyTraceTruncateRequestIdChars: parsedEnv.BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS,
+  bridgeLatencyTraceRelayRetentionDays:
+    parsedEnv.BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS ?? parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_DAYS,
 } as const;

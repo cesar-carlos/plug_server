@@ -147,6 +147,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(metricLine("plug_bridge_latency_trace_writes_dropped_queue_full_total", bridgeLatency.writesDroppedQueueFull));
   lines.push(metricLine("plug_bridge_latency_trace_persist_skipped_total", bridgeLatency.persistSkipped));
+  lines.push(
+    metricLine("plug_bridge_latency_trace_phases_mismatch_total", bridgeLatency.phasesMismatchTotal),
+  );
   lines.push(metricLine("plug_bridge_latency_trace_prune_runs_total", bridgeLatency.pruneRuns));
   lines.push(metricLine("plug_bridge_latency_trace_prune_deleted_total", bridgeLatency.pruneDeleted));
   lines.push(metricLine("plug_bridge_latency_trace_prune_failed_total", bridgeLatency.pruneFailed));
