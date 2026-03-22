@@ -82,7 +82,10 @@ export const createRpcBridgeAgentInboundHandlers = (
     rawPayload: unknown,
     ack?: () => void,
   ): void => {
+    const inboundSyncStart = performance.now();
+    const decodeStart = performance.now();
     void decodePayloadFrameAsync(rawPayload).then((result) => {
+      const decodeMs = performance.now() - decodeStart;
       let ackInvoked = false;
       const fireAck = (): void => {
         if (ackInvoked || typeof ack !== "function") {
@@ -121,6 +124,8 @@ export const createRpcBridgeAgentInboundHandlers = (
         const streamId = extractStreamIdFromRpcResponse(decoded.data);
         const pendingRequest = findRestPendingRequestByIds(socketId, candidateIds);
         if (pendingRequest) {
+          pendingRequest.latencyTrace?.markInboundArrival(inboundSyncStart);
+          pendingRequest.latencyTrace?.recordInboundDecodeMs(decodeMs);
           const pendingRequestId = pendingRequest.primaryRequestId;
           const deferredRestStream =
             Boolean(streamId) && pendingRequest.restStreamAggregate === true;
@@ -150,6 +155,7 @@ export const createRpcBridgeAgentInboundHandlers = (
                 clearTimeout(timeoutHandle);
                 try {
                   const merged = mergeSqlStreamRpcResponse(initialJson, chunkBuffer, payload);
+                  pendingRequest.latencyTrace?.recordPendingResolveEnd();
                   resolveOnce(merged);
                 } catch (err) {
                   rejectOnce(err instanceof Error ? err : new Error("Failed to merge SQL stream"));
@@ -207,6 +213,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
           clearTimeout(pendingRequest.timeoutHandle);
           clearRestPendingRequest(pendingRequest);
+          pendingRequest.latencyTrace?.recordPendingResolveEnd();
           pendingRequest.resolve(decoded.data);
         }
 
@@ -216,13 +223,21 @@ export const createRpcBridgeAgentInboundHandlers = (
           return;
         }
 
+        relayRoute.latencyTrace?.markInboundArrival(inboundSyncStart);
+        relayRoute.latencyTrace?.recordInboundDecodeMs(decodeMs);
+
         const responseId = relayRoute.requestId;
 
         const responseFrame = encodePayloadFrame(decoded.data, {
           requestId: responseId,
           omitTraceId: true,
         });
+        const tRelayForward = performance.now();
         emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
+        relayRoute.latencyTrace?.addPhaseMs(
+          "relay_forward_to_consumer_ms",
+          performance.now() - tRelayForward,
+        );
         relayMetrics.responsesForwarded += 1;
         observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
         registerAgentSuccess(relayRoute.agentId);
@@ -239,6 +254,7 @@ export const createRpcBridgeAgentInboundHandlers = (
         }
 
         if (streamId) {
+          relayRoute.latencyTrace?.markRelayStreamOpenWall();
           upsertActiveStreamRoute({
             requestId: responseId,
             agentSocketId: socketId,
@@ -247,6 +263,8 @@ export const createRpcBridgeAgentInboundHandlers = (
           });
           relayStreamFlowState.creditsByRequestId.set(responseId, 0);
         } else {
+          relayRoute.latencyTrace?.recordPendingResolveEnd();
+          relayRoute.latencyTrace?.finalizeOnce({ outcome: "success" });
           const existingStream = getActiveStreamRouteByRequestId(responseId);
           if (existingStream && existingStream.agentSocketId === socketId) {
             removeActiveStreamRoute(existingStream);

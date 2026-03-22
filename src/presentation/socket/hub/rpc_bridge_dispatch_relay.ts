@@ -2,8 +2,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import type { Namespace } from "socket.io";
 
+import type { BridgeLatencyTraceSession } from "../../../application/services/bridge_latency_trace_builder";
+import { inferBridgeCommandMethod } from "../../../application/services/bridge_latency_trace_builder";
 import { normalizeCommandForAgent } from "../../../application/agent_commands/command_transformers";
 import { env } from "../../../shared/config/env";
+import { AppError } from "../../../shared/errors/app_error";
 import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
 import {
   bridgeCommandSchema,
@@ -67,6 +70,7 @@ export interface DispatchRelayRpcInput {
   readonly rawFramePayload: unknown;
   /** Hub → agent PayloadFrame gzip for re-encoded `rpc:request` (consumer frame is decoded first). */
   readonly payloadFrameCompression?: PayloadFrameCompression;
+  readonly latencyTrace?: BridgeLatencyTraceSession;
 }
 
 export interface DispatchRelayRpcResult {
@@ -103,7 +107,11 @@ export const createRpcBridgeRelayDispatch = (
   const dispatchRelayRpcToAgent = async (
     input: DispatchRelayRpcInput,
   ): Promise<DispatchRelayRpcResult> => {
+    const trace = input.latencyTrace;
+    const relayWallStart = performance.now();
     const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
+    trace?.addPhaseMs("consumer_frame_decode_ms", performance.now() - relayWallStart);
+    const relayPreflightStart = performance.now();
     if (!decoded.ok) {
       logRpcFrameDecodeFailure({
         eventName: socketEvents.relayRpcRequest,
@@ -174,6 +182,7 @@ export const createRpcBridgeRelayDispatch = (
       const existing = idempotencyMap.get(clientRequestId);
       if (existing && existing.expiresAtMs > Date.now()) {
         relayMetrics.requestsDeduplicated += 1;
+        trace?.dismissWithoutPersist();
         if (existing.responseFrame) {
           emitToConsumer(conversation.consumerSocketId, socketEvents.relayRpcResponse, existing.responseFrame);
           return {
@@ -215,6 +224,13 @@ export const createRpcBridgeRelayDispatch = (
       },
     };
 
+    trace?.attachDispatchMeta({
+      requestId,
+      traceId,
+      jsonRpcMethod: inferBridgeCommandMethod(command),
+      agentId: conversation.agentId,
+    });
+
     const timeoutHandle = setTimeout(() => {
       const route = getRelayRequestRoute(requestId);
       if (!route) {
@@ -224,6 +240,13 @@ export const createRpcBridgeRelayDispatch = (
       route.timedOut = true;
       relayMetrics.requestTimeouts += 1;
       registerAgentFailure(route.agentId);
+      if (route.latencyTrace && !route.latencyTrace.isFinalized()) {
+        route.latencyTrace.finalizeOnce({
+          outcome: "timeout",
+          httpStatus: 503,
+          errorCode: "RELAY_REQUEST_TIMEOUT",
+        });
+      }
       emitRelayTimeoutResponse(route, emitToConsumer);
       removeRelayRequestRoute(requestId);
       const existingStream = getActiveStreamRouteByRequestId(requestId);
@@ -241,6 +264,7 @@ export const createRpcBridgeRelayDispatch = (
       timeoutHandle,
       createdAtMs: Date.now(),
       ...(clientRequestId !== null ? { clientRequestId } : {}),
+      ...(trace ? { latencyTrace: trace } : {}),
     };
 
     registerRelayRequestRoute(relayRoute);
@@ -254,15 +278,20 @@ export const createRpcBridgeRelayDispatch = (
 
     const relayPayloadFrameOpts = payloadFrameEncodeOptionsFromPreference(input.payloadFrameCompression);
 
+    trace?.addPhaseMs("relay_preflight_ms", performance.now() - relayPreflightStart);
+
     try {
-      agentSocket.emit(
-        socketEvents.rpcRequest,
-        await encodePayloadFrameBridge(commandPayload, {
-          requestId,
-          omitTraceId: true,
-          ...relayPayloadFrameOpts,
-        }),
-      );
+      const tEnc = performance.now();
+      const wireFrame = await encodePayloadFrameBridge(commandPayload, {
+        requestId,
+        omitTraceId: true,
+        ...relayPayloadFrameOpts,
+      });
+      trace?.addPhaseMs("encode_ms", performance.now() - tEnc);
+      const tEmit = performance.now();
+      agentSocket.emit(socketEvents.rpcRequest, wireFrame);
+      const emitEnd = performance.now();
+      trace?.markEmitComplete(emitEnd - tEmit, emitEnd);
     } catch (error: unknown) {
       removeRelayRequestRoute(requestId);
       const existingStream = getActiveStreamRouteByRequestId(requestId);
@@ -270,7 +299,16 @@ export const createRpcBridgeRelayDispatch = (
         removeActiveStreamRoute(existingStream);
       }
       registerAgentFailure(conversation.agentId);
-      throw error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
+      const err = error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
+      if (trace && !trace.isFinalized()) {
+        const appErr = err instanceof AppError ? err : null;
+        trace.finalizeOnce({
+          outcome: "error",
+          httpStatus: appErr?.statusCode ?? 503,
+          errorCode: appErr?.code ?? "BRIDGE_ERROR",
+        });
+      }
+      throw err;
     }
 
     if (clientRequestId) {

@@ -1,12 +1,14 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { executeAgentCommand } from "../../../application/agent_commands/execute_agent_command";
+import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
 import {
   incrementRestBridgeRequest,
   incrementRestBridgeRequestFailed,
   incrementRestBridgeRequestSuccess,
   observeRestBridgeLatency,
 } from "../../../application/services/rest_bridge_metrics.service";
+import { AppError } from "../../../shared/errors/app_error";
 import { notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
 import { agentRegistry } from "../../socket/hub/agent_registry";
 import { agentsNamespace } from "../../../socket";
@@ -15,6 +17,7 @@ import { normalizeAgentRpcResponse } from "../serializers/agent_rpc_response.ser
 import { getValidated } from "../middlewares/validate.middleware";
 import type { AgentCommandBody } from "../validators/agents.validator";
 import { env } from "../../../shared/config/env";
+import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
 export const listConnectedAgents = (_request: Request, response: Response): void => {
   const agents = agentRegistry.listAll();
@@ -62,6 +65,12 @@ export const proxyCommandToAgent = async (
     throw notFound(`Agent ${body.agentId}`);
   }
 
+  const authUser = response.locals.authUser as JwtAccessPayload | undefined;
+  const latencyTrace = createBridgeLatencyTraceIfSampled({
+    channel: "rest",
+    userId: typeof authUser?.sub === "string" ? authUser.sub : undefined,
+  });
+
   const startMs = Date.now();
   try {
     const result = await executeAgentCommand(
@@ -74,6 +83,7 @@ export const proxyCommandToAgent = async (
           ? { payloadFrameCompression: body.payloadFrameCompression }
           : {}),
         signal: abortController.signal,
+        ...(latencyTrace ? { latencyTrace } : {}),
       },
       dispatchRpcCommandToAgent,
       normalizeAgentRpcResponse,
@@ -82,6 +92,7 @@ export const proxyCommandToAgent = async (
     if ("notification" in result && result.notification) {
       incrementRestBridgeRequestSuccess();
       observeRestBridgeLatency(Date.now() - startMs);
+      const tWrite = performance.now();
       response.status(202).json({
         mode: "bridge",
         agentId: body.agentId,
@@ -89,6 +100,8 @@ export const proxyCommandToAgent = async (
         notification: true,
         acceptedCommands: result.acceptedCommands,
       });
+      latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWrite);
+      latencyTrace?.finalizeOnce({ outcome: "notification", httpStatus: 202 });
       return;
     }
     if (!("response" in result)) {
@@ -97,15 +110,26 @@ export const proxyCommandToAgent = async (
 
     incrementRestBridgeRequestSuccess();
     observeRestBridgeLatency(Date.now() - startMs);
+    const tWriteOk = performance.now();
     response.status(200).json({
       mode: "bridge",
       agentId: body.agentId,
       requestId: result.requestId,
       response: result.response,
     });
+    latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWriteOk);
+    latencyTrace?.finalizeOnce({ outcome: "success", httpStatus: 200 });
   } catch (error: unknown) {
     incrementRestBridgeRequestFailed();
     observeRestBridgeLatency(Date.now() - startMs);
+    if (latencyTrace && !latencyTrace.isFinalized()) {
+      const appErr = error instanceof AppError ? error : null;
+      latencyTrace.finalizeOnce({
+        outcome: "error",
+        httpStatus: appErr?.statusCode ?? 500,
+        errorCode: appErr?.code ?? "INTERNAL_ERROR",
+      });
+    }
     next(error);
   } finally {
     request.off("aborted", abortOnClientDisconnect);

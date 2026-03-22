@@ -219,6 +219,30 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  /** Persist hub↔agent bridge phase timings to PostgreSQL (REST + consumer socket). */
+  BRIDGE_LATENCY_TRACE_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** When enabled, percentage (0–100) of bridge commands that record a trace row. */
+  BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT: z.coerce.number().int().min(0).max(100).default(100),
+  BRIDGE_LATENCY_TRACE_BATCH_MAX: z.coerce.number().int().positive().max(500).default(48),
+  BRIDGE_LATENCY_TRACE_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(200),
+  /** Max queued rows in memory before dropping new rows (0 = unlimited). */
+  BRIDGE_LATENCY_TRACE_MAX_QUEUE: z.coerce.number().int().min(0).max(10_000_000).default(0),
+  /**
+   * Always persist rows when wall `total_ms` is at least this value (0 = disabled).
+   * Works with `BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT` for successful fast requests.
+   */
+  BRIDGE_LATENCY_TRACE_SLOW_TOTAL_MS: z.coerce.number().int().min(0).default(0),
+  BRIDGE_LATENCY_TRACE_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+  BRIDGE_LATENCY_TRACE_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
+  BRIDGE_LATENCY_TRACE_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
+  /** When true, emit an OpenTelemetry span per bridge trace (requires tracer configured globally). */
+  BRIDGE_LATENCY_TRACE_OTEL_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
 });
 
 const parsedEnv = envSchema.parse(process.env);
@@ -308,4 +332,14 @@ export const env = {
   restAgentsCommandsRateLimitMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_MAX,
   restAgentsCommandsRateLimitIpMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX,
   bridgeLogJsonRpcAutoId: parsedEnv.BRIDGE_LOG_JSONRPC_AUTO_ID,
+  bridgeLatencyTraceEnabled: parsedEnv.BRIDGE_LATENCY_TRACE_ENABLED,
+  bridgeLatencyTraceSamplePercent: parsedEnv.BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT,
+  bridgeLatencyTraceBatchMax: parsedEnv.BRIDGE_LATENCY_TRACE_BATCH_MAX,
+  bridgeLatencyTraceBatchFlushMs: parsedEnv.BRIDGE_LATENCY_TRACE_BATCH_FLUSH_MS,
+  bridgeLatencyTraceMaxQueue: parsedEnv.BRIDGE_LATENCY_TRACE_MAX_QUEUE,
+  bridgeLatencyTraceSlowTotalMs: parsedEnv.BRIDGE_LATENCY_TRACE_SLOW_TOTAL_MS,
+  bridgeLatencyTraceRetentionDays: parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_DAYS,
+  bridgeLatencyTraceRetentionIntervalMinutes: parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_INTERVAL_MINUTES,
+  bridgeLatencyTracePruneBatchSize: parsedEnv.BRIDGE_LATENCY_TRACE_PRUNE_BATCH_SIZE,
+  bridgeLatencyTraceOtelEnabled: parsedEnv.BRIDGE_LATENCY_TRACE_OTEL_ENABLED,
 } as const;

@@ -109,7 +109,7 @@ Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o 
 | ------------ | ------ | ----------- | ------------------ | ---------------------------------------------- |
 | `agentId`    | string | sim         | nao vazio          | UUID do agente conectado                        |
 | `command`    | object \| array | sim | JSON-RPC 2.0       | Comando unico ou batch JSON-RPC (max 32)         |
-| `timeoutMs`  | number | nao         | 1..360000          | Teto de espera HTTP (ms). O servidor **eleva** o valor efetivo ate cobrir `options.timeout_ms` de `sql.execute` / `sql.executeBatch` (ate teto interno `300000 + 5s`, limitado a 360000 ms) |
+| `timeoutMs`  | number | nao         | 1..360000          | Espera do bridge (`computeBridgeWaitTimeoutMs`): `max` entre o valor do body (ou default **15000** ms) e, para `sql.execute` / `sql.executeBatch`, o maior `options.timeout_ms` do comando + **5000** ms; teto **360000** ms (`AGENT_TIMEOUT_MS_LIMIT` + **60000** ms; ver `command_transformers.ts`) |
 | `pagination` | object | nao         | regras combinadas  | Paginacao injetada em `command.params.options`   |
 | `payloadFrameCompression` | `"default"` \| `"none"` \| `"always"` | nao | — | Politica de gzip do **PayloadFrame** que o hub emite no `rpc:request` para o agente (alinhado a `socket_communication_standard.md` / `socketio_client_binary_transport.md` do plug_agente). `default`: limiar 1024 bytes, modo **automatico** — gzip so se o bloco comprimido for **menor** que o JSON UTF-8 bruto; caso contrario `cmp: none`. `none`: nunca gzip. `always`: modo **sempre GZIP** — gzip sempre que o payload couber no limite de entrada (mesmo se o gzip nao reduzir tamanho). Nao altera respostas do agente. |
 
@@ -1145,6 +1145,10 @@ isolamento por `conversationId`.
 
 Guia agregado (Socket.IO, REST vs streaming, escala): `docs/performance_hub_agent.md`.
 
+### Traces de latencia do bridge (`BRIDGE_LATENCY_TRACE_*`)
+
+Para persistir tempos por fase (transformacao, fila, dispatch, escrita HTTP, etc.) em PostgreSQL para `POST /api/v1/agents/commands`, `agents:command` no `/consumers` e `relay:rpc.request`, ative `BRIDGE_LATENCY_TRACE_ENABLED=true`. Amostragem, lote, limiar de comandos lentos, fila em memoria, retenção/prune e spans OpenTelemetry estao em `.env.example` (`BRIDGE_LATENCY_TRACE_*`). Esquema da tabela, chaves de `phases_ms`, regras de amostragem (ex.: erros sempre) e metricas `plug_bridge_latency_trace_*`: `docs/observability.md`.
+
 ### REQUEST_BODY_LIMIT e tamanho de payload
 
 O Express limita o body das requisicoes via `REQUEST_BODY_LIMIT` (default: `1mb`).
@@ -1207,8 +1211,8 @@ Acks de alto volume (`rpc:request_ack`, `rpc:batch_ack`, registro de stream) sao
 
 | Variavel | Default | Descricao |
 | -------- | ------- | --------- |
-| `SOCKET_AUDIT_BATCH_MAX` | `32` | `1` = um `INSERT` por evento. Default maior agrupa eventos na fila e grava em transacao (flush por tamanho ou tempo). |
-| `SOCKET_AUDIT_BATCH_FLUSH_MS` | `150` | Debounce do flush quando a fila nao atingiu `SOCKET_AUDIT_BATCH_MAX`. |
+| `SOCKET_AUDIT_BATCH_MAX` | `48` | `1` = um `INSERT` por evento. Default maior agrupa eventos na fila e grava em transacao (flush por tamanho ou tempo). |
+| `SOCKET_AUDIT_BATCH_FLUSH_MS` | `200` | Debounce do flush quando a fila nao atingiu `SOCKET_AUDIT_BATCH_MAX`. |
 
 No shutdown HTTP, `flushPendingSocketAuditEvents()` drena a fila antes de `waitForSocketAuditDrain`.
 Metrica: `plug_socket_audit_queued_events`.

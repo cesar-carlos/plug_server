@@ -2,7 +2,12 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import type { Namespace } from "socket.io";
 
+import {
+  inferBridgeCommandMethod,
+  type BridgeLatencyTraceSession,
+} from "../../../application/services/bridge_latency_trace_builder";
 import { env } from "../../../shared/config/env";
+import { AppError } from "../../../shared/errors/app_error";
 import {
   badRequest,
   notFound,
@@ -51,6 +56,7 @@ export interface DispatchRpcCommandInput {
   readonly signal?: AbortSignal | undefined;
   /** Hub → agent PayloadFrame gzip policy for this dispatch. */
   readonly payloadFrameCompression?: PayloadFrameCompression | undefined;
+  readonly latencyTrace?: BridgeLatencyTraceSession | undefined;
 }
 
 interface DispatchRpcCommandResponseResult {
@@ -78,6 +84,8 @@ export const createDispatchRpcCommandToAgent = (
   const { getAgentsNamespace } = deps;
 
   return async (input: DispatchRpcCommandInput): Promise<DispatchRpcCommandResult> => {
+    const dispatchWallStart = performance.now();
+
     if (input.signal?.aborted) {
       throw serviceUnavailable("HTTP request aborted by client");
     }
@@ -117,6 +125,12 @@ export const createDispatchRpcCommandToAgent = (
       traceId,
       timestamp: new Date().toISOString(),
     });
+    input.latencyTrace?.attachDispatchMeta({
+      requestId,
+      traceId,
+      jsonRpcMethod: inferBridgeCommandMethod(command),
+      agentId: input.agentId,
+    });
     const timeoutMs = input.timeoutMs ?? defaultRequestTimeoutMs;
     const payloadFrameEncodeOpts = payloadFrameEncodeOptionsFromPreference(input.payloadFrameCompression);
 
@@ -131,16 +145,22 @@ export const createDispatchRpcCommandToAgent = (
     }
 
     if (correlationIds.length === 0) {
+      input.latencyTrace?.addPhaseMs("dispatch_preflight_ms", performance.now() - dispatchWallStart);
+      const tQueue = performance.now();
       const releaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
+      input.latencyTrace?.addPhaseMs("queue_wait_ms", performance.now() - tQueue);
       try {
-        agentSocket.emit(
-          socketEvents.rpcRequest,
-          await encodePayloadFrameBridge(commandPayload, {
-            requestId,
-            omitTraceId: true,
-            ...payloadFrameEncodeOpts,
-          }),
-        );
+        const tEnc = performance.now();
+        const wire = await encodePayloadFrameBridge(commandPayload, {
+          requestId,
+          omitTraceId: true,
+          ...payloadFrameEncodeOpts,
+        });
+        input.latencyTrace?.addPhaseMs("encode_ms", performance.now() - tEnc);
+        const tEmit = performance.now();
+        agentSocket.emit(socketEvents.rpcRequest, wire);
+        const emitEnded = performance.now();
+        input.latencyTrace?.addPhaseMs("emit_to_socket_ms", emitEnded - tEmit);
 
         return {
           requestId,
@@ -163,15 +183,20 @@ export const createDispatchRpcCommandToAgent = (
       );
     }
 
+    input.latencyTrace?.addPhaseMs("dispatch_preflight_ms", performance.now() - dispatchWallStart);
+    const tQueuePending = performance.now();
     const releaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
+    input.latencyTrace?.addPhaseMs("queue_wait_ms", performance.now() - tQueuePending);
     try {
       let wireFrame: PayloadFrameEnvelope;
       try {
+        const tEncPending = performance.now();
         wireFrame = await encodePayloadFrameBridge(commandPayload, {
           requestId,
           omitTraceId: true,
           ...payloadFrameEncodeOpts,
         });
+        input.latencyTrace?.addPhaseMs("encode_ms", performance.now() - tEncPending);
       } catch (error: unknown) {
         registerAgentFailure(input.agentId);
         throw error instanceof Error ? error : serviceUnavailable("Failed to encode rpc:request");
@@ -188,6 +213,21 @@ export const createDispatchRpcCommandToAgent = (
           settled = true;
           if (signalListener) {
             input.signal?.removeEventListener("abort", signalListener);
+          }
+          if (input.latencyTrace && !input.latencyTrace.isFinalized()) {
+            const appErr = error instanceof AppError ? error : null;
+            const msg = error.message;
+            const outcome =
+              msg.includes("Timed out waiting") || msg.includes("Timed out")
+                ? "timeout"
+                : msg.includes("aborted")
+                  ? "abort"
+                  : "error";
+            input.latencyTrace.finalizeOnce({
+              outcome,
+              httpStatus: appErr?.statusCode ?? 503,
+              errorCode: appErr?.code ?? "BRIDGE_ERROR",
+            });
           }
           reject(error);
         };
@@ -244,6 +284,7 @@ export const createDispatchRpcCommandToAgent = (
               : {}
           ),
           ...(restStreamAggregate ? { restStreamAggregate: true } : {}),
+          ...(input.latencyTrace ? { latencyTrace: input.latencyTrace } : {}),
           acked: false,
         };
 
@@ -276,7 +317,10 @@ export const createDispatchRpcCommandToAgent = (
         }
 
         try {
+          const tEmitPending = performance.now();
           agentSocket.emit(socketEvents.rpcRequest, wireFrame);
+          const emitEndedPending = performance.now();
+          input.latencyTrace?.markEmitComplete(emitEndedPending - tEmitPending, emitEndedPending);
         } catch (error: unknown) {
           clearTimeout(timeoutHandle);
           clearRestPendingRequest(pendingRequest);

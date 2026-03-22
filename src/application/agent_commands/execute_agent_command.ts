@@ -5,6 +5,7 @@
  * Used by HTTP controller and Socket consumer handler.
  */
 
+import type { BridgeLatencyTraceSession } from "../services/bridge_latency_trace_builder";
 import type { AgentCommandBody } from "../../shared/validators/agent_command";
 import {
   applyPaginationToCommand,
@@ -20,6 +21,7 @@ export interface ExecuteAgentCommandInput {
   readonly pagination?: AgentCommandBody["pagination"];
   readonly payloadFrameCompression?: AgentCommandBody["payloadFrameCompression"];
   readonly signal?: AbortSignal;
+  readonly latencyTrace?: BridgeLatencyTraceSession;
 }
 
 export interface DispatchRpcResponseResult {
@@ -56,6 +58,7 @@ export type AgentCommandDispatcher = (input: {
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly payloadFrameCompression?: AgentCommandBody["payloadFrameCompression"];
+  readonly latencyTrace?: BridgeLatencyTraceSession;
 }) => Promise<DispatchRpcResult>;
 
 export type RpcResponseNormalizer = (payload: unknown) => unknown;
@@ -65,9 +68,12 @@ export const executeAgentCommand = async (
   dispatch: AgentCommandDispatcher,
   normalize: RpcResponseNormalizer,
 ): Promise<ExecuteAgentCommandResult> => {
+  const trace = input.latencyTrace;
+  const tTransform = performance.now();
   const commandWithPagination = applyPaginationToCommand(input.command, input.pagination);
   const normalizedCommand = normalizeCommandForAgent(commandWithPagination);
   const commandForAgent = ensureJsonRpcIdsForBridge(normalizedCommand);
+  trace?.addPhaseMs("transform_ms", performance.now() - tTransform);
   const timeoutMs = computeBridgeWaitTimeoutMs(commandForAgent, input.timeoutMs);
 
   const result = await dispatch({
@@ -78,6 +84,7 @@ export const executeAgentCommand = async (
     ...(input.payloadFrameCompression !== undefined
       ? { payloadFrameCompression: input.payloadFrameCompression }
       : {}),
+    ...(trace ? { latencyTrace: trace } : {}),
   });
 
   if ("notification" in result && result.notification) {
@@ -88,8 +95,12 @@ export const executeAgentCommand = async (
     throw new Error("Invalid dispatch result: missing response payload");
   }
 
+  const tNorm = performance.now();
+  const normalized = normalize(result.response);
+  trace?.addPhaseMs("normalize_ms", performance.now() - tNorm);
+
   return {
     requestId: result.requestId,
-    response: normalize(result.response),
+    response: normalized,
   };
 };

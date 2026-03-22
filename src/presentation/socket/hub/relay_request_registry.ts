@@ -1,3 +1,5 @@
+import type { BridgeLatencyTraceSession } from "../../../application/services/bridge_latency_trace_builder";
+
 import { clearRelayStreamFlowState } from "./relay_stream_flow_state";
 
 export interface RelayRequestRoute {
@@ -9,6 +11,7 @@ export interface RelayRequestRoute {
   readonly timeoutHandle: NodeJS.Timeout;
   readonly createdAtMs: number;
   readonly clientRequestId?: string;
+  readonly latencyTrace?: BridgeLatencyTraceSession;
   timedOut?: boolean;
 }
 

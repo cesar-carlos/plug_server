@@ -2,6 +2,12 @@ import { createServer } from "node:http";
 
 import { createApp } from "./app";
 import {
+  flushPendingBridgeLatencyTraces,
+  startBridgeLatencyTraceRetentionScheduler,
+  stopBridgeLatencyTraceRetentionScheduler,
+  waitForBridgeLatencyTraceDrain,
+} from "./application/services/bridge_latency_trace.service";
+import {
   flushPendingSocketAuditEvents,
   waitForSocketAuditDrain,
   startSocketAuditRetentionScheduler,
@@ -20,6 +26,12 @@ startSocketAuditRetentionScheduler({
   retentionDays: env.socketAuditRetentionDays,
   intervalMs: env.socketAuditRetentionIntervalMinutes * 60 * 1000,
   batchSize: env.socketAuditPruneBatchSize,
+});
+
+startBridgeLatencyTraceRetentionScheduler({
+  retentionDays: env.bridgeLatencyTraceRetentionDays,
+  intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
+  batchSize: env.bridgeLatencyTracePruneBatchSize,
 });
 
 httpServer.listen(env.port, "0.0.0.0", () => {
@@ -52,10 +64,17 @@ const shutdown = async (signal: string): Promise<void> => {
 
   try {
     stopSocketAuditRetentionScheduler();
+    stopBridgeLatencyTraceRetentionScheduler();
     await flushPendingSocketAuditEvents();
     const auditDrain = await waitForSocketAuditDrain(2_500);
     if (!auditDrain.drained) {
       logger.warn("socket_audit_drain_timeout", { pending: auditDrain.pending });
+    }
+
+    await flushPendingBridgeLatencyTraces();
+    const traceDrain = await waitForBridgeLatencyTraceDrain(2_500);
+    if (!traceDrain.drained) {
+      logger.warn("bridge_latency_trace_drain_timeout", { pending: traceDrain.pending });
     }
 
     await closeSocketServer(io, signal);

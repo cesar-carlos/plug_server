@@ -1,6 +1,7 @@
 import type { Socket } from "socket.io";
 import { z } from "zod";
 
+import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { dispatchRelayRpcToAgent } from "../hub/rpc_bridge";
 import { AppError } from "../../../shared/errors/app_error";
@@ -48,6 +49,12 @@ export const handleRelayRpcRequest = (
     return;
   }
 
+  const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
+  const latencyTrace = createBridgeLatencyTraceIfSampled({
+    channel: "relay",
+    userId: userSub,
+  });
+
   void (async () => {
     try {
       const result = await dispatchRelayRpcToAgent({
@@ -57,6 +64,7 @@ export const handleRelayRpcRequest = (
         ...(parsed.data.payloadFrameCompression !== undefined
           ? { payloadFrameCompression: parsed.data.payloadFrameCompression }
           : {}),
+        ...(latencyTrace ? { latencyTrace } : {}),
       });
 
       emitRelayRpcAccepted(socket, {
@@ -85,6 +93,17 @@ export const handleRelayRpcRequest = (
       });
     } catch (err: unknown) {
       const appError = err instanceof AppError ? err : undefined;
+      if (latencyTrace && !latencyTrace.isFinalized()) {
+        if (latencyTrace.hasDispatchMeta()) {
+          latencyTrace.finalizeOnce({
+            outcome: "error",
+            ...(typeof appError?.statusCode === "number" ? { httpStatus: appError.statusCode } : {}),
+            errorCode: appError?.code ?? "RELAY_RPC_REQUEST_FAILED",
+          });
+        } else {
+          latencyTrace.dismissWithoutPersist();
+        }
+      }
       emitRelayRpcAccepted(socket, {
         success: false,
         error: {

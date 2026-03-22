@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 
+import { getBridgeLatencyTraceMetricsSnapshot } from "../../../application/services/bridge_latency_trace.service";
 import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getSocketMetricsSnapshot } from "../../../socket";
@@ -30,6 +31,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const rateLimit = socket.relayRateLimit;
   const agentsCommandRl = socket.agentsCommandSocketRateLimit;
   const audit = getSocketAuditMetricsSnapshot();
+  const bridgeLatency = getBridgeLatencyTraceMetricsSnapshot();
 
   const lines: string[] = [];
 
@@ -136,6 +138,19 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_audit_prune_failed_total", audit.pruneFailed));
   lines.push(metricLine("plug_socket_audit_pending_operations", audit.pendingOperations));
   lines.push(metricLine("plug_socket_audit_queued_events", audit.queuedEvents));
+
+  lines.push(metricLine("plug_bridge_latency_trace_enqueued_total", bridgeLatency.enqueued));
+  lines.push(metricLine("plug_bridge_latency_trace_writes_succeeded_total", bridgeLatency.writesSucceeded));
+  lines.push(metricLine("plug_bridge_latency_trace_writes_failed_total", bridgeLatency.writesFailed));
+  lines.push(
+    metricLine("plug_bridge_latency_trace_writes_skipped_table_missing_total", bridgeLatency.writesSkippedTableMissing),
+  );
+  lines.push(metricLine("plug_bridge_latency_trace_writes_dropped_queue_full_total", bridgeLatency.writesDroppedQueueFull));
+  lines.push(metricLine("plug_bridge_latency_trace_persist_skipped_total", bridgeLatency.persistSkipped));
+  lines.push(metricLine("plug_bridge_latency_trace_prune_runs_total", bridgeLatency.pruneRuns));
+  lines.push(metricLine("plug_bridge_latency_trace_prune_deleted_total", bridgeLatency.pruneDeleted));
+  lines.push(metricLine("plug_bridge_latency_trace_prune_failed_total", bridgeLatency.pruneFailed));
+  lines.push(metricLine("plug_bridge_latency_trace_queued_rows", bridgeLatency.queuedRows));
 
   response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
   response.status(200).send(`${lines.join("\n")}\n`);

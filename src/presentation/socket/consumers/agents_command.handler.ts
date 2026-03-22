@@ -6,6 +6,7 @@
 import type { Socket } from "socket.io";
 
 import { executeAgentCommand } from "../../../application/agent_commands/execute_agent_command";
+import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
 import { dispatchRpcCommandToAgent } from "../hub/rpc_bridge";
 import { normalizeAgentRpcResponse } from "../../http/serializers/agent_rpc_response.serializer";
 import { agentCommandBodySchema } from "../../../shared/validators/agent_command";
@@ -58,6 +59,10 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   }
 
   const body = parsed.data;
+  const latencyTrace = createBridgeLatencyTraceIfSampled({
+    channel: "consumer_socket",
+    userId: userSub,
+  });
   const streamHandlers = {
     consumerSocketId: socket.id,
     onChunk: (payload: Record<string, unknown>): void => {
@@ -77,6 +82,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       ...(body.payloadFrameCompression !== undefined
         ? { payloadFrameCompression: body.payloadFrameCompression }
         : {}),
+      ...(latencyTrace ? { latencyTrace } : {}),
     },
     (input) =>
       dispatchRpcCommandToAgent({
@@ -87,6 +93,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   )
     .then((result) => {
       if ("notification" in result && result.notification) {
+        const tWrite = performance.now();
         emitCommandResponse(socket, {
           success: true,
           requestId: result.requestId,
@@ -96,6 +103,8 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
             acceptedCommands: result.acceptedCommands,
           },
         });
+        latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWrite);
+        latencyTrace?.finalizeOnce({ outcome: "notification" });
         return;
       }
       if (!("response" in result)) {
@@ -111,18 +120,29 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
           })()
         : null;
 
+      const tWrite = performance.now();
       emitCommandResponse(socket, {
         success: true,
         requestId: result.requestId,
         response: normalizedResponse,
         ...(streamId ? { streamId } : {}),
       });
+      latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWrite);
+      latencyTrace?.finalizeOnce({ outcome: "success" });
     })
     .catch((err: unknown) => {
       const appError = err instanceof AppError ? err : undefined;
       const code = appError?.code ?? "COMMAND_FAILED";
       const message = err instanceof Error ? err.message : "Command execution failed";
       const statusCode = appError?.statusCode;
+
+      if (latencyTrace && !latencyTrace.isFinalized()) {
+        latencyTrace.finalizeOnce({
+          outcome: "error",
+          ...(typeof statusCode === "number" ? { httpStatus: statusCode } : {}),
+          errorCode: code,
+        });
+      }
 
       emitCommandResponse(socket, {
         success: false,

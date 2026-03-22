@@ -71,3 +71,27 @@ model AuditEvent {
   @@index([streamId])
   @@map("audit_events")
 }
+
+model BridgeLatencyTrace {
+  id              String   @id @default(uuid())
+  channel         String   @db.VarChar(32)
+  requestId       String   @map("request_id") @db.VarChar(128)
+  traceId         String?  @map("trace_id") @db.VarChar(64)
+  agentId         String   @map("agent_id") @db.VarChar(128)
+  userId          String?  @map("user_id") @db.VarChar(128)
+  jsonRpcMethod   String?  @map("json_rpc_method") @db.VarChar(120)
+  totalMs              Int      @map("total_ms")
+  phasesSumMs          Int      @default(0) @map("phases_sum_ms")
+  phasesSchemaVersion  Int      @default(1) @map("phases_schema_version")
+  phasesMs             Json     @map("phases_ms")
+  outcome              String   @db.VarChar(32)
+  httpStatus      Int?     @map("http_status")
+  errorCode       String?  @map("error_code") @db.VarChar(64)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([agentId, createdAt])
+  @@index([channel, createdAt])
+  @@index([outcome, createdAt])
+  @@map("bridge_latency_traces")
+}

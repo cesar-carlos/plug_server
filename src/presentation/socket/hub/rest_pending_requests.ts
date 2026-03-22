@@ -1,3 +1,5 @@
+import type { BridgeLatencyTraceSession } from "../../../application/services/bridge_latency_trace_builder";
+
 export interface StreamEventHandlers {
   readonly consumerSocketId: string;
   readonly conversationId?: string;
@@ -18,6 +20,7 @@ export interface PendingRequest {
   readonly streamHandlers?: StreamEventHandlers;
   /** When true (REST bridge, single `sql.execute`), defer HTTP resolve until stream is merged via pull+chunks+complete. */
   readonly restStreamAggregate?: boolean;
+  readonly latencyTrace?: BridgeLatencyTraceSession;
   acked: boolean;
 }
 

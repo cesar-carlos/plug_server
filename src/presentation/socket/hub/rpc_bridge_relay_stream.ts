@@ -102,6 +102,7 @@ export const createRelayStreamHandlers = (
     });
 
     relayStreamFlowState.pendingCompleteByRequestId.delete(route.requestId);
+    route.latencyTrace?.finalizeRelayStreamComplete();
     removeRelayRequestRoute(route.requestId);
     const existingStream = getActiveStreamRouteByRequestId(route.requestId);
     if (existingStream) {
