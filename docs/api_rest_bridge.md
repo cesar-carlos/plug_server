@@ -858,10 +858,9 @@ O HTTP retorna 200 porque o proxy funcionou. O erro e indicado dentro de
 
 | Status | Causa                                     | Descricao                                  |
 | ------ | ----------------------------------------- | ------------------------------------------ |
-| 400    | Body invalido / validacao falhou          | `validateRequest` rejeitou o payload       |
+| 400    | Body invalido / validacao Zod             | `validateRequest` com `agentCommandBodySchema`; detalhe do schema na resposta |
 | 401    | Token ausente ou invalido                 | `requireAuth` rejeitou a autenticacao      |
 | 404    | Agente nunca registrado                   | `agentId` desconhecido                     |
-| 400    | Erro de validacao Zod                     | Schema mismatch detalhado                  |
 | 503    | Agente desconectado / timeout / overload  | Agente offline, nao respondeu a tempo ou fila do agente saturada |
 
 Quando o `503` for causado por overload (fila cheia ou espera em fila expirada),

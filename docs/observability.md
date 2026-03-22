@@ -13,6 +13,14 @@ Ajuste nomes ao scrape target do teu Prometheus. Exemplos genericos:
 # Taxa de pedidos REST ao bridge de agentes (counter real: plug_rest_bridge_requests_total)
 rate(plug_rest_bridge_requests_total[5m])
 
+# Sucesso vs falha (cada pedido incrementa `requests_total` uma vez)
+rate(plug_rest_bridge_requests_success_total[5m])
+rate(plug_rest_bridge_requests_failed_total[5m])
+
+# Fracao de sucesso (~1.0 se estavel); `clamp_min` evita divisao por zero no arranque
+rate(plug_rest_bridge_requests_success_total[5m])
+  / clamp_min(rate(plug_rest_bridge_requests_total[5m]), 0.001)
+
 # Pulls internos ao materializar stream SQL via REST
 rate(plug_rest_sql_stream_materialize_pulls_total[5m])
 
