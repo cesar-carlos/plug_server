@@ -2,6 +2,8 @@
 
 Este repositório não inclui um runner de carga fixo; podes validar o hub com ferramentas externas.
 
+**E2E + benchmark com BD e `multi_result`:** ver `docs/e2e_benchmark_hub_agent.md` — benchmark ODBC e `multi_result` correm no **`plug_agente`**; neste repositório, carga no hub = inflight/fila por agente no REST (`SOCKET_REST_AGENT_*`) e métricas em `/metrics`.
+
 ## HTTP (REST bridge)
 
 Com token de utilizador válido:

@@ -33,5 +33,9 @@ jobs:
       - name: Test
         run: npm run test
 
+      # E2E roda só com E2E_TESTS_ENABLED=true no ambiente (ex. secret + .env no job); sem isso exit 0.
+      - name: E2E (optional gate)
+        run: npm run test:e2e
+
       - name: Build
         run: npm run build

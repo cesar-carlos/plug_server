@@ -2,6 +2,8 @@
 
 Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.md` e `docs/socket_relay_protocol.md`. Defaults formais: `docs/configuration.md` (`env.ts`, `.env.example`).
 
+**Produção (`NODE_ENV=production`) sem variável definida:** o `env.ts` aplica automaticamente `SOCKET_IO_TRANSPORTS=websocket`, `SOCKET_IO_HTTP_COMPRESSION=false`, `PAYLOAD_FRAME_GZIP_LEVEL=3`, `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT=25`. Ver tabela em `docs/configuration.md`. Definir a variável explicitamente substitui estes ramos.
+
 **Canais do consumer:** REST (`POST /agents/commands`) vs Socket (`/consumers`) — escolha do cliente; REST agrega streams. Resumo em `docs/project_overview.md` (*Dois canais para comandos ao agente*).
 
 ## Transporte Socket.IO
@@ -30,17 +32,17 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 
 | Variável | Efeito |
 | -------- | ------ |
-| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | Janela no materializador REST: maior = menos round-trips, mais RAM por stream. |
-| `SOCKET_REST_AGENT_MAX_INFLIGHT` / `MAX_QUEUE` / `QUEUE_WAIT_MS` | Paralelismo e fila por agente no bridge REST. |
+| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | Janela no materializador REST (defeito **256**): maior = menos round-trips, mais RAM por stream. |
+| `SOCKET_REST_AGENT_MAX_INFLIGHT` / `MAX_QUEUE` / `QUEUE_WAIT_MS` | Paralelismo e fila por agente no bridge REST (defeitos **32** / **64**). |
 | `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` / `..._CONVERSATION_STARTS` | Teto de pedidos relay por janela; subir em workloads intensos (com cuidado). |
-| `SOCKET_RELAY_MAX_BUFFERED_CHUNKS_*` | Backpressure relay; mais buffer = mais throughput até ao limite de memória. |
+| `SOCKET_RELAY_MAX_BUFFERED_CHUNKS_*` | Backpressure relay (defeitos **256** por pedido, **25600** global); mais buffer = mais throughput até ao limite de memória. |
 | `SOCKET_AUDIT_BATCH_MAX` / `FLUSH_MS` | Menos round-trips à DB em auditoria. |
 | `REST_AGENTS_COMMANDS_RATE_LIMIT_*` | Limite por utilizador (`sub`) no REST + opcional por IP; `agents:command` usa os mesmos números (contador Socket separado). |
 | `PAYLOAD_FRAME_GZIP_LEVEL` | Trade-off CPU vs tamanho no gzip do `PayloadFrame` (hub → agente / relay). |
-| `PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES` | Gzip assíncrono no bridge para JSON grande elegível; `0` = só síncrono. |
-| `PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES` | Gunzip assíncrono inbound para frames gzip grandes; `0` = só síncrono. |
+| `PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES` | Gzip assíncrono no bridge (defeito **131072** UTF-8); `0` = só síncrono. |
+| `PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES` | Gunzip assíncrono inbound (defeito **65536** bytes comprimidos); `0` = só síncrono. |
 | `SOCKET_AGENT_KNOWN_IDS_MAX` | Limite do conjunto de agentIds offline lembrados (`0` = ilimitado). |
-| `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT` | Amostragem de auditoria em `relay:rpc.chunk` (100 = todos). |
+| `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT` | Amostragem em `relay:rpc.chunk` (fora de produção **100**; em produção sem env **25**). |
 | `SOCKET_IO_SERVE_CLIENT` / `HTTP_COMPRESSION` / `PING_*` | Ver secção *Transporte Socket.IO* acima. |
 
 ## Escala horizontal
@@ -50,6 +52,7 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 ## Agente (`plug_agente`)
 
 - Afinar limites negociados no handshake (`max_rows`, streaming, chunking) e carga SQL no próprio agente; o hub só encaminha.
+- Benchmark E2E com ODBC e `multi_result` (repositório `plug_agente`): visão geral hub ↔ agente em `docs/e2e_benchmark_hub_agent.md`.
 
 ## Métricas
 

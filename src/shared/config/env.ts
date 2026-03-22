@@ -3,6 +3,11 @@ import { z } from "zod";
 
 dotenv.config();
 
+const nodeEnvForDefaults = process.env.NODE_ENV;
+
+/** When unset in environment, production uses performance-oriented Socket.IO defaults. */
+const isProductionNodeEnv = (): boolean => nodeEnvForDefaults === "production";
+
 const envSchema = z.object({
   APP_NAME: z.string().default("plug_server"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -34,14 +39,22 @@ const envSchema = z.object({
     .default(512 * 1024),
   /** Optional zlib level 1–9 for PayloadFrame gzip (unset = Node default ~6). Lower = faster CPU, larger wire. */
   PAYLOAD_FRAME_GZIP_LEVEL: z.preprocess(
-    (val) => (val === undefined || val === "" ? undefined : val),
-    z.coerce.number().int().min(1).max(9).optional(),
+    (val) => {
+      if (val !== undefined && val !== "") {
+        return val;
+      }
+      return isProductionNodeEnv() ? "3" : undefined;
+    },
+    z.preprocess(
+      (val) => (val === undefined || val === "" ? undefined : val),
+      z.coerce.number().int().min(1).max(9).optional(),
+    ),
   ),
   /**
    * When > 0, hub→agent `encodePayloadFrameBridge` uses async zlib for gzip-eligible JSON at least this many UTF-8 bytes
    * (offloads CPU from the event loop). 0 = always synchronous gzip (previous behaviour).
    */
-  PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES: z.coerce.number().int().min(0).max(10 * 1024 * 1024).default(262_144),
+  PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES: z.coerce.number().int().min(0).max(10 * 1024 * 1024).default(131_072),
   /**
    * When > 0 and `cmp === gzip`, inbound `decodePayloadFrameAsync` uses async gunzip for compressed payloads
    * at least this many bytes. 0 = always synchronous gunzip.
@@ -51,7 +64,7 @@ const envSchema = z.object({
     .int()
     .min(0)
     .max(10 * 1024 * 1024)
-    .default(131_072),
+    .default(65_536),
   /**
    * Max entries in `agentRegistry` known-agent set (offline IDs retained for REST 503 vs 404). 0 = unlimited.
    * When exceeded, removes known IDs that are not currently connected until under the cap.
@@ -78,8 +91,8 @@ const envSchema = z.object({
   SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONVERSATION: z.coerce.number().int().positive().default(32),
   SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONSUMER: z.coerce.number().int().positive().default(128),
   SOCKET_RELAY_MAX_ACTIVE_STREAMS: z.coerce.number().int().positive().default(5_000),
-  SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST: z.coerce.number().int().positive().default(128),
-  SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS: z.coerce.number().int().positive().default(12_800),
+  SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST: z.coerce.number().int().positive().default(256),
+  SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS: z.coerce.number().int().positive().default(25_600),
   SOCKET_RELAY_IDEMPOTENCY_TTL_MS: z.coerce.number().int().positive().default(300_000),
   /** Background prune of relay idempotency maps; larger interval = less CPU, slower reclamation of empty maps. */
   SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
@@ -91,11 +104,11 @@ const envSchema = z.object({
   SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(64),
   SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER: z.coerce.number().positive().default(3),
   SOCKET_REST_MAX_PENDING_REQUESTS: z.coerce.number().int().positive().default(10_000),
-  SOCKET_REST_AGENT_MAX_INFLIGHT: z.coerce.number().int().positive().default(24),
-  SOCKET_REST_AGENT_MAX_QUEUE: z.coerce.number().int().nonnegative().default(48),
+  SOCKET_REST_AGENT_MAX_INFLIGHT: z.coerce.number().int().positive().default(32),
+  SOCKET_REST_AGENT_MAX_QUEUE: z.coerce.number().int().nonnegative().default(64),
   SOCKET_REST_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(200),
   /** Window size for automatic `rpc:stream.pull` when the REST bridge materializes a streaming `sql.execute` result. */
-  SOCKET_REST_STREAM_PULL_WINDOW_SIZE: z.coerce.number().int().positive().max(10_000).default(128),
+  SOCKET_REST_STREAM_PULL_WINDOW_SIZE: z.coerce.number().int().positive().max(10_000).default(256),
   /**
    * Max Engine.IO packet size (bytes). Must fit PayloadFrame compressed ceiling (10 MB).
    * Default 10 MiB matches `payload_frame` limits.
@@ -109,45 +122,59 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   /**
-   * Comma-separated: `websocket`, `polling`. Example: `websocket` only in production for lower latency.
+   * Comma-separated: `websocket`, `polling`. If unset: `websocket` only when NODE_ENV=production (less handshake/CPU).
    */
-  SOCKET_IO_TRANSPORTS: z
-    .string()
-    .default("websocket,polling")
-    .transform((v) => {
-      const parts = v
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
-      return [...new Set(parts)];
-    })
-    .superRefine((arr, ctx) => {
-      const allowed = new Set(["websocket", "polling"]);
-      for (const t of arr) {
-        if (!allowed.has(t)) {
+  SOCKET_IO_TRANSPORTS: z.preprocess(
+    (val) => {
+      if (val !== undefined && val !== "" && String(val).trim() !== "") {
+        return String(val).trim();
+      }
+      return isProductionNodeEnv() ? "websocket" : "websocket,polling";
+    },
+    z
+      .string()
+      .transform((v) => {
+        const parts = v
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean);
+        return [...new Set(parts)];
+      })
+      .superRefine((arr, ctx) => {
+        const allowed = new Set(["websocket", "polling"]);
+        for (const t of arr) {
+          if (!allowed.has(t)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Invalid SOCKET_IO_TRANSPORTS entry "${t}" (allowed: websocket, polling)`,
+            });
+          }
+        }
+        if (arr.length === 0) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: `Invalid SOCKET_IO_TRANSPORTS entry "${t}" (allowed: websocket, polling)`,
+            message: "SOCKET_IO_TRANSPORTS must list at least one transport",
           });
         }
-      }
-      if (arr.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "SOCKET_IO_TRANSPORTS must list at least one transport",
-        });
-      }
-    }),
+      }),
+    ),
   /** Hub API: do not serve socket.io client assets from this server (less HTTP surface, default off). */
   SOCKET_IO_SERVE_CLIENT: z
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
-  /** Engine.IO compression for long-polling responses; set false with `SOCKET_IO_TRANSPORTS=websocket` to save CPU. */
-  SOCKET_IO_HTTP_COMPRESSION: z
-    .enum(["true", "false"])
-    .default("true")
-    .transform((v) => v === "true"),
+  /**
+   * Engine.IO compression for long-polling responses. If unset: `false` when NODE_ENV=production (saves CPU with websocket-only default).
+   */
+  SOCKET_IO_HTTP_COMPRESSION: z.preprocess(
+    (val) => {
+      if (val !== undefined && val !== "" && String(val).trim() !== "") {
+        return String(val).trim().toLowerCase();
+      }
+      return isProductionNodeEnv() ? "false" : "true";
+    },
+    z.enum(["true", "false"]).transform((v) => v === "true"),
+  ),
   /** Override Engine.IO ping interval (ms). Omit for default 25000. */
   SOCKET_IO_PING_INTERVAL_MS: z.preprocess(
     (val) => (val === undefined || val === "" ? undefined : val),
@@ -165,9 +192,17 @@ const envSchema = z.object({
   SOCKET_AUDIT_BATCH_MAX: z.coerce.number().int().positive().max(500).default(48),
   SOCKET_AUDIT_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(200),
   /**
-   * Percentage (0–100) of `relay:rpc.chunk` audit events persisted. 100 = all. Lower reduces DB load on high chunk volume.
+   * Percentage (0–100) of `relay:rpc.chunk` audit events persisted. If unset: 25 in production, 100 otherwise.
    */
-  SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT: z.coerce.number().int().min(0).max(100).default(100),
+  SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT: z.preprocess(
+    (val) => {
+      if (val !== undefined && val !== "" && String(val).trim() !== "") {
+        return val;
+      }
+      return isProductionNodeEnv() ? "25" : "100";
+    },
+    z.coerce.number().int().min(0).max(100),
+  ),
   SWAGGER_ENABLED: z
     .enum(["true", "false"])
     .default("true")

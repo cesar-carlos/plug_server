@@ -43,14 +43,8 @@ import {
   getRelayRequestRoute,
   removeRelayRequestRoute,
 } from "./relay_request_registry";
-import {
-  createRelayStreamHandlers,
-  type EmitToConsumerFn,
-} from "./rpc_bridge_relay_stream";
-import {
-  extractStreamIdFromRpcResponse,
-  pickResponseIds,
-} from "./rpc_bridge_command_helpers";
+import { createRelayStreamHandlers, type EmitToConsumerFn } from "./rpc_bridge_relay_stream";
+import { extractStreamIdFromRpcResponse, pickResponseIds } from "./rpc_bridge_command_helpers";
 
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
 
@@ -63,7 +57,15 @@ export interface RpcBridgeAgentInboundDeps {
 }
 
 export type RpcBridgeAgentInboundHandlers = {
-  readonly handleAgentRpcResponse: (socketId: string, rawPayload: unknown) => void;
+  /**
+   * Optional `ack` is the Socket.IO acknowledgment callback when the agent uses
+   * `emitWithAck` / `emitWithAckAsync` on `rpc:response` (plug_agente delivery guarantees).
+   */
+  readonly handleAgentRpcResponse: (
+    socketId: string,
+    rawPayload: unknown,
+    ack?: () => void,
+  ) => void;
   readonly handleAgentRpcChunk: (socketId: string, rawPayload: unknown) => void;
   readonly handleAgentRpcComplete: (socketId: string, rawPayload: unknown) => void;
   readonly handleAgentRpcAck: (socketId: string, rawPayload: unknown) => void;
@@ -75,168 +77,195 @@ export const createRpcBridgeAgentInboundHandlers = (
 ): RpcBridgeAgentInboundHandlers => {
   const { emitToConsumer, emitRpcStreamPullForRoute } = deps;
 
-  const handleAgentRpcResponse = (socketId: string, rawPayload: unknown): void => {
+  const handleAgentRpcResponse = (
+    socketId: string,
+    rawPayload: unknown,
+    ack?: () => void,
+  ): void => {
     void decodePayloadFrameAsync(rawPayload).then((result) => {
+      let ackInvoked = false;
+      const fireAck = (): void => {
+        if (ackInvoked || typeof ack !== "function") {
+          return;
+        }
+        ackInvoked = true;
+        try {
+          ack();
+        } catch {
+          /* ignore: consumer disconnected */
+        }
+      };
+
       if (!result.ok) {
         logRpcFrameDecodeFailure({
           eventName: socketEvents.rpcResponse,
           socketId,
           reason: result.error.message,
         });
+        fireAck();
         return;
       }
 
-      const decoded = result.value;
-      const frameRequestId = toRequestId(decoded.frame.requestId);
-      const responseIds = pickResponseIds(decoded.data);
-    const candidateIds = Array.from(
-      new Set([
-        ...responseIds,
-        ...(frameRequestId ? [frameRequestId] : []),
-      ]),
-    );
+      try {
+        const decoded = result.value;
+        const frameRequestId = toRequestId(decoded.frame.requestId);
+        const responseIds = pickResponseIds(decoded.data);
+        const candidateIds = Array.from(
+          new Set([...responseIds, ...(frameRequestId ? [frameRequestId] : [])]),
+        );
 
-    if (candidateIds.length === 0) {
-      return;
-    }
-
-    const streamId = extractStreamIdFromRpcResponse(decoded.data);
-    const pendingRequest = findRestPendingRequestByIds(socketId, candidateIds);
-    if (pendingRequest) {
-      const pendingRequestId = pendingRequest.primaryRequestId;
-      const deferredRestStream = Boolean(streamId) && pendingRequest.restStreamAggregate === true;
-
-      if (deferredRestStream) {
-        const initialJson = decoded.data;
-        const timeoutHandle = pendingRequest.timeoutHandle;
-        const resolveOnce = pendingRequest.resolve;
-        const rejectOnce = pendingRequest.reject;
-        const primaryRequestId = pendingRequestId;
-        const chunkBuffer: Record<string, unknown>[] = [];
-        const pullWindow = env.socketRestStreamPullWindowSize;
-
-        const streamHandlers: StreamEventHandlers = {
-          consumerSocketId: REST_STREAM_AGGREGATE_CONSUMER_ID,
-          mode: "legacy",
-          onChunk: (payload) => {
-            chunkBuffer.push(payload);
-            restSqlStreamMaterializeConsumeChunk(primaryRequestId, pullWindow, () => {
-              const route = getActiveStreamRouteByRequestId(primaryRequestId);
-              if (route) {
-                emitRpcStreamPullForRoute(route, pullWindow);
-              }
-            });
-          },
-          onComplete: (payload) => {
-            clearTimeout(timeoutHandle);
-            try {
-              const merged = mergeSqlStreamRpcResponse(initialJson, chunkBuffer, payload);
-              resolveOnce(merged);
-            } catch (err) {
-              rejectOnce(err instanceof Error ? err : new Error("Failed to merge SQL stream"));
-            }
-          },
-        };
-
-        upsertActiveStreamRoute({
-          requestId: primaryRequestId,
-          agentSocketId: socketId,
-          streamHandlers,
-          streamId: streamId as string,
-        });
-        registerAgentSuccess(pendingRequest.agentId);
-        observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
-        clearRestPendingRequest(pendingRequest);
-
-        const route = getActiveStreamRouteByRequestId(primaryRequestId);
-        if (route) {
-          emitRpcStreamPullForRoute(route, pullWindow);
-          restSqlStreamMaterializeSeedCredits(primaryRequestId, pullWindow);
+        if (candidateIds.length === 0) {
+          return;
         }
-        return;
-      }
 
-      if (pendingRequest.streamHandlers) {
+        const streamId = extractStreamIdFromRpcResponse(decoded.data);
+        const pendingRequest = findRestPendingRequestByIds(socketId, candidateIds);
+        if (pendingRequest) {
+          const pendingRequestId = pendingRequest.primaryRequestId;
+          const deferredRestStream =
+            Boolean(streamId) && pendingRequest.restStreamAggregate === true;
+
+          if (deferredRestStream) {
+            const initialJson = decoded.data;
+            const timeoutHandle = pendingRequest.timeoutHandle;
+            const resolveOnce = pendingRequest.resolve;
+            const rejectOnce = pendingRequest.reject;
+            const primaryRequestId = pendingRequestId;
+            const chunkBuffer: Record<string, unknown>[] = [];
+            const pullWindow = env.socketRestStreamPullWindowSize;
+
+            const streamHandlers: StreamEventHandlers = {
+              consumerSocketId: REST_STREAM_AGGREGATE_CONSUMER_ID,
+              mode: "legacy",
+              onChunk: (payload) => {
+                chunkBuffer.push(payload);
+                restSqlStreamMaterializeConsumeChunk(primaryRequestId, pullWindow, () => {
+                  const route = getActiveStreamRouteByRequestId(primaryRequestId);
+                  if (route) {
+                    emitRpcStreamPullForRoute(route, pullWindow);
+                  }
+                });
+              },
+              onComplete: (payload) => {
+                clearTimeout(timeoutHandle);
+                try {
+                  const merged = mergeSqlStreamRpcResponse(initialJson, chunkBuffer, payload);
+                  resolveOnce(merged);
+                } catch (err) {
+                  rejectOnce(err instanceof Error ? err : new Error("Failed to merge SQL stream"));
+                }
+              },
+            };
+
+            upsertActiveStreamRoute({
+              requestId: primaryRequestId,
+              agentSocketId: socketId,
+              streamHandlers,
+              streamId: streamId as string,
+            });
+            registerAgentSuccess(pendingRequest.agentId);
+            observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
+            clearRestPendingRequest(pendingRequest);
+
+            const route = getActiveStreamRouteByRequestId(primaryRequestId);
+            if (route) {
+              emitRpcStreamPullForRoute(route, pullWindow);
+              restSqlStreamMaterializeSeedCredits(primaryRequestId, pullWindow);
+            }
+            return;
+          }
+
+          if (pendingRequest.streamHandlers) {
+            if (streamId) {
+              upsertActiveStreamRoute({
+                requestId: pendingRequestId,
+                agentSocketId: socketId,
+                streamHandlers: pendingRequest.streamHandlers,
+                streamId,
+              });
+              logger.debug("rpc_stream_registered", {
+                requestId: pendingRequestId,
+                streamId,
+                socketId,
+              });
+            } else {
+              const existingStream = getActiveStreamRouteByRequestId(pendingRequestId);
+              if (existingStream && existingStream.agentSocketId === socketId) {
+                removeActiveStreamRoute(existingStream);
+              }
+            }
+          }
+
+          if (!pendingRequest.acked) {
+            logger.info("rpc_response_received_without_ack", {
+              requestId: pendingRequestId,
+              socketId,
+            });
+          }
+
+          registerAgentSuccess(pendingRequest.agentId);
+          observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
+          clearTimeout(pendingRequest.timeoutHandle);
+          clearRestPendingRequest(pendingRequest);
+          pendingRequest.resolve(decoded.data);
+        }
+
+        const relayRoute = findRelayRequestRouteForAgentSocket(candidateIds, socketId);
+
+        if (!relayRoute) {
+          return;
+        }
+
+        const responseId = relayRoute.requestId;
+
+        const responseFrame = encodePayloadFrame(decoded.data, {
+          requestId: responseId,
+          omitTraceId: true,
+        });
+        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
+        relayMetrics.responsesForwarded += 1;
+        observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
+        registerAgentSuccess(relayRoute.agentId);
+        clearTimeout(relayRoute.timeoutHandle);
+        conversationRegistry.touch(relayRoute.conversationId);
+
+        if (relayRoute.clientRequestId) {
+          const idempotencyMap = getOrCreateRelayIdempotencyMap(relayRoute.conversationId);
+          idempotencyMap.set(relayRoute.clientRequestId, {
+            requestId: relayRoute.requestId,
+            expiresAtMs: Date.now() + relayIdempotencyTtlMs,
+            responseFrame,
+          });
+        }
+
         if (streamId) {
           upsertActiveStreamRoute({
-            requestId: pendingRequestId,
+            requestId: responseId,
             agentSocketId: socketId,
-            streamHandlers: pendingRequest.streamHandlers,
+            streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
             streamId,
           });
-          logger.debug("rpc_stream_registered", { requestId: pendingRequestId, streamId, socketId });
+          relayStreamFlowState.creditsByRequestId.set(responseId, 0);
         } else {
-          const existingStream = getActiveStreamRouteByRequestId(pendingRequestId);
+          const existingStream = getActiveStreamRouteByRequestId(responseId);
           if (existingStream && existingStream.agentSocketId === socketId) {
             removeActiveStreamRoute(existingStream);
           }
+          removeRelayRequestRoute(responseId);
         }
+
+        void recordSocketAuditEvent({
+          eventType: socketEvents.relayRpcResponse,
+          actorSocketId: socketId,
+          direction: "agent_to_consumer",
+          conversationId: relayRoute.conversationId,
+          agentId: relayRoute.agentId,
+          requestId: responseId,
+          ...(streamId ? { streamId } : {}),
+        });
+      } finally {
+        fireAck();
       }
-
-      if (!pendingRequest.acked) {
-        logger.info("rpc_response_received_without_ack", { requestId: pendingRequestId, socketId });
-      }
-
-      registerAgentSuccess(pendingRequest.agentId);
-      observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
-      clearTimeout(pendingRequest.timeoutHandle);
-      clearRestPendingRequest(pendingRequest);
-      pendingRequest.resolve(decoded.data);
-    }
-
-    const relayRoute = findRelayRequestRouteForAgentSocket(candidateIds, socketId);
-
-    if (!relayRoute) {
-      return;
-    }
-
-    const responseId = relayRoute.requestId;
-
-    const responseFrame = encodePayloadFrame(decoded.data, {
-      requestId: responseId,
-      omitTraceId: true,
-    });
-    emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
-    relayMetrics.responsesForwarded += 1;
-    observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
-    registerAgentSuccess(relayRoute.agentId);
-    clearTimeout(relayRoute.timeoutHandle);
-    conversationRegistry.touch(relayRoute.conversationId);
-
-    if (relayRoute.clientRequestId) {
-      const idempotencyMap = getOrCreateRelayIdempotencyMap(relayRoute.conversationId);
-      idempotencyMap.set(relayRoute.clientRequestId, {
-        requestId: relayRoute.requestId,
-        expiresAtMs: Date.now() + relayIdempotencyTtlMs,
-        responseFrame,
-      });
-    }
-
-    if (streamId) {
-      upsertActiveStreamRoute({
-        requestId: responseId,
-        agentSocketId: socketId,
-        streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
-        streamId,
-      });
-      relayStreamFlowState.creditsByRequestId.set(responseId, 0);
-    } else {
-      const existingStream = getActiveStreamRouteByRequestId(responseId);
-      if (existingStream && existingStream.agentSocketId === socketId) {
-        removeActiveStreamRoute(existingStream);
-      }
-      removeRelayRequestRoute(responseId);
-    }
-
-    void recordSocketAuditEvent({
-      eventType: socketEvents.relayRpcResponse,
-      actorSocketId: socketId,
-      direction: "agent_to_consumer",
-      conversationId: relayRoute.conversationId,
-      agentId: relayRoute.agentId,
-      requestId: responseId,
-      ...(streamId ? { streamId } : {}),
-    });
     });
   };
 
@@ -369,11 +398,12 @@ export const createRpcBridgeAgentInboundHandlers = (
       }
 
       const requestIds = Array.isArray(data.request_ids)
-        ? (data.request_ids as unknown[]).map((id) => toRequestId(id)).filter((id): id is string => id !== null)
+        ? (data.request_ids as unknown[])
+            .map((id) => toRequestId(id))
+            .filter((id): id is string => id !== null)
         : [];
 
-      const preencodedBatchAck =
-        requestIds.length > 1 ? preencodePayloadFrameJson(data) : null;
+      const preencodedBatchAck = requestIds.length > 1 ? preencodePayloadFrameJson(data) : null;
 
       let ackedCount = 0;
       for (const requestId of requestIds) {
@@ -393,7 +423,11 @@ export const createRpcBridgeAgentInboundHandlers = (
         }
       }
       if (ackedCount > 0) {
-        logger.debug("rpc_batch_ack_received", { requestIds: requestIds.slice(0, 5), ackedCount, socketId });
+        logger.debug("rpc_batch_ack_received", {
+          requestIds: requestIds.slice(0, 5),
+          ackedCount,
+          socketId,
+        });
       }
     });
   };

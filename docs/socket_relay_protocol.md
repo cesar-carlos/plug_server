@@ -92,6 +92,7 @@ Campos relevantes do frame:
 
 Regras atuais no servidor:
 
+- validacao estrutural do envelope recebido (agente/consumer → hub) alinhada ao schema `payload-frame.schema.json` do plug_agente: `schemaVersion` **1.0**, `contentType` **application/json**, inteiros nao negativos, sem chaves desconhecidas no raiz; bloco `signature` sem propriedades extra (`isPayloadFrameEnvelope` em `payload_frame.ts`)
 - compressao de saida: acima do limiar, modo **automatico** (gzip so se menor que JSON UTF-8) no hub por defeito; `payloadFrameCompression: always` forca gzip como no agente “sempre GZIP”
 - para JSON UTF-8 **acima do teto configuravel** (`PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **512 KiB**), o hub **nao tenta** gzip na codificacao interna (`preencodePayloadFrameJson` em `payload_frame.ts`); o frame segue com `cmp: none` ate ao limite de `10 MB` no fio
 - limite de payload comprimido: `10 MB`

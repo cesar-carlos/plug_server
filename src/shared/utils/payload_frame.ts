@@ -50,8 +50,48 @@ const maxCompressedPayloadBytes = 10 * 1024 * 1024;
 const maxDecodedPayloadBytes = 10 * 1024 * 1024;
 const maxInflationRatio = 20;
 
+/** Aligned with `plug_agente` `docs/communication/schemas/payload-frame.schema.json`. */
+export const PAYLOAD_FRAME_SCHEMA_VERSION = "1.0" as const;
+
+const PAYLOAD_FRAME_ALLOWED_ROOT_KEYS = new Set([
+  "schemaVersion",
+  "enc",
+  "cmp",
+  "contentType",
+  "originalSize",
+  "compressedSize",
+  "payload",
+  "traceId",
+  "requestId",
+  "signature",
+]);
+
+const PAYLOAD_FRAME_SIGNATURE_KEYS = new Set(["alg", "value", "key_id"]);
+
+const isNonNegativeInteger = (n: unknown): n is number =>
+  typeof n === "number" && Number.isInteger(n) && Number.isFinite(n) && n >= 0;
+
+const isValidPayloadFrameSignatureBlock = (sig: unknown): boolean => {
+  if (typeof sig !== "object" || sig === null) {
+    return false;
+  }
+  const o = sig as Record<string, unknown>;
+  for (const k of Object.keys(o)) {
+    if (!PAYLOAD_FRAME_SIGNATURE_KEYS.has(k)) {
+      return false;
+    }
+  }
+  if (o.alg !== "hmac-sha256" || typeof o.value !== "string") {
+    return false;
+  }
+  if (o.key_id !== undefined && typeof o.key_id !== "string") {
+    return false;
+  }
+  return true;
+};
+
 export interface PayloadFrameEnvelope {
-  readonly schemaVersion: string;
+  readonly schemaVersion: typeof PAYLOAD_FRAME_SCHEMA_VERSION;
   readonly enc: "json";
   readonly cmp: "none" | "gzip";
   readonly contentType: "application/json";
@@ -59,7 +99,8 @@ export interface PayloadFrameEnvelope {
   readonly compressedSize: number;
   readonly payload: Buffer | Uint8Array | readonly number[];
   readonly traceId?: string;
-  readonly requestId?: string;
+  /** JSON-RPC envelope may use `null` id (per JSON Schema `requestId` on the transport frame). */
+  readonly requestId?: string | null;
   readonly signature?: Record<string, unknown>;
 }
 
@@ -204,20 +245,51 @@ const validateFrameSignature = (
   return ok(undefined);
 };
 
+/**
+ * Structural validation aligned with plug_agente `payload-frame.schema.json`:
+ * `schemaVersion` 1.0, `enc` json, `cmp` none|gzip, `contentType` application/json,
+ * non-negative integer sizes, no unknown root keys; optional `signature` only with
+ * `alg`/`value`/`key_id` (hub may omit `key_id` when signing without `PAYLOAD_SIGNING_KEY_ID`).
+ */
 export const isPayloadFrameEnvelope = (payload: unknown): payload is PayloadFrameEnvelope => {
   if (typeof payload !== "object" || payload === null) {
     return false;
   }
 
-  const candidate = payload as Partial<PayloadFrameEnvelope>;
-  return (
-    typeof candidate.schemaVersion === "string" &&
-    candidate.enc === "json" &&
-    (candidate.cmp === "none" || candidate.cmp === "gzip") &&
-    typeof candidate.originalSize === "number" &&
-    typeof candidate.compressedSize === "number" &&
-    "payload" in candidate
-  );
+  const candidate = payload as Record<string, unknown>;
+  for (const key of Object.keys(candidate)) {
+    if (!PAYLOAD_FRAME_ALLOWED_ROOT_KEYS.has(key)) {
+      return false;
+    }
+  }
+
+  if (
+    candidate.schemaVersion !== PAYLOAD_FRAME_SCHEMA_VERSION ||
+    candidate.enc !== "json" ||
+    (candidate.cmp !== "none" && candidate.cmp !== "gzip") ||
+    candidate.contentType !== "application/json" ||
+    !isNonNegativeInteger(candidate.originalSize) ||
+    !isNonNegativeInteger(candidate.compressedSize) ||
+    !("payload" in candidate)
+  ) {
+    return false;
+  }
+
+  const traceId = candidate.traceId;
+  if (traceId !== undefined && typeof traceId !== "string") {
+    return false;
+  }
+
+  const requestId = candidate.requestId;
+  if (requestId !== undefined && requestId !== null && typeof requestId !== "string") {
+    return false;
+  }
+
+  if (candidate.signature !== undefined && !isValidPayloadFrameSignatureBlock(candidate.signature)) {
+    return false;
+  }
+
+  return true;
 };
 
 /** JSON body encoded once; reuse with `finishPayloadFrameEnvelope` for multiple frames (e.g. batch ack). */
@@ -350,7 +422,7 @@ export const finishPayloadFrameEnvelope = (
         : { traceId: randomUUID() };
 
   return signOutboundFrameIfConfigured({
-    schemaVersion: "1.0",
+    schemaVersion: PAYLOAD_FRAME_SCHEMA_VERSION,
     enc: "json",
     cmp: body.cmp,
     contentType: "application/json",

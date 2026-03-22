@@ -21,6 +21,10 @@ const serializeValue = (value: unknown): unknown => {
   return value;
 };
 
+/** Set by `vitest.e2e.config.ts` to avoid flooding e2e runs with INFO lines (connections, rpc, etc.). */
+const silenceE2eInfoLogs = (): boolean =>
+  process.env.NODE_ENV === "test" && process.env.E2E_SILENCE_LOGS === "true";
+
 const formatLogLine = (
   level: "INFO" | "WARN" | "ERROR" | "DEBUG",
   message: string,
@@ -37,6 +41,9 @@ const formatLogLine = (
 /* eslint-disable no-console */
 export const logger = {
   info(message: string, context?: Record<string, unknown>): void {
+    if (silenceE2eInfoLogs()) {
+      return;
+    }
     console.info(formatLogLine("INFO", message, context));
   },
 

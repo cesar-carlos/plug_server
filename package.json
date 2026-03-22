@@ -31,7 +31,8 @@
     "test": "vitest run",
     "test:contract": "vitest run tests/contract",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "node scripts/run-e2e.cjs"
   },
   "repository": {
     "type": "git",

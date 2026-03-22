@@ -14,4 +14,14 @@ describe("rpc_bridge_agent_inbound", () => {
     expect(typeof h.handleAgentRpcAck).toBe("function");
     expect(typeof h.handleAgentBatchAck).toBe("function");
   });
+
+  it("should invoke Socket.IO ack on rpc:response decode failure (delivery guarantee compat)", async () => {
+    const ack = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+    h.handleAgentRpcResponse("socket-test", "not-a-payload-frame", ack);
+    await vi.waitFor(() => expect(ack).toHaveBeenCalledTimes(1));
+  });
 });

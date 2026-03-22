@@ -110,7 +110,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
-const withOptionalRequestId = (requestId: string | undefined): { readonly requestId?: string } => {
+const withOptionalRequestId = (
+  requestId: string | null | undefined,
+): { readonly requestId?: string } => {
   return requestId ? { requestId } : {};
 };
 
@@ -344,8 +346,8 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       );
     });
 
-    socket.on(socketEvents.rpcResponse, (rawPayload: unknown) => {
-      handleAgentRpcResponse(socket.id, rawPayload);
+    socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: () => void) => {
+      handleAgentRpcResponse(socket.id, rawPayload, ack);
     });
 
     socket.on(socketEvents.rpcRequestAck, (rawPayload: unknown) => {

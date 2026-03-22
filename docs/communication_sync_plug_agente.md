@@ -65,6 +65,20 @@ O agente pode retornar (v2.5+ e schema de result):
 - `multi_result` — já suportado
 - PayloadFrame, GZIP, assinatura — transparente no bridge
 
+## Envelope PayloadFrame estrito (2026-03-22)
+
+O `isPayloadFrameEnvelope` em `src/shared/utils/payload_frame.ts` foi alinhado ao schema
+`plug_agente/docs/communication/schemas/payload-frame.schema.json`:
+
+- `schemaVersion` obrigatório **`1.0`** (`PAYLOAD_FRAME_SCHEMA_VERSION`)
+- `contentType` obrigatório **`application/json`**
+- `originalSize` / `compressedSize` inteiros **≥ 0**
+- **Sem propriedades extra** no objeto raiz (igual `additionalProperties: false` do schema)
+- `signature`, se presente: apenas chaves `alg` / `value` / `key_id`; `alg` = **`hmac-sha256`**; `key_id` **opcional** no hub quando a assinatura outbound não usa `PAYLOAD_SIGNING_KEY_ID` (o schema do agente marca `key_id` como obrigatório no bloco — agentes devem enviá-lo; frames só com `alg`+`value` continuam aceites para compatibilidade com o hub)
+- `requestId` no envelope: `string` ou **`null`** (JSON Schema do agente)
+
+Testes: `tests/unit/shared/utils/payload_frame.envelope.test.ts`.
+
 ## Melhorias aplicadas (2026-03-19) - segunda rodada
 
 - Relay: normalizacao `preserve_sql` e validacao de schema em `dispatchRelayRpcToAgent`
@@ -188,16 +202,27 @@ Documentacao plug_agente (`socket_communication_standard.md`, `socketio_client_b
 
 ### Ajuste de documentacao e exemplos (2026-03-20)
 
-- **`api_rest_bridge.md`**: tabela *Controles de overload REST* com defaults iguais a `src/shared/config/env.ts` (`SOCKET_REST_AGENT_MAX_INFLIGHT=24`, `MAX_QUEUE=48`, `SOCKET_REST_STREAM_PULL_WINDOW_SIZE=128`); tabela de tuning relay com `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS=64`; exemplo de request com `payloadFrameCompression`; linha de gaps sobre compressao e preferencia do cliente.
+- **`api_rest_bridge.md`**: tabela *Controles de overload REST* com defaults iguais a `src/shared/config/env.ts` (`SOCKET_REST_AGENT_MAX_INFLIGHT=32`, `MAX_QUEUE=64`, `SOCKET_REST_STREAM_PULL_WINDOW_SIZE=256`); tabela de tuning relay com `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS=64`; exemplo de request com `payloadFrameCompression`; linha de gaps sobre compressao e preferencia do cliente.
 - **`socket_client_sdk.md`**: exemplo `encodeFrame` com politica **auto** (gzip so se menor que UTF-8), coerente com `payload_frame.ts` / plug_agente.
 - **`agents.routes.ts` (OpenAPI)**: exemplo `sqlExecutePayloadFrameCompression` + nota na descricao do POST.
 
 ### Verificacao com plug_agente (2026-03-20) — standard + guia binario
 
 - **`socket_communication_standard.md`**: eventos `rpc:*` / `PayloadFrame`, limites (`max_payload_bytes` 10 MiB, `maxInflationRatio` 20), perfil v2.5, `execution_mode` / `execution_order`, compressao outbound auto vs sempre GZIP — **coerentes** com `src/socket.ts`, `payload_frame.ts`, validadores e relay/REST.
-- **`socketio_client_binary_transport.md`**: o **texto normativo** (passos do emissor, `cmp` gzip ou none, auto acima do limiar) alinha-se ao hub; o **exemplo Node.js** no ficheiro do plug_agente ainda faz `gzipSync` sempre que `length >= threshold` (nao compara tamanhos). Clientes devem seguir os bullets do guia / o nosso `docs/socket_client_sdk.md` e `docs/snippets/payload_frame_client_encode.ts`, nao esse snippet isolado.
+- **`socketio_client_binary_transport.md`**: o **texto normativo** (passos do emissor, `cmp` gzip ou none, auto acima do limiar) alinha-se ao hub. O **exemplo Node.js** no repositorio plug_agente foi alinhado ao modo **auto** (gzip apenas quando menor que UTF-8); continua valido cruzar com `docs/socket_client_sdk.md` e `docs/snippets/payload_frame_client_encode.ts`.
 - **Handshake hub**: `extensions.signatureAlgorithms` passou a anunciar `["hmac-sha256"]` como no exemplo de capabilities do standard (assinatura continua opcional enquanto `signatureRequired: false`).
 - **Detalhe de implementacao**: gzip outbound limitado a entradas ate `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES` UTF-8 (defeito **512 KiB**); acima disso o frame vai em claro (`cmp: none`) ate ao teto de 10 MiB — ver `docs/socket_relay_protocol.md` e `docs/configuration.md`.
+
+### Ajustes de lacunas hub ↔ agente (2026-03-22)
+
+- **`rpc:response` + Socket.IO ack**: quando o plug_agente envia `rpc:response` com `emitWithAck` / `emitWithAckAsync` (`enableSocketDeliveryGuarantees`), o hub agora invoca o callback de ack apos processar o frame (incluindo falha de decode, para evitar retries infinitos em payload invalido). Implementacao: `src/socket.ts` (listener com `ack`), `src/presentation/socket/hub/rpc_bridge_agent_inbound.ts` (`handleAgentRpcResponse`).
+- **Exemplo Node no plug_agente**: `docs/communication/socketio_client_binary_transport.md` — `encodeFrame` usa compressao condicional ao tamanho (modo auto), coerente com o standard e com `payload_frame.ts` no servidor.
+
+**Itens que permanecem fora deste PR (arquitetura / backlog):**
+
+- Streaming progressivo e pull explicito no REST (intencional; usar Socket).
+- Estado pendente REST/bridge em memoria sem coordenacao entre replicas HTTP sem afinidade.
+- Backlog plug_agente: e2e para limites negociados e assinatura, rotacao de chaves, alertas de signing — processo operacional, nao alteracao de contrato no hub.
 
 ## Próximas sincronizações
 

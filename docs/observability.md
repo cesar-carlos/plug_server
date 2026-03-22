@@ -42,7 +42,7 @@ rate(plug_socket_relay_circuit_open_rejects_total[5m]) > 0.05
 rate(plug_rest_bridge_requests_failed_total[5m])
   / clamp_min(rate(plug_rest_bridge_requests_total[5m]), 0.001) > 0.15
 
-# Auditoria: eventos descartados por amostragem (esperado se SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT < 100)
+# Auditoria: eventos descartados por amostragem (esperado se amostragem < 100; em produção o defeito sem env é 25)
 rate(plug_socket_audit_writes_sample_skipped_total[5m])
 ```
 

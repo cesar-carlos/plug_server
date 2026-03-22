@@ -37,6 +37,7 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - `npm run dev` - desenvolvimento
 - `npm run typecheck` - checagem de tipos
 - `npm run lint` - lint
-- `npm run test` - testes
+- `npm run test` - testes (unit/integration/contract; e2e excluídos)
+- `npm run test:e2e` - Vitest e2e (HTTP + Socket.IO). Com `E2E_TESTS_ENABLED=true` no `.env` e `DATABASE_URL` acessível (ver `.env.example`); se estiver desligado, termina com exit 0 sem correr a suíte. Pode ser invocado no CI após `npm run test` (idempotente quando desligado).
 - `npm run build` - build de producao
 

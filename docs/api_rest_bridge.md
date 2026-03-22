@@ -309,6 +309,8 @@ Regras:
   com `response.type = "batch"` quando todas as respostas esperadas chegam.
 - Batch somente com notifications (`id: null` em todos os itens) retorna HTTP 202.
 
+**Canal Socket (`agents:command` no `/consumers`):** as mesmas regras de correlacao e de notifications aplicam-se ao comando validado; em vez de HTTP 202, o hub responde com `agents:command_response` em que `response.type === "notification"`, `accepted: true` e `acceptedCommands` igual ao numero de comandos aceites (fire-and-forget). Batch misto (`id: null` + itens com `id`) continua a aguardar `rpc:response` so para os ids correlacionados; o corpo normalizado `response.type === "batch"` pode ter **menos** itens do que o pedido (so entram respostas com `id` nao-nulo no payload do agente).
+
 ### Exemplo de batch JSON-RPC misto
 
 ```json
@@ -873,10 +875,10 @@ o servidor inclui:
 | Variavel                              | Default | Descricao |
 | ------------------------------------- | ------- | --------- |
 | `SOCKET_REST_MAX_PENDING_REQUESTS`    | `10000` | Limite global de requests REST correlacionadas pendentes |
-| `SOCKET_REST_AGENT_MAX_INFLIGHT`      | `24`    | Quantas requests simultaneas por `agentId` podem ficar em voo |
-| `SOCKET_REST_AGENT_MAX_QUEUE`         | `48`    | Quantas requests adicionais por `agentId` podem esperar fila |
+| `SOCKET_REST_AGENT_MAX_INFLIGHT`      | `32`    | Quantas requests simultaneas por `agentId` podem ficar em voo |
+| `SOCKET_REST_AGENT_MAX_QUEUE`         | `64`    | Quantas requests adicionais por `agentId` podem esperar fila |
 | `SOCKET_REST_AGENT_QUEUE_WAIT_MS`     | `200`   | Tempo maximo de espera na fila por agente antes de rejeitar |
-| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `128`   | Tamanho da janela por pull no REST materializado (creditos por pull; maior = menos pulls, mais pico de memoria por stream) |
+| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `256`   | Tamanho da janela por pull no REST materializado (creditos por pull; maior = menos pulls, mais pico de memoria por stream) |
 | `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub |
 | `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame |
 
@@ -1081,10 +1083,13 @@ e `meta` do agente e propaga para o nivel da response HTTP em respostas single.
 com mensagem `"Batch cannot exceed 32 commands"` (400).
 
 **4. Delivery guarantee acks** -- O hub registra handlers para `rpc:request_ack`
-e `rpc:batch_ack`, marcando `acked: true` no pending request. Logs estruturados
-sao emitidos: `rpc_ack_received`, `rpc_batch_ack_received`,
-`rpc_response_received_without_ack` e `rpc_timeout_without_ack` para
-observabilidade.
+e `rpc:batch_ack`, marcando `acked: true` no pending request. No sentido
+agente → hub, apos processar cada `rpc:response` (PayloadFrame valido ou falha de
+decode), o hub invoca o **Socket.IO acknowledgment** quando o cliente usa
+`emitWithAck` / `emitWithAckAsync` nesse evento (compativel com
+`enableSocketDeliveryGuarantees` no plug_agente). Logs estruturados sao emitidos:
+`rpc_ack_received`, `rpc_batch_ack_received`, `rpc_response_received_without_ack` e
+`rpc_timeout_without_ack` para observabilidade.
 
 **5. Notification JSON-RPC** -- `id: null` e notification: o bridge nao cria pending
 para esse item. Se **todos** os itens forem notifications (`id: null`), a rota retorna
