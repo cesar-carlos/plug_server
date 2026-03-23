@@ -58,6 +58,6 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | ------ | --------- |
 | REST bridge, timeouts, rate limit | `docs/api_rest_bridge.md` |
 | Relay Socket, quotas | `docs/socket_relay_protocol.md` |
-| Throughput hub ↔ agente | `docs/performance_hub_agent.md` |
+| Throughput hub ↔ agente | `docs/performance_hub_agent.md` (presets `.env`, checklist operacional) |
 | Metricas e paineis | `docs/observability.md` |
 | SSE, Redis, multi-instancia, OTel | `docs/scaling_and_roadmap.md` |

@@ -37,4 +37,19 @@ describe("mergeSqlStreamRpcResponse", () => {
     const raw = { not: "rpc" };
     expect(mergeSqlStreamRpcResponse(raw, [], {})).toBe(raw);
   });
+
+  it("should merge row arrays larger than typical spread limits without throwing", () => {
+    const n = 70_000;
+    const bigChunkRows = Array.from({ length: n }, (_, i) => ({ i }));
+    const merged = mergeSqlStreamRpcResponse(
+      { jsonrpc: "2.0", id: "r1", result: { stream_id: "s1", rows: [] } },
+      [{ rows: bigChunkRows }],
+      { total_rows: n },
+    ) as Record<string, unknown>;
+    const result = merged.result as Record<string, unknown>;
+    const rows = result.rows as Array<{ i: number }>;
+    expect(rows).toHaveLength(n);
+    expect(rows[0]).toEqual({ i: 0 });
+    expect(rows[n - 1]).toEqual({ i: n - 1 });
+  });
 });

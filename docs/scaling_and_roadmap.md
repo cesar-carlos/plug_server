@@ -4,7 +4,7 @@ Este documento consolida melhorias sugeridas que **nao** estao implementadas de 
 
 ## Multi-instancia HTTP / estado em memoria
 
-O bridge REST e parte do relay mantem **correlacao e filas em memoria** por processo. Varias replicas sem afinidade de sessao ou store partilhado podem perder pedidos pendentes ou duplicar comportamento estranho.
+O bridge REST e parte do relay mantem **correlacao e filas em memoria** por processo. Varias replicas sem afinidade de sessao ou store partilhado podem perder pedidos pendentes ou duplicar comportamento estranho. Num **unico** processo, afina primeiro throughput com os presets em `docs/performance_hub_agent.md` antes de investir em store partilhado.
 
 **Caminhos possiveis:**
 

@@ -28,6 +28,13 @@ rate(plug_rest_sql_stream_materialize_pulls_total[5m])
 rate(plug_socket_relay_rate_limit_request_allowed_total[5m])
 rate(plug_socket_relay_rate_limit_request_rejected_total[5m])
 
+# Fila hub→consumer relay (gzip async serializado por requestId): taxa de jobs e falhas
+rate(plug_socket_relay_outbound_queue_jobs_finished_total[5m])
+rate(plug_socket_relay_outbound_queue_jobs_failed_total[5m])
+
+# Gauge: `requestId` com cadeia de emit ainda nao drenada (0 em repouso)
+plug_socket_relay_outbound_queue_inflight_request_ids
+
 # Socket legado agents:command (mesma janela/max que REST por utilizador; contador separado)
 rate(plug_socket_agents_command_rate_limit_allowed_total[5m])
 rate(plug_socket_agents_command_rate_limit_rejected_total[5m])
@@ -130,11 +137,13 @@ rate(plug_bridge_latency_trace_phases_mismatch_total[5m]) > 0
 
 ## Teste de contrato com o repositorio `plug_agente`
 
-Com o checkout do agente ao lado (ou noutra pasta), define `PLUG_AGENTE_ROOT` e corre:
+Corre `npm run test:contract`. O ficheiro `tests/contract/plug_agente_optional.contract.test.ts` tenta resolver o checkout nesta ordem: variavel `PLUG_AGENTE_ROOT`, pasta irma `../plug_agente` (relativa ao cwd do projeto), ou caminho de desenvolvimento conhecido; se nenhum contiver `docs/communication/openrpc.json`, a suite fica em *skip*.
+
+Opcionalmente forca a raiz:
 
 ```bash
 set PLUG_AGENTE_ROOT=D:\Developer\plug_database\plug_agente
 npm run test:contract
 ```
 
-Valida presenca de metodos esperados no `openrpc.json` do agente. Para validacao JSON Schema completa, considera integrar AJV num job de CI separado.
+Quando o agente e encontrado, a suite valida metodos e versao minima no OpenRPC, existencia dos `schemas/*.json` publicados, compilacao **Ajv** (draft 2020-12) e payloads exemplo cruzados com os validadores Zod do hub.

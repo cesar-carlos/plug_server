@@ -47,4 +47,76 @@ describe("active_stream_registry", () => {
     removeActiveStreamRoute(route);
     expect(getActiveStreamRouteCount()).toBe(0);
   });
+
+  it("removeActiveStreamRoute rejects pending REST materialization once", () => {
+    const reject = vi.fn();
+    const timeoutHandle = setTimeout(() => {
+      /* should be cleared */
+    }, 60_000);
+    const restMaterializeState = {
+      settled: false,
+      timeoutHandle,
+      reject,
+      agentId: "agent-1",
+    };
+    const route = upsertActiveStreamRoute({
+      requestId: "r-rest",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+      streamId: "s-rest",
+      restMaterializeState,
+    });
+    removeActiveStreamRoute(route);
+    expect(reject).toHaveBeenCalledTimes(1);
+    expect(String(reject.mock.calls[0]?.[0]?.message ?? "")).toContain("SQL stream");
+
+    removeActiveStreamRoute(route);
+    expect(reject).toHaveBeenCalledTimes(1);
+  });
+
+  it("removeActiveStreamRoute does not reject when REST materialization already settled", () => {
+    const reject = vi.fn();
+    const timeoutHandle = setTimeout(() => {}, 60_000);
+    const restMaterializeState = {
+      settled: true,
+      timeoutHandle,
+      reject,
+      agentId: "agent-1",
+    };
+    const route = upsertActiveStreamRoute({
+      requestId: "r-rest2",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+      streamId: "s-rest2",
+      restMaterializeState,
+    });
+    removeActiveStreamRoute(route);
+    expect(reject).not.toHaveBeenCalled();
+  });
+
+  it("removeActiveStreamRoute with restMaterialize detach clears timeout without rejecting", () => {
+    const reject = vi.fn();
+    let fired = false;
+    const timeoutHandle = setTimeout(() => {
+      fired = true;
+    }, 60_000);
+    const restMaterializeState = {
+      settled: false,
+      timeoutHandle,
+      reject,
+      agentId: "agent-1",
+    };
+    const route = upsertActiveStreamRoute({
+      requestId: "r-detach",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+      streamId: "s-detach",
+      restMaterializeState,
+    });
+    removeActiveStreamRoute(route, { restMaterialize: "detach" });
+    expect(reject).not.toHaveBeenCalled();
+    expect(restMaterializeState.settled).toBe(true);
+    expect(getActiveStreamRouteCount()).toBe(0);
+    expect(fired).toBe(false);
+  });
 });

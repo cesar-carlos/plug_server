@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/active_stream_registry";
+import { resetRelayOutboundQueueTails } from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
 import {
   createRelayStreamHandlers,
   emitRelayTimeoutResponse,
@@ -21,7 +22,12 @@ afterEach(() => {
   resetRelayIdempotencyStore();
   resetRelayRequestRegistry();
   resetActiveStreamRegistry();
+  resetRelayOutboundQueueTails();
 });
+
+const flushRelayOutbound = async (): Promise<void> => {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+};
 
 const makeRoute = (overrides?: Partial<RelayRequestRoute>): RelayRequestRoute => ({
   requestId: "r1",
@@ -35,25 +41,27 @@ const makeRoute = (overrides?: Partial<RelayRequestRoute>): RelayRequestRoute =>
 });
 
 describe("rpc_bridge_relay_stream", () => {
-  it("createRelayStreamHandlers forwards chunk when credits > 0", () => {
+  it("createRelayStreamHandlers forwards chunk when credits > 0", async () => {
     const emit = vi.fn();
     const route = makeRoute();
     relayStreamFlowState.creditsByRequestId.set("r1", 1);
     const h = createRelayStreamHandlers(route, emit);
     expect(h.mode).toBe("relay");
     h.onChunk({ stream_id: "s1" });
+    await flushRelayOutbound();
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit.mock.calls[0]?.[0]).toBe("cons1");
     expect(emit.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcChunk);
     expect(relayStreamFlowState.creditsByRequestId.get("r1")).toBe(0);
   });
 
-  it("emitRelayTimeoutResponse emits error frame and stores idempotency response", () => {
+  it("emitRelayTimeoutResponse emits error frame and stores idempotency response", async () => {
     const emit = vi.fn();
     const route = makeRoute({ clientRequestId: "cid1", requestId: "r99" });
     const map = getOrCreateRelayIdempotencyMap("conv1");
     map.set("cid1", { requestId: "r99", expiresAtMs: Date.now() + 60_000 });
     emitRelayTimeoutResponse(route, emit);
+    await flushRelayOutbound();
     expect(emit).toHaveBeenCalledWith("cons1", socketEvents.relayRpcResponse, expect.anything());
     const updated = map.get("cid1");
     expect(updated?.responseFrame).toBeDefined();

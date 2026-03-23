@@ -233,6 +233,36 @@ describe("agentCommandBodySchema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("should accept meta.outbound_compression when valid", () => {
+    for (const outbound_compression of ["none", "gzip", "auto"] as const) {
+      const parsed = agentCommandBodySchema.safeParse({
+        agentId: "agent-1",
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: `q-oc-${outbound_compression}`,
+          meta: { outbound_compression },
+          params: { sql: "SELECT 1", client_token: "t" },
+        },
+      });
+      expect(parsed.success).toBe(true);
+    }
+  });
+
+  it("should reject meta.outbound_compression when not none|gzip|auto", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q-oc-bad",
+        meta: { outbound_compression: "brotli" },
+        params: { sql: "SELECT 1", client_token: "t" },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
   it("should accept execution_mode preserve", () => {
     const parsed = agentCommandBodySchema.safeParse({
       agentId: "agent-1",

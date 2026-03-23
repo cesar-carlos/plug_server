@@ -1,4 +1,6 @@
+import { serviceUnavailable } from "../../../shared/errors/http_errors";
 import { toRequestId } from "../../../shared/utils/rpc_types";
+import { registerAgentFailure } from "./bridge_relay_health_metrics";
 import type { StreamEventHandlers } from "./rest_pending_requests";
 import { restSqlStreamMaterializeClearRequest } from "./rest_sql_stream_materialize";
 
@@ -7,6 +9,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
+
+/** In-flight REST materialized `sql.execute` stream: fail-fast if route is torn down before `rpc:complete`. */
+export type RestMaterializeStreamState = {
+  settled: boolean;
+  timeoutHandle: NodeJS.Timeout;
+  reject: (error: Error) => void;
+  agentId: string;
+};
 
 export interface ActiveStreamRoute {
   readonly consumerSocketId: string;
@@ -17,6 +27,7 @@ export interface ActiveStreamRoute {
   readonly onChunk: (payload: Record<string, unknown>) => void;
   readonly onComplete: (payload: Record<string, unknown>) => void;
   streamId?: string;
+  restMaterializeState?: RestMaterializeStreamState;
 }
 
 const activeStreamsByRequestId = new Map<string, ActiveStreamRoute>();
@@ -84,7 +95,45 @@ export const listStreamRequestIdsForAgent = (agentSocketId: string): string[] =>
 export const listActiveStreamRequestIdsForConversation = (conversationId: string): string[] =>
   Array.from(activeStreamRequestIdsByConversation.get(conversationId) ?? []);
 
-export const removeActiveStreamRoute = (route: ActiveStreamRoute): void => {
+const abortRestMaterializeIfPending = (route: ActiveStreamRoute): void => {
+  const mat = route.restMaterializeState;
+  if (!mat || mat.settled) {
+    return;
+  }
+  mat.settled = true;
+  clearTimeout(mat.timeoutHandle);
+  registerAgentFailure(mat.agentId);
+  mat.reject(serviceUnavailable("Agent disconnected while SQL stream in progress"));
+};
+
+/** Marks REST materialize as settled and clears its timeout without rejecting (caller rejects the HTTP promise). */
+const detachRestMaterializeIfPending = (route: ActiveStreamRoute): void => {
+  const mat = route.restMaterializeState;
+  if (!mat || mat.settled) {
+    return;
+  }
+  mat.settled = true;
+  clearTimeout(mat.timeoutHandle);
+};
+
+export type RemoveActiveStreamRouteOptions = {
+  /**
+   * `abort` (default): if REST materialization is still in flight, reject the HTTP promise.
+   * `detach`: only clear the materialize timer; use when the caller calls `reject` immediately after (timeout, HTTP abort, emit error).
+   */
+  readonly restMaterialize?: "abort" | "detach";
+};
+
+export const removeActiveStreamRoute = (
+  route: ActiveStreamRoute,
+  options?: RemoveActiveStreamRouteOptions,
+): void => {
+  const restMode = options?.restMaterialize ?? "abort";
+  if (restMode === "detach") {
+    detachRestMaterializeIfPending(route);
+  } else {
+    abortRestMaterializeIfPending(route);
+  }
   restSqlStreamMaterializeClearRequest(route.requestId);
   activeStreamsByRequestId.delete(route.requestId);
   if (route.streamId) {
@@ -102,6 +151,7 @@ export const upsertActiveStreamRoute = (input: {
   readonly agentSocketId: string;
   readonly streamHandlers: StreamEventHandlers;
   readonly streamId?: string;
+  readonly restMaterializeState?: RestMaterializeStreamState;
 }): ActiveStreamRoute => {
   const existing = activeStreamsByRequestId.get(input.requestId);
   if (existing) {
@@ -124,6 +174,7 @@ export const upsertActiveStreamRoute = (input: {
     onChunk: input.streamHandlers.onChunk,
     onComplete: input.streamHandlers.onComplete,
     ...(input.streamId ? { streamId: input.streamId } : {}),
+    ...(input.restMaterializeState ? { restMaterializeState: input.restMaterializeState } : {}),
   };
 
   addToIndex(streamRequestIdsByConsumer, route.consumerSocketId, route.requestId);
@@ -160,6 +211,9 @@ export const resolveActiveStreamRoute = (
 };
 
 export const resetActiveStreamRegistry = (): void => {
+  for (const route of activeStreamsByRequestId.values()) {
+    abortRestMaterializeIfPending(route);
+  }
   activeStreamsByRequestId.clear();
   activeStreamsByStreamId.clear();
   activeStreamRequestIdsByConversation.clear();

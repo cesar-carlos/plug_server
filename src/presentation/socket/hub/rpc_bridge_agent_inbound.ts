@@ -6,10 +6,10 @@ import { logger } from "../../../shared/utils/logger";
 import {
   decodePayloadFrame,
   decodePayloadFrameAsync,
-  encodePayloadFrame,
   finishPayloadFrameEnvelope,
   preencodePayloadFrameJson,
 } from "../../../shared/utils/payload_frame";
+import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import type { ActiveStreamRoute } from "./active_stream_registry";
 import {
@@ -138,6 +138,12 @@ export const createRpcBridgeAgentInboundHandlers = (
             const primaryRequestId = pendingRequestId;
             const chunkBuffer: Record<string, unknown>[] = [];
             const pullWindow = env.socketRestStreamPullWindowSize;
+            const restMaterializeState = {
+              settled: false,
+              timeoutHandle,
+              reject: rejectOnce,
+              agentId: pendingRequest.agentId,
+            };
 
             const streamHandlers: StreamEventHandlers = {
               consumerSocketId: REST_STREAM_AGGREGATE_CONSUMER_ID,
@@ -152,6 +158,7 @@ export const createRpcBridgeAgentInboundHandlers = (
                 });
               },
               onComplete: (payload) => {
+                restMaterializeState.settled = true;
                 clearTimeout(timeoutHandle);
                 try {
                   const merged = mergeSqlStreamRpcResponse(initialJson, chunkBuffer, payload);
@@ -168,6 +175,7 @@ export const createRpcBridgeAgentInboundHandlers = (
               agentSocketId: socketId,
               streamHandlers,
               streamId: streamId as string,
+              restMaterializeState,
             });
             registerAgentSuccess(pendingRequest.agentId);
             observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
@@ -228,30 +236,10 @@ export const createRpcBridgeAgentInboundHandlers = (
 
         const responseId = relayRoute.requestId;
 
-        const responseFrame = encodePayloadFrame(decoded.data, {
-          requestId: responseId,
-          omitTraceId: true,
-        });
-        const tRelayForward = performance.now();
-        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
-        relayRoute.latencyTrace?.addPhaseMs(
-          "relay_forward_to_consumer_ms",
-          performance.now() - tRelayForward,
-        );
-        relayMetrics.responsesForwarded += 1;
         observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
         registerAgentSuccess(relayRoute.agentId);
         clearTimeout(relayRoute.timeoutHandle);
         conversationRegistry.touch(relayRoute.conversationId);
-
-        if (relayRoute.clientRequestId) {
-          const idempotencyMap = getOrCreateRelayIdempotencyMap(relayRoute.conversationId);
-          idempotencyMap.set(relayRoute.clientRequestId, {
-            requestId: relayRoute.requestId,
-            expiresAtMs: Date.now() + relayIdempotencyTtlMs,
-            responseFrame,
-          });
-        }
 
         if (streamId) {
           relayRoute.latencyTrace?.markRelayStreamOpenWall();
@@ -262,24 +250,46 @@ export const createRpcBridgeAgentInboundHandlers = (
             streamId,
           });
           relayStreamFlowState.creditsByRequestId.set(responseId, 0);
-        } else {
-          relayRoute.latencyTrace?.recordPendingResolveEnd();
-          relayRoute.latencyTrace?.finalizeOnce({ outcome: "success" });
-          const existingStream = getActiveStreamRouteByRequestId(responseId);
-          if (existingStream && existingStream.agentSocketId === socketId) {
-            removeActiveStreamRoute(existingStream);
-          }
-          removeRelayRequestRoute(responseId);
         }
 
-        void recordSocketAuditEvent({
-          eventType: socketEvents.relayRpcResponse,
-          actorSocketId: socketId,
-          direction: "agent_to_consumer",
-          conversationId: relayRoute.conversationId,
-          agentId: relayRoute.agentId,
-          requestId: responseId,
-          ...(streamId ? { streamId } : {}),
+        enqueueRelayOutbound(responseId, async () => {
+          const responseFrame = await encodeRelayOutboundFrame(decoded.data, responseId);
+          const tRelayForward = performance.now();
+          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
+          relayRoute.latencyTrace?.addPhaseMs(
+            "relay_forward_to_consumer_ms",
+            performance.now() - tRelayForward,
+          );
+          relayMetrics.responsesForwarded += 1;
+
+          if (relayRoute.clientRequestId) {
+            const idempotencyMap = getOrCreateRelayIdempotencyMap(relayRoute.conversationId);
+            idempotencyMap.set(relayRoute.clientRequestId, {
+              requestId: relayRoute.requestId,
+              expiresAtMs: Date.now() + relayIdempotencyTtlMs,
+              responseFrame,
+            });
+          }
+
+          void recordSocketAuditEvent({
+            eventType: socketEvents.relayRpcResponse,
+            actorSocketId: socketId,
+            direction: "agent_to_consumer",
+            conversationId: relayRoute.conversationId,
+            agentId: relayRoute.agentId,
+            requestId: responseId,
+            ...(streamId ? { streamId } : {}),
+          });
+
+          if (!streamId) {
+            relayRoute.latencyTrace?.recordPendingResolveEnd();
+            relayRoute.latencyTrace?.finalizeOnce({ outcome: "success" });
+            const existingStream = getActiveStreamRouteByRequestId(responseId);
+            if (existingStream && existingStream.agentSocketId === socketId) {
+              removeActiveStreamRoute(existingStream);
+            }
+            removeRelayRequestRoute(responseId);
+          }
         });
       } finally {
         fireAck();
@@ -390,11 +400,10 @@ export const createRpcBridgeAgentInboundHandlers = (
 
       const relayRoute = getRelayRequestRoute(requestId);
       if (relayRoute && relayRoute.agentSocketId === socketId) {
-        emitToConsumer(
-          relayRoute.consumerSocketId,
-          socketEvents.relayRpcRequestAck,
-          encodePayloadFrame(data, { requestId, omitTraceId: true }),
-        );
+        enqueueRelayOutbound(requestId, async () => {
+          const frame = await encodeRelayOutboundFrame(data, requestId);
+          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcRequestAck, frame);
+        });
       }
     });
   };
@@ -433,11 +442,13 @@ export const createRpcBridgeAgentInboundHandlers = (
 
         const relayRoute = getRelayRequestRoute(requestId);
         if (relayRoute && relayRoute.agentSocketId === socketId) {
-          const frame =
-            preencodedBatchAck !== null
-              ? finishPayloadFrameEnvelope(preencodedBatchAck, { requestId, omitTraceId: true })
-              : encodePayloadFrame(data, { requestId, omitTraceId: true });
-          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcBatchAck, frame);
+          enqueueRelayOutbound(requestId, async () => {
+            const frame =
+              preencodedBatchAck !== null
+                ? finishPayloadFrameEnvelope(preencodedBatchAck, { requestId, omitTraceId: true })
+                : await encodeRelayOutboundFrame(data, requestId);
+            emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcBatchAck, frame);
+          });
         }
       }
       if (ackedCount > 0) {

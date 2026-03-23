@@ -959,6 +959,94 @@ describe("Agents HTTP bridge", () => {
     }
   });
 
+  it("should fail fast when agent disconnects during REST SQL stream materialization", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    const streamReqId = `rest-stream-disc-${Date.now()}`;
+    const streamId = `sid-${Date.now()}`;
+
+    const rpcHandled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok || !isRecord(decoded.value.data)) {
+          clearTimeout(timeout);
+          reject(new Error("Invalid rpc:request payload"));
+          return;
+        }
+
+        const requestId = toRequestId(decoded.value.data.id);
+        if (requestId !== streamReqId) {
+          clearTimeout(timeout);
+          reject(new Error(`Unexpected request id: ${requestId ?? "<null>"}`));
+          return;
+        }
+
+        agentSocket?.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: requestId,
+            result: {
+              stream_id: streamId,
+              rows: [{ n: 1 }],
+            },
+          }),
+        );
+
+        setTimeout(() => {
+          agentSocket?.disconnect();
+          clearTimeout(timeout);
+          resolve();
+        }, 80);
+      });
+    });
+
+    const startedAtMs = Date.now();
+    const responsePromise = request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        agentId: testAgentId,
+        timeoutMs: 30_000,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: streamReqId,
+          params: {
+            sql: "SELECT 1",
+          },
+        },
+      });
+
+    const [response] = await Promise.all([responsePromise, rpcHandled]);
+    const elapsedMs = Date.now() - startedAtMs;
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("SERVICE_UNAVAILABLE");
+    expect(elapsedMs).toBeLessThan(5_000);
+
+    const readyAfterReconnect = waitForEvent<unknown>(agentSocket!, "connection:ready", 10_000);
+    agentSocket!.connect();
+    await readyAfterReconnect;
+    const capabilitiesPromise = waitForEvent<unknown>(agentSocket, "agent:capabilities");
+    agentSocket!.emit(
+      "agent:register",
+      encodePayloadFrame({
+        agentId: testAgentId,
+        capabilities: {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        },
+      }),
+    );
+    await capabilitiesPromise;
+  });
+
   it("should fail fast when agent disconnects while waiting for response", async () => {
     if (!agentSocket) {
       throw new Error("Agent socket not initialized");

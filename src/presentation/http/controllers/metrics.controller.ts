@@ -69,6 +69,40 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_relay_buffered_chunks", relay.gauges.bufferedChunks));
   lines.push(metricLine("plug_socket_relay_open_circuits", relay.gauges.openCircuits));
 
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_jobs_finished_total",
+      relay.relayOutboundQueue.jobsFinishedTotal,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_outbound_queue_jobs_failed_total", relay.relayOutboundQueue.jobsFailedTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_job_duration_sum_ms",
+      relay.relayOutboundQueue.jobDurationSumMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_job_duration_avg_ms",
+      relay.relayOutboundQueue.jobDurationAvgMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_job_duration_max_ms",
+      relay.relayOutboundQueue.jobDurationMaxMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_inflight_request_ids",
+      relay.relayOutboundQueue.inflightRequestIds,
+    ),
+  );
+
   for (const latency of relay.latencyByAgent) {
     lines.push(
       metricLine("plug_socket_relay_agent_latency_count", latency.count, {

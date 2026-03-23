@@ -17,6 +17,8 @@ const rpcMetaSchema = z
     request_id: nonEmptyStringSchema.optional(),
     agent_id: nonEmptyStringSchema.optional(),
     timestamp: rpcTimestampSchema.optional(),
+    /** plug_agente: influences agent→hub PayloadFrame compression for this call (and matching stream events). */
+    outbound_compression: z.enum(["none", "gzip", "auto"]).optional(),
   })
   .passthrough();
 const rpcEnvelopeExtensionsSchema = z.object({

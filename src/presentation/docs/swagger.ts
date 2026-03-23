@@ -172,6 +172,8 @@ const swaggerSpec = swaggerJSDoc({
         },
         RpcMeta: {
           type: "object",
+          description:
+            "Aligned with plug_agente `rpc.request.schema.json`. `outbound_compression` hints agent→hub PayloadFrame compression for this JSON-RPC id (and rpc:chunk/rpc:complete).",
           properties: {
             trace_id: { type: "string" },
             traceparent: { type: "string" },
@@ -179,6 +181,12 @@ const swaggerSpec = swaggerJSDoc({
             request_id: { type: "string" },
             agent_id: { type: "string" },
             timestamp: { type: "string", format: "date-time" },
+            outbound_compression: {
+              type: "string",
+              enum: ["none", "gzip", "auto"],
+              description:
+                "Optional override for agent→hub frame compression (plug_agente). Ignored for notifications without a usable id. Batch: all items that set this must use the same value.",
+            },
           },
           additionalProperties: true,
         },

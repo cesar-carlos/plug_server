@@ -6,6 +6,14 @@
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+/** Appends without `push(...source)` to avoid JS call-argument limits on very large chunks. */
+const appendArrayElements = (target: unknown[], source: readonly unknown[]): void => {
+  const len = source.length;
+  for (let i = 0; i < len; i += 1) {
+    target.push(source[i]);
+  }
+};
+
 export const mergeSqlStreamRpcResponse = (
   initialRpc: unknown,
   chunks: readonly Record<string, unknown>[],
@@ -24,13 +32,13 @@ export const mergeSqlStreamRpcResponse = (
   const rows: unknown[] = [];
   const initialRows = result.rows;
   if (Array.isArray(initialRows)) {
-    rows.push(...initialRows);
+    appendArrayElements(rows, initialRows);
   }
 
   for (const chunk of chunks) {
     const chunkRows = chunk.rows;
     if (Array.isArray(chunkRows)) {
-      rows.push(...chunkRows);
+      appendArrayElements(rows, chunkRows);
     }
   }
 

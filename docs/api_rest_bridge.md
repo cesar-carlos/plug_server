@@ -418,6 +418,11 @@ O campo opcional afeta apenas o `PayloadFrame` que o hub emite em `rpc:request` 
 
 ### sql.execute com `api_version` e `meta`
 
+Opcionalmente, `meta.outbound_compression` (`none`, `gzip` ou `auto`) segue o contrato do
+plug_agente: pedido ao agente para a politica de compressao do `PayloadFrame` em respostas
+(`rpc:response` e eventos de stream com o mesmo `id`). Continua a valer negociacao no handshake
+e limiares; notificacoes sem `id` utilizavel ignoram o hint.
+
 ```json
 {
   "agentId": "3183a9f2-429b-46d6-a339-3580e5e5cb31",
@@ -428,7 +433,8 @@ O campo opcional afeta apenas o `PayloadFrame` que o hub emite em `rpc:request` 
     "api_version": "2.5",
     "meta": {
       "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
-      "tracestate": "vendor=value"
+      "tracestate": "vendor=value",
+      "outbound_compression": "auto"
     },
     "params": {
       "sql": "SELECT 1",
@@ -1051,6 +1057,7 @@ com o que a API REST atualmente expoe ao consumer.
 | `options.transaction` (batch)               | implementado  | validado        | -                                        |
 | `api_version` no request                   | implementado  | exposto         | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.5"`; merge de `meta` |
 | `meta` no request (trace_id, traceparent)  | implementado  | exposto         | hub faz merge preservando traceparent/tracestate; injeta request_id, agent_id, timestamp, trace_id |
+| `meta.outbound_compression` (`none` / `gzip` / `auto`) | implementado  | validado + OpenAPI | alinhado a `plug_agente` `rpc.request.schema.json`; influencia compressao agente→hub no `PayloadFrame` da resposta (e stream); em batch JSON-RPC todos os itens que definirem o campo devem usar o mesmo valor (regra do agente) |
 | `api_version` na response                  | implementado  | exposto         | serializer preserva `api_version` e `meta` do agente |
 | `meta` na response (agent_id, timestamp)   | implementado  | exposto         | serializer preserva `meta` do agente     |
 | Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 400    |

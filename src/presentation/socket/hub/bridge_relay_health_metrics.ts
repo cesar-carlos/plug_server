@@ -9,6 +9,7 @@ import {
 } from "../../../shared/utils/latency_ring_buffer";
 import { percentile } from "../../../shared/utils/percentile";
 import { getRestPendingRequestCount } from "./rest_pending_requests";
+import { getRelayOutboundQueueMetricsSnapshot } from "./relay_outbound_queue";
 import { getRelayRegisteredRouteCount } from "./relay_request_registry";
 import { relayStreamFlowState } from "./relay_stream_flow_state";
 
@@ -157,6 +158,7 @@ export type RelayHubMetricsSnapshot = {
     readonly p95Ms: number;
     readonly p99Ms: number;
   }[];
+  readonly relayOutboundQueue: ReturnType<typeof getRelayOutboundQueueMetricsSnapshot>;
 };
 
 export const buildRelayHubMetricsSnapshot = (input: {
@@ -191,6 +193,7 @@ export const buildRelayHubMetricsSnapshot = (input: {
       openCircuits,
     },
     latencyByAgent,
+    relayOutboundQueue: getRelayOutboundQueueMetricsSnapshot(),
   };
 };
 
@@ -204,6 +207,7 @@ export const scheduleRelayHubMetricsLogger = (getSnapshot: () => RelayHubMetrics
     logger.info("socket_relay_metrics", {
       ...snapshot.counters,
       ...snapshot.gauges,
+      relayOutboundQueue: snapshot.relayOutboundQueue,
     });
   }, env.socketRelayMetricsLogIntervalMs);
   relayMetricsTimer.unref?.();

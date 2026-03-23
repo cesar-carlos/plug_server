@@ -248,7 +248,7 @@ export const createDispatchRpcCommandToAgent = (
           clearRestPendingRequest(pendingRequest);
           const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
           if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
-            removeActiveStreamRoute(existingStream);
+            removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
           if (!hadAck) {
             logger.info("rpc_timeout_without_ack", {
@@ -293,7 +293,7 @@ export const createDispatchRpcCommandToAgent = (
           clearRestPendingRequest(pendingRequest);
           const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
           if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
-            removeActiveStreamRoute(existingStream);
+            removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
           rejectOnce(serviceUnavailable("HTTP request aborted by client"));
         };
@@ -326,7 +326,7 @@ export const createDispatchRpcCommandToAgent = (
           clearRestPendingRequest(pendingRequest);
           const existingStream = getActiveStreamRouteByRequestId(requestId);
           if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
-            removeActiveStreamRoute(existingStream);
+            removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
           registerAgentFailure(input.agentId);
           rejectOnce(error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request"));

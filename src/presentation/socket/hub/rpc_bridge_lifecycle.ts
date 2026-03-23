@@ -25,6 +25,7 @@ import {
   resetRelayIdempotencyStore,
   stopRelayIdempotencyCleanupTimer,
 } from "./relay_idempotency_store";
+import { resetRelayOutboundQueueState } from "./relay_outbound_queue";
 import { resetRelayStreamFlowState } from "./relay_stream_flow_state";
 import {
   getRelayRequestRoute,
@@ -139,6 +140,7 @@ export const resetRpcBridgeMutableStores = (): void => {
   resetActiveStreamRegistry();
   resetRelayIdempotencyStore();
   resetRelayStreamFlowState();
+  resetRelayOutboundQueueState();
   restSqlStreamMaterializeReset();
   resetRelayHubHealthAndMetrics();
   resetRestAgentDispatchQueue(serviceUnavailable("REST agent queue has been reset"));

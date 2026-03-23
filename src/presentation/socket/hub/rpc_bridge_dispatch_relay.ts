@@ -31,6 +31,7 @@ import {
   registerAgentFailure,
   relayMetrics,
 } from "./bridge_relay_health_metrics";
+import { enqueueRelayOutbound } from "./relay_outbound_queue";
 import { conversationRegistry } from "./conversation_registry";
 import { getOrCreateRelayIdempotencyMap } from "./relay_idempotency_store";
 import { relayStreamFlowState } from "./relay_stream_flow_state";
@@ -184,7 +185,13 @@ export const createRpcBridgeRelayDispatch = (
         relayMetrics.requestsDeduplicated += 1;
         trace?.dismissWithoutPersist();
         if (existing.responseFrame) {
-          emitToConsumer(conversation.consumerSocketId, socketEvents.relayRpcResponse, existing.responseFrame);
+          enqueueRelayOutbound(existing.requestId, async () => {
+            emitToConsumer(
+              conversation.consumerSocketId,
+              socketEvents.relayRpcResponse,
+              existing.responseFrame,
+            );
+          });
           return {
             requestId: existing.requestId,
             clientRequestId,
@@ -247,12 +254,13 @@ export const createRpcBridgeRelayDispatch = (
           errorCode: "RELAY_REQUEST_TIMEOUT",
         });
       }
-      emitRelayTimeoutResponse(route, emitToConsumer);
-      removeRelayRequestRoute(requestId);
-      const existingStream = getActiveStreamRouteByRequestId(requestId);
-      if (existingStream) {
-        removeActiveStreamRoute(existingStream);
-      }
+      emitRelayTimeoutResponse(route, emitToConsumer, () => {
+        removeRelayRequestRoute(requestId);
+        const existingStream = getActiveStreamRouteByRequestId(requestId);
+        if (existingStream) {
+          removeActiveStreamRoute(existingStream);
+        }
+      });
     }, relayRequestTimeoutMs);
 
     const relayRoute: RelayRequestRoute = {

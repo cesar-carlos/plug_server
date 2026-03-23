@@ -14,6 +14,63 @@ o plug_server alinhado ao protocolo atual.
 - **OpenRPC**: `plug_agente\docs\communication\openrpc.json` (v2.5.0)
 - **Schemas**: `plug_agente\docs\communication\schemas\`
 
+## Implementação no plug_server (fluxos)
+
+Diagramas alinhados aos ficheiros em `src/presentation/socket/hub/` e `src/application/agent_commands/`. Detalhe de eventos e limites: `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md`, `docs/socket_client_sdk.md`.
+
+### REST e Socket `agents:command` (mesmo caso de uso)
+
+O pedido passa por `execute_agent_command.ts` e `dispatchRpcCommandToAgent` (`rpc_bridge_dispatch_command.ts`). Metadados e `api_version` aplicam-se em `withBridgeMeta` (`rpc_bridge_command_helpers.ts`).
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Cliente HTTP ou consumers
+  participant UC as execute_agent_command
+  participant D as dispatchRpcCommandToAgent
+  participant AR as agent_registry
+  participant A as plug_agente agents
+
+  C->>UC: agentId command paginação opcional
+  UC->>UC: normalizeCommandForAgent ensureJsonRpcIdsForBridge
+  UC->>D: dispatch fila REST por agente
+  D->>AR: findByAgentId socket ativo
+  D->>D: withBridgeMeta encodePayloadFrameBridge
+  D->>A: emit rpc:request PayloadFrame
+  A-->>D: rpc:request ack opcional
+  A->>D: rpc:response decodePayloadFrameAsync
+  D->>C: JSON-RPC resultado ou notificação
+
+  opt sql.execute com stream_id materializacao REST
+    loop créditos SOCKET_REST_STREAM_PULL_WINDOW_SIZE
+      D->>A: rpc:stream.pull PayloadFrame
+      A->>D: rpc:chunk decodePayloadFrame sync
+    end
+    A->>D: rpc:complete decodePayloadFrame sync
+    D->>UC: merge_sql_stream_rpc_response
+  end
+```
+
+### Relay (`/consumers`)
+
+Decode do frame do consumer, validação (`bridgeCommandSchema`), alteração do comando (ex.: conversação), re-encode para o agente; respostas em `rpc_bridge_agent_inbound.ts` → `relay:rpc.response` (e streams relay).
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Cons as Consumer consumers
+  participant DR as dispatchRelayRpcToAgent
+  participant A as plug_agente agents
+  participant In as rpc_bridge_agent_inbound
+
+  Cons->>DR: relay:rpc.request PayloadFrame
+  DR->>DR: decode validar re-encode
+  DR->>A: emit rpc:request
+  A->>In: rpc:response PayloadFrame
+  In->>In: decodePayloadFrameAsync correlacionar relay_request_registry
+  In->>Cons: relay:rpc.response PayloadFrame
+```
+
 ## Mudanças aplicadas (v2.5)
 
 ### 1. `execution_mode` e `preserve_sql` em `sql.execute`
@@ -50,7 +107,7 @@ O agente pode retornar (v2.5+ e schema de result):
 | ------- | --------- |
 | `docs/api_rest_bridge.md` | `execution_mode`, `preserve_sql`, exemplos, api_version 2.5, tabela de gaps, `sql_handling_mode`, `max_rows_handling`, `effective_max_rows`, regra `ORDER BY` para paginacao |
 | `src/shared/validators/agent_command.ts` | `execution_mode`, `preserve_sql`, validações de combinação |
-| `src/presentation/socket/hub/rpc_bridge.ts` | `api_version` default `2.5`, preservacao do cliente |
+| `src/presentation/socket/hub/rpc_bridge_command_helpers.ts` | `resolveOutboundApiVersion`, `withBridgeMeta`: default `api_version` `"2.5"`, preservação do valor enviado pelo cliente (REST, `agents:command`); relay usa `resolveOutboundApiVersion` em `rpc_bridge_dispatch_relay.ts` |
 | `src/presentation/docs/swagger.ts` | schemas `execution_mode`, `preserve_sql` |
 | `src/presentation/http/routes/agents.routes.ts` | exemplo `api_version: "2.5"` |
 | `src/socket.ts` | `plugProfile: "plug-jsonrpc-profile/2.5"` |
@@ -224,11 +281,16 @@ Documentacao plug_agente (`socket_communication_standard.md`, `socketio_client_b
 - Estado pendente REST/bridge em memoria sem coordenacao entre replicas HTTP sem afinidade.
 - Backlog plug_agente: e2e para limites negociados e assinatura, rotacao de chaves, alertas de signing — processo operacional, nao alteracao de contrato no hub.
 
+### Melhorias aplicadas (2026-03-23) — contrato, OpenAPI e testes
+
+- **`meta.outbound_compression`**: alinhado a `plug_agente/docs/communication/schemas/rpc.request.schema.json` — validacao Zod em `src/shared/validators/agent_command.ts`, schema OpenAPI `RpcMeta` em `src/presentation/docs/swagger.ts`, exemplo e tabela de cobertura em `docs/api_rest_bridge.md`.
+- **Testes de contrato**: `tests/contract/plug_agente_optional.contract.test.ts` — detecao automatica do repo agente (`PLUG_AGENTE_ROOT`, `../plug_agente`, ou caminho de desenvolvimento); OpenRPC (metodos + versao minima 2.5.x); lista de ficheiros em `docs/communication/schemas/`; Ajv 2020-12 + `ajv-formats` com registos de schema e aliases `$id` para `$ref` `*.schema.json`; payloads exemplo validados em JSON Schema e em `bridgeCommandSchema` / `agentCommandBodySchema`; caso negativo (`execution_mode: preserve` + pagina). `meta.outbound_compression` coberto em `tests/unit/shared/validators/agent_command.test.ts`.
+
 ## Próximas sincronizações
 
 Ao atualizar o plug_agente, verificar:
 
 1. `socket_communication_standard.md` — changelog e novos itens
 2. `openrpc.json` — versão e métodos
-3. `schemas/*.json` — novos campos em params/result
+3. `schemas/*.json` — novos campos em params/result (correr `npm run test:contract` com checkout do agente)
 4. `socketio_client_binary_transport.md` — regras de transporte
