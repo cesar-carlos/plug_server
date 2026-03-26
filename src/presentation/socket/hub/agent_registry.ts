@@ -9,6 +9,15 @@ export interface RegisteredAgent {
   readonly lastSeenAt: string;
 }
 
+interface InternalRegisteredAgent {
+  readonly agentId: string;
+  readonly socketId: string;
+  readonly userId: string | null;
+  readonly capabilities: Record<string, unknown>;
+  readonly connectedAtMs: number;
+  lastSeenAtMs: number;
+}
+
 type ProtocolReadyMode = "grace" | "explicit_ack";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -80,7 +89,7 @@ const resolveStreamPullWindowPolicy = (
 };
 
 class InMemoryAgentRegistry {
-  private readonly agents = new Map<string, RegisteredAgent>();
+  private readonly agents = new Map<string, InternalRegisteredAgent>();
   private readonly agentIdBySocketId = new Map<string, string>();
   private readonly readyAtByAgentId = new Map<string, number>();
   private readonly readyTimerByAgentId = new Map<string, NodeJS.Timeout>();
@@ -92,6 +101,17 @@ class InMemoryAgentRegistry {
    */
   private readonly knownAgentIds = new Set<string>();
   private readonly ownerByAgentId = new Map<string, string>();
+
+  private toPublic(internal: InternalRegisteredAgent): RegisteredAgent {
+    return {
+      agentId: internal.agentId,
+      socketId: internal.socketId,
+      userId: internal.userId,
+      capabilities: internal.capabilities,
+      connectedAt: new Date(internal.connectedAtMs).toISOString(),
+      lastSeenAt: new Date(internal.lastSeenAtMs).toISOString(),
+    };
+  }
 
   private pruneKnownAgentIdsIfOverCap(): void {
     const max = env.socketAgentKnownIdsMax;
@@ -159,19 +179,19 @@ class InMemoryAgentRegistry {
       this.ownerByAgentId.set(input.agentId, input.userId);
     }
 
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
     const existing = this.agents.get(input.agentId);
     if (existing && existing.socketId !== input.socketId) {
       this.agentIdBySocketId.delete(existing.socketId);
     }
 
-    const agent: RegisteredAgent = {
+    const agent: InternalRegisteredAgent = {
       agentId: input.agentId,
       socketId: input.socketId,
       userId: input.userId,
       capabilities: input.capabilities,
-      connectedAt: existing?.connectedAt ?? now,
-      lastSeenAt: now,
+      connectedAtMs: existing?.connectedAtMs ?? nowMs,
+      lastSeenAtMs: nowMs,
     };
 
     this.knownAgentIds.add(input.agentId);
@@ -179,7 +199,7 @@ class InMemoryAgentRegistry {
     this.agentIdBySocketId.set(input.socketId, input.agentId);
     this.scheduleProtocolReady(input.agentId, input.capabilities);
     this.pruneKnownAgentIdsIfOverCap();
-    return { ok: true, agent };
+    return { ok: true, agent: this.toPublic(agent) };
   }
 
   touch(agentId: string, options?: { readonly markProtocolReady?: boolean }): RegisteredAgent | null {
@@ -188,16 +208,13 @@ class InMemoryAgentRegistry {
       return null;
     }
 
-    const updated: RegisteredAgent = {
-      ...existing,
-      lastSeenAt: new Date().toISOString(),
-    };
-    this.agents.set(agentId, updated);
+    existing.lastSeenAtMs = Date.now();
+    this.agents.set(agentId, existing);
     if (options?.markProtocolReady) {
       this.clearReadyTimer(agentId);
       this.readyAtByAgentId.set(agentId, Date.now());
     }
-    return updated;
+    return this.toPublic(existing);
   }
 
   removeBySocketId(socketId: string): RegisteredAgent | null {
@@ -216,15 +233,16 @@ class InMemoryAgentRegistry {
     this.readyAtByAgentId.delete(agentId);
     this.protocolReadyModeByAgentId.delete(agentId);
     this.agents.delete(agentId);
-    return agent;
+    return this.toPublic(agent);
   }
 
   listAll(): readonly RegisteredAgent[] {
-    return Array.from(this.agents.values());
+    return Array.from(this.agents.values()).map((internal) => this.toPublic(internal));
   }
 
   findByAgentId(agentId: string): RegisteredAgent | null {
-    return this.agents.get(agentId) ?? null;
+    const internal = this.agents.get(agentId);
+    return internal ? this.toPublic(internal) : null;
   }
 
   findBySocketId(socketId: string): RegisteredAgent | null {
@@ -233,7 +251,8 @@ class InMemoryAgentRegistry {
       return null;
     }
 
-    return this.agents.get(agentId) ?? null;
+    const internal = this.agents.get(agentId);
+    return internal ? this.toPublic(internal) : null;
   }
 
   hasKnownAgentId(agentId: string): boolean {

@@ -131,6 +131,15 @@ export const getMetrics = (_request: Request, response: Response): void => {
     relay.counters.restAgentQueueWaitTimeoutRejected;
   lines.push(metricLine("plug_socket_relay_rest_pending_rejected_total", restPendingRejectedLegacy));
   lines.push(metricLine("plug_socket_relay_rpc_frame_decode_failed_total", relay.counters.rpcFrameDecodeFailed));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_emit_discarded_consumer_gone_total",
+      relay.counters.relayEmitDiscardedConsumerGone,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_conversations_expired_total", relay.counters.conversationsExpiredTotal),
+  );
   lines.push(metricLine("plug_socket_relay_pending_requests", relay.gauges.pendingRelayRequests));
   lines.push(metricLine("plug_socket_relay_rest_pending_requests", relay.gauges.pendingRestRequests));
   lines.push(metricLine("plug_socket_relay_active_streams", relay.gauges.activeStreams));
@@ -170,12 +179,30 @@ export const getMetrics = (_request: Request, response: Response): void => {
 
   lines.push(
     metricLine(
+      "plug_socket_relay_outbound_queue_jobs_enqueued_total",
+      relay.relayOutboundQueue.jobsEnqueuedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_socket_relay_outbound_queue_jobs_finished_total",
       relay.relayOutboundQueue.jobsFinishedTotal,
     ),
   );
   lines.push(
     metricLine("plug_socket_relay_outbound_queue_jobs_failed_total", relay.relayOutboundQueue.jobsFailedTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_overload_rejected_total",
+      relay.relayOutboundQueue.overloadRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_orphaned_tails_swept_total",
+      relay.relayOutboundQueue.orphanedTailsSweptTotal,
+    ),
   );
   lines.push(
     metricLine(
@@ -197,8 +224,29 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_socket_relay_outbound_queue_job_duration_p95_ms",
+      relay.relayOutboundQueue.jobDurationP95Ms,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_job_duration_p99_ms",
+      relay.relayOutboundQueue.jobDurationP99Ms,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_socket_relay_outbound_queue_inflight_request_ids",
       relay.relayOutboundQueue.inflightRequestIds,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_outbound_queue_backlog", relay.relayOutboundQueue.backlog),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_orphaned_request_ids",
+      relay.relayOutboundQueue.orphanedRequestIds,
     ),
   );
 
@@ -233,22 +281,90 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_relay_rate_limit_window_ms", rateLimit.windowMs));
   lines.push(metricLine("plug_socket_relay_rate_limit_max_conversation_starts", rateLimit.maxConversationStarts));
   lines.push(metricLine("plug_socket_relay_rate_limit_max_requests", rateLimit.maxRequests));
-  lines.push(metricLine("plug_socket_relay_rate_limit_consumers_tracked", rateLimit.activeConsumersTracked));
+  lines.push(metricLine("plug_socket_relay_rate_limit_identities_tracked", rateLimit.activeIdentitiesTracked));
   lines.push(
     metricLine(
       "plug_socket_relay_rate_limit_conversation_start_allowed_total",
-      rateLimit.counters.conversationStartAllowed,
+      rateLimit.counters.conversationStartAllowedUser,
+      { scope: "user" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_conversation_start_allowed_total",
+      rateLimit.counters.conversationStartAllowedAnon,
+      { scope: "anon" },
     ),
   );
   lines.push(
     metricLine(
       "plug_socket_relay_rate_limit_conversation_start_rejected_total",
-      rateLimit.counters.conversationStartRejected,
+      rateLimit.counters.conversationStartRejectedUser,
+      { scope: "user" },
     ),
   );
-  lines.push(metricLine("plug_socket_relay_rate_limit_request_allowed_total", rateLimit.counters.relayRequestAllowed));
   lines.push(
-    metricLine("plug_socket_relay_rate_limit_request_rejected_total", rateLimit.counters.relayRequestRejected),
+    metricLine(
+      "plug_socket_relay_rate_limit_conversation_start_rejected_total",
+      rateLimit.counters.conversationStartRejectedAnon,
+      { scope: "anon" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_request_allowed_total",
+      rateLimit.counters.relayRequestAllowedUser,
+      { scope: "user" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_request_allowed_total",
+      rateLimit.counters.relayRequestAllowedAnon,
+      { scope: "anon" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_request_rejected_total",
+      rateLimit.counters.relayRequestRejectedUser,
+      { scope: "user" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_request_rejected_total",
+      rateLimit.counters.relayRequestRejectedAnon,
+      { scope: "anon" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_stream_pull_credits_granted_total",
+      rateLimit.counters.streamPullCreditsGrantedUser,
+      { scope: "user" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_stream_pull_credits_granted_total",
+      rateLimit.counters.streamPullCreditsGrantedAnon,
+      { scope: "anon" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_stream_pull_credits_rejected_total",
+      rateLimit.counters.streamPullCreditsRejectedUser,
+      { scope: "user" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_stream_pull_credits_rejected_total",
+      rateLimit.counters.streamPullCreditsRejectedAnon,
+      { scope: "anon" },
+    ),
   );
 
   lines.push(metricLine("plug_socket_agents_command_rate_limit_window_ms", agentsCommandRl.windowMs));

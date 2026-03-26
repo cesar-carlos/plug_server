@@ -335,6 +335,7 @@ const preencodeUtf8Buffer = (
   }
 
   const gzipLevel = env.payloadFrameGzipLevel;
+  const minSavingsBytes = env.payloadFrameAutoGzipMinSavingsBytes;
   const compressed =
     gzipLevel !== undefined ? gzipSync(encoded, { level: gzipLevel }) : gzipSync(encoded);
   if (policy === "always_gzip") {
@@ -345,7 +346,7 @@ const preencodeUtf8Buffer = (
     };
   }
 
-  if (compressed.length < encoded.length) {
+  if (encoded.length - compressed.length >= minSavingsBytes) {
     return {
       originalSize: encoded.length,
       wireBytes: compressed,
@@ -379,6 +380,7 @@ const preencodeUtf8BufferAsync = async (
   }
 
   const gzipLevel = env.payloadFrameGzipLevel;
+  const minSavingsBytes = env.payloadFrameAutoGzipMinSavingsBytes;
   const zlibOpts = gzipLevel !== undefined ? { level: gzipLevel } : {};
   const compressed = await gzipAsync(encoded, zlibOpts);
   if (policy === "always_gzip") {
@@ -389,7 +391,7 @@ const preencodeUtf8BufferAsync = async (
     };
   }
 
-  if (compressed.length < encoded.length) {
+  if (encoded.length - compressed.length >= minSavingsBytes) {
     return {
       originalSize: encoded.length,
       wireBytes: compressed,

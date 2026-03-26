@@ -1,3 +1,51 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { env } from "../../../../../src/shared/config/env";
+import {
+  enqueueRelayOutbound,
+  getRelayOutboundQueueMetricsSnapshot,
+  getRelayOutboundQueueOverloadState,
+  resetRelayOutboundQueueState,
+  sweepRelayOutboundQueueState,
+} from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
+
+afterEach(() => {
+  vi.useRealTimers();
+  resetRelayOutboundQueueState();
+});
+
+describe("relay_outbound_queue", () => {
+  it("sweeps stale unresolved tails as orphaned", () => {
+    enqueueRelayOutbound("req-zombie", async () => {
+      await new Promise<void>(() => undefined);
+    });
+
+    const nowSpy = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.now() + env.socketRelayOutboundTailStaleMs + 1);
+
+    expect(sweepRelayOutboundQueueState()).toBe(1);
+
+    const snapshot = getRelayOutboundQueueMetricsSnapshot();
+    expect(snapshot.orphanedTailsSweptTotal).toBe(1);
+    expect(snapshot.inflightRequestIds).toBe(0);
+
+    nowSpy.mockRestore();
+  });
+
+  it("reports overload when backlog crosses threshold", () => {
+    for (let index = 0; index < env.socketRelayOutboundOverloadBacklog + 1; index += 1) {
+      enqueueRelayOutbound(`req-${index}`, async () => {
+        await new Promise<void>(() => undefined);
+      });
+    }
+
+    const overload = getRelayOutboundQueueOverloadState();
+    expect(overload.overloaded).toBe(true);
+    expect(overload.reason).toBe("backlog");
+    expect(overload.snapshot.backlog).toBeGreaterThanOrEqual(env.socketRelayOutboundOverloadBacklog);
+  });
+});
 import { afterEach, describe, expect, it } from "vitest";
 
 import {

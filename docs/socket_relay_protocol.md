@@ -16,6 +16,34 @@ Fluxo:
 - `/consumers`: controle de conversa e envio de frames relay
 - `/agents`: protocolo padrao do agente (`rpc:*` em `PayloadFrame`)
 
+## Handshake: `connection:ready`
+
+Emitido imediatamente após autenticação bem-sucedida. **Desde versão mais recente, enviado como `PayloadFrame`** para consistência com outros eventos RPC.
+
+**Payload lógico após decode**:
+
+```json
+{
+  "id": "<socket.id>",
+  "message": "Consumer socket connected successfully",
+  "user": { "sub": "...", "role": "...", "iat": ..., "exp": ... }
+}
+```
+
+**Cliente deve decodificar**:
+
+```typescript
+socket.on("connection:ready", (rawPayload: unknown) => {
+  const decoded = decodePayloadFrame(rawPayload);
+  if (!decoded.ok) {
+    throw new Error(`Handshake failed: ${decoded.error.message}`);
+  }
+  // Pronto para emitir relay:conversation.start
+});
+```
+
+**Compatibilidade**: existe um shim transitório controlado por `SOCKET_CONNECTION_READY_COMPAT_MODE`, mas o contrato padrão e suportado é `PayloadFrame`. O modo legado `raw_json` tem remoção planejada após `2026-09-30`.
+
 ## Eventos relay no /consumers
 
 Controle:
@@ -46,7 +74,7 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 - `relay:conversation.end` -> `{ conversationId }`
 - `relay:conversation.ended` -> `{ success, conversationId, reason }` ou erro
 - `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`)
-- `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`) ou erro
+- `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`, `rateLimit`) ou erro
 
 ## Contrato RPC e metodos suportados
 
@@ -93,7 +121,7 @@ Campos relevantes do frame:
 Regras atuais no servidor:
 
 - validacao estrutural do envelope recebido (agente/consumer → hub) alinhada ao schema `payload-frame.schema.json` do plug_agente: `schemaVersion` **1.0**, `contentType` **application/json**, inteiros nao negativos, sem chaves desconhecidas no raiz; bloco `signature` sem propriedades extra (`isPayloadFrameEnvelope` em `payload_frame.ts`)
-- compressao de saida: acima do limiar, modo **automatico** (gzip so se menor que JSON UTF-8) no hub por defeito; `payloadFrameCompression: always` forca gzip como no agente “sempre GZIP”
+- compressao de saida: acima do limiar, modo **automatico** (gzip so quando a economia supera `PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES`) no hub por defeito; `payloadFrameCompression: always` forca gzip como no agente “sempre GZIP”
 - para JSON UTF-8 **acima do teto configuravel** (`PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **512 KiB**), o hub **nao tenta** gzip na codificacao interna (`preencodePayloadFrameJson` em `payload_frame.ts`); o frame segue com `cmp: none` ate ao limite de `10 MB` no fio
 - limite de payload comprimido: `10 MB`
 - limite de payload decodificado: `10 MB`
@@ -178,9 +206,36 @@ Variaveis principais do relay:
 
 ### Rate limit por consumer (janela fixa)
 
-Os limites `SOCKET_RELAY_RATE_LIMIT_*` aplicam-se por `consumer` (socket) e usam **janela fixa**: quando decorre `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS` desde o inicio da janela, os contadores de `relay:conversation.start` e de pedidos relay (`relay:rpc.request`) **zeram** de uma vez. Nao e *sliding window*; o trafego pode concentrar-se nos limites de cada janela. Estados inativos sao removidos pelo sweep periodico (`SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` x duracao da janela) e ao disconnect do consumer.
+Os limites `SOCKET_RELAY_RATE_LIMIT_*` aplicam-se por identidade lógica (`relay:user:<sub>` quando autenticado; `relay:anon:<socketId>` como fallback) e usam **janela fixa**: quando decorre `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS` desde o inicio da janela, os contadores de `relay:conversation.start`, `relay:rpc.request` e do orçamento de créditos de `relay:rpc.stream.pull` **zeram** de uma vez. Nao e *sliding window*; o trafego pode concentrar-se nos limites de cada janela. Estados inativos sao removidos pelo sweep periodico (`SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` x duracao da janela) e ao disconnect apenas para chaves anónimas.
 
 Métricas Prometheus em `GET /metrics`: `plug_socket_relay_rate_limit_conversation_start_allowed_total`, `..._rejected_total`, `plug_socket_relay_rate_limit_request_allowed_total`, `..._rejected_total`, etc.
+
+`relay:rpc.stream.pull_response` inclui:
+
+```json
+{
+  "success": true,
+  "requestId": "req-1",
+  "streamId": "stream-1",
+  "windowSize": 32,
+  "rateLimit": {
+    "remainingCredits": 768,
+    "limit": 1000,
+    "scope": "user"
+  }
+}
+```
+
+Quando o orçamento estoura, o hub responde com `success: false`, `error.code = "RATE_LIMITED"` e preserva o bloco `rateLimit` com o saldo restante.
+
+### Shed load em `/consumers`
+
+Se a fila outbound relay exceder backlog ou latência p95 configurados, o hub passa a rejeitar temporariamente novos eventos relay em `/consumers` com `SERVICE_UNAVAILABLE` e `retryAfterMs`. Variáveis principais:
+
+- `SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG`
+- `SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS`
+- `SOCKET_RELAY_OUTBOUND_TAIL_STALE_MS`
+- `SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS`
 
 ## Auditoria Socket e retencao
 

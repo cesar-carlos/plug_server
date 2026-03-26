@@ -3,6 +3,7 @@
  */
 
 import { io as ioClient, type Socket as IoSocket } from "socket.io-client";
+import { decodePayloadFrame } from "../../../src/shared/utils/payload_frame";
 
 export const connectConsumerSocket = (baseUrl: string, accessToken: string): Promise<IoSocket> => {
   return new Promise<IoSocket>((resolve, reject) => {
@@ -10,7 +11,14 @@ export const connectConsumerSocket = (baseUrl: string, accessToken: string): Pro
       auth: { token: accessToken },
       transports: ["websocket"],
     });
-    socket.on("connection:ready", () => resolve(socket));
+    socket.on("connection:ready", (rawPayload: unknown) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        reject(new Error(`Failed to decode connection:ready: ${decoded.error.message}`));
+        return;
+      }
+      resolve(socket);
+    });
     socket.on("connect_error", (err) => {
       socket.disconnect();
       reject(err);

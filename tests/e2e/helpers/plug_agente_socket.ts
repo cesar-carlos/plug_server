@@ -6,7 +6,7 @@
 import { io as ioClient, type Socket as IoSocket } from "socket.io-client";
 
 import { env } from "../../../src/shared/config/env";
-import { encodePayloadFrame } from "../../../src/shared/utils/payload_frame";
+import { encodePayloadFrame, decodePayloadFrame } from "../../../src/shared/utils/payload_frame";
 
 export type AgentSocket = IoSocket;
 
@@ -49,7 +49,14 @@ export const connectPlugAgenteSocket = (baseUrl: string, agentAccessToken: strin
       transports: ["websocket"],
     });
 
-    socket.on("connection:ready", () => resolve(socket));
+    socket.on("connection:ready", (rawPayload: unknown) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        reject(new Error(`Failed to decode connection:ready: ${decoded.error.message}`));
+        return;
+      }
+      resolve(socket);
+    });
     socket.on("connect_error", (err) => {
       socket.disconnect();
       reject(err);

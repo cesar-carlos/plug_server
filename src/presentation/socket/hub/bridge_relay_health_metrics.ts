@@ -52,6 +52,10 @@ export const relayMetrics = {
   /** Agent dispatch queue full or queue wait timeout (`rest_agent_dispatch_queue`). */
   restAgentQueueFullRejected: 0,
   restAgentQueueWaitTimeoutRejected: 0,
+  /** Consumer socket not found when attempting to emit relay frame. */
+  relayEmitDiscardedConsumerGone: 0,
+  /** Conversations removed by idle timeout sweep. */
+  conversationsExpiredTotal: 0,
 };
 
 let rpcFrameDecodeFailureCount = 0;
@@ -161,6 +165,8 @@ export type RelayHubMetricsSnapshot = {
     readonly restAgentQueueFullRejected: number;
     readonly restAgentQueueWaitTimeoutRejected: number;
     readonly rpcFrameDecodeFailed: number;
+    readonly relayEmitDiscardedConsumerGone: number;
+    readonly conversationsExpiredTotal: number;
   };
   readonly gauges: {
     readonly pendingRelayRequests: number;
@@ -268,5 +274,7 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.restGlobalPendingCapRejected = 0;
   relayMetrics.restAgentQueueFullRejected = 0;
   relayMetrics.restAgentQueueWaitTimeoutRejected = 0;
+  relayMetrics.relayEmitDiscardedConsumerGone = 0;
+  relayMetrics.conversationsExpiredTotal = 0;
   rpcFrameDecodeFailureCount = 0;
 };

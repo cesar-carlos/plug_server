@@ -7,6 +7,7 @@ import { AppError } from "../../../shared/errors/app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { allowRelayStreamPull } from "../hub/consumer_relay_rate_limiter";
 
 const relayStreamPullEnvelopeSchema = z.object({
   conversationId: nonEmptyStringSchema,
@@ -20,8 +21,21 @@ type RelayStreamPullResponsePayload =
       requestId: string;
       streamId: string;
       windowSize: number;
+      rateLimit: {
+        remainingCredits: number;
+        limit: number;
+        scope: "user" | "anon";
+      };
     }
-  | { success: false; error: { code: string; message: string; statusCode?: number } };
+  | {
+      success: false;
+      error: { code: string; message: string; statusCode?: number };
+      rateLimit?: {
+        remainingCredits: number;
+        limit: number;
+        scope: "user" | "anon";
+      };
+    };
 
 const emitRelayStreamPullResponse = (socket: Socket, payload: RelayStreamPullResponsePayload): void => {
   socket.emit(socketEvents.relayRpcStreamPullResponse, payload);
@@ -53,12 +67,36 @@ export const handleRelayRpcStreamPull = (
         rawFramePayload: parsed.data.frame,
       });
 
+      const userSub = socket.data.user?.sub;
+      const allowance = allowRelayStreamPull(userSub, socket.id, result.windowSize);
+      if (!allowance.allowed) {
+        emitRelayStreamPullResponse(socket, {
+          success: false,
+          error: {
+            code: "RATE_LIMITED",
+            message: "Stream pull credit budget exceeded for this window",
+            statusCode: 429,
+          },
+          rateLimit: {
+            remainingCredits: allowance.remainingCredits,
+            limit: allowance.limit,
+            scope: allowance.scope,
+          },
+        });
+        return;
+      }
+
       emitRelayStreamPullResponse(socket, {
         success: true,
         conversationId: parsed.data.conversationId,
         requestId: result.requestId,
         streamId: result.streamId,
         windowSize: result.windowSize,
+        rateLimit: {
+          remainingCredits: allowance.remainingCredits,
+          limit: allowance.limit,
+          scope: allowance.scope,
+        },
       });
 
       const actorRole = resolveRole(socket.data.user);
@@ -71,7 +109,12 @@ export const handleRelayRpcStreamPull = (
         conversationId: parsed.data.conversationId,
         requestId: result.requestId,
         streamId: result.streamId,
-        payload: { windowSize: result.windowSize },
+        payload: {
+          windowSize: result.windowSize,
+          remainingCredits: allowance.remainingCredits,
+          limit: allowance.limit,
+          scope: allowance.scope,
+        },
       });
     } catch (err: unknown) {
       const appError = err instanceof AppError ? err : undefined;

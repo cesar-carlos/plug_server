@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import type { Namespace } from "socket.io";
 
@@ -35,7 +35,7 @@ import { agentRegistry } from "./agent_registry";
 import { enqueueRelayOutbound } from "./relay_outbound_queue";
 import { conversationRegistry } from "./conversation_registry";
 import { getOrCreateRelayIdempotencyMap } from "./relay_idempotency_store";
-import { relayStreamFlowState } from "./relay_stream_flow_state";
+import { setRelayStreamFlowCredits, ensureRelayStreamFlowEntry } from "./relay_stream_flow_state";
 import type { RelayRequestRoute } from "./relay_request_registry";
 import {
   getRelayPendingRequestCountForConsumer,
@@ -223,7 +223,7 @@ export const createRpcBridgeRelayDispatch = (
 
     const requestId = randomUUID();
 
-    const traceId = toRequestId(decoded.value.frame.traceId) ?? randomBytes(16).toString("hex");
+    const traceId = toRequestId(decoded.value.frame.traceId) ?? randomUUID();
     const existingMeta = toRecord(cmdRecord.meta) ?? {};
     const commandPayload: Record<string, unknown> = {
       ...normalizedCommand,
@@ -285,8 +285,8 @@ export const createRpcBridgeRelayDispatch = (
     };
 
     registerRelayRequestRoute(relayRoute);
-    relayStreamFlowState.creditsByRequestId.set(requestId, 0);
-    relayStreamFlowState.bufferedChunksByRequestId.set(requestId, []);
+    ensureRelayStreamFlowEntry(requestId);
+    setRelayStreamFlowCredits(requestId, 0);
     upsertActiveStreamRoute({
       requestId,
       agentSocketId: conversation.agentSocketId,

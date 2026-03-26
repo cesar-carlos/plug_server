@@ -101,6 +101,7 @@ const emitToConsumer = (
 
   const consumerSocket = nsp.sockets.get(consumerSocketId);
   if (!consumerSocket) {
+    relayMetrics.relayEmitDiscardedConsumerGone += 1;
     return;
   }
 

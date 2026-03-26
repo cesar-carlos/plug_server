@@ -24,7 +24,14 @@ const connectConsumer = (baseUrl: string, token: string) =>
       auth: { token },
       transports: ["websocket"],
     });
-    socket.on("connection:ready", () => resolve(socket));
+    socket.on("connection:ready", (rawPayload: unknown) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        reject(new Error(`Failed to decode connection:ready: ${decoded.error.message}`));
+        return;
+      }
+      resolve(socket);
+    });
     socket.on("connect_error", (err) => reject(err));
   });
 
@@ -34,7 +41,14 @@ const connectAgent = (baseUrl: string, token: string) =>
       auth: { token },
       transports: ["websocket"],
     });
-    socket.on("connection:ready", () => resolve(socket));
+    socket.on("connection:ready", (rawPayload: unknown) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        reject(new Error(`Failed to decode connection:ready: ${decoded.error.message}`));
+        return;
+      }
+      resolve(socket);
+    });
     socket.on("connect_error", (err) => reject(err));
   });
 

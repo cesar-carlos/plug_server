@@ -13,7 +13,14 @@ import {
 } from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
 import type { RelayRequestRoute } from "../../../../../src/presentation/socket/hub/relay_request_registry";
 import { resetRelayRequestRegistry } from "../../../../../src/presentation/socket/hub/relay_request_registry";
-import { relayStreamFlowState, resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
+import {
+  setRelayStreamFlowCredits,
+  getRelayStreamFlowCredits,
+  addRelayStreamBufferedChunk,
+  getRelayStreamBufferedChunks,
+  resetRelayStreamFlowState,
+  relayStreamFlowState,
+} from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
 const fakeTimeout = {} as NodeJS.Timeout;
@@ -45,7 +52,7 @@ describe("rpc_bridge_relay_stream", () => {
   it("createRelayStreamHandlers forwards chunk when credits > 0", async () => {
     const emit = vi.fn();
     const route = makeRoute();
-    relayStreamFlowState.creditsByRequestId.set("r1", 1);
+    setRelayStreamFlowCredits("r1", 1);
     const h = createRelayStreamHandlers(route, emit);
     expect(h.mode).toBe("relay");
     h.onChunk({ stream_id: "s1" });
@@ -53,7 +60,7 @@ describe("rpc_bridge_relay_stream", () => {
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit.mock.calls[0]?.[0]).toBe("cons1");
     expect(emit.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcChunk);
-    expect(relayStreamFlowState.creditsByRequestId.get("r1")).toBe(0);
+    expect(getRelayStreamFlowCredits("r1")).toBe(0);
   });
 
   it("emitRelayTimeoutResponse emits error frame and stores idempotency response", async () => {
@@ -71,11 +78,9 @@ describe("rpc_bridge_relay_stream", () => {
   it("createRelayStreamHandlers emits terminal complete on backpressure overflow", async () => {
     const emit = vi.fn();
     const route = makeRoute({ requestId: "r-overflow" });
-    relayStreamFlowState.bufferedChunksByRequestId.set(
-      "r-overflow",
-      Array.from({ length: env.socketRelayMaxBufferedChunksPerRequest }, () => ({ rows: [] })),
-    );
-    relayStreamFlowState.totalBufferedChunks = env.socketRelayMaxBufferedChunksPerRequest;
+    for (let i = 0; i < env.socketRelayMaxBufferedChunksPerRequest; i++) {
+      addRelayStreamBufferedChunk("r-overflow", { rows: [] });
+    }
 
     const h = createRelayStreamHandlers(route, emit);
     h.onChunk({

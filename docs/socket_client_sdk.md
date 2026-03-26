@@ -12,8 +12,38 @@ real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 
 ## Eventos e formato
 
+- **Handshake**: `connection:ready` (PayloadFrame desde versão mais recente)
 - Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`
 - Dados em `PayloadFrame`: `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
+
+### Handshake: `connection:ready`
+
+Emitido imediatamente após autenticação bem-sucedida em ambos os namespaces (`/agents` e `/consumers`). **Desde versão mais recente, este evento é enviado como `PayloadFrame`** para consistência com outros eventos RPC.
+
+**Payload lógico após decode**:
+
+```json
+{
+  "id": "<socket.id>",
+  "message": "Socket connected successfully",
+  "user": { "sub": "<user_id>", "iat": 123, "exp": 456, "role": "..." }
+}
+```
+
+**Implementação no cliente**:
+
+```typescript
+socket.on("connection:ready", (rawPayload: unknown) => {
+  const decoded = decodePayloadFrame(rawPayload);
+  if (!decoded.ok) {
+    throw new Error(`Handshake decode failed: ${decoded.error.message}`);
+  }
+  // decoded.value = { id, message, user }
+  console.log("Connected:", decoded.value);
+});
+```
+
+**Nota de compatibilidade**: existe um shim transitório isolado por `SOCKET_CONNECTION_READY_COMPAT_MODE`, mas o contrato padrão e suportado é `PayloadFrame`. O modo legado `raw_json` tem remoção planejada após `2026-09-30`.
 
 ## Estrutura do PayloadFrame
 
@@ -44,7 +74,7 @@ Em alguns eventos de **alto debito** (`relay:rpc.chunk`, `relay:rpc.complete`, a
 
 ## Exemplo de encode/decode no cliente (Node.js)
 
-Alinhado ao modo **automatico** do hub / plug_agente: acima do limiar (1024 bytes UTF-8), usar **gzip so se** o bloco comprimido for **estritamente menor** que o JSON bruto; caso contrario `cmp: "none"`. (No REST/relay, `payloadFrameCompression: "always"` no envelope controla a re-encodacao **hub → agente** apos o servidor descodificar o teu frame.)
+Alinhado ao modo **automatico** do hub / plug_agente: acima do limiar (1024 bytes UTF-8), usar **gzip so se** o bloco comprimido economizar bytes suficientes face ao JSON bruto (ver `PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES`); caso contrario `cmp: "none"`. (No REST/relay, `payloadFrameCompression: "always"` no envelope controla a re-encodacao **hub → agente** apos o servidor descodificar o teu frame.)
 
 ```ts
 import { gzipSync, gunzipSync } from "node:zlib";
@@ -99,6 +129,27 @@ negociada (ver `plug_agente/docs/communication/socketio_client_binary_transport.
 5. Recebe dados (`relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`) em `PayloadFrame`
 6. Em streaming, envia `relay:rpc.stream.pull` com `{ conversationId, frame }`
 7. Finaliza com `relay:conversation.end`
+
+### Resposta de `relay:rpc.stream.pull`
+
+O servidor responde em JSON e inclui o orçamento restante da janela quando o pull é aceite ou rejeitado:
+
+```json
+{
+  "success": true,
+  "conversationId": "conv-1",
+  "requestId": "req-1",
+  "streamId": "stream-1",
+  "windowSize": 32,
+  "rateLimit": {
+    "remainingCredits": 768,
+    "limit": 1000,
+    "scope": "user"
+  }
+}
+```
+
+Em overload do namespace `/consumers`, ou quando a janela de créditos estoura, a resposta vem com `success: false`; no caso de rate-limit por créditos, `error.code = "RATE_LIMITED"` e o bloco `rateLimit` mostra o saldo remanescente.
 
 ## Observacoes importantes
 

@@ -41,6 +41,12 @@ rate(plug_socket_relay_rest_agent_queue_full_rejected_total[5m])
 rate(plug_socket_relay_rest_agent_queue_wait_timeout_rejected_total[5m])
 rate(plug_socket_relay_rest_pending_rejected_total[5m])
 
+# Rate limiting relay por identidade (scope=user|anon)
+rate(plug_socket_relay_rate_limit_conversation_start_rejected_total[5m])
+rate(plug_socket_relay_rate_limit_request_rejected_total[5m])
+rate(plug_socket_relay_rate_limit_stream_pull_credits_rejected_total[5m])
+sum by (scope) (plug_socket_relay_rate_limit_stream_pull_credits_granted_total)
+
 # Fila por agente no bridge REST (agregado, baixa cardinalidade)
 plug_socket_relay_rest_dispatch_inflight_total
 plug_socket_relay_rest_dispatch_queued_waiters_total
@@ -138,6 +144,28 @@ Ajusta `for` e limiares ao teu tráfego.
 # Relay: chunks descartados por backpressure (deveria ser raro)
 rate(plug_socket_relay_chunks_dropped_total[5m]) > 0.1
 
+# Relay: emissões descartadas quando consumer desconecta durante stream
+rate(plug_socket_relay_emit_discarded_consumer_gone_total[5m]) > 0
+
+# Relay: conversas expiradas por idle (normal, mas picos podem indicar problema de limpeza)
+rate(plug_socket_relay_conversations_expired_total[5m])
+
+# Fila outbound relay: backlog crescente (jobs enfileirados - concluídos)
+plug_socket_relay_outbound_queue_backlog > 50
+
+# Fila outbound relay: tails órfãos (jobs zumbis / hung)
+plug_socket_relay_outbound_queue_orphaned_request_ids > 0
+rate(plug_socket_relay_outbound_queue_orphaned_tails_swept_total[5m]) > 0
+
+# Fila outbound relay: percentil p95 da duração dos jobs acima de limiar
+plug_socket_relay_outbound_queue_job_duration_p95_ms > 100
+
+# Fila outbound relay: percentil p99 da duração dos jobs acima de limiar
+plug_socket_relay_outbound_queue_job_duration_p99_ms > 200
+
+# Shed load no namespace /consumers quando a fila relay entra em overload
+rate(plug_socket_relay_outbound_queue_overload_rejected_total[5m]) > 0
+
 # Circuito do agente a abrir frequentemente
 rate(plug_socket_relay_circuit_open_rejects_total[5m]) > 0.05
 
@@ -157,6 +185,63 @@ rate(plug_bridge_latency_trace_writes_failed_total[5m]) > 0.1
 # Bridge latency traces: discrepancia total_ms vs soma das fases (definir limiar com PHASES_MISMATCH_WARN_MS)
 rate(plug_bridge_latency_trace_phases_mismatch_total[5m]) > 0
 ```
+
+## Dashboards operacionais sugeridos
+
+Para o relay Socket, um dashboard mínimo útil costuma incluir:
+
+- taxa de `plug_socket_relay_rate_limit_*_rejected_total` por `scope`
+- `plug_socket_relay_outbound_queue_backlog`
+- `plug_socket_relay_outbound_queue_job_duration_p95_ms`
+- `plug_socket_relay_outbound_queue_orphaned_request_ids`
+- `rate(plug_socket_relay_emit_discarded_consumer_gone_total[5m])`
+- `rate(plug_socket_relay_conversations_expired_total[5m])`
+- `rate(plug_socket_relay_outbound_queue_overload_rejected_total[5m])`
+
+## Proteções adicionais do relay
+
+### Fila outbound: cleanup de tails órfãos
+
+Cada `requestId` mantém uma cadeia serializada na fila outbound. Se uma cadeia ficar sem progresso por tempo demais, o hub passa a tratá-la como órfã/zumbi e a remove no sweep periódico:
+
+- `SOCKET_RELAY_OUTBOUND_TAIL_STALE_MS`
+- `SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS`
+
+Métricas associadas:
+
+- `plug_socket_relay_outbound_queue_orphaned_request_ids`
+- `plug_socket_relay_outbound_queue_orphaned_tails_swept_total`
+
+### Shed load em `/consumers`
+
+Quando a fila outbound relay excede backlog ou latência p95 configurados, o hub passa a rejeitar temporariamente novos eventos relay de `/consumers` com `SERVICE_UNAVAILABLE` e `retryAfterMs`:
+
+- `SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG`
+- `SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS`
+
+Métrica associada:
+
+- `plug_socket_relay_outbound_queue_overload_rejected_total`
+
+### Stream pull: orçamento restante
+
+`relay:rpc.stream.pull_response` agora pode incluir metadados de orçamento da janela:
+
+```json
+{
+  "success": true,
+  "requestId": "req-123",
+  "streamId": "stream-123",
+  "windowSize": 32,
+  "rateLimit": {
+    "remainingCredits": 768,
+    "limit": 1000,
+    "scope": "user"
+  }
+}
+```
+
+Quando bloqueado por limite, o mesmo bloco `rateLimit` acompanha o erro `RATE_LIMITED`.
 
 ## Logs e tracing
 

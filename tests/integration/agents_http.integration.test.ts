@@ -76,7 +76,12 @@ describe("Agents HTTP bridge", () => {
       transports: ["websocket"],
     });
 
-    await waitForEvent<unknown>(agentSocket, "connection:ready");
+    await waitForEvent<unknown>(agentSocket, "connection:ready").then((rawPayload) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        throw new Error(`Failed to decode connection:ready: ${decoded.error.message}`);
+      }
+    });
     const capabilitiesPromise = waitForEvent<unknown>(agentSocket, "agent:capabilities");
     agentSocket.emit(
       "agent:register",
@@ -152,7 +157,12 @@ describe("Agents HTTP bridge", () => {
     });
 
     try {
-      await waitForEvent<unknown>(warmingAgentSocket, "connection:ready");
+      await waitForEvent<unknown>(warmingAgentSocket, "connection:ready").then((rawPayload) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok) {
+          throw new Error(`Failed to decode connection:ready: ${decoded.error.message}`);
+        }
+      });
       const capabilitiesPromise = waitForEvent<unknown>(warmingAgentSocket, "agent:capabilities");
       warmingAgentSocket.emit(
         "agent:register",
@@ -269,7 +279,12 @@ describe("Agents HTTP bridge", () => {
     });
 
     try {
-      await waitForEvent<unknown>(explicitAgentSocket, "connection:ready");
+      await waitForEvent<unknown>(explicitAgentSocket, "connection:ready").then((rawPayload) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok) {
+          throw new Error(`Failed to decode connection:ready: ${decoded.error.message}`);
+        }
+      });
       const capabilitiesPromise = waitForEvent<unknown>(explicitAgentSocket, "agent:capabilities");
       explicitAgentSocket.emit(
         "agent:register",
@@ -1511,7 +1526,12 @@ describe("Agents HTTP bridge", () => {
 
     const readyAfterReconnect = waitForEvent<unknown>(agentSocket!, "connection:ready", 10_000);
     agentSocket!.connect();
-    await readyAfterReconnect;
+    await readyAfterReconnect.then((rawPayload) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        throw new Error(`Failed to decode connection:ready: ${decoded.error.message}`);
+      }
+    });
     const capabilitiesPromise = waitForEvent<unknown>(agentSocket, "agent:capabilities");
     agentSocket!.emit(
       "agent:register",

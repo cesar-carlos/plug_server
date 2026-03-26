@@ -45,7 +45,10 @@ import {
   getRestPendingRequestByCorrelationId,
 } from "./rest_pending_requests";
 import { getOrCreateRelayIdempotencyMap } from "./relay_idempotency_store";
-import { relayStreamFlowState } from "./relay_stream_flow_state";
+import {
+  setRelayStreamFlowCredits,
+  getRelayStreamForwardedRows,
+} from "./relay_stream_flow_state";
 import {
   findRelayRequestRouteForAgentSocket,
   getRelayRequestRoute,
@@ -221,7 +224,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     enqueueRelayOutbound(route.requestId, async () => {
       const terminalPayload: Record<string, unknown> = {
         request_id: route.requestId,
-        total_rows: relayStreamFlowState.forwardedRowsByRequestId.get(route.requestId) ?? 0,
+        total_rows: getRelayStreamForwardedRows(route.requestId),
         terminal_status: "error",
         ...(route.streamId ? { stream_id: route.streamId } : {}),
       };
@@ -527,7 +530,7 @@ export const createRpcBridgeAgentInboundHandlers = (
             streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
             streamId,
           });
-          relayStreamFlowState.creditsByRequestId.set(responseId, 0);
+          setRelayStreamFlowCredits(responseId, 0);
         }
 
         enqueueRelayOutbound(responseId, async () => {

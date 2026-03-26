@@ -25,6 +25,8 @@ import {
   resetSocketBridgeState,
   registerSocketBridgeServer,
 } from "./presentation/socket/hub/rpc_bridge";
+import { relayMetrics } from "./presentation/socket/hub/bridge_relay_health_metrics";
+import { emitConnectionReady } from "./presentation/socket/hub/connection_ready_handshake";
 import { conversationRegistry } from "./presentation/socket/hub/conversation_registry";
 import {
   allowRelayConversationStart,
@@ -40,6 +42,11 @@ import {
   resetAgentsCommandSocketRateLimitState,
   sweepAgentsCommandSocketRateLimitState,
 } from "./presentation/socket/hub/agents_command_socket_rate_limiter";
+import {
+  getRelayOutboundQueueOverloadState,
+  noteRelayOutboundQueueOverloadRejected,
+  sweepRelayOutboundQueueState,
+} from "./presentation/socket/hub/relay_outbound_queue";
 import { handleRelayConversationStart } from "./presentation/socket/consumers/relay_conversation_start.handler";
 import { handleRelayConversationEnd } from "./presentation/socket/consumers/relay_conversation_end.handler";
 import { handleRelayRpcRequest } from "./presentation/socket/consumers/relay_rpc_request.handler";
@@ -103,6 +110,16 @@ const emitAppError = (socket: HubSocket, message: string): void => {
     code: "SOCKET_PROTOCOL_ERROR",
   });
 };
+
+const buildConsumerOverloadError = (
+  retryAfterMs: number,
+  reason: string,
+): { code: string; message: string; statusCode: number; retryAfterMs: number } => ({
+  code: "SERVICE_UNAVAILABLE",
+  message: `Consumer namespace temporarily overloaded (${reason})`,
+  statusCode: 503,
+  retryAfterMs,
+});
 
 const getUserId = (socket: HubSocket): string | null => {
   return typeof socket.data.user?.sub === "string" ? socket.data.user.sub : null;
@@ -230,9 +247,13 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   conversationSweepTimer = setInterval(() => {
     sweepRelayRateLimitState();
     sweepAgentsCommandSocketRateLimitState();
+    sweepRelayOutboundQueueState();
     const expiredConversations = conversationRegistry.removeExpired(
       env.socketRelayConversationIdleTimeoutMs,
     );
+    if (expiredConversations.length > 0) {
+      relayMetrics.conversationsExpiredTotal += expiredConversations.length;
+    }
     for (const conversation of expiredConversations) {
       cleanupConversationStreamSubscriptions(conversation.conversationId);
       const consumerSocket = consumersNsp.sockets.get(conversation.consumerSocketId);
@@ -251,7 +272,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       userId: getUserId(socket),
     });
 
-    socket.emit(socketEvents.connectionReady, {
+    emitConnectionReady(socket, {
       id: socket.id,
       message: "Socket connected successfully",
       user: socket.data.user ?? null,
@@ -421,7 +442,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       userId: getUserId(socket),
     });
 
-    socket.emit(socketEvents.connectionReady, {
+    emitConnectionReady(socket, {
       id: socket.id,
       message: "Consumer socket connected successfully",
       user: socket.data.user ?? null,
@@ -436,7 +457,21 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
-      if (!allowRelayConversationStart(socket.id)) {
+      const overload = getRelayOutboundQueueOverloadState();
+      if (overload.overloaded) {
+        noteRelayOutboundQueueOverloadRejected();
+        socket.emit(socketEvents.relayConversationStarted, {
+          success: false,
+          error: buildConsumerOverloadError(
+            overload.retryAfterMs,
+            overload.reason ?? "relay_outbound_queue",
+          ),
+        });
+        return;
+      }
+
+      const userSub = socket.data.user?.sub;
+      if (!allowRelayConversationStart(userSub, socket.id)) {
         socket.emit(socketEvents.relayConversationStarted, {
           success: false,
           error: {
@@ -456,7 +491,21 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayRpcRequest, (rawPayload: unknown) => {
-      if (!allowRelayRpcRequest(socket.id)) {
+      const overload = getRelayOutboundQueueOverloadState();
+      if (overload.overloaded) {
+        noteRelayOutboundQueueOverloadRejected();
+        socket.emit(socketEvents.relayRpcAccepted, {
+          success: false,
+          error: buildConsumerOverloadError(
+            overload.retryAfterMs,
+            overload.reason ?? "relay_outbound_queue",
+          ),
+        });
+        return;
+      }
+
+      const userSub = socket.data.user?.sub;
+      if (!allowRelayRpcRequest(userSub, socket.id)) {
         socket.emit(socketEvents.relayRpcAccepted, {
           success: false,
           error: {
@@ -472,6 +521,19 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayRpcStreamPull, (rawPayload: unknown) => {
+      const overload = getRelayOutboundQueueOverloadState();
+      if (overload.overloaded) {
+        noteRelayOutboundQueueOverloadRejected();
+        socket.emit(socketEvents.relayRpcStreamPullResponse, {
+          success: false,
+          error: buildConsumerOverloadError(
+            overload.retryAfterMs,
+            overload.reason ?? "relay_outbound_queue",
+          ),
+        });
+        return;
+      }
+
       handleRelayRpcStreamPull(socket, rawPayload);
     });
 

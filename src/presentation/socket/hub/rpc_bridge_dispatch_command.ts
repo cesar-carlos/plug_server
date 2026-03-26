@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import type { Namespace } from "socket.io";
 
@@ -125,7 +125,7 @@ export const createDispatchRpcCommandToAgent = (
     const correlationIds = toCorrelationIds(command);
     const firstCorrelationId = correlationIds.at(0);
     const requestId = !isBatchCommand(command) && firstCorrelationId ? firstCorrelationId : randomUUID();
-    const traceId = randomBytes(16).toString("hex");
+    const traceId = randomUUID();
     const commandPayload = withBridgeMeta(command, {
       requestId,
       agentId: input.agentId,

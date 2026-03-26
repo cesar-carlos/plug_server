@@ -15,6 +15,15 @@ export interface RelayConversation {
   readonly lastSeenAt: string;
 }
 
+interface InternalRelayConversation {
+  readonly conversationId: string;
+  readonly consumerSocketId: string;
+  readonly agentSocketId: string;
+  readonly agentId: string;
+  readonly createdAtMs: number;
+  lastSeenAtMs: number;
+}
+
 const addIndexValue = (index: Map<string, Set<string>>, key: string, value: string): void => {
   const existing = index.get(key);
   if (existing) {
@@ -38,9 +47,20 @@ const removeIndexValue = (index: Map<string, Set<string>>, key: string, value: s
 };
 
 class InMemoryConversationRegistry {
-  private readonly conversations = new Map<string, RelayConversation>();
+  private readonly conversations = new Map<string, InternalRelayConversation>();
   private readonly conversationsByConsumerSocket = new Map<string, Set<string>>();
   private readonly conversationsByAgentSocket = new Map<string, Set<string>>();
+
+  private toPublic(internal: InternalRelayConversation): RelayConversation {
+    return {
+      conversationId: internal.conversationId,
+      consumerSocketId: internal.consumerSocketId,
+      agentSocketId: internal.agentSocketId,
+      agentId: internal.agentId,
+      createdAt: new Date(internal.createdAtMs).toISOString(),
+      lastSeenAt: new Date(internal.lastSeenAtMs).toISOString(),
+    };
+  }
 
   create(input: {
     readonly consumerSocketId: string;
@@ -48,26 +68,27 @@ class InMemoryConversationRegistry {
     readonly agentId: string;
     readonly conversationId?: string;
   }): RelayConversation {
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
     const conversationId = input.conversationId ?? randomUUID();
 
-    const conversation: RelayConversation = {
+    const conversation: InternalRelayConversation = {
       conversationId,
       consumerSocketId: input.consumerSocketId,
       agentSocketId: input.agentSocketId,
       agentId: input.agentId,
-      createdAt: now,
-      lastSeenAt: now,
+      createdAtMs: nowMs,
+      lastSeenAtMs: nowMs,
     };
 
     this.conversations.set(conversationId, conversation);
     addIndexValue(this.conversationsByConsumerSocket, input.consumerSocketId, conversationId);
     addIndexValue(this.conversationsByAgentSocket, input.agentSocketId, conversationId);
-    return conversation;
+    return this.toPublic(conversation);
   }
 
   findByConversationId(conversationId: string): RelayConversation | null {
-    return this.conversations.get(conversationId) ?? null;
+    const internal = this.conversations.get(conversationId);
+    return internal ? this.toPublic(internal) : null;
   }
 
   countAll(): number {
@@ -84,12 +105,9 @@ class InMemoryConversationRegistry {
       return null;
     }
 
-    const updated: RelayConversation = {
-      ...existing,
-      lastSeenAt: new Date().toISOString(),
-    };
-    this.conversations.set(conversationId, updated);
-    return updated;
+    existing.lastSeenAtMs = Date.now();
+    this.conversations.set(conversationId, existing);
+    return this.toPublic(existing);
   }
 
   removeByConversationId(conversationId: string): RelayConversation | null {
@@ -101,7 +119,7 @@ class InMemoryConversationRegistry {
     this.conversations.delete(conversationId);
     removeIndexValue(this.conversationsByConsumerSocket, existing.consumerSocketId, conversationId);
     removeIndexValue(this.conversationsByAgentSocket, existing.agentSocketId, conversationId);
-    return existing;
+    return this.toPublic(existing);
   }
 
   removeByConsumerSocketId(consumerSocketId: string): readonly RelayConversation[] {
@@ -143,12 +161,7 @@ class InMemoryConversationRegistry {
     const expiredIds: string[] = [];
 
     for (const conversation of this.conversations.values()) {
-      const lastSeenMs = Date.parse(conversation.lastSeenAt);
-      if (Number.isNaN(lastSeenMs)) {
-        continue;
-      }
-
-      if (now - lastSeenMs >= timeoutMs) {
+      if (now - conversation.lastSeenAtMs >= timeoutMs) {
         expiredIds.push(conversation.conversationId);
       }
     }
