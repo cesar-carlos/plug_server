@@ -1,12 +1,18 @@
-import { mergeSqlStreamRpcResponse } from "../../../application/agent_commands/merge_sql_stream_rpc_response";
+import {
+  countSqlExecuteResultRowsInEnvelope,
+  countSqlStreamChunkRows,
+  mergeSqlStreamRpcResponse,
+} from "../../../application/agent_commands/merge_sql_stream_rpc_response";
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
+import { serviceUnavailable } from "../../../shared/errors/http_errors";
 import { logger } from "../../../shared/utils/logger";
 import {
   decodePayloadFrame,
   decodePayloadFrameAsync,
   finishPayloadFrameEnvelope,
+  isPayloadFrameEnvelope,
   preencodePayloadFrameJson,
 } from "../../../shared/utils/payload_frame";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
@@ -21,9 +27,11 @@ import {
 import {
   logRpcFrameDecodeFailure,
   observeAgentLatency,
+  registerAgentFailure,
   registerAgentSuccess,
   relayMetrics,
 } from "./bridge_relay_health_metrics";
+import { agentRegistry } from "./agent_registry";
 import { conversationRegistry } from "./conversation_registry";
 import {
   REST_STREAM_AGGREGATE_CONSUMER_ID,
@@ -77,6 +85,214 @@ export const createRpcBridgeAgentInboundHandlers = (
 ): RpcBridgeAgentInboundHandlers => {
   const { emitToConsumer, emitRpcStreamPullForRoute } = deps;
 
+  const extractFrameRequestId = (rawPayload: unknown): string | null => {
+    if (!isPayloadFrameEnvelope(rawPayload)) {
+      return null;
+    }
+    return toRequestId(rawPayload.requestId);
+  };
+
+  const createRelayDecodeFailurePayload = (
+    requestId: string,
+    reasonMessage: string,
+  ): Record<string, unknown> => {
+    const timestamp = new Date().toISOString();
+    const normalized = reasonMessage.toLowerCase();
+    if (normalized.includes("signature")) {
+      return {
+        jsonrpc: "2.0",
+        id: requestId,
+        error: {
+          code: -32001,
+          message: "Authentication failed",
+          data: {
+            reason: "invalid_signature",
+            category: "auth",
+            retryable: false,
+            user_message: "Nao foi possivel autenticar a resposta do agente.",
+            technical_message: reasonMessage,
+            correlation_id: `corr-${requestId}`,
+            timestamp,
+          },
+        },
+      };
+    }
+    if (normalized.includes("decode payloadframe json payload")) {
+      return {
+        jsonrpc: "2.0",
+        id: requestId,
+        error: {
+          code: -32010,
+          message: "Decoding failed",
+          data: {
+            reason: "decoding_failed",
+            category: "transport",
+            retryable: false,
+            user_message: "Nao foi possivel decodificar a resposta do agente.",
+            technical_message: reasonMessage,
+            correlation_id: `corr-${requestId}`,
+            timestamp,
+          },
+        },
+      };
+    }
+    return {
+      jsonrpc: "2.0",
+      id: requestId,
+      error: {
+        code: -32009,
+        message: "Invalid payload",
+        data: {
+          reason: "invalid_payload",
+          category: "transport",
+          retryable: false,
+          user_message: "O agente respondeu com um payload invalido.",
+          technical_message: reasonMessage,
+          correlation_id: `corr-${requestId}`,
+          timestamp,
+        },
+      },
+    };
+  };
+
+  const failFastInvalidAgentResponseFrame = (
+    socketId: string,
+    rawPayload: unknown,
+    reasonMessage: string,
+  ): void => {
+    const requestId = extractFrameRequestId(rawPayload);
+    if (!requestId) {
+      return;
+    }
+
+    const pendingRequest = getRestPendingRequestByCorrelationId(requestId);
+    if (pendingRequest && pendingRequest.socketId === socketId) {
+      clearTimeout(pendingRequest.timeoutHandle);
+      clearRestPendingRequest(pendingRequest);
+      const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
+      if (existingStream && existingStream.agentSocketId === socketId) {
+        removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
+      }
+      registerAgentFailure(pendingRequest.agentId);
+      pendingRequest.reject(
+        serviceUnavailable(`Failed to decode agent rpc:response frame: ${reasonMessage}`),
+      );
+    }
+
+    const relayRoute = getRelayRequestRoute(requestId);
+    if (!relayRoute || relayRoute.agentSocketId !== socketId) {
+      return;
+    }
+
+    relayRoute.latencyTrace?.finalizeOnce({
+      outcome: "error",
+      errorCode: "AGENT_FRAME_DECODE_FAILED",
+    });
+    enqueueRelayOutbound(requestId, async () => {
+      const frame = await encodeRelayOutboundFrame(
+        createRelayDecodeFailurePayload(requestId, reasonMessage),
+        requestId,
+      );
+      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+      const existingStream = getActiveStreamRouteByRequestId(requestId);
+      if (existingStream && existingStream.agentSocketId === socketId) {
+        removeActiveStreamRoute(existingStream);
+      }
+      removeRelayRequestRoute(requestId);
+    });
+  };
+
+  const emitRelayTerminalFailure = (
+    route: ActiveStreamRoute,
+    socketId: string,
+    reasonMessage: string,
+  ): void => {
+    const relayRoute = getRelayRequestRoute(route.requestId);
+    if (!relayRoute || relayRoute.agentSocketId !== socketId) {
+      return;
+    }
+
+    relayMetrics.streamTerminalCompletions += 1;
+    relayRoute.latencyTrace?.finalizeOnce({
+      outcome: "error",
+      httpStatus: 503,
+      errorCode: "AGENT_STREAM_FRAME_DECODE_FAILED",
+    });
+    enqueueRelayOutbound(route.requestId, async () => {
+      const terminalPayload: Record<string, unknown> = {
+        request_id: route.requestId,
+        total_rows: relayStreamFlowState.forwardedRowsByRequestId.get(route.requestId) ?? 0,
+        terminal_status: "error",
+        ...(route.streamId ? { stream_id: route.streamId } : {}),
+      };
+      const frame = await encodeRelayOutboundFrame(terminalPayload, route.requestId);
+      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcComplete, frame);
+      void recordSocketAuditEvent({
+        eventType: socketEvents.relayRpcComplete,
+        actorSocketId: socketId,
+        direction: "agent_to_consumer",
+        conversationId: relayRoute.conversationId,
+        agentId: relayRoute.agentId,
+        requestId: route.requestId,
+        ...(route.streamId ? { streamId: route.streamId } : {}),
+      });
+      const existingStream = getActiveStreamRouteByRequestId(route.requestId);
+      if (existingStream && existingStream.agentSocketId === socketId) {
+        removeActiveStreamRoute(existingStream);
+      }
+      removeRelayRequestRoute(route.requestId);
+      logger.warn("relay_stream_failed_fast", {
+        requestId: route.requestId,
+        conversationId: relayRoute.conversationId,
+        socketId,
+        reason: reasonMessage,
+      });
+    });
+  };
+
+  const failFastInvalidAgentStreamFrame = (
+    eventName: string,
+    socketId: string,
+    rawPayload: unknown,
+    reasonMessage: string,
+  ): void => {
+    const requestId = extractFrameRequestId(rawPayload);
+    if (!requestId) {
+      return;
+    }
+
+    const route = getActiveStreamRouteByRequestId(requestId);
+    if (!route || route.agentSocketId !== socketId) {
+      return;
+    }
+
+    const failureMessage = `Failed to decode agent ${eventName} frame: ${reasonMessage}`;
+    if (route.restMaterializeState && !route.restMaterializeState.settled) {
+      route.restMaterializeState.settled = true;
+      clearTimeout(route.restMaterializeState.timeoutHandle);
+      registerAgentFailure(route.restMaterializeState.agentId);
+      removeActiveStreamRoute(route, { restMaterialize: "detach" });
+      route.restMaterializeState.reject(serviceUnavailable(failureMessage));
+      return;
+    }
+
+    if (route.mode === "relay") {
+      emitRelayTerminalFailure(route, socketId, reasonMessage);
+      return;
+    }
+
+    try {
+      route.onComplete({
+        request_id: route.requestId,
+        total_rows: 0,
+        terminal_status: "error",
+        ...(route.streamId ? { stream_id: route.streamId } : {}),
+      });
+    } finally {
+      removeActiveStreamRoute(route);
+    }
+  };
+
   const handleAgentRpcResponse = (
     socketId: string,
     rawPayload: unknown,
@@ -105,6 +321,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           socketId,
           reason: result.error.message,
         });
+        failFastInvalidAgentResponseFrame(socketId, rawPayload, result.error.message);
         fireAck();
         return;
       }
@@ -137,7 +354,28 @@ export const createRpcBridgeAgentInboundHandlers = (
             const rejectOnce = pendingRequest.reject;
             const primaryRequestId = pendingRequestId;
             const chunkBuffer: Record<string, unknown>[] = [];
-            const pullWindow = env.socketRestStreamPullWindowSize;
+            const pullWindow = agentRegistry.resolveStreamPullWindow(
+              pendingRequest.agentId,
+              env.socketRestStreamPullWindowSize,
+            );
+            const materializeMaxRows = env.socketRestSqlStreamMaterializeMaxRows;
+            const materializeMaxChunks = env.socketRestSqlStreamMaterializeMaxChunks;
+            let aggregatedRowCount = countSqlExecuteResultRowsInEnvelope(initialJson);
+            let chunkFramesSeen = 0;
+
+            if (materializeMaxRows > 0 && aggregatedRowCount > materializeMaxRows) {
+              relayMetrics.restMaterializeRowLimitExceeded += 1;
+              registerAgentFailure(pendingRequest.agentId);
+              clearTimeout(pendingRequest.timeoutHandle);
+              clearRestPendingRequest(pendingRequest);
+              pendingRequest.reject(
+                serviceUnavailable(
+                  "REST SQL stream materialization would exceed configured row limit (use Socket bridge for large streams)",
+                ),
+              );
+              return;
+            }
+
             const restMaterializeState = {
               settled: false,
               timeoutHandle,
@@ -149,6 +387,39 @@ export const createRpcBridgeAgentInboundHandlers = (
               consumerSocketId: REST_STREAM_AGGREGATE_CONSUMER_ID,
               mode: "legacy",
               onChunk: (payload) => {
+                chunkFramesSeen += 1;
+                if (materializeMaxChunks > 0 && chunkFramesSeen > materializeMaxChunks) {
+                  relayMetrics.restMaterializeChunkLimitExceeded += 1;
+                  registerAgentFailure(pendingRequest.agentId);
+                  const route = getActiveStreamRouteByRequestId(primaryRequestId);
+                  if (route) {
+                    removeActiveStreamRoute(route, { restMaterialize: "detach" });
+                  }
+                  rejectOnce(
+                    serviceUnavailable(
+                      "REST SQL stream materialization exceeded configured chunk limit (use Socket bridge for large streams)",
+                    ),
+                  );
+                  return;
+                }
+
+                const chunkRows = countSqlStreamChunkRows(payload);
+                if (materializeMaxRows > 0 && aggregatedRowCount + chunkRows > materializeMaxRows) {
+                  relayMetrics.restMaterializeRowLimitExceeded += 1;
+                  registerAgentFailure(pendingRequest.agentId);
+                  const route = getActiveStreamRouteByRequestId(primaryRequestId);
+                  if (route) {
+                    removeActiveStreamRoute(route, { restMaterialize: "detach" });
+                  }
+                  rejectOnce(
+                    serviceUnavailable(
+                      "REST SQL stream materialization exceeded configured row limit (use Socket bridge for large streams)",
+                    ),
+                  );
+                  return;
+                }
+
+                aggregatedRowCount += chunkRows;
                 chunkBuffer.push(payload);
                 restSqlStreamMaterializeConsumeChunk(primaryRequestId, pullWindow, () => {
                   const route = getActiveStreamRouteByRequestId(primaryRequestId);
@@ -162,10 +433,17 @@ export const createRpcBridgeAgentInboundHandlers = (
                 clearTimeout(timeoutHandle);
                 try {
                   const merged = mergeSqlStreamRpcResponse(initialJson, chunkBuffer, payload);
+                  relayMetrics.restSqlStreamMaterializeCompleted += 1;
+                  relayMetrics.restSqlStreamMaterializeRowsMerged += countSqlExecuteResultRowsInEnvelope(merged);
                   pendingRequest.latencyTrace?.recordPendingResolveEnd();
                   resolveOnce(merged);
                 } catch (err) {
-                  rejectOnce(err instanceof Error ? err : new Error("Failed to merge SQL stream"));
+                  const mergeError = err instanceof Error ? err : new Error("Failed to merge SQL stream");
+                  if (mergeError.message.startsWith("Agent SQL stream ended with terminal_status=")) {
+                    rejectOnce(serviceUnavailable(mergeError.message));
+                    return;
+                  }
+                  rejectOnce(mergeError);
                 }
               },
             };
@@ -306,6 +584,7 @@ export const createRpcBridgeAgentInboundHandlers = (
         socketId,
         reason: result.error.message,
       });
+      failFastInvalidAgentStreamFrame(socketEvents.rpcChunk, socketId, rawPayload, result.error.message);
       return;
     }
 
@@ -342,6 +621,7 @@ export const createRpcBridgeAgentInboundHandlers = (
         socketId,
         reason: result.error.message,
       });
+      failFastInvalidAgentStreamFrame(socketEvents.rpcComplete, socketId, rawPayload, result.error.message);
       return;
     }
 

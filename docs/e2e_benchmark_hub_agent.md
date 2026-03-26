@@ -40,7 +40,7 @@ Isto **não passa pelo `plug_server`**.
 Suíte focada no contrato **hub ↔ plug_agente** (sem ODBC real no servidor):
 
 - Comando: `npm run test:e2e` (Vitest, `vitest.e2e.config.ts`). **Só corre** com `E2E_TESTS_ENABLED=true` no `.env` (ver `.env.example`); caso contrário termina com exit 0 sem executar testes.
-- Ficheiros: `tests/e2e/flows/plug_agente_communication.e2e.test.ts` (handshake `/agents`, `PayloadFrame`, heartbeat, `POST /api/v1/agents/commands`, `agents:command`, namespace `/` rejeitado); `tests/e2e/flows/plug_agente_multi_command.e2e.test.ts` (JSON-RPC **batch** REST e Socket, **`sql.executeBatch`** REST e **`agents:command`**, **notificações `id: null`** REST **202** e Socket **`agents:command_response`**, batch **misto** REST e Socket).
+- Ficheiros: `tests/e2e/flows/plug_agente_communication.e2e.test.ts` (handshake `/agents`, `PayloadFrame`, heartbeat, readiness explícito com `agent:ready`, `POST /api/v1/agents/commands`, `agents:command`, namespace `/` rejeitado); `tests/e2e/flows/plug_agente_multi_command.e2e.test.ts` (JSON-RPC **batch** REST e Socket, **`sql.executeBatch`** REST e **`agents:command`**, **notificações `id: null`** REST **202** e Socket **`agents:command_response`**, batch **misto** REST e Socket).
 - Helpers: `tests/e2e/helpers/plug_agente_socket.ts` (`emitAgentRpcResponseWithAck` alinhado com ack do hub), `e2e_hub_fixture.ts`, `auth_tokens.ts`, `consumer_socket.ts`.
 - Config: `vitest.e2e.config.ts` — `fileParallelism: false` (menos carga em DB), `E2E_SILENCE_LOGS` → `logger.info` omitido durante e2e (ver `src/shared/utils/logger.ts`).
 

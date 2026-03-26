@@ -18,7 +18,7 @@ para o agente, aguarda a resposta e devolve ao cliente HTTP.
 
 - **Dois canais** chegam ao mesmo fluxo interno (`executeAgentCommand` → dispatch para o agente): **HTTP** (`POST /api/v1/agents/commands`) ou **Socket** (`agents:command` no `/consumers`, ou relay `relay:rpc.request`).
 - O cliente pode usar **apenas REST** (sem abrir Socket de consumer), **apenas Socket**, ou **misturar** (ex.: login e `GET /agents` por HTTP e comandos por Socket).
-- **Streaming**: no REST, o hub **nao** envia chunks progressivos ao cliente HTTP; quando o agente devolve `stream_id`, o servidor **materializa** o stream por dentro e responde com **um** JSON final. Para chunks em tempo real e `stream_pull`, usar o canal Socket (legado ou relay). Ver `docs/project_overview.md` (*Dois canais para comandos ao agente*) e `docs/performance_hub_agent.md`.
+- **Streaming**: no REST, o hub **nao** envia chunks progressivos ao cliente HTTP; quando o agente devolve `stream_id`, o servidor **materializa** o stream por dentro e responde com **um** JSON final. Para chunks em tempo real e `stream_pull`, usar o canal Socket (legado ou relay). Ver `docs/PROJECT_OVERVIEW.md` e `docs/performance_hub_agent.md`.
 
 Alternativa em tempo real: consumers podem conectar ao namespace `/consumers`
 e emitir `agents:command` com o mesmo payload. A resposta inicial chega em
@@ -79,13 +79,29 @@ Consumer (HTTP) <- plug_server (REST) <- plug_server (Socket bridge) <-
 4. Controller aplica paginacao em `command.params.options` quando presente.
 5. Bridge localiza o agente no registry, gera ou reutiliza `requestId`,
    empacota o comando em `PayloadFrame` e emite `rpc:request`.
+   Antes do primeiro dispatch, o hub aplica uma curta janela de estabilizacao
+   apos `agent:register` (`SOCKET_AGENT_PROTOCOL_READY_GRACE_MS`) e pode liberar
+   mais cedo ao receber `agent:heartbeat`; agentes que anunciam
+   `extensions.protocolReadyAck` podem liberar o dispatch de forma explicita com
+   `agent:ready`, reduzindo corrida com `protocol_not_ready` no `plug_agente`.
 6. Bridge aguarda `rpc:response` (timeout efetivo: veja `timeoutMs` abaixo).
 7. Se for `sql.execute` **unico** pelo REST e a resposta trouxer `stream_id`, o hub concede
    creditos de entrega como no relay: um `rpc:stream.pull` inicial com
-   `window_size = SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, depois novo pull apenas quando os
-   creditos chegam a zero (cada `rpc:chunk` consome um), reduzindo round-trips sem violar
-   backpressure do agente. Acumula `rpc:chunk` ate `rpc:complete` e devolve **uma** resposta
-   JSON-RPC com todas as `rows`.
+   `window_size` baseado em `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` e opcionalmente
+   **clampado** por capabilities do agente (`recommendedStreamPullWindowSize` /
+   `maxStreamPullWindowSize`), depois novo pull apenas quando os creditos chegam a
+   zero (cada `rpc:chunk` consome um), reduzindo round-trips sem violar
+   backpressure do agente. Acumula `rpc:chunk` ate `rpc:complete` e devolve **uma**
+   resposta JSON-RPC com todas as `rows`. Se o `rpc:complete` vier com
+   `terminal_status` (`aborted` ou `error`), ou se `rpc:chunk` / `rpc:complete`
+   chegarem com `PayloadFrame` invalido mas `requestId` identificavel, o bridge
+   **falha** a request REST com `503` em vez de materializar stream parcial como
+   sucesso ou esperar apenas por timeout.
+   Orçamento operacional: `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS` (por defeito
+   **1_000_000**; `0` desativa o teto de linhas) e opcionalmente
+   `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` (`0` = sem limite de frames `rpc:chunk`).
+   Se o agregado exceder o limite, o hub responde **`503`** de imediato, incrementa métricas
+   `plug_rest_sql_stream_materialize_*_limit_exceeded_total` e recomenda o canal **Socket** para streams grandes.
 8. Serializer normaliza a resposta JSON-RPC para formato HTTP.
 9. Controller retorna `200` com a resposta normalizada.
 
@@ -883,7 +899,10 @@ o servidor inclui:
 | `SOCKET_REST_AGENT_MAX_INFLIGHT`      | `32`    | Quantas requests simultaneas por `agentId` podem ficar em voo |
 | `SOCKET_REST_AGENT_MAX_QUEUE`         | `64`    | Quantas requests adicionais por `agentId` podem esperar fila |
 | `SOCKET_REST_AGENT_QUEUE_WAIT_MS`     | `200`   | Tempo maximo de espera na fila por agente antes de rejeitar |
-| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `256`   | Tamanho da janela por pull no REST materializado (creditos por pull; maior = menos pulls, mais pico de memoria por stream) |
+| `SOCKET_AGENT_PROTOCOL_READY_GRACE_MS` | `100`  | Fallback de estabilizacao apos `agent:register`; durante esse periodo o hub rejeita dispatch com `503`/`Retry-After`. `agent:heartbeat` libera antes e agentes com `extensions.protocolReadyAck` podem liberar explicitamente com `agent:ready` |
+| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `256`   | Janela base por pull no REST materializado; o hub pode reduzir/clamp pelo que o agente anunciar como recomendado/maximo em capabilities |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS` | `1000000` | Teto de linhas agregadas (resposta inicial + chunks) na materialização REST; `0` desativa (não recomendado em produção) |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `0` | Teto de frames `rpc:chunk` na materialização; `0` = ilimitado |
 | `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub |
 | `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame |
 
@@ -1063,7 +1082,7 @@ com o que a API REST atualmente expoe ao consumer.
 | Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 400    |
 | Capacidade de pendencias REST              | implementado  | validado        | limite global (`SOCKET_REST_MAX_PENDING_REQUESTS`) + limite/fila por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `SOCKET_REST_AGENT_MAX_QUEUE`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`) com `Retry-After` em overload |
 | Streaming chunked (`rpc:chunk`/`rpc:complete`) | implementado | **materializado** | REST (`sql.execute` unico): hub faz pull interno, agrega linhas e devolve **uma** resposta HTTP (sem streaming progressivo). Socket /consumers continua com eventos em tempo real |
-| Backpressure (`rpc:stream.pull`)           | implementado  | **interno**     | REST nao expoe pull ao cliente; o hub emite `rpc:stream.pull` com `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`. Controle fino permanece no Socket (`agents:stream_pull` / relay) |
+| Backpressure (`rpc:stream.pull`)           | implementado  | **interno**     | REST nao expoe pull ao cliente; o hub emite `rpc:stream.pull` com janela base em `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, ajustada por capabilities quando o agente anunciar recomendacao/limite. Controle fino permanece no Socket (`agents:stream_pull` / relay) |
 | Delivery guarantee (`rpc:request_ack`)     | implementado  | exposto         | hub registra ack e marca `acked` no pending request |
 | Batch ack (`rpc:batch_ack`)                | implementado  | exposto         | hub registra acks para cada request_id do batch |
 | Notification JSON-RPC (`id: null`)       | implementado  | exposto         | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202 |
@@ -1124,8 +1143,19 @@ chunked JSON). Para `sql.execute` **unico** sem handlers de stream do consumer, 
 **materializa** o resultado: modelo de **creditos** por janela (como o relay), novo
 `rpc:stream.pull` so quando a janela se esgota, acumula `rpc:chunk` e fecha com
 `rpc:complete`, devolvendo um unico JSON com todas as `rows` (e `total_rows`).
+O tamanho da janela parte de `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, mas pode ser
+clampado por capabilities do agente. Quando o `rpc:complete` chega com
+`terminal_status`, ou quando `rpc:chunk` / `rpc:complete` chegam com frame invalido
+e `requestId` identificavel, o hub encerra o REST com erro `503` para nao mascarar
+stream anomalo como sucesso nem esperar apenas por timeout.
 Metrica Prometheus: `plug_rest_sql_stream_materialize_pulls_total`.
 Batch, relay e notificacoes nao usam esse caminho.
+
+**2. Frame de resposta invalido do agente** -- Se `rpc:response` chegar com
+`PayloadFrame` malformado, JSON invalido ou assinatura invalida, o hub tenta
+correlacionar pelo `requestId` do envelope e **falha imediatamente** a request
+pendente (REST `503`; relay com erro JSON-RPC framed), em vez de aguardar ate
+timeout.
 
 No canal Socket `/consumers`, o hub continua encaminhando `rpc:chunk` e `rpc:complete`
 em tempo real (`agents:command_stream_*`) e aceita `agents:stream_pull`.

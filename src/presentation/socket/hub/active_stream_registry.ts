@@ -77,6 +77,18 @@ const pickStreamIdFromStreamPayload = (payload: unknown): string | null => {
 
 export const getActiveStreamRouteCount = (): number => activeStreamsByRequestId.size;
 
+/** Active REST SQL stream materializations awaiting `rpc:complete` (not yet settled). */
+export const countRestMaterializeStreamsInFlight = (): number => {
+  let n = 0;
+  for (const route of activeStreamsByRequestId.values()) {
+    const mat = route.restMaterializeState;
+    if (mat && !mat.settled) {
+      n += 1;
+    }
+  }
+  return n;
+};
+
 export const getActiveStreamRouteByRequestId = (requestId: string): ActiveStreamRoute | undefined =>
   activeStreamsByRequestId.get(requestId);
 

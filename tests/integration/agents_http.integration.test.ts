@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 
 import request from "supertest";
@@ -5,6 +6,7 @@ import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
+import { env } from "../../src/shared/config/env";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 
@@ -27,6 +29,16 @@ const waitForEvent = <T>(
 
     socket.on(eventName, onEvent);
   });
+};
+
+const emitAgentReady = (socket: ReturnType<typeof ioClient>, agentId: string): void => {
+  socket.emit(
+    "agent:ready",
+    encodePayloadFrame({
+      agent_id: agentId,
+      timestamp: new Date().toISOString(),
+    }),
+  );
 };
 
 describe("Agents HTTP bridge", () => {
@@ -78,6 +90,9 @@ describe("Agents HTTP bridge", () => {
       }),
     );
     await capabilitiesPromise;
+    if (env.socketAgentProtocolReadyGraceMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs));
+    }
   });
 
   afterAll(async () => {
@@ -111,6 +126,243 @@ describe("Agents HTTP bridge", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("should reject dispatch during agent protocol readiness grace and accept after it settles", async () => {
+    const warmingAgentId = randomUUID();
+    const warmingEmail = `agents-http-warm-${Date.now()}@test.com`;
+    const warmingPassword = "AgentsHttpWarm1";
+    const warmingRegisterResponse = await request(baseUrl).post("/api/v1/auth/register").send({
+      email: warmingEmail,
+      password: warmingPassword,
+    });
+    expect(warmingRegisterResponse.status).toBe(201);
+
+    const warmingLoginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+      email: warmingEmail,
+      password: warmingPassword,
+      agentId: warmingAgentId,
+    });
+    expect(warmingLoginResponse.status).toBe(200);
+    const warmingAgentAccessToken = warmingLoginResponse.body.accessToken as string;
+
+    const warmingAgentSocket = ioClient(`${baseUrl}/agents`, {
+      auth: { token: warmingAgentAccessToken },
+      transports: ["websocket"],
+    });
+
+    try {
+      await waitForEvent<unknown>(warmingAgentSocket, "connection:ready");
+      const capabilitiesPromise = waitForEvent<unknown>(warmingAgentSocket, "agent:capabilities");
+      warmingAgentSocket.emit(
+        "agent:register",
+        encodePayloadFrame({
+          agentId: warmingAgentId,
+          capabilities: {
+            protocols: ["jsonrpc-v2"],
+            encodings: ["json"],
+            compressions: ["none"],
+          },
+        }),
+      );
+      await capabilitiesPromise;
+
+      const earlyResponse = await request(baseUrl)
+        .post("/api/v1/agents/commands")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          agentId: warmingAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: `warming-early-${Date.now()}`,
+            params: {
+              sql: "SELECT 1",
+            },
+          },
+        });
+
+      expect(earlyResponse.status).toBe(503);
+      expect(String(earlyResponse.body.message)).toContain("protocol negotiation is not ready");
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 30),
+      );
+
+      const finalRequestId = `warming-ready-${Date.now()}`;
+      const rpcHandled = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+        warmingAgentSocket.once("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            clearTimeout(timeout);
+            reject(new Error("Invalid rpc:request payload"));
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (requestId !== finalRequestId) {
+            clearTimeout(timeout);
+            reject(new Error(`Unexpected request id: ${requestId ?? "<null>"}`));
+            return;
+          }
+
+          warmingAgentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: { ok: true, stage: "ready" },
+            }),
+          );
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      const readyResponsePromise = request(baseUrl)
+        .post("/api/v1/agents/commands")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          agentId: warmingAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: finalRequestId,
+            params: {
+              sql: "SELECT 1",
+            },
+          },
+        });
+
+      const [readyResponse] = await Promise.all([readyResponsePromise, rpcHandled]);
+      expect(readyResponse.status).toBe(200);
+      expect(readyResponse.body.response?.success).toBe(true);
+      expect(readyResponse.body.response?.item?.result?.stage).toBe("ready");
+    } finally {
+      warmingAgentSocket.disconnect();
+    }
+  });
+
+  it("should require explicit agent:ready when the agent advertises protocolReadyAck", async () => {
+    const explicitAgentId = randomUUID();
+    const explicitEmail = `agents-http-explicit-${Date.now()}@test.com`;
+    const explicitPassword = "AgentsHttpReady1";
+    const registerResponse = await request(baseUrl).post("/api/v1/auth/register").send({
+      email: explicitEmail,
+      password: explicitPassword,
+    });
+    expect(registerResponse.status).toBe(201);
+
+    const loginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+      email: explicitEmail,
+      password: explicitPassword,
+      agentId: explicitAgentId,
+    });
+    expect(loginResponse.status).toBe(200);
+    const explicitAgentAccessToken = loginResponse.body.accessToken as string;
+
+    const explicitAgentSocket = ioClient(`${baseUrl}/agents`, {
+      auth: { token: explicitAgentAccessToken },
+      transports: ["websocket"],
+    });
+
+    try {
+      await waitForEvent<unknown>(explicitAgentSocket, "connection:ready");
+      const capabilitiesPromise = waitForEvent<unknown>(explicitAgentSocket, "agent:capabilities");
+      explicitAgentSocket.emit(
+        "agent:register",
+        encodePayloadFrame({
+          agentId: explicitAgentId,
+          capabilities: {
+            protocols: ["jsonrpc-v2"],
+            encodings: ["json"],
+            compressions: ["none"],
+            extensions: {
+              protocolReadyAck: true,
+            },
+          },
+        }),
+      );
+      await capabilitiesPromise;
+      await new Promise((resolve) =>
+        setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 30),
+      );
+
+      const blockedResponse = await request(baseUrl)
+        .post("/api/v1/agents/commands")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          agentId: explicitAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: `explicit-not-ready-${Date.now()}`,
+            params: {
+              sql: "SELECT 1",
+            },
+          },
+        });
+      expect(blockedResponse.status).toBe(503);
+      expect(String(blockedResponse.body.message)).toContain("protocol negotiation is not ready");
+
+      emitAgentReady(explicitAgentSocket, explicitAgentId);
+
+      const finalRequestId = `explicit-ready-${Date.now()}`;
+      const rpcHandled = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+        explicitAgentSocket.once("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            clearTimeout(timeout);
+            reject(new Error("Invalid rpc:request payload"));
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (requestId !== finalRequestId) {
+            clearTimeout(timeout);
+            reject(new Error(`Unexpected request id: ${requestId ?? "<null>"}`));
+            return;
+          }
+
+          explicitAgentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: { ok: true, stage: "explicit-ready" },
+            }),
+          );
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      const readyResponsePromise = request(baseUrl)
+        .post("/api/v1/agents/commands")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          agentId: explicitAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: finalRequestId,
+            params: {
+              sql: "SELECT 1",
+            },
+          },
+        });
+
+      const [readyResponse] = await Promise.all([readyResponsePromise, rpcHandled]);
+      expect(readyResponse.status).toBe(200);
+      expect(readyResponse.body.response?.success).toBe(true);
+      expect(readyResponse.body.response?.item?.result?.stage).toBe("explicit-ready");
+    } finally {
+      explicitAgentSocket.disconnect();
+    }
   });
 
   it("should proxy command to a connected agent and return normalized response", async () => {
@@ -959,6 +1211,234 @@ describe("Agents HTTP bridge", () => {
     }
   });
 
+  it("should fail fast when agent returns an invalid rpc:response frame", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    const requestId = `invalid-frame-${Date.now()}`;
+
+    const rpcHandled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok || !isRecord(decoded.value.data)) {
+          clearTimeout(timeout);
+          reject(new Error("Invalid rpc:request payload"));
+          return;
+        }
+
+        const inboundRequestId = toRequestId(decoded.value.data.id);
+        if (inboundRequestId !== requestId) {
+          clearTimeout(timeout);
+          reject(new Error(`Unexpected request id: ${inboundRequestId ?? "<null>"}`));
+          return;
+        }
+
+        agentSocket?.emit("rpc:response", {
+          schemaVersion: "1.0",
+          enc: "json",
+          cmp: "none",
+          contentType: "application/json",
+          originalSize: 1,
+          compressedSize: 1,
+          payload: Buffer.from("{"),
+          requestId,
+        });
+
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    const startedAtMs = Date.now();
+    const responsePromise = request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        agentId: testAgentId,
+        timeoutMs: 30_000,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: requestId,
+          params: {
+            sql: "SELECT 1",
+          },
+        },
+      });
+
+    const [response] = await Promise.all([responsePromise, rpcHandled]);
+    const elapsedMs = Date.now() - startedAtMs;
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("SERVICE_UNAVAILABLE");
+    expect(String(response.body.message)).toContain("Failed to decode agent rpc:response frame");
+    expect(elapsedMs).toBeLessThan(5_000);
+  });
+
+  it("should return 503 when a materialized REST SQL stream ends abnormally", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    const streamReqId = `rest-stream-terminal-${Date.now()}`;
+    const streamId = `sid-terminal-${Date.now()}`;
+
+    const rpcHandled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok || !isRecord(decoded.value.data)) {
+          clearTimeout(timeout);
+          reject(new Error("Invalid rpc:request payload"));
+          return;
+        }
+
+        const requestId = toRequestId(decoded.value.data.id);
+        if (requestId !== streamReqId) {
+          clearTimeout(timeout);
+          reject(new Error(`Unexpected request id: ${requestId ?? "<null>"}`));
+          return;
+        }
+
+        agentSocket?.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: requestId,
+            result: {
+              stream_id: streamId,
+              rows: [{ n: 1 }],
+            },
+          }),
+        );
+
+        setTimeout(() => {
+          agentSocket?.emit(
+            "rpc:complete",
+            encodePayloadFrame({
+              stream_id: streamId,
+              request_id: requestId,
+              total_rows: 1,
+              terminal_status: "aborted",
+            }),
+          );
+          clearTimeout(timeout);
+          resolve();
+        }, 80);
+      });
+    });
+
+    const startedAtMs = Date.now();
+    const responsePromise = request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        agentId: testAgentId,
+        timeoutMs: 30_000,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: streamReqId,
+          params: {
+            sql: "SELECT 1",
+          },
+        },
+      });
+
+    const [response] = await Promise.all([responsePromise, rpcHandled]);
+    const elapsedMs = Date.now() - startedAtMs;
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("SERVICE_UNAVAILABLE");
+    expect(String(response.body.message)).toContain("terminal_status=aborted");
+    expect(elapsedMs).toBeLessThan(5_000);
+  });
+
+  it("should fail fast when agent returns an invalid rpc:complete frame during REST stream materialization", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    const streamReqId = `rest-stream-invalid-complete-${Date.now()}`;
+    const streamId = `sid-invalid-complete-${Date.now()}`;
+
+    const rpcHandled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+
+      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok || !isRecord(decoded.value.data)) {
+          clearTimeout(timeout);
+          reject(new Error("Invalid rpc:request payload"));
+          return;
+        }
+
+        const requestId = toRequestId(decoded.value.data.id);
+        if (requestId !== streamReqId) {
+          clearTimeout(timeout);
+          reject(new Error(`Unexpected request id: ${requestId ?? "<null>"}`));
+          return;
+        }
+
+        agentSocket?.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: requestId,
+            result: {
+              stream_id: streamId,
+              rows: [{ n: 1 }],
+            },
+          }),
+        );
+
+        setTimeout(() => {
+          agentSocket?.emit("rpc:complete", {
+            schemaVersion: "1.0",
+            enc: "json",
+            cmp: "none",
+            contentType: "application/json",
+            originalSize: 1,
+            compressedSize: 1,
+            payload: Buffer.from("{"),
+            requestId,
+          });
+          clearTimeout(timeout);
+          resolve();
+        }, 80);
+      });
+    });
+
+    const startedAtMs = Date.now();
+    const responsePromise = request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        agentId: testAgentId,
+        timeoutMs: 30_000,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: streamReqId,
+          params: {
+            sql: "SELECT 1",
+          },
+        },
+      });
+
+    const [response] = await Promise.all([responsePromise, rpcHandled]);
+    const elapsedMs = Date.now() - startedAtMs;
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("SERVICE_UNAVAILABLE");
+    expect(String(response.body.message)).toContain("Failed to decode agent rpc:complete frame");
+    expect(elapsedMs).toBeLessThan(5_000);
+  });
+
   it("should fail fast when agent disconnects during REST SQL stream materialization", async () => {
     if (!agentSocket) {
       throw new Error("Agent socket not initialized");
@@ -1045,6 +1525,9 @@ describe("Agents HTTP bridge", () => {
       }),
     );
     await capabilitiesPromise;
+    if (env.socketAgentProtocolReadyGraceMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs));
+    }
   });
 
   it("should fail fast when agent disconnects while waiting for response", async () => {

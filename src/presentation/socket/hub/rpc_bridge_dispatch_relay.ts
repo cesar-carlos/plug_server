@@ -7,7 +7,7 @@ import { inferBridgeCommandMethod } from "../../../application/services/bridge_l
 import { normalizeCommandForAgent } from "../../../application/agent_commands/command_transformers";
 import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";
-import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
+import { badRequest, notFound, serviceUnavailable, serviceUnavailableWithRetry } from "../../../shared/errors/http_errors";
 import {
   bridgeCommandSchema,
   type PayloadFrameCompression,
@@ -31,6 +31,7 @@ import {
   registerAgentFailure,
   relayMetrics,
 } from "./bridge_relay_health_metrics";
+import { agentRegistry } from "./agent_registry";
 import { enqueueRelayOutbound } from "./relay_outbound_queue";
 import { conversationRegistry } from "./conversation_registry";
 import { getOrCreateRelayIdempotencyMap } from "./relay_idempotency_store";
@@ -162,6 +163,14 @@ export const createRpcBridgeRelayDispatch = (
       relayMaxPendingRequestsPerConsumer
     ) {
       throw serviceUnavailable("Relay pending request capacity reached for consumer");
+    }
+
+    const readiness = agentRegistry.getProtocolReadiness(conversation.agentId);
+    if (!readiness.ready) {
+      throw serviceUnavailableWithRetry(
+        `Agent ${conversation.agentId} protocol negotiation is not ready`,
+        readiness.retryAfterMs,
+      );
     }
 
     ensureAgentCircuitClosed(conversation.agentId);

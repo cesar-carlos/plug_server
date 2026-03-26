@@ -3,7 +3,7 @@ import type { Namespace } from "socket.io";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../shared/utils/payload_frame";
 import type { ActiveStreamRoute } from "./active_stream_registry";
-import { getActiveStreamRouteCount } from "./active_stream_registry";
+import { countRestMaterializeStreamsInFlight, getActiveStreamRouteCount } from "./active_stream_registry";
 import {
   buildRelayHubMetricsSnapshot,
   relayMetrics,
@@ -37,12 +37,19 @@ export type { RequestAgentStreamPullInput, RequestAgentStreamPullResult } from "
 let agentsNamespace: Namespace | null = null;
 let consumersNamespace: Namespace | null = null;
 
-wireRestAgentDispatchQueueMetrics(() => {
-  relayMetrics.restPendingRejected += 1;
+wireRestAgentDispatchQueueMetrics((reason) => {
+  if (reason === "queue_full") {
+    relayMetrics.restAgentQueueFullRejected += 1;
+    return;
+  }
+  relayMetrics.restAgentQueueWaitTimeoutRejected += 1;
 });
 
 export const getRelayMetricsSnapshot = (): RelayHubMetricsSnapshot =>
-  buildRelayHubMetricsSnapshot({ activeStreams: getActiveStreamRouteCount() });
+  buildRelayHubMetricsSnapshot({
+    activeStreams: getActiveStreamRouteCount(),
+    restMaterializeStreamsInFlight: countRestMaterializeStreamsInFlight(),
+  });
 
 export { stopRelayHubMetricsLogger as stopRelayMetricsLogger };
 

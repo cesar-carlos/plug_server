@@ -6,6 +6,7 @@ export const relayStreamFlowState = {
   creditsByRequestId: new Map<string, number>(),
   bufferedChunksByRequestId: new Map<string, Record<string, unknown>[]>(),
   pendingCompleteByRequestId: new Map<string, Record<string, unknown>>(),
+  forwardedRowsByRequestId: new Map<string, number>(),
   totalBufferedChunks: 0,
 };
 
@@ -20,11 +21,13 @@ export const clearRelayStreamFlowState = (requestId: string): void => {
   }
   relayStreamFlowState.bufferedChunksByRequestId.delete(requestId);
   relayStreamFlowState.pendingCompleteByRequestId.delete(requestId);
+  relayStreamFlowState.forwardedRowsByRequestId.delete(requestId);
 };
 
 export const resetRelayStreamFlowState = (): void => {
   relayStreamFlowState.creditsByRequestId.clear();
   relayStreamFlowState.bufferedChunksByRequestId.clear();
   relayStreamFlowState.pendingCompleteByRequestId.clear();
+  relayStreamFlowState.forwardedRowsByRequestId.clear();
   relayStreamFlowState.totalBufferedChunks = 0;
 };

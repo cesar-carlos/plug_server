@@ -70,6 +70,11 @@ const envSchema = z.object({
    * When exceeded, removes known IDs that are not currently connected until under the cap.
    */
   SOCKET_AGENT_KNOWN_IDS_MAX: z.coerce.number().int().min(0).max(10_000_000).default(0),
+  /**
+   * Grace window after `agent:register` before the hub dispatches the first RPC to that agent.
+   * If the agent sends `agent:heartbeat` earlier, the hub clears the wait immediately.
+   */
+  SOCKET_AGENT_PROTOCOL_READY_GRACE_MS: z.coerce.number().int().min(0).max(5_000).default(100),
   SOCKET_AUTH_REQUIRED: z
     .enum(["true", "false"])
     .default("true")
@@ -109,6 +114,15 @@ const envSchema = z.object({
   SOCKET_REST_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(200),
   /** Window size for automatic `rpc:stream.pull` when the REST bridge materializes a streaming `sql.execute` result. */
   SOCKET_REST_STREAM_PULL_WINDOW_SIZE: z.coerce.number().int().positive().max(10_000).default(256),
+  /**
+   * Max aggregated rows allowed when REST materializes a streaming `sql.execute` (`stream_id` + chunks).
+   * `0` disables the limit (not recommended for large deployments).
+   */
+  SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS: z.coerce.number().int().min(0).max(10_000_000).default(1_000_000),
+  /**
+   * Max `rpc:chunk` frames accepted during REST materialization. `0` = unlimited.
+   */
+  SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS: z.coerce.number().int().min(0).max(10_000_000).default(0),
   /**
    * Max Engine.IO packet size (bytes). Must fit PayloadFrame compressed ceiling (10 MB).
    * Default 10 MiB matches `payload_frame` limits.
@@ -300,6 +314,7 @@ export const env = {
   payloadFrameAsyncGzipMinUtf8Bytes: parsedEnv.PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES,
   payloadFrameAsyncGunzipMinCompressedBytes: parsedEnv.PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES,
   socketAgentKnownIdsMax: parsedEnv.SOCKET_AGENT_KNOWN_IDS_MAX,
+  socketAgentProtocolReadyGraceMs: parsedEnv.SOCKET_AGENT_PROTOCOL_READY_GRACE_MS,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES,
@@ -332,6 +347,8 @@ export const env = {
   socketRestAgentMaxQueue: parsedEnv.SOCKET_REST_AGENT_MAX_QUEUE,
   socketRestAgentQueueWaitMs: parsedEnv.SOCKET_REST_AGENT_QUEUE_WAIT_MS,
   socketRestStreamPullWindowSize: parsedEnv.SOCKET_REST_STREAM_PULL_WINDOW_SIZE,
+  socketRestSqlStreamMaterializeMaxRows: parsedEnv.SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS,
+  socketRestSqlStreamMaterializeMaxChunks: parsedEnv.SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS,
   socketIoMaxHttpBufferBytes: parsedEnv.SOCKET_IO_MAX_HTTP_BUFFER_BYTES,
   socketIoPerMessageDeflate: parsedEnv.SOCKET_IO_PER_MESSAGE_DEFLATE,
   socketIoTransports: parsedEnv.SOCKET_IO_TRANSPORTS as ("websocket" | "polling")[],

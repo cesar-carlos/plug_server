@@ -108,6 +108,13 @@ export const createDispatchRpcCommandToAgent = (
     if (!agentSocket) {
       throw serviceUnavailable("Agent socket is unavailable");
     }
+    const readiness = agentRegistry.getProtocolReadiness(input.agentId);
+    if (!readiness.ready) {
+      throw serviceUnavailableWithRetry(
+        `Agent ${input.agentId} protocol negotiation is not ready`,
+        readiness.retryAfterMs,
+      );
+    }
     ensureAgentCircuitClosed(input.agentId);
 
     if (!isRecord(input.command) && !Array.isArray(input.command)) {
@@ -176,7 +183,7 @@ export const createDispatchRpcCommandToAgent = (
     }
 
     if (getRestPendingRequestCount() >= env.socketRestMaxPendingRequests) {
-      relayMetrics.restPendingRejected += 1;
+      relayMetrics.restGlobalPendingCapRejected += 1;
       throw serviceUnavailableWithRetry(
         "REST bridge pending request capacity reached",
         env.socketRestAgentQueueWaitMs,

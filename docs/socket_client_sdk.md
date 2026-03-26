@@ -8,8 +8,7 @@ Guia rapido para cliente Socket no modo relay (`/consumers`), com tratamento de
 **Canal alternativo (REST):** os mesmos comandos JSON-RPC podem ser enviados por
 `POST /api/v1/agents/commands` sem Socket no consumer; o REST **nao** expoe
 streaming progressivo (resultado agregado num unico JSON). Para chunks em tempo
-real, usar este guia / `agents:command` / relay. Ver `docs/project_overview.md`
-(*Dois canais para comandos ao agente*).
+real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 
 ## Eventos e formato
 
@@ -26,7 +25,7 @@ type PayloadFrame = {
   contentType: "application/json";
   originalSize: number;
   compressedSize: number;
-  payload: Uint8Array | number[];
+  payload: Uint8Array | number[] | string;
   traceId?: string;
   requestId?: string;
   signature?: { alg: "hmac-sha256"; value: string; key_id?: string };
@@ -38,8 +37,8 @@ Em alguns eventos de **alto debito** (`relay:rpc.chunk`, `relay:rpc.complete`, a
 ## Limites e comportamento do hub (resumo)
 
 - **Tamanho de frame**: até **10 MiB** comprimido/decodificado no contrato do hub (`payload_frame.ts`); validar no cliente antes de enviar SQL/parametros enormes.
-- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`) e `agents:command` no namespace `/consumers` têm tetos por janela; REST `POST /agents/commands` por utilizador (e opcionalmente por IP). Respostas **429** quando excedido.
-- **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks até um teto e depois **descartar** (`plug_socket_relay_chunks_dropped_total` em `/metrics`).
+- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`) e `agents:command` no namespace `/consumers` têm tetos por janela; REST `POST /api/v1/agents/commands` por utilizador (e opcionalmente por IP). Respostas **429** quando excedido.
+- **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`).
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
 - **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; várias instâncias sem afinidade partilhada degradam o comportamento — ver `docs/scaling_and_roadmap.md`.
 
@@ -75,7 +74,10 @@ const encodeFrame = (data: unknown): PayloadFrame => {
 };
 
 const decodeFrame = (frame: PayloadFrame) => {
-  const bytes = Buffer.from(frame.payload);
+  const bytes =
+    typeof frame.payload === "string"
+      ? Buffer.from(frame.payload, "base64")
+      : Buffer.from(frame.payload);
   const decoded = frame.cmp === "gzip" ? gunzipSync(bytes) : bytes;
   return JSON.parse(decoded.toString("utf8"));
 };

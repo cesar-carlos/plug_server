@@ -97,7 +97,7 @@ export interface PayloadFrameEnvelope {
   readonly contentType: "application/json";
   readonly originalSize: number;
   readonly compressedSize: number;
-  readonly payload: Buffer | Uint8Array | readonly number[];
+  readonly payload: Buffer | Uint8Array | readonly number[] | string;
   readonly traceId?: string;
   /** JSON-RPC envelope may use `null` id (per JSON Schema `requestId` on the transport frame). */
   readonly requestId?: string | null;
@@ -120,6 +120,14 @@ const toBuffer = (payload: PayloadFrameEnvelope["payload"] | unknown): Buffer | 
 
   if (Array.isArray(payload) && payload.every((item) => typeof item === "number")) {
     return Buffer.from(payload);
+  }
+
+  if (typeof payload === "string") {
+    try {
+      return Buffer.from(payload, "base64");
+    } catch {
+      return null;
+    }
   }
 
   return null;

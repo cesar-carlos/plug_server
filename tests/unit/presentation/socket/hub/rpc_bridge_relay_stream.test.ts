@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { env } from "../../../../../src/shared/config/env";
 import { resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/active_stream_registry";
 import { resetRelayOutboundQueueTails } from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
 import {
@@ -65,5 +66,26 @@ describe("rpc_bridge_relay_stream", () => {
     expect(emit).toHaveBeenCalledWith("cons1", socketEvents.relayRpcResponse, expect.anything());
     const updated = map.get("cid1");
     expect(updated?.responseFrame).toBeDefined();
+  });
+
+  it("createRelayStreamHandlers emits terminal complete on backpressure overflow", async () => {
+    const emit = vi.fn();
+    const route = makeRoute({ requestId: "r-overflow" });
+    relayStreamFlowState.bufferedChunksByRequestId.set(
+      "r-overflow",
+      Array.from({ length: env.socketRelayMaxBufferedChunksPerRequest }, () => ({ rows: [] })),
+    );
+    relayStreamFlowState.totalBufferedChunks = env.socketRelayMaxBufferedChunksPerRequest;
+
+    const h = createRelayStreamHandlers(route, emit);
+    h.onChunk({
+      stream_id: "stream-overflow",
+      request_id: "r-overflow",
+      rows: [{ id: 1 }],
+    });
+
+    await flushRelayOutbound();
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcComplete);
   });
 });

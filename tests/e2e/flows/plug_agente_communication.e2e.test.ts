@@ -13,6 +13,7 @@ import { startE2EHubFixture, type E2EHubFixture } from "../helpers/e2e_hub_fixtu
 import {
   connectPlugAgenteSocket,
   emitAgentHeartbeat,
+  emitAgentReady,
   emitAgentRpcResponseWithAck,
   registerAgentOnHub,
   waitForSocketEvent,
@@ -60,6 +61,98 @@ describe("E2E plug_agente communication (hub ↔ agent)", () => {
   });
 
   describe("REST bridge → agent (POST /api/v1/agents/commands)", () => {
+    it("should gate explicit-ready agents until agent:ready is emitted", async () => {
+      const agentSocket = await connectPlugAgenteSocket(ctx.baseUrl, ctx.agentAccessToken);
+      try {
+        await registerAgentOnHub(
+          agentSocket,
+          ctx.agentId,
+          {
+            protocols: ["jsonrpc-v2"],
+            encodings: ["json"],
+            compressions: ["gzip", "none"],
+            extensions: {
+              binaryPayload: true,
+              protocolReadyAck: true,
+            },
+          },
+          { autoReady: false },
+        );
+
+        const blocked = await request(ctx.baseUrl)
+          .post("/api/v1/agents/commands")
+          .set("Authorization", `Bearer ${ctx.user.accessToken}`)
+          .send({
+            agentId: ctx.agentId,
+            command: {
+              jsonrpc: "2.0",
+              id: "e2e-explicit-ready-blocked",
+              method: "rpc.discover",
+              params: {},
+            },
+          });
+
+        expect(blocked.status).toBe(503);
+        expect(String(blocked.body.message)).toContain("protocol negotiation is not ready");
+
+        emitAgentReady(agentSocket, ctx.agentId);
+
+        const rpcHandled = new Promise<void>((resolve, reject) => {
+          const t = setTimeout(() => reject(new Error("rpc:request timeout")), 15_000);
+          agentSocket.once("rpc:request", (raw: unknown) => {
+            const decoded = decodePayloadFrame(raw);
+            if (!decoded.ok || !isRecord(decoded.value.data)) {
+              clearTimeout(t);
+              reject(new Error("invalid rpc:request"));
+              return;
+            }
+            const id = toRequestId(decoded.value.data.id);
+            if (!id) {
+              clearTimeout(t);
+              reject(new Error("missing id"));
+              return;
+            }
+            emitAgentRpcResponseWithAck(
+              agentSocket,
+              encodePayloadFrame({
+                jsonrpc: "2.0",
+                id,
+                result: { ok: true, stage: "explicit-ready-e2e" },
+              }),
+            )
+              .then(() => {
+                clearTimeout(t);
+                resolve();
+              })
+              .catch((err: unknown) => {
+                clearTimeout(t);
+                reject(err instanceof Error ? err : new Error(String(err)));
+              });
+          });
+        });
+
+        const httpPromise = request(ctx.baseUrl)
+          .post("/api/v1/agents/commands")
+          .set("Authorization", `Bearer ${ctx.user.accessToken}`)
+          .send({
+            agentId: ctx.agentId,
+            command: {
+              jsonrpc: "2.0",
+              id: "e2e-explicit-ready-ok",
+              method: "rpc.discover",
+              params: {},
+            },
+          });
+
+        const [res] = await Promise.all([httpPromise, rpcHandled]);
+        expect(res.status).toBe(200);
+        expect(res.body.response?.success).toBe(true);
+        expect(res.body.response?.item?.result?.stage).toBe("explicit-ready-e2e");
+      } finally {
+        agentSocket.disconnect();
+      }
+    });
+
     it("should deliver rpc:request as PayloadFrame and return normalized HTTP response", async () => {
       const agentSocket = await connectPlugAgenteSocket(ctx.baseUrl, ctx.agentAccessToken);
       try {

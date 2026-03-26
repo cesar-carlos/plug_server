@@ -9,6 +9,7 @@ import {
 } from "../../../shared/utils/latency_ring_buffer";
 import { percentile } from "../../../shared/utils/percentile";
 import { getRestPendingRequestCount } from "./rest_pending_requests";
+import { getRestAgentDispatchQueueMetricsSnapshot } from "./rest_agent_dispatch_queue";
 import { getRelayOutboundQueueMetricsSnapshot } from "./relay_outbound_queue";
 import { getRelayRegisteredRouteCount } from "./relay_request_registry";
 import { relayStreamFlowState } from "./relay_stream_flow_state";
@@ -35,11 +36,22 @@ export const relayMetrics = {
   chunksForwarded: 0,
   chunksBuffered: 0,
   chunksDropped: 0,
+  streamTerminalCompletions: 0,
   streamPulls: 0,
   restSqlStreamMaterializePulls: 0,
+  /** REST materialization finished successfully (HTTP resolved after merge). */
+  restSqlStreamMaterializeCompleted: 0,
+  /** Sum of merged row counts for successful REST materializations (for throughput dashboards). */
+  restSqlStreamMaterializeRowsMerged: 0,
+  restMaterializeRowLimitExceeded: 0,
+  restMaterializeChunkLimitExceeded: 0,
   requestTimeouts: 0,
   circuitOpenRejects: 0,
-  restPendingRejected: 0,
+  /** `SOCKET_REST_MAX_PENDING_REQUESTS` cap before dispatch. */
+  restGlobalPendingCapRejected: 0,
+  /** Agent dispatch queue full or queue wait timeout (`rest_agent_dispatch_queue`). */
+  restAgentQueueFullRejected: 0,
+  restAgentQueueWaitTimeoutRejected: 0,
 };
 
 let rpcFrameDecodeFailureCount = 0;
@@ -136,17 +148,25 @@ export type RelayHubMetricsSnapshot = {
     readonly chunksForwarded: number;
     readonly chunksBuffered: number;
     readonly chunksDropped: number;
+    readonly streamTerminalCompletions: number;
     readonly streamPulls: number;
     readonly restSqlStreamMaterializePulls: number;
+    readonly restSqlStreamMaterializeCompleted: number;
+    readonly restSqlStreamMaterializeRowsMerged: number;
+    readonly restMaterializeRowLimitExceeded: number;
+    readonly restMaterializeChunkLimitExceeded: number;
     readonly requestTimeouts: number;
     readonly circuitOpenRejects: number;
-    readonly restPendingRejected: number;
+    readonly restGlobalPendingCapRejected: number;
+    readonly restAgentQueueFullRejected: number;
+    readonly restAgentQueueWaitTimeoutRejected: number;
     readonly rpcFrameDecodeFailed: number;
   };
   readonly gauges: {
     readonly pendingRelayRequests: number;
     readonly pendingRestRequests: number;
     readonly activeStreams: number;
+    readonly restMaterializeStreamsInFlight: number;
     readonly bufferedChunks: number;
     readonly openCircuits: number;
   };
@@ -159,10 +179,12 @@ export type RelayHubMetricsSnapshot = {
     readonly p99Ms: number;
   }[];
   readonly relayOutboundQueue: ReturnType<typeof getRelayOutboundQueueMetricsSnapshot>;
+  readonly restAgentDispatchQueue: ReturnType<typeof getRestAgentDispatchQueueMetricsSnapshot>;
 };
 
 export const buildRelayHubMetricsSnapshot = (input: {
   readonly activeStreams: number;
+  readonly restMaterializeStreamsInFlight: number;
 }): RelayHubMetricsSnapshot => {
   const openCircuits = Array.from(relayCircuitByAgentId.values()).filter(
     (state) => state.openUntilMs > Date.now(),
@@ -189,11 +211,13 @@ export const buildRelayHubMetricsSnapshot = (input: {
       pendingRelayRequests: getRelayRegisteredRouteCount(),
       pendingRestRequests: getRestPendingRequestCount(),
       activeStreams: input.activeStreams,
+      restMaterializeStreamsInFlight: input.restMaterializeStreamsInFlight,
       bufferedChunks: relayStreamFlowState.totalBufferedChunks,
       openCircuits,
     },
     latencyByAgent,
     relayOutboundQueue: getRelayOutboundQueueMetricsSnapshot(),
+    restAgentDispatchQueue: getRestAgentDispatchQueueMetricsSnapshot(),
   };
 };
 
@@ -208,6 +232,7 @@ export const scheduleRelayHubMetricsLogger = (getSnapshot: () => RelayHubMetrics
       ...snapshot.counters,
       ...snapshot.gauges,
       relayOutboundQueue: snapshot.relayOutboundQueue,
+      restAgentDispatchQueue: snapshot.restAgentDispatchQueue,
     });
   }, env.socketRelayMetricsLogIntervalMs);
   relayMetricsTimer.unref?.();
@@ -231,10 +256,17 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.chunksForwarded = 0;
   relayMetrics.chunksBuffered = 0;
   relayMetrics.chunksDropped = 0;
+  relayMetrics.streamTerminalCompletions = 0;
   relayMetrics.streamPulls = 0;
   relayMetrics.restSqlStreamMaterializePulls = 0;
+  relayMetrics.restSqlStreamMaterializeCompleted = 0;
+  relayMetrics.restSqlStreamMaterializeRowsMerged = 0;
+  relayMetrics.restMaterializeRowLimitExceeded = 0;
+  relayMetrics.restMaterializeChunkLimitExceeded = 0;
   relayMetrics.requestTimeouts = 0;
   relayMetrics.circuitOpenRejects = 0;
-  relayMetrics.restPendingRejected = 0;
+  relayMetrics.restGlobalPendingCapRejected = 0;
+  relayMetrics.restAgentQueueFullRejected = 0;
+  relayMetrics.restAgentQueueWaitTimeoutRejected = 0;
   rpcFrameDecodeFailureCount = 0;
 };

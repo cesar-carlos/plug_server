@@ -5,6 +5,7 @@ import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../shared/utils/payload_frame";
 import { toRequestId } from "../../../shared/utils/rpc_types";
+import { agentRegistry } from "./agent_registry";
 import {
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteByStreamId,
@@ -82,8 +83,14 @@ export const createRequestAgentStreamPull = (
       throw serviceUnavailable("Agent socket is unavailable");
     }
 
-    const windowSize =
-      typeof input.windowSize === "number" && Number.isFinite(input.windowSize)
+    const registeredAgent = agentRegistry.findBySocketId(route.agentSocketId);
+    const windowSize = registeredAgent
+      ? agentRegistry.resolveStreamPullWindow(
+          registeredAgent.agentId,
+          defaultStreamWindowSize,
+          input.windowSize,
+        )
+      : typeof input.windowSize === "number" && Number.isFinite(input.windowSize)
         ? Math.max(1, Math.floor(input.windowSize))
         : defaultStreamWindowSize;
     agentSocket.emit(

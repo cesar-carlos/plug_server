@@ -11,6 +11,8 @@ Ajuste nomes ao scrape target do teu Prometheus. Exemplos genericos:
 
 ```promql
 # Taxa de pedidos REST ao bridge de agentes (counter real: plug_rest_bridge_requests_total)
+# Nota: estes contadores incrementam no handler HTTP depois de auth + rate limits da rota;
+# rejeições 401/429 antes do handler não entram aqui (usar plug_rest_http_rate_limit_* quando aplicável).
 rate(plug_rest_bridge_requests_total[5m])
 
 # Sucesso vs falha (cada pedido incrementa `requests_total` uma vez)
@@ -23,6 +25,32 @@ rate(plug_rest_bridge_requests_success_total[5m])
 
 # Pulls internos ao materializar stream SQL via REST
 rate(plug_rest_sql_stream_materialize_pulls_total[5m])
+rate(plug_rest_sql_stream_materialize_completed_total[5m])
+rate(plug_rest_sql_stream_materialize_rows_merged_sum[5m])
+
+# Cortes por orçamento na materialização REST (streams grandes → preferir Socket)
+rate(plug_rest_sql_stream_materialize_row_limit_exceeded_total[5m])
+rate(plug_rest_sql_stream_materialize_chunk_limit_exceeded_total[5m])
+
+# Gauge: materializações REST ainda sem rpc:complete
+plug_rest_sql_stream_materialize_streams_in_flight
+
+# Rejeições REST antes do dispatch (motivo separado; legado = soma dos três)
+rate(plug_socket_relay_rest_global_pending_cap_rejected_total[5m])
+rate(plug_socket_relay_rest_agent_queue_full_rejected_total[5m])
+rate(plug_socket_relay_rest_agent_queue_wait_timeout_rejected_total[5m])
+rate(plug_socket_relay_rest_pending_rejected_total[5m])
+
+# Fila por agente no bridge REST (agregado, baixa cardinalidade)
+plug_socket_relay_rest_dispatch_inflight_total
+plug_socket_relay_rest_dispatch_queued_waiters_total
+plug_socket_relay_rest_dispatch_agents_with_queue
+plug_socket_relay_rest_dispatch_max_queue_depth
+
+# HTTP Express: rate limit antes do parse JSON em `/api/v1` + limite da rota `/agents/commands`
+rate(plug_rest_http_rate_limit_global_rejected_total[5m])
+rate(plug_rest_http_rate_limit_agents_commands_user_rejected_total[5m])
+rate(plug_rest_http_rate_limit_agents_commands_ip_rejected_total[5m])
 
 # Relay: pedidos aceites vs rejeitados por rate-limit
 rate(plug_socket_relay_rate_limit_request_allowed_total[5m])

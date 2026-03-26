@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 
 import { getBridgeLatencyTraceMetricsSnapshot } from "../../../application/services/bridge_latency_trace.service";
 import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
+import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getSocketMetricsSnapshot } from "../../../socket";
 
@@ -32,6 +33,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const agentsCommandRl = socket.agentsCommandSocketRateLimit;
   const audit = getSocketAuditMetricsSnapshot();
   const bridgeLatency = getBridgeLatencyTraceMetricsSnapshot();
+  const restHttpRl = getRestHttpRateLimitMetricsSnapshot();
 
   const lines: string[] = [];
 
@@ -44,6 +46,20 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_rest_bridge_latency_p95_ms", restBridge.latencyP95Ms));
   lines.push(metricLine("plug_rest_bridge_latency_p99_ms", restBridge.latencyP99Ms));
 
+  lines.push(metricLine("plug_rest_http_rate_limit_global_rejected_total", restHttpRl.globalRejectedTotal));
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_agents_commands_user_rejected_total",
+      restHttpRl.agentsCommandsUserRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_agents_commands_ip_rejected_total",
+      restHttpRl.agentsCommandsIpRejectedTotal,
+    ),
+  );
+
   lines.push(metricLine("plug_socket_namespace_connections", socket.namespaces.agents, { namespace: "agents" }));
   lines.push(
     metricLine("plug_socket_namespace_connections", socket.namespaces.consumers, { namespace: "consumers" }),
@@ -55,19 +71,102 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_relay_chunks_forwarded_total", relay.counters.chunksForwarded));
   lines.push(metricLine("plug_socket_relay_chunks_buffered_total", relay.counters.chunksBuffered));
   lines.push(metricLine("plug_socket_relay_chunks_dropped_total", relay.counters.chunksDropped));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_stream_terminal_completions_total",
+      relay.counters.streamTerminalCompletions,
+    ),
+  );
   lines.push(metricLine("plug_socket_relay_stream_pulls_total", relay.counters.streamPulls));
   lines.push(
     metricLine("plug_rest_sql_stream_materialize_pulls_total", relay.counters.restSqlStreamMaterializePulls),
   );
+  lines.push(
+    metricLine(
+      "plug_rest_sql_stream_materialize_completed_total",
+      relay.counters.restSqlStreamMaterializeCompleted,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_sql_stream_materialize_rows_merged_sum",
+      relay.counters.restSqlStreamMaterializeRowsMerged,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_sql_stream_materialize_row_limit_exceeded_total",
+      relay.counters.restMaterializeRowLimitExceeded,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_sql_stream_materialize_chunk_limit_exceeded_total",
+      relay.counters.restMaterializeChunkLimitExceeded,
+    ),
+  );
   lines.push(metricLine("plug_socket_relay_request_timeouts_total", relay.counters.requestTimeouts));
   lines.push(metricLine("plug_socket_relay_circuit_open_rejects_total", relay.counters.circuitOpenRejects));
-  lines.push(metricLine("plug_socket_relay_rest_pending_rejected_total", relay.counters.restPendingRejected));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rest_global_pending_cap_rejected_total",
+      relay.counters.restGlobalPendingCapRejected,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rest_agent_queue_full_rejected_total",
+      relay.counters.restAgentQueueFullRejected,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rest_agent_queue_wait_timeout_rejected_total",
+      relay.counters.restAgentQueueWaitTimeoutRejected,
+    ),
+  );
+  const restPendingRejectedLegacy =
+    relay.counters.restGlobalPendingCapRejected +
+    relay.counters.restAgentQueueFullRejected +
+    relay.counters.restAgentQueueWaitTimeoutRejected;
+  lines.push(metricLine("plug_socket_relay_rest_pending_rejected_total", restPendingRejectedLegacy));
   lines.push(metricLine("plug_socket_relay_rpc_frame_decode_failed_total", relay.counters.rpcFrameDecodeFailed));
   lines.push(metricLine("plug_socket_relay_pending_requests", relay.gauges.pendingRelayRequests));
   lines.push(metricLine("plug_socket_relay_rest_pending_requests", relay.gauges.pendingRestRequests));
   lines.push(metricLine("plug_socket_relay_active_streams", relay.gauges.activeStreams));
+  lines.push(
+    metricLine(
+      "plug_rest_sql_stream_materialize_streams_in_flight",
+      relay.gauges.restMaterializeStreamsInFlight,
+    ),
+  );
   lines.push(metricLine("plug_socket_relay_buffered_chunks", relay.gauges.bufferedChunks));
   lines.push(metricLine("plug_socket_relay_open_circuits", relay.gauges.openCircuits));
+
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rest_dispatch_inflight_total",
+      relay.restAgentDispatchQueue.totalInflight,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rest_dispatch_queued_waiters_total",
+      relay.restAgentDispatchQueue.totalQueuedWaiters,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rest_dispatch_agents_with_queue",
+      relay.restAgentDispatchQueue.agentsWithQueuedWaiters,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rest_dispatch_max_queue_depth",
+      relay.restAgentDispatchQueue.maxQueueDepthPerAgent,
+    ),
+  );
 
   lines.push(
     metricLine(

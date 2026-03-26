@@ -15,6 +15,19 @@ describe("isPayloadFrameEnvelope (plug_agente payload-frame.schema.json alignmen
     expect(decoded.ok).toBe(true);
   });
 
+  it("decodes frames whose payload is a base64 string", () => {
+    const frame = encodePayloadFrame({ ok: true }, { requestId: "r1", omitTraceId: true });
+    const payload = Buffer.isBuffer(frame.payload) ? frame.payload.toString("base64") : Buffer.from(frame.payload).toString("base64");
+    const base64Frame = { ...frame, payload };
+
+    expect(isPayloadFrameEnvelope(base64Frame)).toBe(true);
+    const decoded = decodePayloadFrame(base64Frame);
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) {
+      expect(decoded.value.data).toEqual({ ok: true });
+    }
+  });
+
   it("rejects wrong schemaVersion", () => {
     const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true });
     const frame = { ...base, schemaVersion: "2.0" };

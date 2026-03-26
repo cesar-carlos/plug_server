@@ -86,7 +86,7 @@ Campos relevantes do frame:
 - `cmp` (`none` ou `gzip`)
 - `contentType` (`application/json`)
 - `originalSize` / `compressedSize`
-- `payload` (binario: `Buffer`, `Uint8Array` ou array de bytes)
+- `payload` (binario: `Buffer`, `Uint8Array`, array de bytes, ou string base64 na serializacao JSON)
 - `requestId` no envelope (quando aplicavel); `traceId` opcional — em mensagens de stream relay de alto debito (`relay:rpc.chunk`, `relay:rpc.complete`, acks relay) o hub pode omitir `traceId` e correlacionar apenas por `requestId`
 - `signature` opcional (`hmac-sha256`)
 
@@ -100,6 +100,12 @@ Regras atuais no servidor:
 - limite de inflacao gzip: `20x`
 - se `signature` vier no frame, o servidor valida com `PAYLOAD_SIGNING_KEY`
   (quando nao configurada e houver assinatura, a validacao falha)
+- se `rpc:response` chegar com frame invalido mas com `requestId` identificavel no
+  envelope, o hub encerra a request relay correlacionada com erro JSON-RPC framed
+  em vez de esperar apenas por timeout
+- se `rpc:chunk` ou `rpc:complete` chegarem com frame invalido mas com `requestId`
+  identificavel no envelope, o hub encerra o stream relay com `relay:rpc.complete`
+  terminal (`terminal_status: "error"`) em vez de deixar o consumer pendurado
 
 ## Correlacao de IDs no relay
 
@@ -116,6 +122,12 @@ Regras atuais no servidor:
 - O servidor valida ownership (`conversationId` pertence ao `consumerSocketId`).
 - O mesmo agente pode atender varias conversas simultaneas de consumidores diferentes.
 - `stream.pull` so atua em stream da propria conversa.
+- O hub pode abrir a conversa antes, mas so faz **dispatch RPC** para agentes que
+  ja passaram pela curta janela de estabilizacao apos `agent:register`
+  (`SOCKET_AGENT_PROTOCOL_READY_GRACE_MS`) ou que ja emitiram `agent:heartbeat`;
+  agentes mais novos podem anunciar `extensions.protocolReadyAck` e liberar o
+  dispatch explicitamente com `agent:ready`, reduzindo corrida com
+  `protocol_not_ready`.
 
 ## Confiabilidade e desempenho aplicados
 
@@ -128,12 +140,18 @@ Regras atuais no servidor:
 - Backpressure reforcado: chunks no relay respeitam creditos de
   `relay:rpc.stream.pull`.
 - Buffer com limites: chunks sao bufferizados por request e globalmente com cap
-  de memoria para evitar explosao de uso.
+  de memoria para evitar explosao de uso; se o agente exceder esse buffer, o hub
+  fecha o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`)
+  em vez de descartar chunks silenciosamente.
+- Pull capability-aware: quando o agente anuncia janela recomendada/maxima
+  (`recommendedStreamPullWindowSize` / `maxStreamPullWindowSize`, em `extensions`
+  ou `limits`), o hub aplica esse clamp tanto no pull interno quanto nas requests
+  do consumer.
 - Quotas de protecao: limites para conversas, pending requests por conversa e
   por consumer.
 - Limpeza por inatividade: conversas inativas expiram automaticamente por TTL.
 - Metricas em memoria: o servidor registra contadores de throughput, timeout,
-  dedupe e perdas por backpressure.
+  dedupe, perdas por backpressure e terminais explicitos de stream.
 
 Configuracao via variaveis de ambiente em `.env.example`.
 
@@ -213,7 +231,7 @@ Fluxo legado Socket (`agents:command` e `agents:stream_pull`) permanece ativo.
 O mesmo contrato de comando ao agente existe em **paralelo** via
 `POST /api/v1/agents/commands` (REST): o cliente pode usar **só REST**, **só Socket**
 ou **combinar** (ex.: auth HTTP + comandos Socket). O REST **nao** expoe streaming
-progressivo ao cliente (materializacao no hub); ver `docs/project_overview.md`
+progressivo ao cliente (materializacao no hub); ver `docs/PROJECT_OVERVIEW.md`
 (*Dois canais para comandos ao agente*).
 
 ## SDK cliente

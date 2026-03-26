@@ -5,6 +5,7 @@
 
 import { io as ioClient, type Socket as IoSocket } from "socket.io-client";
 
+import { env } from "../../../src/shared/config/env";
 import { encodePayloadFrame } from "../../../src/shared/utils/payload_frame";
 
 export type AgentSocket = IoSocket;
@@ -16,6 +17,7 @@ export const defaultPlugAgenteCapabilities = {
   compressions: ["gzip", "none"],
   extensions: {
     binaryPayload: true,
+    protocolReadyAck: true,
   },
 } as const;
 
@@ -55,6 +57,17 @@ export const connectPlugAgenteSocket = (baseUrl: string, agentAccessToken: strin
   });
 };
 
+export const emitAgentReady = (socket: AgentSocket, agentId: string, protocol = "jsonrpc-v2"): void => {
+  socket.emit(
+    "agent:ready",
+    encodePayloadFrame({
+      agent_id: agentId,
+      timestamp: new Date().toISOString(),
+      protocol,
+    }),
+  );
+};
+
 /**
  * Emits `agent:register` as PayloadFrame and waits for `agent:capabilities` (plug_agente flow).
  */
@@ -62,6 +75,7 @@ export const registerAgentOnHub = async (
   socket: AgentSocket,
   agentId: string,
   capabilities: Record<string, unknown> = defaultPlugAgenteCapabilities as unknown as Record<string, unknown>,
+  options?: { readonly autoReady?: boolean },
 ): Promise<void> => {
   const capabilitiesPromise = waitForSocketEvent<unknown>(socket, "agent:capabilities");
   socket.emit(
@@ -73,6 +87,22 @@ export const registerAgentOnHub = async (
     }),
   );
   await capabilitiesPromise;
+  const extensions =
+    typeof capabilities.extensions === "object" && capabilities.extensions !== null
+      ? (capabilities.extensions as Record<string, unknown>)
+      : null;
+  const protocolReadyAck = extensions?.protocolReadyAck === true;
+  const autoReady = options?.autoReady ?? true;
+
+  if (protocolReadyAck && autoReady) {
+    emitAgentReady(socket, agentId);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return;
+  }
+
+  if (!protocolReadyAck && env.socketAgentProtocolReadyGraceMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs));
+  }
 };
 
 export const emitAgentHeartbeat = (socket: AgentSocket, agentId: string): void => {

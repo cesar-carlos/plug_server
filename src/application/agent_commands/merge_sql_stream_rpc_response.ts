@@ -29,6 +29,11 @@ export const mergeSqlStreamRpcResponse = (
     return initialRpc;
   }
 
+  const terminalStatus = complete.terminal_status;
+  if (terminalStatus === "aborted" || terminalStatus === "error") {
+    throw new Error(`Agent SQL stream ended with terminal_status=${terminalStatus}`);
+  }
+
   const rows: unknown[] = [];
   const initialRows = result.rows;
   if (Array.isArray(initialRows)) {
@@ -58,4 +63,24 @@ export const mergeSqlStreamRpcResponse = (
     ...envelope,
     result: mergedResult,
   };
+};
+
+/** Row count from `result.rows` in the initial `rpc:response` envelope (REST materialization budgeting). */
+export const countSqlExecuteResultRowsInEnvelope = (envelope: unknown): number => {
+  const record = isRecord(envelope) ? envelope : null;
+  if (!record) {
+    return 0;
+  }
+  const result = isRecord(record.result) ? record.result : null;
+  if (!result) {
+    return 0;
+  }
+  const initialRows = result.rows;
+  return Array.isArray(initialRows) ? initialRows.length : 0;
+};
+
+/** Row count from a single `rpc:chunk` payload's `rows` array. */
+export const countSqlStreamChunkRows = (chunk: Record<string, unknown>): number => {
+  const chunkRows = chunk.rows;
+  return Array.isArray(chunkRows) ? chunkRows.length : 0;
 };

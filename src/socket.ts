@@ -69,6 +69,8 @@ const serverCapabilities = {
     compressionThreshold: 1024,
     /** Aligned with plug_agente OutboundCompressionMode.auto: gzip only when smaller than raw UTF-8. */
     outboundCompressionMode: "auto",
+    /** Optional explicit handshake completion sent by newer agents through `agent:ready`. */
+    protocolReadyAck: true,
     maxInflationRatio: 20,
     signatureRequired: false,
     signatureScope: "transport-frame",
@@ -331,7 +333,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      agentRegistry.touch(currentAgentId);
+      agentRegistry.touch(currentAgentId, { markProtocolReady: true });
 
       socket.emit(
         socketEvents.hubHeartbeatAck,
@@ -344,6 +346,27 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           { ...withOptionalRequestId(decoded.value.frame.requestId), omitTraceId: true },
         ),
       );
+    });
+
+    socket.on(socketEvents.agentReady, (rawPayload: unknown) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        emitAppError(socket, decoded.error.message);
+        return;
+      }
+
+      const currentAgentId =
+        socket.data.agentId ??
+        (isRecord(decoded.value.data) && typeof decoded.value.data.agent_id === "string"
+          ? decoded.value.data.agent_id
+          : undefined);
+
+      if (!currentAgentId) {
+        emitAppError(socket, "agent:ready received before agent registration");
+        return;
+      }
+
+      agentRegistry.touch(currentAgentId, { markProtocolReady: true });
     });
 
     socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: () => void) => {

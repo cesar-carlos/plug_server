@@ -4,16 +4,16 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 
 **Produção (`NODE_ENV=production`) sem variável definida:** o `env.ts` aplica automaticamente `SOCKET_IO_TRANSPORTS=websocket`, `SOCKET_IO_HTTP_COMPRESSION=false`, `PAYLOAD_FRAME_GZIP_LEVEL=3`, `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT=25`. Ver tabela em `docs/configuration.md`. Definir a variável explicitamente substitui estes ramos.
 
-**Canais do consumer:** REST (`POST /agents/commands`) vs Socket (`/consumers`) — escolha do cliente; REST agrega streams. Resumo em `docs/project_overview.md` (*Dois canais para comandos ao agente*).
+**Canais do consumer:** REST (`POST /api/v1/agents/commands`) vs Socket (`/consumers`) — escolha do cliente; REST agrega streams. Resumo em `docs/PROJECT_OVERVIEW.md`.
 
 ## Transporte Socket.IO
 
 - **PayloadFrame** já aplica gzip no nível da aplicação (modo **auto** por defeito: só gzip se menor que JSON UTF-8). O Engine.IO, por defeito, pode aplicar **permessage-deflate** no WebSocket — compressão duplicada e CPU extra.
 - **Teto interno de gzip** (`payload_frame.ts` + `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **524288**): JSON UTF-8 acima desse tamanho não passa por tentativa de gzip na codificação do hub (`cmp: none`); subir o valor (até **10 MiB**) se precisares de gzip em cargas grandes; payloads seguem dentro do limite de **10 MB** do contrato.
 - **`PAYLOAD_FRAME_GZIP_LEVEL`** (opcional, `1`–`9`): nível zlib para `gzipSync` do hub. Omitir mantém o default do Node (~6). Valores **1–3** reduzem CPU em hubs com muito tráfego comprimido, à custa de frames ligeiramente maiores.
-- **`PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`** (defeito **262144**): no caminho bridge (`encodePayloadFrameBridge` para `rpc:request` ao agente), payloads JSON **elegíveis para gzip** com pelo menos este tamanho em UTF-8 usam **gzip assíncrono** (`zlib.gzip` via `promisify`) em vez de `gzipSync`, aliviando bloqueios longos no event loop em frames grandes. **`0`** força sempre gzip síncrono (comportamento antigo).
+- **`PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`** (defeito **131072**): no caminho bridge (`encodePayloadFrameBridge` para `rpc:request` ao agente), payloads JSON **elegíveis para gzip** com pelo menos este tamanho em UTF-8 usam **gzip assíncrono** (`zlib.gzip` via `promisify`) em vez de `gzipSync`, aliviando bloqueios longos no event loop em frames grandes. **`0`** força sempre gzip síncrono (comportamento antigo).
 - **Envelope `traceId` em pedidos ao agente**: `rpc:request` (REST/relay) e `rpc:stream.pull` usam **`omitTraceId: true`** no envelope; a correlação fica em `requestId` / `meta.trace_id` no JSON-RPC quando aplicável.
-- **Inbound `decodePayloadFrameAsync`**: `rpc:response` e acks do agente, e decode do relay (`relay:rpc.request` / `relay:rpc.stream.pull`), usam decode assíncrono; para `cmp: gzip` e comprimido ≥ **`PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES`** (defeito **131072**), **gunzip assíncrono**. **`rpc:chunk` / `rpc:complete` permanecem síncronos** para não reordenar chunks sob carga. `0` = sempre síncrono em todos os usos async.
+- **Inbound `decodePayloadFrameAsync`**: `rpc:response` e acks do agente, e decode do relay (`relay:rpc.request` / `relay:rpc.stream.pull`), usam decode assíncrono; para `cmp: gzip` e comprimido ≥ **`PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES`** (defeito **65536**), **gunzip assíncrono**. **`rpc:chunk` / `rpc:complete` permanecem síncronos** para não reordenar chunks sob carga. `0` = sempre síncrono em todos os usos async.
 - **`SOCKET_IO_SERVE_CLIENT=false`** (defeito): o hub não expõe o ficheiro cliente `socket.io` por HTTP — menos trabalho no pipeline e superfície menor. Clientes devem usar `socket.io-client` via npm/CDN.
 - **`SOCKET_IO_HTTP_COMPRESSION`**: compressão zlib nas respostas do transporte **polling**. Se em produção só usas **`SOCKET_IO_TRANSPORTS=websocket`**, definir `SOCKET_IO_HTTP_COMPRESSION=false` evita trabalho inútil em upgrades/handshake ocasional de polling.
 - **`SOCKET_IO_PER_MESSAGE_DEFLATE=false`** (recomendado): desliga deflate na camada WS quando se usa `PayloadFrame` com gzip opcional.
@@ -28,6 +28,7 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 
 ## REST vs streaming
 
+- **Pipeline HTTP (`app.ts`)**: o rate limit global de **`/api/v1`** corre **antes** de `express.json`, para rejeitar abusos sem parse de corpo; a rota pesada continua protegida por `REST_AGENTS_COMMANDS_RATE_LIMIT_*` depois de `requireAuth` (métricas `plug_rest_http_rate_limit_*`).
 - **`POST /api/v1/agents/commands`** com `sql.execute` que devolve `stream_id`: o hub **materializa** o stream (vários `rpc:stream.pull` internos) e responde HTTP com **um** JSON — mais latência e RAM que Socket.
 - **Junção de linhas no materializador** (`mergeSqlStreamRpcResponse`): os chunks são concatenados com loop (sem `push(...rows)`), para não bater nos limites de argumentos do motor JS quando há dezenas de milhares de linhas por chunk.
 - Para resultados muito grandes, preferir **`agents:command`** ou **relay** com chunks em tempo real e `stream_pull` explícito.
@@ -37,7 +38,8 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 | Variável | Efeito |
 | -------- | ------ |
 | `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | Janela no materializador REST (defeito **256**): maior = menos round-trips, mais RAM por stream. |
-| `SOCKET_REST_AGENT_MAX_INFLIGHT` / `MAX_QUEUE` / `QUEUE_WAIT_MS` | Paralelismo e fila por agente no bridge REST (defeitos **32** / **64**). |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS` / `MAX_CHUNKS` | Tetos na agregação REST de `sql.execute` com `stream_id` (defeito **1_000_000** linhas; chunks **0** = sem limite). Exceder → **503** fail-fast; streams muito grandes devem usar Socket. |
+| `SOCKET_REST_AGENT_MAX_INFLIGHT` / `MAX_QUEUE` / `QUEUE_WAIT_MS` | Paralelismo e fila por agente no bridge REST (defeitos **32** / **64** / **200** ms). Observar `plug_socket_relay_rest_dispatch_*` em `GET /metrics` para profundidade agregada; subir `INFLIGHT`/`MAX_QUEUE` se bursts forem saudáveis e o agente aguentar; `QUEUE_WAIT_MS` baixo falha cedo com `Retry-After`. |
 | `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` / `..._CONVERSATION_STARTS` | Teto de pedidos relay por janela; subir em workloads intensos (com cuidado). |
 | `SOCKET_RELAY_MAX_BUFFERED_CHUNKS_*` | Backpressure relay (defeitos **256** por pedido, **25600** global); mais buffer = mais throughput até ao limite de memória. |
 | `SOCKET_AUDIT_BATCH_MAX` / `FLUSH_MS` | Menos round-trips à DB em auditoria. |

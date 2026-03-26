@@ -54,6 +54,26 @@ const waitForEvent = <T>(socket: ReturnType<typeof ioClient>, eventName: string,
     socket.on(eventName, onEvent);
   });
 
+const registerAgentAndWaitReady = async (
+  socket: ReturnType<typeof ioClient>,
+  capabilities: Record<string, unknown>,
+  agentId = testAgentId,
+): Promise<void> => {
+  const capabilitiesPromise = waitForEvent<unknown>(socket, "agent:capabilities");
+  socket.emit(
+    "agent:register",
+    encodePayloadFrame({
+      agentId,
+      capabilities,
+      timestamp: new Date().toISOString(),
+    }),
+  );
+  await capabilitiesPromise;
+  if (env.socketAgentProtocolReadyGraceMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs));
+  }
+};
+
 describe("Socket namespaces", () => {
   let server: Awaited<ReturnType<typeof createTestServer>>;
   let baseUrl: string;
@@ -147,18 +167,11 @@ describe("Socket namespaces", () => {
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
 
       try {
-        agentSocket.emit(
-          "agent:register",
-          encodePayloadFrame({
-            agentId: testAgentId,
-            capabilities: {
-              protocols: ["jsonrpc-v2"],
-              encodings: ["json"],
-              compressions: ["none"],
-            },
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
 
         const rpcHandled = new Promise<void>((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
@@ -231,21 +244,14 @@ describe("Socket namespaces", () => {
         let requestIdForTest = "";
         let pullCount = 0;
 
-        agentSocket.emit(
-          "agent:register",
-          encodePayloadFrame({
-            agentId: testAgentId,
-            capabilities: {
-              protocols: ["jsonrpc-v2"],
-              encodings: ["json"],
-              compressions: ["none"],
-              extensions: {
-                streamingResults: true,
-              },
-            },
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
 
         const pullPayloadPromise = waitForEvent<unknown>(agentSocket, "rpc:stream.pull");
         const commandResponsePromise = waitForEvent<{
@@ -421,21 +427,14 @@ describe("Socket namespaces", () => {
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
 
       try {
-        agentSocket.emit(
-          "agent:register",
-          encodePayloadFrame({
-            agentId: testAgentId,
-            capabilities: {
-              protocols: ["jsonrpc-v2"],
-              encodings: ["json"],
-              compressions: ["none"],
-              extensions: {
-                streamingResults: true,
-              },
-            },
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
 
         const startedA = waitForEvent<{ success: boolean; conversationId: string }>(
           consumerA,
@@ -584,18 +583,11 @@ describe("Socket namespaces", () => {
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
 
       try {
-        agentSocket.emit(
-          "agent:register",
-          encodePayloadFrame({
-            agentId: testAgentId,
-            capabilities: {
-              protocols: ["jsonrpc-v2"],
-              encodings: ["json"],
-              compressions: ["none"],
-            },
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
 
         const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
           consumerSocket,
@@ -672,21 +664,14 @@ describe("Socket namespaces", () => {
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
 
       try {
-        agentSocket.emit(
-          "agent:register",
-          encodePayloadFrame({
-            agentId: testAgentId,
-            capabilities: {
-              protocols: ["jsonrpc-v2"],
-              encodings: ["json"],
-              compressions: ["none"],
-              extensions: {
-                streamingResults: true,
-              },
-            },
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
 
         const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
           consumerSocket,
@@ -784,21 +769,14 @@ describe("Socket namespaces", () => {
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
 
       try {
-        agentSocket.emit(
-          "agent:register",
-          encodePayloadFrame({
-            agentId: testAgentId,
-            capabilities: {
-              protocols: ["jsonrpc-v2"],
-              encodings: ["json"],
-              compressions: ["gzip", "none"],
-              extensions: {
-                streamingResults: true,
-              },
-            },
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["gzip", "none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
 
         const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
           consumerSocket,
@@ -994,26 +972,319 @@ describe("Socket namespaces", () => {
       }
     });
 
+    it("should clamp relay stream pull window using agent advertised capability", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+            recommendedStreamPullWindowSize: 2,
+            maxStreamPullWindowSize: 2,
+          },
+        });
+
+        const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
+          consumerSocket,
+          "relay:conversation.started",
+        );
+        consumerSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+
+        const acceptedPromise = waitForEvent<{ success: boolean; requestId?: string }>(
+          consumerSocket,
+          "relay:rpc.accepted",
+        );
+        const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response");
+
+        let routedRequestId = "";
+        let streamId = "";
+        agentSocket.once("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+          routedRequestId = requestId;
+          streamId = `stream-${requestId}`;
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: {
+                stream_id: streamId,
+              },
+            }),
+          );
+        });
+
+        consumerSocket.emit("relay:rpc.request", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: "client-cap-window-1",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+            },
+          }),
+        });
+
+        const [accepted] = await Promise.all([acceptedPromise, responsePromise]);
+        expect(accepted.success).toBe(true);
+        expect(accepted.requestId).toBeDefined();
+
+        const pullResponsePromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          streamId?: string;
+          windowSize?: number;
+        }>(consumerSocket, "relay:rpc.stream.pull_response");
+        const agentPullPayloadPromise = waitForEvent<unknown>(agentSocket, "rpc:stream.pull");
+
+        consumerSocket.emit("relay:rpc.stream.pull", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame({
+            request_id: accepted.requestId,
+            window_size: 25,
+          }),
+        });
+
+        const [pullResponse, rawAgentPull] = await Promise.all([
+          pullResponsePromise,
+          agentPullPayloadPromise,
+        ]);
+        expect(pullResponse.success).toBe(true);
+        expect(pullResponse.requestId).toBe(accepted.requestId);
+        expect(pullResponse.streamId).toBe(streamId);
+        expect(pullResponse.windowSize).toBe(2);
+
+        const decodedAgentPull = decodePayloadFrame(rawAgentPull);
+        expect(decodedAgentPull.ok).toBe(true);
+        const agentPullPayload =
+          decodedAgentPull.ok && isRecord(decodedAgentPull.value.data)
+            ? decodedAgentPull.value.data
+            : null;
+        expect(agentPullPayload).not.toBeNull();
+        expect(toRequestId(agentPullPayload?.request_id)).toBe(routedRequestId);
+        expect(agentPullPayload?.window_size).toBe(2);
+      } finally {
+        agentSocket.disconnect();
+        consumerSocket.disconnect();
+      }
+    });
+
+    it("should abort relay stream explicitly when backpressure buffer overflows", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
+
+        const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
+          consumerSocket,
+          "relay:conversation.started",
+        );
+        consumerSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+
+        const acceptedPromise = waitForEvent<{ success: boolean; requestId?: string }>(
+          consumerSocket,
+          "relay:rpc.accepted",
+        );
+        const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response");
+        const completePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.complete", 8_000);
+
+        agentSocket.once("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+          const streamId = `stream-overflow-${requestId}`;
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: { stream_id: streamId },
+            }),
+          );
+
+          for (let index = 0; index <= env.socketRelayMaxBufferedChunksPerRequest; index += 1) {
+            agentSocket.emit(
+              "rpc:chunk",
+              encodePayloadFrame({
+                stream_id: streamId,
+                request_id: requestId,
+                chunk_index: index,
+                rows: [{ id: index }],
+              }),
+            );
+          }
+        });
+
+        consumerSocket.emit("relay:rpc.request", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: "client-backpressure-abort-1",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+            },
+          }),
+        });
+
+        const [accepted] = await Promise.all([acceptedPromise, responsePromise]);
+        expect(accepted.success).toBe(true);
+
+        const rawComplete = await completePromise;
+        const decodedComplete = decodePayloadFrame(rawComplete);
+        expect(decodedComplete.ok).toBe(true);
+        const completePayload =
+          decodedComplete.ok && isRecord(decodedComplete.value.data)
+            ? decodedComplete.value.data
+            : null;
+        expect(completePayload).not.toBeNull();
+        expect(toRequestId(completePayload?.request_id)).toBe(accepted.requestId);
+        expect(completePayload?.terminal_status).toBe("aborted");
+      } finally {
+        agentSocket.disconnect();
+        consumerSocket.disconnect();
+      }
+    });
+
+    it("should fail fast relay stream when agent sends invalid rpc:chunk frame", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
+
+        const startedPromise = waitForEvent<{ success: boolean; conversationId: string }>(
+          consumerSocket,
+          "relay:conversation.started",
+        );
+        consumerSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+
+        const acceptedPromise = waitForEvent<{ success: boolean; requestId?: string }>(
+          consumerSocket,
+          "relay:rpc.accepted",
+        );
+        const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response");
+        const completePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.complete", 8_000);
+
+        agentSocket.once("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+          const streamId = `stream-invalid-${requestId}`;
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: { stream_id: streamId },
+            }),
+          );
+
+          agentSocket.emit("rpc:chunk", {
+            schemaVersion: "1.0",
+            enc: "json",
+            cmp: "none",
+            contentType: "application/json",
+            originalSize: 1,
+            compressedSize: 1,
+            payload: Buffer.from("{"),
+            requestId,
+          });
+        });
+
+        consumerSocket.emit("relay:rpc.request", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: "client-invalid-stream-frame-1",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+            },
+          }),
+        });
+
+        const [accepted] = await Promise.all([acceptedPromise, responsePromise]);
+        expect(accepted.success).toBe(true);
+
+        const rawComplete = await completePromise;
+        const decodedComplete = decodePayloadFrame(rawComplete);
+        expect(decodedComplete.ok).toBe(true);
+        const completePayload =
+          decodedComplete.ok && isRecord(decodedComplete.value.data)
+            ? decodedComplete.value.data
+            : null;
+        expect(completePayload).not.toBeNull();
+        expect(toRequestId(completePayload?.request_id)).toBe(accepted.requestId);
+        expect(completePayload?.terminal_status).toBe("error");
+      } finally {
+        agentSocket.disconnect();
+        consumerSocket.disconnect();
+      }
+    });
+
     it("should enforce relay conversation start rate limit per consumer", async () => {
       const consumerSocket = await connectConsumer(baseUrl, accessToken);
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
 
       try {
-        agentSocket.emit(
-          "agent:register",
-          encodePayloadFrame({
-            agentId: testAgentId,
-            capabilities: {
-              protocols: ["jsonrpc-v2"],
-              encodings: ["json"],
-              compressions: ["none"],
-              extensions: {
-                streamingResults: true,
-              },
-            },
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
 
         const rateLimitedPromise = new Promise<{
           success: false;

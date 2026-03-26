@@ -1,8 +1,28 @@
 import type { Request, RequestHandler, Response } from "express";
-import { rateLimit } from "express-rate-limit";
+import { rateLimit, type Options } from "express-rate-limit";
 
+import {
+  incrementRestHttpAgentsCommandsIpRateLimitRejected,
+  incrementRestHttpAgentsCommandsUserRateLimitRejected,
+  incrementRestHttpGlobalRateLimitRejected,
+} from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+
+const sendRateLimitResponse = async (
+  request: Request,
+  response: Response,
+  optionsUsed: Options,
+): Promise<void> => {
+  response.status(optionsUsed.statusCode);
+  const message =
+    typeof optionsUsed.message === "function"
+      ? await optionsUsed.message(request, response)
+      : optionsUsed.message;
+  if (!response.writableEnded) {
+    response.send(message);
+  }
+};
 
 export const globalRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -12,6 +32,10 @@ export const globalRateLimit = rateLimit({
   message: {
     message: "Too many requests, please try again later.",
     code: "TOO_MANY_REQUESTS",
+  },
+  handler: async (request, response, _next, optionsUsed) => {
+    incrementRestHttpGlobalRateLimitRejected();
+    await sendRateLimitResponse(request, response, optionsUsed);
   },
 });
 
@@ -56,6 +80,10 @@ export const agentsCommandsIpRateLimit: RequestHandler =
         legacyHeaders: false,
         message: agentsCommandsTooManyMessage,
         keyGenerator: (req: Request) => agentsCommandsIpRateLimitKey(req),
+        handler: async (request, response, _next, optionsUsed) => {
+          incrementRestHttpAgentsCommandsIpRateLimitRejected();
+          await sendRateLimitResponse(request, response, optionsUsed);
+        },
       })
     : ((_req: Request, _res: Response, next) => {
         next();
@@ -72,6 +100,10 @@ export const agentsCommandsUserRateLimit = rateLimit({
   legacyHeaders: false,
   message: agentsCommandsTooManyMessage,
   keyGenerator: (_req: Request, res: Response) => agentsCommandsUserRateLimitKey(res),
+  handler: async (request, response, _next, optionsUsed) => {
+    incrementRestHttpAgentsCommandsUserRateLimitRejected();
+    await sendRateLimitResponse(request, response, optionsUsed);
+  },
 });
 
 /** @deprecated Use `agentsCommandsUserRateLimit` (and optionally `agentsCommandsIpRateLimit`). */

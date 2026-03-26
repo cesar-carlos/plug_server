@@ -3,6 +3,7 @@ export const socketEvents = {
   appError: "app:error",
   agentRegister: "agent:register",
   agentCapabilities: "agent:capabilities",
+  agentReady: "agent:ready",
   agentHeartbeat: "agent:heartbeat",
   hubHeartbeatAck: "hub:heartbeat_ack",
   rpcRequest: "rpc:request",

@@ -23,11 +23,39 @@ const queueWaitMs = env.socketRestAgentQueueWaitMs;
 const agentInflightById = new Map<string, number>();
 const agentQueueById = new Map<string, AgentQueueWaiter[]>();
 
-let onRestPendingRejected: () => void = () => {};
+export type RestAgentDispatchQueueRejectReason = "queue_full" | "queue_wait_timeout";
 
-/** Wire metric hook (typically increments `relayMetrics.restPendingRejected`). */
-export const wireRestAgentDispatchQueueMetrics = (fn: () => void): void => {
-  onRestPendingRejected = fn;
+let onRestDispatchQueueReject: (reason: RestAgentDispatchQueueRejectReason) => void = () => {};
+
+/** Wire metric hook (typically increments granular `relayMetrics.restAgentQueue*` counters). */
+export const wireRestAgentDispatchQueueMetrics = (
+  fn: (reason: RestAgentDispatchQueueRejectReason) => void,
+): void => {
+  onRestDispatchQueueReject = fn;
+};
+
+export const getRestAgentDispatchQueueMetricsSnapshot = (): {
+  readonly agentsWithQueuedWaiters: number;
+  readonly totalQueuedWaiters: number;
+  readonly totalInflight: number;
+  readonly maxQueueDepthPerAgent: number;
+} => {
+  let totalQueued = 0;
+  let maxDepth = 0;
+  for (const q of agentQueueById.values()) {
+    totalQueued += q.length;
+    maxDepth = Math.max(maxDepth, q.length);
+  }
+  let totalInflight = 0;
+  for (const v of agentInflightById.values()) {
+    totalInflight += v;
+  }
+  return {
+    agentsWithQueuedWaiters: agentQueueById.size,
+    totalQueuedWaiters: totalQueued,
+    totalInflight,
+    maxQueueDepthPerAgent: maxDepth,
+  };
 };
 
 const getAgentInflight = (agentId: string): number => agentInflightById.get(agentId) ?? 0;
@@ -116,7 +144,7 @@ export const acquireRestAgentDispatchSlot = async (
 
   const queue = agentQueueById.get(agentId) ?? [];
   if (queue.length >= maxQueue) {
-    onRestPendingRejected();
+    onRestDispatchQueueReject("queue_full");
     throw serviceUnavailableWithRetry(
       withAppendedMessage("Agent is overloaded", "queue is full"),
       queueWaitMs,
@@ -156,7 +184,7 @@ export const acquireRestAgentDispatchSlot = async (
       if (w) {
         removeQueuedWaiter(agentId, w);
       }
-      onRestPendingRejected();
+      onRestDispatchQueueReject("queue_wait_timeout");
       rejectOnce(
         serviceUnavailableWithRetry(
           withAppendedMessage("Agent is overloaded", "queue wait timeout"),

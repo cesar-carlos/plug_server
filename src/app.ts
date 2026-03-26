@@ -40,6 +40,8 @@ export const createApp = (): Express => {
         : ":method :url :status :response-time ms req_id=:request-id",
     ),
   );
+  /** Fail-fast: throttle /api/v1 before JSON body parsing (reduces CPU on abusive traffic). */
+  app.use("/api/v1", globalRateLimit);
   app.use(express.json({ limit: env.requestBodyLimit }));
   app.use(express.urlencoded({ extended: true, limit: env.requestBodyLimit }));
   app.use(cookieParser());
@@ -48,7 +50,6 @@ export const createApp = (): Express => {
 
   app.use("/auth", authRateLimit);
   app.use("/auth", authRouter);
-  app.use("/api/v1", globalRateLimit);
   app.use("/api/v1/auth", authRateLimit);
   app.use("/api/v1", httpRouter);
   setupSwagger(app);

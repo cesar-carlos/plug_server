@@ -24,12 +24,14 @@ describe("relay_stream_flow_state", () => {
   it("resetRelayStreamFlowState clears maps and total", () => {
     relayStreamFlowState.creditsByRequestId.set("r1", 3);
     relayStreamFlowState.pendingCompleteByRequestId.set("r1", {});
+    relayStreamFlowState.forwardedRowsByRequestId.set("r1", 7);
     relayStreamFlowState.totalBufferedChunks = 5;
 
     resetRelayStreamFlowState();
 
     expect(relayStreamFlowState.creditsByRequestId.size).toBe(0);
     expect(relayStreamFlowState.pendingCompleteByRequestId.size).toBe(0);
+    expect(relayStreamFlowState.forwardedRowsByRequestId.size).toBe(0);
     expect(relayStreamFlowState.totalBufferedChunks).toBe(0);
   });
 });
