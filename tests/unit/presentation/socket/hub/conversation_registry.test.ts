@@ -37,22 +37,24 @@ describe("conversation_registry", () => {
     expect(conversationRegistry.findByConversationId("conv-b")).toBeNull();
   });
 
-  it("removeExpired skips conversations with unparseable lastSeenAt", () => {
+  it("exposes internal fast-path view and updates timestamps via touchInternal", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     conversationRegistry.create({
       consumerSocketId: "c1",
       agentSocketId: "a1",
       agentId: "ag",
-      conversationId: "bad-date",
+      conversationId: "internal-fast-path",
     });
-    const reg = conversationRegistry as unknown as {
-      conversations: Map<string, { lastSeenAt: string }>;
-    };
-    const row = reg.conversations.get("bad-date");
-    expect(row).toBeDefined();
-    if (row) row.lastSeenAt = "not-a-date";
 
-    const removed = conversationRegistry.removeExpired(1);
-    expect(removed).toHaveLength(0);
-    expect(conversationRegistry.findByConversationId("bad-date")).not.toBeNull();
+    const before = conversationRegistry.findInternalByConversationId("internal-fast-path");
+    expect(before).not.toBeNull();
+    expect(before?.createdAtMs).toBeTypeOf("number");
+    expect(before?.lastSeenAtMs).toBeTypeOf("number");
+
+    vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
+    const after = conversationRegistry.touchInternal("internal-fast-path");
+    expect(after).not.toBeNull();
+    expect(after?.lastSeenAtMs).toBeGreaterThan(before?.lastSeenAtMs ?? 0);
   });
 });

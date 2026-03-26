@@ -16,7 +16,6 @@ import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound
 import { getRelayRequestRoute, removeRelayRequestRoute } from "./relay_request_registry";
 import {
   addRelayStreamFlowCredits,
-  getRelayStreamFlowCredits,
   drainRelayStreamBuffer,
 } from "./relay_stream_flow_state";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
@@ -118,7 +117,6 @@ export const createRequestAgentStreamPull = (
       addRelayStreamFlowCredits(route.requestId, windowSize);
 
       enqueueRelayOutbound(route.requestId, async () => {
-        relayMetrics.chunksForwarded += getRelayStreamFlowCredits(route.requestId);
         await drainRelayStreamBuffer({
           requestId: route.requestId,
           consumerSocketId: route.consumerSocketId,

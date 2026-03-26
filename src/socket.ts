@@ -25,7 +25,10 @@ import {
   resetSocketBridgeState,
   registerSocketBridgeServer,
 } from "./presentation/socket/hub/rpc_bridge";
-import { relayMetrics } from "./presentation/socket/hub/bridge_relay_health_metrics";
+import {
+  observeRelayOverloadCheck,
+  relayMetrics,
+} from "./presentation/socket/hub/bridge_relay_health_metrics";
 import { emitConnectionReady } from "./presentation/socket/hub/connection_ready_handshake";
 import { conversationRegistry } from "./presentation/socket/hub/conversation_registry";
 import {
@@ -123,6 +126,17 @@ const buildConsumerOverloadError = (
 
 const getUserId = (socket: HubSocket): string | null => {
   return typeof socket.data.user?.sub === "string" ? socket.data.user.sub : null;
+};
+
+const logSocketLifecycleInfo = (
+  event: string,
+  payload: Record<string, unknown>,
+): void => {
+  if (env.nodeEnv === "production") {
+    logger.debug(event, payload);
+    return;
+  }
+  logger.info(event, payload);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -267,7 +281,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   conversationSweepTimer.unref?.();
 
   agentsNsp.on("connection", (socket: HubSocket) => {
-    logger.info("Socket client connected", {
+    logSocketLifecycleInfo("Socket client connected", {
       socketId: socket.id,
       userId: getUserId(socket),
     });
@@ -319,7 +333,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      logger.info("Agent registered on hub", {
+      logSocketLifecycleInfo("Agent registered on hub", {
         socketId: socket.id,
         agentId,
         userId: getUserId(socket),
@@ -426,7 +440,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
       const removedAgent = agentRegistry.removeBySocketId(socket.id);
       if (removedAgent) {
-        logger.info("Agent disconnected from hub", {
+        logSocketLifecycleInfo("Agent disconnected from hub", {
           socketId: socket.id,
           agentId: removedAgent.agentId,
           userId: removedAgent.userId,
@@ -437,7 +451,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   });
 
   consumersNsp.on("connection", (socket: HubSocket) => {
-    logger.info("Consumer socket connected", {
+    logSocketLifecycleInfo("Consumer socket connected", {
       socketId: socket.id,
       userId: getUserId(socket),
     });
@@ -457,7 +471,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
+      const tOverload = performance.now();
       const overload = getRelayOutboundQueueOverloadState();
+      observeRelayOverloadCheck(performance.now() - tOverload);
       if (overload.overloaded) {
         noteRelayOutboundQueueOverloadRejected();
         socket.emit(socketEvents.relayConversationStarted, {
@@ -491,7 +507,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayRpcRequest, (rawPayload: unknown) => {
+      const tOverload = performance.now();
       const overload = getRelayOutboundQueueOverloadState();
+      observeRelayOverloadCheck(performance.now() - tOverload);
       if (overload.overloaded) {
         noteRelayOutboundQueueOverloadRejected();
         socket.emit(socketEvents.relayRpcAccepted, {
@@ -521,7 +539,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayRpcStreamPull, (rawPayload: unknown) => {
+      const tOverload = performance.now();
       const overload = getRelayOutboundQueueOverloadState();
+      observeRelayOverloadCheck(performance.now() - tOverload);
       if (overload.overloaded) {
         noteRelayOutboundQueueOverloadRejected();
         socket.emit(socketEvents.relayRpcStreamPullResponse, {

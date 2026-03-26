@@ -9,7 +9,8 @@ import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";
 import { badRequest, notFound, serviceUnavailable, serviceUnavailableWithRetry } from "../../../shared/errors/http_errors";
 import {
-  bridgeCommandSchema,
+  bridgeSingleCommandSchema,
+  supportedAgentRpcMethods,
   type PayloadFrameCompression,
 } from "../../../shared/validators/agent_command";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -28,6 +29,9 @@ import {
 import {
   ensureAgentCircuitClosed,
   logRpcFrameDecodeFailure,
+  observeRelayBridgeEncode,
+  observeRelayCommandValidation,
+  observeRelayFrameDecode,
   registerAgentFailure,
   relayMetrics,
 } from "./bridge_relay_health_metrics";
@@ -65,6 +69,8 @@ const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
+
+const supportedMethodSet = new Set<string>(supportedAgentRpcMethods);
 
 export interface DispatchRelayRpcInput {
   readonly conversationId: string;
@@ -112,7 +118,9 @@ export const createRpcBridgeRelayDispatch = (
     const trace = input.latencyTrace;
     const relayWallStart = performance.now();
     const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
-    trace?.addPhaseMs("consumer_frame_decode_ms", performance.now() - relayWallStart);
+    const decodeElapsed = performance.now() - relayWallStart;
+    trace?.addPhaseMs("consumer_frame_decode_ms", decodeElapsed);
+    observeRelayFrameDecode(decodeElapsed);
     const relayPreflightStart = performance.now();
     if (!decoded.ok) {
       logRpcFrameDecodeFailure({
@@ -128,7 +136,17 @@ export const createRpcBridgeRelayDispatch = (
       throw badRequest("relay:rpc.request frame must contain a JSON object payload");
     }
 
-    const parsed = bridgeCommandSchema.safeParse(rawCommand);
+    if (Array.isArray(rawCommand)) {
+      throw badRequest("relay:rpc.request does not support batch; send a single JSON-RPC request");
+    }
+    const method = typeof rawCommand.method === "string" ? rawCommand.method : "";
+    if (!supportedMethodSet.has(method)) {
+      throw badRequest("command.method: Unsupported RPC method");
+    }
+
+    const validateStart = performance.now();
+    const parsed = bridgeSingleCommandSchema.safeParse(rawCommand);
+    observeRelayCommandValidation(performance.now() - validateStart);
     if (!parsed.success) {
       const firstIssue = parsed.error.issues[0];
       const message = firstIssue ? `${firstIssue.path.join(".") || "command"}: ${firstIssue.message}` : "Invalid RPC command";
@@ -136,13 +154,9 @@ export const createRpcBridgeRelayDispatch = (
     }
 
     const command = parsed.data;
-    if (Array.isArray(command)) {
-      throw badRequest("relay:rpc.request does not support batch; send a single JSON-RPC request");
-    }
-
     const normalizedCommand = normalizeCommandForAgent(command);
 
-    const conversation = conversationRegistry.findByConversationId(input.conversationId);
+    const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
     if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
       throw notFound("Conversation not found");
     }
@@ -187,9 +201,11 @@ export const createRpcBridgeRelayDispatch = (
 
     const cmdRecord = normalizedCommand as Record<string, unknown>;
     const clientRequestId = toRequestId(cmdRecord.id);
+    const idempotencyMap = clientRequestId
+      ? getOrCreateRelayIdempotencyMap(conversation.conversationId)
+      : null;
     if (clientRequestId) {
-      const idempotencyMap = getOrCreateRelayIdempotencyMap(conversation.conversationId);
-      const existing = idempotencyMap.get(clientRequestId);
+      const existing = idempotencyMap?.get(clientRequestId);
       if (existing && existing.expiresAtMs > Date.now()) {
         relayMetrics.requestsDeduplicated += 1;
         trace?.dismissWithoutPersist();
@@ -304,7 +320,9 @@ export const createRpcBridgeRelayDispatch = (
         omitTraceId: true,
         ...relayPayloadFrameOpts,
       });
-      trace?.addPhaseMs("encode_ms", performance.now() - tEnc);
+      const encodeElapsed = performance.now() - tEnc;
+      trace?.addPhaseMs("encode_ms", encodeElapsed);
+      observeRelayBridgeEncode(encodeElapsed);
       const tEmit = performance.now();
       agentSocket.emit(socketEvents.rpcRequest, wireFrame);
       const emitEnd = performance.now();
@@ -329,15 +347,14 @@ export const createRpcBridgeRelayDispatch = (
     }
 
     if (clientRequestId) {
-      const idempotencyMap = getOrCreateRelayIdempotencyMap(conversation.conversationId);
-      idempotencyMap.set(clientRequestId, {
+      idempotencyMap?.set(clientRequestId, {
         requestId,
         expiresAtMs: Date.now() + relayIdempotencyTtlMs,
       });
     }
 
     relayMetrics.requestsAccepted += 1;
-    conversationRegistry.touch(conversation.conversationId);
+    conversationRegistry.touchInternal(conversation.conversationId);
 
     return {
       requestId,
@@ -348,7 +365,9 @@ export const createRpcBridgeRelayDispatch = (
   const requestRelayStreamPull = async (
     input: RequestRelayStreamPullInput,
   ): Promise<RequestAgentStreamPullResult> => {
+    const tDecode = performance.now();
     const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
+    observeRelayFrameDecode(performance.now() - tDecode);
     if (!decoded.ok) {
       logRpcFrameDecodeFailure({
         eventName: socketEvents.relayRpcStreamPull,
@@ -363,7 +382,7 @@ export const createRpcBridgeRelayDispatch = (
       throw badRequest("relay:rpc.stream.pull frame must contain a JSON object payload");
     }
 
-    const conversation = conversationRegistry.findByConversationId(input.conversationId);
+    const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
     if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
       throw notFound("Conversation not found");
     }
@@ -391,7 +410,7 @@ export const createRpcBridgeRelayDispatch = (
       ),
     });
 
-    conversationRegistry.touch(conversation.conversationId);
+    conversationRegistry.touchInternal(conversation.conversationId);
     return result;
   };
 

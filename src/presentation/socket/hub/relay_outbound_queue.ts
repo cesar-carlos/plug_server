@@ -32,6 +32,28 @@ const metrics = {
   jobDurationSumMs: 0,
   jobDurationMaxMs: 0,
   durationRing: createLatencyRingBuffer(durationSamplesSize),
+  overloadStateRefreshTotal: 0,
+};
+
+type OverloadStateCache = {
+  readonly overloaded: boolean;
+  readonly reason: "backlog" | "p95_latency" | null;
+  readonly retryAfterMs: number;
+  readonly p95Ms: number;
+  readonly p99Ms: number;
+  readonly backlog: number;
+  readonly computedAtMs: number;
+};
+
+let cachedOrphanedRequestIds = 0;
+let overloadStateCache: OverloadStateCache = {
+  overloaded: false,
+  reason: null,
+  retryAfterMs: 0,
+  p95Ms: 0,
+  p99Ms: 0,
+  backlog: 0,
+  computedAtMs: 0,
 };
 
 export type RelayOutboundQueueMetricsSnapshot = {
@@ -48,6 +70,9 @@ export type RelayOutboundQueueMetricsSnapshot = {
   readonly inflightRequestIds: number;
   readonly orphanedRequestIds: number;
   readonly backlog: number;
+  readonly overloadStateRefreshTotal: number;
+  readonly overloadCacheP95Ms: number;
+  readonly overloadCacheComputedAtMs: number;
 };
 
 const deriveBacklog = (): number =>
@@ -66,11 +91,39 @@ const countOrphanedRequestIds = (nowMs: number): number => {
   return total;
 };
 
+const retryAfterFromSweep = (): number =>
+  Math.max(250, Math.min(env.socketRelayOutboundSweepIntervalMs, 1_000));
+
+const updateOverloadStateCache = (input: { p95Ms?: number; p99Ms?: number; nowMs?: number }): void => {
+  const nowMs = input.nowMs ?? Date.now();
+  const backlog = deriveBacklog();
+  const p95Ms = input.p95Ms ?? overloadStateCache.p95Ms;
+  const p99Ms = input.p99Ms ?? overloadStateCache.p99Ms;
+  const backlogThreshold = env.socketRelayOutboundOverloadBacklog;
+  const p95Threshold = env.socketRelayOutboundOverloadP95Ms;
+  const overloadedByBacklog = backlogThreshold > 0 && backlog >= backlogThreshold;
+  const overloadedByP95 = p95Threshold > 0 && p95Ms >= p95Threshold;
+  overloadStateCache = {
+    overloaded: overloadedByBacklog || overloadedByP95,
+    reason: overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null,
+    retryAfterMs: overloadedByBacklog || overloadedByP95 ? retryAfterFromSweep() : 0,
+    p95Ms,
+    p99Ms,
+    backlog,
+    computedAtMs: nowMs,
+  };
+};
+
 export const getRelayOutboundQueueMetricsSnapshot = (): RelayOutboundQueueMetricsSnapshot => {
   const finished = metrics.jobsFinishedTotal;
   const sampleSlice = latencyRingBufferValues(metrics.durationRing);
+  const p95 = Number(percentile(sampleSlice, 95).toFixed(2));
+  const p99 = Number(percentile(sampleSlice, 99).toFixed(2));
   const nowMs = Date.now();
+  cachedOrphanedRequestIds = countOrphanedRequestIds(nowMs);
   const backlog = deriveBacklog();
+  updateOverloadStateCache({ p95Ms: p95, p99Ms: p99, nowMs });
+  metrics.overloadStateRefreshTotal += 1;
   return {
     jobsEnqueuedTotal: metrics.jobsEnqueuedTotal,
     jobsFinishedTotal: finished,
@@ -80,12 +133,51 @@ export const getRelayOutboundQueueMetricsSnapshot = (): RelayOutboundQueueMetric
     jobDurationSumMs: metrics.jobDurationSumMs,
     jobDurationAvgMs: finished > 0 ? Number((metrics.jobDurationSumMs / finished).toFixed(4)) : 0,
     jobDurationMaxMs: metrics.jobDurationMaxMs,
-    jobDurationP95Ms: Number(percentile(sampleSlice, 95).toFixed(2)),
-    jobDurationP99Ms: Number(percentile(sampleSlice, 99).toFixed(2)),
+    jobDurationP95Ms: p95,
+    jobDurationP99Ms: p99,
     inflightRequestIds: tailByRequestId.size,
-    orphanedRequestIds: countOrphanedRequestIds(nowMs),
+    orphanedRequestIds: cachedOrphanedRequestIds,
     backlog,
+    overloadStateRefreshTotal: metrics.overloadStateRefreshTotal,
+    overloadCacheP95Ms: overloadStateCache.p95Ms,
+    overloadCacheComputedAtMs: overloadStateCache.computedAtMs,
   };
+};
+
+const getFastMetricsSnapshot = (): RelayOutboundQueueMetricsSnapshot => {
+  const finished = metrics.jobsFinishedTotal;
+  return {
+    jobsEnqueuedTotal: metrics.jobsEnqueuedTotal,
+    jobsFinishedTotal: finished,
+    jobsFailedTotal: metrics.jobsFailedTotal,
+    overloadRejectedTotal: metrics.overloadRejectedTotal,
+    orphanedTailsSweptTotal: metrics.orphanedTailsSweptTotal,
+    jobDurationSumMs: metrics.jobDurationSumMs,
+    jobDurationAvgMs: finished > 0 ? Number((metrics.jobDurationSumMs / finished).toFixed(4)) : 0,
+    jobDurationMaxMs: metrics.jobDurationMaxMs,
+    jobDurationP95Ms: overloadStateCache.p95Ms,
+    jobDurationP99Ms: overloadStateCache.p99Ms,
+    inflightRequestIds: tailByRequestId.size,
+    orphanedRequestIds: cachedOrphanedRequestIds,
+    backlog: overloadStateCache.backlog,
+    overloadStateRefreshTotal: metrics.overloadStateRefreshTotal,
+    overloadCacheP95Ms: overloadStateCache.p95Ms,
+    overloadCacheComputedAtMs: overloadStateCache.computedAtMs,
+  };
+};
+
+/**
+ * Heavy refresh (percentile + orphan scan), intended for periodic sweep/metrics paths.
+ */
+export const refreshRelayOutboundQueueOverloadState = (nowMs = Date.now()): void => {
+  cachedOrphanedRequestIds = countOrphanedRequestIds(nowMs);
+  const sampleSlice = latencyRingBufferValues(metrics.durationRing);
+  updateOverloadStateCache({
+    p95Ms: Number(percentile(sampleSlice, 95).toFixed(2)),
+    p99Ms: Number(percentile(sampleSlice, 99).toFixed(2)),
+    nowMs,
+  });
+  metrics.overloadStateRefreshTotal += 1;
 };
 
 export const sweepRelayOutboundQueueState = (nowMs = Date.now()): number => {
@@ -99,6 +191,7 @@ export const sweepRelayOutboundQueueState = (nowMs = Date.now()): number => {
     metrics.jobsSweptOrphanedTotal += entry.pendingJobs;
   }
   metrics.orphanedTailsSweptTotal += swept;
+  refreshRelayOutboundQueueOverloadState(nowMs);
   return swept;
 };
 
@@ -108,31 +201,11 @@ export const getRelayOutboundQueueOverloadState = (): {
   readonly retryAfterMs: number;
   readonly snapshot: RelayOutboundQueueMetricsSnapshot;
 } => {
-  const snapshot = getRelayOutboundQueueMetricsSnapshot();
-  const backlogThreshold = env.socketRelayOutboundOverloadBacklog;
-  if (backlogThreshold > 0 && snapshot.backlog >= backlogThreshold) {
-    return {
-      overloaded: true,
-      reason: "backlog",
-      retryAfterMs: Math.max(250, Math.min(env.socketRelayOutboundSweepIntervalMs, 1_000)),
-      snapshot,
-    };
-  }
-
-  const p95Threshold = env.socketRelayOutboundOverloadP95Ms;
-  if (p95Threshold > 0 && snapshot.jobDurationP95Ms >= p95Threshold) {
-    return {
-      overloaded: true,
-      reason: "p95_latency",
-      retryAfterMs: Math.max(250, Math.min(env.socketRelayOutboundSweepIntervalMs, 1_000)),
-      snapshot,
-    };
-  }
-
+  const snapshot = getFastMetricsSnapshot();
   return {
-    overloaded: false,
-    reason: null,
-    retryAfterMs: 0,
+    overloaded: overloadStateCache.overloaded,
+    reason: overloadStateCache.reason,
+    retryAfterMs: overloadStateCache.retryAfterMs,
     snapshot,
   };
 };
@@ -151,6 +224,7 @@ const resetRelayOutboundQueueMetrics = (): void => {
   metrics.jobDurationSumMs = 0;
   metrics.jobDurationMaxMs = 0;
   metrics.durationRing = createLatencyRingBuffer(durationSamplesSize);
+  metrics.overloadStateRefreshTotal = 0;
 };
 
 /**
@@ -158,6 +232,16 @@ const resetRelayOutboundQueueMetrics = (): void => {
  */
 export const resetRelayOutboundQueueState = (): void => {
   tailByRequestId.clear();
+  cachedOrphanedRequestIds = 0;
+  overloadStateCache = {
+    overloaded: false,
+    reason: null,
+    retryAfterMs: 0,
+    p95Ms: 0,
+    p99Ms: 0,
+    backlog: 0,
+    computedAtMs: 0,
+  };
   resetRelayOutboundQueueMetrics();
 };
 
@@ -168,6 +252,7 @@ export const resetRelayOutboundQueueTails = (): void => {
 
 export const enqueueRelayOutbound = (requestId: string, work: () => void | Promise<void>): void => {
   metrics.jobsEnqueuedTotal += 1;
+  updateOverloadStateCache({});
   const entry = tailByRequestId.get(requestId) ?? {
     tail: Promise.resolve(),
     pendingJobs: 0,
@@ -192,6 +277,7 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
       metrics.jobDurationSumMs += ms;
       metrics.jobDurationMaxMs = Math.max(metrics.jobDurationMaxMs, ms);
       pushLatencyRingBuffer(metrics.durationRing, ms);
+      updateOverloadStateCache({});
     }
   });
   entry.tail = next;

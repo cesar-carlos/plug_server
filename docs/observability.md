@@ -66,6 +66,14 @@ rate(plug_socket_relay_rate_limit_request_rejected_total[5m])
 rate(plug_socket_relay_outbound_queue_jobs_finished_total[5m])
 rate(plug_socket_relay_outbound_queue_jobs_failed_total[5m])
 
+# Custos do hot path relay (média por fase)
+plug_socket_relay_overload_check_avg_ms
+plug_socket_relay_frame_decode_avg_ms
+plug_socket_relay_command_validate_avg_ms
+plug_socket_relay_bridge_encode_avg_ms
+plug_socket_relay_chunk_forward_jobs_avg_ms
+plug_socket_relay_buffer_drain_avg_ms
+
 # Gauge: `requestId` com cadeia de emit ainda nao drenada (0 em repouso)
 plug_socket_relay_outbound_queue_inflight_request_ids
 
@@ -162,6 +170,9 @@ plug_socket_relay_outbound_queue_job_duration_p95_ms > 100
 
 # Fila outbound relay: percentil p99 da duração dos jobs acima de limiar
 plug_socket_relay_outbound_queue_job_duration_p99_ms > 200
+
+# Cache de overload stale (refresh parado)
+rate(plug_socket_relay_outbound_queue_overload_state_refresh_total[5m]) == 0
 
 # Shed load no namespace /consumers quando a fila relay entra em overload
 rate(plug_socket_relay_outbound_queue_overload_rejected_total[5m]) > 0

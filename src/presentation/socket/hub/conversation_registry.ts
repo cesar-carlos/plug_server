@@ -24,6 +24,15 @@ interface InternalRelayConversation {
   lastSeenAtMs: number;
 }
 
+export interface RelayConversationInternalView {
+  readonly conversationId: string;
+  readonly consumerSocketId: string;
+  readonly agentSocketId: string;
+  readonly agentId: string;
+  readonly createdAtMs: number;
+  readonly lastSeenAtMs: number;
+}
+
 const addIndexValue = (index: Map<string, Set<string>>, key: string, value: string): void => {
   const existing = index.get(key);
   if (existing) {
@@ -62,6 +71,17 @@ class InMemoryConversationRegistry {
     };
   }
 
+  private toInternalView(internal: InternalRelayConversation): RelayConversationInternalView {
+    return {
+      conversationId: internal.conversationId,
+      consumerSocketId: internal.consumerSocketId,
+      agentSocketId: internal.agentSocketId,
+      agentId: internal.agentId,
+      createdAtMs: internal.createdAtMs,
+      lastSeenAtMs: internal.lastSeenAtMs,
+    };
+  }
+
   create(input: {
     readonly consumerSocketId: string;
     readonly agentSocketId: string;
@@ -91,6 +111,11 @@ class InMemoryConversationRegistry {
     return internal ? this.toPublic(internal) : null;
   }
 
+  findInternalByConversationId(conversationId: string): RelayConversationInternalView | null {
+    const internal = this.conversations.get(conversationId);
+    return internal ? this.toInternalView(internal) : null;
+  }
+
   countAll(): number {
     return this.conversations.size;
   }
@@ -106,8 +131,17 @@ class InMemoryConversationRegistry {
     }
 
     existing.lastSeenAtMs = Date.now();
-    this.conversations.set(conversationId, existing);
     return this.toPublic(existing);
+  }
+
+  touchInternal(conversationId: string): RelayConversationInternalView | null {
+    const existing = this.conversations.get(conversationId);
+    if (!existing) {
+      return null;
+    }
+
+    existing.lastSeenAtMs = Date.now();
+    return this.toInternalView(existing);
   }
 
   removeByConversationId(conversationId: string): RelayConversation | null {
@@ -151,7 +185,7 @@ class InMemoryConversationRegistry {
   }
 
   isConsumerOwner(conversationId: string, consumerSocketId: string): boolean {
-    const conversation = this.findByConversationId(conversationId);
+    const conversation = this.findInternalByConversationId(conversationId);
     return conversation?.consumerSocketId === consumerSocketId;
   }
 

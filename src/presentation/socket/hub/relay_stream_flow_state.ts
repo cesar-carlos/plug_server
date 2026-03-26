@@ -35,7 +35,6 @@ export const ensureRelayStreamFlowEntry = (requestId: string): RelayStreamFlowEn
 export const setRelayStreamFlowCredits = (requestId: string, credits: number): void => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   entry.credits = Math.max(0, credits);
-  entriesByRequestId.set(requestId, entry);
 };
 
 export const getRelayStreamFlowCredits = (requestId: string): number => {
@@ -45,7 +44,6 @@ export const getRelayStreamFlowCredits = (requestId: string): number => {
 export const addRelayStreamFlowCredits = (requestId: string, delta: number): number => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   entry.credits = Math.max(0, entry.credits + delta);
-  entriesByRequestId.set(requestId, entry);
   return entry.credits;
 };
 
@@ -57,7 +55,6 @@ export const addRelayStreamBufferedChunk = (requestId: string, chunk: Record<str
   const entry = ensureRelayStreamFlowEntry(requestId);
   entry.bufferedChunks.push(chunk);
   globalTotalBufferedChunks += 1;
-  entriesByRequestId.set(requestId, entry);
 };
 
 export const getRelayStreamPendingComplete = (requestId: string): Record<string, unknown> | undefined => {
@@ -70,14 +67,12 @@ export const setRelayStreamPendingComplete = (
 ): void => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   entry.pendingComplete = complete;
-  entriesByRequestId.set(requestId, entry);
 };
 
 export const clearRelayStreamPendingComplete = (requestId: string): void => {
   const entry = entriesByRequestId.get(requestId);
   if (entry && entry.pendingComplete) {
     delete entry.pendingComplete;
-    entriesByRequestId.set(requestId, entry);
   }
 };
 
@@ -88,7 +83,6 @@ export const getRelayStreamForwardedRows = (requestId: string): number => {
 export const addRelayStreamForwardedRows = (requestId: string, delta: number): number => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   entry.forwardedRows += delta;
-  entriesByRequestId.set(requestId, entry);
   return entry.forwardedRows;
 };
 
@@ -167,8 +161,12 @@ const countChunkRows = (payload: Record<string, unknown>): number => {
   return Array.isArray(payload.rows) ? payload.rows.length : 0;
 };
 
-export const drainRelayStreamBuffer = async (ctx: DrainRelayStreamBufferContext): Promise<void> => {
+export const drainRelayStreamBuffer = async (
+  ctx: DrainRelayStreamBufferContext,
+): Promise<{ readonly chunksDrained: number; readonly completeEmitted: boolean }> => {
   const previousDrain = drainTailByRequestId.get(ctx.requestId)?.catch(() => undefined) ?? Promise.resolve();
+  let chunksDrained = 0;
+  let completeEmitted = false;
   const nextDrain = previousDrain.then(async () => {
     let credits = getRelayStreamFlowCredits(ctx.requestId);
     const bufferedChunks = getRelayStreamBufferedChunks(ctx.requestId);
@@ -185,6 +183,7 @@ export const drainRelayStreamBuffer = async (ctx: DrainRelayStreamBufferContext)
 
         const frame = await ctx.encodeFrame(chunk);
         ctx.emitChunk(frame);
+        chunksDrained += 1;
 
         const streamId = typeof chunk.stream_id === "string" ? chunk.stream_id : null;
         ctx.recordAudit("relay:rpc.chunk", streamId ? { streamId } : {});
@@ -199,6 +198,7 @@ export const drainRelayStreamBuffer = async (ctx: DrainRelayStreamBufferContext)
     if (bufferedChunks.length === 0 && pendingComplete) {
       const completeFrame = await ctx.encodeFrame(pendingComplete);
       ctx.emitComplete(completeFrame);
+      completeEmitted = true;
 
       const streamId = typeof pendingComplete.stream_id === "string" ? pendingComplete.stream_id : null;
       ctx.recordAudit("relay:rpc.complete", streamId ? { streamId } : {});
@@ -214,4 +214,5 @@ export const drainRelayStreamBuffer = async (ctx: DrainRelayStreamBufferContext)
       drainTailByRequestId.delete(ctx.requestId);
     }
   });
+  return { chunksDrained, completeEmitted };
 };

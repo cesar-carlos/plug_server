@@ -151,6 +151,78 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(metricLine("plug_socket_relay_buffered_chunks", relay.gauges.bufferedChunks));
   lines.push(metricLine("plug_socket_relay_open_circuits", relay.gauges.openCircuits));
+  lines.push(metricLine("plug_socket_relay_overload_checks_total", relay.counters.overloadChecksTotal));
+  lines.push(metricLine("plug_socket_relay_overload_check_sum_ms", relay.counters.overloadCheckSumMs));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_overload_check_avg_ms",
+      relay.counters.overloadChecksTotal > 0
+        ? Number((relay.counters.overloadCheckSumMs / relay.counters.overloadChecksTotal).toFixed(4))
+        : 0,
+    ),
+  );
+  lines.push(metricLine("plug_socket_relay_frame_decode_count", relay.counters.frameDecodeCount));
+  lines.push(metricLine("plug_socket_relay_frame_decode_sum_ms", relay.counters.frameDecodeSumMs));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_frame_decode_avg_ms",
+      relay.counters.frameDecodeCount > 0
+        ? Number((relay.counters.frameDecodeSumMs / relay.counters.frameDecodeCount).toFixed(4))
+        : 0,
+    ),
+  );
+  lines.push(metricLine("plug_socket_relay_command_validate_count", relay.counters.commandValidateCount));
+  lines.push(
+    metricLine("plug_socket_relay_command_validate_sum_ms", relay.counters.commandValidateSumMs),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_command_validate_avg_ms",
+      relay.counters.commandValidateCount > 0
+        ? Number((relay.counters.commandValidateSumMs / relay.counters.commandValidateCount).toFixed(4))
+        : 0,
+    ),
+  );
+  lines.push(metricLine("plug_socket_relay_bridge_encode_count", relay.counters.bridgeEncodeCount));
+  lines.push(metricLine("plug_socket_relay_bridge_encode_sum_ms", relay.counters.bridgeEncodeSumMs));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_bridge_encode_avg_ms",
+      relay.counters.bridgeEncodeCount > 0
+        ? Number((relay.counters.bridgeEncodeSumMs / relay.counters.bridgeEncodeCount).toFixed(4))
+        : 0,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_chunk_forward_jobs_total",
+      relay.counters.chunkForwardJobCount,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_chunk_forward_jobs_sum_ms",
+      relay.counters.chunkForwardJobSumMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_chunk_forward_jobs_avg_ms",
+      relay.counters.chunkForwardJobCount > 0
+        ? Number((relay.counters.chunkForwardJobSumMs / relay.counters.chunkForwardJobCount).toFixed(4))
+        : 0,
+    ),
+  );
+  lines.push(metricLine("plug_socket_relay_buffer_drain_runs_total", relay.counters.bufferDrainRunCount));
+  lines.push(metricLine("plug_socket_relay_buffer_drain_sum_ms", relay.counters.bufferDrainSumMs));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_buffer_drain_avg_ms",
+      relay.counters.bufferDrainRunCount > 0
+        ? Number((relay.counters.bufferDrainSumMs / relay.counters.bufferDrainRunCount).toFixed(4))
+        : 0,
+    ),
+  );
 
   lines.push(
     metricLine(
@@ -247,6 +319,18 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_relay_outbound_queue_orphaned_request_ids",
       relay.relayOutboundQueue.orphanedRequestIds,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_overload_state_refresh_total",
+      relay.relayOutboundQueue.overloadStateRefreshTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_outbound_queue_overload_cache_p95_ms",
+      relay.relayOutboundQueue.overloadCacheP95Ms,
     ),
   );
 

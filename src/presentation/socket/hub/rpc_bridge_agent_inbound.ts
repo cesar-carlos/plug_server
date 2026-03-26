@@ -9,7 +9,6 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { serviceUnavailable } from "../../../shared/errors/http_errors";
 import { logger } from "../../../shared/utils/logger";
 import {
-  decodePayloadFrame,
   decodePayloadFrameAsync,
   finishPayloadFrameEnvelope,
   isPayloadFrameEnvelope,
@@ -26,6 +25,7 @@ import {
 } from "./active_stream_registry";
 import {
   logRpcFrameDecodeFailure,
+  observeRelayFrameDecode,
   observeAgentLatency,
   registerAgentFailure,
   registerAgentSuccess,
@@ -87,6 +87,29 @@ export const createRpcBridgeAgentInboundHandlers = (
   deps: RpcBridgeAgentInboundDeps,
 ): RpcBridgeAgentInboundHandlers => {
   const { emitToConsumer, emitRpcStreamPullForRoute } = deps;
+  const streamInboundTailBySocketId = new Map<string, Promise<void>>();
+
+  const enqueueOrderedStreamInbound = (
+    socketId: string,
+    work: () => Promise<void>,
+  ): void => {
+    const prev = streamInboundTailBySocketId.get(socketId) ?? Promise.resolve();
+    const next = prev
+      .catch(() => undefined)
+      .then(work)
+      .catch((error: unknown) => {
+        logger.warn("rpc_stream_inbound_processing_failed", {
+          socketId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    streamInboundTailBySocketId.set(socketId, next);
+    void next.finally(() => {
+      if (streamInboundTailBySocketId.get(socketId) === next) {
+        streamInboundTailBySocketId.delete(socketId);
+      }
+    });
+  };
 
   const extractFrameRequestId = (rawPayload: unknown): string | null => {
     if (!isPayloadFrameEnvelope(rawPayload)) {
@@ -520,7 +543,7 @@ export const createRpcBridgeAgentInboundHandlers = (
         observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
         registerAgentSuccess(relayRoute.agentId);
         clearTimeout(relayRoute.timeoutHandle);
-        conversationRegistry.touch(relayRoute.conversationId);
+        conversationRegistry.touchInternal(relayRoute.conversationId);
 
         if (streamId) {
           relayRoute.latencyTrace?.markRelayStreamOpenWall();
@@ -579,79 +602,86 @@ export const createRpcBridgeAgentInboundHandlers = (
   };
 
   const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void => {
-    /** Sync decode preserves chunk ordering per socket (async gunzip could reorder under load). */
-    const result = decodePayloadFrame(rawPayload);
-    if (!result.ok) {
-      logRpcFrameDecodeFailure({
-        eventName: socketEvents.rpcChunk,
-        socketId,
-        reason: result.error.message,
-      });
-      failFastInvalidAgentStreamFrame(socketEvents.rpcChunk, socketId, rawPayload, result.error.message);
-      return;
-    }
+    enqueueOrderedStreamInbound(socketId, async () => {
+      const tDecode = performance.now();
+      const result = await decodePayloadFrameAsync(rawPayload);
+      observeRelayFrameDecode(performance.now() - tDecode);
+      if (!result.ok) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcChunk,
+          socketId,
+          reason: result.error.message,
+        });
+        failFastInvalidAgentStreamFrame(socketEvents.rpcChunk, socketId, rawPayload, result.error.message);
+        return;
+      }
 
-    const data = toRecord(result.value.data);
-    if (!data) {
-      return;
-    }
+      const data = toRecord(result.value.data);
+      if (!data) {
+        return;
+      }
 
-    const route = resolveActiveStreamRoute(socketId, data);
-    if (!route) {
-      return;
-    }
+      const route = resolveActiveStreamRoute(socketId, data);
+      if (!route) {
+        return;
+      }
 
-    if (route.conversationId) {
-      conversationRegistry.touch(route.conversationId);
-    }
+      if (route.conversationId) {
+        conversationRegistry.touchInternal(route.conversationId);
+      }
 
-    try {
-      route.onChunk(data);
-    } catch {
-      logger.warn("rpc_stream_chunk_forward_failed", {
-        requestId: route.requestId,
-        streamId: route.streamId,
-        socketId,
-      });
-    }
+      try {
+        route.onChunk(data);
+      } catch {
+        logger.warn("rpc_stream_chunk_forward_failed", {
+          requestId: route.requestId,
+          streamId: route.streamId,
+          socketId,
+        });
+      }
+    });
   };
 
   const handleAgentRpcComplete = (socketId: string, rawPayload: unknown): void => {
-    const result = decodePayloadFrame(rawPayload);
-    if (!result.ok) {
-      logRpcFrameDecodeFailure({
-        eventName: socketEvents.rpcComplete,
-        socketId,
-        reason: result.error.message,
-      });
-      failFastInvalidAgentStreamFrame(socketEvents.rpcComplete, socketId, rawPayload, result.error.message);
-      return;
-    }
+    enqueueOrderedStreamInbound(socketId, async () => {
+      const tDecode = performance.now();
+      const result = await decodePayloadFrameAsync(rawPayload);
+      observeRelayFrameDecode(performance.now() - tDecode);
+      if (!result.ok) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcComplete,
+          socketId,
+          reason: result.error.message,
+        });
+        failFastInvalidAgentStreamFrame(socketEvents.rpcComplete, socketId, rawPayload, result.error.message);
+        return;
+      }
 
-    const data = toRecord(result.value.data);
-    if (!data) {
-      return;
-    }
+      const data = toRecord(result.value.data);
+      if (!data) {
+        return;
+      }
 
-    const route = resolveActiveStreamRoute(socketId, data);
-    if (!route) {
-      return;
-    }
+      const route = resolveActiveStreamRoute(socketId, data);
+      if (!route) {
+        return;
+      }
 
-    if (route.conversationId) {
-      conversationRegistry.touch(route.conversationId);
-    }
+      if (route.conversationId) {
+        conversationRegistry.touchInternal(route.conversationId);
+      }
 
-    if (route.mode === "relay") {
-      route.onComplete(data);
-      return;
-    }
+      if (route.mode === "relay") {
+        route.onComplete(data);
+        return;
+      }
 
-    try {
-      route.onComplete(data);
-    } finally {
-      removeActiveStreamRoute(route);
-    }
+      try {
+        route.onComplete(data);
+      } finally {
+        removeActiveStreamRoute(route);
+      }
+    });
   };
 
   const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void => {

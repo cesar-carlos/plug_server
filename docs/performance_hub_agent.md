@@ -13,7 +13,7 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 - **`PAYLOAD_FRAME_GZIP_LEVEL`** (opcional, `1`–`9`): nível zlib para `gzipSync` do hub. Omitir mantém o default do Node (~6). Valores **1–3** reduzem CPU em hubs com muito tráfego comprimido, à custa de frames ligeiramente maiores.
 - **`PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`** (defeito **131072**): no caminho bridge (`encodePayloadFrameBridge` para `rpc:request` ao agente), payloads JSON **elegíveis para gzip** com pelo menos este tamanho em UTF-8 usam **gzip assíncrono** (`zlib.gzip` via `promisify`) em vez de `gzipSync`, aliviando bloqueios longos no event loop em frames grandes. **`0`** força sempre gzip síncrono (comportamento antigo).
 - **Envelope `traceId` em pedidos ao agente**: `rpc:request` (REST/relay) e `rpc:stream.pull` usam **`omitTraceId: true`** no envelope; a correlação fica em `requestId` / `meta.trace_id` no JSON-RPC quando aplicável.
-- **Inbound `decodePayloadFrameAsync`**: `rpc:response` e acks do agente, e decode do relay (`relay:rpc.request` / `relay:rpc.stream.pull`), usam decode assíncrono; para `cmp: gzip` e comprimido ≥ **`PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES`** (defeito **65536**), **gunzip assíncrono**. **`rpc:chunk` / `rpc:complete` permanecem síncronos** para não reordenar chunks sob carga. `0` = sempre síncrono em todos os usos async.
+- **Inbound `decodePayloadFrameAsync`**: `rpc:response`, acks do agente, decode do relay (`relay:rpc.request` / `relay:rpc.stream.pull`) e agora também `rpc:chunk` / `rpc:complete` usam decode assíncrono ordenado por socket. Para `cmp: gzip` e comprimido ≥ **`PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES`** (defeito **65536**), usa **gunzip assíncrono**. `0` = sempre síncrono em todos os usos async.
 - **`SOCKET_IO_SERVE_CLIENT=false`** (defeito): o hub não expõe o ficheiro cliente `socket.io` por HTTP — menos trabalho no pipeline e superfície menor. Clientes devem usar `socket.io-client` via npm/CDN.
 - **`SOCKET_IO_HTTP_COMPRESSION`**: compressão zlib nas respostas do transporte **polling**. Se em produção só usas **`SOCKET_IO_TRANSPORTS=websocket`**, definir `SOCKET_IO_HTTP_COMPRESSION=false` evita trabalho inútil em upgrades/handshake ocasional de polling.
 - **`SOCKET_IO_PER_MESSAGE_DEFLATE=false`** (recomendado): desliga deflate na camada WS quando se usa `PayloadFrame` com gzip opcional.
@@ -24,6 +24,8 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 - **PayloadFrame em streams relay** (`relay:rpc.chunk` / `relay:rpc.complete`, acks em batch): o envelope pode **omitir `traceId`** para evitar `randomUUID()` por mensagem em caminhos de alto débito; a correlação continua via `requestId` no envelope e nos dados JSON-RPC.
 - **Relay hub → consumer**: emissões para o consumer (`relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, acks relay, replay idempotente, timeout) passam por **`encodePayloadFrameBridge`** dentro de **`relay_outbound_queue.ts`**: fila **serial por `requestId`** (`enqueueRelayOutbound`) para preservar ordem com gzip assíncrono (`PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`, mesmo limiar que hub→agente). Com **`PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES=0`**, o caminho volta a gzip síncrono dentro do bridge. Mitigações de CPU/tamanho: `PAYLOAD_FRAME_GZIP_LEVEL` (1–3), menos linhas por chunk no agente, payloads abaixo do limiar de gzip.
 - **Métricas da fila relay** (`GET /metrics`): `plug_socket_relay_outbound_queue_*` (jobs terminados/falhados, soma/média/máx. duração do job em ms, gauge `inflight_request_ids`). PromQL em `docs/observability.md`.
+- **Overload gate O(1)**: os handlers de `/consumers` leem estado cacheado da fila relay (backlog/p95) e o refresh pesado (percentis + varredura órfãos) fica no sweep periódico/métricas. Isso reduz CPU por evento em `relay:conversation.start`, `relay:rpc.request` e `relay:rpc.stream.pull`.
+- **Drain em lote por `requestId`**: chunks buffered são drenados em jobs agregados da fila outbound (sem perder ordenação), reduzindo custo de Promise chaining e de encode por chunk em bursts.
 - **Lookup relay durante `rpc:stream.pull`**: ao drenar buffer interno após um pull, o hub reutiliza a rota relay já resolvida onde possível (`rpc_bridge_stream_pull.ts`), evitando consultas repetidas ao registo por chunk no mesmo tick.
 
 ## REST vs streaming
@@ -123,3 +125,12 @@ SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS=180000
 ## Métricas
 
 - `GET /metrics` / `GET /api/v1/metrics`: latência bridge REST, relay, pulls de materialização, auditoria — usar para validar mudanças de env.
+- Novas séries úteis para hot path relay:
+  - `plug_socket_relay_overload_check_*`
+  - `plug_socket_relay_frame_decode_*`
+  - `plug_socket_relay_command_validate_*`
+  - `plug_socket_relay_bridge_encode_*`
+  - `plug_socket_relay_chunk_forward_jobs_*`
+  - `plug_socket_relay_buffer_drain_*`
+  - `plug_socket_relay_outbound_queue_overload_state_refresh_total`
+  - `plug_socket_relay_outbound_queue_overload_cache_p95_ms`

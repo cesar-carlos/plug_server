@@ -27,6 +27,8 @@ interface AgentLatencyStats {
 
 const relayCircuitByAgentId = new Map<string, { failures: number; openUntilMs: number }>();
 const latencyByAgentId = new Map<string, AgentLatencyStats>();
+let latencyByAgentCache: RelayHubMetricsSnapshot["latencyByAgent"] = [];
+let latencyByAgentCacheDirty = true;
 
 /** Mutable counters for relay + REST bridge paths (also wired from `rest_agent_dispatch_queue`). */
 export const relayMetrics = {
@@ -56,6 +58,19 @@ export const relayMetrics = {
   relayEmitDiscardedConsumerGone: 0,
   /** Conversations removed by idle timeout sweep. */
   conversationsExpiredTotal: 0,
+  /** relay gate checks in `/consumers` handlers. */
+  overloadChecksTotal: 0,
+  overloadCheckSumMs: 0,
+  frameDecodeSumMs: 0,
+  frameDecodeCount: 0,
+  commandValidateSumMs: 0,
+  commandValidateCount: 0,
+  bridgeEncodeSumMs: 0,
+  bridgeEncodeCount: 0,
+  chunkForwardJobCount: 0,
+  chunkForwardJobSumMs: 0,
+  bufferDrainRunCount: 0,
+  bufferDrainSumMs: 0,
 };
 
 let rpcFrameDecodeFailureCount = 0;
@@ -131,6 +146,7 @@ export const observeAgentLatency = (agentId: string, elapsedMs: number): void =>
     existing.maxMs = Math.max(existing.maxMs, safeElapsedMs);
     pushLatencyRingBuffer(existing.ring, safeElapsedMs);
     latencyByAgentId.set(agentId, existing);
+    latencyByAgentCacheDirty = true;
     return;
   }
 
@@ -142,6 +158,37 @@ export const observeAgentLatency = (agentId: string, elapsedMs: number): void =>
     maxMs: safeElapsedMs,
     ring,
   });
+  latencyByAgentCacheDirty = true;
+};
+
+export const observeRelayOverloadCheck = (elapsedMs: number): void => {
+  relayMetrics.overloadChecksTotal += 1;
+  relayMetrics.overloadCheckSumMs += Math.max(0, elapsedMs);
+};
+
+export const observeRelayFrameDecode = (elapsedMs: number): void => {
+  relayMetrics.frameDecodeCount += 1;
+  relayMetrics.frameDecodeSumMs += Math.max(0, elapsedMs);
+};
+
+export const observeRelayCommandValidation = (elapsedMs: number): void => {
+  relayMetrics.commandValidateCount += 1;
+  relayMetrics.commandValidateSumMs += Math.max(0, elapsedMs);
+};
+
+export const observeRelayBridgeEncode = (elapsedMs: number): void => {
+  relayMetrics.bridgeEncodeCount += 1;
+  relayMetrics.bridgeEncodeSumMs += Math.max(0, elapsedMs);
+};
+
+export const observeRelayChunkForwardJob = (elapsedMs: number): void => {
+  relayMetrics.chunkForwardJobCount += 1;
+  relayMetrics.chunkForwardJobSumMs += Math.max(0, elapsedMs);
+};
+
+export const observeRelayBufferDrain = (elapsedMs: number): void => {
+  relayMetrics.bufferDrainRunCount += 1;
+  relayMetrics.bufferDrainSumMs += Math.max(0, elapsedMs);
 };
 
 export type RelayHubMetricsSnapshot = {
@@ -167,6 +214,18 @@ export type RelayHubMetricsSnapshot = {
     readonly rpcFrameDecodeFailed: number;
     readonly relayEmitDiscardedConsumerGone: number;
     readonly conversationsExpiredTotal: number;
+    readonly overloadChecksTotal: number;
+    readonly overloadCheckSumMs: number;
+    readonly frameDecodeCount: number;
+    readonly frameDecodeSumMs: number;
+    readonly commandValidateCount: number;
+    readonly commandValidateSumMs: number;
+    readonly bridgeEncodeCount: number;
+    readonly bridgeEncodeSumMs: number;
+    readonly chunkForwardJobCount: number;
+    readonly chunkForwardJobSumMs: number;
+    readonly bufferDrainRunCount: number;
+    readonly bufferDrainSumMs: number;
   };
   readonly gauges: {
     readonly pendingRelayRequests: number;
@@ -196,17 +255,20 @@ export const buildRelayHubMetricsSnapshot = (input: {
     (state) => state.openUntilMs > Date.now(),
   ).length;
 
-  const latencyByAgent = Array.from(latencyByAgentId.entries()).map(([agentId, stats]) => {
-    const sampleSlice = latencyRingBufferValues(stats.ring);
-    return {
-      agentId,
-      count: stats.count,
-      avgMs: stats.count > 0 ? Number((stats.totalMs / stats.count).toFixed(2)) : 0,
-      maxMs: stats.maxMs,
-      p95Ms: Number(percentile(sampleSlice, 95).toFixed(2)),
-      p99Ms: Number(percentile(sampleSlice, 99).toFixed(2)),
-    };
-  });
+  if (latencyByAgentCacheDirty) {
+    latencyByAgentCache = Array.from(latencyByAgentId.entries()).map(([agentId, stats]) => {
+      const sampleSlice = latencyRingBufferValues(stats.ring);
+      return {
+        agentId,
+        count: stats.count,
+        avgMs: stats.count > 0 ? Number((stats.totalMs / stats.count).toFixed(2)) : 0,
+        maxMs: stats.maxMs,
+        p95Ms: Number(percentile(sampleSlice, 95).toFixed(2)),
+        p99Ms: Number(percentile(sampleSlice, 99).toFixed(2)),
+      };
+    });
+    latencyByAgentCacheDirty = false;
+  }
 
   return {
     counters: {
@@ -221,7 +283,7 @@ export const buildRelayHubMetricsSnapshot = (input: {
       bufferedChunks: relayStreamFlowState.totalBufferedChunks,
       openCircuits,
     },
-    latencyByAgent,
+    latencyByAgent: latencyByAgentCache,
     relayOutboundQueue: getRelayOutboundQueueMetricsSnapshot(),
     restAgentDispatchQueue: getRestAgentDispatchQueueMetricsSnapshot(),
   };
@@ -255,6 +317,8 @@ export const stopRelayHubMetricsLogger = (): void => {
 export const resetRelayHubHealthAndMetrics = (): void => {
   relayCircuitByAgentId.clear();
   latencyByAgentId.clear();
+  latencyByAgentCache = [];
+  latencyByAgentCacheDirty = true;
 
   relayMetrics.requestsAccepted = 0;
   relayMetrics.requestsDeduplicated = 0;
@@ -276,5 +340,17 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.restAgentQueueWaitTimeoutRejected = 0;
   relayMetrics.relayEmitDiscardedConsumerGone = 0;
   relayMetrics.conversationsExpiredTotal = 0;
+  relayMetrics.overloadChecksTotal = 0;
+  relayMetrics.overloadCheckSumMs = 0;
+  relayMetrics.frameDecodeCount = 0;
+  relayMetrics.frameDecodeSumMs = 0;
+  relayMetrics.commandValidateCount = 0;
+  relayMetrics.commandValidateSumMs = 0;
+  relayMetrics.bridgeEncodeCount = 0;
+  relayMetrics.bridgeEncodeSumMs = 0;
+  relayMetrics.chunkForwardJobCount = 0;
+  relayMetrics.chunkForwardJobSumMs = 0;
+  relayMetrics.bufferDrainRunCount = 0;
+  relayMetrics.bufferDrainSumMs = 0;
   rpcFrameDecodeFailureCount = 0;
 };
