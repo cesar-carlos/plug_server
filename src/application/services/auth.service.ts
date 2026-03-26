@@ -2,29 +2,45 @@ import { v4 as uuidv4 } from "uuid";
 
 import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
+import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { User } from "../../domain/entities/user.entity";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
+import type { ApproveRegistrationUseCase } from "../../domain/use_cases/approve_registration.use_case";
 import type { ChangePasswordUseCase } from "../../domain/use_cases/change_password.use_case";
+import type { GetRegistrationStatusUseCase } from "../../domain/use_cases/get_registration_status.use_case";
 import type { LoginUseCase } from "../../domain/use_cases/login.use_case";
 import type { LogoutUseCase } from "../../domain/use_cases/logout.use_case";
 import type { RefreshTokenUseCase } from "../../domain/use_cases/refresh_token.use_case";
 import type { RegisterUseCase } from "../../domain/use_cases/register.use_case";
+import type { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registration.use_case";
 import { env } from "../../shared/config/env";
 import { forbidden } from "../../shared/errors/http_errors";
 import { type Result, ok } from "../../shared/errors/result";
 import { parseExpiryToDate } from "../../shared/utils/date";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
+import { logger } from "../../shared/utils/logger";
+import { generateOpaqueRegistrationToken } from "../../shared/utils/registration_token";
 import type {
   AgentAuthResponseDto,
   AuthResponseDto,
   AuthTokensDto,
   AuthUserDto,
+  RegisterPendingResponseDto,
+  RegistrationStatusResponseDto,
 } from "../dtos/auth.dto";
 
 export interface RegisterServiceInput {
   readonly email: string;
   readonly password: string;
+}
+
+export interface RegisterServiceOptions {
+  readonly requestId?: string;
+}
+
+export interface RegistrationActionOptions {
+  readonly requestId?: string;
 }
 
 export interface LoginServiceInput {
@@ -51,19 +67,156 @@ export class AuthService {
     private readonly changePasswordUseCase: ChangePasswordUseCase,
     private readonly refreshTokenUseCase: RefreshTokenUseCase,
     private readonly logoutUseCase: LogoutUseCase,
+    private readonly approveRegistrationUseCase: ApproveRegistrationUseCase,
+    private readonly rejectRegistrationUseCase: RejectRegistrationUseCase,
+    private readonly getRegistrationStatusUseCase: GetRegistrationStatusUseCase,
     private readonly passwordHasher: IPasswordHasher,
     private readonly refreshTokenRepository: IRefreshTokenRepository,
     private readonly agentIdentityRepository: IAgentIdentityRepository,
+    private readonly emailSender: IEmailSender,
   ) {}
 
-  async register(input: RegisterServiceInput): Promise<Result<AuthResponseDto>> {
+  async register(
+    input: RegisterServiceInput,
+    options?: RegisterServiceOptions,
+  ): Promise<Result<RegisterPendingResponseDto>> {
     const passwordHash = await this.passwordHasher.hash(input.password);
+    const approvalTokenExpiresAt = parseExpiryToDate(env.approvalTokenExpiresIn);
+    const approvalTokenId = generateOpaqueRegistrationToken();
 
-    const result = await this.registerUseCase.execute({ email: input.email, passwordHash });
+    const result = await this.registerUseCase.execute({
+      email: input.email,
+      passwordHash,
+      approvalTokenExpiresAt,
+      approvalTokenId,
+    });
     if (!result.ok) return result;
 
-    const tokens = await this.issueTokens(result.value);
-    return ok({ user: this.toUserDto(result.value), ...tokens });
+    const { user, approvalToken } = result.value;
+    const requestId = options?.requestId;
+    const tokenPrefix = approvalToken.id.slice(0, 8);
+
+    const dispatchEmails = async (): Promise<void> => {
+      await this.emailSender.sendAdminApprovalRequest({
+        userEmail: user.email,
+        reviewToken: approvalToken.id,
+      });
+      await this.emailSender.sendUserPendingRegistration({ email: user.email });
+    };
+
+    if (env.registrationEmailAsync) {
+      void dispatchEmails().catch((error: unknown) => {
+        logger.error("registration_email_dispatch_failed", {
+          requestId,
+          tokenPrefix,
+          userId: user.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } else {
+      try {
+        await dispatchEmails();
+      } catch (error: unknown) {
+        logger.error("registration_email_dispatch_failed", {
+          requestId,
+          tokenPrefix,
+          userId: user.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    }
+
+    logger.info("registration_pending_created", {
+      requestId,
+      tokenPrefix,
+      userId: user.id,
+    });
+
+    const dto: RegisterPendingResponseDto = {
+      message:
+        "Registration submitted. You will receive an email notification once your account is reviewed.",
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+      },
+    };
+
+    if (env.nodeEnv !== "production") {
+      return ok({ ...dto, approvalToken: approvalToken.id });
+    }
+
+    return ok(dto);
+  }
+
+  async approveRegistration(
+    tokenId: string,
+    options?: RegistrationActionOptions,
+  ): Promise<Result<{ email: string }>> {
+    logger.info("registration_approve_request", {
+      requestId: options?.requestId,
+      tokenPrefix: tokenId.slice(0, 8),
+    });
+
+    const result = await this.approveRegistrationUseCase.execute(tokenId);
+    if (!result.ok) return result;
+
+    try {
+      await this.emailSender.sendUserApproved({ email: result.value.email });
+    } catch (error: unknown) {
+      logger.error("registration_approve_user_email_failed", {
+        requestId: options?.requestId,
+        email: result.value.email,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    logger.info("registration_approved", {
+      requestId: options?.requestId,
+      userId: result.value.id,
+    });
+
+    return ok({ email: result.value.email });
+  }
+
+  async rejectRegistration(
+    tokenId: string,
+    reason?: string,
+    options?: RegistrationActionOptions,
+  ): Promise<Result<{ email: string }>> {
+    logger.info("registration_reject_request", {
+      requestId: options?.requestId,
+      tokenPrefix: tokenId.slice(0, 8),
+    });
+
+    const result = await this.rejectRegistrationUseCase.execute(tokenId);
+    if (!result.ok) return result;
+
+    try {
+      await this.emailSender.sendUserRejected({
+        email: result.value.email,
+        reason: reason?.trim() !== "" ? reason : undefined,
+      });
+    } catch (error: unknown) {
+      logger.error("registration_reject_user_email_failed", {
+        requestId: options?.requestId,
+        email: result.value.email,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    logger.info("registration_rejected", {
+      requestId: options?.requestId,
+      userId: result.value.id,
+    });
+
+    return ok({ email: result.value.email });
+  }
+
+  async getRegistrationStatus(tokenId: string): Promise<Result<RegistrationStatusResponseDto>> {
+    return this.getRegistrationStatusUseCase.execute(tokenId);
   }
 
   async login(input: LoginServiceInput): Promise<Result<AuthResponseDto>> {

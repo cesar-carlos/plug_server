@@ -2,6 +2,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { approveRegistrationByToken } from "./helpers/approve_registration";
 
 const app = createApp();
 
@@ -17,12 +18,14 @@ describe("Agent login ownership", () => {
       password,
     });
     expect(registerA.status).toBe(201);
+    await approveRegistrationByToken(app, registerA.body.approvalToken as string);
 
     const registerB = await request(app).post("/api/v1/auth/register").send({
       email: emailB,
       password,
     });
     expect(registerB.status).toBe(201);
+    await approveRegistrationByToken(app, registerB.body.approvalToken as string);
 
     const firstLogin = await request(app).post("/api/v1/auth/agent-login").send({
       email: emailA,

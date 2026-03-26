@@ -3,6 +3,7 @@ import {
   emailSchema,
   nonEmptyStringSchema,
   passwordSchema,
+  registrationOpaqueTokenSchema,
   uuidSchema,
 } from "../../../shared/validators/schemas";
 
@@ -12,6 +13,28 @@ export const registerBodySchema = z.object({
 });
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
+
+export const registrationTokenQuerySchema = z.object({
+  token: registrationOpaqueTokenSchema,
+});
+
+export type RegistrationTokenQuery = z.infer<typeof registrationTokenQuerySchema>;
+
+export const registrationApproveBodySchema = z.object({
+  token: registrationOpaqueTokenSchema,
+});
+
+export type RegistrationApproveBody = z.infer<typeof registrationApproveBodySchema>;
+
+export const registrationRejectBodySchema = z.object({
+  token: registrationOpaqueTokenSchema,
+  reason: z.preprocess(
+    (val) => (val === "" ? undefined : val),
+    z.string().trim().max(500).optional(),
+  ),
+});
+
+export type RegistrationRejectBody = z.infer<typeof registrationRejectBodySchema>;
 
 export const loginBodySchema = z
   .object({

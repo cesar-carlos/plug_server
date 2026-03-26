@@ -12,16 +12,34 @@ enum UserRole {
   admin
 }
 
+enum UserStatus {
+  pending
+  active
+  rejected
+}
+
 model User {
   id              String          @id @default(uuid())
   email           String          @unique @db.VarChar(255)
   passwordHash    String          @map("password_hash")
   role            UserRole        @default(user)
+  status          UserStatus      @default(pending) @map("status")
   createdAt       DateTime        @default(now()) @map("created_at")
   refreshTokens   RefreshToken[]
   agentIdentities AgentIdentity[]
+  registrationApprovalToken RegistrationApprovalToken?
 
   @@map("users")
+}
+
+model RegistrationApprovalToken {
+  id        String   @id @db.VarChar(128)
+  userId    String   @unique @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("registration_approval_tokens")
 }
 
 model RefreshToken {

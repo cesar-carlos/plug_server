@@ -17,6 +17,10 @@ import { authRouter } from "./presentation/http/routes/auth.routes";
 import { httpRouter } from "./presentation/http/routes";
 import { env } from "./shared/config/env";
 
+const authRateLimitDisabled: express.RequestHandler = (_req, _res, next) => {
+  next();
+};
+
 export const createApp = (): Express => {
   const app = express();
 
@@ -48,9 +52,13 @@ export const createApp = (): Express => {
 
   app.get("/metrics", requireAuth, getMetrics);
 
-  app.use("/auth", authRateLimit);
+  const authRl =
+    env.nodeEnv === "test" || process.env.VITEST === "true" || process.env.VITEST_WORKER_ID !== undefined
+      ? authRateLimitDisabled
+      : authRateLimit;
+  app.use("/auth", authRl);
   app.use("/auth", authRouter);
-  app.use("/api/v1/auth", authRateLimit);
+  app.use("/api/v1/auth", authRl);
   app.use("/api/v1", httpRouter);
   setupSwagger(app);
 

@@ -23,6 +23,10 @@ export const forbidden = (message = "You do not have permission to perform this 
 export const notFound = (resource: string): AppError =>
   new AppError(`${resource} not found`, { statusCode: 404, code: "NOT_FOUND" });
 
+/** Registration approval token exists but is past `expiresAt`. */
+export const registrationTokenExpired = (message: string): AppError =>
+  new AppError(message, { statusCode: 410, code: "REGISTRATION_TOKEN_EXPIRED" });
+
 // ─── 409 Conflict ────────────────────────────────────────────────────────────
 
 export const conflict = (message: string): AppError =>

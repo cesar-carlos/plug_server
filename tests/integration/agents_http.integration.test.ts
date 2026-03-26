@@ -6,6 +6,7 @@ import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
+import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { env } from "../../src/shared/config/env";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
@@ -61,7 +62,11 @@ describe("Agents HTTP bridge", () => {
       password,
     });
     expect(registerResponse.status).toBe(201);
-    accessToken = registerResponse.body.accessToken as string;
+    await approveRegistrationByToken(baseUrl, registerResponse.body.approvalToken as string);
+
+    const userLoginResponse = await request(baseUrl).post("/api/v1/auth/login").send({ email, password });
+    expect(userLoginResponse.status).toBe(200);
+    accessToken = userLoginResponse.body.accessToken as string;
 
     const agentLoginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
       email,
@@ -142,6 +147,7 @@ describe("Agents HTTP bridge", () => {
       password: warmingPassword,
     });
     expect(warmingRegisterResponse.status).toBe(201);
+    await approveRegistrationByToken(baseUrl, warmingRegisterResponse.body.approvalToken as string);
 
     const warmingLoginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
       email: warmingEmail,
@@ -264,6 +270,7 @@ describe("Agents HTTP bridge", () => {
       password: explicitPassword,
     });
     expect(registerResponse.status).toBe(201);
+    await approveRegistrationByToken(baseUrl, registerResponse.body.approvalToken as string);
 
     const loginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
       email: explicitEmail,

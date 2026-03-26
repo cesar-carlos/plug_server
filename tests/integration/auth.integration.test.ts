@@ -2,6 +2,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { approveRegistrationByToken } from "./helpers/approve_registration";
 
 const app = createApp();
 
@@ -17,19 +18,27 @@ describe("Auth API", () => {
   // ─── Register ──────────────────────────────────────────────────────────────
 
   describe("POST /api/v1/auth/register", () => {
-    it("should register a new user and return tokens", async () => {
+    it("should register as pending, then allow login after admin approval", async () => {
       const response = await request(app).post("/api/v1/auth/register").send(testUser);
 
       expect(response.status).toBe(201);
-      expect(response.body.user).toMatchObject({ email: testUser.email, role: "user" });
+      expect(response.body.message).toBeDefined();
+      expect(response.body.user).toMatchObject({
+        email: testUser.email,
+        role: "user",
+        status: "pending",
+      });
       expect(response.body.user.id).toBeDefined();
-      expect(response.body.accessToken).toBeDefined();
-      expect(response.body.refreshToken).toBeDefined();
-      expect(response.headers["set-cookie"]).toBeDefined();
+      expect(response.body.approvalToken).toBeDefined();
+      expect(response.body).not.toHaveProperty("accessToken");
       expect(response.body.user).not.toHaveProperty("passwordHash");
 
-      accessToken = response.body.accessToken as string;
-      refreshToken = response.body.refreshToken as string;
+      await approveRegistrationByToken(app, response.body.approvalToken as string);
+
+      const loginResponse = await request(app).post("/api/v1/auth/login").send(testUser);
+      expect(loginResponse.status).toBe(200);
+      accessToken = loginResponse.body.accessToken as string;
+      refreshToken = loginResponse.body.refreshToken as string;
     });
 
     it("should return 409 when email is already registered", async () => {
@@ -58,9 +67,60 @@ describe("Auth API", () => {
     });
   });
 
+  describe("Registration approval (POST + review page)", () => {
+    it("GET /api/v1/auth/registration/status returns pending for a valid token", async () => {
+      const reg = await request(app)
+        .post("/api/v1/auth/register")
+        .send({ email: `status-flow-${Date.now()}@test.com`, password: "StatusFlow1" });
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const st = await request(app).get("/api/v1/auth/registration/status").query({ token });
+      expect(st.status).toBe(200);
+      expect(st.body.status).toBe("pending");
+    });
+
+    it("GET /api/v1/auth/registration/review returns HTML with POST forms only", async () => {
+      const reg = await request(app)
+        .post("/api/v1/auth/register")
+        .send({ email: `review-page-${Date.now()}@test.com`, password: "ReviewPage1" });
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const page = await request(app).get("/api/v1/auth/registration/review").query({ token });
+      expect(page.status).toBe(200);
+      expect(page.text).toContain('method="post"');
+      expect(page.text).toContain("/api/v1/auth/registration/approve");
+      expect(page.text).toContain("/api/v1/auth/registration/reject");
+    });
+
+    it("second POST /registration/approve with same token returns 404", async () => {
+      const reg = await request(app)
+        .post("/api/v1/auth/register")
+        .send({ email: `double-approve-${Date.now()}@test.com`, password: "DoubleTap1" });
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const first = await request(app).post("/api/v1/auth/registration/approve").send({ token });
+      expect(first.status).toBe(200);
+      const second = await request(app).post("/api/v1/auth/registration/approve").send({ token });
+      expect(second.status).toBe(404);
+    });
+  });
+
   // ─── Login ─────────────────────────────────────────────────────────────────
 
   describe("POST /api/v1/auth/login", () => {
+    it("should return 403 when account is still pending approval", async () => {
+      const pendingUser = { email: "still-pending@test.com", password: "StillPending1" };
+      const reg = await request(app).post("/api/v1/auth/register").send(pendingUser);
+      expect(reg.status).toBe(201);
+
+      const loginRes = await request(app).post("/api/v1/auth/login").send(pendingUser);
+      expect(loginRes.status).toBe(403);
+      expect(loginRes.body.code).toBe("FORBIDDEN");
+    });
+
     it("should login and return tokens", async () => {
       const response = await request(app).post("/api/v1/auth/login").send(testUser);
 

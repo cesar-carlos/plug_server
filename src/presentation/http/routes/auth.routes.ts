@@ -2,12 +2,16 @@ import { Router } from "express";
 
 import {
   agentLogin,
+  approveRegistration,
   changePassword,
   getMe,
   login,
   logout,
   refresh,
   register,
+  registrationReviewPage,
+  registrationStatus,
+  rejectRegistration,
 } from "../controllers/auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuth } from "../middlewares/auth.middleware";
@@ -19,6 +23,9 @@ import {
   logoutBodySchema,
   refreshBodySchema,
   registerBodySchema,
+  registrationApproveBodySchema,
+  registrationRejectBodySchema,
+  registrationTokenQuerySchema,
 } from "../validators/auth.validator";
 
 export const authRouter = Router();
@@ -50,17 +57,213 @@ export const authRouter = Router();
  *                 minLength: 8
  *     responses:
  *       201:
- *         description: User registered successfully
+ *         description: Registration submitted; admin must approve before login
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
+ *               type: object
+ *               required: [message, user]
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Registration pending approval
+ *                 user:
+ *                   type: object
+ *                   required: [id, email, role, status]
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                     role:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                       example: pending
+ *                 approvalToken:
+ *                   type: string
+ *                   description: Present only in non-production (local automation); opaque approval token
  *       409:
  *         description: Email already in use
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  */
 authRouter.post("/register", validateRequest({ body: registerBodySchema }), asyncHandler(register));
+
+/**
+ * @openapi
+ * /auth/registration/review:
+ *   get:
+ *     summary: Admin review page (HTML) for pending registration
+ *     description: Read-only page with POST forms to approve or reject. Does not mutate state on GET.
+ *     tags: [Auth]
+ *     parameters:
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *           minLength: 32
+ *           maxLength: 128
+ *           pattern: '^[A-Za-z0-9_-]+$'
+ *     responses:
+ *       200:
+ *         description: HTML document with approve/reject forms
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+authRouter.get(
+  "/registration/review",
+  validateRequest({ query: registrationTokenQuerySchema }),
+  asyncHandler(registrationReviewPage),
+);
+
+/**
+ * @openapi
+ * /auth/registration/status:
+ *   get:
+ *     summary: Poll registration approval token state
+ *     tags: [Auth]
+ *     parameters:
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *           minLength: 32
+ *           maxLength: 128
+ *           pattern: '^[A-Za-z0-9_-]+$'
+ *     responses:
+ *       200:
+ *         description: Token is still valid (pending) or past expiry (expired)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [status]
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [pending, expired]
+ *       404:
+ *         description: Invalid token or already consumed
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+authRouter.get(
+  "/registration/status",
+  validateRequest({ query: registrationTokenQuerySchema }),
+  asyncHandler(registrationStatus),
+);
+
+/**
+ * @openapi
+ * /auth/registration/approve:
+ *   post:
+ *     summary: Approve a pending registration (activates the user)
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 minLength: 32
+ *                 maxLength: 128
+ *                 pattern: '^[A-Za-z0-9_-]+$'
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Decision confirmation (HTML)
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       404:
+ *         description: Invalid or unknown token
+ *       409:
+ *         description: Registration already processed
+ *       410:
+ *         description: Approval link expired
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+authRouter.post(
+  "/registration/approve",
+  validateRequest({ body: registrationApproveBodySchema }),
+  asyncHandler(approveRegistration),
+);
+
+/**
+ * @openapi
+ * /auth/registration/reject:
+ *   post:
+ *     summary: Reject a pending registration
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 minLength: 32
+ *                 maxLength: 128
+ *                 pattern: '^[A-Za-z0-9_-]+$'
+ *               reason:
+ *                 type: string
+ *                 maxLength: 500
+ *                 description: Optional message emailed to the user
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token:
+ *                 type: string
+ *               reason:
+ *                 type: string
+ *                 maxLength: 500
+ *     responses:
+ *       200:
+ *         description: Decision confirmation (HTML)
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *       404:
+ *         description: Invalid or unknown token
+ *       409:
+ *         description: Registration already processed
+ *       410:
+ *         description: Link expired
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+authRouter.post(
+  "/registration/reject",
+  validateRequest({ body: registrationRejectBodySchema }),
+  asyncHandler(rejectRegistration),
+);
 
 /**
  * @openapi

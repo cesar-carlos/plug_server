@@ -2,6 +2,7 @@ import request from "supertest";
 import { describe, it, expect } from "vitest";
 
 import { createApp } from "../../src/app";
+import { approveRegistrationByToken } from "./helpers/approve_registration";
 
 const app = createApp();
 
@@ -77,12 +78,19 @@ describe("GET /api/v1/health", () => {
   });
 
   it("should expose metrics in prometheus text format", async () => {
+    const metricsEmail = `metrics-${Date.now()}@test.com`;
     const registerResponse = await request(app).post("/api/v1/auth/register").send({
-      email: `metrics-${Date.now()}@test.com`,
+      email: metricsEmail,
       password: "MetricsTest1",
     });
     expect(registerResponse.status).toBe(201);
-    const accessToken = registerResponse.body.accessToken as string;
+    await approveRegistrationByToken(app, registerResponse.body.approvalToken as string);
+    const loginResponse = await request(app).post("/api/v1/auth/login").send({
+      email: metricsEmail,
+      password: "MetricsTest1",
+    });
+    expect(loginResponse.status).toBe(200);
+    const accessToken = loginResponse.body.accessToken as string;
 
     const response = await request(app)
       .get("/metrics")
@@ -96,5 +104,8 @@ describe("GET /api/v1/health", () => {
     expect(response.text).toContain("plug_socket_relay_rest_pending_requests");
     expect(response.text).toContain("plug_socket_relay_rate_limit_request_rejected_total");
     expect(response.text).toContain("plug_socket_audit_prune_runs_total");
+    expect(response.text).toContain("plug_registration_approved_total");
+    expect(response.text).toContain("plug_registration_rejected_total");
+    expect(response.text).toContain("plug_registration_token_expired_total");
   });
 });

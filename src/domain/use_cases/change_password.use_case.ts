@@ -35,6 +35,7 @@ export class ChangePasswordUseCase {
       email: user.email,
       passwordHash: newPasswordHash,
       role: user.role,
+      status: user.status,
       createdAt: user.createdAt,
     });
 

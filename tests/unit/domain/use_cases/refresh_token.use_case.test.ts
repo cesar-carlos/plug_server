@@ -18,7 +18,12 @@ const makeTokenRepo = (): IRefreshTokenRepository => ({
   consume: vi.fn(),
 });
 
-const testUser = User.create({ email: "user@test.com", passwordHash: "hash", role: "user" });
+const testUser = User.create({
+  email: "user@test.com",
+  passwordHash: "hash",
+  role: "user",
+  status: "active",
+});
 
 describe("RefreshTokenUseCase", () => {
   let userRepository: IUserRepository;

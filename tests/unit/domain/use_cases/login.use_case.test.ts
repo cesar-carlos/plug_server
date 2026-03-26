@@ -20,6 +20,7 @@ const existingUser = User.create({
   email: "user@test.com",
   passwordHash: "$hashed$",
   role: "user",
+  status: "active",
 });
 
 describe("LoginUseCase", () => {
@@ -65,6 +66,44 @@ describe("LoginUseCase", () => {
     if (!result.ok) {
       expect(result.error.statusCode).toBe(401);
       expect(result.error.message).toBe("Invalid email or password");
+    }
+  });
+
+  it("should return forbidden when account is pending approval", async () => {
+    const pendingUser = User.create({
+      email: "pending@test.com",
+      passwordHash: "$hashed$",
+      role: "user",
+      status: "pending",
+    });
+    vi.mocked(userRepository.findByEmail).mockResolvedValue(pendingUser);
+    vi.mocked(passwordHasher.compare).mockResolvedValue(true);
+
+    const result = await useCase.execute({ email: "pending@test.com", plainPassword: "Password1" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.statusCode).toBe(403);
+      expect(result.error.message).toBe("Account is pending admin approval");
+    }
+  });
+
+  it("should return forbidden when registration was rejected", async () => {
+    const rejectedUser = User.create({
+      email: "rej@test.com",
+      passwordHash: "$hashed$",
+      role: "user",
+      status: "rejected",
+    });
+    vi.mocked(userRepository.findByEmail).mockResolvedValue(rejectedUser);
+    vi.mocked(passwordHasher.compare).mockResolvedValue(true);
+
+    const result = await useCase.execute({ email: "rej@test.com", plainPassword: "Password1" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.statusCode).toBe(403);
+      expect(result.error.message).toBe("Account registration was rejected");
     }
   });
 });

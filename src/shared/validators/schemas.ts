@@ -6,6 +6,13 @@ export const uuidSchema = z
   .string()
   .uuid({ message: "Must be a valid UUID" });
 
+/** Opaque registration approval token (base64url, 32 random bytes). */
+export const registrationOpaqueTokenSchema = z
+  .string()
+  .min(32)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/, { message: "Invalid registration token format" });
+
 export const emailSchema = z
   .string()
   .email({ message: "Must be a valid email address" })

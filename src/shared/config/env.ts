@@ -21,6 +21,34 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
   JWT_ISSUER: z.string().min(1).default("plug_server"),
   JWT_AUDIENCE: z.string().min(1).default("plug_clients"),
+  /** Public HTTP base URL for registration approval links (no trailing slash). */
+  APP_BASE_URL: z.string().url().default("http://localhost:3000"),
+  /** Receives registration approval / rejection emails. */
+  ADMIN_EMAIL: z.string().email().default("cesar_carlos@msn.com"),
+  SMTP_HOST: z.string().min(1).default("smtp-mail.outlook.com"),
+  SMTP_PORT: z.coerce.number().int().positive().max(65_535).default(587),
+  SMTP_USER: z.string().default(""),
+  SMTP_PASS: z.string().default(""),
+  /** e.g. "Plug Server <you@outlook.com>". If empty, falls back to APP_NAME + SMTP_USER. */
+  SMTP_FROM: z.string().default(""),
+  /** Shorthand like JWT refresh: 7d, 24h, 30m. */
+  APPROVAL_TOKEN_EXPIRES_IN: z.string().default("7d"),
+  /**
+   * When true (default in production), refuse to boot without SMTP_USER/SMTP_PASS.
+   * Set to false only if you use another path to approve users (not recommended).
+   */
+  REQUIRE_SMTP_IN_PRODUCTION: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  /**
+   * When true, registration emails are sent after the HTTP response path (fire-and-forget).
+   * When false, POST /register awaits outbound mail (simpler for local debugging).
+   */
+  REGISTRATION_EMAIL_ASYNC: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   PAYLOAD_SIGNING_KEY: z.string().optional(),
   PAYLOAD_SIGNING_KEY_ID: z.string().optional(),
   PAYLOAD_SIGN_OUTBOUND: z
@@ -310,6 +338,16 @@ if (parsedEnv.NODE_ENV === "production") {
   ) {
     throw new Error("Invalid production config: JWT secrets must be explicitly configured.");
   }
+
+  if (parsedEnv.REQUIRE_SMTP_IN_PRODUCTION) {
+    const smtpConfigured =
+      parsedEnv.SMTP_USER.trim() !== "" && parsedEnv.SMTP_PASS.trim() !== "";
+    if (!smtpConfigured) {
+      throw new Error(
+        "Invalid production config: SMTP_USER and SMTP_PASS are required when REQUIRE_SMTP_IN_PRODUCTION=true.",
+      );
+    }
+  }
 }
 
 export const env = {
@@ -408,4 +446,14 @@ export const env = {
   bridgeLatencyTraceTruncateRequestIdChars: parsedEnv.BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS,
   bridgeLatencyTraceRelayRetentionDays:
     parsedEnv.BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS ?? parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_DAYS,
+  appBaseUrl: parsedEnv.APP_BASE_URL.replace(/\/+$/, ""),
+  adminEmail: parsedEnv.ADMIN_EMAIL,
+  smtpHost: parsedEnv.SMTP_HOST,
+  smtpPort: parsedEnv.SMTP_PORT,
+  smtpUser: parsedEnv.SMTP_USER,
+  smtpPass: parsedEnv.SMTP_PASS,
+  smtpFrom: parsedEnv.SMTP_FROM,
+  approvalTokenExpiresIn: parsedEnv.APPROVAL_TOKEN_EXPIRES_IN,
+  requireSmtpInProduction: parsedEnv.REQUIRE_SMTP_IN_PRODUCTION,
+  registrationEmailAsync: parsedEnv.REGISTRATION_EMAIL_ASYNC,
 } as const;

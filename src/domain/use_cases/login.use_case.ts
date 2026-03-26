@@ -1,7 +1,7 @@
 import type { User } from "../entities/user.entity";
 import type { IUserRepository } from "../repositories/user.repository.interface";
 import type { IPasswordHasher } from "../ports/password_hasher.port";
-import { unauthorized } from "../../shared/errors/http_errors";
+import { forbidden, unauthorized } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
 
 export interface LoginInput {
@@ -26,6 +26,14 @@ export class LoginUseCase {
     const isMatch = await this.passwordHasher.compare(input.plainPassword, user.passwordHash);
     if (!isMatch) {
       return err(unauthorized("Invalid email or password"));
+    }
+
+    if (user.status === "pending") {
+      return err(forbidden("Account is pending admin approval"));
+    }
+
+    if (user.status === "rejected") {
+      return err(forbidden("Account registration was rejected"));
     }
 
     return ok(user);

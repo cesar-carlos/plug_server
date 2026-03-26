@@ -3,6 +3,7 @@ import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
+import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
@@ -103,7 +104,14 @@ describe("Socket namespaces", () => {
       .send({ email: "socket@test.com", password: "SocketTest1" });
 
     expect(registerRes.status).toBe(201);
-    accessToken = registerRes.body.accessToken as string;
+    await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
+
+    const userLoginRes = await request(baseUrl).post("/api/v1/auth/login").send({
+      email: "socket@test.com",
+      password: "SocketTest1",
+    });
+    expect(userLoginRes.status).toBe(200);
+    accessToken = userLoginRes.body.accessToken as string;
 
     const agentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
       email: "socket@test.com",

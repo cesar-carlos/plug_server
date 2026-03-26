@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { getBridgeLatencyTraceMetricsSnapshot } from "../../../application/services/bridge_latency_trace.service";
 import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
+import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getSocketMetricsSnapshot } from "../../../socket";
 
@@ -34,6 +35,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const audit = getSocketAuditMetricsSnapshot();
   const bridgeLatency = getBridgeLatencyTraceMetricsSnapshot();
   const restHttpRl = getRestHttpRateLimitMetricsSnapshot();
+  const registrationFlow = getRegistrationFlowMetricsSnapshot();
 
   const lines: string[] = [];
 
@@ -58,6 +60,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
       "plug_rest_http_rate_limit_agents_commands_ip_rejected_total",
       restHttpRl.agentsCommandsIpRejectedTotal,
     ),
+  );
+
+  lines.push(metricLine("plug_registration_approved_total", registrationFlow.registrationApprovedTotal));
+  lines.push(metricLine("plug_registration_rejected_total", registrationFlow.registrationRejectedTotal));
+  lines.push(
+    metricLine("plug_registration_token_expired_total", registrationFlow.registrationTokenExpiredTotal),
   );
 
   lines.push(metricLine("plug_socket_namespace_connections", socket.namespaces.agents, { namespace: "agents" }));

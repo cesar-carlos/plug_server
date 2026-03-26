@@ -1,7 +1,8 @@
-import type { User as PrismaUser } from "@prisma/client";
+import { Prisma, type User as PrismaUser, type UserStatus as PrismaUserStatus } from "@prisma/client";
 
-import { User } from "../../domain/entities/user.entity";
+import { User, type UserStatus } from "../../domain/entities/user.entity";
 import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
+import { conflict } from "../../shared/errors/http_errors";
 import { prismaClient } from "../database/prisma/client";
 
 export class PrismaUserRepository implements IUserRepository {
@@ -30,21 +31,30 @@ export class PrismaUserRepository implements IUserRepository {
   }
 
   async save(user: User): Promise<void> {
-    await prismaClient.user.upsert({
-      where: { id: user.id },
-      create: {
-        id: user.id,
-        email: user.email,
-        passwordHash: user.passwordHash,
-        role: user.role,
-        createdAt: user.createdAt,
-      },
-      update: {
-        email: user.email,
-        passwordHash: user.passwordHash,
-        role: user.role,
-      },
-    });
+    try {
+      await prismaClient.user.upsert({
+        where: { id: user.id },
+        create: {
+          id: user.id,
+          email: user.email,
+          passwordHash: user.passwordHash,
+          role: user.role,
+          status: user.status as PrismaUserStatus,
+          createdAt: user.createdAt,
+        },
+        update: {
+          email: user.email,
+          passwordHash: user.passwordHash,
+          role: user.role,
+          status: user.status as PrismaUserStatus,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw conflict("Email already in use");
+      }
+      throw error;
+    }
   }
 
   private toDomain(user: PrismaUser): User {
@@ -53,6 +63,7 @@ export class PrismaUserRepository implements IUserRepository {
       email: user.email,
       passwordHash: user.passwordHash,
       role: user.role,
+      status: user.status as UserStatus,
       createdAt: user.createdAt,
     });
   }

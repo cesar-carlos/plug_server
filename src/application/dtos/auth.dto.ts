@@ -1,9 +1,31 @@
-import type { UserRole } from "../../domain/entities/user.entity";
+import type { UserRole, UserStatus } from "../../domain/entities/user.entity";
 
 export interface AuthUserDto {
   readonly id: string;
   readonly email: string;
   readonly role: UserRole;
+}
+
+/** User snapshot returned after registration (pending approval). */
+export interface RegisterPendingUserDto {
+  readonly id: string;
+  readonly email: string;
+  readonly role: UserRole;
+  readonly status: UserStatus;
+}
+
+export interface RegisterPendingResponseDto {
+  readonly message: string;
+  readonly user: RegisterPendingUserDto;
+  /**
+   * Omitted in production. Present in development/test so clients can complete approval in automation
+   * (e2e) or local flows without database access.
+   */
+  readonly approvalToken?: string;
+}
+
+export interface RegistrationStatusResponseDto {
+  readonly status: "pending" | "expired";
 }
 
 export interface AuthTokensDto {

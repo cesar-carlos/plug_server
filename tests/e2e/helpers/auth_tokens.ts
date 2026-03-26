@@ -1,5 +1,7 @@
 import request from "supertest";
 
+import { approveRegistrationByToken } from "../../integration/helpers/approve_registration";
+
 export interface HubUserTokens {
   readonly email: string;
   readonly password: string;
@@ -15,10 +17,21 @@ export const registerHubUser = async (
   if (res.status !== 201) {
     throw new Error(`register failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
+  const approvalToken = res.body.approvalToken as string | undefined;
+  if (!approvalToken) {
+    throw new Error(
+      "register response missing approvalToken; e2e expects NODE_ENV !== production (see registration flow).",
+    );
+  }
+  await approveRegistrationByToken(baseUrl, approvalToken);
+  const loginRes = await request(baseUrl).post("/api/v1/auth/login").send({ email, password });
+  if (loginRes.status !== 200) {
+    throw new Error(`login after register failed: ${loginRes.status} ${JSON.stringify(loginRes.body)}`);
+  }
   return {
     email,
     password,
-    accessToken: res.body.accessToken as string,
+    accessToken: loginRes.body.accessToken as string,
   };
 };
 
