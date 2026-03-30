@@ -18,6 +18,15 @@ export class UserAgentService {
     private readonly agentIdentityRepository: IAgentIdentityRepository,
   ) {}
 
+  /** Whether the user has an explicit user↔agent binding (does not require agent status active). */
+  async isAgentLinkedToUser(userId: string, agentId: string): Promise<boolean> {
+    return this.agentIdentityRepository.hasAccess(userId, agentId);
+  }
+
+  async listAgentIdsByUserId(userId: string): Promise<string[]> {
+    return this.agentIdentityRepository.listAgentIdsByUserId(userId);
+  }
+
   async listByUserId(userId: string): Promise<EnrichedAgent[]> {
     const agentIds = await this.agentIdentityRepository.listAgentIdsByUserId(userId);
     const agents = await this.agentRepository.findByIds(agentIds);

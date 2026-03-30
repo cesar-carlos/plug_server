@@ -19,25 +19,47 @@ import { getAuthUser } from "../middlewares/auth.middleware";
 import type { AgentCommandBody } from "../validators/agents.validator";
 import { env } from "../../../shared/config/env";
 import { container } from "../../../shared/di/container";
+import {
+  isJwtAdmin,
+  resolveVisibleAgentIds,
+} from "../../../application/policies/agent_visibility.policy";
 
-export const listConnectedAgents = (_request: Request, response: Response): void => {
-  const agents = agentRegistry.listAll();
-  const payload: {
-    agents: ReturnType<typeof agentRegistry.listAll>;
-    count: number;
-    _diagnostic?: { socketConnectionsInAgentsNamespace: number };
-  } = {
-    agents,
-    count: agents.length,
-  };
+export const listConnectedAgents = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = getAuthUser(response);
+    let agents = agentRegistry.listAll();
 
-  if (env.nodeEnv !== "production" && agentsNamespace) {
-    payload._diagnostic = {
-      socketConnectionsInAgentsNamespace: agentsNamespace.sockets.size,
+    const visibleAgentIds = await resolveVisibleAgentIds(authUser, (userId) =>
+      container.userAgentService.listAgentIdsByUserId(userId),
+    );
+    if (visibleAgentIds !== undefined) {
+      const allowed = new Set(visibleAgentIds);
+      agents = agents.filter((a) => allowed.has(a.agentId));
+    }
+
+    const payload: {
+      agents: ReturnType<typeof agentRegistry.listAll>;
+      count: number;
+      _diagnostic?: { socketConnectionsInAgentsNamespace: number };
+    } = {
+      agents,
+      count: agents.length,
     };
-  }
 
-  response.status(200).json(payload);
+    if (isJwtAdmin(authUser) && env.nodeEnv !== "production" && agentsNamespace) {
+      payload._diagnostic = {
+        socketConnectionsInAgentsNamespace: agentsNamespace.sockets.size,
+      };
+    }
+
+    response.status(200).json(payload);
+  } catch (e) {
+    next(e);
+  }
 };
 
 export const proxyCommandToAgent = async (

@@ -30,6 +30,14 @@ export class InMemoryAgentRepository implements IAgentRepository {
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, filter?.pageSize ?? 20);
 
+    if (filter?.agentIds !== undefined) {
+      if (filter.agentIds.length === 0) {
+        return { items: [], total: 0, page, pageSize };
+      }
+      const allowed = new Set(filter.agentIds);
+      agents = agents.filter((a) => allowed.has(a.agentId));
+    }
+
     if (filter?.status) {
       agents = agents.filter((a) => a.status === filter.status);
     }

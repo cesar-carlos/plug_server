@@ -5,6 +5,8 @@ export interface AgentListFilter {
   readonly search?: string;
   readonly page?: number;
   readonly pageSize?: number;
+  /** When set, only agents whose `agentId` is in this list are included (after other filters). */
+  readonly agentIds?: readonly string[];
 }
 
 export interface PaginatedAgentList {

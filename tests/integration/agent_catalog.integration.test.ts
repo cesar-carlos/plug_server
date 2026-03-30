@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
-import { seedAdminUser, seedAgent } from "./helpers/seed_agent";
+import { seedAdminUser, seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
 const app = createApp();
 
@@ -163,5 +163,66 @@ describe("Agent catalog API", () => {
       .set("Authorization", `Bearer ${userToken}`)
       .send({ agentId: validAgentId(), name: "Unauthorized", cnpjCpf: VALID_CPF_1 });
     expect(res.status).toBe(403);
+  });
+
+  it("GET catalog — non-admin sees only linked agents and 403 on unlinked id", async () => {
+    const email = `cat-read-${Date.now()}@test.com`;
+    const password = "User1234";
+    const regRes = await request(app).post("/api/v1/auth/register").send({ email, password });
+    expect(regRes.status).toBe(201);
+    await approveRegistrationByToken(app, regRes.body.approvalToken as string);
+    const userId = regRes.body.user.id as string;
+    const loginRes = await request(app).post("/api/v1/auth/login").send({ email, password });
+    expect(loginRes.status).toBe(200);
+    const userToken = loginRes.body.accessToken as string;
+
+    const linked = await seedAgent({ name: "Linked Only", cnpjCpf: `linked-${Date.now()}` });
+    const unlinked = await seedAgent({ name: "Unlinked", cnpjCpf: `unlinked-${Date.now()}` });
+    await seedAgentBinding(userId, linked.agentId);
+
+    const listRes = await request(app)
+      .get("/api/v1/agents/catalog")
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(listRes.status).toBe(200);
+    const ids = (listRes.body.agents as Array<{ agentId: string }>).map((a) => a.agentId);
+    expect(ids).toContain(linked.agentId);
+    expect(ids).not.toContain(unlinked.agentId);
+    expect(listRes.body.total).toBe(ids.length);
+
+    const forbiddenRes = await request(app)
+      .get(`/api/v1/agents/catalog/${unlinked.agentId}`)
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(forbiddenRes.status).toBe(403);
+
+    const okRes = await request(app)
+      .get(`/api/v1/agents/catalog/${linked.agentId}`)
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(okRes.status).toBe(200);
+    expect(okRes.body.agent.agentId).toBe(linked.agentId);
+  });
+
+  it("GET catalog/:id — non-admin can read inactive agent when linked", async () => {
+    const email = `cat-inactive-${Date.now()}@test.com`;
+    const password = "User1234";
+    const regRes = await request(app).post("/api/v1/auth/register").send({ email, password });
+    expect(regRes.status).toBe(201);
+    await approveRegistrationByToken(app, regRes.body.approvalToken as string);
+    const userId = regRes.body.user.id as string;
+    const loginRes = await request(app).post("/api/v1/auth/login").send({ email, password });
+    expect(loginRes.status).toBe(200);
+    const userToken = loginRes.body.accessToken as string;
+
+    const inactive = await seedAgent({
+      name: "Inactive Linked",
+      cnpjCpf: `inactive-${Date.now()}`,
+      status: "inactive",
+    });
+    await seedAgentBinding(userId, inactive.agentId);
+
+    const res = await request(app)
+      .get(`/api/v1/agents/catalog/${inactive.agentId}`)
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.agent.status).toBe("inactive");
   });
 });

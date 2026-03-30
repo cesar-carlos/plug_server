@@ -141,6 +141,75 @@ describe("Agents HTTP bridge", () => {
         (agent) => agent.agentId === testAgentId,
       ),
     ).toBe(true);
+    expect(response.body._diagnostic).toBeUndefined();
+  });
+
+  it("should list only agents linked to the user when not admin", async () => {
+    const otherEmail = `agents-http-other-${Date.now()}@test.com`;
+    const otherPassword = "AgentsHttp2";
+    const regOther = await request(baseUrl).post("/api/v1/auth/register").send({
+      email: otherEmail,
+      password: otherPassword,
+    });
+    expect(regOther.status).toBe(201);
+    await approveRegistrationByToken(baseUrl, regOther.body.approvalToken as string);
+    const otherUserId = regOther.body.user.id as string;
+
+    const otherAgentId = randomUUID();
+    await seedAgent({
+      agentId: otherAgentId,
+      name: "Other User Agent",
+      cnpjCpf: `other-http-${otherUserId.slice(0, 8)}`,
+    });
+    await seedAgentBinding(otherUserId, otherAgentId);
+
+    const agentLoginOther = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+      email: otherEmail,
+      password: otherPassword,
+      agentId: otherAgentId,
+    });
+    expect(agentLoginOther.status).toBe(200);
+    const otherAgentAccessToken = agentLoginOther.body.accessToken as string;
+
+    const otherSocket = ioClient(`${baseUrl}/agents`, {
+      auth: { token: otherAgentAccessToken },
+      transports: ["websocket"],
+    });
+
+    try {
+      await waitForEvent<unknown>(otherSocket, "connection:ready").then((rawPayload) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok) {
+          throw new Error(`Failed to decode connection:ready: ${decoded.error.message}`);
+        }
+      });
+      const capPromise = waitForEvent<unknown>(otherSocket, "agent:capabilities");
+      otherSocket.emit(
+        "agent:register",
+        encodePayloadFrame({
+          agentId: otherAgentId,
+          capabilities: {
+            protocols: ["jsonrpc-v2"],
+            encodings: ["json"],
+            compressions: ["none"],
+          },
+        }),
+      );
+      await capPromise;
+      if (env.socketAgentProtocolReadyGraceMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs));
+      }
+
+      const listRes = await request(baseUrl)
+        .get("/api/v1/agents")
+        .set("Authorization", `Bearer ${accessToken}`);
+      expect(listRes.status).toBe(200);
+      const ids = (listRes.body.agents as Array<{ agentId: string }>).map((a) => a.agentId);
+      expect(ids).toContain(testAgentId);
+      expect(ids).not.toContain(otherAgentId);
+    } finally {
+      otherSocket.disconnect();
+    }
   });
 
   it("should validate command payload on POST /api/v1/agents/commands", async () => {

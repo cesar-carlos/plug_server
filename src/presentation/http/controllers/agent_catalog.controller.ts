@@ -1,7 +1,13 @@
 import type { Request, Response, NextFunction } from "express";
 import type { Agent } from "../../../domain/entities/agent.entity";
+import {
+  canReadAgentByLink,
+  resolveVisibleAgentIds,
+} from "../../../application/policies/agent_visibility.policy";
 import { container } from "../../../shared/di/container";
+import { forbidden } from "../../../shared/errors/http_errors";
 import { getValidated } from "../middlewares/validate.middleware";
+import { getAuthUser } from "../middlewares/auth.middleware";
 import type {
   CreateAgentBody,
   UpdateAgentBody,
@@ -38,13 +44,27 @@ export const listAgents = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
+    const authUser = getAuthUser(response);
     const query = getValidated<ListAgentsQuery>(response, "query");
-    const pageResult = await container.agentCatalogService.listAll({
+
+    const baseFilter = {
       ...(query?.status !== undefined ? { status: query.status } : {}),
       ...(query?.search !== undefined ? { search: query.search } : {}),
       ...(query?.page !== undefined ? { page: query.page } : {}),
       ...(query?.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-    });
+    };
+    const visibleAgentIds = await resolveVisibleAgentIds(authUser, (userId) =>
+      container.userAgentService.listAgentIdsByUserId(userId),
+    );
+
+    const pageResult = await container.agentCatalogService.listAll(
+      visibleAgentIds === undefined
+        ? baseFilter
+        : {
+            ...baseFilter,
+            agentIds: visibleAgentIds,
+          },
+    );
     response.status(200).json({
       agents: pageResult.items.map(toDto),
       count: pageResult.items.length,
@@ -63,7 +83,17 @@ export const getAgent = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
+    const authUser = getAuthUser(response);
     const { agentId } = getValidated<AgentIdParam>(response, "params");
+
+    const hasAccess = await canReadAgentByLink(authUser, agentId, (userId, id) =>
+      container.userAgentService.isAgentLinkedToUser(userId, id),
+    );
+    if (!hasAccess) {
+      next(forbidden("Insufficient permissions"));
+      return;
+    }
+
     const result = await container.agentCatalogService.findById(agentId);
     if (!result.ok) {
       next(result.error);

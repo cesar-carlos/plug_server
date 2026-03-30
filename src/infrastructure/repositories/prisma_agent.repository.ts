@@ -32,7 +32,20 @@ export class PrismaAgentRepository implements IAgentRepository {
   async findAll(filter?: AgentListFilter): Promise<PaginatedAgentList> {
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, filter?.pageSize ?? 20);
+
+    if (filter?.agentIds !== undefined && filter.agentIds.length === 0) {
+      return {
+        items: [],
+        total: 0,
+        page,
+        pageSize,
+      };
+    }
+
     const where = {
+      ...(filter?.agentIds !== undefined && filter.agentIds.length > 0
+        ? { agentId: { in: [...new Set(filter.agentIds)] } }
+        : {}),
       ...(filter?.status ? { status: filter.status } : {}),
       ...(filter?.search
         ? {

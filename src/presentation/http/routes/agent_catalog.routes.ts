@@ -66,7 +66,9 @@ agentCatalogRouter.post(
  * /agents/catalog:
  *   get:
  *     summary: List agents in the catalog
- *     description: Admin only. Optional filter by status and substring search on name or cnpjCpf.
+ *     description: >
+ *       Admins see the full catalog with optional filters. Non-admin users only see agents linked to their account;
+ *       pagination totals apply within that visible subset. Same query parameters apply to both roles.
  *     tags: [Agent catalog]
  *     security:
  *       - bearerAuth: []
@@ -101,13 +103,10 @@ agentCatalogRouter.post(
  *               $ref: '#/components/schemas/PaginatedAgentCatalogResponse'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
  */
 agentCatalogRouter.get(
   "/",
   requireAuth,
-  requireRole("admin"),
   validateRequest({ query: listAgentsQuerySchema }),
   asyncHandler(listAgents),
 );
@@ -117,6 +116,9 @@ agentCatalogRouter.get(
  * /agents/catalog/{agentId}:
  *   get:
  *     summary: Get one catalog agent by id
+ *     description: >
+ *       Admins can read any catalog record. Non-admins receive 403 if the agent is not linked to their account
+ *       (including inactive agents they are linked to).
  *     tags: [Agent catalog]
  *     security:
  *       - bearerAuth: []
@@ -148,7 +150,6 @@ agentCatalogRouter.get(
 agentCatalogRouter.get(
   "/:agentId",
   requireAuth,
-  requireRole("admin"),
   validateRequest({ params: agentIdParamSchema }),
   asyncHandler(getAgent),
 );

@@ -16,11 +16,12 @@ export const agentsRouter = Router();
  * @openapi
  * /agents:
  *   get:
- *     summary: List all registered agents
+ *     summary: List registered plug_agents (online)
  *     description: >
  *       Returns agents that have successfully emitted agent:register in the /agents Socket.IO namespace.
- *       Requires Bearer token. In non-production, includes _diagnostic.socketConnectionsInAgentsNamespace
- *       (raw socket count) to help debug when agents connect but do not register.
+ *       Admins see all connected agents. Non-admin users only see agents whose agentId is linked to their account.
+ *       Requires Bearer token. In non-production, admins receive _diagnostic.socketConnectionsInAgentsNamespace
+ *       (raw socket count) for debugging; non-admins do not receive this field.
  *     tags: [Agents]
  *     security:
  *       - bearerAuth: []
@@ -57,7 +58,7 @@ export const agentsRouter = Router();
  *                   type: integer
  *                 _diagnostic:
  *                   type: object
- *                   description: Present only in non-production
+ *                   description: Present only for admin role and non-production
  *                   properties:
  *                     socketConnectionsInAgentsNamespace:
  *                       type: integer
@@ -65,7 +66,7 @@ export const agentsRouter = Router();
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-agentsRouter.get("/", requireAuth, listConnectedAgents);
+agentsRouter.get("/", requireAuth, asyncHandler(listConnectedAgents));
 
 /**
  * @openapi
