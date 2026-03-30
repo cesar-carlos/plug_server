@@ -1,7 +1,7 @@
 import type { Agent } from "../../domain/entities/agent.entity";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
-import { conflict, notFound } from "../../shared/errors/http_errors";
+import { agentAlreadyLinked, agentNotFound } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
 
 export interface EnrichedAgent {
@@ -20,38 +20,37 @@ export class UserAgentService {
 
   async listByUserId(userId: string): Promise<EnrichedAgent[]> {
     const agentIds = await this.agentIdentityRepository.listAgentIdsByUserId(userId);
-    const agents: EnrichedAgent[] = [];
+    const agents = await this.agentRepository.findByIds(agentIds);
+    const agentsById = new Map(agents.map((agent) => [agent.agentId, agent] as const));
 
-    for (const agentId of agentIds) {
-      const agent = await this.agentRepository.findById(agentId);
-      if (agent) {
-        agents.push({
-          agentId: agent.agentId,
-          name: agent.name,
-          cnpjCpf: agent.cnpjCpf,
-          observation: agent.observation,
-          status: agent.status,
-        });
-      }
-    }
-
-    return agents;
+    return agentIds
+      .map((agentId) => agentsById.get(agentId))
+      .filter((agent): agent is Agent => agent !== undefined)
+      .map((agent) => ({
+        agentId: agent.agentId,
+        name: agent.name,
+        cnpjCpf: agent.cnpjCpf,
+        observation: agent.observation,
+        status: agent.status,
+      }));
   }
 
   async addAgentIds(userId: string, agentIds: string[]): Promise<Result<void>> {
     for (const agentId of agentIds) {
       const agent = await this.agentRepository.findById(agentId);
       if (!agent) {
-        return err(notFound(`Agent ${agentId}`));
-      }
-
-      const currentOwner = await this.agentIdentityRepository.findOwnerUserId(agentId);
-      if (currentOwner && currentOwner !== userId) {
-        return err(conflict(`Agent ${agentId} is already linked to another user`));
+        return err(agentNotFound(agentId));
       }
     }
 
-    await this.agentIdentityRepository.addAgentIds(userId, agentIds);
+    const mutation = await this.agentIdentityRepository.addAgentIds(userId, agentIds);
+    if (mutation.kind === "agent_not_found") {
+      return err(agentNotFound(mutation.agentId));
+    }
+    if (mutation.kind === "agent_bound_to_other_user") {
+      return err(agentAlreadyLinked(mutation.agentId));
+    }
+
     return ok(undefined);
   }
 
@@ -64,16 +63,18 @@ export class UserAgentService {
     for (const agentId of agentIds) {
       const agent = await this.agentRepository.findById(agentId);
       if (!agent) {
-        return err(notFound(`Agent ${agentId}`));
-      }
-
-      const currentOwner = await this.agentIdentityRepository.findOwnerUserId(agentId);
-      if (currentOwner && currentOwner !== userId) {
-        return err(conflict(`Agent ${agentId} is already linked to another user`));
+        return err(agentNotFound(agentId));
       }
     }
 
-    await this.agentIdentityRepository.replaceAgentIds(userId, agentIds);
+    const mutation = await this.agentIdentityRepository.replaceAgentIds(userId, agentIds);
+    if (mutation.kind === "agent_not_found") {
+      return err(agentNotFound(mutation.agentId));
+    }
+    if (mutation.kind === "agent_bound_to_other_user") {
+      return err(agentAlreadyLinked(mutation.agentId));
+    }
+
     return ok(undefined);
   }
 }

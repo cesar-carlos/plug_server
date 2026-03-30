@@ -2,6 +2,7 @@ import { Agent } from "../../domain/entities/agent.entity";
 import type {
   AgentListFilter,
   IAgentRepository,
+  PaginatedAgentList,
 } from "../../domain/repositories/agent.repository.interface";
 import { prismaClient } from "../database/prisma/client";
 
@@ -16,22 +17,49 @@ export class PrismaAgentRepository implements IAgentRepository {
     return record ? this.toEntity(record) : null;
   }
 
-  async findAll(filter?: AgentListFilter): Promise<Agent[]> {
+  async findByIds(agentIds: string[]): Promise<Agent[]> {
+    if (agentIds.length === 0) {
+      return [];
+    }
+
     const records = await prismaClient.agent.findMany({
-      where: {
-        ...(filter?.status ? { status: filter.status } : {}),
-        ...(filter?.search
-          ? {
-              OR: [
-                { name: { contains: filter.search, mode: "insensitive" } },
-                { cnpjCpf: { contains: filter.search } },
-              ],
-            }
-          : {}),
-      },
-      orderBy: { name: "asc" },
+      where: { agentId: { in: [...new Set(agentIds)] } },
     });
-    return records.map(this.toEntity);
+
+    return records.map((record) => this.toEntity(record));
+  }
+
+  async findAll(filter?: AgentListFilter): Promise<PaginatedAgentList> {
+    const page = Math.max(1, filter?.page ?? 1);
+    const pageSize = Math.max(1, filter?.pageSize ?? 20);
+    const where = {
+      ...(filter?.status ? { status: filter.status } : {}),
+      ...(filter?.search
+        ? {
+            OR: [
+              { name: { contains: filter.search, mode: "insensitive" as const } },
+              { cnpjCpf: { contains: filter.search } },
+            ],
+          }
+        : {}),
+    };
+
+    const [records, total] = await Promise.all([
+      prismaClient.agent.findMany({
+        where,
+        orderBy: { name: "asc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prismaClient.agent.count({ where }),
+    ]);
+
+    return {
+      items: records.map((record) => this.toEntity(record)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async save(agent: Agent): Promise<void> {

@@ -37,6 +37,7 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/me/agents"]?.get?.tags).toContain("User agents");
     expect(response.body.paths?.["/users/{userId}/agents"]?.get?.tags).toContain("User agents");
     expect(schemas?.AgentCatalogRecord?.properties).toHaveProperty("cnpjCpf");
+    expect(schemas?.PaginatedAgentCatalogResponse?.required).toContain("total");
     expect(schemas?.AgentIdsBody?.required).toContain("agentIds");
   });
 });

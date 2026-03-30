@@ -1,7 +1,7 @@
 import type { Agent } from "../../domain/entities/agent.entity";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
-import { forbidden, notFound } from "../../shared/errors/http_errors";
+import { agentAccessDenied, agentInactive, agentNotFound } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
 
 export class AgentAccessService {
@@ -21,16 +21,16 @@ export class AgentAccessService {
   async assertAccess(userId: string, agentId: string): Promise<Result<Agent>> {
     const agent = await this.agentRepository.findById(agentId);
     if (!agent) {
-      return err(notFound(`Agent ${agentId}`));
+      return err(agentNotFound(agentId));
     }
 
     if (agent.status !== "active") {
-      return err(forbidden("Agent is inactive and cannot be used"));
+      return err(agentInactive(agentId));
     }
 
     const hasAccess = await this.agentIdentityRepository.hasAccess(userId, agentId);
     if (!hasAccess) {
-      return err(forbidden("You do not have access to this agent"));
+      return err(agentAccessDenied(agentId));
     }
 
     return ok(agent);
@@ -43,11 +43,11 @@ export class AgentAccessService {
   async assertAgentOperational(agentId: string): Promise<Result<Agent>> {
     const agent = await this.agentRepository.findById(agentId);
     if (!agent) {
-      return err(notFound(`Agent ${agentId}`));
+      return err(agentNotFound(agentId));
     }
 
     if (agent.status !== "active") {
-      return err(forbidden("Agent is inactive and cannot be used"));
+      return err(agentInactive(agentId));
     }
 
     return ok(agent);

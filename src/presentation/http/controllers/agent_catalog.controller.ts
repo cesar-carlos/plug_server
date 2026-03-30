@@ -39,11 +39,19 @@ export const listAgents = async (
 ): Promise<void> => {
   try {
     const query = getValidated<ListAgentsQuery>(response, "query");
-    const agents = await container.agentCatalogService.listAll({
+    const pageResult = await container.agentCatalogService.listAll({
       ...(query?.status !== undefined ? { status: query.status } : {}),
       ...(query?.search !== undefined ? { search: query.search } : {}),
+      ...(query?.page !== undefined ? { page: query.page } : {}),
+      ...(query?.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
     });
-    response.status(200).json({ agents: agents.map(toDto), count: agents.length });
+    response.status(200).json({
+      agents: pageResult.items.map(toDto),
+      count: pageResult.items.length,
+      total: pageResult.total,
+      page: pageResult.page,
+      pageSize: pageResult.pageSize,
+    });
   } catch (e) {
     next(e);
   }

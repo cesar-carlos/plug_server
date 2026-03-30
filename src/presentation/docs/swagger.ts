@@ -555,6 +555,20 @@ const swaggerSpec = swaggerJSDoc({
             status: { type: "string", enum: ["active", "inactive"] },
           },
         },
+        PaginatedAgentCatalogResponse: {
+          type: "object",
+          required: ["agents", "count", "total", "page", "pageSize"],
+          properties: {
+            agents: {
+              type: "array",
+              items: { $ref: "#/components/schemas/AgentCatalogRecord" },
+            },
+            count: { type: "integer" },
+            total: { type: "integer" },
+            page: { type: "integer", minimum: 1 },
+            pageSize: { type: "integer", minimum: 1 },
+          },
+        },
       },
       responses: {
         Unauthorized: {

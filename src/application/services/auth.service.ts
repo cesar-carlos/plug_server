@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from "uuid";
 import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
-import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { User } from "../../domain/entities/user.entity";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
 import type { ApproveRegistrationUseCase } from "../../domain/use_cases/approve_registration.use_case";
@@ -72,7 +71,6 @@ export class AuthService {
     private readonly getRegistrationStatusUseCase: GetRegistrationStatusUseCase,
     private readonly passwordHasher: IPasswordHasher,
     private readonly refreshTokenRepository: IRefreshTokenRepository,
-    private readonly agentIdentityRepository: IAgentIdentityRepository,
     private readonly agentAccessService: AgentAccessService,
     private readonly emailSender: IEmailSender,
   ) {}

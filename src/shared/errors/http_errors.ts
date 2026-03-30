@@ -24,6 +24,9 @@ export const forbidden = (
 export const notFound = (resource: string): AppError =>
   new AppError(`${resource} not found`, { statusCode: 404, code: "NOT_FOUND" });
 
+export const agentNotFound = (agentId: string): AppError =>
+  new AppError(`Agent ${agentId} not found`, { statusCode: 404, code: "AGENT_NOT_FOUND" });
+
 /** Registration approval token exists but is past `expiresAt`. */
 export const registrationTokenExpired = (message: string): AppError =>
   new AppError(message, { statusCode: 410, code: "REGISTRATION_TOKEN_EXPIRED" });
@@ -32,6 +35,24 @@ export const registrationTokenExpired = (message: string): AppError =>
 
 export const conflict = (message: string): AppError =>
   new AppError(message, { statusCode: 409, code: "CONFLICT" });
+
+export const agentAlreadyLinked = (agentId: string): AppError =>
+  new AppError(`Agent ${agentId} is already linked to another user`, {
+    statusCode: 409,
+    code: "AGENT_ALREADY_LINKED",
+  });
+
+export const agentInactive = (agentId: string): AppError =>
+  new AppError(`Agent ${agentId} is inactive and cannot be used`, {
+    statusCode: 403,
+    code: "AGENT_INACTIVE",
+  });
+
+export const agentAccessDenied = (agentId: string): AppError =>
+  new AppError(`You do not have access to agent ${agentId}`, {
+    statusCode: 403,
+    code: "AGENT_ACCESS_DENIED",
+  });
 
 // ─── 422 Unprocessable Entity ────────────────────────────────────────────────
 

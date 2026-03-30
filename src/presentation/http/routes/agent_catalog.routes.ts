@@ -81,21 +81,24 @@ agentCatalogRouter.post(
  *         schema:
  *           type: string
  *           maxLength: 120
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
  *     responses:
  *       200:
  *         description: List of catalog agents
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               required: [agents, count]
- *               properties:
- *                 agents:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/AgentCatalogRecord'
- *                 count:
- *                   type: integer
+ *               $ref: '#/components/schemas/PaginatedAgentCatalogResponse'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:

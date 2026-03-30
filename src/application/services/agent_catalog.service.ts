@@ -2,6 +2,7 @@ import { Agent } from "../../domain/entities/agent.entity";
 import type {
   AgentListFilter,
   IAgentRepository,
+  PaginatedAgentList,
 } from "../../domain/repositories/agent.repository.interface";
 import { conflict, notFound } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
@@ -103,7 +104,7 @@ export class AgentCatalogService {
     return ok(agent);
   }
 
-  async listAll(filter?: AgentListFilter): Promise<Agent[]> {
+  async listAll(filter?: AgentListFilter): Promise<PaginatedAgentList> {
     return this.agentRepository.findAll(filter);
   }
 }

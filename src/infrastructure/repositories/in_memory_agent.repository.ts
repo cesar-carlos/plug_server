@@ -2,6 +2,7 @@ import type { Agent } from "../../domain/entities/agent.entity";
 import type {
   AgentListFilter,
   IAgentRepository,
+  PaginatedAgentList,
 } from "../../domain/repositories/agent.repository.interface";
 
 export class InMemoryAgentRepository implements IAgentRepository {
@@ -18,8 +19,16 @@ export class InMemoryAgentRepository implements IAgentRepository {
     return null;
   }
 
-  async findAll(filter?: AgentListFilter): Promise<Agent[]> {
+  async findByIds(agentIds: string[]): Promise<Agent[]> {
+    return [...new Set(agentIds)]
+      .map((agentId) => this.agentsById.get(agentId) ?? null)
+      .filter((agent): agent is Agent => agent !== null);
+  }
+
+  async findAll(filter?: AgentListFilter): Promise<PaginatedAgentList> {
     let agents = [...this.agentsById.values()];
+    const page = Math.max(1, filter?.page ?? 1);
+    const pageSize = Math.max(1, filter?.pageSize ?? 20);
 
     if (filter?.status) {
       agents = agents.filter((a) => a.status === filter.status);
@@ -32,7 +41,15 @@ export class InMemoryAgentRepository implements IAgentRepository {
       );
     }
 
-    return agents.sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = agents.sort((a, b) => a.name.localeCompare(b.name));
+    const start = (page - 1) * pageSize;
+
+    return {
+      items: sorted.slice(start, start + pageSize),
+      total: sorted.length,
+      page,
+      pageSize,
+    };
   }
 
   async save(agent: Agent): Promise<void> {

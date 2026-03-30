@@ -2,9 +2,9 @@ import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { getTestRepositoryAccess } from "../../src/shared/di/container";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
-import { container } from "../../src/shared/di/container";
 
 const app = createApp();
 
@@ -12,6 +12,7 @@ const testUser = {
   email: "integration@test.com",
   password: "Integration1",
 };
+const repositories = getTestRepositoryAccess();
 
 let accessToken = "";
 let refreshToken = "";
@@ -173,7 +174,7 @@ describe("Auth API", () => {
 
     beforeAll(async () => {
       await seedAgent({ agentId, name: "Auth Test Agent", cnpjCpf: "auth-test-unique" });
-      const user = await container._repositories.user.findByEmail(testUser.email);
+      const user = await repositories.user.findByEmail(testUser.email);
       if (user) {
         await seedAgentBinding(user.id, agentId);
       }

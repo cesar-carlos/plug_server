@@ -13,6 +13,7 @@ describe("User agents API", () => {
   let adminToken = "";
   let regularToken = "";
   let regularUserId = "";
+  let secondUserId = "";
 
   beforeAll(async () => {
     const admin = await seedAdminUser(app, {
@@ -28,6 +29,15 @@ describe("User agents API", () => {
     regularUserId = reg.body.user.id as string;
     const login = await request(app).post("/api/v1/auth/login").send({ email, password });
     regularToken = login.body.accessToken as string;
+
+    const secondReg = await request(app)
+      .post("/api/v1/auth/register")
+      .send({
+        email: `ua-user-2-${Date.now()}@test.com`,
+        password,
+      });
+    await approveRegistrationByToken(app, secondReg.body.approvalToken as string);
+    secondUserId = secondReg.body.user.id as string;
   });
 
   it("GET /api/v1/me/agents — returns empty list for new user", async () => {
@@ -72,6 +82,24 @@ describe("User agents API", () => {
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ agentIds: [randomUUID()] });
     expect(res.status).toBe(404);
+    expect(res.body.code).toBe("AGENT_NOT_FOUND");
+  });
+
+  it("POST /api/v1/users/:userId/agents — fails when agent is already linked to another user", async () => {
+    const agent = await seedAgent({ name: "Already Linked", cnpjCpf: "52998224733" });
+
+    const first = await request(app)
+      .post(`/api/v1/users/${regularUserId}/agents`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ agentIds: [agent.agentId] });
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .post(`/api/v1/users/${secondUserId}/agents`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ agentIds: [agent.agentId] });
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe("AGENT_ALREADY_LINKED");
   });
 
   it("DELETE /api/v1/users/:userId/agents — admin removes agents", async () => {

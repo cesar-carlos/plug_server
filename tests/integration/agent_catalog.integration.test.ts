@@ -89,6 +89,25 @@ describe("Agent catalog API", () => {
     const ids = (res.body.agents as Array<{ agentId: string }>).map((a) => a.agentId);
     expect(ids).toContain(agent.agentId);
     expect(res.body.count).toBeGreaterThanOrEqual(1);
+    expect(res.body.total).toBeGreaterThanOrEqual(res.body.count);
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(20);
+  });
+
+  it("GET /api/v1/agents/catalog — supports pagination", async () => {
+    await seedAgent({ name: "Pagination Agent 1", cnpjCpf: "pagination-unique-1" });
+    await seedAgent({ name: "Pagination Agent 2", cnpjCpf: "pagination-unique-2" });
+
+    const res = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ page: 1, pageSize: 1 })
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.total).toBeGreaterThanOrEqual(2);
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(1);
   });
 
   it("GET /api/v1/agents/catalog/:agentId — returns single agent", async () => {

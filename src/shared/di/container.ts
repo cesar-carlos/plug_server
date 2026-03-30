@@ -94,17 +94,26 @@ export const container = {
     getRegistrationStatusUseCase,
     passwordHasher,
     refreshTokenRepository,
-    agentIdentityRepository,
     agentAccessService,
     emailSender,
   ),
   agentAccessService,
   agentCatalogService,
   userAgentService,
-  /** Exposed for test seeding only. Do not use in production code. */
-  _repositories: {
+};
+
+export const getTestRepositoryAccess = (): {
+  readonly user: IUserRepository;
+  readonly agentIdentity: IAgentIdentityRepository;
+  readonly agent: IAgentRepository;
+} => {
+  if (env.nodeEnv !== "test") {
+    throw new Error("getTestRepositoryAccess is only available in test environment");
+  }
+
+  return {
     user: userRepository,
     agentIdentity: agentIdentityRepository,
     agent: agentRepository,
-  },
+  };
 };

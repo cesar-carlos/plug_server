@@ -68,6 +68,7 @@ model Agent {
   status      AgentStatus @default(active)
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
+  agentIdentities AgentIdentity[]
 
   @@map("agents")
 }
@@ -75,6 +76,7 @@ model Agent {
 model AgentIdentity {
   agentId   String   @id @map("agent_id")
   userId    String   @map("user_id")
+  agent     Agent    @relation(fields: [agentId], references: [agentId], onDelete: Restrict, onUpdate: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

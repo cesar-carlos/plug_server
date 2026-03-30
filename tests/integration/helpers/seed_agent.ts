@@ -7,8 +7,10 @@ import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { User } from "../../../src/domain/entities/user.entity";
 import { Agent } from "../../../src/domain/entities/agent.entity";
-import { container } from "../../../src/shared/di/container";
+import { getTestRepositoryAccess } from "../../../src/shared/di/container";
 import { approveRegistrationByToken } from "./approve_registration";
+
+const repositories = getTestRepositoryAccess();
 
 export const seedAdminUser = async (
   httpTarget: Parameters<typeof request>[0],
@@ -19,7 +21,7 @@ export const seedAdminUser = async (
   await approveRegistrationByToken(httpTarget, reg.body.approvalToken as string);
 
   const userId: string = reg.body.user.id as string;
-  const currentUser = await container._repositories.user.findById(userId);
+  const currentUser = await repositories.user.findById(userId);
   if (!currentUser) throw new Error("User not found after registration");
 
   const adminUser = new User({
@@ -30,7 +32,7 @@ export const seedAdminUser = async (
     status: "active",
     createdAt: currentUser.createdAt,
   });
-  await container._repositories.user.save(adminUser);
+  await repositories.user.save(adminUser);
 
   const login = await request(httpTarget).post("/api/v1/auth/login").send(opts);
   if (login.status !== 200) throw new Error(`Login failed: ${login.status} ${login.text}`);
@@ -52,10 +54,13 @@ export const seedAgent = async (opts: {
     observation: opts.observation,
     status: opts.status ?? "active",
   });
-  await container._repositories.agent.save(agent);
+  await repositories.agent.save(agent);
   return agent;
 };
 
 export const seedAgentBinding = async (userId: string, agentId: string): Promise<void> => {
-  await container._repositories.agentIdentity.addAgentIds(userId, [agentId]);
+  const result = await repositories.agentIdentity.addAgentIds(userId, [agentId]);
+  if (result.kind !== "ok") {
+    throw new Error(`Failed to seed agent binding: ${result.kind}`);
+  }
 };
