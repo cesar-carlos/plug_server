@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { describe, expect, it, vi } from "vitest";
 
-const makeResponse = () => {
+const makeResponse = (): Response => {
   const response = {
     locals: { requestId: "req-123" },
     status: vi.fn().mockReturnThis(),

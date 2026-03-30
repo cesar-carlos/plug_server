@@ -17,9 +17,7 @@ import {
   setRelayStreamFlowCredits,
   getRelayStreamFlowCredits,
   addRelayStreamBufferedChunk,
-  getRelayStreamBufferedChunks,
   resetRelayStreamFlowState,
-  relayStreamFlowState,
 } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 

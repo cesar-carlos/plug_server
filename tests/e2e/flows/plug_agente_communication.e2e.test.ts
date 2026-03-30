@@ -22,14 +22,15 @@ import { decodePayloadFrame, encodePayloadFrame } from "../../../src/shared/util
 import { isRecord, toRequestId } from "../../../src/shared/utils/rpc_types";
 
 describe("E2E plug_agente communication (hub ↔ agent)", () => {
-  let ctx: E2EHubFixture | undefined;
+  /** Set in `beforeAll`; tests run after fixture is ready. */
+  let ctx!: E2EHubFixture;
 
   beforeAll(async () => {
     ctx = await startE2EHubFixture();
   });
 
   afterAll(async () => {
-    await ctx?.close();
+    await ctx.close();
   });
 
   describe("/agents namespace (plug_agente transport)", () => {

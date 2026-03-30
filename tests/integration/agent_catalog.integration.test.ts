@@ -25,7 +25,7 @@ describe("Agent catalog API", () => {
     adminToken = admin.accessToken;
   });
 
-  const validAgentId = () => randomUUID();
+  const validAgentId = (): string => randomUUID();
 
   it("POST /api/v1/agents/catalog — creates agent", async () => {
     const res = await request(app)

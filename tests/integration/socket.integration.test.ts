@@ -20,7 +20,10 @@ const makeLargeText = (length: number): string => {
   return output;
 };
 
-const connectConsumer = (baseUrl: string, token: string) =>
+const connectConsumer = (
+  baseUrl: string,
+  token: string,
+): Promise<ReturnType<typeof ioClient>> =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
     const socket = ioClient(`${baseUrl}/consumers`, {
       auth: { token },
@@ -37,7 +40,7 @@ const connectConsumer = (baseUrl: string, token: string) =>
     socket.on("connect_error", (err) => reject(err));
   });
 
-const connectAgent = (baseUrl: string, token: string) =>
+const connectAgent = (baseUrl: string, token: string): Promise<ReturnType<typeof ioClient>> =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
     const socket = ioClient(`${baseUrl}/agents`, {
       auth: { token },
@@ -58,7 +61,7 @@ const waitForEvent = <T>(
   socket: ReturnType<typeof ioClient>,
   eventName: string,
   timeoutMs = 5_000,
-) =>
+): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => {
       socket.off(eventName, onEvent);

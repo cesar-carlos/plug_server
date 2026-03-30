@@ -8,7 +8,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestServer } from "../helpers/test_server";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
-import { container } from "../../src/shared/di/container";
 import { env } from "../../src/shared/config/env";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
