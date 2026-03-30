@@ -85,11 +85,17 @@ describe("encodePayloadFrame compression policy", () => {
     expect(encoded.length).toBeGreaterThanOrEqual(1024);
     const gz = gzipSync(encoded);
     if (gz.length < encoded.length) {
-      const frame = encodePayloadFrame(data, { compressionPolicy: "auto", compressionThreshold: 1024 });
+      const frame = encodePayloadFrame(data, {
+        compressionPolicy: "auto",
+        compressionThreshold: 1024,
+      });
       expect(frame.cmp).toBe("gzip");
       return;
     }
-    const frame = encodePayloadFrame(data, { compressionPolicy: "auto", compressionThreshold: 1024 });
+    const frame = encodePayloadFrame(data, {
+      compressionPolicy: "auto",
+      compressionThreshold: 1024,
+    });
     expect(frame.cmp).toBe("none");
     expect(frame.compressedSize).toBe(encoded.length);
   });
@@ -170,7 +176,10 @@ describe("decodePayloadFrameAsync", () => {
       id: "q",
       params: { sql: largeSql, client_token: "t" },
     };
-    const frame = encodePayloadFrame(data, { compressionPolicy: "auto", compressionThreshold: 1024 });
+    const frame = encodePayloadFrame(data, {
+      compressionPolicy: "auto",
+      compressionThreshold: 1024,
+    });
     expect(frame.cmp).toBe("gzip");
     const sync = decodePayloadFrame(frame);
     const asyncResult = await decodePayloadFrameAsync(frame);

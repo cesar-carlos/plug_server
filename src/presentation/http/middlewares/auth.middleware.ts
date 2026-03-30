@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 
-import { unauthorized } from "../../../shared/errors/http_errors";
-import { verifyAccessToken } from "../../../shared/utils/jwt";
+import { forbidden, unauthorized } from "../../../shared/errors/http_errors";
+import { verifyAccessToken, type JwtAccessPayload } from "../../../shared/utils/jwt";
 
 export const requireAuth = (request: Request, response: Response, next: NextFunction): void => {
   const authorization = request.headers.authorization;
@@ -21,4 +21,23 @@ export const requireAuth = (request: Request, response: Response, next: NextFunc
 
   response.locals.authUser = result.value;
   next();
+};
+
+export const requireRole =
+  (...roles: string[]) =>
+  (_request: Request, response: Response, next: NextFunction): void => {
+    const user = response.locals.authUser as JwtAccessPayload | undefined;
+    const role = user?.role;
+    if (!user || !role || !roles.includes(role)) {
+      next(forbidden("Insufficient permissions"));
+      return;
+    }
+    next();
+  };
+
+/** Returns the authenticated user from locals, throwing if not set (should not happen after requireAuth). */
+export const getAuthUser = (response: Response): JwtAccessPayload => {
+  const user = response.locals.authUser as JwtAccessPayload | undefined;
+  if (!user) throw unauthorized("Authentication required");
+  return user;
 };

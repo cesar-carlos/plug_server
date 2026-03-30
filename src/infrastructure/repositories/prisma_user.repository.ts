@@ -1,4 +1,8 @@
-import { Prisma, type User as PrismaUser, type UserStatus as PrismaUserStatus } from "@prisma/client";
+import {
+  Prisma,
+  type User as PrismaUser,
+  type UserStatus as PrismaUserStatus,
+} from "@prisma/client";
 
 import { User, type UserStatus } from "../../domain/entities/user.entity";
 import type { IUserRepository } from "../../domain/repositories/user.repository.interface";

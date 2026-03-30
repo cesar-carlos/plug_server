@@ -15,8 +15,9 @@ export const invalidToken = (message = "Invalid or expired token"): AppError =>
 
 // ─── 403 Forbidden ───────────────────────────────────────────────────────────
 
-export const forbidden = (message = "You do not have permission to perform this action"): AppError =>
-  new AppError(message, { statusCode: 403, code: "FORBIDDEN" });
+export const forbidden = (
+  message = "You do not have permission to perform this action",
+): AppError => new AppError(message, { statusCode: 403, code: "FORBIDDEN" });
 
 // ─── 404 Not Found ───────────────────────────────────────────────────────────
 

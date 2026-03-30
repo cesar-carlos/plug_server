@@ -26,7 +26,9 @@ export const registerHubUser = async (
   await approveRegistrationByToken(baseUrl, approvalToken);
   const loginRes = await request(baseUrl).post("/api/v1/auth/login").send({ email, password });
   if (loginRes.status !== 200) {
-    throw new Error(`login after register failed: ${loginRes.status} ${JSON.stringify(loginRes.body)}`);
+    throw new Error(
+      `login after register failed: ${loginRes.status} ${JSON.stringify(loginRes.body)}`,
+    );
   }
   return {
     email,

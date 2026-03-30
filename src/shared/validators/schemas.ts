@@ -2,9 +2,7 @@ import { z } from "zod";
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
-export const uuidSchema = z
-  .string()
-  .uuid({ message: "Must be a valid UUID" });
+export const uuidSchema = z.string().uuid({ message: "Must be a valid UUID" });
 
 /** Opaque registration approval token (base64url, 32 random bytes). */
 export const registrationOpaqueTokenSchema = z
@@ -42,19 +40,12 @@ export const positiveIntSchema = z
   .int({ message: "Must be an integer" })
   .positive({ message: "Must be a positive number" });
 
-export const nonEmptyStringSchema = z
-  .string()
-  .min(1, { message: "Must not be empty" })
-  .trim();
+export const nonEmptyStringSchema = z.string().min(1, { message: "Must not be empty" }).trim();
 
 // ─── Pagination ───────────────────────────────────────────────────────────────
 
 export const paginationSchema = z.object({
-  page: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(1),
+  page: z.coerce.number().int().positive().default(1),
   limit: z.coerce
     .number()
     .int()

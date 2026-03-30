@@ -3,7 +3,10 @@ import type { Namespace } from "socket.io";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../shared/utils/payload_frame";
 import type { ActiveStreamRoute } from "./active_stream_registry";
-import { countRestMaterializeStreamsInFlight, getActiveStreamRouteCount } from "./active_stream_registry";
+import {
+  countRestMaterializeStreamsInFlight,
+  getActiveStreamRouteCount,
+} from "./active_stream_registry";
 import {
   buildRelayHubMetricsSnapshot,
   relayMetrics,
@@ -26,13 +29,19 @@ export {
   cleanupPendingRequestsForAgentSocket,
 } from "./rpc_bridge_lifecycle";
 
-export type { DispatchRpcCommandInput, DispatchRpcCommandResult } from "./rpc_bridge_dispatch_command";
+export type {
+  DispatchRpcCommandInput,
+  DispatchRpcCommandResult,
+} from "./rpc_bridge_dispatch_command";
 export type {
   DispatchRelayRpcInput,
   DispatchRelayRpcResult,
   RequestRelayStreamPullInput,
 } from "./rpc_bridge_dispatch_relay";
-export type { RequestAgentStreamPullInput, RequestAgentStreamPullResult } from "./rpc_bridge_stream_pull";
+export type {
+  RequestAgentStreamPullInput,
+  RequestAgentStreamPullResult,
+} from "./rpc_bridge_stream_pull";
 
 let agentsNamespace: Namespace | null = null;
 let consumersNamespace: Namespace | null = null;
@@ -89,11 +98,7 @@ export const registerConsumerBridgeServer = (namespace: Namespace): void => {
   scheduleRelayIdempotencyCleanupTimer();
 };
 
-const emitToConsumer = (
-  consumerSocketId: string,
-  eventName: string,
-  payload: unknown,
-): void => {
+const emitToConsumer = (consumerSocketId: string, eventName: string, payload: unknown): void => {
   const nsp = consumersNamespace;
   if (!nsp) {
     return;

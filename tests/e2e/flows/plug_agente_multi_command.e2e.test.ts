@@ -322,7 +322,11 @@ describe("E2E plug_agente multi-command (batch)", () => {
         const t = setTimeout(() => reject(new Error("rpc:request timeout")), 15_000);
         agentSocket.once("rpc:request", (raw: unknown) => {
           const decoded = decodePayloadFrame(raw);
-          if (!decoded.ok || !Array.isArray(decoded.value.data) || decoded.value.data.length !== 2) {
+          if (
+            !decoded.ok ||
+            !Array.isArray(decoded.value.data) ||
+            decoded.value.data.length !== 2
+          ) {
             clearTimeout(t);
             reject(new Error("expected two-item batch rpc:request"));
             return;
@@ -379,7 +383,11 @@ describe("E2E plug_agente multi-command (batch)", () => {
         const t = setTimeout(() => reject(new Error("rpc:request timeout")), 15_000);
         agentSocket.once("rpc:request", (raw: unknown) => {
           const decoded = decodePayloadFrame(raw);
-          if (!decoded.ok || !Array.isArray(decoded.value.data) || decoded.value.data.length !== 2) {
+          if (
+            !decoded.ok ||
+            !Array.isArray(decoded.value.data) ||
+            decoded.value.data.length !== 2
+          ) {
             clearTimeout(t);
             reject(new Error("expected two-item mixed batch"));
             return;
@@ -406,7 +414,11 @@ describe("E2E plug_agente multi-command (batch)", () => {
           emitAgentRpcResponseWithAck(
             agentSocket,
             encodePayloadFrame([
-              { jsonrpc: "2.0", id: "e2e-mixed-call", result: { ok: true, mixed_notification_batch: true } },
+              {
+                jsonrpc: "2.0",
+                id: "e2e-mixed-call",
+                result: { ok: true, mixed_notification_batch: true },
+              },
             ]),
           )
             .then(() => {
@@ -586,7 +598,11 @@ describe("E2E plug_agente multi-command (batch)", () => {
         const t = setTimeout(() => reject(new Error("rpc:request timeout")), 15_000);
         agentSocket.once("rpc:request", (raw: unknown) => {
           const decoded = decodePayloadFrame(raw);
-          if (!decoded.ok || !Array.isArray(decoded.value.data) || decoded.value.data.length !== 2) {
+          if (
+            !decoded.ok ||
+            !Array.isArray(decoded.value.data) ||
+            decoded.value.data.length !== 2
+          ) {
             clearTimeout(t);
             reject(new Error("expected two-item notification batch"));
             return;
@@ -646,14 +662,22 @@ describe("E2E plug_agente multi-command (batch)", () => {
         const t = setTimeout(() => reject(new Error("rpc:request timeout")), 15_000);
         agentSocket.once("rpc:request", (raw: unknown) => {
           const decoded = decodePayloadFrame(raw);
-          if (!decoded.ok || !Array.isArray(decoded.value.data) || decoded.value.data.length !== 2) {
+          if (
+            !decoded.ok ||
+            !Array.isArray(decoded.value.data) ||
+            decoded.value.data.length !== 2
+          ) {
             clearTimeout(t);
             reject(new Error("expected mixed batch"));
             return;
           }
           const first = decoded.value.data[0];
           const second = decoded.value.data[1];
-          if (!isRecord(first) || first.id !== null || toRequestId(isRecord(second) ? second.id : null) !== "e2e-sock-mix") {
+          if (
+            !isRecord(first) ||
+            first.id !== null ||
+            toRequestId(isRecord(second) ? second.id : null) !== "e2e-sock-mix"
+          ) {
             clearTimeout(t);
             reject(new Error("unexpected batch shape"));
             return;

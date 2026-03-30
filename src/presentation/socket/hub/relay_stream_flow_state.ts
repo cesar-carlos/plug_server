@@ -51,13 +51,18 @@ export const getRelayStreamBufferedChunks = (requestId: string): Record<string, 
   return entriesByRequestId.get(requestId)?.bufferedChunks ?? [];
 };
 
-export const addRelayStreamBufferedChunk = (requestId: string, chunk: Record<string, unknown>): void => {
+export const addRelayStreamBufferedChunk = (
+  requestId: string,
+  chunk: Record<string, unknown>,
+): void => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   entry.bufferedChunks.push(chunk);
   globalTotalBufferedChunks += 1;
 };
 
-export const getRelayStreamPendingComplete = (requestId: string): Record<string, unknown> | undefined => {
+export const getRelayStreamPendingComplete = (
+  requestId: string,
+): Record<string, unknown> | undefined => {
   return entriesByRequestId.get(requestId)?.pendingComplete;
 };
 
@@ -132,7 +137,10 @@ export const relayStreamFlowState = {
 export const clearRelayStreamFlowState = (requestId: string): void => {
   const entry = entriesByRequestId.get(requestId);
   if (entry && entry.bufferedChunks.length > 0) {
-    globalTotalBufferedChunks = Math.max(0, globalTotalBufferedChunks - entry.bufferedChunks.length);
+    globalTotalBufferedChunks = Math.max(
+      0,
+      globalTotalBufferedChunks - entry.bufferedChunks.length,
+    );
   }
   entriesByRequestId.delete(requestId);
   drainTailByRequestId.delete(requestId);
@@ -164,7 +172,8 @@ const countChunkRows = (payload: Record<string, unknown>): number => {
 export const drainRelayStreamBuffer = async (
   ctx: DrainRelayStreamBufferContext,
 ): Promise<{ readonly chunksDrained: number; readonly completeEmitted: boolean }> => {
-  const previousDrain = drainTailByRequestId.get(ctx.requestId)?.catch(() => undefined) ?? Promise.resolve();
+  const previousDrain =
+    drainTailByRequestId.get(ctx.requestId)?.catch(() => undefined) ?? Promise.resolve();
   let chunksDrained = 0;
   let completeEmitted = false;
   const nextDrain = previousDrain.then(async () => {
@@ -200,7 +209,8 @@ export const drainRelayStreamBuffer = async (
       ctx.emitComplete(completeFrame);
       completeEmitted = true;
 
-      const streamId = typeof pendingComplete.stream_id === "string" ? pendingComplete.stream_id : null;
+      const streamId =
+        typeof pendingComplete.stream_id === "string" ? pendingComplete.stream_id : null;
       ctx.recordAudit("relay:rpc.complete", streamId ? { streamId } : {});
 
       clearRelayStreamPendingComplete(ctx.requestId);

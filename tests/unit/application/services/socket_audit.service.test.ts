@@ -22,9 +22,8 @@ describe("socket_audit.service", () => {
       logger: { info: vi.fn(), warn, error: vi.fn() },
     }));
 
-    const { recordSocketAuditEvent } = await import(
-      "../../../../src/application/services/socket_audit.service"
-    );
+    const { recordSocketAuditEvent } =
+      await import("../../../../src/application/services/socket_audit.service");
 
     await expect(
       recordSocketAuditEvent({
@@ -53,9 +52,8 @@ describe("socket_audit.service", () => {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     }));
 
-    const { pruneSocketAuditOlderThanDays } = await import(
-      "../../../../src/application/services/socket_audit.service"
-    );
+    const { pruneSocketAuditOlderThanDays } =
+      await import("../../../../src/application/services/socket_audit.service");
 
     await expect(pruneSocketAuditOlderThanDays(90)).resolves.toBe(3);
     expect(queryRaw).toHaveBeenCalledTimes(2);

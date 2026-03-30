@@ -181,7 +181,9 @@ export const upsertActiveStreamRoute = (input: {
     consumerSocketId: input.streamHandlers.consumerSocketId,
     agentSocketId: input.agentSocketId,
     requestId: input.requestId,
-    ...(input.streamHandlers.conversationId ? { conversationId: input.streamHandlers.conversationId } : {}),
+    ...(input.streamHandlers.conversationId
+      ? { conversationId: input.streamHandlers.conversationId }
+      : {}),
     mode: input.streamHandlers.mode ?? "legacy",
     onChunk: input.streamHandlers.onChunk,
     onComplete: input.streamHandlers.onComplete,

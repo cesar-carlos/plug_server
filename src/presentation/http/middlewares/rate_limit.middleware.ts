@@ -85,9 +85,9 @@ export const agentsCommandsIpRateLimit: RequestHandler =
           await sendRateLimitResponse(request, response, optionsUsed);
         },
       })
-    : ((_req: Request, _res: Response, next) => {
+    : (((_req: Request, _res: Response, next) => {
         next();
-      }) as RequestHandler;
+      }) as RequestHandler);
 
 /**
  * Per authenticated user (`JWT sub`) on `POST /agents/commands`.

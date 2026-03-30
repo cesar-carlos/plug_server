@@ -44,7 +44,9 @@ export const handleAgentsStreamPull = (socket: Socket, rawPayload: unknown): voi
   const parsed = streamPullPayloadSchema.safeParse(rawPayload);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
-    const message = firstIssue ? `${firstIssue.path.join(".")}: ${firstIssue.message}` : "Validation failed";
+    const message = firstIssue
+      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
+      : "Validation failed";
     emitStreamPullResponse(socket, {
       success: false,
       error: { code: "VALIDATION_ERROR", message },
@@ -82,4 +84,3 @@ export const handleAgentsStreamPull = (socket: Socket, rawPayload: unknown): voi
     });
   }
 };
-

@@ -15,12 +15,12 @@ describe("Swagger docs", () => {
     expect(agentsCommandsPost?.requestBody?.content?.["application/json"]?.schema?.$ref).toBe(
       "#/components/schemas/AgentCommandRequest",
     );
-    expect(agentsCommandsPost?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref).toBe(
-      "#/components/schemas/AgentCommandResponse200",
-    );
-    expect(agentsCommandsPost?.responses?.["202"]?.content?.["application/json"]?.schema?.$ref).toBe(
-      "#/components/schemas/AgentCommandResponse202",
-    );
+    expect(
+      agentsCommandsPost?.responses?.["200"]?.content?.["application/json"]?.schema?.$ref,
+    ).toBe("#/components/schemas/AgentCommandResponse200");
+    expect(
+      agentsCommandsPost?.responses?.["202"]?.content?.["application/json"]?.schema?.$ref,
+    ).toBe("#/components/schemas/AgentCommandResponse202");
 
     const schemas = response.body.components?.schemas;
     expect(schemas?.RpcSqlExecuteCommand?.properties?.params?.$ref).toBe(
@@ -31,5 +31,12 @@ describe("Swagger docs", () => {
     expect(schemas?.SqlExecuteBatchCommandItem?.properties).toHaveProperty("execution_order");
     expect(schemas?.NormalizedRpcItem?.properties).toHaveProperty("api_version");
     expect(schemas?.NormalizedRpcItem?.properties).toHaveProperty("meta");
+
+    expect(response.body.paths?.["/agents/catalog"]?.post?.tags).toContain("Agent catalog");
+    expect(response.body.paths?.["/agents/catalog"]?.get?.tags).toContain("Agent catalog");
+    expect(response.body.paths?.["/me/agents"]?.get?.tags).toContain("User agents");
+    expect(response.body.paths?.["/users/{userId}/agents"]?.get?.tags).toContain("User agents");
+    expect(schemas?.AgentCatalogRecord?.properties).toHaveProperty("cnpjCpf");
+    expect(schemas?.AgentIdsBody?.required).toContain("agentIds");
   });
 });

@@ -17,7 +17,9 @@ describe("isPayloadFrameEnvelope (plug_agente payload-frame.schema.json alignmen
 
   it("decodes frames whose payload is a base64 string", () => {
     const frame = encodePayloadFrame({ ok: true }, { requestId: "r1", omitTraceId: true });
-    const payload = Buffer.isBuffer(frame.payload) ? frame.payload.toString("base64") : Buffer.from(frame.payload).toString("base64");
+    const payload = Buffer.isBuffer(frame.payload)
+      ? frame.payload.toString("base64")
+      : Buffer.from(frame.payload).toString("base64");
     const base64Frame = { ...frame, payload };
 
     expect(isPayloadFrameEnvelope(base64Frame)).toBe(true);

@@ -172,8 +172,12 @@ export const applyPaginationToCommand = (
 
   const currentParams = command.params;
   const currentOptions = isRecord(currentParams.options) ? currentParams.options : {};
-  const { page: _page, page_size: _pageSize, cursor: _cursor, ...restOptions } =
-    currentOptions as Record<string, unknown>;
+  const {
+    page: _page,
+    page_size: _pageSize,
+    cursor: _cursor,
+    ...restOptions
+  } = currentOptions as Record<string, unknown>;
 
   const paginationOptions =
     pagination.cursor !== undefined

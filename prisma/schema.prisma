@@ -18,6 +18,11 @@ enum UserStatus {
   rejected
 }
 
+enum AgentStatus {
+  active
+  inactive
+}
+
 model User {
   id              String          @id @default(uuid())
   email           String          @unique @db.VarChar(255)
@@ -53,6 +58,18 @@ model RefreshToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+model Agent {
+  agentId     String      @id @map("agent_id") @db.VarChar(36)
+  name        String      @db.VarChar(120)
+  cnpjCpf     String      @unique @map("cnpj_cpf") @db.VarChar(120)
+  observation String?     @db.VarChar(2000)
+  status      AgentStatus @default(active)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  @@map("agents")
 }
 
 model AgentIdentity {

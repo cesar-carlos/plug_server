@@ -4,7 +4,10 @@
  */
 
 import { env } from "../../../shared/config/env";
-import { serviceUnavailable, serviceUnavailableWithRetry } from "../../../shared/errors/http_errors";
+import {
+  serviceUnavailable,
+  serviceUnavailableWithRetry,
+} from "../../../shared/errors/http_errors";
 
 const withAppendedMessage = (base: string, extra: string): string =>
   extra.trim() === "" ? base : `${base}. ${extra}`;

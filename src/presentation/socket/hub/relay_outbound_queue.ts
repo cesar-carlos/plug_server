@@ -4,7 +4,10 @@
  */
 
 import { env } from "../../../shared/config/env";
-import { encodePayloadFrameBridge, type PayloadFrameEnvelope } from "../../../shared/utils/payload_frame";
+import {
+  encodePayloadFrameBridge,
+  type PayloadFrameEnvelope,
+} from "../../../shared/utils/payload_frame";
 import { logger } from "../../../shared/utils/logger";
 import {
   createLatencyRingBuffer,
@@ -76,7 +79,10 @@ export type RelayOutboundQueueMetricsSnapshot = {
 };
 
 const deriveBacklog = (): number =>
-  Math.max(0, metrics.jobsEnqueuedTotal - metrics.jobsFinishedTotal - metrics.jobsSweptOrphanedTotal);
+  Math.max(
+    0,
+    metrics.jobsEnqueuedTotal - metrics.jobsFinishedTotal - metrics.jobsSweptOrphanedTotal,
+  );
 
 const isTailEntryOrphaned = (entry: TailEntry, nowMs: number): boolean =>
   entry.pendingJobs > 0 && nowMs - entry.lastActivityAtMs >= env.socketRelayOutboundTailStaleMs;
@@ -94,7 +100,11 @@ const countOrphanedRequestIds = (nowMs: number): number => {
 const retryAfterFromSweep = (): number =>
   Math.max(250, Math.min(env.socketRelayOutboundSweepIntervalMs, 1_000));
 
-const updateOverloadStateCache = (input: { p95Ms?: number; p99Ms?: number; nowMs?: number }): void => {
+const updateOverloadStateCache = (input: {
+  p95Ms?: number;
+  p99Ms?: number;
+  nowMs?: number;
+}): void => {
   const nowMs = input.nowMs ?? Date.now();
   const backlog = deriveBacklog();
   const p95Ms = input.p95Ms ?? overloadStateCache.p95Ms;

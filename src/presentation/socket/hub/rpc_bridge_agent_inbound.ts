@@ -45,10 +45,7 @@ import {
   getRestPendingRequestByCorrelationId,
 } from "./rest_pending_requests";
 import { getOrCreateRelayIdempotencyMap } from "./relay_idempotency_store";
-import {
-  setRelayStreamFlowCredits,
-  getRelayStreamForwardedRows,
-} from "./relay_stream_flow_state";
+import { setRelayStreamFlowCredits, getRelayStreamForwardedRows } from "./relay_stream_flow_state";
 import {
   findRelayRequestRouteForAgentSocket,
   getRelayRequestRoute,
@@ -89,10 +86,7 @@ export const createRpcBridgeAgentInboundHandlers = (
   const { emitToConsumer, emitRpcStreamPullForRoute } = deps;
   const streamInboundTailBySocketId = new Map<string, Promise<void>>();
 
-  const enqueueOrderedStreamInbound = (
-    socketId: string,
-    work: () => Promise<void>,
-  ): void => {
+  const enqueueOrderedStreamInbound = (socketId: string, work: () => Promise<void>): void => {
     const prev = streamInboundTailBySocketId.get(socketId) ?? Promise.resolve();
     const next = prev
       .catch(() => undefined)
@@ -460,12 +454,16 @@ export const createRpcBridgeAgentInboundHandlers = (
                 try {
                   const merged = mergeSqlStreamRpcResponse(initialJson, chunkBuffer, payload);
                   relayMetrics.restSqlStreamMaterializeCompleted += 1;
-                  relayMetrics.restSqlStreamMaterializeRowsMerged += countSqlExecuteResultRowsInEnvelope(merged);
+                  relayMetrics.restSqlStreamMaterializeRowsMerged +=
+                    countSqlExecuteResultRowsInEnvelope(merged);
                   pendingRequest.latencyTrace?.recordPendingResolveEnd();
                   resolveOnce(merged);
                 } catch (err) {
-                  const mergeError = err instanceof Error ? err : new Error("Failed to merge SQL stream");
-                  if (mergeError.message.startsWith("Agent SQL stream ended with terminal_status=")) {
+                  const mergeError =
+                    err instanceof Error ? err : new Error("Failed to merge SQL stream");
+                  if (
+                    mergeError.message.startsWith("Agent SQL stream ended with terminal_status=")
+                  ) {
                     rejectOnce(serviceUnavailable(mergeError.message));
                     return;
                   }
@@ -612,7 +610,12 @@ export const createRpcBridgeAgentInboundHandlers = (
           socketId,
           reason: result.error.message,
         });
-        failFastInvalidAgentStreamFrame(socketEvents.rpcChunk, socketId, rawPayload, result.error.message);
+        failFastInvalidAgentStreamFrame(
+          socketEvents.rpcChunk,
+          socketId,
+          rawPayload,
+          result.error.message,
+        );
         return;
       }
 
@@ -653,7 +656,12 @@ export const createRpcBridgeAgentInboundHandlers = (
           socketId,
           reason: result.error.message,
         });
-        failFastInvalidAgentStreamFrame(socketEvents.rpcComplete, socketId, rawPayload, result.error.message);
+        failFastInvalidAgentStreamFrame(
+          socketEvents.rpcComplete,
+          socketId,
+          rawPayload,
+          result.error.message,
+        );
         return;
       }
 

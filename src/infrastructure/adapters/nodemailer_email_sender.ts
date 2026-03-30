@@ -18,11 +18,7 @@ export interface NodemailerEmailSenderConfig {
 const normalizeBaseUrl = (url: string): string => url.replace(/\/+$/, "");
 
 const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export class NodemailerEmailSender implements IEmailSender {
   private transporter: Transporter | null = null;
@@ -128,7 +124,10 @@ export class NodemailerEmailSender implements IEmailSender {
     });
   }
 
-  async sendUserRejected(params: { readonly email: string; readonly reason?: string }): Promise<void> {
+  async sendUserRejected(params: {
+    readonly email: string;
+    readonly reason?: string;
+  }): Promise<void> {
     if (!this.isConfigured()) {
       logger.warn("SMTP not configured; skipping user rejected email", { email: params.email });
       return;

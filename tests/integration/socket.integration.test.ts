@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
+import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
@@ -53,7 +54,11 @@ const connectAgent = (baseUrl: string, token: string) =>
     socket.on("connect_error", (err) => reject(err));
   });
 
-const waitForEvent = <T>(socket: ReturnType<typeof ioClient>, eventName: string, timeoutMs = 5_000) =>
+const waitForEvent = <T>(
+  socket: ReturnType<typeof ioClient>,
+  eventName: string,
+  timeoutMs = 5_000,
+) =>
   new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => {
       socket.off(eventName, onEvent);
@@ -113,6 +118,14 @@ describe("Socket namespaces", () => {
     expect(userLoginRes.status).toBe(200);
     accessToken = userLoginRes.body.accessToken as string;
 
+    const userId: string = registerRes.body.user.id as string;
+    await seedAgent({
+      agentId: testAgentId,
+      name: "Socket Test Agent",
+      cnpjCpf: `socket-test-${userId.slice(0, 8)}`,
+    });
+    await seedAgentBinding(userId, testAgentId);
+
     const agentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
       email: "socket@test.com",
       password: "SocketTest1",
@@ -154,10 +167,12 @@ describe("Socket namespaces", () => {
     it("should respond to agents:command with validation error for invalid payload", async () => {
       const socket = await connectConsumer(baseUrl, accessToken);
 
-      const response = await new Promise<{ success: boolean; error?: { code: string } }>((resolve) => {
-        socket.on("agents:command_response", resolve);
-        socket.emit("agents:command", { agentId: "invalid", command: {} });
-      });
+      const response = await new Promise<{ success: boolean; error?: { code: string } }>(
+        (resolve) => {
+          socket.on("agents:command_response", resolve);
+          socket.emit("agents:command", { agentId: "invalid", command: {} });
+        },
+      );
 
       expect(response.success).toBe(false);
       expect(response.error?.code).toBeDefined();
@@ -167,17 +182,19 @@ describe("Socket namespaces", () => {
     it("should respond to agents:command with agent not found for non-existent agent", async () => {
       const socket = await connectConsumer(baseUrl, accessToken);
 
-      const response = await new Promise<{ success: boolean; error?: { code: string } }>((resolve) => {
-        socket.on("agents:command_response", resolve);
-        socket.emit("agents:command", {
-          agentId: "00000000-0000-0000-0000-000000000000",
-          command: {
-            jsonrpc: "2.0",
-            method: "sql.execute",
-            params: { sql: "SELECT 1", client_token: "test" },
-          },
-        });
-      });
+      const response = await new Promise<{ success: boolean; error?: { code: string } }>(
+        (resolve) => {
+          socket.on("agents:command_response", resolve);
+          socket.emit("agents:command", {
+            agentId: "00000000-0000-0000-0000-000000000000",
+            command: {
+              jsonrpc: "2.0",
+              method: "sql.execute",
+              params: { sql: "SELECT 1", client_token: "test" },
+            },
+          });
+        },
+      );
 
       expect(response.success).toBe(false);
       expect(response.error?.code).toMatch(/NOT_FOUND|COMMAND_FAILED/);
@@ -196,7 +213,10 @@ describe("Socket namespaces", () => {
         });
 
         const rpcHandled = new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+          const timeout = setTimeout(
+            () => reject(new Error("Timed out waiting for rpc:request")),
+            8_000,
+          );
 
           agentSocket.once("rpc:request", (rawPayload: unknown) => {
             const decoded = decodePayloadFrame(rawPayload);
@@ -282,27 +302,31 @@ describe("Socket namespaces", () => {
           streamId?: string;
           response?: Record<string, unknown>;
         }>(consumerSocket, "agents:command_response");
-        const chunkEventsPromise = new Promise<readonly Record<string, unknown>[]>((resolve, reject) => {
-          const collected: Record<string, unknown>[] = [];
-          const timeout = setTimeout(() => {
-            consumerSocket.off("agents:command_stream_chunk", onChunk);
-            reject(new Error("Timed out waiting for stream chunk events"));
-          }, 8_000);
-
-          const onChunk = (payload: Record<string, unknown>): void => {
-            collected.push(payload);
-
-            if (collected.length >= 1) {
-              clearTimeout(timeout);
+        const chunkEventsPromise = new Promise<readonly Record<string, unknown>[]>(
+          (resolve, reject) => {
+            const collected: Record<string, unknown>[] = [];
+            const timeout = setTimeout(() => {
               consumerSocket.off("agents:command_stream_chunk", onChunk);
-              resolve(collected);
-            }
-          };
+              reject(new Error("Timed out waiting for stream chunk events"));
+            }, 8_000);
 
-          consumerSocket.on("agents:command_stream_chunk", onChunk);
-        });
-        const completeEventPromise =
-          waitForEvent<Record<string, unknown>>(consumerSocket, "agents:command_stream_complete");
+            const onChunk = (payload: Record<string, unknown>): void => {
+              collected.push(payload);
+
+              if (collected.length >= 1) {
+                clearTimeout(timeout);
+                consumerSocket.off("agents:command_stream_chunk", onChunk);
+                resolve(collected);
+              }
+            };
+
+            consumerSocket.on("agents:command_stream_chunk", onChunk);
+          },
+        );
+        const completeEventPromise = waitForEvent<Record<string, unknown>>(
+          consumerSocket,
+          "agents:command_stream_complete",
+        );
         const pullResponsePromise = waitForEvent<{
           success: boolean;
           requestId?: string;
@@ -416,9 +440,10 @@ describe("Socket namespaces", () => {
 
         const decodedPullPayload = decodePayloadFrame(pullPayloadRaw);
         expect(decodedPullPayload.ok).toBe(true);
-        const pullPayload = decodedPullPayload.ok && isRecord(decodedPullPayload.value.data)
-          ? decodedPullPayload.value.data
-          : null;
+        const pullPayload =
+          decodedPullPayload.ok && isRecord(decodedPullPayload.value.data)
+            ? decodedPullPayload.value.data
+            : null;
         expect(pullPayload).not.toBeNull();
 
         const [chunkEvents, completeEvent] = await Promise.all([
@@ -582,10 +607,14 @@ describe("Socket namespaces", () => {
         expect(decodedA.ok).toBe(true);
         expect(decodedB.ok).toBe(true);
 
-        const responseDataA = decodedA.ok && isRecord(decodedA.value.data) ? decodedA.value.data : null;
-        const responseDataB = decodedB.ok && isRecord(decodedB.value.data) ? decodedB.value.data : null;
-        const resultA = responseDataA && isRecord(responseDataA.result) ? responseDataA.result : null;
-        const resultB = responseDataB && isRecord(responseDataB.result) ? responseDataB.result : null;
+        const responseDataA =
+          decodedA.ok && isRecord(decodedA.value.data) ? decodedA.value.data : null;
+        const responseDataB =
+          decodedB.ok && isRecord(decodedB.value.data) ? decodedB.value.data : null;
+        const resultA =
+          responseDataA && isRecord(responseDataA.result) ? responseDataA.result : null;
+        const resultB =
+          responseDataB && isRecord(responseDataB.result) ? responseDataB.result : null;
 
         expect(toRequestId(resultA?.conversation_id)).toBe(conversationA.conversationId);
         expect(toRequestId(resultB?.conversation_id)).toBe(conversationB.conversationId);
@@ -619,7 +648,10 @@ describe("Socket namespaces", () => {
         const started = await startedPromise;
         expect(started.success).toBe(true);
 
-        const acceptedPromise = waitForEvent<{ success: boolean }>(consumerSocket, "relay:rpc.accepted");
+        const acceptedPromise = waitForEvent<{ success: boolean }>(
+          consumerSocket,
+          "relay:rpc.accepted",
+        );
         const rpcRequestPromise = waitForEvent<unknown>(agentSocket, "rpc:request", 8_000);
         const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response", 8_000);
 
@@ -671,9 +703,10 @@ describe("Socket namespaces", () => {
         const response = await responsePromise;
         const responseDecoded = decodePayloadFrame(response);
         expect(responseDecoded.ok).toBe(true);
-        const result = responseDecoded.ok && isRecord(responseDecoded.value.data)
-          ? responseDecoded.value.data.result
-          : null;
+        const result =
+          responseDecoded.ok && isRecord(responseDecoded.value.data)
+            ? responseDecoded.value.data.result
+            : null;
         expect(isRecord(result) ? result.sql_handling_mode : null).toBe("preserve");
       } finally {
         agentSocket.disconnect();
@@ -868,10 +901,7 @@ describe("Socket namespaces", () => {
           success: boolean;
           requestId?: string;
           error?: { code?: string; message?: string; statusCode?: number };
-        }>(
-          consumerSocket,
-          "relay:rpc.accepted",
-        );
+        }>(consumerSocket, "relay:rpc.accepted");
         const ackPromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.request_ack");
         const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response");
 
@@ -985,7 +1015,9 @@ describe("Socket namespaces", () => {
         expect(decodedFirstChunk.ok).toBe(true);
         if (decodedFirstChunk.ok) {
           expect(decodedFirstChunk.value.frame.cmp).toBe("gzip");
-          const firstChunkPayload = isRecord(decodedFirstChunk.value.data) ? decodedFirstChunk.value.data : null;
+          const firstChunkPayload = isRecord(decodedFirstChunk.value.data)
+            ? decodedFirstChunk.value.data
+            : null;
           expect(toRequestId(firstChunkPayload?.request_id)).toBe(accepted.requestId);
         }
       } finally {

@@ -7,7 +7,12 @@ import { inferBridgeCommandMethod } from "../../../application/services/bridge_l
 import { normalizeCommandForAgent } from "../../../application/agent_commands/command_transformers";
 import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";
-import { badRequest, notFound, serviceUnavailable, serviceUnavailableWithRetry } from "../../../shared/errors/http_errors";
+import {
+  badRequest,
+  notFound,
+  serviceUnavailable,
+  serviceUnavailableWithRetry,
+} from "../../../shared/errors/http_errors";
 import {
   bridgeSingleCommandSchema,
   supportedAgentRpcMethods,
@@ -97,11 +102,15 @@ export interface RequestRelayStreamPullInput {
 export interface RpcBridgeRelayDispatchDeps {
   readonly getAgentsNamespace: () => Namespace | null;
   readonly emitToConsumer: EmitToConsumerFn;
-  readonly requestAgentStreamPull: (input: RequestAgentStreamPullInput) => RequestAgentStreamPullResult;
+  readonly requestAgentStreamPull: (
+    input: RequestAgentStreamPullInput,
+  ) => RequestAgentStreamPullResult;
 }
 
 export type RpcBridgeRelayDispatchHandlers = {
-  readonly dispatchRelayRpcToAgent: (input: DispatchRelayRpcInput) => Promise<DispatchRelayRpcResult>;
+  readonly dispatchRelayRpcToAgent: (
+    input: DispatchRelayRpcInput,
+  ) => Promise<DispatchRelayRpcResult>;
   readonly requestRelayStreamPull: (
     input: RequestRelayStreamPullInput,
   ) => Promise<RequestAgentStreamPullResult>;
@@ -149,7 +158,9 @@ export const createRpcBridgeRelayDispatch = (
     observeRelayCommandValidation(performance.now() - validateStart);
     if (!parsed.success) {
       const firstIssue = parsed.error.issues[0];
-      const message = firstIssue ? `${firstIssue.path.join(".") || "command"}: ${firstIssue.message}` : "Invalid RPC command";
+      const message = firstIssue
+        ? `${firstIssue.path.join(".") || "command"}: ${firstIssue.message}`
+        : "Invalid RPC command";
       throw badRequest(message);
     }
 
@@ -309,7 +320,9 @@ export const createRpcBridgeRelayDispatch = (
       streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
     });
 
-    const relayPayloadFrameOpts = payloadFrameEncodeOptionsFromPreference(input.payloadFrameCompression);
+    const relayPayloadFrameOpts = payloadFrameEncodeOptionsFromPreference(
+      input.payloadFrameCompression,
+    );
 
     trace?.addPhaseMs("relay_preflight_ms", performance.now() - relayPreflightStart);
 
@@ -403,11 +416,9 @@ export const createRpcBridgeRelayDispatch = (
       conversationId: input.conversationId,
       ...(requestId ? { requestId } : {}),
       ...(streamId ? { streamId } : {}),
-      ...(
-        typeof payload.window_size === "number" && Number.isFinite(payload.window_size)
-          ? { windowSize: payload.window_size }
-          : {}
-      ),
+      ...(typeof payload.window_size === "number" && Number.isFinite(payload.window_size)
+        ? { windowSize: payload.window_size }
+        : {}),
     });
 
     conversationRegistry.touchInternal(conversation.conversationId);

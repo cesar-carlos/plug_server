@@ -25,19 +25,27 @@ const baseRow = (): BridgeLatencyTraceRowInput => ({
 describe("applyPrivacyToBridgeLatencyRow", () => {
   it("passes through when redact off and truncate 0", () => {
     const row = baseRow();
-    expect(applyPrivacyToBridgeLatencyRow(row, { redactUserId: false, truncateRequestIdChars: 0 })).toEqual(row);
+    expect(
+      applyPrivacyToBridgeLatencyRow(row, { redactUserId: false, truncateRequestIdChars: 0 }),
+    ).toEqual(row);
   });
 
   it("truncates requestId when truncate > 0", () => {
     const row = baseRow();
-    const out = applyPrivacyToBridgeLatencyRow(row, { redactUserId: false, truncateRequestIdChars: 8 });
+    const out = applyPrivacyToBridgeLatencyRow(row, {
+      redactUserId: false,
+      truncateRequestIdChars: 8,
+    });
     expect(out.requestId).toBe("req-very");
     expect(out.userId).toBe("user-secret");
   });
 
   it("nulls userId when redact on", () => {
     const row = baseRow();
-    const out = applyPrivacyToBridgeLatencyRow(row, { redactUserId: true, truncateRequestIdChars: 0 });
+    const out = applyPrivacyToBridgeLatencyRow(row, {
+      redactUserId: true,
+      truncateRequestIdChars: 0,
+    });
     expect(out.userId).toBeNull();
     expect(out.requestId).toBe(row.requestId);
   });

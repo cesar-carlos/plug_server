@@ -26,12 +26,11 @@ const rpcEnvelopeExtensionsSchema = z.object({
   meta: rpcMetaSchema.optional(),
 });
 
-const tokenCarrierSchema = z
-  .object({
-    client_token: nonEmptyStringSchema.optional(),
-    clientToken: nonEmptyStringSchema.optional(),
-    auth: nonEmptyStringSchema.optional(),
-  });
+const tokenCarrierSchema = z.object({
+  client_token: nonEmptyStringSchema.optional(),
+  clientToken: nonEmptyStringSchema.optional(),
+  auth: nonEmptyStringSchema.optional(),
+});
 
 /** Maximum allowed value for options.max_rows, aligned with plug_agente negotiated limits. */
 export const AGENT_MAX_ROWS_LIMIT = 1_000_000;
@@ -106,8 +105,7 @@ export const sqlExecuteOptionsSchema = z
     const hasPageAndSize = value.page !== undefined && value.page_size !== undefined;
     const hasCursor = value.cursor !== undefined;
     const hasPagination = hasPage || hasCursor;
-    const isPreserve =
-      value.execution_mode === "preserve" || value.preserve_sql === true;
+    const isPreserve = value.execution_mode === "preserve" || value.preserve_sql === true;
 
     if (hasPage && !hasPageAndSize) {
       ctx.addIssue({
@@ -371,19 +369,20 @@ export type AgentCommandPagination = z.infer<typeof agentCommandPaginationSchema
 export const payloadFrameCompressionSchema = z.enum(["default", "none", "always"]);
 export type PayloadFrameCompression = z.infer<typeof payloadFrameCompressionSchema>;
 
-export const agentCommandBodySchema = z.object({
-  agentId: nonEmptyStringSchema,
-  command: bridgeCommandSchema,
-  /** Bridge wait (HTTP/Socket): aligned with `computeBridgeWaitTimeoutMs` ceiling (`AGENT_TIMEOUT_MS_LIMIT` + 60s headroom). */
-  timeoutMs: z.coerce.number().int().positive().max(360_000).optional(),
-  pagination: agentCommandPaginationSchema.optional(),
-  /**
-   * Optional gzip policy for `rpc:request` PayloadFrames emitted to the agent.
-   * Omitted or `default`: threshold 1024, **auto** — gzip only if strictly smaller than raw JSON (plug_agente OutboundCompressionMode.auto).
-   * `none`: never gzip. `always`: threshold 1, **always_gzip** — gzip even if larger (plug_agente “sempre GZIP”).
-   */
-  payloadFrameCompression: payloadFrameCompressionSchema.optional(),
-})
+export const agentCommandBodySchema = z
+  .object({
+    agentId: nonEmptyStringSchema,
+    command: bridgeCommandSchema,
+    /** Bridge wait (HTTP/Socket): aligned with `computeBridgeWaitTimeoutMs` ceiling (`AGENT_TIMEOUT_MS_LIMIT` + 60s headroom). */
+    timeoutMs: z.coerce.number().int().positive().max(360_000).optional(),
+    pagination: agentCommandPaginationSchema.optional(),
+    /**
+     * Optional gzip policy for `rpc:request` PayloadFrames emitted to the agent.
+     * Omitted or `default`: threshold 1024, **auto** — gzip only if strictly smaller than raw JSON (plug_agente OutboundCompressionMode.auto).
+     * `none`: never gzip. `always`: threshold 1, **always_gzip** — gzip even if larger (plug_agente “sempre GZIP”).
+     */
+    payloadFrameCompression: payloadFrameCompressionSchema.optional(),
+  })
   .superRefine((value, ctx) => {
     if (!value.pagination) {
       return;

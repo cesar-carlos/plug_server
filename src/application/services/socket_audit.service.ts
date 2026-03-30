@@ -282,7 +282,9 @@ export const pruneSocketAuditOlderThanDays = async (
     return 0;
   }
 
-  const safeDays = Number.isFinite(retentionDays) ? Math.max(1, Math.floor(retentionDays)) : defaultRetentionDays;
+  const safeDays = Number.isFinite(retentionDays)
+    ? Math.max(1, Math.floor(retentionDays))
+    : defaultRetentionDays;
   const safeBatchSize = Number.isFinite(options?.batchSize)
     ? Math.max(100, Math.floor(options?.batchSize ?? defaultPruneBatchSize))
     : defaultPruneBatchSize;
@@ -416,4 +418,3 @@ export const getSocketAuditMetricsSnapshot = (): {
   pendingOperations: pendingAuditOperations.size,
   queuedEvents: auditEventQueue.length,
 });
-

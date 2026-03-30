@@ -98,7 +98,9 @@ describe("bridge_latency_trace_builder", () => {
       s.markEmitComplete(0.05, emitEnd);
       s.markInboundArrival(emitEnd + 12);
       s.finalizeOnce({ outcome: "success", httpStatus: 200 });
-      const row = enqueueBridgeLatencyTrace.mock.calls[0][0] as { phasesMs: Record<string, number> };
+      const row = enqueueBridgeLatencyTrace.mock.calls[0][0] as {
+        phasesMs: Record<string, number>;
+      };
       expect(row.phasesMs.agent_to_hub_ms).toBeGreaterThanOrEqual(11);
       expect(row.phasesMs.agent_to_hub_ms).toBeLessThan(50);
     });

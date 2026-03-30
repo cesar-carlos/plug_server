@@ -23,7 +23,10 @@ export const stepRestSqlStreamMaterializeCredits = (
   return { nextStoredCredits: c, shouldEmitPull: false };
 };
 
-export const restSqlStreamMaterializeSeedCredits = (requestId: string, windowSize: number): void => {
+export const restSqlStreamMaterializeSeedCredits = (
+  requestId: string,
+  windowSize: number,
+): void => {
   creditsByRequestId.set(requestId, windowSize);
 };
 

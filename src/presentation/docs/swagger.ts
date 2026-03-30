@@ -127,7 +127,8 @@ const swaggerSpec = swaggerJSDoc({
         },
         SocketBridgeSecurityNotes: {
           type: "object",
-          description: "Security and transport hardening notes applied to HTTP-to-Socket bridge flow.",
+          description:
+            "Security and transport hardening notes applied to HTTP-to-Socket bridge flow.",
           properties: {
             maxCompressedPayloadBytes: {
               type: "integer",
@@ -388,7 +389,11 @@ const swaggerSpec = swaggerJSDoc({
           type: "object",
           required: ["agentId", "command"],
           properties: {
-            agentId: { type: "string", minLength: 1, example: "3183a9f2-429b-46d6-a339-3580e5e5cb31" },
+            agentId: {
+              type: "string",
+              minLength: 1,
+              example: "3183a9f2-429b-46d6-a339-3580e5e5cb31",
+            },
             timeoutMs: {
               type: "integer",
               minimum: 1,
@@ -489,6 +494,67 @@ const swaggerSpec = swaggerJSDoc({
             acceptedCommands: { type: "integer", minimum: 1, example: 1 },
           },
         },
+        AgentCatalogRecord: {
+          type: "object",
+          required: ["agentId", "name", "cnpjCpf", "status", "createdAt", "updatedAt"],
+          properties: {
+            agentId: { type: "string", format: "uuid" },
+            name: { type: "string", maxLength: 120 },
+            cnpjCpf: {
+              type: "string",
+              description: "CPF ou CNPJ normalizado (apenas dígitos; 11 ou 14 caracteres).",
+            },
+            observation: { type: "string", nullable: true, maxLength: 2000 },
+            status: { type: "string", enum: ["active", "inactive"] },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        CreateAgentCatalogRequest: {
+          type: "object",
+          required: ["agentId", "name", "cnpjCpf"],
+          properties: {
+            agentId: { type: "string", format: "uuid" },
+            name: { type: "string", minLength: 1, maxLength: 120 },
+            cnpjCpf: {
+              type: "string",
+              minLength: 1,
+              description: "CPF ou CNPJ; validado e normalizado no servidor.",
+            },
+            observation: { type: "string", maxLength: 2000 },
+          },
+        },
+        UpdateAgentCatalogRequest: {
+          type: "object",
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 120 },
+            cnpjCpf: { type: "string", minLength: 1 },
+            observation: { type: "string", nullable: true, maxLength: 2000 },
+          },
+        },
+        AgentIdsBody: {
+          type: "object",
+          required: ["agentIds"],
+          properties: {
+            agentIds: {
+              type: "array",
+              minItems: 1,
+              maxItems: 100,
+              items: { type: "string", format: "uuid" },
+            },
+          },
+        },
+        UserAgentEnriched: {
+          type: "object",
+          required: ["agentId", "name", "cnpjCpf", "status"],
+          properties: {
+            agentId: { type: "string", format: "uuid" },
+            name: { type: "string" },
+            cnpjCpf: { type: "string" },
+            observation: { type: "string" },
+            status: { type: "string", enum: ["active", "inactive"] },
+          },
+        },
       },
       responses: {
         Unauthorized: {
@@ -504,6 +570,31 @@ const swaggerSpec = swaggerJSDoc({
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" },
+            },
+          },
+        },
+        Forbidden: {
+          description:
+            "Forbidden (insufficient permissions or business rule such as agent access denied)",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ErrorResponse" },
+            },
+          },
+        },
+        NotFound: {
+          description: "Resource not found",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ErrorResponse" },
+            },
+          },
+        },
+        Conflict: {
+          description: "Conflict (e.g. duplicate agentId or cnpjCpf)",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ErrorResponse" },
             },
           },
         },

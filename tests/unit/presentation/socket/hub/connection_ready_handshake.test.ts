@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { env } from "../../../../../src/shared/config/env";
-import { decodePayloadFrame, isPayloadFrameEnvelope } from "../../../../../src/shared/utils/payload_frame";
+import {
+  decodePayloadFrame,
+  isPayloadFrameEnvelope,
+} from "../../../../../src/shared/utils/payload_frame";
 import {
   CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER,
   buildConnectionReadyPayloadForWire,
@@ -38,7 +41,8 @@ describe("connection_ready_handshake", () => {
       },
     }));
 
-    const mod = await import("../../../../../src/presentation/socket/hub/connection_ready_handshake");
+    const mod =
+      await import("../../../../../src/presentation/socket/hub/connection_ready_handshake");
     const payload = mod.buildConnectionReadyPayloadForWire({
       id: "socket-legacy",
       message: "legacy",

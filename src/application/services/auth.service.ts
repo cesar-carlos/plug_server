@@ -14,8 +14,8 @@ import type { LogoutUseCase } from "../../domain/use_cases/logout.use_case";
 import type { RefreshTokenUseCase } from "../../domain/use_cases/refresh_token.use_case";
 import type { RegisterUseCase } from "../../domain/use_cases/register.use_case";
 import type { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registration.use_case";
+import type { AgentAccessService } from "./agent_access.service";
 import { env } from "../../shared/config/env";
-import { forbidden } from "../../shared/errors/http_errors";
 import { type Result, ok } from "../../shared/errors/result";
 import { parseExpiryToDate } from "../../shared/utils/date";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
@@ -73,6 +73,7 @@ export class AuthService {
     private readonly passwordHasher: IPasswordHasher,
     private readonly refreshTokenRepository: IRefreshTokenRepository,
     private readonly agentIdentityRepository: IAgentIdentityRepository,
+    private readonly agentAccessService: AgentAccessService,
     private readonly emailSender: IEmailSender,
   ) {}
 
@@ -195,9 +196,10 @@ export class AuthService {
     if (!result.ok) return result;
 
     try {
+      const trimmedReason = reason?.trim();
       await this.emailSender.sendUserRejected({
         email: result.value.email,
-        reason: reason?.trim() !== "" ? reason : undefined,
+        ...(trimmedReason ? { reason: trimmedReason } : {}),
       });
     } catch (error: unknown) {
       logger.error("registration_reject_user_email_failed", {
@@ -237,8 +239,8 @@ export class AuthService {
     });
     if (!result.ok) return result;
 
-    const ownership = await this.ensureAgentOwnership(input.agentId, result.value.id);
-    if (!ownership.ok) return ownership;
+    const accessResult = await this.agentAccessService.assertAccess(result.value.id, input.agentId);
+    if (!accessResult.ok) return accessResult;
 
     const tokens = await this.issueAgentTokens(result.value, input.agentId);
     return ok({
@@ -328,25 +330,5 @@ export class AuthService {
 
   private toUserDto(user: User): AuthUserDto {
     return { id: user.id, email: user.email, role: user.role };
-  }
-
-  private async ensureAgentOwnership(agentId: string, userId: string): Promise<Result<void>> {
-    const ownerUserId = await this.agentIdentityRepository.findOwnerUserId(agentId);
-    if (ownerUserId && ownerUserId !== userId) {
-      return {
-        ok: false,
-        error: forbidden("Agent id is already linked to another user"),
-      };
-    }
-
-    const bindStatus = await this.agentIdentityRepository.bindIfUnbound(agentId, userId);
-    if (bindStatus === "bound_to_other_user") {
-      return {
-        ok: false,
-        error: forbidden("Agent id is already linked to another user"),
-      };
-    }
-
-    return ok(undefined);
   }
 }

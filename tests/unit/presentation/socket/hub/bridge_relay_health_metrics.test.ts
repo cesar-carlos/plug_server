@@ -20,7 +20,10 @@ afterEach(() => {
 describe("bridge_relay_health_metrics", () => {
   it("buildRelayHubMetricsSnapshot passes through activeStreams and aggregates counters", () => {
     relayMetrics.requestsAccepted = 2;
-    const snap = buildRelayHubMetricsSnapshot({ activeStreams: 7, restMaterializeStreamsInFlight: 0 });
+    const snap = buildRelayHubMetricsSnapshot({
+      activeStreams: 7,
+      restMaterializeStreamsInFlight: 0,
+    });
     expect(snap.counters.requestsAccepted).toBe(2);
     expect(snap.gauges.activeStreams).toBe(7);
     expect(snap.gauges.restMaterializeStreamsInFlight).toBe(0);
@@ -33,7 +36,10 @@ describe("bridge_relay_health_metrics", () => {
     registerAgentFailure("agent-x");
     resetRelayHubHealthAndMetrics();
     expect(relayMetrics.chunksDropped).toBe(0);
-    const snap = buildRelayHubMetricsSnapshot({ activeStreams: 0, restMaterializeStreamsInFlight: 0 });
+    const snap = buildRelayHubMetricsSnapshot({
+      activeStreams: 0,
+      restMaterializeStreamsInFlight: 0,
+    });
     expect(snap.gauges.openCircuits).toBe(0);
   });
 });

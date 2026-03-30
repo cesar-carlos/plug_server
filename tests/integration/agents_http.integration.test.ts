@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
+import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
+import { container } from "../../src/shared/di/container";
 import { env } from "../../src/shared/config/env";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
@@ -51,6 +53,7 @@ describe("Agents HTTP bridge", () => {
   let baseUrl = "";
   let accessToken = "";
   let agentAccessToken = "";
+  let mainUserId = "";
   let agentSocket: ReturnType<typeof ioClient> | null = null;
 
   beforeAll(async () => {
@@ -64,9 +67,19 @@ describe("Agents HTTP bridge", () => {
     expect(registerResponse.status).toBe(201);
     await approveRegistrationByToken(baseUrl, registerResponse.body.approvalToken as string);
 
-    const userLoginResponse = await request(baseUrl).post("/api/v1/auth/login").send({ email, password });
+    const userLoginResponse = await request(baseUrl)
+      .post("/api/v1/auth/login")
+      .send({ email, password });
     expect(userLoginResponse.status).toBe(200);
     accessToken = userLoginResponse.body.accessToken as string;
+
+    mainUserId = registerResponse.body.user.id as string;
+    await seedAgent({
+      agentId: testAgentId,
+      name: "HTTP Test Agent",
+      cnpjCpf: `http-test-${mainUserId.slice(0, 8)}`,
+    });
+    await seedAgentBinding(mainUserId, testAgentId);
 
     const agentLoginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
       email,
@@ -124,7 +137,9 @@ describe("Agents HTTP bridge", () => {
     expect(Array.isArray(response.body.agents)).toBe(true);
     expect(response.body.count).toBeGreaterThanOrEqual(1);
     expect(
-      (response.body.agents as Array<{ agentId?: string }>).some((agent) => agent.agentId === testAgentId),
+      (response.body.agents as Array<{ agentId?: string }>).some(
+        (agent) => agent.agentId === testAgentId,
+      ),
     ).toBe(true);
   });
 
@@ -140,18 +155,16 @@ describe("Agents HTTP bridge", () => {
 
   it("should reject dispatch during agent protocol readiness grace and accept after it settles", async () => {
     const warmingAgentId = randomUUID();
-    const warmingEmail = `agents-http-warm-${Date.now()}@test.com`;
-    const warmingPassword = "AgentsHttpWarm1";
-    const warmingRegisterResponse = await request(baseUrl).post("/api/v1/auth/register").send({
-      email: warmingEmail,
-      password: warmingPassword,
+    await seedAgent({
+      agentId: warmingAgentId,
+      name: "Warming Agent",
+      cnpjCpf: `warm-${warmingAgentId.slice(0, 8)}`,
     });
-    expect(warmingRegisterResponse.status).toBe(201);
-    await approveRegistrationByToken(baseUrl, warmingRegisterResponse.body.approvalToken as string);
+    await seedAgentBinding(mainUserId, warmingAgentId);
 
     const warmingLoginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-      email: warmingEmail,
-      password: warmingPassword,
+      email,
+      password,
       agentId: warmingAgentId,
     });
     expect(warmingLoginResponse.status).toBe(200);
@@ -201,13 +214,14 @@ describe("Agents HTTP bridge", () => {
       expect(earlyResponse.status).toBe(503);
       expect(String(earlyResponse.body.message)).toContain("protocol negotiation is not ready");
 
-      await new Promise((resolve) =>
-        setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 30),
-      );
+      await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 30));
 
       const finalRequestId = `warming-ready-${Date.now()}`;
       const rpcHandled = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+        const timeout = setTimeout(
+          () => reject(new Error("Timed out waiting for rpc:request")),
+          8_000,
+        );
 
         warmingAgentSocket.once("rpc:request", (rawPayload: unknown) => {
           const decoded = decodePayloadFrame(rawPayload);
@@ -263,18 +277,16 @@ describe("Agents HTTP bridge", () => {
 
   it("should require explicit agent:ready when the agent advertises protocolReadyAck", async () => {
     const explicitAgentId = randomUUID();
-    const explicitEmail = `agents-http-explicit-${Date.now()}@test.com`;
-    const explicitPassword = "AgentsHttpReady1";
-    const registerResponse = await request(baseUrl).post("/api/v1/auth/register").send({
-      email: explicitEmail,
-      password: explicitPassword,
+    await seedAgent({
+      agentId: explicitAgentId,
+      name: "Explicit Agent",
+      cnpjCpf: `explicit-${explicitAgentId.slice(0, 8)}`,
     });
-    expect(registerResponse.status).toBe(201);
-    await approveRegistrationByToken(baseUrl, registerResponse.body.approvalToken as string);
+    await seedAgentBinding(mainUserId, explicitAgentId);
 
     const loginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-      email: explicitEmail,
-      password: explicitPassword,
+      email,
+      password,
       agentId: explicitAgentId,
     });
     expect(loginResponse.status).toBe(200);
@@ -308,9 +320,7 @@ describe("Agents HTTP bridge", () => {
         }),
       );
       await capabilitiesPromise;
-      await new Promise((resolve) =>
-        setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 30),
-      );
+      await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 30));
 
       const blockedResponse = await request(baseUrl)
         .post("/api/v1/agents/commands")
@@ -333,7 +343,10 @@ describe("Agents HTTP bridge", () => {
 
       const finalRequestId = `explicit-ready-${Date.now()}`;
       const rpcHandled = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+        const timeout = setTimeout(
+          () => reject(new Error("Timed out waiting for rpc:request")),
+          8_000,
+        );
 
         explicitAgentSocket.once("rpc:request", (rawPayload: unknown) => {
           const decoded = decodePayloadFrame(rawPayload);
@@ -393,7 +406,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -457,7 +473,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -539,7 +558,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -610,7 +632,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -621,7 +646,10 @@ describe("Agents HTTP bridge", () => {
         }
 
         const wireId = toRequestId(decoded.value.data.id);
-        if (!wireId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(wireId)) {
+        if (
+          !wireId ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(wireId)
+        ) {
           clearTimeout(timeout);
           reject(new Error("Expected auto-generated UUID in command.id"));
           return;
@@ -670,7 +698,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -722,7 +753,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -812,7 +846,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -822,7 +859,9 @@ describe("Agents HTTP bridge", () => {
           return;
         }
 
-        const forwardedItems = decoded.value.data.filter((item): item is Record<string, unknown> => isRecord(item));
+        const forwardedItems = decoded.value.data.filter((item): item is Record<string, unknown> =>
+          isRecord(item),
+        );
         if (forwardedItems.length !== 3) {
           clearTimeout(timeout);
           reject(new Error("Expected three forwarded batch items"));
@@ -908,7 +947,9 @@ describe("Agents HTTP bridge", () => {
     expect(Array.isArray(response.body.response?.items)).toBe(true);
     expect(response.body.response.items).toHaveLength(2);
     expect(
-      response.body.response.items.every((item: { id?: string | number | null }) => item.id !== null),
+      response.body.response.items.every(
+        (item: { id?: string | number | null }) => item.id !== null,
+      ),
     ).toBe(true);
   });
 
@@ -918,7 +959,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -991,7 +1035,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", () => {
         for (let index = 0; index < 40; index += 1) {
@@ -1034,7 +1081,10 @@ describe("Agents HTTP bridge", () => {
 
     const abortedRequestId = "aborted-request-id";
     const firstRequestSeen = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for first rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for first rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -1111,7 +1161,10 @@ describe("Agents HTTP bridge", () => {
     });
 
     const secondRequestHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for second rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for second rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -1225,7 +1278,8 @@ describe("Agents HTTP bridge", () => {
       expect(
         rejectedWithRetryAfter.some(
           (item) =>
-            typeof item.body?.details?.retry_after_ms === "number" && item.body.details.retry_after_ms >= 0,
+            typeof item.body?.details?.retry_after_ms === "number" &&
+            item.body.details.retry_after_ms >= 0,
         ),
       ).toBe(true);
     } finally {
@@ -1241,7 +1295,10 @@ describe("Agents HTTP bridge", () => {
     const requestId = `invalid-frame-${Date.now()}`;
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -1309,7 +1366,10 @@ describe("Agents HTTP bridge", () => {
     const streamId = `sid-terminal-${Date.now()}`;
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -1389,7 +1449,10 @@ describe("Agents HTTP bridge", () => {
     const streamId = `sid-invalid-complete-${Date.now()}`;
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -1470,7 +1533,10 @@ describe("Agents HTTP bridge", () => {
     const streamId = `sid-${Date.now()}`;
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", (rawPayload: unknown) => {
         const decoded = decodePayloadFrame(rawPayload);
@@ -1563,7 +1629,10 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timed out waiting for rpc:request")), 8_000);
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
 
       agentSocket?.once("rpc:request", () => {
         agentSocket?.disconnect();

@@ -69,11 +69,7 @@ const toCompatibleAuthPayload = <T extends AuthTokensDto>(payload: T): Compatibl
 };
 
 const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const escapeHtmlAttr = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -98,16 +94,18 @@ export const register = async (
 ): Promise<void> => {
   const body = getValidated<RegisterBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.authService.register(body, { requestId });
-  if (!result.ok) { next(result.error); return; }
+  const result = await container.authService.register(body, {
+    ...(requestId !== undefined ? { requestId } : {}),
+  });
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
   response.status(201).json(result.value);
 };
 
 /** GET: read-only page with POST forms (no mutating GET). */
-export const registrationReviewPage = (
-  _request: Request,
-  response: Response,
-): void => {
+export const registrationReviewPage = (_request: Request, response: Response): void => {
   const { token } = getValidated<RegistrationTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
   const approveAction = `${base}/api/v1/auth/registration/approve`;
@@ -143,7 +141,10 @@ export const registrationStatus = async (
 ): Promise<void> => {
   const { token } = getValidated<RegistrationTokenQuery>(response, "query");
   const result = await container.authService.getRegistrationStatus(token);
-  if (!result.ok) { next(result.error); return; }
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
   response.status(200).json(result.value);
 };
 
@@ -154,8 +155,13 @@ export const approveRegistration = async (
 ): Promise<void> => {
   const body = getValidated<RegistrationApproveBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.authService.approveRegistration(body.token, { requestId });
-  if (!result.ok) { next(result.error); return; }
+  const result = await container.authService.approveRegistration(body.token, {
+    ...(requestId !== undefined ? { requestId } : {}),
+  });
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
   response
     .status(200)
     .type("html")
@@ -175,9 +181,12 @@ export const rejectRegistration = async (
   const body = getValidated<RegistrationRejectBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
   const result = await container.authService.rejectRegistration(body.token, body.reason, {
-    requestId,
+    ...(requestId !== undefined ? { requestId } : {}),
   });
-  if (!result.ok) { next(result.error); return; }
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
   response
     .status(200)
     .type("html")
@@ -199,7 +208,10 @@ export const login = async (
     email: body.email,
     password: body.password,
   });
-  if (!result.ok) { next(result.error); return; }
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
   setRefreshTokenCookie(response, result.value.refreshToken);
   response.status(200).json(toCompatibleAuthPayload<AuthResponseDto>(result.value));
 };
@@ -215,7 +227,10 @@ export const agentLogin = async (
     password: body.password,
     agentId: body.agentId,
   });
-  if (!result.ok) { next(result.error); return; }
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
   setRefreshTokenCookie(response, result.value.refreshToken);
   response.status(200).json({
     ...toCompatibleAuthPayload(result.value),
@@ -236,7 +251,10 @@ export const refresh = async (
   }
 
   const result = await container.authService.refresh(refreshToken);
-  if (!result.ok) { next(result.error); return; }
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
   setRefreshTokenCookie(response, result.value.refreshToken);
   response.status(200).json(toCompatibleAuthPayload(result.value));
 };
@@ -255,15 +273,15 @@ export const logout = async (
   }
 
   const result = await container.authService.logout(refreshToken);
-  if (!result.ok) { next(result.error); return; }
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
   clearRefreshTokenCookie(response);
   response.status(204).send();
 };
 
-export const getMe = (
-  _request: Request,
-  response: Response,
-): void => {
+export const getMe = (_request: Request, response: Response): void => {
   const authUser = response.locals.authUser as JwtAccessPayload;
   response.status(200).json({ user: authUser });
 };

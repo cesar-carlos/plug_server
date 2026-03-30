@@ -1,8 +1,10 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
+import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
+import { container } from "../../src/shared/di/container";
 
 const app = createApp();
 
@@ -169,14 +171,20 @@ describe("Auth API", () => {
   describe("POST /api/v1/auth/agent-login", () => {
     const agentId = "550e8400-e29b-41d4-a716-446655440000";
 
+    beforeAll(async () => {
+      await seedAgent({ agentId, name: "Auth Test Agent", cnpjCpf: "auth-test-unique" });
+      const user = await container._repositories.user.findByEmail(testUser.email);
+      if (user) {
+        await seedAgentBinding(user.id, agentId);
+      }
+    });
+
     it("should login as agent and return tokens with role agent and agentId", async () => {
-      const response = await request(app)
-        .post("/api/v1/auth/agent-login")
-        .send({
-          email: testUser.email,
-          password: testUser.password,
-          agentId,
-        });
+      const response = await request(app).post("/api/v1/auth/agent-login").send({
+        email: testUser.email,
+        password: testUser.password,
+        agentId,
+      });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -191,25 +199,21 @@ describe("Auth API", () => {
     });
 
     it("should return 401 for wrong password", async () => {
-      const response = await request(app)
-        .post("/api/v1/auth/agent-login")
-        .send({
-          email: testUser.email,
-          password: "WrongPass1",
-          agentId,
-        });
+      const response = await request(app).post("/api/v1/auth/agent-login").send({
+        email: testUser.email,
+        password: "WrongPass1",
+        agentId,
+      });
 
       expect(response.status).toBe(401);
     });
 
     it("should return 400 for invalid agentId", async () => {
-      const response = await request(app)
-        .post("/api/v1/auth/agent-login")
-        .send({
-          email: testUser.email,
-          password: testUser.password,
-          agentId: "not-a-uuid",
-        });
+      const response = await request(app).post("/api/v1/auth/agent-login").send({
+        email: testUser.email,
+        password: testUser.password,
+        agentId: "not-a-uuid",
+      });
 
       expect(response.status).toBe(400);
       expect(response.body.code).toBe("VALIDATION_ERROR");
@@ -220,9 +224,7 @@ describe("Auth API", () => {
 
   describe("POST /api/v1/auth/refresh", () => {
     it("should issue new tokens with a valid refresh token", async () => {
-      const response = await request(app)
-        .post("/api/v1/auth/refresh")
-        .send({ refreshToken });
+      const response = await request(app).post("/api/v1/auth/refresh").send({ refreshToken });
 
       expect(response.status).toBe(200);
       expect(response.body.accessToken).toBeDefined();
@@ -272,9 +274,7 @@ describe("Auth API", () => {
 
   describe("POST /auth/refresh", () => {
     it("should support the plug_agente refresh contract", async () => {
-      const response = await request(app)
-        .post("/auth/refresh")
-        .send({ refreshToken });
+      const response = await request(app).post("/auth/refresh").send({ refreshToken });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -314,17 +314,13 @@ describe("Auth API", () => {
 
   describe("POST /api/v1/auth/logout", () => {
     it("should logout and revoke the refresh token", async () => {
-      const response = await request(app)
-        .post("/api/v1/auth/logout")
-        .send({ refreshToken });
+      const response = await request(app).post("/api/v1/auth/logout").send({ refreshToken });
 
       expect(response.status).toBe(204);
     });
 
     it("should return 401 when trying to refresh after logout", async () => {
-      const response = await request(app)
-        .post("/api/v1/auth/refresh")
-        .send({ refreshToken });
+      const response = await request(app).post("/api/v1/auth/refresh").send({ refreshToken });
 
       expect(response.status).toBe(401);
     });

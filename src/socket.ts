@@ -128,10 +128,7 @@ const getUserId = (socket: HubSocket): string | null => {
   return typeof socket.data.user?.sub === "string" ? socket.data.user.sub : null;
 };
 
-const logSocketLifecycleInfo = (
-  event: string,
-  payload: Record<string, unknown>,
-): void => {
+const logSocketLifecycleInfo = (event: string, payload: Record<string, unknown>): void => {
   if (env.nodeEnv === "production") {
     logger.debug(event, payload);
     return;
@@ -170,7 +167,9 @@ export const getSocketMetricsSnapshot = (): {
   };
   readonly relay: ReturnType<typeof getRelayMetricsSnapshot>;
   readonly relayRateLimit: ReturnType<typeof getRelayRateLimitMetricsSnapshot>;
-  readonly agentsCommandSocketRateLimit: ReturnType<typeof getAgentsCommandSocketRateLimitMetricsSnapshot>;
+  readonly agentsCommandSocketRateLimit: ReturnType<
+    typeof getAgentsCommandSocketRateLimitMetricsSnapshot
+  >;
 } => {
   const io = activeSocketServer;
   return {
@@ -184,10 +183,7 @@ export const getSocketMetricsSnapshot = (): {
   };
 };
 
-export const closeSocketServer = async (
-  io: Server,
-  signal = "shutdown",
-): Promise<void> => {
+export const closeSocketServer = async (io: Server, signal = "shutdown"): Promise<void> => {
   emitServerShutdownNotice(io, signal);
   await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -226,7 +222,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     serveClient: env.socketIoServeClient,
     httpCompression: env.socketIoHttpCompression,
     ...(websocketOnly ? { allowUpgrades: false } : {}),
-    ...(env.socketIoPingIntervalMs !== undefined ? { pingInterval: env.socketIoPingIntervalMs } : {}),
+    ...(env.socketIoPingIntervalMs !== undefined
+      ? { pingInterval: env.socketIoPingIntervalMs }
+      : {}),
     ...(env.socketIoPingTimeoutMs !== undefined ? { pingTimeout: env.socketIoPingTimeoutMs } : {}),
   });
 
@@ -499,7 +497,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      handleRelayConversationStart(socket, rawPayload, agentsNsp);
+      void handleRelayConversationStart(socket, rawPayload, agentsNsp);
     });
 
     socket.on(socketEvents.relayConversationEnd, (rawPayload: unknown) => {

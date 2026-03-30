@@ -22,7 +22,9 @@ afterEach(() => {
 
 const fakeTimeout = {} as NodeJS.Timeout;
 
-const makeRoute = (overrides: Partial<RelayRequestRoute> & Pick<RelayRequestRoute, "requestId">): RelayRequestRoute => ({
+const makeRoute = (
+  overrides: Partial<RelayRequestRoute> & Pick<RelayRequestRoute, "requestId">,
+): RelayRequestRoute => ({
   conversationId: "conv",
   consumerSocketId: "cons",
   agentSocketId: "agentSock",

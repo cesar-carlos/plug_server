@@ -48,7 +48,10 @@ const relayRateLimitMetrics: RelayRateLimitMetrics = {
   streamPullCreditsRejectedAnon: 0,
 };
 
-const buildIdentityKey = (userSub: string | undefined, socketId: string): { key: string; scope: "user" | "anon" } => {
+const buildIdentityKey = (
+  userSub: string | undefined,
+  socketId: string,
+): { key: string; scope: "user" | "anon" } => {
   const trimmed = userSub?.trim();
   if (trimmed) {
     return { key: `relay:user:${trimmed}`, scope: "user" };
@@ -81,7 +84,10 @@ const ensureWindowState = (identityKey: string): ConsumerRateLimitWindowState =>
   return existing;
 };
 
-export const allowRelayConversationStart = (userSub: string | undefined, socketId: string): boolean => {
+export const allowRelayConversationStart = (
+  userSub: string | undefined,
+  socketId: string,
+): boolean => {
   const { key, scope } = buildIdentityKey(userSub, socketId);
   const state = ensureWindowState(key);
   if (state.conversationStarts >= env.socketRelayRateLimitMaxConversationStarts) {
@@ -173,7 +179,8 @@ export const clearRelayRateLimitStateByConsumerSocket = (socketId: string): void
 
 export const sweepRelayRateLimitState = (): void => {
   const nowMs = Date.now();
-  const staleAfterMs = env.socketRelayRateLimitWindowMs * env.socketRelayRateLimitSweepStaleMultiplier;
+  const staleAfterMs =
+    env.socketRelayRateLimitWindowMs * env.socketRelayRateLimitSweepStaleMultiplier;
   for (const [identityKey, state] of statesByIdentityKey.entries()) {
     if (nowMs - state.lastSeenAtMs >= staleAfterMs) {
       statesByIdentityKey.delete(identityKey);
@@ -212,4 +219,3 @@ export const resetRelayRateLimiterState = (): void => {
   relayRateLimitMetrics.streamPullCreditsGrantedAnon = 0;
   relayRateLimitMetrics.streamPullCreditsRejectedAnon = 0;
 };
-

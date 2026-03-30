@@ -8,10 +8,7 @@ import {
   observeRelayChunkForwardJob,
   relayMetrics,
 } from "./bridge_relay_health_metrics";
-import {
-  getActiveStreamRouteByRequestId,
-  removeActiveStreamRoute,
-} from "./active_stream_registry";
+import { getActiveStreamRouteByRequestId, removeActiveStreamRoute } from "./active_stream_registry";
 import { getRelayIdempotencyMap } from "./relay_idempotency_store";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import {
@@ -51,7 +48,8 @@ export const createRelayStreamHandlers = (
     payload?: Record<string, unknown>,
   ): void => {
     relayMetrics.streamTerminalCompletions += 1;
-    const streamId = toRequestId(payload?.stream_id) ?? getActiveStreamRouteByRequestId(route.requestId)?.streamId;
+    const streamId =
+      toRequestId(payload?.stream_id) ?? getActiveStreamRouteByRequestId(route.requestId)?.streamId;
     const terminalPayload: Record<string, unknown> = {
       request_id: route.requestId,
       total_rows: getRelayStreamForwardedRows(route.requestId),
@@ -115,8 +113,10 @@ export const createRelayStreamHandlers = (
               agentSocketId: route.agentSocketId,
               conversationId: route.conversationId,
               agentId: route.agentId,
-              emitChunk: (frame) => emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
-              emitComplete: (frame) => emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
+              emitChunk: (frame) =>
+                emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
+              emitComplete: (frame) =>
+                emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
               encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
               recordAudit: (eventType, extras) => {
                 if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
@@ -170,8 +170,10 @@ export const createRelayStreamHandlers = (
           agentSocketId: route.agentSocketId,
           conversationId: route.conversationId,
           agentId: route.agentId,
-          emitChunk: (frame) => emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
-          emitComplete: (frame) => emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
+          emitChunk: (frame) =>
+            emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
+          emitComplete: (frame) =>
+            emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
           encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
           recordAudit: (eventType, extras) => {
             if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {

@@ -9,6 +9,7 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import { agentRegistry } from "../hub/agent_registry";
 import { conversationRegistry } from "../hub/conversation_registry";
+import { container } from "../../../shared/di/container";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
 const conversationStartPayloadSchema = z.object({
@@ -39,15 +40,17 @@ const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_E
 const resolveRole = (user: JwtAccessPayload | undefined): string | null =>
   typeof user?.role === "string" && user.role.trim() !== "" ? user.role : null;
 
-export const handleRelayConversationStart = (
+export const handleRelayConversationStart = async (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
   agentsNamespace: Namespace,
-): void => {
+): Promise<void> => {
   const parsed = conversationStartPayloadSchema.safeParse(rawPayload);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
-    const message = firstIssue ? `${firstIssue.path.join(".")}: ${firstIssue.message}` : "Validation failed";
+    const message = firstIssue
+      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
+      : "Validation failed";
     emitAppError(socket, message, "VALIDATION_ERROR");
     return;
   }
@@ -62,6 +65,19 @@ export const handleRelayConversationStart = (
       env.socketRelayMaxConversationsPerConsumer
     ) {
       throw conflict("Consumer reached max active relay conversations");
+    }
+
+    const userId = socket.data.user?.sub;
+    if (typeof userId !== "string" || userId.trim() === "") {
+      throw serviceUnavailable("Authenticated user context is missing");
+    }
+
+    const accessResult = await container.agentAccessService.assertAccess(
+      userId,
+      parsed.data.agentId,
+    );
+    if (!accessResult.ok) {
+      throw accessResult.error;
     }
 
     const registeredAgent = agentRegistry.findByAgentId(parsed.data.agentId);

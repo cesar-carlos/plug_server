@@ -43,7 +43,9 @@ describe("relay_outbound_queue", () => {
     const overload = getRelayOutboundQueueOverloadState();
     expect(overload.overloaded).toBe(true);
     expect(overload.reason).toBe("backlog");
-    expect(overload.snapshot.backlog).toBeGreaterThanOrEqual(env.socketRelayOutboundOverloadBacklog);
+    expect(overload.snapshot.backlog).toBeGreaterThanOrEqual(
+      env.socketRelayOutboundOverloadBacklog,
+    );
   });
 });
 import { afterEach, describe, expect, it } from "vitest";

@@ -8,13 +8,9 @@ import { getSocketAuditMetricsSnapshot } from "../../../application/services/soc
 import { getSocketMetricsSnapshot } from "../../../socket";
 
 const escapePrometheusLabelValue = (value: string): string =>
-  value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+  value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 
-const metricLine = (
-  name: string,
-  value: number,
-  labels?: Record<string, string>,
-): string => {
+const metricLine = (name: string, value: number, labels?: Record<string, string>): string => {
   if (!labels || Object.keys(labels).length === 0) {
     return `${name} ${value}`;
   }
@@ -40,7 +36,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const lines: string[] = [];
 
   lines.push(metricLine("plug_rest_bridge_requests_total", restBridge.requestsTotal));
-  lines.push(metricLine("plug_rest_bridge_requests_success_total", restBridge.requestsSuccessTotal));
+  lines.push(
+    metricLine("plug_rest_bridge_requests_success_total", restBridge.requestsSuccessTotal),
+  );
   lines.push(metricLine("plug_rest_bridge_requests_failed_total", restBridge.requestsFailedTotal));
   lines.push(metricLine("plug_rest_bridge_latency_count", restBridge.latencyCount));
   lines.push(metricLine("plug_rest_bridge_latency_avg_ms", restBridge.latencyAvgMs));
@@ -48,7 +46,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_rest_bridge_latency_p95_ms", restBridge.latencyP95Ms));
   lines.push(metricLine("plug_rest_bridge_latency_p99_ms", restBridge.latencyP99Ms));
 
-  lines.push(metricLine("plug_rest_http_rate_limit_global_rejected_total", restHttpRl.globalRejectedTotal));
+  lines.push(
+    metricLine("plug_rest_http_rate_limit_global_rejected_total", restHttpRl.globalRejectedTotal),
+  );
   lines.push(
     metricLine(
       "plug_rest_http_rate_limit_agents_commands_user_rejected_total",
@@ -62,21 +62,45 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
 
-  lines.push(metricLine("plug_registration_approved_total", registrationFlow.registrationApprovedTotal));
-  lines.push(metricLine("plug_registration_rejected_total", registrationFlow.registrationRejectedTotal));
   lines.push(
-    metricLine("plug_registration_token_expired_total", registrationFlow.registrationTokenExpiredTotal),
+    metricLine("plug_registration_approved_total", registrationFlow.registrationApprovedTotal),
+  );
+  lines.push(
+    metricLine("plug_registration_rejected_total", registrationFlow.registrationRejectedTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_registration_token_expired_total",
+      registrationFlow.registrationTokenExpiredTotal,
+    ),
   );
 
-  lines.push(metricLine("plug_socket_namespace_connections", socket.namespaces.agents, { namespace: "agents" }));
   lines.push(
-    metricLine("plug_socket_namespace_connections", socket.namespaces.consumers, { namespace: "consumers" }),
+    metricLine("plug_socket_namespace_connections", socket.namespaces.agents, {
+      namespace: "agents",
+    }),
+  );
+  lines.push(
+    metricLine("plug_socket_namespace_connections", socket.namespaces.consumers, {
+      namespace: "consumers",
+    }),
   );
 
-  lines.push(metricLine("plug_socket_relay_requests_accepted_total", relay.counters.requestsAccepted));
-  lines.push(metricLine("plug_socket_relay_requests_deduplicated_total", relay.counters.requestsDeduplicated));
-  lines.push(metricLine("plug_socket_relay_responses_forwarded_total", relay.counters.responsesForwarded));
-  lines.push(metricLine("plug_socket_relay_chunks_forwarded_total", relay.counters.chunksForwarded));
+  lines.push(
+    metricLine("plug_socket_relay_requests_accepted_total", relay.counters.requestsAccepted),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_requests_deduplicated_total",
+      relay.counters.requestsDeduplicated,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_responses_forwarded_total", relay.counters.responsesForwarded),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_chunks_forwarded_total", relay.counters.chunksForwarded),
+  );
   lines.push(metricLine("plug_socket_relay_chunks_buffered_total", relay.counters.chunksBuffered));
   lines.push(metricLine("plug_socket_relay_chunks_dropped_total", relay.counters.chunksDropped));
   lines.push(
@@ -87,7 +111,10 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(metricLine("plug_socket_relay_stream_pulls_total", relay.counters.streamPulls));
   lines.push(
-    metricLine("plug_rest_sql_stream_materialize_pulls_total", relay.counters.restSqlStreamMaterializePulls),
+    metricLine(
+      "plug_rest_sql_stream_materialize_pulls_total",
+      relay.counters.restSqlStreamMaterializePulls,
+    ),
   );
   lines.push(
     metricLine(
@@ -113,8 +140,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
       relay.counters.restMaterializeChunkLimitExceeded,
     ),
   );
-  lines.push(metricLine("plug_socket_relay_request_timeouts_total", relay.counters.requestTimeouts));
-  lines.push(metricLine("plug_socket_relay_circuit_open_rejects_total", relay.counters.circuitOpenRejects));
+  lines.push(
+    metricLine("plug_socket_relay_request_timeouts_total", relay.counters.requestTimeouts),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_circuit_open_rejects_total", relay.counters.circuitOpenRejects),
+  );
   lines.push(
     metricLine(
       "plug_socket_relay_rest_global_pending_cap_rejected_total",
@@ -137,8 +168,15 @@ export const getMetrics = (_request: Request, response: Response): void => {
     relay.counters.restGlobalPendingCapRejected +
     relay.counters.restAgentQueueFullRejected +
     relay.counters.restAgentQueueWaitTimeoutRejected;
-  lines.push(metricLine("plug_socket_relay_rest_pending_rejected_total", restPendingRejectedLegacy));
-  lines.push(metricLine("plug_socket_relay_rpc_frame_decode_failed_total", relay.counters.rpcFrameDecodeFailed));
+  lines.push(
+    metricLine("plug_socket_relay_rest_pending_rejected_total", restPendingRejectedLegacy),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rpc_frame_decode_failed_total",
+      relay.counters.rpcFrameDecodeFailed,
+    ),
+  );
   lines.push(
     metricLine(
       "plug_socket_relay_emit_discarded_consumer_gone_total",
@@ -146,10 +184,15 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
   lines.push(
-    metricLine("plug_socket_relay_conversations_expired_total", relay.counters.conversationsExpiredTotal),
+    metricLine(
+      "plug_socket_relay_conversations_expired_total",
+      relay.counters.conversationsExpiredTotal,
+    ),
   );
   lines.push(metricLine("plug_socket_relay_pending_requests", relay.gauges.pendingRelayRequests));
-  lines.push(metricLine("plug_socket_relay_rest_pending_requests", relay.gauges.pendingRestRequests));
+  lines.push(
+    metricLine("plug_socket_relay_rest_pending_requests", relay.gauges.pendingRestRequests),
+  );
   lines.push(metricLine("plug_socket_relay_active_streams", relay.gauges.activeStreams));
   lines.push(
     metricLine(
@@ -159,13 +202,19 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(metricLine("plug_socket_relay_buffered_chunks", relay.gauges.bufferedChunks));
   lines.push(metricLine("plug_socket_relay_open_circuits", relay.gauges.openCircuits));
-  lines.push(metricLine("plug_socket_relay_overload_checks_total", relay.counters.overloadChecksTotal));
-  lines.push(metricLine("plug_socket_relay_overload_check_sum_ms", relay.counters.overloadCheckSumMs));
+  lines.push(
+    metricLine("plug_socket_relay_overload_checks_total", relay.counters.overloadChecksTotal),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_overload_check_sum_ms", relay.counters.overloadCheckSumMs),
+  );
   lines.push(
     metricLine(
       "plug_socket_relay_overload_check_avg_ms",
       relay.counters.overloadChecksTotal > 0
-        ? Number((relay.counters.overloadCheckSumMs / relay.counters.overloadChecksTotal).toFixed(4))
+        ? Number(
+            (relay.counters.overloadCheckSumMs / relay.counters.overloadChecksTotal).toFixed(4),
+          )
         : 0,
     ),
   );
@@ -179,7 +228,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
         : 0,
     ),
   );
-  lines.push(metricLine("plug_socket_relay_command_validate_count", relay.counters.commandValidateCount));
+  lines.push(
+    metricLine("plug_socket_relay_command_validate_count", relay.counters.commandValidateCount),
+  );
   lines.push(
     metricLine("plug_socket_relay_command_validate_sum_ms", relay.counters.commandValidateSumMs),
   );
@@ -187,12 +238,16 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_relay_command_validate_avg_ms",
       relay.counters.commandValidateCount > 0
-        ? Number((relay.counters.commandValidateSumMs / relay.counters.commandValidateCount).toFixed(4))
+        ? Number(
+            (relay.counters.commandValidateSumMs / relay.counters.commandValidateCount).toFixed(4),
+          )
         : 0,
     ),
   );
   lines.push(metricLine("plug_socket_relay_bridge_encode_count", relay.counters.bridgeEncodeCount));
-  lines.push(metricLine("plug_socket_relay_bridge_encode_sum_ms", relay.counters.bridgeEncodeSumMs));
+  lines.push(
+    metricLine("plug_socket_relay_bridge_encode_sum_ms", relay.counters.bridgeEncodeSumMs),
+  );
   lines.push(
     metricLine(
       "plug_socket_relay_bridge_encode_avg_ms",
@@ -202,26 +257,24 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
   lines.push(
-    metricLine(
-      "plug_socket_relay_chunk_forward_jobs_total",
-      relay.counters.chunkForwardJobCount,
-    ),
+    metricLine("plug_socket_relay_chunk_forward_jobs_total", relay.counters.chunkForwardJobCount),
   );
   lines.push(
-    metricLine(
-      "plug_socket_relay_chunk_forward_jobs_sum_ms",
-      relay.counters.chunkForwardJobSumMs,
-    ),
+    metricLine("plug_socket_relay_chunk_forward_jobs_sum_ms", relay.counters.chunkForwardJobSumMs),
   );
   lines.push(
     metricLine(
       "plug_socket_relay_chunk_forward_jobs_avg_ms",
       relay.counters.chunkForwardJobCount > 0
-        ? Number((relay.counters.chunkForwardJobSumMs / relay.counters.chunkForwardJobCount).toFixed(4))
+        ? Number(
+            (relay.counters.chunkForwardJobSumMs / relay.counters.chunkForwardJobCount).toFixed(4),
+          )
         : 0,
     ),
   );
-  lines.push(metricLine("plug_socket_relay_buffer_drain_runs_total", relay.counters.bufferDrainRunCount));
+  lines.push(
+    metricLine("plug_socket_relay_buffer_drain_runs_total", relay.counters.bufferDrainRunCount),
+  );
   lines.push(metricLine("plug_socket_relay_buffer_drain_sum_ms", relay.counters.bufferDrainSumMs));
   lines.push(
     metricLine(
@@ -270,7 +323,10 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
   lines.push(
-    metricLine("plug_socket_relay_outbound_queue_jobs_failed_total", relay.relayOutboundQueue.jobsFailedTotal),
+    metricLine(
+      "plug_socket_relay_outbound_queue_jobs_failed_total",
+      relay.relayOutboundQueue.jobsFailedTotal,
+    ),
   );
   lines.push(
     metricLine(
@@ -371,9 +427,19 @@ export const getMetrics = (_request: Request, response: Response): void => {
   }
 
   lines.push(metricLine("plug_socket_relay_rate_limit_window_ms", rateLimit.windowMs));
-  lines.push(metricLine("plug_socket_relay_rate_limit_max_conversation_starts", rateLimit.maxConversationStarts));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_max_conversation_starts",
+      rateLimit.maxConversationStarts,
+    ),
+  );
   lines.push(metricLine("plug_socket_relay_rate_limit_max_requests", rateLimit.maxRequests));
-  lines.push(metricLine("plug_socket_relay_rate_limit_identities_tracked", rateLimit.activeIdentitiesTracked));
+  lines.push(
+    metricLine(
+      "plug_socket_relay_rate_limit_identities_tracked",
+      rateLimit.activeIdentitiesTracked,
+    ),
+  );
   lines.push(
     metricLine(
       "plug_socket_relay_rate_limit_conversation_start_allowed_total",
@@ -459,21 +525,40 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
 
-  lines.push(metricLine("plug_socket_agents_command_rate_limit_window_ms", agentsCommandRl.windowMs));
-  lines.push(metricLine("plug_socket_agents_command_rate_limit_max_per_window", agentsCommandRl.maxPerWindow));
-  lines.push(metricLine("plug_socket_agents_command_rate_limit_tracked_keys", agentsCommandRl.trackedKeys));
+  lines.push(
+    metricLine("plug_socket_agents_command_rate_limit_window_ms", agentsCommandRl.windowMs),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_command_rate_limit_max_per_window",
+      agentsCommandRl.maxPerWindow,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_agents_command_rate_limit_tracked_keys", agentsCommandRl.trackedKeys),
+  );
   lines.push(
     metricLine("plug_socket_agents_command_rate_limit_allowed_total", agentsCommandRl.allowedTotal),
   );
   lines.push(
-    metricLine("plug_socket_agents_command_rate_limit_rejected_total", agentsCommandRl.rejectedTotal),
+    metricLine(
+      "plug_socket_agents_command_rate_limit_rejected_total",
+      agentsCommandRl.rejectedTotal,
+    ),
   );
 
   lines.push(metricLine("plug_socket_audit_writes_attempted_total", audit.writesAttempted));
   lines.push(metricLine("plug_socket_audit_writes_succeeded_total", audit.writesSucceeded));
   lines.push(metricLine("plug_socket_audit_writes_failed_total", audit.writesFailed));
-  lines.push(metricLine("plug_socket_audit_writes_skipped_table_missing_total", audit.writesSkippedTableMissing));
-  lines.push(metricLine("plug_socket_audit_writes_sample_skipped_total", audit.writesSampleSkipped));
+  lines.push(
+    metricLine(
+      "plug_socket_audit_writes_skipped_table_missing_total",
+      audit.writesSkippedTableMissing,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_audit_writes_sample_skipped_total", audit.writesSampleSkipped),
+  );
   lines.push(metricLine("plug_socket_audit_prune_runs_total", audit.pruneRuns));
   lines.push(metricLine("plug_socket_audit_prune_deleted_total", audit.pruneDeleted));
   lines.push(metricLine("plug_socket_audit_prune_failed_total", audit.pruneFailed));
@@ -481,18 +566,37 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_socket_audit_queued_events", audit.queuedEvents));
 
   lines.push(metricLine("plug_bridge_latency_trace_enqueued_total", bridgeLatency.enqueued));
-  lines.push(metricLine("plug_bridge_latency_trace_writes_succeeded_total", bridgeLatency.writesSucceeded));
-  lines.push(metricLine("plug_bridge_latency_trace_writes_failed_total", bridgeLatency.writesFailed));
   lines.push(
-    metricLine("plug_bridge_latency_trace_writes_skipped_table_missing_total", bridgeLatency.writesSkippedTableMissing),
+    metricLine("plug_bridge_latency_trace_writes_succeeded_total", bridgeLatency.writesSucceeded),
   );
-  lines.push(metricLine("plug_bridge_latency_trace_writes_dropped_queue_full_total", bridgeLatency.writesDroppedQueueFull));
-  lines.push(metricLine("plug_bridge_latency_trace_persist_skipped_total", bridgeLatency.persistSkipped));
   lines.push(
-    metricLine("plug_bridge_latency_trace_phases_mismatch_total", bridgeLatency.phasesMismatchTotal),
+    metricLine("plug_bridge_latency_trace_writes_failed_total", bridgeLatency.writesFailed),
+  );
+  lines.push(
+    metricLine(
+      "plug_bridge_latency_trace_writes_skipped_table_missing_total",
+      bridgeLatency.writesSkippedTableMissing,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_bridge_latency_trace_writes_dropped_queue_full_total",
+      bridgeLatency.writesDroppedQueueFull,
+    ),
+  );
+  lines.push(
+    metricLine("plug_bridge_latency_trace_persist_skipped_total", bridgeLatency.persistSkipped),
+  );
+  lines.push(
+    metricLine(
+      "plug_bridge_latency_trace_phases_mismatch_total",
+      bridgeLatency.phasesMismatchTotal,
+    ),
   );
   lines.push(metricLine("plug_bridge_latency_trace_prune_runs_total", bridgeLatency.pruneRuns));
-  lines.push(metricLine("plug_bridge_latency_trace_prune_deleted_total", bridgeLatency.pruneDeleted));
+  lines.push(
+    metricLine("plug_bridge_latency_trace_prune_deleted_total", bridgeLatency.pruneDeleted),
+  );
   lines.push(metricLine("plug_bridge_latency_trace_prune_failed_total", bridgeLatency.pruneFailed));
   lines.push(metricLine("plug_bridge_latency_trace_queued_rows", bridgeLatency.queuedRows));
 

@@ -1,7 +1,4 @@
-import type {
-  BridgeBatchCommand,
-  BridgeCommand,
-} from "../../../shared/validators/agent_command";
+import type { BridgeBatchCommand, BridgeCommand } from "../../../shared/validators/agent_command";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>

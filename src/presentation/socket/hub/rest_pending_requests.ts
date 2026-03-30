@@ -62,8 +62,9 @@ export const findRestPendingRequestByIds = (
   return null;
 };
 
-export const getRestPendingRequestByCorrelationId = (correlationId: string): PendingRequest | undefined =>
-  pendingByCorrelationId.get(correlationId);
+export const getRestPendingRequestByCorrelationId = (
+  correlationId: string,
+): PendingRequest | undefined => pendingByCorrelationId.get(correlationId);
 
 export const hasRestPendingCorrelationId = (correlationId: string): boolean =>
   pendingByCorrelationId.has(correlationId);

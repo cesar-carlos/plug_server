@@ -18,14 +18,12 @@ export class RegistrationApprovalToken {
     this.createdAt = props.createdAt;
   }
 
-  static create(
-    props: {
-      readonly id: string;
-      readonly userId: string;
-      readonly expiresAt: Date;
-      readonly createdAt?: Date;
-    },
-  ): RegistrationApprovalToken {
+  static create(props: {
+    readonly id: string;
+    readonly userId: string;
+    readonly expiresAt: Date;
+    readonly createdAt?: Date;
+  }): RegistrationApprovalToken {
     return new RegistrationApprovalToken({
       id: props.id,
       userId: props.userId,

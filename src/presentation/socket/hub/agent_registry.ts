@@ -35,7 +35,10 @@ const readPositiveInteger = (value: unknown): number | null => {
   return Math.max(1, Math.floor(value));
 };
 
-const pickPositiveInteger = (source: Record<string, unknown> | null, keys: readonly string[]): number | null => {
+const pickPositiveInteger = (
+  source: Record<string, unknown> | null,
+  keys: readonly string[],
+): number | null => {
   if (!source) {
     return null;
   }
@@ -202,7 +205,10 @@ class InMemoryAgentRegistry {
     return { ok: true, agent: this.toPublic(agent) };
   }
 
-  touch(agentId: string, options?: { readonly markProtocolReady?: boolean }): RegisteredAgent | null {
+  touch(
+    agentId: string,
+    options?: { readonly markProtocolReady?: boolean },
+  ): RegisteredAgent | null {
     const existing = this.agents.get(agentId);
     if (!existing) {
       return null;
@@ -259,7 +265,10 @@ class InMemoryAgentRegistry {
     return this.knownAgentIds.has(agentId);
   }
 
-  getProtocolReadiness(agentId: string): { readonly ready: boolean; readonly retryAfterMs: number } {
+  getProtocolReadiness(agentId: string): {
+    readonly ready: boolean;
+    readonly retryAfterMs: number;
+  } {
     if (!this.agents.has(agentId)) {
       return { ready: false, retryAfterMs: 0 };
     }
@@ -278,7 +287,11 @@ class InMemoryAgentRegistry {
     };
   }
 
-  resolveStreamPullWindow(agentId: string, fallbackWindow: number, requestedWindow?: number): number {
+  resolveStreamPullWindow(
+    agentId: string,
+    fallbackWindow: number,
+    requestedWindow?: number,
+  ): number {
     const baseWindow =
       typeof requestedWindow === "number" && Number.isFinite(requestedWindow) && requestedWindow > 0
         ? Math.max(1, Math.floor(requestedWindow))
@@ -289,7 +302,8 @@ class InMemoryAgentRegistry {
     }
 
     const { recommendedWindow, maxWindow } = resolveStreamPullWindowPolicy(agent.capabilities);
-    const resolved = requestedWindow === undefined && recommendedWindow !== null ? recommendedWindow : baseWindow;
+    const resolved =
+      requestedWindow === undefined && recommendedWindow !== null ? recommendedWindow : baseWindow;
 
     return maxWindow !== null ? Math.max(1, Math.min(resolved, maxWindow)) : resolved;
   }

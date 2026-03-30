@@ -1,11 +1,9 @@
-import type { z} from "zod";
+import type { z } from "zod";
 import type { ZodTypeAny } from "zod";
 
 import { AppError } from "../errors/app_error";
 
-export type SocketValidationResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: AppError };
+export type SocketValidationResult<T> = { ok: true; data: T } | { ok: false; error: AppError };
 
 /**
  * Validates a socket.io event payload against a Zod schema.

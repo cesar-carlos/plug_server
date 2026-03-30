@@ -39,7 +39,12 @@ export class RefreshToken {
     return new RefreshToken({ ...this, revokedAt: new Date() });
   }
 
-  static create(props: { id: string; userId: string; expiresAt: Date; createdAt?: Date }): RefreshToken {
+  static create(props: {
+    id: string;
+    userId: string;
+    expiresAt: Date;
+    createdAt?: Date;
+  }): RefreshToken {
     return new RefreshToken({
       id: props.id,
       userId: props.userId,

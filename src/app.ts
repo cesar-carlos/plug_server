@@ -53,7 +53,9 @@ export const createApp = (): Express => {
   app.get("/metrics", requireAuth, getMetrics);
 
   const authRl =
-    env.nodeEnv === "test" || process.env.VITEST === "true" || process.env.VITEST_WORKER_ID !== undefined
+    env.nodeEnv === "test" ||
+    process.env.VITEST === "true" ||
+    process.env.VITEST_WORKER_ID !== undefined
       ? authRateLimitDisabled
       : authRateLimit;
   app.use("/auth", authRl);

@@ -42,7 +42,10 @@ export const waitForSocketEvent = <T>(
   });
 };
 
-export const connectPlugAgenteSocket = (baseUrl: string, agentAccessToken: string): Promise<AgentSocket> => {
+export const connectPlugAgenteSocket = (
+  baseUrl: string,
+  agentAccessToken: string,
+): Promise<AgentSocket> => {
   return new Promise<AgentSocket>((resolve, reject) => {
     const socket = ioClient(`${baseUrl}/agents`, {
       auth: { token: agentAccessToken },
@@ -64,7 +67,11 @@ export const connectPlugAgenteSocket = (baseUrl: string, agentAccessToken: strin
   });
 };
 
-export const emitAgentReady = (socket: AgentSocket, agentId: string, protocol = "jsonrpc-v2"): void => {
+export const emitAgentReady = (
+  socket: AgentSocket,
+  agentId: string,
+  protocol = "jsonrpc-v2",
+): void => {
   socket.emit(
     "agent:ready",
     encodePayloadFrame({
@@ -81,7 +88,10 @@ export const emitAgentReady = (socket: AgentSocket, agentId: string, protocol = 
 export const registerAgentOnHub = async (
   socket: AgentSocket,
   agentId: string,
-  capabilities: Record<string, unknown> = defaultPlugAgenteCapabilities as unknown as Record<string, unknown>,
+  capabilities: Record<string, unknown> = defaultPlugAgenteCapabilities as unknown as Record<
+    string,
+    unknown
+  >,
   options?: { readonly autoReady?: boolean },
 ): Promise<void> => {
   const capabilitiesPromise = waitForSocketEvent<unknown>(socket, "agent:capabilities");

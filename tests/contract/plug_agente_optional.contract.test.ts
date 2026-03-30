@@ -5,7 +5,10 @@ import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 
-import { agentCommandBodySchema, bridgeCommandSchema } from "../../src/shared/validators/agent_command";
+import {
+  agentCommandBodySchema,
+  bridgeCommandSchema,
+} from "../../src/shared/validators/agent_command";
 
 const SCHEMA_FILES = [
   "rpc.request.schema.json",
@@ -98,9 +101,10 @@ function registerPlugAgenteSchemas(ajv: InstanceType<typeof Ajv2020>): void {
 function assertZodAcceptsCommand(command: unknown): void {
   const asBody = { agentId: "contract-test-agent", command };
   const bodyParsed = agentCommandBodySchema.safeParse(asBody);
-  expect(bodyParsed.success, JSON.stringify(bodyParsed.success ? null : bodyParsed.error.issues)).toBe(
-    true,
-  );
+  expect(
+    bodyParsed.success,
+    JSON.stringify(bodyParsed.success ? null : bodyParsed.error.issues),
+  ).toBe(true);
 
   const bridgeParsed = bridgeCommandSchema.safeParse(command);
   expect(
@@ -124,7 +128,9 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
 
     const version = doc.info?.version;
     expect(typeof version).toBe("string");
-    const parts = String(version).split(".").map((p) => Number.parseInt(p, 10));
+    const parts = String(version)
+      .split(".")
+      .map((p) => Number.parseInt(p, 10));
     expect(parts.length).toBeGreaterThanOrEqual(2);
     expect(Number.isFinite(parts[0])).toBe(true);
     expect(Number.isFinite(parts[1])).toBe(true);
@@ -144,16 +150,28 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     addFormats(ajv);
     registerPlugAgenteSchemas(ajv);
 
-    const validateSqlExecuteParams = ajv.getSchema("https://plugagente.dev/schemas/rpc.params.sql-execute.v1.json");
+    const validateSqlExecuteParams = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.params.sql-execute.v1.json",
+    );
     const validateSqlBatchParams = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.params.sql-execute-batch.v1.json",
     );
-    const validateSqlCancelParams = ajv.getSchema("https://plugagente.dev/schemas/rpc.params.sql-cancel.v1.json");
+    const validateSqlCancelParams = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.params.sql-cancel.v1.json",
+    );
     const validateRpcRequest = ajv.getSchema("https://plugagente.dev/schemas/rpc.request.v1.json");
-    const validatePayloadFrame = ajv.getSchema("https://plugagente.dev/schemas/payload-frame.v1.json");
-    const validateSqlResult = ajv.getSchema("https://plugagente.dev/schemas/rpc.result.sql-execute.v1.json");
-    const validateBatchRequest = ajv.getSchema("https://plugagente.dev/schemas/rpc.batch.request.v1.json");
-    const validateBatchResponse = ajv.getSchema("https://plugagente.dev/schemas/rpc.batch.response.v1.json");
+    const validatePayloadFrame = ajv.getSchema(
+      "https://plugagente.dev/schemas/payload-frame.v1.json",
+    );
+    const validateSqlResult = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.result.sql-execute.v1.json",
+    );
+    const validateBatchRequest = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.batch.request.v1.json",
+    );
+    const validateBatchResponse = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.batch.response.v1.json",
+    );
 
     expect(validateSqlExecuteParams).toBeDefined();
     expect(validateSqlBatchParams).toBeDefined();
@@ -192,10 +210,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
 
     const batchParams = {
       client_token: "a1b2c3d4",
-      commands: [
-        { sql: "SELECT 1", execution_order: 1 },
-        { sql: "SELECT 2" },
-      ],
+      commands: [{ sql: "SELECT 1", execution_order: 1 }, { sql: "SELECT 2" }],
       options: { transaction: false, timeout_ms: 10000 },
     };
     expect(validateSqlBatchParams!(batchParams)).toBe(true);
@@ -292,7 +307,9 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     const ajv = new Ajv2020({ strict: false, allErrors: true });
     addFormats(ajv);
     registerPlugAgenteSchemas(ajv);
-    const validateSqlExecuteParams = ajv.getSchema("https://plugagente.dev/schemas/rpc.params.sql-execute.v1.json");
+    const validateSqlExecuteParams = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.params.sql-execute.v1.json",
+    );
     const bad = {
       sql: "SELECT 1",
       options: { execution_mode: "preserve", page: 1, page_size: 10 },

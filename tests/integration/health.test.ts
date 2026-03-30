@@ -54,9 +54,7 @@ describe("GET /api/v1/health", () => {
   it("should echo the x-request-id header when provided", async () => {
     const customId = "test-request-id-123";
 
-    const response = await request(app)
-      .get("/api/v1/health")
-      .set("x-request-id", customId);
+    const response = await request(app).get("/api/v1/health").set("x-request-id", customId);
 
     expect(response.headers["x-request-id"]).toBe(customId);
     expect(response.body.requestId).toBe(customId);

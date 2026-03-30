@@ -130,9 +130,7 @@ describe("paginationSchema", () => {
 
 describe("idParamSchema", () => {
   it("should accept a valid UUID param", () => {
-    expect(() =>
-      idParamSchema.parse({ id: "550e8400-e29b-41d4-a716-446655440000" }),
-    ).not.toThrow();
+    expect(() => idParamSchema.parse({ id: "550e8400-e29b-41d4-a716-446655440000" })).not.toThrow();
   });
 
   it("should reject a non-UUID param", () => {

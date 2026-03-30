@@ -49,7 +49,9 @@ export const stopRelayIdempotencyCleanupTimer = (): void => {
   idempotencyCleanupTimer = null;
 };
 
-export const getOrCreateRelayIdempotencyMap = (conversationId: string): Map<string, RelayIdempotencyEntry> => {
+export const getOrCreateRelayIdempotencyMap = (
+  conversationId: string,
+): Map<string, RelayIdempotencyEntry> => {
   const existing = relayIdempotencyByConversation.get(conversationId);
   if (existing) {
     return existing;
@@ -62,7 +64,8 @@ export const getOrCreateRelayIdempotencyMap = (conversationId: string): Map<stri
 
 export const getRelayIdempotencyMap = (
   conversationId: string,
-): Map<string, RelayIdempotencyEntry> | undefined => relayIdempotencyByConversation.get(conversationId);
+): Map<string, RelayIdempotencyEntry> | undefined =>
+  relayIdempotencyByConversation.get(conversationId);
 
 export const clearRelayIdempotencyForConversation = (conversationId: string): void => {
   const idempotencyMap = relayIdempotencyByConversation.get(conversationId);

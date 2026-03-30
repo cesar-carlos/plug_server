@@ -82,12 +82,22 @@ const envSchema = z.object({
    * In auto mode, only keep gzip when it saves at least this many bytes versus raw UTF-8.
    * Avoids paying CPU for medium payloads whose compression win is negligible.
    */
-  PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES: z.coerce.number().int().min(0).max(64 * 1024).default(64),
+  PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(64 * 1024)
+    .default(64),
   /**
    * When > 0, hub→agent `encodePayloadFrameBridge` uses async zlib for gzip-eligible JSON at least this many UTF-8 bytes
    * (offloads CPU from the event loop). 0 = always synchronous gzip (previous behaviour).
    */
-  PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES: z.coerce.number().int().min(0).max(10 * 1024 * 1024).default(131_072),
+  PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10 * 1024 * 1024)
+    .default(131_072),
   /**
    * When > 0 and `cmp === gzip`, inbound `decodePayloadFrameAsync` uses async gunzip for compressed payloads
    * at least this many bytes. 0 = always synchronous gunzip.
@@ -115,18 +125,32 @@ const envSchema = z.object({
   SOCKET_AGENT_ROLES: z
     .string()
     .default("agent")
-    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
   SOCKET_CONSUMER_ROLES: z
     .string()
     .default("user,admin")
-    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
   SOCKET_RELAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   SOCKET_RELAY_MAX_CONVERSATIONS: z.coerce.number().int().positive().default(5_000),
   SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER: z.coerce.number().int().positive().default(20),
   SOCKET_RELAY_MAX_PENDING_REQUESTS: z.coerce.number().int().positive().default(10_000),
-  SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONVERSATION: z.coerce.number().int().positive().default(32),
+  SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONVERSATION: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(32),
   SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONSUMER: z.coerce.number().int().positive().default(128),
   SOCKET_RELAY_MAX_ACTIVE_STREAMS: z.coerce.number().int().positive().default(5_000),
   SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST: z.coerce.number().int().positive().default(256),
@@ -154,7 +178,9 @@ const envSchema = z.object({
    * Transitional handshake compatibility mode for `connection:ready`.
    * `payload_frame` is the default/current contract; `raw_json` exists only as a short-lived migration shim.
    */
-  SOCKET_CONNECTION_READY_COMPAT_MODE: z.enum(["payload_frame", "raw_json"]).default("payload_frame"),
+  SOCKET_CONNECTION_READY_COMPAT_MODE: z
+    .enum(["payload_frame", "raw_json"])
+    .default("payload_frame"),
   SOCKET_REST_MAX_PENDING_REQUESTS: z.coerce.number().int().positive().default(10_000),
   SOCKET_REST_AGENT_MAX_INFLIGHT: z.coerce.number().int().positive().default(32),
   SOCKET_REST_AGENT_MAX_QUEUE: z.coerce.number().int().nonnegative().default(64),
@@ -165,16 +191,31 @@ const envSchema = z.object({
    * Max aggregated rows allowed when REST materializes a streaming `sql.execute` (`stream_id` + chunks).
    * `0` disables the limit (not recommended for large deployments).
    */
-  SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS: z.coerce.number().int().min(0).max(10_000_000).default(1_000_000),
+  SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(1_000_000),
   /**
    * Max `rpc:chunk` frames accepted during REST materialization. `0` = unlimited.
    */
-  SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS: z.coerce.number().int().min(0).max(10_000_000).default(0),
+  SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(0),
   /**
    * Max Engine.IO packet size (bytes). Must fit PayloadFrame compressed ceiling (10 MB).
    * Default 10 MiB matches `payload_frame` limits.
    */
-  SOCKET_IO_MAX_HTTP_BUFFER_BYTES: z.coerce.number().int().positive().max(20 * 1024 * 1024).default(10 * 1024 * 1024),
+  SOCKET_IO_MAX_HTTP_BUFFER_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(20 * 1024 * 1024)
+    .default(10 * 1024 * 1024),
   /**
    * When false, disables WebSocket permessage-deflate (PayloadFrame already handles gzip at app layer).
    */
@@ -218,7 +259,7 @@ const envSchema = z.object({
           });
         }
       }),
-    ),
+  ),
   /** Hub API: do not serve socket.io client assets from this server (less HTTP surface, default off). */
   SOCKET_IO_SERVE_CLIENT: z
     .enum(["true", "false"])
@@ -255,15 +296,12 @@ const envSchema = z.object({
   /**
    * Percentage (0–100) of `relay:rpc.chunk` audit events persisted. If unset: 25 in production, 100 otherwise.
    */
-  SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT: z.preprocess(
-    (val) => {
-      if (val !== undefined && val !== "" && String(val).trim() !== "") {
-        return val;
-      }
-      return isProductionNodeEnv() ? "25" : "100";
-    },
-    z.coerce.number().int().min(0).max(100),
-  ),
+  SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT: z.preprocess((val) => {
+    if (val !== undefined && val !== "" && String(val).trim() !== "") {
+      return val;
+    }
+    return isProductionNodeEnv() ? "25" : "100";
+  }, z.coerce.number().int().min(0).max(100)),
   SWAGGER_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -314,7 +352,12 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   /** Max UTF-8 characters of `request_id` to persist (0 = full string). */
-  BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS: z.coerce.number().int().min(0).max(128).default(0),
+  BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(128)
+    .default(0),
   /**
    * Retention for `channel = relay` only. If unset/empty, uses `BRIDGE_LATENCY_TRACE_RETENTION_DAYS`.
    */
@@ -340,8 +383,7 @@ if (parsedEnv.NODE_ENV === "production") {
   }
 
   if (parsedEnv.REQUIRE_SMTP_IN_PRODUCTION) {
-    const smtpConfigured =
-      parsedEnv.SMTP_USER.trim() !== "" && parsedEnv.SMTP_PASS.trim() !== "";
+    const smtpConfigured = parsedEnv.SMTP_USER.trim() !== "" && parsedEnv.SMTP_PASS.trim() !== "";
     if (!smtpConfigured) {
       throw new Error(
         "Invalid production config: SMTP_USER and SMTP_PASS are required when REQUIRE_SMTP_IN_PRODUCTION=true.",
@@ -370,7 +412,8 @@ export const env = {
   payloadFrameGzipLevel: parsedEnv.PAYLOAD_FRAME_GZIP_LEVEL,
   payloadFrameAutoGzipMinSavingsBytes: parsedEnv.PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES,
   payloadFrameAsyncGzipMinUtf8Bytes: parsedEnv.PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES,
-  payloadFrameAsyncGunzipMinCompressedBytes: parsedEnv.PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES,
+  payloadFrameAsyncGunzipMinCompressedBytes:
+    parsedEnv.PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES,
   socketAgentKnownIdsMax: parsedEnv.SOCKET_AGENT_KNOWN_IDS_MAX,
   socketAgentProtocolReadyGraceMs: parsedEnv.SOCKET_AGENT_PROTOCOL_READY_GRACE_MS,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
@@ -387,8 +430,7 @@ export const env = {
   socketRelayMaxPendingRequestsPerConsumer:
     parsedEnv.SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONSUMER,
   socketRelayMaxActiveStreams: parsedEnv.SOCKET_RELAY_MAX_ACTIVE_STREAMS,
-  socketRelayMaxBufferedChunksPerRequest:
-    parsedEnv.SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST,
+  socketRelayMaxBufferedChunksPerRequest: parsedEnv.SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST,
   socketRelayMaxTotalBufferedChunks: parsedEnv.SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS,
   socketRelayIdempotencyTtlMs: parsedEnv.SOCKET_RELAY_IDEMPOTENCY_TTL_MS,
   socketRelayIdempotencyCleanupIntervalMs: parsedEnv.SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS,
@@ -403,8 +445,10 @@ export const env = {
   socketRelayRateLimitMaxConversationStarts:
     parsedEnv.SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS,
   socketRelayRateLimitMaxRequests: parsedEnv.SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS,
-  socketRelayRateLimitMaxStreamPullCredits: parsedEnv.SOCKET_RELAY_RATE_LIMIT_MAX_STREAM_PULL_CREDITS,
-  socketRelayRateLimitSweepStaleMultiplier: parsedEnv.SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER,
+  socketRelayRateLimitMaxStreamPullCredits:
+    parsedEnv.SOCKET_RELAY_RATE_LIMIT_MAX_STREAM_PULL_CREDITS,
+  socketRelayRateLimitSweepStaleMultiplier:
+    parsedEnv.SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER,
   socketConnectionReadyCompatMode: parsedEnv.SOCKET_CONNECTION_READY_COMPAT_MODE,
   socketRestMaxPendingRequests: parsedEnv.SOCKET_REST_MAX_PENDING_REQUESTS,
   socketRestAgentMaxInflight: parsedEnv.SOCKET_REST_AGENT_MAX_INFLIGHT,
@@ -438,14 +482,17 @@ export const env = {
   bridgeLatencyTraceMaxQueue: parsedEnv.BRIDGE_LATENCY_TRACE_MAX_QUEUE,
   bridgeLatencyTraceSlowTotalMs: parsedEnv.BRIDGE_LATENCY_TRACE_SLOW_TOTAL_MS,
   bridgeLatencyTraceRetentionDays: parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_DAYS,
-  bridgeLatencyTraceRetentionIntervalMinutes: parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_INTERVAL_MINUTES,
+  bridgeLatencyTraceRetentionIntervalMinutes:
+    parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_INTERVAL_MINUTES,
   bridgeLatencyTracePruneBatchSize: parsedEnv.BRIDGE_LATENCY_TRACE_PRUNE_BATCH_SIZE,
   bridgeLatencyTraceOtelEnabled: parsedEnv.BRIDGE_LATENCY_TRACE_OTEL_ENABLED,
   bridgeLatencyTracePhasesMismatchWarnMs: parsedEnv.BRIDGE_LATENCY_TRACE_PHASES_MISMATCH_WARN_MS,
   bridgeLatencyTraceRedactUserId: parsedEnv.BRIDGE_LATENCY_TRACE_REDACT_USER_ID,
-  bridgeLatencyTraceTruncateRequestIdChars: parsedEnv.BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS,
+  bridgeLatencyTraceTruncateRequestIdChars:
+    parsedEnv.BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS,
   bridgeLatencyTraceRelayRetentionDays:
-    parsedEnv.BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS ?? parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_DAYS,
+    parsedEnv.BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS ??
+    parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_DAYS,
   appBaseUrl: parsedEnv.APP_BASE_URL.replace(/\/+$/, ""),
   adminEmail: parsedEnv.ADMIN_EMAIL,
   smtpHost: parsedEnv.SMTP_HOST,

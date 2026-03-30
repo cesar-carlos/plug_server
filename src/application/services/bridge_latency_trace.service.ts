@@ -148,7 +148,9 @@ const performFlush = async (): Promise<void> => {
             tableState = "missing";
             traceMetrics.writesSkippedTableMissing += batch.length;
             if (!missingTableLogged) {
-              logger.warn("bridge_latency_traces_table_missing", { message: toErrorMessage(error) });
+              logger.warn("bridge_latency_traces_table_missing", {
+                message: toErrorMessage(error),
+              });
               missingTableLogged = true;
             }
             return;
@@ -199,7 +201,9 @@ export const applyPrivacyToBridgeLatencyRow = (
   };
 };
 
-const applyBridgeLatencyTraceRowPrivacy = (row: BridgeLatencyTraceRowInput): BridgeLatencyTraceRowInput =>
+const applyBridgeLatencyTraceRowPrivacy = (
+  row: BridgeLatencyTraceRowInput,
+): BridgeLatencyTraceRowInput =>
   applyPrivacyToBridgeLatencyRow(row, {
     redactUserId: env.bridgeLatencyTraceRedactUserId,
     truncateRequestIdChars: env.bridgeLatencyTraceTruncateRequestIdChars,
@@ -284,13 +288,11 @@ const toNumber = (value: unknown): number => {
   return 0;
 };
 
-export const pruneBridgeLatencyTracesOlderThanDays = async (
-  options?: {
-    readonly defaultRetentionDays?: number;
-    readonly relayRetentionDays?: number;
-    readonly batchSize?: number;
-  },
-): Promise<number> => {
+export const pruneBridgeLatencyTracesOlderThanDays = async (options?: {
+  readonly defaultRetentionDays?: number;
+  readonly relayRetentionDays?: number;
+  readonly batchSize?: number;
+}): Promise<number> => {
   traceMetrics.pruneRuns += 1;
 
   if (!(await canUseTraceTable())) {

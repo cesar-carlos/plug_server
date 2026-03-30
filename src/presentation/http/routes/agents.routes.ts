@@ -3,7 +3,10 @@ import { Router } from "express";
 import { listConnectedAgents, proxyCommandToAgent } from "../controllers/agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuth } from "../middlewares/auth.middleware";
-import { agentsCommandsIpRateLimit, agentsCommandsUserRateLimit } from "../middlewares/rate_limit.middleware";
+import {
+  agentsCommandsIpRateLimit,
+  agentsCommandsUserRateLimit,
+} from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { agentCommandBodySchema } from "../validators/agents.validator";
 
@@ -74,6 +77,8 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *       object or a JSON-RPC batch array (max 32 items). The API forwards the payload to the connected
  *       agent over Socket.IO (/agents), waits for response when at least one command has non-null `id`,
  *       and returns a normalized response.
+ *       The authenticated user (`sub` in the JWT) must be linked to `agentId` via the user→agent list (admin-managed);
+ *       otherwise the call fails with `403`. The agent must exist in the catalog and be `active`.
  *       If `id` is omitted, the server assigns a UUID before forwarding so the agent can correlate
  *       `rpc:response` (HTTP `200`). Explicit `id: null` is a JSON-RPC notification: no response is
  *       awaited and the route returns `202 Accepted` when every item is a notification.
@@ -280,8 +285,10 @@ agentsRouter.get("/", requireAuth, listConnectedAgents);
  *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
- *         description: Agent not found
+ *         description: Agent not found or not in catalog
  *       503:
  *         description: Agent offline, timed out, or payload signature/limits rejected
  */

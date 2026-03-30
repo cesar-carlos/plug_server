@@ -20,9 +20,8 @@ describe("errorMiddleware", () => {
       logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     }));
 
-    const { errorMiddleware } = await import(
-      "../../../../../src/presentation/http/middlewares/error.middleware"
-    );
+    const { errorMiddleware } =
+      await import("../../../../../src/presentation/http/middlewares/error.middleware");
     const { AppError } = await import("../../../../../src/shared/errors/app_error");
 
     const response = makeResponse();
@@ -51,9 +50,8 @@ describe("errorMiddleware", () => {
       logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     }));
 
-    const { errorMiddleware } = await import(
-      "../../../../../src/presentation/http/middlewares/error.middleware"
-    );
+    const { errorMiddleware } =
+      await import("../../../../../src/presentation/http/middlewares/error.middleware");
     const { AppError } = await import("../../../../../src/shared/errors/app_error");
 
     const response = makeResponse();

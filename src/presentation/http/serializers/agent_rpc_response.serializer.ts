@@ -61,7 +61,9 @@ const normalizeRpcError = (value: unknown): NormalizedRpcError => {
   };
 };
 
-const extractMetaFields = (payload: Record<string, unknown>): Pick<NormalizedRpcItem, "api_version" | "meta"> => {
+const extractMetaFields = (
+  payload: Record<string, unknown>,
+): Pick<NormalizedRpcItem, "api_version" | "meta"> => {
   const api_version = typeof payload.api_version === "string" ? payload.api_version : undefined;
   const meta = isRecord(payload.meta) ? payload.meta : undefined;
   return {

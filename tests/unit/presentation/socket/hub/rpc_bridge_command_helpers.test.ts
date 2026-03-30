@@ -90,9 +90,7 @@ describe("rpc_bridge_command_helpers", () => {
   });
 
   it("extractStreamIdFromRpcResponse reads result.stream_id", () => {
-    expect(
-      extractStreamIdFromRpcResponse({ result: { stream_id: " sid " } }),
-    ).toBe("sid");
+    expect(extractStreamIdFromRpcResponse({ result: { stream_id: " sid " } })).toBe("sid");
     expect(extractStreamIdFromRpcResponse({ result: {} })).toBeNull();
     expect(extractStreamIdFromRpcResponse(null)).toBeNull();
   });

@@ -100,4 +100,3 @@ describe("RPC contract alignment", () => {
     expect(swaggerMethods).toEqual(openRpcMethods);
   });
 });
-

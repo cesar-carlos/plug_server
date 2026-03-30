@@ -37,7 +37,10 @@ type RelayStreamPullResponsePayload =
       };
     };
 
-const emitRelayStreamPullResponse = (socket: Socket, payload: RelayStreamPullResponsePayload): void => {
+const emitRelayStreamPullResponse = (
+  socket: Socket,
+  payload: RelayStreamPullResponsePayload,
+): void => {
   socket.emit(socketEvents.relayRpcStreamPullResponse, payload);
 };
 
@@ -51,7 +54,9 @@ export const handleRelayRpcStreamPull = (
   const parsed = relayStreamPullEnvelopeSchema.safeParse(rawPayload);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
-    const message = firstIssue ? `${firstIssue.path.join(".")}: ${firstIssue.message}` : "Validation failed";
+    const message = firstIssue
+      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
+      : "Validation failed";
     emitRelayStreamPullResponse(socket, {
       success: false,
       error: { code: "VALIDATION_ERROR", message },

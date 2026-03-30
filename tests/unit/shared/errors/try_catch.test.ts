@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 
 import { AppError } from "../../../../src/shared/errors/app_error";
-import { extractErrorMessage, tryCatch, tryCatchAsync } from "../../../../src/shared/errors/try_catch";
+import {
+  extractErrorMessage,
+  tryCatch,
+  tryCatchAsync,
+} from "../../../../src/shared/errors/try_catch";
 
 // ─── extractErrorMessage ─────────────────────────────────────────────────────
 
@@ -13,7 +17,9 @@ describe("extractErrorMessage", () => {
   });
 
   it("should join ZodError issues with field paths", () => {
-    const result = z.object({ email: z.string().email("Invalid email") }).safeParse({ email: "bad" });
+    const result = z
+      .object({ email: z.string().email("Invalid email") })
+      .safeParse({ email: "bad" });
     expect(result.success).toBe(false);
     if (!result.success) {
       const msg = extractErrorMessage(result.error);
@@ -54,7 +60,9 @@ describe("tryCatch", () => {
 
   it("should return Err with the AppError when an AppError is thrown", () => {
     const error = new AppError("known error", { statusCode: 404, code: "NOT_FOUND" });
-    const result = tryCatch(() => { throw error; });
+    const result = tryCatch(() => {
+      throw error;
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.message).toBe("known error");
@@ -63,7 +71,9 @@ describe("tryCatch", () => {
   });
 
   it("should wrap a native Error and extract its message", () => {
-    const result = tryCatch(() => { throw new Error("native failure"); }, "fallback");
+    const result = tryCatch(() => {
+      throw new Error("native failure");
+    }, "fallback");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.message).toBe("native failure");
@@ -71,7 +81,9 @@ describe("tryCatch", () => {
   });
 
   it("should use the fallback message when error has no message", () => {
-    const result = tryCatch(() => { throw null; }, "fallback message");
+    const result = tryCatch(() => {
+      throw null;
+    }, "fallback message");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.message).toBe("fallback message");
@@ -80,7 +92,9 @@ describe("tryCatch", () => {
 
   it("should apply custom statusCode and code to wrapped errors", () => {
     const result = tryCatch(
-      () => { throw new Error("oops"); },
+      () => {
+        throw new Error("oops");
+      },
       "oops",
       { statusCode: 422, code: "UNPROCESSABLE_ENTITY" },
     );
@@ -103,7 +117,9 @@ describe("tryCatchAsync", () => {
 
   it("should return Err when the async function rejects with AppError", async () => {
     const error = new AppError("async failure", { statusCode: 503, code: "SERVICE_UNAVAILABLE" });
-    const result = await tryCatchAsync(async () => { throw error; });
+    const result = await tryCatchAsync(async () => {
+      throw error;
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.message).toBe("async failure");
@@ -112,10 +128,9 @@ describe("tryCatchAsync", () => {
   });
 
   it("should wrap a rejected promise with the extracted message", async () => {
-    const result = await tryCatchAsync(
-      async () => { throw new Error("db connection failed"); },
-      "Database error",
-    );
+    const result = await tryCatchAsync(async () => {
+      throw new Error("db connection failed");
+    }, "Database error");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.message).toBe("db connection failed");

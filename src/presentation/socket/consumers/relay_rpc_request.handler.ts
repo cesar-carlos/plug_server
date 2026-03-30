@@ -41,7 +41,9 @@ export const handleRelayRpcRequest = (
   const parsed = relayRpcEnvelopeSchema.safeParse(rawPayload);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
-    const message = firstIssue ? `${firstIssue.path.join(".")}: ${firstIssue.message}` : "Validation failed";
+    const message = firstIssue
+      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
+      : "Validation failed";
     emitRelayRpcAccepted(socket, {
       success: false,
       error: { code: "VALIDATION_ERROR", message },
@@ -97,7 +99,9 @@ export const handleRelayRpcRequest = (
         if (latencyTrace.hasDispatchMeta()) {
           latencyTrace.finalizeOnce({
             outcome: "error",
-            ...(typeof appError?.statusCode === "number" ? { httpStatus: appError.statusCode } : {}),
+            ...(typeof appError?.statusCode === "number"
+              ? { httpStatus: appError.statusCode }
+              : {}),
             errorCode: appError?.code ?? "RELAY_RPC_REQUEST_FAILED",
           });
         } else {

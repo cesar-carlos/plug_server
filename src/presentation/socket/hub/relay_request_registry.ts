@@ -60,7 +60,8 @@ const removeFromIndex = (index: Map<string, Set<string>>, key: string, value: st
 export const getRelayRequestRoute = (requestId: string): RelayRequestRoute | undefined =>
   relayRequestsByRequestId.get(requestId);
 
-export const hasRelayRequestRoute = (requestId: string): boolean => relayRequestsByRequestId.has(requestId);
+export const hasRelayRequestRoute = (requestId: string): boolean =>
+  relayRequestsByRequestId.has(requestId);
 
 export const getRelayRegisteredRouteCount = (): number => relayRequestsByRequestId.size;
 

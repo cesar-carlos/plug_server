@@ -26,9 +26,6 @@ export const buildConnectionReadyPayloadForWire = (
   return encodePayloadFrame(payload, { requestId: "handshake", omitTraceId: true });
 };
 
-export const emitConnectionReady = (
-  socket: Socket,
-  payload: ConnectionReadyPayload,
-): void => {
+export const emitConnectionReady = (socket: Socket, payload: ConnectionReadyPayload): void => {
   socket.emit(socketEvents.connectionReady, buildConnectionReadyPayloadForWire(payload));
 };

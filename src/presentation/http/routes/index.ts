@@ -7,11 +7,15 @@ import { validateRequest } from "../middlewares/validate.middleware";
 import { healthQuerySchema } from "../validators/health.validator";
 import { agentsRouter } from "./agents.routes";
 import { authRouter } from "./auth.routes";
+import { agentCatalogRouter } from "./agent_catalog.routes";
+import { userAgentsRouter } from "./user_agents.routes";
 
 export const httpRouter = Router();
 
 httpRouter.use("/auth", authRouter);
+httpRouter.use("/agents/catalog", agentCatalogRouter);
 httpRouter.use("/agents", agentsRouter);
+httpRouter.use("/", userAgentsRouter);
 
 /**
  * @openapi

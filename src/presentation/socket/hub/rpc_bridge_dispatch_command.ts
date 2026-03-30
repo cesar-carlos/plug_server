@@ -14,7 +14,10 @@ import {
   serviceUnavailable,
   serviceUnavailableWithRetry,
 } from "../../../shared/errors/http_errors";
-import type { BridgeCommand, PayloadFrameCompression } from "../../../shared/validators/agent_command";
+import type {
+  BridgeCommand,
+  PayloadFrameCompression,
+} from "../../../shared/validators/agent_command";
 import { logger } from "../../../shared/utils/logger";
 import { isRecord } from "../../../shared/utils/rpc_types";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -30,7 +33,11 @@ import {
   removeActiveStreamRoute,
   upsertActiveStreamRoute,
 } from "./active_stream_registry";
-import { ensureAgentCircuitClosed, registerAgentFailure, relayMetrics } from "./bridge_relay_health_metrics";
+import {
+  ensureAgentCircuitClosed,
+  registerAgentFailure,
+  relayMetrics,
+} from "./bridge_relay_health_metrics";
 import { acquireRestAgentDispatchSlot } from "./rest_agent_dispatch_queue";
 import type { PendingRequest, StreamEventHandlers } from "./rest_pending_requests";
 import {
@@ -40,11 +47,7 @@ import {
   registerRestPendingRequest,
 } from "./rest_pending_requests";
 import { hasRelayRequestRoute } from "./relay_request_registry";
-import {
-  isBatchCommand,
-  toCorrelationIds,
-  withBridgeMeta,
-} from "./rpc_bridge_command_helpers";
+import { isBatchCommand, toCorrelationIds, withBridgeMeta } from "./rpc_bridge_command_helpers";
 
 const defaultRequestTimeoutMs = 15_000;
 
@@ -124,7 +127,8 @@ export const createDispatchRpcCommandToAgent = (
     const command = input.command;
     const correlationIds = toCorrelationIds(command);
     const firstCorrelationId = correlationIds.at(0);
-    const requestId = !isBatchCommand(command) && firstCorrelationId ? firstCorrelationId : randomUUID();
+    const requestId =
+      !isBatchCommand(command) && firstCorrelationId ? firstCorrelationId : randomUUID();
     const traceId = randomUUID();
     const commandPayload = withBridgeMeta(command, {
       requestId,
@@ -139,7 +143,9 @@ export const createDispatchRpcCommandToAgent = (
       agentId: input.agentId,
     });
     const timeoutMs = input.timeoutMs ?? defaultRequestTimeoutMs;
-    const payloadFrameEncodeOpts = payloadFrameEncodeOptionsFromPreference(input.payloadFrameCompression);
+    const payloadFrameEncodeOpts = payloadFrameEncodeOptionsFromPreference(
+      input.payloadFrameCompression,
+    );
 
     for (const correlationId of correlationIds) {
       if (
@@ -152,7 +158,10 @@ export const createDispatchRpcCommandToAgent = (
     }
 
     if (correlationIds.length === 0) {
-      input.latencyTrace?.addPhaseMs("dispatch_preflight_ms", performance.now() - dispatchWallStart);
+      input.latencyTrace?.addPhaseMs(
+        "dispatch_preflight_ms",
+        performance.now() - dispatchWallStart,
+      );
       const tQueue = performance.now();
       const releaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
       input.latencyTrace?.addPhaseMs("queue_wait_ms", performance.now() - tQueue);
@@ -282,14 +291,12 @@ export const createDispatchRpcCommandToAgent = (
           resolve: resolveOnce,
           reject: rejectOnce,
           timeoutHandle,
-          ...(
-            !isBatchCommand(command) &&
-            command.method === "sql.execute" &&
-            input.streamHandlers &&
-            correlationIds.length === 1
-              ? { streamHandlers: input.streamHandlers }
-              : {}
-          ),
+          ...(!isBatchCommand(command) &&
+          command.method === "sql.execute" &&
+          input.streamHandlers &&
+          correlationIds.length === 1
+            ? { streamHandlers: input.streamHandlers }
+            : {}),
           ...(restStreamAggregate ? { restStreamAggregate: true } : {}),
           ...(input.latencyTrace ? { latencyTrace: input.latencyTrace } : {}),
           acked: false,
@@ -336,7 +343,9 @@ export const createDispatchRpcCommandToAgent = (
             removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
           registerAgentFailure(input.agentId);
-          rejectOnce(error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request"));
+          rejectOnce(
+            error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request"),
+          );
         }
       });
 

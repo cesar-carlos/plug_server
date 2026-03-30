@@ -14,10 +14,7 @@ import {
 import { relayMetrics } from "./bridge_relay_health_metrics";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import { getRelayRequestRoute, removeRelayRequestRoute } from "./relay_request_registry";
-import {
-  addRelayStreamFlowCredits,
-  drainRelayStreamBuffer,
-} from "./relay_stream_flow_state";
+import { addRelayStreamFlowCredits, drainRelayStreamBuffer } from "./relay_stream_flow_state";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 
 const defaultStreamWindowSize = 1;
@@ -123,8 +120,10 @@ export const createRequestAgentStreamPull = (
           agentSocketId: route.agentSocketId,
           conversationId: relayRouteForAudit?.conversationId ?? "",
           agentId: relayRouteForAudit?.agentId ?? "",
-          emitChunk: (frame) => emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
-          emitComplete: (frame) => emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
+          emitChunk: (frame) =>
+            emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
+          emitComplete: (frame) =>
+            emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
           encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
           recordAudit: (eventType, extras) => {
             if (relayRouteForAudit) {

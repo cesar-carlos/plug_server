@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import type { z} from "zod";
+import type { z } from "zod";
 import type { ZodTypeAny } from "zod";
 
 type RequestSchemas = {
@@ -15,10 +15,7 @@ type RequestSchemas = {
  * @example
  * const body = getValidated<z.infer<typeof loginBodySchema>>(response, "body");
  */
-export const getValidated = <T>(
-  response: Response,
-  key: keyof RequestSchemas,
-): T => {
+export const getValidated = <T>(response: Response, key: keyof RequestSchemas): T => {
   const validated = response.locals.validated as Record<string, unknown>;
   return validated[key] as T;
 };

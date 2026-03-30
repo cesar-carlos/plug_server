@@ -5,7 +5,8 @@
 
 import type { Socket } from "socket.io";
 
-import { executeAgentCommand } from "../../../application/agent_commands/execute_agent_command";
+import { executeAuthorizedAgentCommand } from "../../../application/agent_commands/execute_authorized_agent_command";
+import { container } from "../../../shared/di/container";
 import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
 import { dispatchRpcCommandToAgent } from "../hub/rpc_bridge";
 import { normalizeAgentRpcResponse } from "../../http/serializers/agent_rpc_response.serializer";
@@ -19,7 +20,11 @@ const emitCommandResponse = (
   socket: Socket,
   payload:
     | { success: true; requestId: string; response: unknown; streamId?: string }
-    | { success: false; requestId?: string; error: { code: string; message: string; statusCode?: number } },
+    | {
+        success: false;
+        requestId?: string;
+        error: { code: string; message: string; statusCode?: number };
+      },
 ): void => {
   socket.emit(socketEvents.agentsCommandResponse, payload);
 };
@@ -37,7 +42,9 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   const parsed = agentCommandBodySchema.safeParse(rawPayload);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
-    const message = firstIssue ? `${firstIssue.path.join(".")}: ${firstIssue.message}` : "Validation failed";
+    const message = firstIssue
+      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
+      : "Validation failed";
     emitCommandResponse(socket, {
       success: false,
       error: { code: "VALIDATION_ERROR", message },
@@ -58,6 +65,14 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     return;
   }
 
+  if (!userSub) {
+    emitCommandResponse(socket, {
+      success: false,
+      error: { code: "UNAUTHORIZED", message: "Authentication required", statusCode: 401 },
+    });
+    return;
+  }
+
   const body = parsed.data;
   const latencyTrace = createBridgeLatencyTraceIfSampled({
     channel: "consumer_socket",
@@ -73,8 +88,9 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     },
   } as const;
 
-  void executeAgentCommand(
+  void executeAuthorizedAgentCommand(
     {
+      userId: userSub,
       agentId: body.agentId,
       command: body.command,
       ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),
@@ -84,6 +100,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
         : {}),
       ...(latencyTrace ? { latencyTrace } : {}),
     },
+    container.agentAccessService,
     (input) =>
       dispatchRpcCommandToAgent({
         ...input,

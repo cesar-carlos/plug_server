@@ -219,7 +219,9 @@ const validateFrameSignature = (
   }
 
   if (!env.payloadSigningKey || env.payloadSigningKey.trim() === "") {
-    return err(badRequest("PayloadFrame signature provided but PAYLOAD_SIGNING_KEY is not configured"));
+    return err(
+      badRequest("PayloadFrame signature provided but PAYLOAD_SIGNING_KEY is not configured"),
+    );
   }
 
   if (
@@ -293,7 +295,10 @@ export const isPayloadFrameEnvelope = (payload: unknown): payload is PayloadFram
     return false;
   }
 
-  if (candidate.signature !== undefined && !isValidPayloadFrameSignatureBlock(candidate.signature)) {
+  if (
+    candidate.signature !== undefined &&
+    !isValidPayloadFrameSignatureBlock(candidate.signature)
+  ) {
     return false;
   }
 
@@ -463,9 +468,15 @@ export const encodePayloadFrame = (
   options?: EncodePayloadFrameOptions,
 ): PayloadFrameEnvelope => {
   const body = preencodePayloadFrameJson(data, {
-    ...(options?.compressionThreshold !== undefined ? { compressionThreshold: options.compressionThreshold } : {}),
-    ...(options?.compressionPolicy !== undefined ? { compressionPolicy: options.compressionPolicy } : {}),
-    ...(options?.maxGzipInputBytes !== undefined ? { maxGzipInputBytes: options.maxGzipInputBytes } : {}),
+    ...(options?.compressionThreshold !== undefined
+      ? { compressionThreshold: options.compressionThreshold }
+      : {}),
+    ...(options?.compressionPolicy !== undefined
+      ? { compressionPolicy: options.compressionPolicy }
+      : {}),
+    ...(options?.maxGzipInputBytes !== undefined
+      ? { maxGzipInputBytes: options.maxGzipInputBytes }
+      : {}),
   });
   return finishPayloadFrameEnvelope(body, options);
 };
@@ -478,16 +489,21 @@ export const encodePayloadFrameBridge = async (
   data: unknown,
   options?: EncodePayloadFrameOptions,
 ): Promise<PayloadFrameEnvelope> => {
-  const minAsync =
-    options?.asyncGzipMinUtf8Bytes ?? env.payloadFrameAsyncGzipMinUtf8Bytes;
+  const minAsync = options?.asyncGzipMinUtf8Bytes ?? env.payloadFrameAsyncGzipMinUtf8Bytes;
   if (minAsync <= 0) {
     return encodePayloadFrame(data, options);
   }
 
   const preOpts: PreencodePayloadFrameJsonOptions = {
-    ...(options?.compressionThreshold !== undefined ? { compressionThreshold: options.compressionThreshold } : {}),
-    ...(options?.compressionPolicy !== undefined ? { compressionPolicy: options.compressionPolicy } : {}),
-    ...(options?.maxGzipInputBytes !== undefined ? { maxGzipInputBytes: options.maxGzipInputBytes } : {}),
+    ...(options?.compressionThreshold !== undefined
+      ? { compressionThreshold: options.compressionThreshold }
+      : {}),
+    ...(options?.compressionPolicy !== undefined
+      ? { compressionPolicy: options.compressionPolicy }
+      : {}),
+    ...(options?.maxGzipInputBytes !== undefined
+      ? { maxGzipInputBytes: options.maxGzipInputBytes }
+      : {}),
   };
 
   const encoded = Buffer.from(JSON.stringify(data), "utf8");
@@ -495,8 +511,7 @@ export const encodePayloadFrameBridge = async (
   const maxGzipInputBytes = preOpts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
   const belowThreshold = encoded.length < threshold;
   const aboveMaxInput = encoded.length > maxGzipInputBytes;
-  const gzipEligible =
-    !belowThreshold && !aboveMaxInput && threshold !== Number.POSITIVE_INFINITY;
+  const gzipEligible = !belowThreshold && !aboveMaxInput && threshold !== Number.POSITIVE_INFINITY;
 
   const body =
     gzipEligible && encoded.length >= minAsync
@@ -522,7 +537,10 @@ const validatePayloadFrameForDecode = (
     return err(badRequest("PayloadFrame payload must contain binary data"));
   }
 
-  if (payload.compressedSize > maxCompressedPayloadBytes || binaryPayload.length > maxCompressedPayloadBytes) {
+  if (
+    payload.compressedSize > maxCompressedPayloadBytes ||
+    binaryPayload.length > maxCompressedPayloadBytes
+  ) {
     return err(badRequest("PayloadFrame compressed payload exceeds limit"));
   }
 
@@ -543,7 +561,10 @@ const finalizeDecodedPayloadBytes = (
   binaryPayload: Buffer,
   decodedBytes: Buffer,
 ): Result<DecodedPayloadFrame> => {
-  if (decodedBytes.length > maxDecodedPayloadBytes || envelope.originalSize > maxDecodedPayloadBytes) {
+  if (
+    decodedBytes.length > maxDecodedPayloadBytes ||
+    envelope.originalSize > maxDecodedPayloadBytes
+  ) {
     return err(badRequest("PayloadFrame decoded payload exceeds limit"));
   }
 

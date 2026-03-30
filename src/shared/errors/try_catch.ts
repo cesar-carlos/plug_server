@@ -16,7 +16,10 @@ import { type Result, ok, err } from "./result";
  *   5. object    → JSON-serializes it for debugging
  *   6. fallback  → returns the provided fallback string
  */
-export const extractErrorMessage = (error: unknown, fallback = "An unexpected error occurred"): string => {
+export const extractErrorMessage = (
+  error: unknown,
+  fallback = "An unexpected error occurred",
+): string => {
   if (error instanceof AppError) return error.message;
 
   if (error instanceof ZodError) {

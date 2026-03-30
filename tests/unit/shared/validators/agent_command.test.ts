@@ -134,7 +134,9 @@ describe("agentCommandBodySchema", () => {
 
     expect(parsed.success).toBe(false);
     if (!parsed.success) {
-      expect(parsed.error.issues.some((issue) => issue.message.includes("Batch ids must be unique"))).toBe(true);
+      expect(
+        parsed.error.issues.some((issue) => issue.message.includes("Batch ids must be unique")),
+      ).toBe(true);
     }
   });
 
@@ -206,7 +208,9 @@ describe("agentCommandBodySchema", () => {
     if (!parsed.success) {
       expect(
         parsed.error.issues.some((issue) =>
-          issue.message.includes("`pagination` cannot be combined with `options.multi_result=true`"),
+          issue.message.includes(
+            "`pagination` cannot be combined with `options.multi_result=true`",
+          ),
         ),
       ).toBe(true);
     }
@@ -357,7 +361,9 @@ describe("agentCommandBodySchema", () => {
     if (!parsed.success) {
       expect(
         parsed.error.issues.some((issue) =>
-          issue.message.includes("`pagination` cannot be combined with `options.execution_mode=preserve`"),
+          issue.message.includes(
+            "`pagination` cannot be combined with `options.execution_mode=preserve`",
+          ),
         ),
       ).toBe(true);
     }
@@ -385,7 +391,9 @@ describe("agentCommandBodySchema", () => {
     if (!parsed.success) {
       expect(
         parsed.error.issues.some((issue) =>
-          issue.message.includes("`execution_mode: managed` cannot be combined with `preserve_sql: true`"),
+          issue.message.includes(
+            "`execution_mode: managed` cannot be combined with `preserve_sql: true`",
+          ),
         ),
       ).toBe(true);
     }

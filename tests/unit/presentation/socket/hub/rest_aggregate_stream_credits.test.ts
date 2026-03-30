@@ -14,7 +14,10 @@ const countPullsForChunks = (chunkCount: number, window: number): number => {
   };
   initialPull();
   for (let i = 0; i < chunkCount; i += 1) {
-    const { nextStoredCredits, shouldEmitPull } = stepRestSqlStreamMaterializeCredits(stored, window);
+    const { nextStoredCredits, shouldEmitPull } = stepRestSqlStreamMaterializeCredits(
+      stored,
+      window,
+    );
     stored = nextStoredCredits;
     if (shouldEmitPull) {
       pulls += 1;

@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 
-import { executeAgentCommand } from "../../../application/agent_commands/execute_agent_command";
+import { executeAuthorizedAgentCommand } from "../../../application/agent_commands/execute_authorized_agent_command";
 import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
 import {
   incrementRestBridgeRequest,
@@ -15,9 +15,10 @@ import { agentsNamespace } from "../../../socket";
 import { dispatchRpcCommandToAgent } from "../../socket/hub/rpc_bridge";
 import { normalizeAgentRpcResponse } from "../serializers/agent_rpc_response.serializer";
 import { getValidated } from "../middlewares/validate.middleware";
+import { getAuthUser } from "../middlewares/auth.middleware";
 import type { AgentCommandBody } from "../validators/agents.validator";
 import { env } from "../../../shared/config/env";
-import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { container } from "../../../shared/di/container";
 
 export const listConnectedAgents = (_request: Request, response: Response): void => {
   const agents = agentRegistry.listAll();
@@ -45,6 +46,7 @@ export const proxyCommandToAgent = async (
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<AgentCommandBody>(response, "body");
+  const authUser = getAuthUser(response);
   const abortController = new AbortController();
   const abortOnClientDisconnect = (): void => {
     if (!response.writableEnded && !abortController.signal.aborted) {
@@ -65,16 +67,16 @@ export const proxyCommandToAgent = async (
     throw notFound(`Agent ${body.agentId}`);
   }
 
-  const authUser = response.locals.authUser as JwtAccessPayload | undefined;
   const latencyTrace = createBridgeLatencyTraceIfSampled({
     channel: "rest",
-    userId: typeof authUser?.sub === "string" ? authUser.sub : undefined,
+    userId: authUser.sub,
   });
 
   const startMs = Date.now();
   try {
-    const result = await executeAgentCommand(
+    const result = await executeAuthorizedAgentCommand(
       {
+        userId: authUser.sub,
         agentId: body.agentId,
         command: body.command,
         ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),
@@ -85,6 +87,7 @@ export const proxyCommandToAgent = async (
         signal: abortController.signal,
         ...(latencyTrace ? { latencyTrace } : {}),
       },
+      container.agentAccessService,
       dispatchRpcCommandToAgent,
       normalizeAgentRpcResponse,
     );

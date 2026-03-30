@@ -2,7 +2,10 @@ import { User } from "../entities/user.entity";
 import type { IRegistrationApprovalTokenRepository } from "../repositories/registration_approval_token.repository.interface";
 import type { IUserRepository } from "../repositories/user.repository.interface";
 import { conflict, notFound, registrationTokenExpired } from "../../shared/errors/http_errors";
-import { incrementRegistrationApproved, incrementRegistrationTokenExpired } from "../../shared/metrics/registration_flow.metrics";
+import {
+  incrementRegistrationApproved,
+  incrementRegistrationTokenExpired,
+} from "../../shared/metrics/registration_flow.metrics";
 import { type Result, ok, err } from "../../shared/errors/result";
 import { isExpired } from "../../shared/utils/date";
 

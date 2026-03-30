@@ -3,7 +3,9 @@ import type { Request, Response } from "express";
 import { env } from "../../../shared/config/env";
 import { nowUtcIso } from "../../../shared/utils/date";
 
-const buildHealthPayload = (response: Response): {
+const buildHealthPayload = (
+  response: Response,
+): {
   status: string;
   service: string;
   environment: string;

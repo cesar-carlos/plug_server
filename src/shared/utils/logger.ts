@@ -11,10 +11,7 @@ const serializeValue = (value: unknown): unknown => {
 
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
-        k,
-        serializeValue(v),
-      ]),
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, serializeValue(v)]),
     );
   }
 
@@ -31,9 +28,7 @@ const formatLogLine = (
   context?: Record<string, unknown>,
 ): string => {
   const timestamp = nowLogTimestamp();
-  const serializedContext = context
-    ? ` ${JSON.stringify(serializeValue(context))}`
-    : "";
+  const serializedContext = context ? ` ${JSON.stringify(serializeValue(context))}` : "";
 
   return `[${timestamp}] ${level} ${message}${serializedContext}`;
 };

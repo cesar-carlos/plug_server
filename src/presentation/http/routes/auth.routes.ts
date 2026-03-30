@@ -301,6 +301,11 @@ authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandl
  * /auth/agent-login:
  *   post:
  *     summary: Login for agents (Socket.IO namespace /agents)
+ *     description: >
+ *       Issues access/refresh tokens scoped to `agentId` for connecting to `/agents`.
+ *       The user must already be linked to this `agentId` by an admin (user→agent list API);
+ *       the server no longer creates that link on first login.
+ *       The `agentId` must exist in the agent catalog and have status `active`.
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -333,7 +338,18 @@ authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandl
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: Agent id already linked to another user
+ *         description: >
+ *           Forbidden — e.g. no user→agent binding, inactive agent, or agent bound to another user.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Agent not found in catalog
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 authRouter.post(
   "/agent-login",

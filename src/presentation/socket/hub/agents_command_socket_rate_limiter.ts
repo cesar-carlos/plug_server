@@ -46,7 +46,10 @@ const ensureState = (key: string): WindowState => {
 /**
  * @param userSub JWT `sub` when present; anonymous sockets use per-connection key.
  */
-export const allowAgentsCommandSocket = (userSub: string | undefined, socketId: string): boolean => {
+export const allowAgentsCommandSocket = (
+  userSub: string | undefined,
+  socketId: string,
+): boolean => {
   const trimmed = userSub?.trim();
   const key = trimmed ? `agents_cmd:user:${trimmed}` : `agents_cmd:anon:${socketId}`;
   const state = ensureState(key);
