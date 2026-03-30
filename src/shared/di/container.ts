@@ -97,6 +97,7 @@ export const container = {
     agentAccessService,
     emailSender,
   ),
+  emailSender,
   agentAccessService,
   agentCatalogService,
   userAgentService,

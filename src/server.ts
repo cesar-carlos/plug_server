@@ -8,6 +8,12 @@ import {
   waitForBridgeLatencyTraceDrain,
 } from "./application/services/bridge_latency_trace.service";
 import {
+  flushRegistrationEmailOutbox,
+  startRegistrationEmailOutboxWorker,
+  stopRegistrationEmailOutboxWorker,
+  waitForRegistrationEmailOutboxDrain,
+} from "./application/services/registration_email_outbox.service";
+import {
   flushPendingSocketAuditEvents,
   waitForSocketAuditDrain,
   startSocketAuditRetentionScheduler,
@@ -15,6 +21,7 @@ import {
 } from "./application/services/socket_audit.service";
 import { prismaClient } from "./infrastructure/database/prisma/client";
 import { closeSocketServer, createSocketServer } from "./socket";
+import { container } from "./shared/di/container";
 import { env } from "./shared/config/env";
 import { logger } from "./shared/utils/logger";
 
@@ -32,6 +39,7 @@ startBridgeLatencyTraceRetentionScheduler({
   intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
   batchSize: env.bridgeLatencyTracePruneBatchSize,
 });
+startRegistrationEmailOutboxWorker(container.emailSender);
 
 httpServer.listen(env.port, "0.0.0.0", () => {
   logger.info("HTTP server started", {
@@ -64,6 +72,7 @@ const shutdown = async (signal: string): Promise<void> => {
   try {
     stopSocketAuditRetentionScheduler();
     stopBridgeLatencyTraceRetentionScheduler();
+    stopRegistrationEmailOutboxWorker();
     await flushPendingSocketAuditEvents();
     const auditDrain = await waitForSocketAuditDrain(2_500);
     if (!auditDrain.drained) {
@@ -74,6 +83,12 @@ const shutdown = async (signal: string): Promise<void> => {
     const traceDrain = await waitForBridgeLatencyTraceDrain(2_500);
     if (!traceDrain.drained) {
       logger.warn("bridge_latency_trace_drain_timeout", { pending: traceDrain.pending });
+    }
+
+    await flushRegistrationEmailOutbox(container.emailSender);
+    const outboxDrain = await waitForRegistrationEmailOutboxDrain(2_500);
+    if (!outboxDrain.drained) {
+      logger.warn("registration_email_outbox_drain_timeout", { pending: outboxDrain.pending });
     }
 
     await closeSocketServer(io, signal);

@@ -47,6 +47,22 @@ model RegistrationApprovalToken {
   @@map("registration_approval_tokens")
 }
 
+model RegistrationEmailOutbox {
+  id         String   @id @default(uuid())
+  kind       String   @db.VarChar(80)
+  payload    Json     @map("payload_json")
+  attempts   Int      @default(0)
+  availableAt DateTime @default(now()) @map("available_at")
+  lockedAt   DateTime? @map("locked_at")
+  lastError  String?  @map("last_error") @db.VarChar(1000)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([availableAt])
+  @@index([lockedAt])
+  @@map("registration_email_outbox")
+}
+
 model RefreshToken {
   id        String    @id
   userId    String    @map("user_id")

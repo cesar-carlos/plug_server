@@ -49,6 +49,40 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
+  /** Max attempts per registration email dispatch operation (including first attempt). */
+  REGISTRATION_EMAIL_MAX_RETRIES: z.coerce.number().int().min(1).max(10).default(3),
+  /** Delay (ms) between retries for registration email delivery attempts. */
+  REGISTRATION_EMAIL_RETRY_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(1500),
+  /** When true, registration emails are persisted in outbox and sent by background worker. */
+  REGISTRATION_EMAIL_OUTBOX_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  /** Poll interval for registration email outbox worker in milliseconds. */
+  REGISTRATION_EMAIL_OUTBOX_POLL_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(500)
+    .max(60_000)
+    .default(3_000),
+  /** Max outbox rows processed per poll cycle. */
+  REGISTRATION_EMAIL_OUTBOX_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(25),
+  /** Max delivery attempts per outbox row before dead-letter. */
+  REGISTRATION_EMAIL_OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(10),
+  /** Base retry delay in milliseconds used for exponential backoff in the outbox worker. */
+  REGISTRATION_EMAIL_OUTBOX_RETRY_BASE_DELAY_MS: z.coerce
+    .number()
+    .int()
+    .min(250)
+    .max(300_000)
+    .default(5_000),
+  /** Stale lock timeout in milliseconds; rows locked longer than this may be reclaimed. */
+  REGISTRATION_EMAIL_OUTBOX_LOCK_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(3_600_000)
+    .default(300_000),
   PAYLOAD_SIGNING_KEY: z.string().optional(),
   PAYLOAD_SIGNING_KEY_ID: z.string().optional(),
   PAYLOAD_SIGN_OUTBOUND: z
@@ -503,4 +537,12 @@ export const env = {
   approvalTokenExpiresIn: parsedEnv.APPROVAL_TOKEN_EXPIRES_IN,
   requireSmtpInProduction: parsedEnv.REQUIRE_SMTP_IN_PRODUCTION,
   registrationEmailAsync: parsedEnv.REGISTRATION_EMAIL_ASYNC,
+  registrationEmailMaxRetries: parsedEnv.REGISTRATION_EMAIL_MAX_RETRIES,
+  registrationEmailRetryDelayMs: parsedEnv.REGISTRATION_EMAIL_RETRY_DELAY_MS,
+  registrationEmailOutboxEnabled: parsedEnv.REGISTRATION_EMAIL_OUTBOX_ENABLED,
+  registrationEmailOutboxPollIntervalMs: parsedEnv.REGISTRATION_EMAIL_OUTBOX_POLL_INTERVAL_MS,
+  registrationEmailOutboxBatchSize: parsedEnv.REGISTRATION_EMAIL_OUTBOX_BATCH_SIZE,
+  registrationEmailOutboxMaxAttempts: parsedEnv.REGISTRATION_EMAIL_OUTBOX_MAX_ATTEMPTS,
+  registrationEmailOutboxRetryBaseDelayMs: parsedEnv.REGISTRATION_EMAIL_OUTBOX_RETRY_BASE_DELAY_MS,
+  registrationEmailOutboxLockTimeoutMs: parsedEnv.REGISTRATION_EMAIL_OUTBOX_LOCK_TIMEOUT_MS,
 } as const;

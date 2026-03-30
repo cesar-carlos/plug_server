@@ -14,6 +14,7 @@ import type { RefreshTokenUseCase } from "../../domain/use_cases/refresh_token.u
 import type { RegisterUseCase } from "../../domain/use_cases/register.use_case";
 import type { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registration.use_case";
 import type { AgentAccessService } from "./agent_access.service";
+import { enqueueRegistrationApprovalEmails } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
 import { type Result, ok } from "../../shared/errors/result";
 import { parseExpiryToDate } from "../../shared/utils/date";
@@ -96,22 +97,33 @@ export class AuthService {
     const tokenPrefix = approvalToken.id.slice(0, 8);
 
     const dispatchEmails = async (): Promise<void> => {
-      await this.emailSender.sendAdminApprovalRequest({
-        userEmail: user.email,
-        reviewToken: approvalToken.id,
-      });
-      await this.emailSender.sendUserPendingRegistration({ email: user.email });
+      await this.sendWithRetry("sendAdminApprovalRequest", async () =>
+        this.emailSender.sendAdminApprovalRequest({
+          userEmail: user.email,
+          reviewToken: approvalToken.id,
+        }),
+      );
+      await this.sendWithRetry("sendUserPendingRegistration", async () =>
+        this.emailSender.sendUserPendingRegistration({ email: user.email }),
+      );
     };
 
     if (env.registrationEmailAsync) {
-      void dispatchEmails().catch((error: unknown) => {
-        logger.error("registration_email_dispatch_failed", {
-          requestId,
-          tokenPrefix,
-          userId: user.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
+      const queued = await enqueueRegistrationApprovalEmails({
+        userEmail: user.email,
+        reviewToken: approvalToken.id,
       });
+
+      if (!queued) {
+        void dispatchEmails().catch((error: unknown) => {
+          logger.error("registration_email_dispatch_failed", {
+            requestId,
+            tokenPrefix,
+            userId: user.id,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
     } else {
       try {
         await dispatchEmails();
@@ -328,5 +340,31 @@ export class AuthService {
 
   private toUserDto(user: User): AuthUserDto {
     return { id: user.id, email: user.email, role: user.role };
+  }
+
+  private async sendWithRetry(operation: string, action: () => Promise<void>): Promise<void> {
+    let lastError: unknown;
+    const maxAttempts = env.registrationEmailMaxRetries;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await action();
+        return;
+      } catch (error: unknown) {
+        lastError = error;
+        if (attempt < maxAttempts && env.registrationEmailRetryDelayMs > 0) {
+          await this.delay(env.registrationEmailRetryDelayMs);
+        }
+      }
+    }
+
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`${operation} failed after ${maxAttempts} attempts: ${message}`);
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 }
