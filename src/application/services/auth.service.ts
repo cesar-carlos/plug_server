@@ -4,7 +4,10 @@ import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import type { User } from "../../domain/entities/user.entity";
+import type { AdminSetUserStatusInput } from "../../domain/use_cases/admin_set_user_status.use_case";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
+import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
+import type { AdminSetUserStatusUseCase } from "../../domain/use_cases/admin_set_user_status.use_case";
 import type { ApproveRegistrationUseCase } from "../../domain/use_cases/approve_registration.use_case";
 import type { ChangePasswordUseCase } from "../../domain/use_cases/change_password.use_case";
 import type { GetRegistrationStatusUseCase } from "../../domain/use_cases/get_registration_status.use_case";
@@ -13,19 +16,24 @@ import type { LogoutUseCase } from "../../domain/use_cases/logout.use_case";
 import type { RefreshTokenUseCase } from "../../domain/use_cases/refresh_token.use_case";
 import type { RegisterUseCase } from "../../domain/use_cases/register.use_case";
 import type { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registration.use_case";
+import type { UpdateMyCelularUseCase } from "../../domain/use_cases/update_my_celular.use_case";
 import type { AgentAccessService } from "./agent_access.service";
 import { enqueueRegistrationApprovalEmails } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
-import { type Result, ok } from "../../shared/errors/result";
+import { forbidden, notFound } from "../../shared/errors/http_errors";
+import { type Result, err, ok } from "../../shared/errors/result";
 import { parseExpiryToDate } from "../../shared/utils/date";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
+import type { JwtAccessPayload } from "../../shared/utils/jwt";
 import { logger } from "../../shared/utils/logger";
+import { redactEmail } from "../../shared/utils/pii_redaction";
 import { generateOpaqueRegistrationToken } from "../../shared/utils/registration_token";
 import type {
   AgentAuthResponseDto,
   AuthResponseDto,
   AuthTokensDto,
   AuthUserDto,
+  MeUserResponseDto,
   RegisterPendingResponseDto,
   RegistrationStatusResponseDto,
 } from "../dtos/auth.dto";
@@ -33,6 +41,8 @@ import type {
 export interface RegisterServiceInput {
   readonly email: string;
   readonly password: string;
+  /** E.164 when provided (validated at HTTP layer) */
+  readonly celular?: string;
 }
 
 export interface RegisterServiceOptions {
@@ -70,11 +80,90 @@ export class AuthService {
     private readonly approveRegistrationUseCase: ApproveRegistrationUseCase,
     private readonly rejectRegistrationUseCase: RejectRegistrationUseCase,
     private readonly getRegistrationStatusUseCase: GetRegistrationStatusUseCase,
+    private readonly adminSetUserStatusUseCase: AdminSetUserStatusUseCase,
+    private readonly updateMyCelularUseCase: UpdateMyCelularUseCase,
     private readonly passwordHasher: IPasswordHasher,
     private readonly refreshTokenRepository: IRefreshTokenRepository,
     private readonly agentAccessService: AgentAccessService,
     private readonly emailSender: IEmailSender,
+    private readonly userRepository: IUserRepository,
   ) {}
+
+  /**
+   * Loads the user and returns 403 when `blocked`, 404 when missing.
+   * When `preloaded` is set and `preloaded.id === userId`, skips `findById` (same HTTP request after
+   * the active-account middleware stored the row in `response.locals.activeAccountUser`).
+   */
+  async getActiveAccountUser(userId: string, preloaded?: User): Promise<Result<User>> {
+    if (preloaded !== undefined && preloaded.id === userId) {
+      if (preloaded.status === "blocked") {
+        return err(forbidden("Account is blocked"));
+      }
+      return ok(preloaded);
+    }
+
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      return err(notFound("User"));
+    }
+    if (user.status === "blocked") {
+      return err(forbidden("Account is blocked"));
+    }
+    return ok(user);
+  }
+
+  async assertAccountNotBlocked(userId: string): Promise<Result<void>> {
+    const result = await this.getActiveAccountUser(userId);
+    if (!result.ok) {
+      return result;
+    }
+    return ok(undefined);
+  }
+
+  async adminSetUserStatus(input: AdminSetUserStatusInput): Promise<Result<User>> {
+    return this.adminSetUserStatusUseCase.execute(input);
+  }
+
+  async updateMyCelular(
+    jwtUser: JwtAccessPayload,
+    input: { celular: string | null },
+  ): Promise<Result<MeUserResponseDto>> {
+    const result = await this.updateMyCelularUseCase.execute({
+      userId: jwtUser.sub,
+      celular: input.celular,
+    });
+    if (!result.ok) {
+      return result;
+    }
+    return this.getMeProfile(jwtUser, result.value);
+  }
+
+  async getMeProfile(
+    jwtUser: JwtAccessPayload,
+    preloadedUser?: User,
+  ): Promise<Result<MeUserResponseDto>> {
+    const userResult = await this.getActiveAccountUser(jwtUser.sub, preloadedUser);
+    if (!userResult.ok) {
+      if (userResult.error.code === "NOT_FOUND") {
+        return err(notFound("User"));
+      }
+      return userResult;
+    }
+    const user = userResult.value;
+    const role =
+      typeof jwtUser.role === "string" && jwtUser.role.trim() !== "" ? jwtUser.role : user.role;
+    return ok({
+      id: user.id,
+      sub: user.id,
+      email: user.email,
+      role,
+      status: user.status,
+      ...(user.celular !== undefined ? { celular: user.celular } : {}),
+      ...(typeof jwtUser.agent_id === "string" && jwtUser.agent_id.trim() !== ""
+        ? { agentId: jwtUser.agent_id }
+        : {}),
+    });
+  }
 
   async register(
     input: RegisterServiceInput,
@@ -89,6 +178,7 @@ export class AuthService {
       passwordHash,
       approvalTokenExpiresAt,
       approvalTokenId,
+      ...(input.celular !== undefined ? { celular: input.celular } : {}),
     });
     if (!result.ok) return result;
 
@@ -152,6 +242,7 @@ export class AuthService {
         email: user.email,
         role: user.role,
         status: user.status,
+        ...(user.celular !== undefined ? { celular: user.celular } : {}),
       },
     };
 
@@ -179,7 +270,7 @@ export class AuthService {
     } catch (error: unknown) {
       logger.error("registration_approve_user_email_failed", {
         requestId: options?.requestId,
-        email: result.value.email,
+        emailRedacted: redactEmail(result.value.email),
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -214,7 +305,7 @@ export class AuthService {
     } catch (error: unknown) {
       logger.error("registration_reject_user_email_failed", {
         requestId: options?.requestId,
-        email: result.value.email,
+        emailRedacted: redactEmail(result.value.email),
         message: error instanceof Error ? error.message : String(error),
       });
     }

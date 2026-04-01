@@ -22,6 +22,14 @@ export class InMemoryRefreshTokenRepository implements IRefreshTokenRepository {
     }
   }
 
+  async revokeAllForUser(userId: string): Promise<void> {
+    for (const [id, token] of this.store.entries()) {
+      if (token.userId === userId && !token.isRevoked) {
+        this.store.set(id, token.revoke());
+      }
+    }
+  }
+
   async consume(id: string, userId: string, now: Date): Promise<ConsumeRefreshTokenStatus> {
     const token = this.store.get(id);
     if (!token) {

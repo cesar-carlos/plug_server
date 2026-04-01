@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../middlewares/async_handler";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware";
+import { requireAuthAndActiveAccount, requireRole } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   createAgentBodySchema,
@@ -55,7 +55,7 @@ export const agentCatalogRouter = Router();
  */
 agentCatalogRouter.post(
   "/",
-  requireAuth,
+  ...requireAuthAndActiveAccount,
   requireRole("admin"),
   validateRequest({ body: createAgentBodySchema }),
   asyncHandler(createAgent),
@@ -106,7 +106,7 @@ agentCatalogRouter.post(
  */
 agentCatalogRouter.get(
   "/",
-  requireAuth,
+  ...requireAuthAndActiveAccount,
   validateRequest({ query: listAgentsQuerySchema }),
   asyncHandler(listAgents),
 );
@@ -149,7 +149,7 @@ agentCatalogRouter.get(
  */
 agentCatalogRouter.get(
   "/:agentId",
-  requireAuth,
+  ...requireAuthAndActiveAccount,
   validateRequest({ params: agentIdParamSchema }),
   asyncHandler(getAgent),
 );
@@ -200,7 +200,7 @@ agentCatalogRouter.get(
  */
 agentCatalogRouter.patch(
   "/:agentId",
-  requireAuth,
+  ...requireAuthAndActiveAccount,
   requireRole("admin"),
   validateRequest({ params: agentIdParamSchema, body: updateAgentBodySchema }),
   asyncHandler(updateAgent),
@@ -242,7 +242,7 @@ agentCatalogRouter.patch(
  */
 agentCatalogRouter.delete(
   "/:agentId",
-  requireAuth,
+  ...requireAuthAndActiveAccount,
   requireRole("admin"),
   validateRequest({ params: agentIdParamSchema }),
   asyncHandler(deactivateAgent),

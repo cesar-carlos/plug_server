@@ -45,6 +45,7 @@ export class ApproveRegistrationUseCase {
       role: user.role,
       status: "active",
       createdAt: user.createdAt,
+      ...(user.celular !== undefined ? { celular: user.celular } : {}),
     });
 
     await this.userRepository.save(activeUser);

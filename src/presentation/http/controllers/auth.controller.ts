@@ -4,6 +4,7 @@ import type { AuthResponseDto, AuthTokensDto } from "../../../application/dtos/a
 import { badRequest } from "../../../shared/errors/http_errors";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
+import type { User } from "../../../domain/entities/user.entity";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
@@ -11,6 +12,7 @@ import type {
   ChangePasswordBody,
   LoginBody,
   LogoutBody,
+  PatchMeBody,
   RefreshBody,
   RegisterBody,
   RegistrationApproveBody,
@@ -94,9 +96,16 @@ export const register = async (
 ): Promise<void> => {
   const body = getValidated<RegisterBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.authService.register(body, {
-    ...(requestId !== undefined ? { requestId } : {}),
-  });
+  const result = await container.authService.register(
+    {
+      email: body.email,
+      password: body.password,
+      ...(body.celular !== undefined ? { celular: body.celular } : {}),
+    },
+    {
+      ...(requestId !== undefined ? { requestId } : {}),
+    },
+  );
   if (!result.ok) {
     next(result.error);
     return;
@@ -281,9 +290,34 @@ export const logout = async (
   response.status(204).send();
 };
 
-export const getMe = (_request: Request, response: Response): void => {
+export const getMe = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
   const authUser = response.locals.authUser as JwtAccessPayload;
-  response.status(200).json({ user: authUser });
+  const preloaded = response.locals.activeAccountUser as User | undefined;
+  const result = await container.authService.getMeProfile(authUser, preloaded);
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.status(200).json({ user: result.value });
+};
+
+export const patchMe = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authUser = response.locals.authUser as JwtAccessPayload;
+  const body = getValidated<PatchMeBody>(response, "body");
+  const result = await container.authService.updateMyCelular(authUser, { celular: body.celular });
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.status(200).json({ user: result.value });
 };
 
 export const changePassword = async (

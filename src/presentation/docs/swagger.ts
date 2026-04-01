@@ -50,6 +50,12 @@ const swaggerSpec = swaggerJSDoc({
             message: { type: "string", example: "Invalid or expired token" },
             code: { type: "string", example: "INVALID_TOKEN" },
             requestId: { type: "string", example: "0d2a9475-ccf8-4f03-a64c-ef75f9b2f5c6" },
+            details: {
+              type: "object",
+              description:
+                "Optional payload for specific codes (non-production may echo more fields). Example: `AGENT_NOT_ONLINE_FOR_USER` includes `reason`: `offline` | `different_account`.",
+              additionalProperties: true,
+            },
           },
         },
         ValidationErrorResponse: {

@@ -1,7 +1,8 @@
 import type { User } from "../entities/user.entity";
 import type { IUserRepository } from "../repositories/user.repository.interface";
 import type { IRefreshTokenRepository } from "../repositories/refresh_token.repository.interface";
-import { invalidToken, notFound } from "../../shared/errors/http_errors";
+import { incrementAuthRefreshBlocked } from "../../shared/metrics/auth_account.metrics";
+import { forbidden, invalidToken, notFound } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
 
 export interface RefreshTokenInput {
@@ -40,6 +41,11 @@ export class RefreshTokenUseCase {
     const user = await this.userRepository.findById(input.userId);
     if (!user) {
       return err(notFound("User"));
+    }
+
+    if (user.status === "blocked") {
+      incrementAuthRefreshBlocked();
+      return err(forbidden("Account is blocked"));
     }
 
     return ok(user);

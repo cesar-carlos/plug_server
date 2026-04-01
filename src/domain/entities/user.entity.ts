@@ -1,10 +1,13 @@
 export type UserRole = "user" | "admin";
 
-export type UserStatus = "pending" | "active" | "rejected";
+/** See `docs/user_status.md` for transitions and API behaviour. */
+export type UserStatus = "pending" | "active" | "rejected" | "blocked";
 
 export interface UserProps {
   readonly id: string;
   readonly email: string;
+  /** E.164 Brazilian mobile, e.g. +5511987654321 */
+  readonly celular?: string;
   readonly passwordHash: string;
   readonly role: UserRole;
   readonly status: UserStatus;
@@ -14,6 +17,7 @@ export interface UserProps {
 export class User {
   readonly id: string;
   readonly email: string;
+  readonly celular?: string;
   readonly passwordHash: string;
   readonly role: UserRole;
   readonly status: UserStatus;
@@ -22,6 +26,9 @@ export class User {
   constructor(props: UserProps) {
     this.id = props.id;
     this.email = props.email;
+    if (props.celular !== undefined) {
+      this.celular = props.celular;
+    }
     this.passwordHash = props.passwordHash;
     this.role = props.role;
     this.status = props.status;
@@ -42,6 +49,7 @@ export class User {
       role: props.role,
       status: props.status ?? "pending",
       createdAt: props.createdAt ?? new Date(),
+      ...(props.celular !== undefined ? { celular: props.celular } : {}),
     });
   }
 }

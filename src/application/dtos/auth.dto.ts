@@ -10,6 +10,8 @@ export interface AuthUserDto {
 export interface RegisterPendingUserDto {
   readonly id: string;
   readonly email: string;
+  /** E.164 when provided at signup */
+  readonly celular?: string;
   readonly role: UserRole;
   readonly status: UserStatus;
 }
@@ -46,4 +48,18 @@ export interface AgentAuthUserDto {
 
 export interface AgentAuthResponseDto extends AuthTokensDto {
   readonly user: AgentAuthUserDto;
+}
+
+/** Profile from DB + JWT context (GET /auth/me). */
+export interface MeUserResponseDto {
+  readonly id: string;
+  /** Same as id; kept for clients that expected the raw JWT payload shape on /me */
+  readonly sub: string;
+  readonly email: string;
+  /** From JWT when present (e.g. agent), otherwise domain role */
+  readonly role: string;
+  readonly status: UserStatus;
+  readonly celular?: string;
+  /** Present when the access token was issued for agent socket access */
+  readonly agentId?: string;
 }

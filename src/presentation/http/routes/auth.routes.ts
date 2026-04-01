@@ -7,6 +7,7 @@ import {
   getMe,
   login,
   logout,
+  patchMe,
   refresh,
   register,
   registrationReviewPage,
@@ -14,13 +15,14 @@ import {
   rejectRegistration,
 } from "../controllers/auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
-import { requireAuth } from "../middlewares/auth.middleware";
+import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   agentLoginBodySchema,
   changePasswordBodySchema,
   loginBodySchema,
   logoutBodySchema,
+  patchMeBodySchema,
   refreshBodySchema,
   registerBodySchema,
   registrationApproveBodySchema,
@@ -55,6 +57,9 @@ export const authRouter = Router();
  *               password:
  *                 type: string
  *                 minLength: 8
+ *               celular:
+ *                 type: string
+ *                 description: Optional Brazilian mobile only; normalized to E.164 on success. Must be unique among users when set.
  *     responses:
  *       201:
  *         description: Registration submitted; admin must approve before login
@@ -77,6 +82,9 @@ export const authRouter = Router();
  *                     email:
  *                       type: string
  *                       format: email
+ *                     celular:
+ *                       type: string
+ *                       example: "+5511987654321"
  *                     role:
  *                       type: string
  *                     status:
@@ -86,7 +94,7 @@ export const authRouter = Router();
  *                   type: string
  *                   description: Present only in non-production (local automation); opaque approval token
  *       409:
- *         description: Email already in use
+ *         description: Email or phone number already in use
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  */
@@ -303,8 +311,9 @@ authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandl
  *     summary: Login for agents (Socket.IO namespace /agents)
  *     description: >
  *       Issues access/refresh tokens scoped to `agentId` for connecting to `/agents`.
- *       The user must already be linked to this `agentId` by an admin (user→agent list API);
- *       the server no longer creates that link on first login.
+ *       The user must already be linked to this `agentId` (typically admin user→agent API
+ *       for the first link; self-service `POST /me/agents` can restore a link while the
+ *       agent stays connected under your account).
  *       The `agentId` must exist in the agent catalog and have status `active`.
  *     tags: [Auth]
  *     requestBody:
@@ -415,11 +424,74 @@ authRouter.post("/logout", validateRequest({ body: logoutBodySchema }), asyncHan
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Current user info
+ *         description: Profile from database (id, email, status, celular) plus JWT context (role, agentId)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id: { type: string, format: uuid }
+ *                     sub: { type: string, description: Same as id (JWT compat) }
+ *                     email: { type: string, format: email }
+ *                     role: { type: string }
+ *                     status: { type: string, enum: [pending, active, rejected, blocked] }
+ *                     celular: { type: string, example: "+5511987654321" }
+ *                     agentId: { type: string, format: uuid }
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Account is blocked (or insufficient role on other routes using active-account check)
+ *       404:
+ *         description: User no longer exists
  */
-authRouter.get("/me", requireAuth, asyncHandler(getMe));
+authRouter.get("/me", ...requireAuthAndActiveAccount, asyncHandler(getMe));
+
+/**
+ * @openapi
+ * /auth/me:
+ *   patch:
+ *     summary: Update current user profile (mobile number)
+ *     description: >
+ *       Set `celular` to a valid Brazilian mobile (normalized to E.164) or `null` to remove it.
+ *       The number must be unique among users when set.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [celular]
+ *             properties:
+ *               celular:
+ *                 oneOf:
+ *                   - { type: string, description: Brazilian mobile, stored as E.164 }
+ *                   - { type: "null", description: Remove stored mobile }
+ *     responses:
+ *       200:
+ *         description: Updated profile (same shape as GET /auth/me)
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Account is blocked
+ *       404:
+ *         description: User no longer exists
+ *       409:
+ *         description: Phone number already in use
+ */
+authRouter.patch(
+  "/me",
+  ...requireAuthAndActiveAccount,
+  validateRequest({ body: patchMeBodySchema }),
+  asyncHandler(patchMe),
+);
 
 /**
  * @openapi
@@ -452,7 +524,7 @@ authRouter.get("/me", requireAuth, asyncHandler(getMe));
  */
 authRouter.patch(
   "/password",
-  requireAuth,
+  ...requireAuthAndActiveAccount,
   validateRequest({ body: changePasswordBodySchema }),
   asyncHandler(changePassword),
 );

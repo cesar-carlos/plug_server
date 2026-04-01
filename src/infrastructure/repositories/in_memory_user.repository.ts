@@ -15,6 +15,13 @@ export class InMemoryUserRepository implements IUserRepository {
     return null;
   }
 
+  async findByCelular(celular: string): Promise<User | null> {
+    for (const user of this.store.values()) {
+      if (user.celular === celular) return user;
+    }
+    return null;
+  }
+
   async save(user: User): Promise<void> {
     this.store.set(user.id, user);
   }

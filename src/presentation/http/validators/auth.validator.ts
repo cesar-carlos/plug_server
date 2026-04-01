@@ -1,7 +1,9 @@
 import { z } from "zod";
 import {
+  brazilianCelularSchema,
   emailSchema,
   nonEmptyStringSchema,
+  optionalBrazilianCelularSchema,
   passwordSchema,
   registrationOpaqueTokenSchema,
   uuidSchema,
@@ -10,6 +12,7 @@ import {
 export const registerBodySchema = z.object({
   email: emailSchema,
   password: passwordSchema,
+  celular: optionalBrazilianCelularSchema,
 });
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
@@ -94,6 +97,13 @@ export const logoutBodySchema = z.object({
 });
 
 export type LogoutBody = z.infer<typeof logoutBodySchema>;
+
+/** Update profile: `celular` is required; send `null` to remove the stored number. */
+export const patchMeBodySchema = z.object({
+  celular: z.union([z.null(), brazilianCelularSchema]),
+});
+
+export type PatchMeBody = z.infer<typeof patchMeBodySchema>;
 
 export const changePasswordBodySchema = z
   .object({

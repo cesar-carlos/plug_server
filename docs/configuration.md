@@ -4,7 +4,7 @@
 
 - **Variaveis**: valores por defeito e parsing em [`src/shared/config/env.ts`](../src/shared/config/env.ts) (Zod `.default()` / `preprocess`).
 - **Exemplo local**: [`.env.example`](../.env.example) (copiar para `.env`).
-- **Documentacao narrativa**: `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md`, `docs/performance_hub_agent.md`.
+- **Documentacao narrativa**: `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md`, `docs/performance_hub_agent.md`, `docs/user_status.md` (estados de utilizador e bloqueio).
 
 Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, confira o ficheiro de env ou `.env.example`.
 
@@ -53,6 +53,15 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_IO_PER_MESSAGE_DEFLATE` | `false` | Evita deflate WS duplicado com `PayloadFrame`. |
 | `SOCKET_IO_MAX_HTTP_BUFFER_BYTES` | `10485760` | Teto alinhado a frames de 10 MiB. |
 
+## User agents — self-service (`POST /api/v1/me/agents`)
+
+A verificação de “online” usa o registo **em memória do processo** (`agentRegistry`). Com **várias réplicas** HTTP/Socket sem afinidade de sessão, o pedido pode cair num nó onde o agente não está registado — o bind falha com `422` / `AGENT_NOT_ONLINE_FOR_USER` mesmo com o agente ligado doutro lado. Mitigações típicas: sticky sessions, colocar REST e Socket no mesmo nó, ou presença partilhada (ex. Redis) numa evolução futura.
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `REST_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS` | `60000` | Janela por utilizador autenticado (`JWT sub`). |
+| `REST_ME_AGENTS_POST_RATE_LIMIT_MAX` | `40` | Máximo de pedidos `POST /api/v1/me/agents` por janela. |
+
 ## Leitura recomendada
 
 | Topico | Documento |
@@ -61,4 +70,5 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | Relay Socket, quotas | `docs/socket_relay_protocol.md` |
 | Throughput hub ↔ agente | `docs/performance_hub_agent.md` (presets `.env`, checklist operacional) |
 | Metricas e paineis | `docs/observability.md` |
+| Estados de utilizador, bloqueio admin, metricas `plug_auth_*` | `docs/user_status.md` |
 | SSE, Redis, multi-instancia, OTel | `docs/scaling_and_roadmap.md` |

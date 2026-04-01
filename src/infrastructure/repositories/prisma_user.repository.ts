@@ -34,6 +34,18 @@ export class PrismaUserRepository implements IUserRepository {
     return this.toDomain(user);
   }
 
+  async findByCelular(celular: string): Promise<User | null> {
+    const user = await prismaClient.user.findUnique({
+      where: { celular },
+    });
+
+    if (!user) {
+      return null;
+    }
+
+    return this.toDomain(user);
+  }
+
   async save(user: User): Promise<void> {
     try {
       await prismaClient.user.upsert({
@@ -41,6 +53,7 @@ export class PrismaUserRepository implements IUserRepository {
         create: {
           id: user.id,
           email: user.email,
+          celular: user.celular ?? null,
           passwordHash: user.passwordHash,
           role: user.role,
           status: user.status as PrismaUserStatus,
@@ -48,6 +61,7 @@ export class PrismaUserRepository implements IUserRepository {
         },
         update: {
           email: user.email,
+          celular: user.celular ?? null,
           passwordHash: user.passwordHash,
           role: user.role,
           status: user.status as PrismaUserStatus,
@@ -55,6 +69,12 @@ export class PrismaUserRepository implements IUserRepository {
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const target = error.meta?.target;
+        const fields = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+        const joined = fields.join(" ");
+        if (fields.includes("celular") || joined.includes("celular")) {
+          throw conflict("Phone number already in use");
+        }
         throw conflict("Email already in use");
       }
       throw error;
@@ -69,6 +89,7 @@ export class PrismaUserRepository implements IUserRepository {
       role: user.role,
       status: user.status as UserStatus,
       createdAt: user.createdAt,
+      ...(user.celular != null && user.celular !== "" ? { celular: user.celular } : {}),
     });
   }
 }

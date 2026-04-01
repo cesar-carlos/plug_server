@@ -348,6 +348,13 @@ const envSchema = z.object({
    * `0` disables. Use behind `trust proxy` when the server is behind a reverse proxy.
    */
   REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX: z.coerce.number().int().nonnegative().default(0),
+  /** Window for `PATCH /admin/users/:id/status` per admin (`JWT sub`). */
+  REST_ADMIN_USER_STATUS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  /** Max status changes per window per admin. */
+  REST_ADMIN_USER_STATUS_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  /** Window for `POST /api/v1/me/agents` (self-service bind) per authenticated user (`JWT sub`). */
+  REST_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  REST_ME_AGENTS_POST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(40),
   BRIDGE_LOG_JSONRPC_AUTO_ID: z
     .enum(["true", "false"])
     .default("false")
@@ -508,6 +515,10 @@ export const env = {
   restAgentsCommandsRateLimitWindowMs: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS,
   restAgentsCommandsRateLimitMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_MAX,
   restAgentsCommandsRateLimitIpMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX,
+  restAdminUserStatusRateLimitWindowMs: parsedEnv.REST_ADMIN_USER_STATUS_RATE_LIMIT_WINDOW_MS,
+  restAdminUserStatusRateLimitMax: parsedEnv.REST_ADMIN_USER_STATUS_RATE_LIMIT_MAX,
+  restMeAgentsPostRateLimitWindowMs: parsedEnv.REST_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS,
+  restMeAgentsPostRateLimitMax: parsedEnv.REST_ME_AGENTS_POST_RATE_LIMIT_MAX,
   bridgeLogJsonRpcAutoId: parsedEnv.BRIDGE_LOG_JSONRPC_AUTO_ID,
   bridgeLatencyTraceEnabled: parsedEnv.BRIDGE_LATENCY_TRACE_ENABLED,
   bridgeLatencyTraceSamplePercent: parsedEnv.BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT,

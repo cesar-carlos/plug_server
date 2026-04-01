@@ -3,6 +3,11 @@ import type { Request, Response } from "express";
 import { getBridgeLatencyTraceMetricsSnapshot } from "../../../application/services/bridge_latency_trace.service";
 import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
+import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
+import {
+  getUserAgentsSelfBindMetricsSnapshot,
+  type UserAgentsSelfBindPostOutcome,
+} from "../../../shared/metrics/user_agents_self_bind.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getSocketMetricsSnapshot } from "../../../socket";
@@ -32,6 +37,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const bridgeLatency = getBridgeLatencyTraceMetricsSnapshot();
   const restHttpRl = getRestHttpRateLimitMetricsSnapshot();
   const registrationFlow = getRegistrationFlowMetricsSnapshot();
+  const authAccount = getAuthAccountMetricsSnapshot();
 
   const lines: string[] = [];
 
@@ -61,6 +67,33 @@ export const getMetrics = (_request: Request, response: Response): void => {
       restHttpRl.agentsCommandsIpRejectedTotal,
     ),
   );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_admin_user_status_rejected_total",
+      restHttpRl.adminUserStatusRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_me_agents_post_rejected_total",
+      restHttpRl.meAgentsPostRejectedTotal,
+    ),
+  );
+
+  const selfBind = getUserAgentsSelfBindMetricsSnapshot();
+  const selfBindOutcomes: UserAgentsSelfBindPostOutcome[] = [
+    "success",
+    "inactive",
+    "not_found",
+    "not_online_offline",
+    "not_online_other",
+    "already_linked",
+  ];
+  for (const outcome of selfBindOutcomes) {
+    lines.push(
+      metricLine("plug_user_agents_self_bind_post_total", selfBind[outcome], { outcome }),
+    );
+  }
 
   lines.push(
     metricLine("plug_registration_approved_total", registrationFlow.registrationApprovedTotal),
@@ -74,6 +107,11 @@ export const getMetrics = (_request: Request, response: Response): void => {
       registrationFlow.registrationTokenExpiredTotal,
     ),
   );
+
+  lines.push(metricLine("plug_auth_login_blocked_total", authAccount.loginBlockedTotal));
+  lines.push(metricLine("plug_auth_refresh_blocked_total", authAccount.refreshBlockedTotal));
+  lines.push(metricLine("plug_auth_socket_blocked_total", authAccount.socketBlockedTotal));
+  lines.push(metricLine("plug_admin_user_status_set_total", authAccount.adminUserStatusSetTotal));
 
   lines.push(
     metricLine("plug_socket_namespace_connections", socket.namespaces.agents, {

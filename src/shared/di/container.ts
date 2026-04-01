@@ -14,6 +14,8 @@ import { LogoutUseCase } from "../../domain/use_cases/logout.use_case";
 import { RefreshTokenUseCase } from "../../domain/use_cases/refresh_token.use_case";
 import { RegisterUseCase } from "../../domain/use_cases/register.use_case";
 import { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registration.use_case";
+import { AdminSetUserStatusUseCase } from "../../domain/use_cases/admin_set_user_status.use_case";
+import { UpdateMyCelularUseCase } from "../../domain/use_cases/update_my_celular.use_case";
 import { BcryptPasswordHasher } from "../../infrastructure/adapters/bcrypt_password_hasher";
 import { NoopEmailSender } from "../../infrastructure/adapters/noop_email_sender";
 import { NodemailerEmailSender } from "../../infrastructure/adapters/nodemailer_email_sender";
@@ -27,6 +29,7 @@ import { PrismaAgentRepository } from "../../infrastructure/repositories/prisma_
 import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/prisma_refresh_token.repository";
 import { PrismaRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_registration_approval_token.repository";
 import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_user.repository";
+import { agentOnlinePresenceFromRegistry } from "../../presentation/socket/hub/agent_online_presence.adapter";
 import { env } from "../config/env";
 
 const passwordHasher = new BcryptPasswordHasher();
@@ -77,10 +80,16 @@ const loginUseCase = new LoginUseCase(userRepository, passwordHasher);
 const changePasswordUseCase = new ChangePasswordUseCase(userRepository, passwordHasher);
 const refreshTokenUseCase = new RefreshTokenUseCase(userRepository, refreshTokenRepository);
 const logoutUseCase = new LogoutUseCase(refreshTokenRepository);
+const adminSetUserStatusUseCase = new AdminSetUserStatusUseCase(userRepository, refreshTokenRepository);
+const updateMyCelularUseCase = new UpdateMyCelularUseCase(userRepository);
 
 const agentAccessService = new AgentAccessService(agentRepository, agentIdentityRepository);
 const agentCatalogService = new AgentCatalogService(agentRepository);
-const userAgentService = new UserAgentService(agentRepository, agentIdentityRepository);
+const userAgentService = new UserAgentService(
+  agentRepository,
+  agentIdentityRepository,
+  agentOnlinePresenceFromRegistry,
+);
 
 export const container = {
   authService: new AuthService(
@@ -92,10 +101,13 @@ export const container = {
     approveRegistrationUseCase,
     rejectRegistrationUseCase,
     getRegistrationStatusUseCase,
+    adminSetUserStatusUseCase,
+    updateMyCelularUseCase,
     passwordHasher,
     refreshTokenRepository,
     agentAccessService,
     emailSender,
+    userRepository,
   ),
   emailSender,
   agentAccessService,

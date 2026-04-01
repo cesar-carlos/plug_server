@@ -8,6 +8,7 @@ import { generateOpaqueRegistrationToken } from "../../../../src/shared/utils/re
 const makeUserRepo = (): IUserRepository => ({
   findById: vi.fn(),
   findByEmail: vi.fn(),
+  findByCelular: vi.fn(),
   save: vi.fn(),
 });
 
@@ -28,6 +29,7 @@ describe("RegisterUseCase", () => {
     userRepository = makeUserRepo();
     approvalTokenRepository = makeTokenRepo();
     useCase = new RegisterUseCase(userRepository, approvalTokenRepository);
+    vi.mocked(userRepository.findByCelular).mockResolvedValue(null);
   });
 
   it("should create a pending user and approval token when email is not taken", async () => {
@@ -47,12 +49,58 @@ describe("RegisterUseCase", () => {
       expect(result.value.user.email).toBe("user@test.com");
       expect(result.value.user.role).toBe("user");
       expect(result.value.user.status).toBe("pending");
+      expect(result.value.user.celular).toBeUndefined();
       expect(result.value.user.id).toBeDefined();
       expect(result.value.approvalToken.userId).toBe(result.value.user.id);
       expect(result.value.approvalToken.expiresAt).toEqual(expiresAt);
     }
     expect(userRepository.save).toHaveBeenCalledOnce();
     expect(approvalTokenRepository.save).toHaveBeenCalledOnce();
+  });
+
+  it("should return conflict when celular is already registered", async () => {
+    const { User } = await import("../../../../src/domain/entities/user.entity");
+    const other = User.create({
+      email: "other@test.com",
+      passwordHash: "hash",
+      celular: "+5511987654321",
+      role: "user",
+      status: "pending",
+    });
+    vi.mocked(userRepository.findByEmail).mockResolvedValue(null);
+    vi.mocked(userRepository.findByCelular).mockResolvedValue(other);
+
+    const result = await useCase.execute({
+      email: "new@test.com",
+      passwordHash: "hashed",
+      celular: "+5511987654321",
+      approvalTokenExpiresAt: expiresAt,
+      approvalTokenId: generateOpaqueRegistrationToken(),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.statusCode).toBe(409);
+      expect(result.error.message).toBe("Phone number already in use");
+    }
+    expect(userRepository.save).not.toHaveBeenCalled();
+  });
+
+  it("should persist optional celular when provided", async () => {
+    vi.mocked(userRepository.findByEmail).mockResolvedValue(null);
+    vi.mocked(userRepository.save).mockResolvedValue();
+    vi.mocked(approvalTokenRepository.save).mockResolvedValue();
+
+    const result = await useCase.execute({
+      email: "mobile@test.com",
+      passwordHash: "hashed",
+      celular: "+5511987654321",
+      approvalTokenExpiresAt: expiresAt,
+      approvalTokenId: generateOpaqueRegistrationToken(),
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.user.celular).toBe("+5511987654321");
   });
 
   it("should accept a custom role", async () => {

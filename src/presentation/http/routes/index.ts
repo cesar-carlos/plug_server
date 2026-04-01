@@ -2,17 +2,19 @@ import { Router } from "express";
 
 import { getHealth, getHealthLive, getHealthReady } from "../controllers/health.controller";
 import { getMetrics } from "../controllers/metrics.controller";
-import { requireAuth } from "../middlewares/auth.middleware";
+import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { healthQuerySchema } from "../validators/health.validator";
 import { agentsRouter } from "./agents.routes";
 import { authRouter } from "./auth.routes";
 import { agentCatalogRouter } from "./agent_catalog.routes";
+import { adminUsersRouter } from "./admin_users.routes";
 import { userAgentsRouter } from "./user_agents.routes";
 
 export const httpRouter = Router();
 
 httpRouter.use("/auth", authRouter);
+httpRouter.use("/admin/users", adminUsersRouter);
 httpRouter.use("/agents/catalog", agentCatalogRouter);
 httpRouter.use("/agents", agentsRouter);
 httpRouter.use("/", userAgentsRouter);
@@ -61,7 +63,7 @@ httpRouter.get("/ping", (_request, response) => {
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-httpRouter.get("/metrics", requireAuth, getMetrics);
+httpRouter.get("/metrics", ...requireAuthAndActiveAccount, getMetrics);
 
 /**
  * @openapi

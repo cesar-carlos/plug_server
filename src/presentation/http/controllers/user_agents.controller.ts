@@ -32,6 +32,40 @@ export const listUserAgents = async (
   }
 };
 
+export const addMyAgents = async (
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { sub: userId } = getAuthUser(response);
+    const { agentIds } = getValidated<AgentIdsBody>(response, "body");
+    const result = await container.userAgentService.addSelfAgentIds(userId, agentIds);
+    if (!result.ok) {
+      next(result.error);
+      return;
+    }
+    response.status(200).json({ message: "Agents added successfully" });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const removeMyAgents = async (
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { sub: userId } = getAuthUser(response);
+    const { agentIds } = getValidated<AgentIdsBody>(response, "body");
+    await container.userAgentService.removeAgentIds(userId, agentIds);
+    response.status(200).json({ message: "Agents removed successfully" });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const addUserAgents = async (
   request: Request,
   response: Response,

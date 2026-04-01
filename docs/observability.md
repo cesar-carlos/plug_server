@@ -80,7 +80,27 @@ plug_socket_relay_outbound_queue_inflight_request_ids
 # Socket legado agents:command (mesma janela/max que REST por utilizador; contador separado)
 rate(plug_socket_agents_command_rate_limit_allowed_total[5m])
 rate(plug_socket_agents_command_rate_limit_rejected_total[5m])
+
+# Contas bloqueadas (login/refresh/socket negados por status; sem PII nos labels)
+rate(plug_auth_login_blocked_total[5m])
+rate(plug_auth_refresh_blocked_total[5m])
+rate(plug_auth_socket_blocked_total[5m])
+
+# Alteracoes de estado por admin (bloquear/desbloquear via PATCH /admin/users/:id/status)
+rate(plug_admin_user_status_set_total[5m])
+
+# Rate limit no PATCH de estado (por admin)
+rate(plug_rest_http_rate_limit_admin_user_status_rejected_total[5m])
+
+# Self-service lista de agentes (POST /me/agents): taxa por resultado + rejeicoes do rate limit
+rate(plug_user_agents_self_bind_post_total[5m])
+rate(plug_rest_http_rate_limit_me_agents_post_rejected_total[5m])
+
+# Alertas (exemplos): muitas tentativas de login bloqueadas (possivel abuso ou lista de contas)
+rate(plug_auth_login_blocked_total[5m]) > 0.5
 ```
+
+Regras de transicao e API: `docs/user_status.md`.
 
 Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos contadores expostos (podem evoluir com o CHANGELOG).
 

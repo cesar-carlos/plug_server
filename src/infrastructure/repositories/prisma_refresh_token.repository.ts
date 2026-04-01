@@ -54,6 +54,19 @@ export class PrismaRefreshTokenRepository implements IRefreshTokenRepository {
     });
   }
 
+  async revokeAllForUser(userId: string): Promise<void> {
+    const now = new Date();
+    await prismaClient.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: now,
+      },
+    });
+  }
+
   async consume(id: string, userId: string, now: Date): Promise<ConsumeRefreshTokenStatus> {
     const consumeResult = await prismaClient.refreshToken.updateMany({
       where: {

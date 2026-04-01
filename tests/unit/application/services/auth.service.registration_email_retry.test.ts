@@ -27,6 +27,8 @@ describe("AuthService registration email retry", () => {
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
+      { execute: vi.fn() } as never,
+      { execute: vi.fn() } as never,
       { hash, compare } as never,
       { save: refreshSave } as never,
       { assertAccess } as never,
@@ -36,6 +38,7 @@ describe("AuthService registration email retry", () => {
         sendUserApproved,
         sendUserRejected,
       } as never,
+      { findById: vi.fn(), findByEmail: vi.fn(), findByCelular: vi.fn(), save: vi.fn() } as never,
     );
 
   beforeEach(() => {

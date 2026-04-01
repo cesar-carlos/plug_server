@@ -45,6 +45,7 @@ export class RejectRegistrationUseCase {
       role: user.role,
       status: "rejected",
       createdAt: user.createdAt,
+      ...(user.celular !== undefined ? { celular: user.celular } : {}),
     });
 
     await this.userRepository.save(rejectedUser);

@@ -8,6 +8,7 @@ import { LoginUseCase } from "../../../../src/domain/use_cases/login.use_case";
 const makeRepo = (): IUserRepository => ({
   findById: vi.fn(),
   findByEmail: vi.fn(),
+  findByCelular: vi.fn(),
   save: vi.fn(),
 });
 
@@ -104,6 +105,25 @@ describe("LoginUseCase", () => {
     if (!result.ok) {
       expect(result.error.statusCode).toBe(403);
       expect(result.error.message).toBe("Account registration was rejected");
+    }
+  });
+
+  it("should return forbidden when account is blocked", async () => {
+    const blockedUser = User.create({
+      email: "blocked@test.com",
+      passwordHash: "$hashed$",
+      role: "user",
+      status: "blocked",
+    });
+    vi.mocked(userRepository.findByEmail).mockResolvedValue(blockedUser);
+    vi.mocked(passwordHasher.compare).mockResolvedValue(true);
+
+    const result = await useCase.execute({ email: "blocked@test.com", plainPassword: "Password1" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.statusCode).toBe(403);
+      expect(result.error.message).toBe("Account is blocked");
     }
   });
 });

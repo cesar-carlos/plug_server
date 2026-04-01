@@ -8,6 +8,8 @@ import { type Result, ok, err } from "../../shared/errors/result";
 export interface RegisterInput {
   readonly email: string;
   readonly passwordHash: string;
+  /** E.164 when provided */
+  readonly celular?: string;
   readonly role?: UserRole;
   readonly approvalTokenExpiresAt: Date;
   /** Opaque high-entropy id (generated outside the domain, e.g. `generateOpaqueRegistrationToken`). */
@@ -31,11 +33,19 @@ export class RegisterUseCase {
       return err(conflict("Email already in use"));
     }
 
+    if (input.celular !== undefined) {
+      const existingPhone = await this.userRepository.findByCelular(input.celular);
+      if (existingPhone) {
+        return err(conflict("Phone number already in use"));
+      }
+    }
+
     const user = User.create({
       email: input.email,
       passwordHash: input.passwordHash,
       role: input.role ?? "user",
       status: "pending",
+      ...(input.celular !== undefined ? { celular: input.celular } : {}),
     });
 
     await this.userRepository.save(user);

@@ -8,6 +8,7 @@ import { RefreshTokenUseCase } from "../../../../src/domain/use_cases/refresh_to
 const makeUserRepo = (): IUserRepository => ({
   findById: vi.fn(),
   findByEmail: vi.fn(),
+  findByCelular: vi.fn(),
   save: vi.fn(),
 });
 
@@ -15,6 +16,7 @@ const makeTokenRepo = (): IRefreshTokenRepository => ({
   findById: vi.fn(),
   save: vi.fn(),
   revoke: vi.fn(),
+  revokeAllForUser: vi.fn(),
   consume: vi.fn(),
 });
 
@@ -85,5 +87,24 @@ describe("RefreshTokenUseCase", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain("expired");
+  });
+
+  it("should return forbidden when user is blocked", async () => {
+    const blocked = User.create({
+      email: "blocked@test.com",
+      passwordHash: "hash",
+      role: "user",
+      status: "blocked",
+    });
+    vi.mocked(refreshTokenRepository.consume).mockResolvedValue("consumed");
+    vi.mocked(userRepository.findById).mockResolvedValue(blocked);
+
+    const result = await useCase.execute({ tokenId: "token-id-1", userId: blocked.id });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.statusCode).toBe(403);
+      expect(result.error.message).toBe("Account is blocked");
+    }
   });
 });

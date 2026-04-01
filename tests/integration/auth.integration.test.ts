@@ -68,6 +68,22 @@ describe("Auth API", () => {
       expect(response.status).toBe(400);
       expect(response.body.code).toBe("VALIDATION_ERROR");
     });
+
+    it("should return 409 when celular is already registered", async () => {
+      const phone = "11987654321";
+      const first = await request(app)
+        .post("/api/v1/auth/register")
+        .send({ email: `dup-phone-a-${Date.now()}@test.com`, password: "Password1", celular: phone });
+      expect(first.status).toBe(201);
+
+      const second = await request(app)
+        .post("/api/v1/auth/register")
+        .send({ email: `dup-phone-b-${Date.now()}@test.com`, password: "Password1", celular: phone });
+
+      expect(second.status).toBe(409);
+      expect(second.body.code).toBe("CONFLICT");
+      expect(String(second.body.message)).toContain("Phone");
+    });
   });
 
   describe("Registration approval (POST + review page)", () => {
@@ -294,7 +310,14 @@ describe("Auth API", () => {
         .set("Authorization", `Bearer ${accessToken}`);
 
       expect(response.status).toBe(200);
-      expect(response.body.user).toHaveProperty("sub");
+      expect(response.body.user).toMatchObject({
+        id: expect.any(String),
+        sub: expect.any(String),
+        email: testUser.email,
+        role: "user",
+        status: "active",
+      });
+      expect(response.body.user.id).toBe(response.body.user.sub);
     });
 
     it("should return 401 with no token", async () => {

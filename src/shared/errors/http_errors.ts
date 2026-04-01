@@ -54,6 +54,24 @@ export const agentAccessDenied = (agentId: string): AppError =>
     code: "AGENT_ACCESS_DENIED",
   });
 
+export type AgentNotOnlineReason = "offline" | "different_account";
+
+/** Agent is not usable for self-bind: offline, or online under another user (details.reason). */
+export const agentNotOnlineForUser = (
+  agentId: string,
+  reason: AgentNotOnlineReason,
+): AppError => {
+  const message =
+    reason === "offline"
+      ? `Agent ${agentId} is not connected right now`
+      : `Agent ${agentId} is connected under a different account`;
+  return new AppError(message, {
+    statusCode: 422,
+    code: "AGENT_NOT_ONLINE_FOR_USER",
+    details: { reason },
+  });
+};
+
 // ─── 422 Unprocessable Entity ────────────────────────────────────────────────
 
 export const unprocessable = (message: string, details?: unknown): AppError =>

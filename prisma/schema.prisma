@@ -16,6 +16,7 @@ enum UserStatus {
   pending
   active
   rejected
+  blocked
 }
 
 enum AgentStatus {
@@ -26,6 +27,8 @@ enum AgentStatus {
 model User {
   id              String          @id @default(uuid())
   email           String          @unique @db.VarChar(255)
+  /// Brazilian mobile (E.164), optional; unique when set (PostgreSQL allows multiple NULL)
+  celular         String?         @unique @map("celular") @db.VarChar(20)
   passwordHash    String          @map("password_hash")
   role            UserRole        @default(user)
   status          UserStatus      @default(pending) @map("status")

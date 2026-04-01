@@ -31,6 +31,7 @@ export const seedAdminUser = async (
     role: "admin",
     status: "active",
     createdAt: currentUser.createdAt,
+    ...(currentUser.celular !== undefined ? { celular: currentUser.celular } : {}),
   });
   await repositories.user.save(adminUser);
 

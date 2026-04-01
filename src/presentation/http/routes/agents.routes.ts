@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { listConnectedAgents, proxyCommandToAgent } from "../controllers/agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
-import { requireAuth } from "../middlewares/auth.middleware";
+import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import {
   agentsCommandsIpRateLimit,
   agentsCommandsUserRateLimit,
@@ -66,7 +66,7 @@ export const agentsRouter = Router();
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-agentsRouter.get("/", requireAuth, asyncHandler(listConnectedAgents));
+agentsRouter.get("/", ...requireAuthAndActiveAccount, asyncHandler(listConnectedAgents));
 
 /**
  * @openapi
@@ -295,7 +295,7 @@ agentsRouter.get("/", requireAuth, asyncHandler(listConnectedAgents));
  */
 agentsRouter.post(
   "/commands",
-  requireAuth,
+  ...requireAuthAndActiveAccount,
   agentsCommandsIpRateLimit,
   agentsCommandsUserRateLimit,
   validateRequest({ body: agentCommandBodySchema }),

@@ -5,16 +5,18 @@ import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { verifyAccessToken } from "../../../shared/utils/jwt";
 
+import { ensureJwtUserAccountActive } from "./ensure_socket_active_account";
+
 type AuthenticatedSocket = Socket & {
   data: {
     user?: JwtAccessPayload;
   };
 };
 
-export const authenticateSocket = (
+export const authenticateSocket = async (
   socket: AuthenticatedSocket,
   next: (error?: Error) => void,
-): void => {
+): Promise<void> => {
   const authorizationHeader = socket.handshake.headers.authorization;
   const handshakeToken = socket.handshake.auth.token;
 
@@ -45,6 +47,12 @@ export const authenticateSocket = (
     return;
   }
 
-  socket.data.user = result.value;
+  const user = result.value;
+  const okActive = await ensureJwtUserAccountActive(user, next);
+  if (!okActive) {
+    return;
+  }
+
+  socket.data.user = user;
   next();
 };

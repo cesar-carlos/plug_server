@@ -1,7 +1,7 @@
 import { User } from "../entities/user.entity";
 import type { IPasswordHasher } from "../ports/password_hasher.port";
 import type { IUserRepository } from "../repositories/user.repository.interface";
-import { unauthorized } from "../../shared/errors/http_errors";
+import { forbidden, unauthorized } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
 
 export interface ChangePasswordInput {
@@ -28,6 +28,10 @@ export class ChangePasswordUseCase {
       return err(unauthorized("Invalid credentials"));
     }
 
+    if (user.status === "blocked") {
+      return err(forbidden("Account is blocked"));
+    }
+
     const newPasswordHash = await this.passwordHasher.hash(input.newPassword);
 
     const updatedUser = new User({
@@ -37,6 +41,7 @@ export class ChangePasswordUseCase {
       role: user.role,
       status: user.status,
       createdAt: user.createdAt,
+      ...(user.celular !== undefined ? { celular: user.celular } : {}),
     });
 
     await this.userRepository.save(updatedUser);

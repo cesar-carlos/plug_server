@@ -10,6 +10,8 @@ import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { verifyAccessToken } from "../../../shared/utils/jwt";
 
+import { ensureJwtUserAccountActive } from "./ensure_socket_active_account";
+
 type AuthenticatedSocket = Socket & {
   data: {
     user?: JwtAccessPayload;
@@ -42,10 +44,10 @@ const resolveRole = (user: JwtAccessPayload): string => {
  * Requires token and role in SOCKET_AGENT_ROLES (default: "agent").
  * If token has agent_id claim, it will be validated against agent:register payload.
  */
-export const authenticateAgentSocket = (
+export const authenticateAgentSocket = async (
   socket: AuthenticatedSocket,
   next: (error?: Error) => void,
-): void => {
+): Promise<void> => {
   const token = getToken(socket);
 
   if (!token) {
@@ -72,6 +74,11 @@ export const authenticateAgentSocket = (
     return;
   }
 
+  const okActive = await ensureJwtUserAccountActive(user, next);
+  if (!okActive) {
+    return;
+  }
+
   socket.data.user = user;
   next();
 };
@@ -81,10 +88,10 @@ export const authenticateAgentSocket = (
  * Requires token and role in SOCKET_CONSUMER_ROLES (default: "user", "admin").
  * Rejects roles in SOCKET_AGENT_ROLES to prevent agents from posing as consumers.
  */
-export const authenticateConsumerSocket = (
+export const authenticateConsumerSocket = async (
   socket: AuthenticatedSocket,
   next: (error?: Error) => void,
-): void => {
+): Promise<void> => {
   const token = getToken(socket);
 
   if (!token) {
@@ -113,6 +120,11 @@ export const authenticateConsumerSocket = (
 
   if (!env.socketConsumerRoles.includes(role)) {
     next(forbidden(`Role '${role}' is not allowed to connect to /consumers`));
+    return;
+  }
+
+  const okActive = await ensureJwtUserAccountActive(user, next);
+  if (!okActive) {
     return;
   }
 

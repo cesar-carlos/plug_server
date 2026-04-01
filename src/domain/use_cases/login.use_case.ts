@@ -1,6 +1,7 @@
 import type { User } from "../entities/user.entity";
 import type { IUserRepository } from "../repositories/user.repository.interface";
 import type { IPasswordHasher } from "../ports/password_hasher.port";
+import { incrementAuthLoginBlocked } from "../../shared/metrics/auth_account.metrics";
 import { forbidden, unauthorized } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
 
@@ -34,6 +35,11 @@ export class LoginUseCase {
 
     if (user.status === "rejected") {
       return err(forbidden("Account registration was rejected"));
+    }
+
+    if (user.status === "blocked") {
+      incrementAuthLoginBlocked();
+      return err(forbidden("Account is blocked"));
     }
 
     return ok(user);
