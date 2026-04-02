@@ -9,6 +9,7 @@ jobs:
   test-and-build:
     runs-on: ubuntu-latest
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       NODE_ENV: test
       DATABASE_URL: postgresql://ci:ci@localhost:5432/plug_test
     steps:

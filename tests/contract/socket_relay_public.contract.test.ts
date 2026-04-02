@@ -8,6 +8,20 @@ vi.mock("../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => (
   allowRelayStreamPull: vi.fn(),
 }));
 
+vi.mock("../../src/presentation/socket/hub/conversation_registry", () => ({
+  conversationRegistry: {
+    findInternalByConversationId: vi.fn(() => ({
+      consumerSocketId: "consumer-1",
+      agentId: "agent-1",
+    })),
+  },
+}));
+
+vi.mock("../../src/presentation/socket/consumers/consumer_socket_guard", () => ({
+  assertConsumerSocketAgentAccess: vi.fn().mockResolvedValue({ type: "user", id: "user-1" }),
+  resolveSocketActorRole: vi.fn(() => "user"),
+}));
+
 import { handleRelayRpcStreamPull } from "../../src/presentation/socket/consumers/relay_rpc_stream_pull.handler";
 import {
   buildConnectionReadyPayloadForWire,

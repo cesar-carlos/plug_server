@@ -173,6 +173,7 @@ export const getTestRepositoryAccess = (): {
   readonly user: IUserRepository;
   readonly agentIdentity: IAgentIdentityRepository;
   readonly agent: IAgentRepository;
+  readonly client: IClientRepository;
   readonly clientAgentAccess: IClientAgentAccessRepository;
 } => {
   if (env.nodeEnv !== "test") {
@@ -183,6 +184,7 @@ export const getTestRepositoryAccess = (): {
     user: userRepository,
     agentIdentity: agentIdentityRepository,
     agent: agentRepository,
+    client: clientRepository,
     clientAgentAccess: clientAgentAccessRepository,
   };
 };
