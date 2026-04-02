@@ -11,6 +11,36 @@ import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 import { env } from "../../src/shared/config/env";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
+import { getTestRepositoryAccess } from "../../src/shared/di/container";
+import { User } from "../../src/domain/entities/user.entity";
+
+const repositories = getTestRepositoryAccess();
+
+const createAdminAccessToken = async (baseUrl: string): Promise<string> => {
+  const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const email = `agents-http-admin-${unique}@test.com`;
+  const password = "AgentsHttpAdmin1";
+  const registerRes = await request(baseUrl).post("/api/v1/auth/register").send({ email, password });
+  expect(registerRes.status).toBe(201);
+  await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
+  const userId = registerRes.body.user.id as string;
+  const currentUser = await repositories.user.findById(userId);
+  expect(currentUser).not.toBeNull();
+  await repositories.user.save(
+    User.create({
+      id: userId,
+      email,
+      passwordHash: currentUser!.passwordHash,
+      role: "admin",
+      status: "active",
+      createdAt: currentUser!.createdAt,
+      ...(currentUser!.celular !== undefined ? { celular: currentUser!.celular } : {}),
+    }),
+  );
+  const loginRes = await request(baseUrl).post("/api/v1/auth/login").send({ email, password });
+  expect(loginRes.status).toBe(200);
+  return loginRes.body.accessToken as string;
+};
 
 const waitForEvent = <T>(
   socket: ReturnType<typeof ioClient>,
@@ -219,6 +249,67 @@ describe("Agents HTTP bridge", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("should allow admin to dispatch commands without explicit agent ownership link", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+    const adminAccessToken = await createAdminAccessToken(baseUrl);
+    const requestId = `admin-dispatch-${Date.now()}`;
+
+    const rpcHandled = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("Timed out waiting for rpc:request")),
+        8_000,
+      );
+
+      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+        const decoded = decodePayloadFrame(rawPayload);
+        if (!decoded.ok || !isRecord(decoded.value.data)) {
+          clearTimeout(timeout);
+          reject(new Error("Invalid rpc:request payload"));
+          return;
+        }
+
+        const wireId = toRequestId(decoded.value.data.id);
+        if (wireId !== requestId) {
+          clearTimeout(timeout);
+          reject(new Error(`Unexpected request id: ${wireId ?? "<null>"}`));
+          return;
+        }
+
+        agentSocket?.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: wireId,
+            result: { ok: true, source: "admin" },
+          }),
+        );
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    const responsePromise = request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${adminAccessToken}`)
+      .send({
+        agentId: testAgentId,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: requestId,
+          params: {
+            sql: "SELECT 1",
+          },
+        },
+      });
+
+    const [response] = await Promise.all([responsePromise, rpcHandled]);
+    expect(response.status).toBe(200);
+    expect(response.body.response?.item?.result?.source).toBe("admin");
   });
 
   it("should reject dispatch during agent protocol readiness grace and accept after it settles", async () => {

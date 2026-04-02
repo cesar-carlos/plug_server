@@ -12,9 +12,9 @@ export class InMemoryAgentRepository implements IAgentRepository {
     return this.agentsById.get(agentId) ?? null;
   }
 
-  async findByCnpjCpf(cnpjCpf: string): Promise<Agent | null> {
+  async findByDocument(document: string): Promise<Agent | null> {
     for (const agent of this.agentsById.values()) {
-      if (agent.cnpjCpf === cnpjCpf) return agent;
+      if (agent.document === document) return agent;
     }
     return null;
   }
@@ -45,7 +45,10 @@ export class InMemoryAgentRepository implements IAgentRepository {
     if (filter?.search) {
       const q = filter.search.toLowerCase();
       agents = agents.filter(
-        (a) => a.name.toLowerCase().includes(q) || a.cnpjCpf.includes(filter.search!),
+        (a) =>
+          a.name.toLowerCase().includes(q) ||
+          (a.tradeName?.toLowerCase().includes(q) ?? false) ||
+          (a.document?.includes(filter.search!) ?? false),
       );
     }
 

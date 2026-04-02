@@ -53,14 +53,9 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_IO_PER_MESSAGE_DEFLATE` | `false` | Evita deflate WS duplicado com `PayloadFrame`. |
 | `SOCKET_IO_MAX_HTTP_BUFFER_BYTES` | `10485760` | Teto alinhado a frames de 10 MiB. |
 
-## User agents — self-service (`POST /api/v1/me/agents`)
+## Ownership de agentes
 
-A verificação de “online” usa o registo **em memória do processo** (`agentRegistry`). Com **várias réplicas** HTTP/Socket sem afinidade de sessão, o pedido pode cair num nó onde o agente não está registado — o bind falha com `422` / `AGENT_NOT_ONLINE_FOR_USER` mesmo com o agente ligado doutro lado. Mitigações típicas: sticky sessions, colocar REST e Socket no mesmo nó, ou presença partilhada (ex. Redis) numa evolução futura.
-
-| Variável | Defeito | Notas |
-| -------- | ------- | ----- |
-| `REST_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS` | `60000` | Janela por utilizador autenticado (`JWT sub`). |
-| `REST_ME_AGENTS_POST_RATE_LIMIT_MAX` | `40` | Máximo de pedidos `POST /api/v1/me/agents` por janela. |
+O ownership oficial do agente nasce em `agent:register`, depois de um `agent-login` válido. Nesse mesmo registo o hub consulta `agent.getProfile` e cria/atualiza automaticamente o cadastro do agente no catálogo, incluindo `lastLoginUserId` como atributo operacional. Não existem mais variáveis de ambiente nem rate limits dedicados ao antigo fluxo HTTP de self-service bind em `/api/v1/me/agents`, e o catálogo também não aceita mais criação/edição manual por HTTP; por gestão administrativa, apenas a desativação permanece exposta.
 
 ## Leitura recomendada
 

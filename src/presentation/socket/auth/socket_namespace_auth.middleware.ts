@@ -85,7 +85,7 @@ export const authenticateAgentSocket = async (
 
 /**
  * Authenticates connections to the /consumers namespace.
- * Requires token and role in SOCKET_CONSUMER_ROLES (default: "user", "admin").
+ * Requires token and role in SOCKET_CONSUMER_ROLES (default: "user", "admin", "client").
  * Rejects roles in SOCKET_AGENT_ROLES to prevent agents from posing as consumers.
  */
 export const authenticateConsumerSocket = async (

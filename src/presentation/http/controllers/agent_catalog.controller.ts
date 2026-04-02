@@ -8,35 +8,7 @@ import { container } from "../../../shared/di/container";
 import { forbidden } from "../../../shared/errors/http_errors";
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
-import type {
-  CreateAgentBody,
-  UpdateAgentBody,
-  AgentIdParam,
-  ListAgentsQuery,
-} from "../validators/agent_catalog.validator";
-
-export const createAgent = async (
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> => {
-  try {
-    const body = getValidated<CreateAgentBody>(response, "body");
-    const result = await container.agentCatalogService.create({
-      agentId: body.agentId,
-      name: body.name,
-      cnpjCpf: body.cnpjCpf,
-      ...(body.observation !== undefined ? { observation: body.observation } : {}),
-    });
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(201).json({ agent: toDto(result.value) });
-  } catch (e) {
-    next(e);
-  }
-};
+import type { AgentIdParam, ListAgentsQuery } from "../validators/agent_catalog.validator";
 
 export const listAgents = async (
   request: Request,
@@ -105,29 +77,6 @@ export const getAgent = async (
   }
 };
 
-export const updateAgent = async (
-  request: Request,
-  response: Response,
-  next: NextFunction,
-): Promise<void> => {
-  try {
-    const { agentId } = getValidated<AgentIdParam>(response, "params");
-    const body = getValidated<UpdateAgentBody>(response, "body");
-    const result = await container.agentCatalogService.update(agentId, {
-      ...(body.name !== undefined ? { name: body.name } : {}),
-      ...(body.cnpjCpf !== undefined ? { cnpjCpf: body.cnpjCpf } : {}),
-      ...(body.observation !== undefined ? { observation: body.observation } : {}),
-    });
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({ agent: toDto(result.value) });
-  } catch (e) {
-    next(e);
-  }
-};
-
 export const deactivateAgent = async (
   request: Request,
   response: Response,
@@ -151,16 +100,50 @@ const toDto = (
 ): {
   agentId: string;
   name: string;
-  cnpjCpf: string;
+  tradeName: string | null;
+  document: string | null;
+  cnpjCpf: string | null;
+  documentType: Agent["documentType"] | null;
+  phone: string | null;
+  mobile: string | null;
+  email: string | null;
+  address: {
+    street: string | null;
+    number: string | null;
+    district: string | null;
+    postalCode: string | null;
+    city: string | null;
+    state: string | null;
+  };
+  notes: string | null;
   observation: string | null;
+  lastLoginUserId: string | null;
+  profileUpdatedAt: string | null;
   status: Agent["status"];
   createdAt: string;
   updatedAt: string;
 } => ({
   agentId: agent.agentId,
   name: agent.name,
-  cnpjCpf: agent.cnpjCpf,
-  observation: agent.observation ?? null,
+  tradeName: agent.tradeName ?? null,
+  document: agent.document ?? null,
+  cnpjCpf: agent.document ?? null,
+  documentType: agent.documentType ?? null,
+  phone: agent.phone ?? null,
+  mobile: agent.mobile ?? null,
+  email: agent.email ?? null,
+  address: {
+    street: agent.street ?? null,
+    number: agent.number ?? null,
+    district: agent.district ?? null,
+    postalCode: agent.postalCode ?? null,
+    city: agent.city ?? null,
+    state: agent.state ?? null,
+  },
+  notes: agent.notes ?? null,
+  observation: agent.notes ?? null,
+  lastLoginUserId: agent.lastLoginUserId ?? null,
+  profileUpdatedAt: agent.profileUpdatedAt?.toISOString() ?? null,
   status: agent.status,
   createdAt: agent.createdAt.toISOString(),
   updatedAt: agent.updatedAt.toISOString(),

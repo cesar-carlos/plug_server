@@ -10,14 +10,21 @@ import { authRouter } from "./auth.routes";
 import { agentCatalogRouter } from "./agent_catalog.routes";
 import { adminUsersRouter } from "./admin_users.routes";
 import { userAgentsRouter } from "./user_agents.routes";
+import { clientAuthRouter } from "./client_auth.routes";
+import { clientAgentsRouter, clientAccessReviewRouter } from "./client_agents.routes";
+import { userClientsRouter } from "./user_clients.routes";
 
 export const httpRouter = Router();
 
 httpRouter.use("/auth", authRouter);
+httpRouter.use("/client-auth", clientAuthRouter);
+httpRouter.use("/", clientAgentsRouter);
+httpRouter.use("/client-access", clientAccessReviewRouter);
 httpRouter.use("/admin/users", adminUsersRouter);
 httpRouter.use("/agents/catalog", agentCatalogRouter);
 httpRouter.use("/agents", agentsRouter);
 httpRouter.use("/", userAgentsRouter);
+httpRouter.use("/", userClientsRouter);
 
 /**
  * @openapi

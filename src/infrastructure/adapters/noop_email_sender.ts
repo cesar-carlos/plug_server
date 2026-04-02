@@ -9,4 +9,10 @@ export class NoopEmailSender implements IEmailSender {
   async sendUserApproved(): Promise<void> {}
 
   async sendUserRejected(): Promise<void> {}
+
+  async sendClientAccessRequestToOwner(): Promise<void> {}
+
+  async sendClientAccessApproved(): Promise<void> {}
+
+  async sendClientAccessRejected(): Promise<void> {}
 }

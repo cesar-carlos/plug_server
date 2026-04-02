@@ -12,6 +12,7 @@ export interface JwtAccessPayload {
   readonly sub: string;
   readonly email?: string;
   readonly role?: string;
+  readonly principal_type?: "user" | "client";
   readonly agent_id?: string;
   readonly tokenType: "access";
 }
@@ -53,6 +54,7 @@ export interface JwtRefreshPayload {
   readonly sub: string;
   readonly jti: string;
   readonly tokenType: "refresh";
+  readonly principal_type?: "user" | "client";
   readonly agent_id?: string;
 }
 
@@ -66,6 +68,7 @@ export const signRefreshToken = (payload: JwtRefreshPayload): string => {
   const tokenPayload: Record<string, unknown> = {
     sub: payload.sub,
     tokenType: "refresh",
+    ...(payload.principal_type !== undefined ? { principal_type: payload.principal_type } : {}),
   };
   if (typeof payload.agent_id === "string" && payload.agent_id.trim() !== "") {
     tokenPayload.agent_id = payload.agent_id;
@@ -94,7 +97,11 @@ export const verifyRefreshToken = (token: string): Result<JwtRefreshPayload> => 
         typeof payload.agent_id === "string" && payload.agent_id.trim() !== ""
           ? payload.agent_id
           : undefined;
-      return { ...decoded, agent_id } as JwtRefreshPayload;
+      const principal_type =
+        payload.principal_type === "user" || payload.principal_type === "client"
+          ? payload.principal_type
+          : undefined;
+      return { ...decoded, agent_id, principal_type } as JwtRefreshPayload;
     },
     "Invalid or expired refresh token",
     { statusCode: 401, code: "INVALID_TOKEN" },

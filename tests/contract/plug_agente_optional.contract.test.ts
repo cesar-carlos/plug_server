@@ -27,6 +27,10 @@ const SCHEMA_FILES = [
   "payload-frame.schema.json",
   "agent.register.schema.json",
   "agent.capabilities.schema.json",
+  "agent.profile.schema.json",
+  "agent.ready.schema.json",
+  "rpc.params.agent-get-profile.schema.json",
+  "rpc.result.agent-get-profile.schema.json",
 ] as const;
 
 function resolvePlugAgenteRoot(): string | null {
@@ -94,7 +98,9 @@ function registerPlugAgenteSchemas(ajv: InstanceType<typeof Ajv2020>): void {
     ) {
       continue;
     }
-    ajv.addSchema(read(name));
+    const schema = read(name);
+    ajv.addSchema(schema);
+    ajv.addSchema(withId(schema, `https://plugagente.dev/schemas/${name}`));
   }
 }
 
@@ -125,6 +131,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     expect(names.has("sql.executeBatch")).toBe(true);
     expect(names.has("sql.cancel")).toBe(true);
     expect(names.has("rpc.discover")).toBe(true);
+    expect(names.has("agent.getProfile")).toBe(true);
 
     const version = doc.info?.version;
     expect(typeof version).toBe("string");
@@ -166,6 +173,12 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     const validateSqlResult = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.result.sql-execute.v1.json",
     );
+    const validateAgentGetProfileParams = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.params.agent-get-profile.v1.json",
+    );
+    const validateAgentGetProfileResult = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.result.agent-get-profile.v1.json",
+    );
     const validateBatchRequest = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.batch.request.v1.json",
     );
@@ -179,6 +192,8 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     expect(validateRpcRequest).toBeDefined();
     expect(validatePayloadFrame).toBeDefined();
     expect(validateSqlResult).toBeDefined();
+    expect(validateAgentGetProfileParams).toBeDefined();
+    expect(validateAgentGetProfileResult).toBeDefined();
     expect(validateBatchRequest).toBeDefined();
     expect(validateBatchResponse).toBeDefined();
 
@@ -228,6 +243,15 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       method: "sql.cancel",
       id: "contract-cancel-1",
       params: cancelParams,
+    });
+
+    const getProfileParams = { client_token: "a1b2c3d4" };
+    expect(validateAgentGetProfileParams!(getProfileParams)).toBe(true);
+    assertZodAcceptsCommand({
+      jsonrpc: "2.0",
+      method: "agent.getProfile",
+      id: "contract-profile-1",
+      params: getProfileParams,
     });
 
     const rpcReq = {
@@ -301,6 +325,28 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       },
     ];
     expect(validateBatchResponse!(batchRes)).toBe(true);
+
+    const profileResult = {
+      agent_id: "agent-01",
+      profile: {
+        name: "Loja Plug",
+        trade_name: "Plug Matriz",
+        document: "11222333000181",
+        document_type: "cnpj",
+        mobile: "11999999999",
+        email: "contato@plug.local",
+        address: {
+          street: "Rua A",
+          number: "100",
+          district: "Centro",
+          postal_code: "01001000",
+          city: "Sao Paulo",
+          state: "SP",
+        },
+      },
+      updated_at: "2026-03-23T10:00:01.000Z",
+    };
+    expect(validateAgentGetProfileResult!(profileResult)).toBe(true);
   });
 
   it("rejects invalid sql.execute options per plug_agente schema (preserve + page)", () => {

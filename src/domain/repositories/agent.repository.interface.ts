@@ -19,7 +19,7 @@ export interface PaginatedAgentList {
 export interface IAgentRepository {
   findById(agentId: string): Promise<Agent | null>;
   findByIds(agentIds: string[]): Promise<Agent[]>;
-  findByCnpjCpf(cnpjCpf: string): Promise<Agent | null>;
+  findByDocument(document: string): Promise<Agent | null>;
   findAll(filter?: AgentListFilter): Promise<PaginatedAgentList>;
   save(agent: Agent): Promise<void>;
   update(agent: Agent): Promise<void>;

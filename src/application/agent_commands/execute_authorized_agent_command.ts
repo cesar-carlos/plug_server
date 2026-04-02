@@ -4,7 +4,7 @@
  * Throws AppError on authorization failure, matching the existing error-handling pattern.
  */
 
-import type { AgentAccessService } from "../services/agent_access.service";
+import type { AgentAccessPrincipal, AgentAccessService } from "../services/agent_access.service";
 import type { AgentCommandBody } from "../../shared/validators/agent_command";
 import type { BridgeLatencyTraceSession } from "../services/bridge_latency_trace_builder";
 import {
@@ -15,7 +15,7 @@ import {
 } from "./execute_agent_command";
 
 export interface ExecuteAuthorizedAgentCommandInput {
-  readonly userId: string;
+  readonly principal: AgentAccessPrincipal;
   readonly agentId: string;
   readonly command: AgentCommandBody["command"];
   readonly timeoutMs?: number;
@@ -31,7 +31,7 @@ export const executeAuthorizedAgentCommand = async (
   dispatch: AgentCommandDispatcher,
   normalize: RpcResponseNormalizer,
 ): Promise<ExecuteAgentCommandResult> => {
-  const accessResult = await agentAccessService.assertAccess(input.userId, input.agentId);
+  const accessResult = await agentAccessService.assertPrincipalAccess(input.principal, input.agentId);
   if (!accessResult.ok) {
     throw accessResult.error;
   }

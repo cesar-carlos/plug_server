@@ -15,6 +15,7 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { allowAgentsCommandSocket } from "../hub/agents_command_socket_rate_limiter";
+import type { AgentAccessPrincipal } from "../../../application/services/agent_access.service";
 
 const emitCommandResponse = (
   socket: Socket,
@@ -31,6 +32,20 @@ const emitCommandResponse = (
 
 const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_ERROR"): void => {
   socket.emit(socketEvents.appError, { message, code });
+};
+
+const resolveAgentAccessPrincipal = (socket: Socket): AgentAccessPrincipal | null => {
+  const sub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : null;
+  if (!sub) {
+    return null;
+  }
+  return socket.data.user?.principal_type === "client"
+    ? { type: "client", id: sub }
+    : {
+        type: "user",
+        id: sub,
+        ...(socket.data.user?.role !== undefined ? { role: socket.data.user.role } : {}),
+      };
 };
 
 export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void => {
@@ -52,7 +67,8 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     return;
   }
 
-  const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
+  const principal = resolveAgentAccessPrincipal(socket);
+  const userSub = principal?.id;
   if (!allowAgentsCommandSocket(userSub, socket.id)) {
     emitCommandResponse(socket, {
       success: false,
@@ -65,7 +81,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     return;
   }
 
-  if (!userSub) {
+  if (!principal) {
     emitCommandResponse(socket, {
       success: false,
       error: { code: "UNAUTHORIZED", message: "Authentication required", statusCode: 401 },
@@ -90,7 +106,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
 
   void executeAuthorizedAgentCommand(
     {
-      userId: userSub,
+      principal,
       agentId: body.agentId,
       command: body.command,
       ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),

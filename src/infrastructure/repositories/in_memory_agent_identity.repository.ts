@@ -1,5 +1,4 @@
 import type {
-  AgentIdentityMutationResult,
   BindAgentIdentityStatus,
   IAgentIdentityRepository,
 } from "../../domain/repositories/agent_identity.repository.interface";
@@ -43,50 +42,6 @@ export class InMemoryAgentIdentityRepository implements IAgentIdentityRepository
     }
     result.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
     return result.map((r) => r.agentId);
-  }
-
-  async addAgentIds(userId: string, agentIds: string[]): Promise<AgentIdentityMutationResult> {
-    for (const agentId of agentIds) {
-      const existing = this.ownerByAgentId.get(agentId);
-      if (existing && existing.userId !== userId) {
-        return { kind: "agent_bound_to_other_user", agentId, ownerUserId: existing.userId };
-      }
-
-      if (!existing) {
-        this.ownerByAgentId.set(agentId, { userId, createdAt: new Date() });
-      }
-    }
-
-    return { kind: "ok" };
-  }
-
-  async removeAgentIds(userId: string, agentIds: string[]): Promise<void> {
-    for (const agentId of agentIds) {
-      const record = this.ownerByAgentId.get(agentId);
-      if (record?.userId === userId) {
-        this.ownerByAgentId.delete(agentId);
-      }
-    }
-  }
-
-  async replaceAgentIds(userId: string, agentIds: string[]): Promise<AgentIdentityMutationResult> {
-    for (const agentId of agentIds) {
-      const existing = this.ownerByAgentId.get(agentId);
-      if (existing && existing.userId !== userId) {
-        return { kind: "agent_bound_to_other_user", agentId, ownerUserId: existing.userId };
-      }
-    }
-
-    for (const [agentId, record] of this.ownerByAgentId.entries()) {
-      if (record.userId === userId) {
-        this.ownerByAgentId.delete(agentId);
-      }
-    }
-    for (const agentId of agentIds) {
-      this.ownerByAgentId.set(agentId, { userId, createdAt: new Date() });
-    }
-
-    return { kind: "ok" };
   }
 
   clear(): void {

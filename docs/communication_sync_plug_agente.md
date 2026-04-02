@@ -32,6 +32,10 @@ Validacao automatizada no hub: `npm run test:contract`.
 - `docs/configuration.md`
 - `docs/performance_hub_agent.md`
 
+Regras de negocio de ownership de `Agent`, acesso de `Client` e aprovacao por
+owner nao sao mantidas neste resumo de sincronizacao; a fonte canonica para esse
+tema e `docs/client_agent_business_rules.md`.
+
 Historico detalhado de mudancas: `CHANGELOG.md`.
 
 ## Alinhamento atual

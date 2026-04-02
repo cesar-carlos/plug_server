@@ -23,6 +23,16 @@ import {
   isJwtAdmin,
   resolveVisibleAgentIds,
 } from "../../../application/policies/agent_visibility.policy";
+import type { AgentAccessPrincipal } from "../../../application/services/agent_access.service";
+
+const resolveAgentAccessPrincipal = (
+  sub: string,
+  principalType?: string,
+  role?: string,
+): AgentAccessPrincipal =>
+  principalType === "client"
+    ? { type: "client", id: sub }
+    : { type: "user", id: sub, ...(role !== undefined ? { role } : {}) };
 
 export const listConnectedAgents = async (
   _request: Request,
@@ -98,7 +108,7 @@ export const proxyCommandToAgent = async (
   try {
     const result = await executeAuthorizedAgentCommand(
       {
-        userId: authUser.sub,
+        principal: resolveAgentAccessPrincipal(authUser.sub, authUser.principal_type, authUser.role),
         agentId: body.agentId,
         command: body.command,
         ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),

@@ -1,29 +1,5 @@
 import { z } from "zod";
-import { uuidSchema, nonEmptyStringSchema } from "../../../shared/validators/schemas";
-
-export const createAgentBodySchema = z.object({
-  agentId: uuidSchema,
-  name: nonEmptyStringSchema.max(120, { message: "Name must be at most 120 characters" }),
-  cnpjCpf: nonEmptyStringSchema,
-  observation: z
-    .string()
-    .max(2000, { message: "Observation must be at most 2000 characters" })
-    .optional(),
-});
-
-export type CreateAgentBody = z.infer<typeof createAgentBodySchema>;
-
-export const updateAgentBodySchema = z.object({
-  name: z.string().min(1).max(120, { message: "Name must be at most 120 characters" }).optional(),
-  cnpjCpf: z.string().min(1).optional(),
-  observation: z
-    .string()
-    .max(2000, { message: "Observation must be at most 2000 characters" })
-    .nullable()
-    .optional(),
-});
-
-export type UpdateAgentBody = z.infer<typeof updateAgentBodySchema>;
+import { uuidSchema } from "../../../shared/validators/schemas";
 
 export const agentIdParamSchema = z.object({
   agentId: uuidSchema,

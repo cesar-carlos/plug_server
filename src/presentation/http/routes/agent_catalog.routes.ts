@@ -2,64 +2,10 @@ import { Router } from "express";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuthAndActiveAccount, requireRole } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
-import {
-  createAgentBodySchema,
-  updateAgentBodySchema,
-  agentIdParamSchema,
-  listAgentsQuerySchema,
-} from "../validators/agent_catalog.validator";
-import {
-  createAgent,
-  listAgents,
-  getAgent,
-  updateAgent,
-  deactivateAgent,
-} from "../controllers/agent_catalog.controller";
+import { agentIdParamSchema, listAgentsQuerySchema } from "../validators/agent_catalog.validator";
+import { listAgents, getAgent, deactivateAgent } from "../controllers/agent_catalog.controller";
 
 export const agentCatalogRouter = Router();
-
-/**
- * @openapi
- * /agents/catalog:
- *   post:
- *     summary: Create agent catalog record
- *     description: Admin only. `cnpjCpf` is validated (CPF/CNPJ), normalized to digits-only, and must be unique.
- *     tags: [Agent catalog]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/CreateAgentCatalogRequest'
- *     responses:
- *       201:
- *         description: Agent created
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               required: [agent]
- *               properties:
- *                 agent:
- *                   $ref: '#/components/schemas/AgentCatalogRecord'
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
- *       409:
- *         $ref: '#/components/responses/Conflict'
- */
-agentCatalogRouter.post(
-  "/",
-  ...requireAuthAndActiveAccount,
-  requireRole("admin"),
-  validateRequest({ body: createAgentBodySchema }),
-  asyncHandler(createAgent),
-);
 
 /**
  * @openapi
@@ -152,58 +98,6 @@ agentCatalogRouter.get(
   ...requireAuthAndActiveAccount,
   validateRequest({ params: agentIdParamSchema }),
   asyncHandler(getAgent),
-);
-
-/**
- * @openapi
- * /agents/catalog/{agentId}:
- *   patch:
- *     summary: Update catalog agent fields
- *     description: Admin only. At least one of name, cnpjCpf, observation (nullable to clear).
- *     tags: [Agent catalog]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: agentId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/UpdateAgentCatalogRequest'
- *     responses:
- *       200:
- *         description: Updated agent
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               required: [agent]
- *               properties:
- *                 agent:
- *                   $ref: '#/components/schemas/AgentCatalogRecord'
- *       400:
- *         $ref: '#/components/responses/ValidationError'
- *       401:
- *         $ref: '#/components/responses/Unauthorized'
- *       403:
- *         $ref: '#/components/responses/Forbidden'
- *       404:
- *         $ref: '#/components/responses/NotFound'
- *       409:
- *         $ref: '#/components/responses/Conflict'
- */
-agentCatalogRouter.patch(
-  "/:agentId",
-  ...requireAuthAndActiveAccount,
-  requireRole("admin"),
-  validateRequest({ params: agentIdParamSchema, body: updateAgentBodySchema }),
-  asyncHandler(updateAgent),
 );
 
 /**

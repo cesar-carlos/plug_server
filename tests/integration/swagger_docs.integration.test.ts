@@ -32,12 +32,57 @@ describe("Swagger docs", () => {
     expect(schemas?.NormalizedRpcItem?.properties).toHaveProperty("api_version");
     expect(schemas?.NormalizedRpcItem?.properties).toHaveProperty("meta");
 
-    expect(response.body.paths?.["/agents/catalog"]?.post?.tags).toContain("Agent catalog");
     expect(response.body.paths?.["/agents/catalog"]?.get?.tags).toContain("Agent catalog");
+    expect(response.body.paths?.["/agents/catalog"]?.post).toBeUndefined();
+    expect(response.body.paths?.["/agents/catalog/{agentId}"]?.patch).toBeUndefined();
+    expect(response.body.paths?.["/client/me/agents"]?.get?.tags).toContain("Client Agent Access");
+    expect(response.body.paths?.["/client/me/agents"]?.get?.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "status" }),
+        expect.objectContaining({ name: "search" }),
+        expect.objectContaining({ name: "page" }),
+        expect.objectContaining({ name: "pageSize" }),
+      ]),
+    );
+    expect(response.body.paths?.["/client/me/agent-access-requests"]?.get?.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "status" }),
+        expect.objectContaining({ name: "search" }),
+        expect.objectContaining({ name: "page" }),
+        expect.objectContaining({ name: "pageSize" }),
+      ]),
+    );
+    expect(response.body.paths?.["/client/me/agents/{agentId}"]?.get?.tags).toContain(
+      "Client Agent Access",
+    );
+    expect(response.body.paths?.["/me/clients"]?.get).toBeDefined();
+    expect(response.body.paths?.["/me/clients/{clientId}"]?.get).toBeDefined();
+    expect(response.body.paths?.["/me/clients/{clientId}/status"]?.patch).toBeDefined();
+    expect(response.body.paths?.["/me/client-access-requests"]?.get).toBeDefined();
+    expect(response.body.paths?.["/me/client-access-requests/{requestId}/approve"]?.post).toBeDefined();
+    expect(response.body.paths?.["/me/client-access-requests/{requestId}/reject"]?.post).toBeDefined();
+    expect(response.body.paths?.["/me/agents/{agentId}/clients"]?.get).toBeDefined();
+    expect(response.body.paths?.["/me/agents/{agentId}/clients/{clientId}"]?.delete).toBeDefined();
+    expect(response.body.paths?.["/client-auth/register"]?.post?.security).toEqual([
+      { bearerAuth: [] },
+    ]);
+    const clientRegisterBody =
+      response.body.paths?.["/client-auth/register"]?.post?.requestBody?.content?.["application/json"]?.schema
+        ?.properties;
+    expect(clientRegisterBody?.userId).toBeUndefined();
     expect(response.body.paths?.["/me/agents"]?.get?.tags).toContain("User agents");
     expect(response.body.paths?.["/users/{userId}/agents"]?.get?.tags).toContain("User agents");
+    expect(response.body.paths?.["/me/agents"]?.post).toBeUndefined();
+    expect(response.body.paths?.["/me/agents"]?.delete).toBeUndefined();
+    expect(response.body.paths?.["/users/{userId}/agents"]?.post).toBeUndefined();
+    expect(response.body.paths?.["/users/{userId}/agents"]?.delete).toBeUndefined();
+    expect(response.body.paths?.["/users/{userId}/agents"]?.put).toBeUndefined();
+    expect(response.body.paths?.["/auth/agent-login"]?.post?.responses?.["409"]).toBeDefined();
+    expect(response.body.paths?.["/auth/agent-login"]?.post?.responses?.["404"]).toBeUndefined();
     expect(schemas?.AgentCatalogRecord?.properties).toHaveProperty("cnpjCpf");
+    expect(schemas?.ClientAccessibleAgent?.properties).toHaveProperty("profileUpdatedAt");
+    expect(schemas?.CreateAgentCatalogRequest).toBeUndefined();
+    expect(schemas?.UpdateAgentCatalogRequest).toBeUndefined();
     expect(schemas?.PaginatedAgentCatalogResponse?.required).toContain("total");
-    expect(schemas?.AgentIdsBody?.required).toContain("agentIds");
   });
 });

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
+import type { Client } from "../../../domain/entities/client.entity";
 import type { User } from "../../../domain/entities/user.entity";
 import { container } from "../../../shared/di/container";
 import { forbidden, unauthorized } from "../../../shared/errors/http_errors";
@@ -27,6 +28,32 @@ export const requireAuth = (request: Request, response: Response, next: NextFunc
   next();
 };
 
+export const requireClientAuth = (request: Request, response: Response, next: NextFunction): void => {
+  const authorization = request.headers.authorization;
+
+  if (!authorization?.startsWith("Bearer ")) {
+    next(unauthorized("Bearer token required"));
+    return;
+  }
+
+  const token = authorization.replace("Bearer ", "").trim();
+  const result = verifyAccessToken(token);
+
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+
+  const payload = result.value;
+  if (payload.principal_type !== "client") {
+    next(forbidden("Client token required"));
+    return;
+  }
+
+  response.locals.authClient = payload;
+  next();
+};
+
 export const requireRole =
   (...roles: string[]) =>
   (_request: Request, response: Response, next: NextFunction): void => {
@@ -44,6 +71,12 @@ export const getAuthUser = (response: Response): JwtAccessPayload => {
   const user = response.locals.authUser as JwtAccessPayload | undefined;
   if (!user) throw unauthorized("Authentication required");
   return user;
+};
+
+export const getAuthClient = (response: Response): JwtAccessPayload => {
+  const client = response.locals.authClient as JwtAccessPayload | undefined;
+  if (!client) throw unauthorized("Client authentication required");
+  return client;
 };
 
 /**
@@ -87,4 +120,40 @@ export const resolveActiveAccountUser = async (
 export const requireAuthAndActiveAccount: RequestHandler[] = [
   requireAuth,
   asyncHandler(requireActiveAccount),
+];
+
+export const requireClientActiveAccount = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authClient = response.locals.authClient as JwtAccessPayload | undefined;
+  if (!authClient?.sub) {
+    next(unauthorized("Client authentication required"));
+    return;
+  }
+
+  const result = await container.clientAuthService.getActiveClient(authClient.sub);
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.locals.activeAccountClient = result.value;
+  next();
+};
+
+export const resolveActiveAccountClient = async (
+  response: Response,
+  clientId: string,
+): Promise<Result<Client>> => {
+  const cached = response.locals.activeAccountClient as Client | undefined;
+  if (cached && cached.id === clientId) {
+    return { ok: true, value: cached };
+  }
+  return container.clientAuthService.getActiveClient(clientId);
+};
+
+export const requireClientAuthAndActiveAccount: RequestHandler[] = [
+  requireClientAuth,
+  asyncHandler(requireClientActiveAccount),
 ];

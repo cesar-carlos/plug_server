@@ -49,6 +49,8 @@ export const AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Max UTF-8 bytes for serialized `params` on `rpc.discover`. */
 export const AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
+/** Max UTF-8 bytes for serialized `params` on `agent.getProfile`. */
+export const AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES = 64 * 1024;
 
 const utf8ByteLength = (value: string): number => Buffer.byteLength(value, "utf8");
 
@@ -281,7 +283,43 @@ const rpcDiscoverCommandSchema = z
     }
   });
 
+const agentGetProfileParamsSchema = tokenCarrierSchema.strict();
+
+const agentGetProfileCommandSchema = z
+  .object({
+    jsonrpc: z.literal("2.0").default("2.0"),
+    method: z.literal("agent.getProfile"),
+    id: jsonRpcIdSchema.optional(),
+    params: agentGetProfileParamsSchema.optional(),
+  })
+  .merge(rpcEnvelopeExtensionsSchema)
+  .passthrough()
+  .superRefine((value, ctx) => {
+    if (value.params === undefined) {
+      return;
+    }
+    let encoded: string;
+    try {
+      encoded = JSON.stringify(value.params);
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["params"],
+        message: "`params` must be JSON-serializable",
+      });
+      return;
+    }
+    if (utf8ByteLength(encoded) > AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["params"],
+        message: `agent.getProfile params exceed max UTF-8 size (${AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES} bytes)`,
+      });
+    }
+  });
+
 export const supportedAgentRpcMethods = [
+  "agent.getProfile",
   "sql.execute",
   "sql.executeBatch",
   "sql.cancel",
@@ -289,6 +327,7 @@ export const supportedAgentRpcMethods = [
 ] as const;
 
 export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
+  agentGetProfileCommandSchema,
   sqlExecuteCommandSchema,
   sqlExecuteBatchCommandSchema,
   sqlCancelCommandSchema,

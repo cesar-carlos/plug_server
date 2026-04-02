@@ -9,11 +9,6 @@ import { seedAdminUser, seedAgent, seedAgentBinding } from "./helpers/seed_agent
 
 const app = createApp();
 
-// Valid CPF/CNPJ values for test payloads
-const VALID_CPF_1 = "529.982.247-25"; // 52998224725
-const VALID_CNPJ_1 = "11.222.333/0001-81"; // 11222333000181
-const VALID_CNPJ_2 = "12.345.678/0001-95"; // 12345678000195
-
 describe("Agent catalog API", () => {
   let adminToken = "";
 
@@ -27,55 +22,20 @@ describe("Agent catalog API", () => {
 
   const validAgentId = (): string => randomUUID();
 
-  it("POST /api/v1/agents/catalog — creates agent", async () => {
-    const res = await request(app)
-      .post("/api/v1/agents/catalog")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({
-        agentId: validAgentId(),
-        name: "Agente Fiscal SP",
-        cnpjCpf: VALID_CNPJ_1,
-        observation: "Agente de teste",
-      });
-    expect(res.status).toBe(201);
-    expect(res.body.agent.cnpjCpf).toBe("11222333000181");
-    expect(res.body.agent.status).toBe("active");
-  });
+  it("legacy manual catalog create/update endpoints are removed", async () => {
+    const agent = await seedAgent({ name: "Legacy Agent", cnpjCpf: "legacy-manual-1" });
 
-  it("POST /api/v1/agents/catalog — rejects duplicate agentId", async () => {
-    const agentId = validAgentId();
-    await request(app)
+    const postRes = await request(app)
       .post("/api/v1/agents/catalog")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ agentId, name: "Agent A", cnpjCpf: VALID_CPF_1 });
+      .send({ agentId: validAgentId(), name: "Manual Create" });
+    expect(postRes.status).toBe(404);
 
-    const res = await request(app)
-      .post("/api/v1/agents/catalog")
+    const patchRes = await request(app)
+      .patch(`/api/v1/agents/catalog/${agent.agentId}`)
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ agentId, name: "Agent B", cnpjCpf: VALID_CNPJ_2 });
-    expect(res.status).toBe(409);
-  });
-
-  it("POST /api/v1/agents/catalog — rejects duplicate cnpjCpf", async () => {
-    const cnpjCpf = "62.823.257/0001-09";
-    await request(app)
-      .post("/api/v1/agents/catalog")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({ agentId: validAgentId(), name: "Agent C", cnpjCpf });
-
-    const res = await request(app)
-      .post("/api/v1/agents/catalog")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({ agentId: validAgentId(), name: "Agent D", cnpjCpf });
-    expect(res.status).toBe(409);
-  });
-
-  it("POST /api/v1/agents/catalog — rejects invalid document", async () => {
-    const res = await request(app)
-      .post("/api/v1/agents/catalog")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({ agentId: validAgentId(), name: "Bad Doc", cnpjCpf: "00000000000" });
-    expect(res.status).toBe(400);
+      .send({ name: "Manual Update" });
+    expect(patchRes.status).toBe(404);
   });
 
   it("GET /api/v1/agents/catalog — lists agents", async () => {
@@ -127,18 +87,6 @@ describe("Agent catalog API", () => {
     expect(res.status).toBe(404);
   });
 
-  it("PATCH /api/v1/agents/catalog/:agentId — updates name and observation", async () => {
-    const agent = await seedAgent({ name: "Original Name", cnpjCpf: "patch-unique-1" });
-
-    const res = await request(app)
-      .patch(`/api/v1/agents/catalog/${agent.agentId}`)
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({ name: "Updated Name", observation: "New obs" });
-    expect(res.status).toBe(200);
-    expect(res.body.agent.name).toBe("Updated Name");
-    expect(res.body.agent.observation).toBe("New obs");
-  });
-
   it("DELETE /api/v1/agents/catalog/:agentId — deactivates agent", async () => {
     const agent = await seedAgent({ name: "To Deactivate", cnpjCpf: "deactivate-unique-1" });
 
@@ -149,7 +97,7 @@ describe("Agent catalog API", () => {
     expect(res.body.agent.status).toBe("inactive");
   });
 
-  it("returns 403 for non-admin user", async () => {
+  it("DELETE catalog returns 403 for non-admin user", async () => {
     const email = `cat-user-${Date.now()}@test.com`;
     const password = "User1234";
 
@@ -159,9 +107,9 @@ describe("Agent catalog API", () => {
     const userToken = loginRes.body.accessToken as string;
 
     const res = await request(app)
-      .post("/api/v1/agents/catalog")
+      .delete(`/api/v1/agents/catalog/${validAgentId()}`)
       .set("Authorization", `Bearer ${userToken}`)
-      .send({ agentId: validAgentId(), name: "Unauthorized", cnpjCpf: VALID_CPF_1 });
+      .send();
     expect(res.status).toBe(403);
   });
 

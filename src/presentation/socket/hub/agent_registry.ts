@@ -103,7 +103,6 @@ class InMemoryAgentRegistry {
    * prunes disconnected IDs if the set grows beyond the cap.
    */
   private readonly knownAgentIds = new Set<string>();
-  private readonly ownerByAgentId = new Map<string, string>();
 
   private toPublic(internal: InternalRegisteredAgent): RegisteredAgent {
     return {
@@ -169,19 +168,6 @@ class InMemoryAgentRegistry {
     readonly userId: string | null;
     readonly capabilities: Record<string, unknown>;
   }): { ok: true; agent: RegisteredAgent } | { ok: false; reason: "OWNED_BY_ANOTHER_USER" } {
-    const ownerUserId = this.ownerByAgentId.get(input.agentId);
-    if (
-      typeof ownerUserId === "string" &&
-      ownerUserId !== "" &&
-      (!input.userId || input.userId !== ownerUserId)
-    ) {
-      return { ok: false, reason: "OWNED_BY_ANOTHER_USER" };
-    }
-
-    if (!ownerUserId && input.userId) {
-      this.ownerByAgentId.set(input.agentId, input.userId);
-    }
-
     const nowMs = Date.now();
     const existing = this.agents.get(input.agentId);
     if (existing && existing.socketId !== input.socketId) {
@@ -318,7 +304,6 @@ class InMemoryAgentRegistry {
     this.readyTimerByAgentId.clear();
     this.protocolReadyModeByAgentId.clear();
     this.knownAgentIds.clear();
-    this.ownerByAgentId.clear();
   }
 }
 

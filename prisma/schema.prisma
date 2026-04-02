@@ -19,9 +19,26 @@ enum UserStatus {
   blocked
 }
 
+enum ClientStatus {
+  active
+  blocked
+}
+
 enum AgentStatus {
   active
   inactive
+}
+
+enum AgentDocumentType {
+  cpf
+  cnpj
+}
+
+enum ClientAgentAccessRequestStatus {
+  pending
+  approved
+  rejected
+  expired
 }
 
 model User {
@@ -35,9 +52,45 @@ model User {
   createdAt       DateTime        @default(now()) @map("created_at")
   refreshTokens   RefreshToken[]
   agentIdentities AgentIdentity[]
+  lastLoginAgents Agent[]         @relation("AgentLastLoginUser")
   registrationApprovalToken RegistrationApprovalToken?
+  clients         Client[]
 
   @@map("users")
+}
+
+model Client {
+  id          String                   @id @default(uuid())
+  userId      String                   @map("user_id")
+  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email       String                   @unique @db.VarChar(255)
+  passwordHash String                  @map("password_hash")
+  name        String                   @db.VarChar(120)
+  lastName    String                   @map("last_name") @db.VarChar(120)
+  mobile      String?                  @db.VarChar(20)
+  status      ClientStatus             @default(active)
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+  refreshTokens ClientRefreshToken[]
+  agentAccesses ClientAgentAccess[]
+  agentAccessRequests ClientAgentAccessRequest[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("clients")
+}
+
+model ClientRefreshToken {
+  id        String    @id
+  clientId  String    @map("client_id")
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@index([expiresAt])
+  @@map("client_refresh_tokens")
 }
 
 model RegistrationApprovalToken {
@@ -80,16 +133,77 @@ model RefreshToken {
 }
 
 model Agent {
-  agentId     String      @id @map("agent_id") @db.VarChar(36)
-  name        String      @db.VarChar(120)
-  cnpjCpf     String      @unique @map("cnpj_cpf") @db.VarChar(120)
-  observation String?     @db.VarChar(2000)
-  status      AgentStatus @default(active)
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
-  agentIdentities AgentIdentity[]
+  agentId          String             @id @map("agent_id") @db.VarChar(36)
+  name             String             @db.VarChar(120)
+  tradeName        String?            @map("trade_name") @db.VarChar(120)
+  document         String?            @unique @db.VarChar(20)
+  documentType     AgentDocumentType? @map("document_type")
+  phone            String?            @db.VarChar(20)
+  mobile           String?            @db.VarChar(20)
+  email            String?            @db.VarChar(255)
+  street           String?            @db.VarChar(120)
+  number           String?            @db.VarChar(20)
+  district         String?            @db.VarChar(120)
+  postalCode       String?            @map("postal_code") @db.VarChar(20)
+  city             String?            @db.VarChar(120)
+  state            String?            @db.VarChar(2)
+  notes            String?            @db.VarChar(2000)
+  profileUpdatedAt DateTime?          @map("profile_updated_at")
+  lastLoginUserId  String?            @map("last_login_user_id")
+  lastLoginUser    User?              @relation("AgentLastLoginUser", fields: [lastLoginUserId], references: [id], onDelete: SetNull)
+  status           AgentStatus        @default(active)
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  agentIdentities  AgentIdentity[]
+  clientAccesses   ClientAgentAccess[]
+  clientAccessRequests ClientAgentAccessRequest[]
+
+  @@index([lastLoginUserId])
 
   @@map("agents")
+}
+
+model ClientAgentAccess {
+  clientId   String   @map("client_id")
+  agentId    String   @map("agent_id")
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agent      Agent    @relation(fields: [agentId], references: [agentId], onDelete: Restrict, onUpdate: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at")
+  approvedAt DateTime @default(now()) @map("approved_at")
+
+  @@id([clientId, agentId])
+  @@index([agentId])
+  @@map("client_agent_accesses")
+}
+
+model ClientAgentAccessRequest {
+  id         String                           @id @default(uuid())
+  clientId   String                           @map("client_id")
+  agentId    String                           @map("agent_id")
+  status     ClientAgentAccessRequestStatus   @default(pending)
+  requestedAt DateTime                        @default(now()) @map("requested_at")
+  decidedAt  DateTime?                        @map("decided_at")
+  decisionReason String?                      @map("decision_reason") @db.VarChar(500)
+  createdAt  DateTime                         @default(now()) @map("created_at")
+  updatedAt  DateTime                         @updatedAt @map("updated_at")
+  client     Client                           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agent      Agent                            @relation(fields: [agentId], references: [agentId], onDelete: Restrict, onUpdate: Cascade)
+  approvalToken ClientAgentAccessApprovalToken?
+
+  @@unique([clientId, agentId], map: "client_agent_access_requests_client_id_agent_id_key")
+  @@index([agentId])
+  @@index([status])
+  @@map("client_agent_access_requests")
+}
+
+model ClientAgentAccessApprovalToken {
+  id         String                  @id @db.VarChar(128)
+  requestId  String                  @unique @map("request_id")
+  request    ClientAgentAccessRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime                @map("expires_at")
+  createdAt  DateTime                @default(now()) @map("created_at")
+
+  @@map("client_agent_access_approval_tokens")
 }
 
 model AgentIdentity {

@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { env } from "../../shared/config/env";
 import {
+  AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES,
   AGENT_MAX_ROWS_LIMIT,
   AGENT_PAGE_SIZE_LIMIT,
   AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES,
@@ -306,6 +307,16 @@ const swaggerSpec = swaggerJSDoc({
           additionalProperties: true,
           description: `Optional free-form params; serialized JSON max ${AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES} UTF-8 bytes (Zod).`,
         },
+        AgentGetProfileParams: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            client_token: { type: "string", minLength: 1 },
+            clientToken: { type: "string", minLength: 1 },
+            auth: { type: "string", minLength: 1 },
+          },
+          description: `Optional token aliases accepted by agent.getProfile; serialized JSON max ${AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES} UTF-8 bytes (Zod).`,
+        },
         RpcSqlExecuteCommand: {
           type: "object",
           required: ["method", "params"],
@@ -358,8 +369,22 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: true,
         },
+        RpcAgentGetProfileCommand: {
+          type: "object",
+          required: ["method"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["agent.getProfile"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/AgentGetProfileParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
         BridgeSingleCommand: {
           oneOf: [
+            { $ref: "#/components/schemas/RpcAgentGetProfileCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteBatchCommand" },
             { $ref: "#/components/schemas/RpcSqlCancelCommand" },
@@ -502,63 +527,91 @@ const swaggerSpec = swaggerJSDoc({
         },
         AgentCatalogRecord: {
           type: "object",
-          required: ["agentId", "name", "cnpjCpf", "status", "createdAt", "updatedAt"],
+          required: ["agentId", "name", "status", "createdAt", "updatedAt"],
           properties: {
             agentId: { type: "string", format: "uuid" },
             name: { type: "string", maxLength: 120 },
+            tradeName: { type: "string", nullable: true, maxLength: 120 },
+            document: {
+              type: "string",
+              nullable: true,
+              description: "Agent registration document (CPF/CNPJ when available).",
+            },
             cnpjCpf: {
               type: "string",
-              description: "CPF ou CNPJ normalizado (apenas dígitos; 11 ou 14 caracteres).",
+              nullable: true,
+              description: "Legacy alias for document.",
             },
+            documentType: { type: "string", enum: ["cpf", "cnpj"], nullable: true },
+            phone: { type: "string", nullable: true, maxLength: 20 },
+            mobile: { type: "string", nullable: true, maxLength: 20 },
+            email: { type: "string", nullable: true, format: "email" },
+            address: {
+              type: "object",
+              properties: {
+                street: { type: "string", nullable: true, maxLength: 120 },
+                number: { type: "string", nullable: true, maxLength: 20 },
+                district: { type: "string", nullable: true, maxLength: 120 },
+                postalCode: { type: "string", nullable: true, maxLength: 20 },
+                city: { type: "string", nullable: true, maxLength: 120 },
+                state: { type: "string", nullable: true, maxLength: 2 },
+              },
+              required: ["street", "number", "district", "postalCode", "city", "state"],
+            },
+            notes: { type: "string", nullable: true, maxLength: 2000 },
             observation: { type: "string", nullable: true, maxLength: 2000 },
+            lastLoginUserId: { type: "string", format: "uuid", nullable: true },
+            profileUpdatedAt: { type: "string", format: "date-time", nullable: true },
             status: { type: "string", enum: ["active", "inactive"] },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
           },
         },
-        CreateAgentCatalogRequest: {
-          type: "object",
-          required: ["agentId", "name", "cnpjCpf"],
-          properties: {
-            agentId: { type: "string", format: "uuid" },
-            name: { type: "string", minLength: 1, maxLength: 120 },
-            cnpjCpf: {
-              type: "string",
-              minLength: 1,
-              description: "CPF ou CNPJ; validado e normalizado no servidor.",
-            },
-            observation: { type: "string", maxLength: 2000 },
-          },
-        },
-        UpdateAgentCatalogRequest: {
-          type: "object",
-          properties: {
-            name: { type: "string", minLength: 1, maxLength: 120 },
-            cnpjCpf: { type: "string", minLength: 1 },
-            observation: { type: "string", nullable: true, maxLength: 2000 },
-          },
-        },
-        AgentIdsBody: {
-          type: "object",
-          required: ["agentIds"],
-          properties: {
-            agentIds: {
-              type: "array",
-              minItems: 1,
-              maxItems: 100,
-              items: { type: "string", format: "uuid" },
-            },
-          },
-        },
         UserAgentEnriched: {
           type: "object",
-          required: ["agentId", "name", "cnpjCpf", "status"],
+          required: ["agentId", "name", "status"],
           properties: {
             agentId: { type: "string", format: "uuid" },
             name: { type: "string" },
-            cnpjCpf: { type: "string" },
-            observation: { type: "string" },
+            tradeName: { type: "string", nullable: true },
+            document: { type: "string", nullable: true },
+            notes: { type: "string", nullable: true },
+            cnpjCpf: { type: "string", nullable: true },
+            observation: { type: "string", nullable: true },
             status: { type: "string", enum: ["active", "inactive"] },
+          },
+        },
+        ClientAccessibleAgent: {
+          type: "object",
+          required: ["agentId", "name", "status", "createdAt", "updatedAt"],
+          properties: {
+            agentId: { type: "string", format: "uuid" },
+            name: { type: "string" },
+            tradeName: { type: "string", nullable: true },
+            document: { type: "string", nullable: true },
+            cnpjCpf: { type: "string", nullable: true },
+            documentType: { type: "string", enum: ["cpf", "cnpj"], nullable: true },
+            phone: { type: "string", nullable: true },
+            mobile: { type: "string", nullable: true },
+            email: { type: "string", nullable: true, format: "email" },
+            address: {
+              type: "object",
+              required: ["street", "number", "district", "postalCode", "city", "state"],
+              properties: {
+                street: { type: "string", nullable: true },
+                number: { type: "string", nullable: true },
+                district: { type: "string", nullable: true },
+                postalCode: { type: "string", nullable: true },
+                city: { type: "string", nullable: true },
+                state: { type: "string", nullable: true },
+              },
+            },
+            notes: { type: "string", nullable: true },
+            observation: { type: "string", nullable: true },
+            profileUpdatedAt: { type: "string", format: "date-time", nullable: true },
+            status: { type: "string", enum: ["active", "inactive"] },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
           },
         },
         PaginatedAgentCatalogResponse: {
@@ -611,7 +664,7 @@ const swaggerSpec = swaggerJSDoc({
           },
         },
         Conflict: {
-          description: "Conflict (e.g. duplicate agentId or cnpjCpf)",
+          description: "Conflict (e.g. duplicate agentId or document)",
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/ErrorResponse" },

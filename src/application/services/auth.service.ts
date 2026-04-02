@@ -340,7 +340,10 @@ export class AuthService {
     });
     if (!result.ok) return result;
 
-    const accessResult = await this.agentAccessService.assertAccess(result.value.id, input.agentId);
+    const accessResult = await this.agentAccessService.assertAgentLoginAllowed(
+      result.value.id,
+      input.agentId,
+    );
     if (!accessResult.ok) return accessResult;
 
     const tokens = await this.issueAgentTokens(result.value, input.agentId);
@@ -393,9 +396,15 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      principal_type: "user",
       tokenType: "access",
     });
-    const refreshToken = signRefreshToken({ sub: user.id, jti, tokenType: "refresh" });
+    const refreshToken = signRefreshToken({
+      sub: user.id,
+      jti,
+      principal_type: "user",
+      tokenType: "refresh",
+    });
 
     await this.refreshTokenRepository.save(
       RefreshToken.create({ id: jti, userId: user.id, expiresAt }),
@@ -412,12 +421,14 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: "agent",
+      principal_type: "user",
       agent_id: agentId,
       tokenType: "access",
     });
     const refreshToken = signRefreshToken({
       sub: user.id,
       jti,
+      principal_type: "user",
       tokenType: "refresh",
       agent_id: agentId,
     });

@@ -44,15 +44,42 @@ export const seedAdminUser = async (
 export const seedAgent = async (opts: {
   agentId?: string;
   name: string;
-  cnpjCpf: string;
+  tradeName?: string;
+  document?: string;
+  documentType?: "cpf" | "cnpj";
+  phone?: string;
+  mobile?: string;
+  email?: string;
+  notes?: string;
+  address?: {
+    street?: string;
+    number?: string;
+    district?: string;
+    postalCode?: string;
+    city?: string;
+    state?: string;
+  };
+  /** Legacy alias for document in tests. */
+  cnpjCpf?: string;
+  /** Legacy alias for notes in tests. */
   observation?: string;
   status?: "active" | "inactive";
 }): Promise<Agent> => {
   const agent = Agent.create({
     agentId: opts.agentId ?? randomUUID(),
     name: opts.name,
-    cnpjCpf: opts.cnpjCpf,
-    observation: opts.observation,
+    ...(opts.tradeName !== undefined ? { tradeName: opts.tradeName } : {}),
+    ...(opts.document !== undefined || opts.cnpjCpf !== undefined
+      ? { document: opts.document ?? opts.cnpjCpf }
+      : {}),
+    ...(opts.documentType !== undefined ? { documentType: opts.documentType } : {}),
+    ...(opts.phone !== undefined ? { phone: opts.phone } : {}),
+    ...(opts.mobile !== undefined ? { mobile: opts.mobile } : {}),
+    ...(opts.email !== undefined ? { email: opts.email } : {}),
+    ...(opts.notes !== undefined || opts.observation !== undefined
+      ? { notes: opts.notes ?? opts.observation }
+      : {}),
+    ...(opts.address !== undefined ? { address: opts.address } : {}),
     status: opts.status ?? "active",
   });
   await repositories.agent.save(agent);
@@ -60,8 +87,8 @@ export const seedAgent = async (opts: {
 };
 
 export const seedAgentBinding = async (userId: string, agentId: string): Promise<void> => {
-  const result = await repositories.agentIdentity.addAgentIds(userId, [agentId]);
-  if (result.kind !== "ok") {
-    throw new Error(`Failed to seed agent binding: ${result.kind}`);
+  const result = await repositories.agentIdentity.bindIfUnbound(agentId, userId);
+  if (result === "bound_to_other_user") {
+    throw new Error("Failed to seed agent binding: agent_bound_to_other_user");
   }
 };

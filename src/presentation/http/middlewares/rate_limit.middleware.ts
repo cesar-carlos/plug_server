@@ -6,7 +6,6 @@ import {
   incrementRestHttpAgentsCommandsIpRateLimitRejected,
   incrementRestHttpAgentsCommandsUserRateLimitRejected,
   incrementRestHttpGlobalRateLimitRejected,
-  incrementRestHttpMeAgentsPostRateLimitRejected,
 } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
@@ -75,13 +74,6 @@ export const adminUserStatusRateLimitKey = (res: Response): string => {
   return sub ? `admin_user_status:${sub}` : "admin_user_status:anonymous";
 };
 
-/** Rate-limit store key for `POST /me/agents` (after auth; keyed by JWT `sub`). */
-export const meAgentsPostRateLimitKey = (res: Response): string => {
-  const authUser = res.locals.authUser as JwtAccessPayload | undefined;
-  const sub = authUser?.sub?.trim();
-  return sub ? `me_agents_post:${sub}` : "me_agents_post:anonymous";
-};
-
 /**
  * Optional per-IP cap on `POST /agents/commands` (same window as user limiter).
  * Disabled when `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX` is `0`.
@@ -145,22 +137,3 @@ export const adminUserStatusRateLimit = rateLimit({
   },
 });
 
-/**
- * Per authenticated user on `POST /api/v1/me/agents` (self-service agent list).
- * Runs after JWT + active-account middleware.
- */
-export const meAgentsPostRateLimit = rateLimit({
-  windowMs: env.restMeAgentsPostRateLimitWindowMs,
-  limit: env.restMeAgentsPostRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many self-service agent bind requests, please try again later.",
-    code: "TOO_MANY_REQUESTS",
-  },
-  keyGenerator: (_req: Request, res: Response) => meAgentsPostRateLimitKey(res),
-  handler: async (request, response, _next, optionsUsed) => {
-    incrementRestHttpMeAgentsPostRateLimitRejected();
-    await sendRateLimitResponse(request, response, optionsUsed);
-  },
-});

@@ -58,6 +58,11 @@ export class NodemailerEmailSender implements IEmailSender {
     return `${base}/api/v1/auth/registration/review?token=${encodeURIComponent(reviewToken)}`;
   }
 
+  private clientAccessReviewPageUrl(reviewToken: string): string {
+    const base = normalizeBaseUrl(this.config.appBaseUrl);
+    return `${base}/api/v1/client-access/review?token=${encodeURIComponent(reviewToken)}`;
+  }
+
   async sendAdminApprovalRequest(params: {
     readonly userEmail: string;
     readonly reviewToken: string;
@@ -147,6 +152,79 @@ export class NodemailerEmailSender implements IEmailSender {
           ? `Your registration was not approved. Note: ${params.reason.trim()}`
           : "Your registration was not approved. If you believe this is a mistake, contact support.",
       html: `<p>Your registration was not approved. If you believe this is a mistake, contact support.</p>${reasonBlock}`,
+    });
+  }
+
+  async sendClientAccessRequestToOwner(params: {
+    readonly ownerEmail: string;
+    readonly clientEmail: string;
+    readonly clientName: string;
+    readonly clientLastName: string;
+    readonly agentId: string;
+    readonly approvalToken: string;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      logger.warn("SMTP not configured; skipping client access request email", {
+        ownerEmail: params.ownerEmail,
+      });
+      return;
+    }
+
+    const reviewUrl = this.clientAccessReviewPageUrl(params.approvalToken);
+    await this.getTransport().sendMail({
+      from: this.fromAddress(),
+      to: params.ownerEmail,
+      subject: `[${this.config.appName}] Client access request for agent ${params.agentId}`,
+      text: `Client ${params.clientName} ${params.clientLastName} (${params.clientEmail}) requested access to agent ${params.agentId}. Review: ${reviewUrl}`,
+      html: `<p>Client <strong>${escapeHtml(params.clientName)} ${escapeHtml(params.clientLastName)}</strong> (${escapeHtml(params.clientEmail)}) requested access to agent <strong>${escapeHtml(params.agentId)}</strong>.</p><p><a href="${reviewUrl}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">Review client access</a></p><p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(reviewUrl)}</p>`,
+    });
+  }
+
+  async sendClientAccessApproved(params: {
+    readonly clientEmail: string;
+    readonly agentId: string;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      logger.warn("SMTP not configured; skipping client access approved email", {
+        email: params.clientEmail,
+      });
+      return;
+    }
+
+    await this.getTransport().sendMail({
+      from: this.fromAddress(),
+      to: params.clientEmail,
+      subject: `[${this.config.appName}] Access approved to agent ${params.agentId}`,
+      text: `Your access request to agent ${params.agentId} was approved.`,
+      html: `<p>Your access request to agent <strong>${escapeHtml(params.agentId)}</strong> was approved.</p>`,
+    });
+  }
+
+  async sendClientAccessRejected(params: {
+    readonly clientEmail: string;
+    readonly agentId: string;
+    readonly reason?: string;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      logger.warn("SMTP not configured; skipping client access rejected email", {
+        email: params.clientEmail,
+      });
+      return;
+    }
+
+    const reasonBlock =
+      typeof params.reason === "string" && params.reason.trim() !== ""
+        ? `<p><strong>Reason:</strong> ${escapeHtml(params.reason.trim())}</p>`
+        : "";
+    await this.getTransport().sendMail({
+      from: this.fromAddress(),
+      to: params.clientEmail,
+      subject: `[${this.config.appName}] Access rejected to agent ${params.agentId}`,
+      text:
+        typeof params.reason === "string" && params.reason.trim() !== ""
+          ? `Your access request to agent ${params.agentId} was rejected. Reason: ${params.reason.trim()}`
+          : `Your access request to agent ${params.agentId} was rejected.`,
+      html: `<p>Your access request to agent <strong>${escapeHtml(params.agentId)}</strong> was rejected.</p>${reasonBlock}`,
     });
   }
 }

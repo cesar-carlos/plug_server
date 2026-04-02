@@ -1,7 +1,15 @@
 import { AuthService } from "../../application/services/auth.service";
 import { AgentAccessService } from "../../application/services/agent_access.service";
 import { AgentCatalogService } from "../../application/services/agent_catalog.service";
+import { AgentProfileSyncService } from "../../application/services/agent_profile_sync.service";
+import { ClientAgentAccessService } from "../../application/services/client_agent_access.service";
+import { ClientAuthService } from "../../application/services/client_auth.service";
 import { UserAgentService } from "../../application/services/user_agent.service";
+import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
+import type { IClientAgentAccessApprovalTokenRepository } from "../../domain/repositories/client_agent_access_approval_token.repository.interface";
+import type { IClientAgentAccessRequestRepository } from "../../domain/repositories/client_agent_access_request.repository.interface";
+import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
+import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
@@ -21,15 +29,24 @@ import { NoopEmailSender } from "../../infrastructure/adapters/noop_email_sender
 import { NodemailerEmailSender } from "../../infrastructure/adapters/nodemailer_email_sender";
 import { InMemoryAgentIdentityRepository } from "../../infrastructure/repositories/in_memory_agent_identity.repository";
 import { InMemoryAgentRepository } from "../../infrastructure/repositories/in_memory_agent.repository";
+import { InMemoryClientAgentAccessApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_client_agent_access_approval_token.repository";
+import { InMemoryClientAgentAccessRepository } from "../../infrastructure/repositories/in_memory_client_agent_access.repository";
+import { InMemoryClientAgentAccessRequestRepository } from "../../infrastructure/repositories/in_memory_client_agent_access_request.repository";
+import { InMemoryClientRefreshTokenRepository } from "../../infrastructure/repositories/in_memory_client_refresh_token.repository";
+import { InMemoryClientRepository } from "../../infrastructure/repositories/in_memory_client.repository";
 import { InMemoryRefreshTokenRepository } from "../../infrastructure/repositories/in_memory_refresh_token.repository";
 import { InMemoryRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_registration_approval_token.repository";
 import { InMemoryUserRepository } from "../../infrastructure/repositories/in_memory_user.repository";
 import { PrismaAgentIdentityRepository } from "../../infrastructure/repositories/prisma_agent_identity.repository";
 import { PrismaAgentRepository } from "../../infrastructure/repositories/prisma_agent.repository";
+import { PrismaClientAgentAccessApprovalTokenRepository } from "../../infrastructure/repositories/prisma_client_agent_access_approval_token.repository";
+import { PrismaClientAgentAccessRepository } from "../../infrastructure/repositories/prisma_client_agent_access.repository";
+import { PrismaClientAgentAccessRequestRepository } from "../../infrastructure/repositories/prisma_client_agent_access_request.repository";
+import { PrismaClientRefreshTokenRepository } from "../../infrastructure/repositories/prisma_client_refresh_token.repository";
+import { PrismaClientRepository } from "../../infrastructure/repositories/prisma_client.repository";
 import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/prisma_refresh_token.repository";
 import { PrismaRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_registration_approval_token.repository";
 import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_user.repository";
-import { agentOnlinePresenceFromRegistry } from "../../presentation/socket/hub/agent_online_presence.adapter";
 import { env } from "../config/env";
 
 const passwordHasher = new BcryptPasswordHasher();
@@ -50,6 +67,23 @@ const agentRepository: IAgentRepository = shouldUseInMemoryPersistence
 const registrationApprovalTokenRepository = shouldUseInMemoryPersistence
   ? new InMemoryRegistrationApprovalTokenRepository()
   : new PrismaRegistrationApprovalTokenRepository();
+const clientRepository: IClientRepository = shouldUseInMemoryPersistence
+  ? new InMemoryClientRepository()
+  : new PrismaClientRepository();
+const clientRefreshTokenRepository: IClientRefreshTokenRepository = shouldUseInMemoryPersistence
+  ? new InMemoryClientRefreshTokenRepository()
+  : new PrismaClientRefreshTokenRepository();
+const clientAgentAccessRepository: IClientAgentAccessRepository = shouldUseInMemoryPersistence
+  ? new InMemoryClientAgentAccessRepository()
+  : new PrismaClientAgentAccessRepository();
+const clientAgentAccessRequestRepository: IClientAgentAccessRequestRepository =
+  shouldUseInMemoryPersistence
+    ? new InMemoryClientAgentAccessRequestRepository()
+    : new PrismaClientAgentAccessRequestRepository();
+const clientAgentAccessApprovalTokenRepository: IClientAgentAccessApprovalTokenRepository =
+  shouldUseInMemoryPersistence
+    ? new InMemoryClientAgentAccessApprovalTokenRepository()
+    : new PrismaClientAgentAccessApprovalTokenRepository();
 
 const emailSender = shouldUseInMemoryPersistence
   ? new NoopEmailSender()
@@ -83,12 +117,29 @@ const logoutUseCase = new LogoutUseCase(refreshTokenRepository);
 const adminSetUserStatusUseCase = new AdminSetUserStatusUseCase(userRepository, refreshTokenRepository);
 const updateMyCelularUseCase = new UpdateMyCelularUseCase(userRepository);
 
-const agentAccessService = new AgentAccessService(agentRepository, agentIdentityRepository);
-const agentCatalogService = new AgentCatalogService(agentRepository);
-const userAgentService = new UserAgentService(
+const agentAccessService = new AgentAccessService(
   agentRepository,
   agentIdentityRepository,
-  agentOnlinePresenceFromRegistry,
+  clientAgentAccessRepository,
+);
+const agentCatalogService = new AgentCatalogService(agentRepository);
+const agentProfileSyncService = new AgentProfileSyncService(agentRepository);
+const userAgentService = new UserAgentService(agentRepository, agentIdentityRepository);
+const clientAuthService = new ClientAuthService(
+  clientRepository,
+  clientRefreshTokenRepository,
+  userRepository,
+  passwordHasher,
+);
+const clientAgentAccessService = new ClientAgentAccessService(
+  agentRepository,
+  agentIdentityRepository,
+  clientRepository,
+  userRepository,
+  clientAgentAccessRepository,
+  clientAgentAccessRequestRepository,
+  clientAgentAccessApprovalTokenRepository,
+  emailSender,
 );
 
 export const container = {
@@ -112,13 +163,17 @@ export const container = {
   emailSender,
   agentAccessService,
   agentCatalogService,
+  agentProfileSyncService,
   userAgentService,
+  clientAuthService,
+  clientAgentAccessService,
 };
 
 export const getTestRepositoryAccess = (): {
   readonly user: IUserRepository;
   readonly agentIdentity: IAgentIdentityRepository;
   readonly agent: IAgentRepository;
+  readonly clientAgentAccess: IClientAgentAccessRepository;
 } => {
   if (env.nodeEnv !== "test") {
     throw new Error("getTestRepositoryAccess is only available in test environment");
@@ -128,5 +183,6 @@ export const getTestRepositoryAccess = (): {
     user: userRepository,
     agentIdentity: agentIdentityRepository,
     agent: agentRepository,
+    clientAgentAccess: clientAgentAccessRepository,
   };
 };
