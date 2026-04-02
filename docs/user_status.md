@@ -31,3 +31,14 @@ Admin actions on `PATCH /admin/users/:id/status` are **rate-limited per admin** 
 - `plug_auth_socket_blocked_total` — Socket.IO handshake attempts denied due to `blocked` (after valid JWT).
 - `plug_admin_user_status_set_total` — successful admin status updates (block/unblock).
 - `plug_rest_http_rate_limit_admin_user_status_rejected_total` — admin status PATCH rejected by rate limit.
+
+## Client account status (`ClientStatus`)
+
+Values: `pending`, `active`, `blocked`.
+
+- **Register (`POST /client-auth/register`)**: creates `Client` in `pending` and sends owner approval flow.
+- **Public validation (`POST /client-auth/register`)**: `ownerEmail` unavailable/inactive returns a generic **400** so the endpoint does not expose owner-account existence or status.
+- **Approve (`POST /client-auth/registration/approve`)**: transitions `pending -> active`.
+- **Reject (`POST /client-auth/registration/reject`)**: transitions `pending -> blocked`.
+- **Owner governance (`PATCH /me/clients/:id/status`)**: only reviewed clients may change between `active` and `blocked`; `pending` must stay on the registration approval flow.
+- **Login / refresh / protected routes / socket ops**: only `active` clients can operate.

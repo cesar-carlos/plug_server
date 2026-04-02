@@ -7,7 +7,10 @@ import { prismaClient } from "../../infrastructure/database/prisma/client";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
-type RegistrationOutboxKind = "admin_approval_request" | "user_pending_registration";
+type RegistrationOutboxKind =
+  | "admin_approval_request"
+  | "user_pending_registration"
+  | "client_registration_request_to_owner";
 
 interface RegistrationOutboxRow {
   readonly id: string;
@@ -23,6 +26,14 @@ interface AdminApprovalPayload {
 
 interface UserPendingPayload {
   readonly email: string;
+}
+
+interface ClientRegistrationRequestToOwnerPayload {
+  readonly ownerEmail: string;
+  readonly clientEmail: string;
+  readonly clientName: string;
+  readonly clientLastName: string;
+  readonly approvalToken: string;
 }
 
 let outboxWorkerTimer: NodeJS.Timeout | null = null;
@@ -91,6 +102,22 @@ const assertPendingPayload = (payload: unknown): payload is UserPendingPayload =
   }
   const p = payload as Record<string, unknown>;
   return typeof p.email === "string";
+};
+
+const assertClientRegistrationRequestToOwnerPayload = (
+  payload: unknown,
+): payload is ClientRegistrationRequestToOwnerPayload => {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  const p = payload as Record<string, unknown>;
+  return (
+    typeof p.ownerEmail === "string" &&
+    typeof p.clientEmail === "string" &&
+    typeof p.clientName === "string" &&
+    typeof p.clientLastName === "string" &&
+    typeof p.approvalToken === "string"
+  );
 };
 
 const enqueueRows = async (
@@ -165,6 +192,56 @@ export const enqueueRegistrationApprovalEmails = async (input: {
   }
 };
 
+export const enqueueClientRegistrationApprovalEmail = async (input: {
+  readonly ownerEmail: string;
+  readonly clientEmail: string;
+  readonly clientName: string;
+  readonly clientLastName: string;
+  readonly approvalToken: string;
+}): Promise<boolean> => {
+  if (!env.registrationEmailOutboxEnabled || env.nodeEnv === "test") {
+    return false;
+  }
+
+  if (!(await canUseOutboxTable())) {
+    return false;
+  }
+
+  try {
+    await trackPendingOutboxOp(
+      enqueueRows([
+        {
+          kind: "client_registration_request_to_owner",
+          payload: {
+            ownerEmail: input.ownerEmail,
+            clientEmail: input.clientEmail,
+            clientName: input.clientName,
+            clientLastName: input.clientLastName,
+            approvalToken: input.approvalToken,
+          } satisfies ClientRegistrationRequestToOwnerPayload,
+        },
+      ]),
+    );
+    return true;
+  } catch (error: unknown) {
+    if (isOutboxTableMissing(error)) {
+      outboxTableState = "missing";
+      if (!outboxTableMissingLogged) {
+        logger.warn("registration_email_outbox_table_missing", {
+          message: toErrorMessage(error),
+        });
+        outboxTableMissingLogged = true;
+      }
+      return false;
+    }
+
+    logger.warn("client_registration_email_outbox_enqueue_failed", {
+      message: toErrorMessage(error),
+    });
+    return false;
+  }
+};
+
 const claimOutboxBatch = async (): Promise<RegistrationOutboxRow[]> => {
   const lockTimeoutSeconds = Math.max(1, Math.floor(env.registrationEmailOutboxLockTimeoutMs / 1000));
 
@@ -196,7 +273,11 @@ const claimOutboxBatch = async (): Promise<RegistrationOutboxRow[]> => {
 
   return rows
     .map((row): RegistrationOutboxRow | null => {
-      if (row.kind !== "admin_approval_request" && row.kind !== "user_pending_registration") {
+      if (
+        row.kind !== "admin_approval_request" &&
+        row.kind !== "user_pending_registration" &&
+        row.kind !== "client_registration_request_to_owner"
+      ) {
         return null;
       }
 
@@ -264,12 +345,22 @@ const deliverRow = async (emailSender: IEmailSender, row: RegistrationOutboxRow)
     return;
   }
 
-  if (!assertPendingPayload(row.payloadJson)) {
-    await markFailed(row, "invalid user_pending_registration payload");
+  if (row.kind === "user_pending_registration") {
+    if (!assertPendingPayload(row.payloadJson)) {
+      await markFailed(row, "invalid user_pending_registration payload");
+      return;
+    }
+    await emailSender.sendUserPendingRegistration(row.payloadJson);
+    await markDelivered(row.id);
     return;
   }
 
-  await emailSender.sendUserPendingRegistration(row.payloadJson);
+  if (!assertClientRegistrationRequestToOwnerPayload(row.payloadJson)) {
+    await markFailed(row, "invalid client_registration_request_to_owner payload");
+    return;
+  }
+
+  await emailSender.sendClientRegistrationRequestToOwner(row.payloadJson);
   await markDelivered(row.id);
 };
 

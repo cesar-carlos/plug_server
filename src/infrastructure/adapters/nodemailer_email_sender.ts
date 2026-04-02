@@ -63,6 +63,11 @@ export class NodemailerEmailSender implements IEmailSender {
     return `${base}/api/v1/client-access/review?token=${encodeURIComponent(reviewToken)}`;
   }
 
+  private clientRegistrationReviewPageUrl(reviewToken: string): string {
+    const base = normalizeBaseUrl(this.config.appBaseUrl);
+    return `${base}/api/v1/client-auth/registration/review?token=${encodeURIComponent(reviewToken)}`;
+  }
+
   async sendAdminApprovalRequest(params: {
     readonly userEmail: string;
     readonly reviewToken: string;
@@ -225,6 +230,74 @@ export class NodemailerEmailSender implements IEmailSender {
           ? `Your access request to agent ${params.agentId} was rejected. Reason: ${params.reason.trim()}`
           : `Your access request to agent ${params.agentId} was rejected.`,
       html: `<p>Your access request to agent <strong>${escapeHtml(params.agentId)}</strong> was rejected.</p>${reasonBlock}`,
+    });
+  }
+
+  async sendClientRegistrationRequestToOwner(params: {
+    readonly ownerEmail: string;
+    readonly clientEmail: string;
+    readonly clientName: string;
+    readonly clientLastName: string;
+    readonly approvalToken: string;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      logger.warn("SMTP not configured; skipping client registration request email", {
+        ownerEmail: params.ownerEmail,
+      });
+      return;
+    }
+
+    const reviewUrl = this.clientRegistrationReviewPageUrl(params.approvalToken);
+    await this.getTransport().sendMail({
+      from: this.fromAddress(),
+      to: params.ownerEmail,
+      subject: `[${this.config.appName}] Client registration request`,
+      text: `Client ${params.clientName} ${params.clientLastName} (${params.clientEmail}) requested registration under your account. Review: ${reviewUrl}`,
+      html: `<p>Client <strong>${escapeHtml(params.clientName)} ${escapeHtml(params.clientLastName)}</strong> (${escapeHtml(params.clientEmail)}) requested registration under your account.</p><p><a href="${reviewUrl}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">Review client registration</a></p><p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(reviewUrl)}</p>`,
+    });
+  }
+
+  async sendClientRegistrationApproved(params: { readonly clientEmail: string }): Promise<void> {
+    if (!this.isConfigured()) {
+      logger.warn("SMTP not configured; skipping client registration approved email", {
+        email: params.clientEmail,
+      });
+      return;
+    }
+
+    await this.getTransport().sendMail({
+      from: this.fromAddress(),
+      to: params.clientEmail,
+      subject: `[${this.config.appName}] Client registration approved`,
+      text: "Your client account registration was approved. You can sign in now.",
+      html: "<p>Your client account registration was approved. You can sign in now.</p>",
+    });
+  }
+
+  async sendClientRegistrationRejected(params: {
+    readonly clientEmail: string;
+    readonly reason?: string;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      logger.warn("SMTP not configured; skipping client registration rejected email", {
+        email: params.clientEmail,
+      });
+      return;
+    }
+
+    const reasonBlock =
+      typeof params.reason === "string" && params.reason.trim() !== ""
+        ? `<p><strong>Reason:</strong> ${escapeHtml(params.reason.trim())}</p>`
+        : "";
+    await this.getTransport().sendMail({
+      from: this.fromAddress(),
+      to: params.clientEmail,
+      subject: `[${this.config.appName}] Client registration not approved`,
+      text:
+        typeof params.reason === "string" && params.reason.trim() !== ""
+          ? `Your client registration was not approved. Reason: ${params.reason.trim()}`
+          : "Your client registration was not approved. If you believe this is a mistake, contact support.",
+      html: `<p>Your client registration was not approved. If you believe this is a mistake, contact support.</p>${reasonBlock}`,
     });
   }
 }

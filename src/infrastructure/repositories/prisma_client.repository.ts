@@ -63,6 +63,10 @@ export class PrismaClientRepository implements IClientRepository {
     }
   }
 
+  async deleteById(id: string): Promise<void> {
+    await prismaClient.client.deleteMany({ where: { id } });
+  }
+
   private toDomain(client: PrismaClientModel): Client {
     return new Client({
       id: client.id,

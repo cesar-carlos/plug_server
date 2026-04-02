@@ -30,4 +30,21 @@ export interface IEmailSender {
     readonly agentId: string;
     readonly reason?: string;
   }): Promise<void>;
+
+  sendClientRegistrationRequestToOwner(params: {
+    readonly ownerEmail: string;
+    readonly clientEmail: string;
+    readonly clientName: string;
+    readonly clientLastName: string;
+    readonly approvalToken: string;
+  }): Promise<void>;
+
+  sendClientRegistrationApproved(params: {
+    readonly clientEmail: string;
+  }): Promise<void>;
+
+  sendClientRegistrationRejected(params: {
+    readonly clientEmail: string;
+    readonly reason?: string;
+  }): Promise<void>;
 }

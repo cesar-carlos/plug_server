@@ -71,13 +71,15 @@ userClientsRouter.get(
  * @openapi
  * /me/clients/{clientId}/status:
  *   patch:
- *     summary: Update managed client status (active/blocked)
+ *     summary: Update status for an already reviewed managed client (active/blocked)
  *     tags: [User clients]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Updated managed client
+ *       409:
+ *         description: Pending registrations must use the registration approval flow
  */
 userClientsRouter.patch(
   "/me/clients/:clientId/status",

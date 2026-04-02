@@ -1,24 +1,38 @@
 import { v4 as uuidv4 } from "uuid";
 
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
+import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import { Client, type ClientStatus } from "../../domain/entities/client.entity";
 import { ClientRefreshToken } from "../../domain/entities/client_refresh_token.entity";
+import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
 import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
 import type {
   ClientAuthResponseDto,
+  ClientRegistrationRequestResponseDto,
   ClientAuthTokensDto,
   ClientAuthUserDto,
 } from "../dtos/client_auth.dto";
+import { enqueueClientRegistrationApprovalEmail } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
-import { badRequest, conflict, forbidden, notFound, unauthorized } from "../../shared/errors/http_errors";
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  notFound,
+  registrationTokenExpired,
+  unauthorized,
+} from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
-import { parseExpiryToDate } from "../../shared/utils/date";
+import { isExpired, parseExpiryToDate } from "../../shared/utils/date";
+import { generateOpaqueClientRegistrationToken } from "../../shared/utils/client_registration_token";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
+import { logger } from "../../shared/utils/logger";
+import { redactEmail } from "../../shared/utils/pii_redaction";
 
 export interface RegisterClientServiceInput {
-  readonly userId: string;
+  readonly ownerEmail: string;
   readonly email: string;
   readonly password: string;
   readonly name: string;
@@ -49,17 +63,16 @@ export class ClientAuthService {
   constructor(
     private readonly clientRepository: IClientRepository,
     private readonly clientRefreshTokenRepository: IClientRefreshTokenRepository,
+    private readonly clientRegistrationApprovalTokenRepository: IClientRegistrationApprovalTokenRepository,
     private readonly userRepository: IUserRepository,
     private readonly passwordHasher: IPasswordHasher,
+    private readonly emailSender: IEmailSender,
   ) {}
 
-  async register(input: RegisterClientServiceInput): Promise<Result<ClientAuthResponseDto>> {
-    const owner = await this.userRepository.findById(input.userId);
-    if (!owner) {
-      return err(notFound("Owner user"));
-    }
-    if (owner.status !== "active") {
-      return err(forbidden("Owner user is not active"));
+  async register(input: RegisterClientServiceInput): Promise<Result<ClientRegistrationRequestResponseDto>> {
+    const owner = await this.userRepository.findByEmail(input.ownerEmail);
+    if (!owner || owner.status !== "active") {
+      return err(badRequest("Owner email is not eligible to approve client registration"));
     }
 
     const existing = await this.clientRepository.findByEmail(input.email);
@@ -69,19 +82,34 @@ export class ClientAuthService {
 
     const passwordHash = await this.passwordHasher.hash(input.password);
     const client = Client.create({
-      userId: input.userId,
+      userId: owner.id,
       email: input.email,
       passwordHash,
       name: input.name,
       lastName: input.lastName,
       ...(input.mobile !== undefined ? { mobile: input.mobile } : {}),
+      status: "pending",
     });
-    await this.clientRepository.save(client);
+    const approvalToken = this.newRegistrationApprovalToken(client.id);
+    try {
+      await this.clientRepository.save(client);
+      await this.clientRegistrationApprovalTokenRepository.save(approvalToken);
+      await this.dispatchRegistrationRequestEmail({
+        ownerEmail: owner.email,
+        clientEmail: client.email,
+        clientName: client.name,
+        clientLastName: client.lastName,
+        approvalToken: approvalToken.id,
+      });
+    } catch (error) {
+      await this.rollbackPendingRegistration(client.id, approvalToken.id);
+      throw error;
+    }
 
-    const tokens = await this.issueTokens(client);
     return ok({
+      message: "Client registration pending owner approval",
       client: this.toClientDto(client),
-      ...tokens,
+      ...(env.nodeEnv !== "production" ? { approvalToken: approvalToken.id } : {}),
     });
   }
 
@@ -163,6 +191,12 @@ export class ClientAuthService {
       return ok(this.toClientDto(client));
     }
 
+    if (client.status === "pending") {
+      return err(
+        conflict("Pending client registrations must be approved or rejected via the registration flow"),
+      );
+    }
+
     const updated = new Client({
       ...client,
       status,
@@ -180,8 +214,11 @@ export class ClientAuthService {
     if (!client) {
       return err(unauthorized("Invalid credentials"));
     }
-    if (client.status !== "active") {
+    if (client.status === "blocked") {
       return err(forbidden("Client account is blocked"));
+    }
+    if (client.status !== "active") {
+      return err(forbidden("Client account is pending approval"));
     }
 
     const passwordMatch = await this.passwordHasher.compare(input.password, client.passwordHash);
@@ -215,8 +252,11 @@ export class ClientAuthService {
     if (!client) {
       return err(notFound("Client"));
     }
-    if (client.status !== "active") {
+    if (client.status === "blocked") {
       return err(forbidden("Client account is blocked"));
+    }
+    if (client.status !== "active") {
+      return err(forbidden("Client account is pending approval"));
     }
     return ok(await this.issueTokens(client));
   }
@@ -238,10 +278,111 @@ export class ClientAuthService {
     if (!client) {
       return err(notFound("Client"));
     }
-    if (client.status !== "active") {
+    if (client.status === "blocked") {
       return err(forbidden("Client account is blocked"));
     }
+    if (client.status !== "active") {
+      return err(forbidden("Client account is pending approval"));
+    }
     return ok(client);
+  }
+
+  async approveRegistration(tokenId: string): Promise<Result<{ clientEmail: string }>> {
+    const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
+    if (!token) {
+      return err(notFound("Approval link is invalid or has expired"));
+    }
+
+    const client = await this.clientRepository.findById(token.clientId);
+    if (!client) {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+      return err(notFound("Client"));
+    }
+
+    if (isExpired(token.expiresAt)) {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+      return err(registrationTokenExpired("This approval link has expired"));
+    }
+
+    if (client.status !== "pending") {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+      return err(conflict("Client registration already processed"));
+    }
+
+    const approved = new Client({
+      ...client,
+      status: "active",
+      updatedAt: new Date(),
+    });
+    await this.clientRepository.save(approved);
+    await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+    try {
+      await this.emailSender.sendClientRegistrationApproved({ clientEmail: approved.email });
+    } catch (error: unknown) {
+      logger.error("client_registration_approved_email_failed", {
+        clientEmailRedacted: redactEmail(approved.email),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return ok({ clientEmail: approved.email });
+  }
+
+  async rejectRegistration(tokenId: string, reason?: string): Promise<Result<{ clientEmail: string }>> {
+    const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
+    if (!token) {
+      return err(notFound("Rejection link is invalid or has expired"));
+    }
+
+    const client = await this.clientRepository.findById(token.clientId);
+    if (!client) {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+      return err(notFound("Client"));
+    }
+
+    if (isExpired(token.expiresAt)) {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+      return err(registrationTokenExpired("This rejection link has expired"));
+    }
+
+    if (client.status !== "pending") {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+      return err(conflict("Client registration already processed"));
+    }
+
+    const rejected = new Client({
+      ...client,
+      status: "blocked",
+      updatedAt: new Date(),
+    });
+    await this.clientRepository.save(rejected);
+    await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+    try {
+      await this.emailSender.sendClientRegistrationRejected({
+        clientEmail: rejected.email,
+        ...(reason !== undefined ? { reason } : {}),
+      });
+    } catch (error: unknown) {
+      logger.error("client_registration_rejected_email_failed", {
+        clientEmailRedacted: redactEmail(rejected.email),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return ok({ clientEmail: rejected.email });
+  }
+
+  async getRegistrationStatus(tokenId: string): Promise<Result<{ status: "pending" | "expired" }>> {
+    const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
+    if (!token) {
+      return err(notFound("Registration token"));
+    }
+
+    if (isExpired(token.expiresAt)) {
+      return ok({ status: "expired" });
+    }
+
+    return ok({ status: "pending" });
   }
 
   async getMeProfile(clientId: string): Promise<Result<ClientAuthUserDto>> {
@@ -290,5 +431,84 @@ export class ClientAuthService {
       status: client.status,
       role: "client",
     };
+  }
+
+  private newRegistrationApprovalToken(clientId: string): {
+    id: string;
+    clientId: string;
+    expiresAt: Date;
+    createdAt: Date;
+  } {
+    return {
+      id: generateOpaqueClientRegistrationToken(),
+      clientId,
+      expiresAt: parseExpiryToDate(env.approvalTokenExpiresIn),
+      createdAt: new Date(),
+    };
+  }
+
+  private async dispatchRegistrationRequestEmail(params: {
+    readonly ownerEmail: string;
+    readonly clientEmail: string;
+    readonly clientName: string;
+    readonly clientLastName: string;
+    readonly approvalToken: string;
+  }): Promise<void> {
+    if (env.registrationEmailAsync) {
+      const queued = await enqueueClientRegistrationApprovalEmail(params);
+      if (queued) {
+        return;
+      }
+    }
+
+    await this.sendWithRetry("sendClientRegistrationRequestToOwner", async () =>
+      this.emailSender.sendClientRegistrationRequestToOwner(params),
+    );
+  }
+
+  private async rollbackPendingRegistration(clientId: string, tokenId: string): Promise<void> {
+    try {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+    } catch (error: unknown) {
+      logger.warn("client_registration_token_cleanup_failed", {
+        clientId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    try {
+      await this.clientRepository.deleteById(clientId);
+    } catch (error: unknown) {
+      logger.error("client_registration_cleanup_failed", {
+        clientId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async sendWithRetry(operation: string, action: () => Promise<void>): Promise<void> {
+    let lastError: unknown;
+    const maxAttempts = env.registrationEmailMaxRetries;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await action();
+        return;
+      } catch (error: unknown) {
+        lastError = error;
+        if (attempt < maxAttempts && env.registrationEmailRetryDelayMs > 0) {
+          await this.delay(env.registrationEmailRetryDelayMs);
+        }
+      }
+    }
+
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`${operation} failed after ${maxAttempts} attempts: ${message}`);
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 }

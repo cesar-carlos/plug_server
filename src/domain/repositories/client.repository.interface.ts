@@ -5,4 +5,5 @@ export interface IClientRepository {
   findByEmail(email: string): Promise<Client | null>;
   listByUserId(userId: string): Promise<Client[]>;
   save(client: Client): Promise<void>;
+  deleteById(id: string): Promise<void>;
 }

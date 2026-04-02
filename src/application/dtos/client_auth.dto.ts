@@ -19,3 +19,9 @@ export interface ClientAuthTokensDto {
 export interface ClientAuthResponseDto extends ClientAuthTokensDto {
   readonly client: ClientAuthUserDto;
 }
+
+export interface ClientRegistrationRequestResponseDto {
+  readonly message: string;
+  readonly client: ClientAuthUserDto;
+  readonly approvalToken?: string;
+}

@@ -4,6 +4,7 @@ import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
+import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
@@ -153,23 +154,29 @@ const createUserAccessToken = async (baseUrl: string): Promise<{ userId: string;
 
 const createClientAccessToken = async (
   baseUrl: string,
-  ownerAccessToken: string,
+  ownerEmail: string,
 ): Promise<{ clientId: string; accessToken: string }> => {
   const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const response = await request(baseUrl)
+  const registerResponse = await request(baseUrl)
     .post("/api/v1/client-auth/register")
-    .set("Authorization", `Bearer ${ownerAccessToken}`)
     .send({
+      ownerEmail,
       email: `socket-client-${unique}@test.com`,
       password: "SocketClient1",
       name: "Socket",
       lastName: "Client",
     });
-  expect(response.status).toBe(201);
+  expect(registerResponse.status).toBe(201);
+  await approveClientRegistrationByToken(baseUrl, registerResponse.body.approvalToken as string);
+  const loginResponse = await request(baseUrl).post("/api/v1/client-auth/login").send({
+    email: `socket-client-${unique}@test.com`,
+    password: "SocketClient1",
+  });
+  expect(loginResponse.status).toBe(200);
 
   return {
-    clientId: response.body.client.id as string,
-    accessToken: response.body.accessToken as string,
+    clientId: registerResponse.body.client.id as string,
+    accessToken: loginResponse.body.accessToken as string,
   };
 };
 
@@ -212,6 +219,7 @@ describe("Socket namespaces", () => {
   let server: Awaited<ReturnType<typeof createTestServer>>;
   let baseUrl: string;
   let accessToken: string;
+  let ownerEmail: string;
   let clientAccessToken: string;
   let clientId: string;
   let agentAccessToken: string;
@@ -233,6 +241,7 @@ describe("Socket namespaces", () => {
     });
     expect(userLoginRes.status).toBe(200);
     accessToken = userLoginRes.body.accessToken as string;
+    ownerEmail = "socket@test.com";
 
     const userId: string = registerRes.body.user.id as string;
     await seedAgent({
@@ -244,16 +253,22 @@ describe("Socket namespaces", () => {
 
     const clientRegisterRes = await request(baseUrl)
       .post("/api/v1/client-auth/register")
-      .set("Authorization", `Bearer ${accessToken}`)
       .send({
+        ownerEmail,
         email: "socket-client@test.com",
         password: "SocketClient1",
         name: "Socket",
         lastName: "Client",
       });
     expect(clientRegisterRes.status).toBe(201);
+    await approveClientRegistrationByToken(baseUrl, clientRegisterRes.body.approvalToken as string);
+    const clientLoginRes = await request(baseUrl).post("/api/v1/client-auth/login").send({
+      email: "socket-client@test.com",
+      password: "SocketClient1",
+    });
+    expect(clientLoginRes.status).toBe(200);
     clientId = clientRegisterRes.body.client.id as string;
-    clientAccessToken = clientRegisterRes.body.accessToken as string;
+    clientAccessToken = clientLoginRes.body.accessToken as string;
 
     const agentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
       email: "socket@test.com",
@@ -526,7 +541,7 @@ describe("Socket namespaces", () => {
         return;
       }
 
-      const client = await createClientAccessToken(baseUrl, accessToken);
+      const client = await createClientAccessToken(baseUrl, ownerEmail);
       await repositories.clientAgentAccess.addAccess(client.clientId, testAgentId, new Date());
       const clientSocket = await connectConsumer(baseUrl, client.accessToken);
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
@@ -580,7 +595,7 @@ describe("Socket namespaces", () => {
         return;
       }
 
-      const client = await createClientAccessToken(baseUrl, accessToken);
+      const client = await createClientAccessToken(baseUrl, ownerEmail);
       await repositories.clientAgentAccess.addAccess(client.clientId, testAgentId, new Date());
       const clientSocket = await connectConsumer(baseUrl, client.accessToken);
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);

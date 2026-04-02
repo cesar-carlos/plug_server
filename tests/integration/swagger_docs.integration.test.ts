@@ -63,13 +63,18 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/me/client-access-requests/{requestId}/reject"]?.post).toBeDefined();
     expect(response.body.paths?.["/me/agents/{agentId}/clients"]?.get).toBeDefined();
     expect(response.body.paths?.["/me/agents/{agentId}/clients/{clientId}"]?.delete).toBeDefined();
-    expect(response.body.paths?.["/client-auth/register"]?.post?.security).toEqual([
-      { bearerAuth: [] },
-    ]);
+    expect(response.body.paths?.["/client-auth/register"]?.post?.security).toBeUndefined();
     const clientRegisterBody =
       response.body.paths?.["/client-auth/register"]?.post?.requestBody?.content?.["application/json"]?.schema
         ?.properties;
+    expect(clientRegisterBody?.ownerEmail).toBeDefined();
     expect(clientRegisterBody?.userId).toBeUndefined();
+    expect(response.body.paths?.["/client-auth/register"]?.post?.responses?.["400"]).toBeDefined();
+    expect(response.body.paths?.["/client-auth/register"]?.post?.responses?.["404"]).toBeUndefined();
+    expect(response.body.paths?.["/client-auth/registration/review"]?.get).toBeDefined();
+    expect(response.body.paths?.["/client-auth/registration/status"]?.get).toBeDefined();
+    expect(response.body.paths?.["/client-auth/registration/approve"]?.post).toBeDefined();
+    expect(response.body.paths?.["/client-auth/registration/reject"]?.post).toBeDefined();
     expect(response.body.paths?.["/me/agents"]?.get?.tags).toContain("User agents");
     expect(response.body.paths?.["/users/{userId}/agents"]?.get?.tags).toContain("User agents");
     expect(response.body.paths?.["/me/agents"]?.post).toBeUndefined();

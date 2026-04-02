@@ -15,4 +15,10 @@ export class NoopEmailSender implements IEmailSender {
   async sendClientAccessApproved(): Promise<void> {}
 
   async sendClientAccessRejected(): Promise<void> {}
+
+  async sendClientRegistrationRequestToOwner(): Promise<void> {}
+
+  async sendClientRegistrationApproved(): Promise<void> {}
+
+  async sendClientRegistrationRejected(): Promise<void> {}
 }

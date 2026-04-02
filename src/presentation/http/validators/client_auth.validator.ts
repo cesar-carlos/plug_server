@@ -4,9 +4,11 @@ import {
   emailSchema,
   nonEmptyStringSchema,
   passwordSchema,
+  registrationOpaqueTokenSchema,
 } from "../../../shared/validators/schemas";
 
 export const clientRegisterBodySchema = z.object({
+  ownerEmail: emailSchema,
   email: emailSchema,
   password: passwordSchema,
   name: z.string().trim().min(1).max(120),
@@ -34,3 +36,25 @@ export const clientLogoutBodySchema = z.object({
 });
 
 export type ClientLogoutBody = z.infer<typeof clientLogoutBodySchema>;
+
+export const clientRegistrationTokenQuerySchema = z.object({
+  token: registrationOpaqueTokenSchema,
+});
+
+export type ClientRegistrationTokenQuery = z.infer<typeof clientRegistrationTokenQuerySchema>;
+
+export const clientRegistrationApproveBodySchema = z.object({
+  token: registrationOpaqueTokenSchema,
+});
+
+export type ClientRegistrationApproveBody = z.infer<typeof clientRegistrationApproveBodySchema>;
+
+export const clientRegistrationRejectBodySchema = z.object({
+  token: registrationOpaqueTokenSchema,
+  reason: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().trim().max(500).optional(),
+  ),
+});
+
+export type ClientRegistrationRejectBody = z.infer<typeof clientRegistrationRejectBodySchema>;

@@ -24,4 +24,8 @@ export class InMemoryClientRepository implements IClientRepository {
   async save(client: Client): Promise<void> {
     this.store.set(client.id, client);
   }
+
+  async deleteById(id: string): Promise<void> {
+    this.store.delete(id);
+  }
 }

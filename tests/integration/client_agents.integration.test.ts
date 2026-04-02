@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
 import { getTestRepositoryAccess } from "../../src/shared/di/container";
+import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
@@ -35,19 +36,25 @@ const registerOwnerAndClient = async (): Promise<{
 
   const clientRegister = await request(app)
     .post("/api/v1/client-auth/register")
-    .set("Authorization", `Bearer ${ownerAccessToken}`)
     .send({
+      ownerEmail,
       email: `client-${unique}@test.com`,
       password: "Client1234",
       name: "Client",
       lastName: "Viewer",
     });
   expect(clientRegister.status).toBe(201);
+  await approveClientRegistrationByToken(app, clientRegister.body.approvalToken as string);
+  const clientLogin = await request(app).post("/api/v1/client-auth/login").send({
+    email: `client-${unique}@test.com`,
+    password: "Client1234",
+  });
+  expect(clientLogin.status).toBe(200);
 
   return {
     ownerUserId,
     clientId: clientRegister.body.client.id as string,
-    clientAccessToken: clientRegister.body.accessToken as string,
+    clientAccessToken: clientLogin.body.accessToken as string,
   };
 };
 

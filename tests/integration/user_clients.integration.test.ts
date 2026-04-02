@@ -2,6 +2,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
@@ -28,17 +29,28 @@ const registerOwner = async (): Promise<{
 describe("User client governance API", () => {
   it("registers client under authenticated owner and lists owner clients", async () => {
     const owner = await registerOwner();
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
 
     const registerClient = await request(app)
       .post("/api/v1/client-auth/register")
-      .set("Authorization", `Bearer ${owner.accessToken}`)
       .send({
+        ownerEmail,
         email: `managed-client-${Date.now()}@test.com`,
         password: "ClientPwd1",
         name: "Managed",
         lastName: "Client",
       });
     expect(registerClient.status).toBe(201);
+    await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
+    const loginClient = await request(app).post("/api/v1/client-auth/login").send({
+      email: registerClient.body.client.email as string,
+      password: "ClientPwd1",
+    });
+    expect(loginClient.status).toBe(200);
     expect(registerClient.body.client.userId).toBe(owner.userId);
 
     const listClients = await request(app)
@@ -53,19 +65,57 @@ describe("User client governance API", () => {
     ).toBe(true);
   });
 
-  it("lets owner review and approve access requests from managed clients", async () => {
+  it("does not allow owner status endpoint to process pending registrations", async () => {
     const owner = await registerOwner();
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
     const registerClient = await request(app)
       .post("/api/v1/client-auth/register")
-      .set("Authorization", `Bearer ${owner.accessToken}`)
       .send({
+        ownerEmail,
+        email: `pending-managed-client-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Pending",
+        lastName: "Managed",
+      });
+    expect(registerClient.status).toBe(201);
+
+    const updateStatus = await request(app)
+      .patch(`/api/v1/me/clients/${registerClient.body.client.id as string}/status`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ status: "active" });
+    expect(updateStatus.status).toBe(409);
+    expect(updateStatus.body.code).toBe("CONFLICT");
+  });
+
+  it("lets owner review and approve access requests from managed clients", async () => {
+    const owner = await registerOwner();
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
+    const registerClient = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
         email: `approve-client-${Date.now()}@test.com`,
         password: "ClientPwd1",
         name: "Approval",
         lastName: "Target",
       });
     expect(registerClient.status).toBe(201);
-    const clientAccessToken = registerClient.body.accessToken as string;
+    await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
+    const clientLogin = await request(app).post("/api/v1/client-auth/login").send({
+      email: registerClient.body.client.email as string,
+      password: "ClientPwd1",
+    });
+    expect(clientLogin.status).toBe(200);
+    const clientAccessToken = clientLogin.body.accessToken as string;
 
     const agent = await seedAgent({ name: "Owner Managed Agent", cnpjCpf: `owner-managed-${Date.now()}` });
     await seedAgentBinding(owner.userId, agent.agentId);
@@ -102,18 +152,29 @@ describe("User client governance API", () => {
 
   it("allows owner to revoke agent access from a managed client", async () => {
     const owner = await registerOwner();
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
     const registerClient = await request(app)
       .post("/api/v1/client-auth/register")
-      .set("Authorization", `Bearer ${owner.accessToken}`)
       .send({
+        ownerEmail,
         email: `revoke-client-${Date.now()}@test.com`,
         password: "ClientPwd1",
         name: "Revoke",
         lastName: "Target",
       });
     expect(registerClient.status).toBe(201);
+    await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
+    const clientLogin = await request(app).post("/api/v1/client-auth/login").send({
+      email: registerClient.body.client.email as string,
+      password: "ClientPwd1",
+    });
+    expect(clientLogin.status).toBe(200);
     const clientId = registerClient.body.client.id as string;
-    const clientAccessToken = registerClient.body.accessToken as string;
+    const clientAccessToken = clientLogin.body.accessToken as string;
 
     const agent = await seedAgent({ name: "Revocation Agent", cnpjCpf: `revoke-agent-${Date.now()}` });
     await seedAgentBinding(owner.userId, agent.agentId);

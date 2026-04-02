@@ -9,6 +9,7 @@ import type { IClientAgentAccessRepository } from "../../domain/repositories/cli
 import type { IClientAgentAccessApprovalTokenRepository } from "../../domain/repositories/client_agent_access_approval_token.repository.interface";
 import type { IClientAgentAccessRequestRepository } from "../../domain/repositories/client_agent_access_request.repository.interface";
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
+import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
@@ -33,6 +34,7 @@ import { InMemoryClientAgentAccessApprovalTokenRepository } from "../../infrastr
 import { InMemoryClientAgentAccessRepository } from "../../infrastructure/repositories/in_memory_client_agent_access.repository";
 import { InMemoryClientAgentAccessRequestRepository } from "../../infrastructure/repositories/in_memory_client_agent_access_request.repository";
 import { InMemoryClientRefreshTokenRepository } from "../../infrastructure/repositories/in_memory_client_refresh_token.repository";
+import { InMemoryClientRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_client_registration_approval_token.repository";
 import { InMemoryClientRepository } from "../../infrastructure/repositories/in_memory_client.repository";
 import { InMemoryRefreshTokenRepository } from "../../infrastructure/repositories/in_memory_refresh_token.repository";
 import { InMemoryRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_registration_approval_token.repository";
@@ -43,6 +45,7 @@ import { PrismaClientAgentAccessApprovalTokenRepository } from "../../infrastruc
 import { PrismaClientAgentAccessRepository } from "../../infrastructure/repositories/prisma_client_agent_access.repository";
 import { PrismaClientAgentAccessRequestRepository } from "../../infrastructure/repositories/prisma_client_agent_access_request.repository";
 import { PrismaClientRefreshTokenRepository } from "../../infrastructure/repositories/prisma_client_refresh_token.repository";
+import { PrismaClientRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_client_registration_approval_token.repository";
 import { PrismaClientRepository } from "../../infrastructure/repositories/prisma_client.repository";
 import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/prisma_refresh_token.repository";
 import { PrismaRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_registration_approval_token.repository";
@@ -73,6 +76,10 @@ const clientRepository: IClientRepository = shouldUseInMemoryPersistence
 const clientRefreshTokenRepository: IClientRefreshTokenRepository = shouldUseInMemoryPersistence
   ? new InMemoryClientRefreshTokenRepository()
   : new PrismaClientRefreshTokenRepository();
+const clientRegistrationApprovalTokenRepository: IClientRegistrationApprovalTokenRepository =
+  shouldUseInMemoryPersistence
+    ? new InMemoryClientRegistrationApprovalTokenRepository()
+    : new PrismaClientRegistrationApprovalTokenRepository();
 const clientAgentAccessRepository: IClientAgentAccessRepository = shouldUseInMemoryPersistence
   ? new InMemoryClientAgentAccessRepository()
   : new PrismaClientAgentAccessRepository();
@@ -128,8 +135,10 @@ const userAgentService = new UserAgentService(agentRepository, agentIdentityRepo
 const clientAuthService = new ClientAuthService(
   clientRepository,
   clientRefreshTokenRepository,
+  clientRegistrationApprovalTokenRepository,
   userRepository,
   passwordHasher,
+  emailSender,
 );
 const clientAgentAccessService = new ClientAgentAccessService(
   agentRepository,
@@ -175,6 +184,7 @@ export const getTestRepositoryAccess = (): {
   readonly agent: IAgentRepository;
   readonly client: IClientRepository;
   readonly clientAgentAccess: IClientAgentAccessRepository;
+  readonly clientRegistrationApprovalToken: IClientRegistrationApprovalTokenRepository;
 } => {
   if (env.nodeEnv !== "test") {
     throw new Error("getTestRepositoryAccess is only available in test environment");
@@ -186,5 +196,6 @@ export const getTestRepositoryAccess = (): {
     agent: agentRepository,
     client: clientRepository,
     clientAgentAccess: clientAgentAccessRepository,
+    clientRegistrationApprovalToken: clientRegistrationApprovalTokenRepository,
   };
 };

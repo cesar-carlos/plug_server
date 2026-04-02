@@ -28,7 +28,7 @@ export const userClientAccessRequestIdParamSchema = z.object({
 export type UserClientAccessRequestIdParam = z.infer<typeof userClientAccessRequestIdParamSchema>;
 
 export const userListClientsQuerySchema = z.object({
-  status: z.enum(["active", "blocked"]).optional(),
+  status: z.enum(["pending", "active", "blocked"]).optional(),
   search: z.string().max(120).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),

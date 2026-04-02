@@ -25,7 +25,9 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ### Changed
 
-- **Cadastro de `Client`**: `POST /api/v1/client-auth/register` deixa de aceitar `userId` no body e passa a exigir owner autenticado (`Bearer`) para vinculo seguro com `userId` derivado do token.
+- **Cadastro de `Client`**: `POST /api/v1/client-auth/register` nao aceita `userId` no body; o owner passa a ser resolvido por `ownerEmail` com aprovacao explicita do `User` responsavel.
+- **Cadastro de `Client` com aprovacao do owner**: `POST /api/v1/client-auth/register` passa a ser publico e exige `ownerEmail`; o `Client` nasce em `pending` e so ativa apos aprovacao por token em `GET /api/v1/client-auth/registration/review`, `GET /api/v1/client-auth/registration/status`, `POST /api/v1/client-auth/registration/approve` e `POST /api/v1/client-auth/registration/reject`. Login/refresh/operacao ficam bloqueados enquanto `pending`.
+- **Resiliencia e seguranca no cadastro de `Client`**: o pedido pendente agora faz cleanup se o envio do email do owner falhar, pode usar o outbox de emails de registro para entrega assíncrona, nao expoe diferenca publica entre owner inexistente e owner inativo, e `PATCH /api/v1/me/clients/{clientId}/status` deixou de ativar/rejeitar contas ainda `pending` fora do fluxo oficial de aprovacao.
 - **Handshake/sync de perfil de agente**: o `agent.getProfile` deixa de disparar cedo em agentes com `extensions.protocolReadyAck=true`; nesses casos o sync roda apenas após `agent:ready`. Para agentes sem ready explícito, mantém fallback após `agent:register` (grace window). Cobertura em `tests/integration/socket.integration.test.ts`.
 - **Politica de autorizacao `admin`**: `admin` passa a operar qualquer agente ativo tambem em `POST /api/v1/agents/commands`, socket `agents:command` e `relay:conversation.start`, mantendo as regras de ownership para utilizadores nao-admin.
 - **Revogacao em runtime**: apos perda/revogacao de `ClientAgentAccess`, novas chamadas `relay:rpc.request` em conversa ja aberta voltam a validar acesso e passam a falhar com `AGENT_ACCESS_DENIED` (`403`), sem depender de reconexao.

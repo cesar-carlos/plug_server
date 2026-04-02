@@ -1,4 +1,4 @@
-export type ClientStatus = "active" | "blocked";
+export type ClientStatus = "pending" | "active" | "blocked";
 
 export interface ClientProps {
   readonly id: string;

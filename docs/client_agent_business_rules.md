@@ -72,6 +72,8 @@ Governanca do `User`:
 
 - pertence a um unico `User` (gestor)
 - autentica com principal proprio (`principal_type: "client"`)
+- nasce em `pending` no cadastro publico e so ativa apos aprovacao do owner (`User`) informado por `ownerEmail`
+- se `ownerEmail` nao existir ou nao estiver apto para aprovar, a API publica responde com validacao generica (sem revelar estado da conta)
 - pode solicitar acesso a varios `Agent`s
 - somente executa comandos nos `Agent`s para os quais recebeu aprovacao
 
@@ -210,6 +212,7 @@ Regras:
 
 - o owner (`User`) pode listar e consultar apenas `Clients` sob seu `userId`
 - o owner pode bloquear/reativar seus `Client`s`; ao bloquear, refresh tokens do `Client` sao revogados
+- `PATCH /api/v1/me/clients/{clientId}/status` nao processa `Client` em `pending`; nesse estado a decisao deve passar pelo fluxo oficial de aprovacao/rejeicao do cadastro
 - o owner possui inbox autenticada para listar pedidos de acesso aos seus agentes e decidir por `requestId`
 - o owner pode listar quais `Clients` estao aprovados para um agente especifico seu
 - o owner pode revogar um acesso aprovado `clientId + agentId` sem alterar ownership do agente
@@ -246,6 +249,8 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 ## 5) Regras de validacao e estado
 
 - `agentId` precisa existir para pedido de acesso
+- cadastro de `Client` exige `ownerEmail` valido de um `User` ativo
+- conta `Client` em `pending` nao pode autenticar/operar por HTTP nem por socket
 - conta `Client` bloqueada nao pode autenticar/operar por HTTP nem por socket
 - conta `User` bloqueada nao pode autenticar/operar por HTTP nem por socket
 - conta owner (`User`) bloqueada nao pode ser usada para novos cadastros de `Client`
@@ -267,6 +272,10 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 Autenticacao de client:
 
 - `POST /api/v1/client-auth/register`
+- `GET /api/v1/client-auth/registration/review`
+- `GET /api/v1/client-auth/registration/status`
+- `POST /api/v1/client-auth/registration/approve`
+- `POST /api/v1/client-auth/registration/reject`
 - `POST /api/v1/client-auth/login`
 - `POST /api/v1/client-auth/refresh`
 - `POST /api/v1/client-auth/logout`
