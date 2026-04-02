@@ -14,6 +14,29 @@ conectado via Socket.IO. O servidor atua como proxy: recebe o request REST,
 valida, empacota em `PayloadFrame`, emite via Socket.IO no namespace `/agents`
 para o agente, aguarda a resposta e devolve ao cliente HTTP.
 
+Este documento e normativo para o contrato REST e para o canal legado
+`agents:*`. Regras de negocio de ownership, aprovacao de `Client`, revogacao,
+conta ativa e autorizacao por principal vivem em
+`docs/client_agent_business_rules.md`. Para o mapa geral da documentacao, ver
+`docs/README.md`.
+
+## Como ler este documento
+
+Use este arquivo para:
+
+- contrato da rota `POST /api/v1/agents/commands`
+- comportamento do canal legado `agents:*` no consumer
+- exemplos de payload, respostas e erros HTTP/JSON-RPC
+- limites e escolhas especificas do bridge REST
+
+Use outros docs para:
+
+- `docs/client_agent_business_rules.md`: ownership, aprovacao, revogacao e autorizacao
+- `docs/socket_relay_protocol.md`: relay `relay:*`
+- `docs/configuration.md`: defaults e fonte de verdade das variaveis
+- `docs/performance_hub_agent.md`: tuning e operacao sob carga
+- `docs/observability.md`: metricas, traces e alertas
+
 ### REST vs Socket no consumer (mesmo comando, canais diferentes)
 
 - **Dois canais** chegam ao mesmo fluxo interno (`executeAgentCommand` → dispatch para o agente): **HTTP** (`POST /api/v1/agents/commands`) ou **Socket** (`agents:command` no `/consumers`, ou relay `relay:rpc.request`).
@@ -57,13 +80,12 @@ No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
 
 - `POST /api/v1/auth/agent-login` autentica a sessao do agente, mas nao cria ownership sozinho
 - o ownership oficial do `Agent` nasce quando o agente conclui `agent:register`
-- o sync de cadastro via `agent.getProfile` ocorre no momento de prontidao:
-  - sem `extensions.protocolReadyAck`: logo apos `agent:register` (com grace window)
-  - com `extensions.protocolReadyAck=true`: apenas apos `agent:ready`
+- o sync de cadastro via `agent.getProfile` segue o estado de prontidao do protocolo
 - `lastLoginUserId` e apenas atributo operacional e nao substitui `AgentIdentity`
 
-As regras de negocio completas de ownership, `ClientAgentAccess`, aprovacao por owner e rotas
-de consulta do `Client` vivem em `docs/client_agent_business_rules.md`.
+As regras completas de ownership, `ClientAgentAccess`, aprovacao por owner,
+revogacao e autorizacao entre REST e Socket vivem em
+`docs/client_agent_business_rules.md`.
 
 ### Periodo de compatibilidade: SOCKET_AGENT_ROLES=agent,user
 
@@ -1076,8 +1098,9 @@ Quando o agente retorna erro, `response.item.error` segue:
 
 ## Analise de gaps: REST vs Socket
 
-A tabela abaixo compara os recursos disponiveis no protocolo Socket.IO do agente
-com o que a API REST atualmente expoe ao consumer.
+Esta secao resume as diferencas relevantes entre o bridge REST e os canais
+Socket do consumer. Os contratos detalhados continuam nas secoes anteriores
+deste arquivo e em `docs/socket_relay_protocol.md`.
 
 ### Recursos disponiveis no agente vs cobertura REST
 
@@ -1116,100 +1139,42 @@ com o que a API REST atualmente expoe ao consumer.
 | Heartbeat (`agent:heartbeat`)              | implementado  | transparente    | -                                        |
 | Capabilities negotiation                   | implementado  | transparente    | -                                        |
 
-### Detalhe dos gaps
+### Limitacoes intencionais do canal REST
 
-#### Gaps cobertos (implementados)
+- nao ha streaming progressivo por HTTP; `sql.execute` com `stream_id` e
+  materializado no hub e devolvido como resposta final unica
+- o cliente HTTP nao controla `rpc:stream.pull`; esse fluxo e interno ao hub
+- o estado de correlacao continua em memoria por processo; multi-instancia sem
+  afinidade/shared state nao e o alvo atual
 
-**1. `api_version` e `meta` no request** -- O bridge define `api_version` como a
-string enviada pelo cliente quando presente; caso contrario usa `"2.5"`. Injeta
-`meta` com `request_id`, `agent_id`, `timestamp` e `trace_id` antes de emitir
-`rpc:request`. O `meta` enviado pelo cliente (ex.: `traceparent`, `tracestate`) e
-preservado via merge; campos obrigatorios sao sobrescritos. O `trace_id` e unico
-e compartilhado entre o payload logico e o `PayloadFrame` para correlacao.
+Quando precisares de `rpc:chunk`, `rpc:complete`, `stream_pull` explicito,
+isolamento por conversa ou menor latencia por stream, usa `/consumers` com
+`agents:*` ou `relay:*`.
 
-**2. `api_version` e `meta` na response** -- O serializer preserva `api_version`
-e `meta` do agente e propaga para o nivel da response HTTP em respostas single.
+### Comportamentos importantes mantidos pelo bridge
 
-**3. Batch max 32** -- O validator rejeita batches com mais de 32 comandos
-com mensagem `"Batch cannot exceed 32 commands"` (400).
-
-**4. Delivery guarantee acks** -- O hub registra handlers para `rpc:request_ack`
-e `rpc:batch_ack`, marcando `acked: true` no pending request. No sentido
-agente → hub, apos processar cada `rpc:response` (PayloadFrame valido ou falha de
-decode), o hub invoca o **Socket.IO acknowledgment** quando o cliente usa
-`emitWithAck` / `emitWithAckAsync` nesse evento (compativel com
-`enableSocketDeliveryGuarantees` no plug_agente). Logs estruturados sao emitidos:
-`rpc_ack_received`, `rpc_batch_ack_received`, `rpc_response_received_without_ack` e
-`rpc_timeout_without_ack` para observabilidade.
-
-**5. Notification JSON-RPC** -- `id: null` e notification: o bridge nao cria pending
-para esse item. Se **todos** os itens forem notifications (`id: null`), a rota retorna
-HTTP `202 Accepted` com `notification: true`. Se `id` for **omitido**, o servidor
-atribui UUID antes do envio ao agente e aguarda `rpc:response` (200). Em batch misto,
-itens com `id: null` nao entram na correlacao; os demais (id omitido ou string/number)
-sim.
-
-**6. Overload por agente + `Retry-After`** -- Alem do limite global de
-pendencias REST, o bridge aplica limite de inflight/fila por `agentId`. Quando
-a fila esta cheia (ou expira o tempo de espera), o endpoint retorna `503` com
-`Retry-After` e `details.retry_after_ms` (em nao-producao).
-
-**7. Cancelamento por abort do cliente HTTP** -- Se o cliente aborta a conexao
-antes da resposta do agente, o bridge remove imediatamente a pending request e
-encerra o fluxo sem manter correlacao pendurada.
-
-**8. Observabilidade de frames malformados** -- Falhas de decode de
-`PayloadFrame` sao contabilizadas em metrica dedicada e logs amostrados
-(`rpc_frame_decode_failed`) para reduzir ruido sob flood de payload invalido.
-
-#### Limitacoes documentadas (nao implementadas)
-
-**1. Streaming via REST** -- Nao ha entrega **progressiva** por HTTP (sem SSE nem
-chunked JSON). Para `sql.execute` **unico** sem handlers de stream do consumer, o hub
-**materializa** o resultado: modelo de **creditos** por janela (como o relay), novo
-`rpc:stream.pull` so quando a janela se esgota, acumula `rpc:chunk` e fecha com
-`rpc:complete`, devolvendo um unico JSON com todas as `rows` (e `total_rows`).
-O tamanho da janela parte de `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, mas pode ser
-clampado por capabilities do agente. Quando o `rpc:complete` chega com
-`terminal_status`, ou quando `rpc:chunk` / `rpc:complete` chegam com frame invalido
-e `requestId` identificavel, o hub encerra o REST com erro `503` para nao mascarar
-stream anomalo como sucesso nem esperar apenas por timeout.
-Metrica Prometheus: `plug_rest_sql_stream_materialize_pulls_total`.
-Batch, relay e notificacoes nao usam esse caminho.
-
-**2. Frame de resposta invalido do agente** -- Se `rpc:response` chegar com
-`PayloadFrame` malformado, JSON invalido ou assinatura invalida, o hub tenta
-correlacionar pelo `requestId` do envelope e **falha imediatamente** a request
-pendente (REST `503`; relay com erro JSON-RPC framed), em vez de aguardar ate
-timeout.
-
-No canal Socket `/consumers`, o hub continua encaminhando `rpc:chunk` e `rpc:complete`
-em tempo real (`agents:command_stream_*`) e aceita `agents:stream_pull`.
-
-No modo relay (`relay:*`), o hub tambem encaminha `rpc:response`, `rpc:chunk`,
-`rpc:complete`, `rpc:request_ack`, `rpc:batch_ack` e `rpc:stream.pull` com
-isolamento por `conversationId`.
-
-## Checklist final de gaps REST (intencionais)
-
-- [ ] **Streaming em tempo real no endpoint REST** (`rpc:chunk` / `rpc:complete` ao vivo):
-  fora do escopo; usar Socket `/consumers`. REST agrega resultado final apos pull interno.
-- [x] **Pull explicito pelo cliente HTTP** (`rpc:stream.pull`): nao exposto; o servidor puxa
-  automaticamente para materializar `sql.execute` unico.
-- [ ] **Coordenacao de estado pendente entre replicas HTTP sem afinidade**:
-  arquitetura atual usa estado em memoria para correlacao (sem Redis/sticky),
-  logo o caminho recomendado segue single-instance ou afinidade de sessao quando
-  houver multiplas replicas.
+- `api_version` e `meta` do request sao preservados/mesclados antes do dispatch
+- `api_version` e `meta` da response sao preservados pelo serializer
+- batch JSON-RPC continua limitado a 32 itens
+- `id: null` continua sendo notification; `id` omitido recebe UUID e aguarda resposta
+- overload por agente responde com `503` e `Retry-After`
+- abort do cliente HTTP limpa a pending request sem deixar correlacao pendurada
+- frame invalido do agente falha a request correlacionada imediatamente, sem esperar timeout
 
 ---
 
 ## Configuracao e tuning
 
-Guia agregado (Socket.IO, REST vs streaming, escala): `docs/performance_hub_agent.md`.
+Defaults e fonte de verdade das variaveis: `docs/configuration.md`.
+Guia agregado de tuning e operacao: `docs/performance_hub_agent.md`.
+Metricas, traces e alertas: `docs/observability.md`.
 
 ### Traces de latencia do bridge (`BRIDGE_LATENCY_TRACE_*`)
 
-Para persistir tempos por fase (transformacao, fila, dispatch, escrita HTTP, etc.) em PostgreSQL para `POST /api/v1/agents/commands`, `agents:command` no `/consumers` e `relay:rpc.request`, ative `BRIDGE_LATENCY_TRACE_ENABLED=true`. Amostragem, lote, limiar de comandos lentos, fila em memoria, retenção/prune e spans OpenTelemetry estao em `.env.example` (`BRIDGE_LATENCY_TRACE_*`). Esquema da tabela, chaves de `phases_ms`, regras de amostragem (ex.: erros sempre) e metricas `plug_bridge_latency_trace_*`: `docs/observability.md`.
+Para persistir tempos por fase do bridge, ative
+`BRIDGE_LATENCY_TRACE_ENABLED=true`. Regras de amostragem, esquema da tabela,
+metricas `plug_bridge_latency_trace_*` e exemplos de consulta ficam em
+`docs/observability.md`.
 
 ### REQUEST_BODY_LIMIT e tamanho de payload
 
@@ -1254,30 +1219,12 @@ estruturado para suporte:
 Em `NODE_ENV=development`, o mesmo evento e emitido em nivel **DEBUG** (via `console.debug`) sem
 precisar da variavel — util para depuracao local sem poluir producao.
 
-### Variaveis de ambiente do relay (tuning)
+### Relay e auditoria
 
-Para cenarios de alto volume ou muitos consumers, considere:
-
-| Variavel | Default | Cenario | Sugestao |
-| -------- | ------- | ------- | -------- |
-| `SOCKET_RELAY_MAX_PENDING_REQUESTS` | 10000 | Muitos consumers | Aumentar se houver capacidade |
-| `SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONSUMER` | 128 | Consumer com muitas requests | Ajustar por perfil |
-| `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` | 64 | Janela 10s (fixa) | Aumentar para workloads intensos |
-| `SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` | 3 | Limpeza de estado | Multiplicador sobre `RATE_LIMIT_WINDOW_MS` para considerar estado stale |
-| `SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS` | 120000 | Limpeza de idempotencia | Intervalo do timer em background (menos CPU que intervalos muito curtos) |
-
-Acks de alto volume (`rpc:request_ack`, `rpc:batch_ack`, registro de stream) sao logados em nivel
-**DEBUG** (visivel em `NODE_ENV=development`); use metricas Prometheus para paineis em producao.
-
-### Auditoria Socket (batch insert)
-
-| Variavel | Default | Descricao |
-| -------- | ------- | --------- |
-| `SOCKET_AUDIT_BATCH_MAX` | `48` | `1` = um `INSERT` por evento. Default maior agrupa eventos na fila e grava em transacao (flush por tamanho ou tempo). |
-| `SOCKET_AUDIT_BATCH_FLUSH_MS` | `200` | Debounce do flush quando a fila nao atingiu `SOCKET_AUDIT_BATCH_MAX`. |
-
-No shutdown HTTP, `flushPendingSocketAuditEvents()` drena a fila antes de `waitForSocketAuditDrain`.
-Metrica: `plug_socket_audit_queued_events`.
+Os knobs de relay, fila outbound, idempotencia e auditoria Socket continuam
+documentados em `docs/performance_hub_agent.md`, `docs/observability.md` e
+`docs/configuration.md`, porque sao compartilhados entre REST, `agents:*` e
+`relay:*` e nao pertencem apenas a este endpoint.
 
 ---
 

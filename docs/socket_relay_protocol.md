@@ -7,6 +7,11 @@ Data: 2026-03-20
 Canal Socket em modo relay/chat-like para permitir varias conversas simultaneas
 entre consumers e o mesmo agente, sem alterar o canal REST.
 
+Este documento cobre o contrato relay `relay:*` no namespace `/consumers`.
+Regras de negocio de ownership, aprovacao de `Client`, revogacao, conta ativa
+e autorizacao por principal vivem em `docs/client_agent_business_rules.md`.
+Para o mapa geral da documentacao, ver `docs/README.md`.
+
 Fluxo:
 
 `consumer -> plug_server -> agente`
@@ -15,6 +20,14 @@ Fluxo:
 
 - `/consumers`: controle de conversa e envio de frames relay
 - `/agents`: protocolo padrao do agente (`rpc:*` em `PayloadFrame`)
+
+Autorizacao resumida do relay:
+
+- o handshake autentica o principal no namespace `/consumers`
+- nas operacoes sensiveis, o servidor revalida conta ativa e acesso ao agente por evento
+- `user` autoriza por `AgentIdentity`
+- `client` autoriza por `ClientAgentAccess`
+- `admin` pode operar qualquer agente ativo
 
 ## Handshake: `connection:ready`
 

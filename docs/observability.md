@@ -1,9 +1,24 @@
 # Observabilidade
 
+Este documento concentra metricas, traces, alertas e sinais operacionais do
+hub. Regras de negocio e semantica de autorizacao ficam em
+`docs/client_agent_business_rules.md`. Defaults e variaveis ficam em
+`docs/configuration.md`. Tuning operacional fica em
+`docs/performance_hub_agent.md`. Mapa geral: `docs/README.md`.
+
 ## Endpoints
 
 - `GET /metrics` — texto Prometheus (alias util fora do prefixo `/api/v1`).
 - `GET /api/v1/metrics` — mesmo payload.
+
+## Comeco rapido
+
+Se fores olhar so o minimo:
+
+1. valida `GET /metrics`
+2. acompanha throughput/falhas do bridge REST
+3. acompanha backlog/p95 da fila relay outbound
+4. acompanha bloqueios/rate limits e falhas de auditoria
 
 ## Metricas uteis (exemplos PromQL)
 
@@ -115,7 +130,8 @@ antes e depois da mudanca:
 - `plug_rest_sql_stream_materialize_completed_total`
 
 Isto cobre capacidade, custo de CPU no caminho quente, impacto de auditoria e
-degradacao funcional (falhas/rejeicoes).
+degradacao funcional. Para presets de tuning e rollout, ver
+`docs/performance_hub_agent.md`.
 
 ## Tabela PostgreSQL `bridge_latency_traces` (latencia por fase)
 
@@ -242,28 +258,32 @@ Para o relay Socket, um dashboard mínimo útil costuma incluir:
 - `rate(plug_socket_relay_conversations_expired_total[5m])`
 - `rate(plug_socket_relay_outbound_queue_overload_rejected_total[5m])`
 
-## Proteções adicionais do relay
+## Sinais uteis do relay
 
 ### Fila outbound: cleanup de tails órfãos
 
-Cada `requestId` mantém uma cadeia serializada na fila outbound. Se uma cadeia ficar sem progresso por tempo demais, o hub passa a tratá-la como órfã/zumbi e a remove no sweep periódico:
+Cada `requestId` mantem uma cadeia serializada na fila outbound. Se uma cadeia
+ficar sem progresso por tempo demais, o hub passa a trata-la como orfa/zumbi e
+a remove no sweep periodico:
 
 - `SOCKET_RELAY_OUTBOUND_TAIL_STALE_MS`
 - `SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS`
 
-Métricas associadas:
+Metricas associadas:
 
 - `plug_socket_relay_outbound_queue_orphaned_request_ids`
 - `plug_socket_relay_outbound_queue_orphaned_tails_swept_total`
 
 ### Shed load em `/consumers`
 
-Quando a fila outbound relay excede backlog ou latência p95 configurados, o hub passa a rejeitar temporariamente novos eventos relay de `/consumers` com `SERVICE_UNAVAILABLE` e `retryAfterMs`:
+Quando a fila outbound relay excede backlog ou latencia p95 configurados, o hub
+passa a rejeitar temporariamente novos eventos relay de `/consumers` com
+`SERVICE_UNAVAILABLE` e `retryAfterMs`:
 
 - `SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG`
 - `SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS`
 
-Métrica associada:
+Metrica associada:
 
 - `plug_socket_relay_outbound_queue_overload_rejected_total`
 
@@ -285,7 +305,11 @@ Métrica associada:
 }
 ```
 
-Quando bloqueado por limite, o mesmo bloco `rateLimit` acompanha o erro `RATE_LIMITED`.
+Quando bloqueado por limite, o mesmo bloco `rateLimit` acompanha o erro
+`RATE_LIMITED`.
+
+Semantica de autorizacao, revogacao e conta ativa no relay:
+`docs/client_agent_business_rules.md`.
 
 ## Logs e tracing
 

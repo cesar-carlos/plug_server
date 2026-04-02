@@ -1,5 +1,8 @@
 # Plug Server - Visao Geral do Projeto
 
+Este e o ponto de entrada da documentacao. Para navegar por escopo, ver
+`docs/README.md`.
+
 ## Objetivo
 
 O `plug_server` e o hub central do ecossistema Plug. Ele conecta `consumers` e
@@ -84,7 +87,7 @@ Detalhes normativos:
 
 - `docs/socket_relay_protocol.md`
 - `docs/socket_client_sdk.md`
-- regras de negocio `User`/`Agent`/`Client`: `docs/client_agent_business_rules.md`
+- regra de negocio canonica `User`/`Agent`/`Client`: `docs/client_agent_business_rules.md`
 
 ### Socket em `/agents`
 
@@ -114,20 +117,14 @@ O agente usa o protocolo do `plug_agente` no namespace `/agents`, incluindo:
 ### Ownership do agente
 
 - a fonte oficial de ownership continua sendo `AgentIdentity`
-- o ownership nao e mais criado manualmente por endpoint HTTP
-- `agent-login` apenas autentica a sessao do agente
-- o bind oficial do `agentId` ao `User` acontece somente no primeiro `agent:register` valido
-- o sync de cadastro via `agent.getProfile` ocorre no momento de prontidao:
-  - sem `extensions.protocolReadyAck`: apos `agent:register` (fallback por grace window)
-  - com `extensions.protocolReadyAck=true`: apenas apos `agent:ready`
-- se o `agentId` nao existir no catalogo, o servidor cria o cadastro automaticamente
-- se o `agentId` ja existir, o servidor atualiza os dados e `lastLoginUserId`
-- nao existem mais rotas HTTP para criar ou editar manualmente o catalogo do agente
-- o catalogo e lido por HTTP e alimentado pelo proprio fluxo do agente; `admin` so mantem a opcao de desativar
-- se o `agentId` ja pertence ao mesmo `User`, o fluxo e idempotente
-- se o `agentId` ja pertence a outro `User`, o registro deve ser rejeitado
+- `agent-login` apenas autentica a sessao; o bind oficial nasce em `agent:register`
+- o cadastro do agente e sincronizado automaticamente via `agent.getProfile`
+- nao existem mais rotas HTTP para vincular ou editar manualmente ownership de agente
+- conflitos de ownership continuam a ser rejeitados quando o `agentId` pertence a outro `User`
 
-Regras detalhadas de negocio de `User`/`Agent`/`Client` vivem em `docs/client_agent_business_rules.md`.
+Regras detalhadas de ownership, aprovacao de `Client`, revogacao e autorizacao
+por canal vivem em `docs/client_agent_business_rules.md`. Detalhes de
+timing/readiness do fluxo do agente vivem em `docs/api_rest_bridge.md`.
 
 ## Seguranca e isolamento
 
@@ -173,6 +170,8 @@ Persistencia atual relevante:
 Implicacoes multi-instancia: `docs/scaling_and_roadmap.md`.
 
 ## Leitura recomendada
+
+Mapa rapido da documentacao: `docs/README.md`.
 
 | Tema | Documento |
 | ---- | --------- |

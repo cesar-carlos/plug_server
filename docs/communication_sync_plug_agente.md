@@ -12,6 +12,8 @@ Ele nao substitui os contratos normativos do hub. Use este ficheiro para:
 - identificar lacunas intencionais ou operacionais
 - seguir um checklist curto quando o protocolo evoluir
 
+Mapa geral da documentacao: `docs/README.md`.
+
 ## Fontes de referencia no `plug_agente`
 
 Quando houver um checkout local do repositório irmao, estas sao as referencias

@@ -20,7 +20,7 @@ Admin actions on `PATCH /admin/users/:id/status` are **rate-limited per admin** 
 
 - **Login / refresh:** `blocked` accounts receive **403** with message `Account is blocked`.
 - **Bearer routes:** After JWT validation, the server loads the user and denies access if status is `blocked` (**403**), so a still-valid access token cannot be used until unblocked. The loaded row is kept on `response.locals.activeAccountUser` for the request; handlers can call `resolveActiveAccountUser` (or pass the entity into services) to avoid a second `SELECT` for the same user.
-- **Socket.IO (`/agents`, `/consumers`):** After JWT validation (and namespace role rules), the server loads the user and rejects the handshake if status is `blocked` (**403**), aligned with HTTP. Long-lived connections still depend on **access-token TTL**; after expiry the client must obtain a new token (refresh is denied while `blocked`).
+- **Socket.IO (`/agents`, `/consumers`):** After JWT validation (and namespace role rules), the server loads the user and rejects the handshake if status is `blocked` (**403**), aligned with HTTP. On `/consumers`, sensitive operations also revalidate active account status per event, so blocking the account after connection immediately stops new authorized operations. The socket may remain connected until disconnect/expiry, but operational permission no longer remains active.
 - **Profile (`PATCH /auth/me`):** Authenticated users may set or clear `celular` (same validation as registration; `null` removes). **403** while `blocked`.
 - **Change password:** **403** while `blocked`.
 
@@ -28,6 +28,6 @@ Admin actions on `PATCH /admin/users/:id/status` are **rate-limited per admin** 
 
 - `plug_auth_login_blocked_total` — login attempts denied due to `blocked`.
 - `plug_auth_refresh_blocked_total` — refresh denied due to `blocked`.
-- `plug_auth_socket_blocked_total` — Socket.IO connection attempts denied due to `blocked` (after valid JWT).
+- `plug_auth_socket_blocked_total` — Socket.IO handshake attempts denied due to `blocked` (after valid JWT).
 - `plug_admin_user_status_set_total` — successful admin status updates (block/unblock).
 - `plug_rest_http_rate_limit_admin_user_status_rejected_total` — admin status PATCH rejected by rate limit.

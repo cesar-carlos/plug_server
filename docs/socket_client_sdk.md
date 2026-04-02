@@ -8,6 +8,7 @@ Guia rapido para cliente Socket no modo relay (`/consumers`), com tratamento de
 Este documento cobre transporte e uso do canal Socket. Regras de negocio sobre
 ownership de `Agent`, aprovacao de acesso de `Client` e consulta de agentes
 aprovados vivem em `docs/client_agent_business_rules.md`.
+Mapa geral da documentacao: `docs/README.md`.
 
 **Canal alternativo (REST):** os mesmos comandos JSON-RPC podem ser enviados por
 `POST /api/v1/agents/commands` sem Socket no consumer; o REST **nao** expoe

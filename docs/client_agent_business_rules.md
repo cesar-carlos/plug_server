@@ -5,6 +5,21 @@ Data: 2026-04-02
 Este documento consolida as regras de negocio do modelo com tres entidades:
 `User`, `Agent` e `Client`.
 
+Esta e a fonte canonica para:
+
+- ownership de `Agent` e `Client`
+- aprovacao, revogacao e consulta de acessos
+- autorizacao por principal em HTTP e Socket
+- efeitos de bloqueio e revogacao sobre operacao
+
+Para contratos de transporte e exemplos de payload, ver:
+
+- `docs/api_rest_bridge.md`
+- `docs/socket_relay_protocol.md`
+- `docs/socket_client_sdk.md`
+
+Mapa geral da documentacao: `docs/README.md`.
+
 ## 0) Resumo executivo do modelo
 
 O modelo de negocio do `plug_server` passa a considerar tres entidades principais:
@@ -24,7 +39,7 @@ Regra principal de ownership do agente:
 - o vinculo nasce automaticamente quando o agente autentica com email e senha do `User` em `agent-login` e conclui `agent:register`
 - ao concluir `agent:register`, o servidor cria ou atualiza o cadastro do agente e formaliza o ownership em `AgentIdentity`
 
-Regra principal de acesso do client ao agente:
+Regra principal de acesso do `Client` ao agente:
 
 - o `Client` solicita acesso informando o `agentId`
 - o pedido e submetido ao `User` responsavel por aquele `Agent`
@@ -35,7 +50,7 @@ Governanca do `User`:
 
 - o `User` e responsavel pela governanca dos seus `Agent`s
 - o `User` e responsavel pela governanca dos seus `Client`s
-- a exposicao de rotas HTTP para gestao/listagem de `Client`s pelo `User` depende do escopo funcional do ciclo, mas o ownership e a responsabilidade de negocio ja pertencem ao `User`
+- a governanca do `User` sobre `Client`s tambem esta exposta por rotas HTTP autenticadas
 
 ## 1) Entidades e responsabilidades
 
@@ -106,7 +121,7 @@ Importante:
 
 ## 3) Fluxo de acesso Client -> Agent
 
-## 3.1 Solicitar acesso
+### 3.1 Solicitar acesso
 
 Endpoint principal:
 
@@ -122,7 +137,7 @@ Regras:
 - gera token de aprovacao e envia email para o owner do agente
 - depois de aprovado, o `Client` pode consultar os dados gerais e de perfil desses agentes pela propria area `/client/me/agents`
 
-## 3.2 Aprovar/Rejeitar
+### 3.2 Aprovar/Rejeitar
 
 Endpoints:
 
@@ -140,7 +155,7 @@ Regras:
 - ao aprovar/rejeitar, pedido sai de `pending` para status final
 - ao aprovar ou rejeitar, `Client` recebe notificacao por email
 
-## 3.3 Revogar acesso
+### 3.3 Revogar acesso
 
 Endpoint:
 
@@ -152,7 +167,7 @@ Regras:
 - nao altera ownership do agente
 - operacao idempotente para itens ja removidos
 
-## 3.4 Consultar agentes aprovados
+### 3.4 Consultar agentes aprovados
 
 Endpoints:
 
@@ -166,7 +181,7 @@ Regras:
 - a consulta individual por `agentId` retorna `403` quando o agente nao estiver aprovado para aquele `Client`
 - a listagem suporta filtros por `status`, busca por `search` e paginacao com `page` e `pageSize`
 
-## 3.5 Consultar pedidos de acesso
+### 3.5 Consultar pedidos de acesso
 
 Endpoint:
 
@@ -178,7 +193,7 @@ Regras:
 - a listagem pode incluir o nome do agente para facilitar acompanhamento
 - a listagem suporta filtros por `status`, busca por `search` e paginacao com `page` e `pageSize`
 
-## 3.6 Governanca do `User` sobre `Client`s
+### 3.6 Governanca do `User` sobre `Client`s
 
 Endpoints:
 
@@ -193,10 +208,10 @@ Endpoints:
 
 Regras:
 
-- o owner (`User`) pode listar e consultar apenas `Client`s` sob seu `userId`
+- o owner (`User`) pode listar e consultar apenas `Clients` sob seu `userId`
 - o owner pode bloquear/reativar seus `Client`s`; ao bloquear, refresh tokens do `Client` sao revogados
 - o owner possui inbox autenticada para listar pedidos de acesso aos seus agentes e decidir por `requestId`
-- o owner pode listar quais `Client`s` estao aprovados para um agente especifico seu
+- o owner pode listar quais `Clients` estao aprovados para um agente especifico seu
 - o owner pode revogar um acesso aprovado `clientId + agentId` sem alterar ownership do agente
 - o fluxo por token/email continua valido como canal alternativo para approve/reject
 
@@ -204,7 +219,7 @@ Regras:
 
 O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client`.
 
-## 4.1 HTTP
+### 4.1 HTTP
 
 - rotas de `client` usam `requireClientAuth` e `requireClientActiveAccount`
 - token de `client` nao deve acessar fluxo exclusivo de `user` e vice-versa
@@ -215,7 +230,7 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 - em leitura HTTP de agentes aprovados do `Client`, a autorizacao tambem e por `ClientAgentAccess`
 - endpoints legados de vinculacao manual de `Agent` deixam de fazer parte da regra de negocio
 
-## 4.2 Socket
+### 4.2 Socket
 
 - namespace `/consumers` aceita roles configuradas em `SOCKET_CONSUMER_ROLES`
 - principal autenticado e resolvido pelo JWT
