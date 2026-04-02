@@ -684,7 +684,7 @@ describe("Socket namespaces", () => {
         return;
       }
 
-      const client = await createClientAccessToken(baseUrl, accessToken);
+      const client = await createClientAccessToken(baseUrl, ownerEmail);
       await repositories.clientAgentAccess.addAccess(client.clientId, testAgentId, new Date());
       const clientSocket = await connectConsumer(baseUrl, client.accessToken);
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
