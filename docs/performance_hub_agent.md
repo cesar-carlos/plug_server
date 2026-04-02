@@ -106,12 +106,84 @@ SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS=180000
 
 - Para menor latência e RAM, preferir **`agents:command`** ou **relay** com chunks em tempo real em vez de aumentar só a janela do REST materializado.
 
+## Estrategia de auditoria (custo x rastreabilidade)
+
+`recordSocketAuditEvent` é assíncrono e batelado, mas continua a consumir CPU/DB
+em tráfego alto (sobretudo `relay:rpc.chunk`). Ajusta por perfil:
+
+- **Normal (ambiente estável):** manter defaults (`SOCKET_AUDIT_BATCH_MAX=48`, `SOCKET_AUDIT_BATCH_FLUSH_MS=200`, sample de chunk conforme ambiente)
+- **Throughput alto:** reduzir `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT` (ex.: 10-25) e aumentar `SOCKET_AUDIT_BATCH_MAX` com cuidado
+- **Troubleshooting curto:** subir sample temporariamente (ex.: 100) por janela limitada e reverter após coleta
+
+Guardrails operacionais:
+
+1. nunca abrir troubleshooting com sample alto sem prazo para rollback;
+2. acompanhar `plug_socket_audit_writes_failed_total`;
+3. se `writes_failed_total` subir com tráfego, reduzir sample de chunk antes de subir infra;
+4. manter eventos de controlo/erro com prioridade, e usar sample agressivo apenas para volume de chunk.
+
 ## Checklist operacional
 
 1. Baseline em `/metrics` (latência bridge REST, relay, `plug_rest_sql_stream_materialize_pulls_total`) antes de mudar env.
 2. Garantir **sem** dupla compressão: `SOCKET_IO_PER_MESSAGE_DEFLATE=false` e, em produção WS-only, `SOCKET_IO_HTTP_COMPRESSION=false`.
 3. Depois de alterar buffers relay/REST, monitorar RSS do processo e rejeições (`503` / overload).
 4. Multi-instância HTTP: presets **não** resolvem partilha de estado — ver secção seguinte e `api_rest_bridge.md`.
+
+## Rollout agressivo (faseado)
+
+Usa este fluxo para aplicar várias melhorias sem perder controle:
+
+1. **Fase 0 (baseline):** recolher snapshot completo (secção *Baseline antes/depois*).
+2. **Fase 1 (baixo risco):** ajustes de documentação operacional + política de canal.
+3. **Fase 2 (código):** mudanças de handshake/sync e validação em testes de integração.
+4. **Fase 3 (tuning):** aplicar presets de throughput ou baixa latência por ambiente.
+5. **Fase 4 (estudo):** avaliar fast-path relay apenas com benchmark-gate.
+
+Critérios de promoção entre fases:
+
+- sem regressão de contrato (`npm run test:contract`);
+- sem regressão funcional em socket/relay;
+- sem aumento persistente de `failed_total`, `requestTimeouts` ou `overload_rejected_total`.
+
+Rollback rápido:
+
+- restaurar `.env` anterior;
+- reverter fase atual (não avançar para próxima sem estabilizar);
+- validar retorno ao baseline nas mesmas métricas da janela de comparação.
+
+## Baseline antes/depois (obrigatorio)
+
+Antes de aplicar tuning ou refactor no bridge, recolhe um baseline de **15-30 minutos**
+com carga representativa. Usa sempre a mesma janela e o mesmo perfil de tráfego para
+comparar antes/depois.
+
+Indicadores minimos para snapshot:
+
+- Throughput e falhas REST: `plug_rest_bridge_requests_total`, `plug_rest_bridge_requests_failed_total`
+- Custo do hot path relay: `plug_socket_relay_frame_decode_avg_ms`, `plug_socket_relay_bridge_encode_avg_ms`, `plug_socket_relay_buffer_drain_avg_ms`
+- Estado da fila outbound relay: `plug_socket_relay_outbound_queue_backlog`, `plug_socket_relay_outbound_queue_job_duration_p95_ms`, `plug_socket_relay_outbound_queue_overload_rejected_total`
+- Saturacao de capacidade: `plug_socket_relay_rest_global_pending_cap_rejected_total`, `plug_socket_relay_rest_agent_queue_full_rejected_total`, `plug_socket_relay_rest_agent_queue_wait_timeout_rejected_total`
+- Custo de auditoria: `plug_socket_audit_writes_attempted_total`, `plug_socket_audit_writes_sample_skipped_total`, `plug_socket_audit_writes_failed_total`
+- Fluxos de stream materializado REST: `plug_rest_sql_stream_materialize_pulls_total`, `plug_rest_sql_stream_materialize_completed_total`, `plug_rest_sql_stream_materialize_rows_merged_sum`
+
+Template recomendado de comparacao:
+
+| Indicador | Baseline | Pos-mudanca | Delta | Observacao |
+| --------- | -------- | ----------- | ----- | ---------- |
+| `relay_outbound_backlog` |  |  |  |  |
+| `relay_job_duration_p95_ms` |  |  |  |  |
+| `relay_bridge_encode_avg_ms` |  |  |  |  |
+| `relay_frame_decode_avg_ms` |  |  |  |  |
+| `rest_bridge_failed_rate` |  |  |  |  |
+| `socket_audit_sample_skipped_rate` |  |  |  |  |
+| `rest_stream_rows_merged_rate` |  |  |  |  |
+
+Regra de rollout:
+
+1. medir baseline;
+2. alterar **um bloco por vez** (handshake, auditoria, limites, etc.);
+3. medir novamente na mesma janela;
+4. manter a mudanca apenas se houver ganho sem aumentar erro/timeouts.
 
 ## Escala horizontal
 
@@ -121,6 +193,13 @@ SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS=180000
 
 - Afinar limites negociados no handshake (`max_rows`, streaming, chunking) e carga SQL no próprio agente; o hub só encaminha.
 - Benchmark E2E com ODBC e `multi_result` (repositório `plug_agente`): visão geral hub ↔ agente em `docs/e2e_benchmark_hub_agent.md`.
+
+## Fast-path relay (estudo)
+
+Existe um estudo técnico para caminho opcional de relay com menos transformação
+no hub, condicionado a benchmark e feature flag:
+
+- `docs/relay_fastpath_study.md`
 
 ## Métricas
 

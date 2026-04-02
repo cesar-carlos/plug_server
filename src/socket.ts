@@ -15,6 +15,7 @@ import {
   cleanupConversationStreamSubscriptions,
   cleanupConsumerStreamSubscriptions,
   cleanupPendingRequestsForAgentSocket,
+  dispatchRpcCommandToAgent,
   getRelayMetricsSnapshot,
   handleAgentBatchAck,
   handleAgentRpcAck,
@@ -56,7 +57,9 @@ import { handleRelayRpcRequest } from "./presentation/socket/consumers/relay_rpc
 import { handleRelayRpcStreamPull } from "./presentation/socket/consumers/relay_rpc_stream_pull.handler";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { env } from "./shared/config/env";
+import { AppError } from "./shared/errors/app_error";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
+import { container } from "./shared/di/container";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
 import { decodePayloadFrame, encodePayloadFrame } from "./shared/utils/payload_frame";
@@ -87,7 +90,7 @@ const serverCapabilities = {
     /** Aligned with plug_agente capabilities example (`hmac-sha256` transport-frame signing). */
     signatureAlgorithms: ["hmac-sha256"],
     streamingResults: true,
-    plugProfile: "plug-jsonrpc-profile/2.5",
+    plugProfile: "plug-jsonrpc-profile/2.6",
     orderedBatchResponses: true,
     notificationNullIdCompatibility: true,
     paginationModes: ["page-offset", "cursor-keyset"],
@@ -140,15 +143,106 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
+const resolveRequiresExplicitProtocolReadyAck = (capabilities: Record<string, unknown>): boolean => {
+  const extensions = isRecord(capabilities.extensions) ? capabilities.extensions : null;
+  return (
+    extensions?.protocolReadyAck === true ||
+    extensions?.protocol_ready_ack === true ||
+    capabilities.protocolReadyAck === true ||
+    capabilities.protocol_ready_ack === true
+  );
+};
+
 const withOptionalRequestId = (
   requestId: string | null | undefined,
 ): { readonly requestId?: string } => {
   return requestId ? { requestId } : {};
 };
 
+const clearAgentProfileSyncState = (agentId: string): void => {
+  const timer = agentProfileSyncTimers.get(agentId);
+  if (timer) {
+    clearTimeout(timer);
+    agentProfileSyncTimers.delete(agentId);
+  }
+  agentProfileSyncAttempts.delete(agentId);
+};
+
+const scheduleAgentProfileSync = (
+  input: {
+    readonly agentId: string;
+    readonly userId: string | null;
+  },
+  delayMs = 1_200,
+): void => {
+  const attempt = (agentProfileSyncAttempts.get(input.agentId) ?? 0) + 1;
+  agentProfileSyncAttempts.set(input.agentId, attempt);
+
+  const existing = agentProfileSyncTimers.get(input.agentId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+
+  const timer = setTimeout(() => {
+    agentProfileSyncTimers.delete(input.agentId);
+    void container.agentProfileSyncService
+      .syncFromConnectedAgent({
+        agentId: input.agentId,
+        ...(input.userId !== null ? { userId: input.userId } : {}),
+        dispatch: dispatchRpcCommandToAgent,
+        timeoutMs: 10_000,
+      })
+      .then(() => {
+        agentProfileSyncAttempts.delete(input.agentId);
+        logger.info("agent_profile_sync_success", {
+          agentId: input.agentId,
+          userId: input.userId,
+          attempt,
+        });
+      })
+      .catch((error: unknown) => {
+        const retryAfterMs =
+          error instanceof AppError &&
+          typeof error.details === "object" &&
+          error.details !== null &&
+          "retry_after_ms" in error.details &&
+          typeof (error.details as { retry_after_ms?: unknown }).retry_after_ms === "number"
+            ? Math.max(0, Math.floor((error.details as { retry_after_ms: number }).retry_after_ms))
+            : 0;
+        const retryableProtocolWindow =
+          error instanceof AppError &&
+          error.code === "SERVICE_UNAVAILABLE" &&
+          typeof error.message === "string" &&
+          (error.message.includes("protocol negotiation is not ready") ||
+            error.message.includes("Agent disconnected while waiting for response"));
+        const shouldRetry = retryableProtocolWindow && attempt < 4;
+        logger.warn("agent_profile_sync_failed", {
+          agentId: input.agentId,
+          userId: input.userId,
+          attempt,
+          message: error instanceof Error ? error.message : String(error),
+          ...(error instanceof AppError ? { code: error.code, statusCode: error.statusCode } : {}),
+          retryAfterMs,
+          shouldRetry,
+        });
+        if (!shouldRetry) {
+          agentProfileSyncAttempts.delete(input.agentId);
+          return;
+        }
+        const nextDelay = retryAfterMs > 0 ? retryAfterMs : Math.min(8_000, 1_000 * attempt);
+        scheduleAgentProfileSync(input, nextDelay);
+      });
+  }, Math.max(0, delayMs));
+
+  timer.unref?.();
+  agentProfileSyncTimers.set(input.agentId, timer);
+};
+
 export let agentsNamespace: ReturnType<Server["of"]> | null = null;
 let activeSocketServer: Server | null = null;
 let conversationSweepTimer: NodeJS.Timeout | null = null;
+const agentProfileSyncTimers = new Map<string, NodeJS.Timeout>();
+const agentProfileSyncAttempts = new Map<string, number>();
 
 const emitServerShutdownNotice = (io: Server, signal: string): void => {
   const payload = {
@@ -198,6 +292,11 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   resetRestBridgeMetrics();
   conversationRegistry.clear();
   agentRegistry.clear();
+  for (const timer of agentProfileSyncTimers.values()) {
+    clearTimeout(timer);
+  }
+  agentProfileSyncTimers.clear();
+  agentProfileSyncAttempts.clear();
   if (activeSocketServer === io) {
     activeSocketServer = null;
   }
@@ -290,7 +389,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       user: socket.data.user ?? null,
     });
 
-    socket.on(socketEvents.agentRegister, (rawPayload: unknown) => {
+    socket.on(socketEvents.agentRegister, async (rawPayload: unknown) => {
       const decoded = decodePayloadFrame(rawPayload);
       if (!decoded.ok) {
         emitAppError(socket, decoded.error.message);
@@ -318,12 +417,25 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
+      const userId = getUserId(socket);
+      if (!userId) {
+        emitAppError(socket, "agent:register requires authenticated user context");
+        return;
+      }
+
+      const bindResult = await container.agentAccessService.bindOwnershipOnRegister(userId, agentId);
+      if (!bindResult.ok) {
+        emitAppError(socket, bindResult.error.message);
+        return;
+      }
+
       socket.data.agentId = agentId;
       socket.data.capabilities = capabilities;
+      const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
       const registration = agentRegistry.upsert({
         agentId,
         socketId: socket.id,
-        userId: getUserId(socket),
+        userId,
         capabilities,
       });
       if (!registration.ok) {
@@ -334,7 +446,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       logSocketLifecycleInfo("Agent registered on hub", {
         socketId: socket.id,
         agentId,
-        userId: getUserId(socket),
+        userId,
       });
 
       socket.emit(
@@ -346,6 +458,13 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           { ...withOptionalRequestId(decoded.value.frame.requestId), omitTraceId: true },
         ),
       );
+
+      if (!requiresExplicitReadyAck) {
+        scheduleAgentProfileSync({
+          agentId,
+          userId,
+        });
+      }
     });
 
     socket.on(socketEvents.agentHeartbeat, (rawPayload: unknown) => {
@@ -400,6 +519,14 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       }
 
       agentRegistry.touch(currentAgentId, { markProtocolReady: true });
+
+      const capabilities = isRecord(socket.data.capabilities) ? socket.data.capabilities : null;
+      if (capabilities && resolveRequiresExplicitProtocolReadyAck(capabilities)) {
+        scheduleAgentProfileSync({
+          agentId: currentAgentId,
+          userId: getUserId(socket),
+        });
+      }
     });
 
     socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: () => void) => {
@@ -438,6 +565,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
       const removedAgent = agentRegistry.removeBySocketId(socket.id);
       if (removedAgent) {
+        clearAgentProfileSyncState(removedAgent.agentId);
         logSocketLifecycleInfo("Agent disconnected from hub", {
           socketId: socket.id,
           agentId: removedAgent.agentId,

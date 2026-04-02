@@ -92,10 +92,6 @@ rate(plug_admin_user_status_set_total[5m])
 # Rate limit no PATCH de estado (por admin)
 rate(plug_rest_http_rate_limit_admin_user_status_rejected_total[5m])
 
-# Self-service lista de agentes (POST /me/agents): taxa por resultado + rejeicoes do rate limit
-rate(plug_user_agents_self_bind_post_total[5m])
-rate(plug_rest_http_rate_limit_me_agents_post_rejected_total[5m])
-
 # Alertas (exemplos): muitas tentativas de login bloqueadas (possivel abuso ou lista de contas)
 rate(plug_auth_login_blocked_total[5m]) > 0.5
 ```
@@ -103,6 +99,23 @@ rate(plug_auth_login_blocked_total[5m]) > 0.5
 Regras de transicao e API: `docs/user_status.md`.
 
 Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos contadores expostos (podem evoluir com o CHANGELOG).
+
+## Snapshot minimo para tuning hub ↔ agente
+
+Quando fizer tuning no bridge/relay, recolha estes pontos no mesmo intervalo
+antes e depois da mudanca:
+
+- `plug_socket_relay_outbound_queue_backlog`
+- `plug_socket_relay_outbound_queue_job_duration_p95_ms`
+- `plug_socket_relay_bridge_encode_avg_ms`
+- `plug_socket_relay_frame_decode_avg_ms`
+- `plug_rest_bridge_requests_total` e `plug_rest_bridge_requests_failed_total`
+- `plug_socket_relay_rest_global_pending_cap_rejected_total`
+- `plug_socket_audit_writes_attempted_total` e `plug_socket_audit_writes_sample_skipped_total`
+- `plug_rest_sql_stream_materialize_completed_total`
+
+Isto cobre capacidade, custo de CPU no caminho quente, impacto de auditoria e
+degradacao funcional (falhas/rejeicoes).
 
 ## Tabela PostgreSQL `bridge_latency_traces` (latencia por fase)
 

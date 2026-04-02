@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -8,8 +9,11 @@ import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
+import { getTestRepositoryAccess } from "../../src/shared/di/container";
+import { User } from "../../src/domain/entities/user.entity";
 
 const testAgentId = "5b9ae809-4e2f-454f-8967-f0b535d5e8f5";
+const repositories = getTestRepositoryAccess();
 const makeLargeText = (length: number): string => {
   const alphabet =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_!@#$%^&*()+=[]{}";
@@ -97,10 +101,41 @@ const registerAgentAndWaitReady = async (
   }
 };
 
+const createAdminAccessToken = async (baseUrl: string): Promise<string> => {
+  const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const email = `socket-admin-${unique}@test.com`;
+  const password = "SocketAdmin1";
+  const registerRes = await request(baseUrl).post("/api/v1/auth/register").send({ email, password });
+  expect(registerRes.status).toBe(201);
+  await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
+  const userId = registerRes.body.user.id as string;
+  const currentUser = await repositories.user.findById(userId);
+  expect(currentUser).not.toBeNull();
+  await repositories.user.save(
+    User.create({
+      id: userId,
+      email,
+      passwordHash: currentUser!.passwordHash,
+      role: "admin",
+      status: "active",
+      createdAt: currentUser!.createdAt,
+      ...(currentUser!.celular !== undefined ? { celular: currentUser!.celular } : {}),
+    }),
+  );
+  const loginRes = await request(baseUrl).post("/api/v1/auth/login").send({
+    email,
+    password,
+  });
+  expect(loginRes.status).toBe(200);
+  return loginRes.body.accessToken as string;
+};
+
 describe("Socket namespaces", () => {
   let server: Awaited<ReturnType<typeof createTestServer>>;
   let baseUrl: string;
   let accessToken: string;
+  let clientAccessToken: string;
+  let clientId: string;
   let agentAccessToken: string;
 
   beforeAll(async () => {
@@ -128,6 +163,19 @@ describe("Socket namespaces", () => {
       cnpjCpf: `socket-test-${userId.slice(0, 8)}`,
     });
     await seedAgentBinding(userId, testAgentId);
+
+    const clientRegisterRes = await request(baseUrl)
+      .post("/api/v1/client-auth/register")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        email: "socket-client@test.com",
+        password: "SocketClient1",
+        name: "Socket",
+        lastName: "Client",
+      });
+    expect(clientRegisterRes.status).toBe(201);
+    clientId = clientRegisterRes.body.client.id as string;
+    clientAccessToken = clientRegisterRes.body.accessToken as string;
 
     const agentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
       email: "socket@test.com",
@@ -180,6 +228,149 @@ describe("Socket namespaces", () => {
       expect(response.success).toBe(false);
       expect(response.error?.code).toBeDefined();
       socket.disconnect();
+    });
+
+    it("should deny client agents:command when client has no approved access", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+      const socket = await connectConsumer(baseUrl, clientAccessToken);
+
+      const response = await new Promise<{
+        success: boolean;
+        error?: { code?: string; statusCode?: number };
+      }>((resolve) => {
+        socket.on("agents:command_response", resolve);
+        socket.emit("agents:command", {
+          agentId: testAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: "client-denied-1",
+            params: { sql: "SELECT 1", client_token: "client-test-token" },
+          },
+        });
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.error?.code).toBe("AGENT_ACCESS_DENIED");
+      expect(response.error?.statusCode).toBe(403);
+      socket.disconnect();
+    });
+
+    it("should allow relay conversation for client when access is approved", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+      await repositories.clientAgentAccess.addAccess(clientId, testAgentId, new Date());
+      const clientSocket = await connectConsumer(baseUrl, clientAccessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
+
+        const startedPromise = waitForEvent<{
+          success: boolean;
+          conversationId?: string;
+          agentId?: string;
+          error?: { code?: string };
+        }>(clientSocket, "relay:conversation.started");
+
+        clientSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+        expect(started.conversationId).toBeDefined();
+        expect(started.agentId).toBe(testAgentId);
+      } finally {
+        clientSocket.disconnect();
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should allow relay conversation for admin without explicit ownership link", async () => {
+      if (!env.socketConsumerRoles.includes("admin")) {
+        return;
+      }
+      const adminAccessToken = await createAdminAccessToken(baseUrl);
+      const adminSocket = await connectConsumer(baseUrl, adminAccessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
+
+        const startedPromise = waitForEvent<{
+          success: boolean;
+          conversationId?: string;
+          agentId?: string;
+          error?: { code?: string };
+        }>(adminSocket, "relay:conversation.started");
+        adminSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+        expect(started.agentId).toBe(testAgentId);
+      } finally {
+        adminSocket.disconnect();
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should deny new relay rpc requests after client access is revoked", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+      await repositories.clientAgentAccess.addAccess(clientId, testAgentId, new Date());
+      const clientSocket = await connectConsumer(baseUrl, clientAccessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
+
+        const startedPromise = waitForEvent<{
+          success: boolean;
+          conversationId?: string;
+        }>(clientSocket, "relay:conversation.started");
+        clientSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+        expect(started.conversationId).toBeDefined();
+
+        await repositories.clientAgentAccess.removeAccess(clientId, testAgentId);
+
+        const accepted = await new Promise<{
+          success: boolean;
+          error?: { code?: string; statusCode?: number };
+        }>((resolve) => {
+          clientSocket.once("relay:rpc.accepted", resolve);
+          clientSocket.emit("relay:rpc.request", {
+            conversationId: started.conversationId,
+            frame: encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: "revoked-client-request",
+              method: "sql.execute",
+              params: { sql: "SELECT 1", client_token: "revoked-test-token" },
+            }),
+          });
+        });
+
+        expect(accepted.success).toBe(false);
+        expect(accepted.error?.code).toBe("AGENT_ACCESS_DENIED");
+        expect(accepted.error?.statusCode).toBe(403);
+      } finally {
+        clientSocket.disconnect();
+        agentSocket.disconnect();
+      }
     });
 
     it("should respond to agents:command with agent not found for non-existent agent", async () => {
@@ -1382,6 +1573,192 @@ describe("Socket namespaces", () => {
   });
 
   describe("/agents namespace", () => {
+    it("should create catalog row, sync profile and lastLoginUserId on first agent connect", async () => {
+      const freshAgentId = randomUUID();
+      const freshAgentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+        email: "socket@test.com",
+        password: "SocketTest1",
+        agentId: freshAgentId,
+      });
+      expect(freshAgentLoginRes.status).toBe(200);
+
+      const agentSocket = await connectAgent(baseUrl, freshAgentLoginRes.body.accessToken as string);
+      try {
+        const syncHandled = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("Timed out waiting for profile sync RPC")), 6_000);
+          agentSocket.on("rpc:request", (rawPayload: unknown) => {
+            const decoded = decodePayloadFrame(rawPayload);
+            if (!decoded.ok || !isRecord(decoded.value.data)) {
+              clearTimeout(timeout);
+              reject(new Error("Invalid sync rpc:request payload"));
+              return;
+            }
+            if (decoded.value.data.method !== "agent.getProfile") {
+              return;
+            }
+
+            const rpcId = toRequestId(decoded.value.data.id);
+            if (!rpcId) {
+              clearTimeout(timeout);
+              reject(new Error("Expected JSON-RPC id on agent.getProfile"));
+              return;
+            }
+
+            agentSocket.emit(
+              "rpc:response",
+              encodePayloadFrame({
+                jsonrpc: "2.0",
+                id: rpcId,
+                result: {
+                  agent_id: freshAgentId,
+                  profile: {
+                    name: "Socket Synced Agent",
+                    trade_name: "Socket Store",
+                    document: "11222333000181",
+                    document_type: "cnpj",
+                    mobile: "11999999999",
+                    email: "socket-sync@plug.local",
+                    address: {
+                      street: "Rua Socket",
+                      number: "10",
+                      district: "Centro",
+                      postal_code: "01001000",
+                      city: "Sao Paulo",
+                      state: "SP",
+                    },
+                    notes: "profile synced",
+                  },
+                  updated_at: new Date().toISOString(),
+                },
+              }),
+            );
+
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+
+        await registerAgentAndWaitReady(
+          agentSocket,
+          {
+            protocols: ["jsonrpc-v2"],
+            encodings: ["json"],
+            compressions: ["none"],
+          },
+          freshAgentId,
+        );
+        await syncHandled;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        const catalogRes = await request(baseUrl)
+          .get(`/api/v1/agents/catalog/${freshAgentId}`)
+          .set("Authorization", `Bearer ${accessToken}`);
+        expect(catalogRes.status).toBe(200);
+        expect(catalogRes.body.agent.agentId).toBe(freshAgentId);
+        expect(catalogRes.body.agent.tradeName).toBe("Socket Store");
+        expect(catalogRes.body.agent.document).toBe("11222333000181");
+        expect(catalogRes.body.agent.lastLoginUserId).toBeDefined();
+      } finally {
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should defer profile sync until agent:ready when protocolReadyAck is explicit", async () => {
+      const explicitReadyAgentId = randomUUID();
+      const explicitReadyLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+        email: "socket@test.com",
+        password: "SocketTest1",
+        agentId: explicitReadyAgentId,
+      });
+      expect(explicitReadyLoginRes.status).toBe(200);
+
+      const agentSocket = await connectAgent(
+        baseUrl,
+        explicitReadyLoginRes.body.accessToken as string,
+      );
+      try {
+        let profileRequestBeforeReady = false;
+        let readySent = false;
+        const profileSyncHandled = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("Timed out waiting for deferred profile sync RPC")),
+            8_000,
+          );
+          agentSocket.on("rpc:request", (rawPayload: unknown) => {
+            const decoded = decodePayloadFrame(rawPayload);
+            if (!decoded.ok || !isRecord(decoded.value.data)) {
+              clearTimeout(timeout);
+              reject(new Error("Invalid deferred sync rpc:request payload"));
+              return;
+            }
+            if (decoded.value.data.method !== "agent.getProfile") {
+              return;
+            }
+            if (!readySent) {
+              profileRequestBeforeReady = true;
+            }
+
+            const rpcId = toRequestId(decoded.value.data.id);
+            if (!rpcId) {
+              clearTimeout(timeout);
+              reject(new Error("Expected JSON-RPC id on deferred agent.getProfile"));
+              return;
+            }
+
+            agentSocket.emit(
+              "rpc:response",
+              encodePayloadFrame({
+                jsonrpc: "2.0",
+                id: rpcId,
+                result: {
+                  agent_id: explicitReadyAgentId,
+                  profile: {
+                    name: "Deferred Sync Agent",
+                  },
+                  updated_at: new Date().toISOString(),
+                },
+              }),
+            );
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+
+        const capabilitiesPromise = waitForEvent<unknown>(agentSocket, "agent:capabilities");
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: explicitReadyAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+              extensions: {
+                protocolReadyAck: true,
+              },
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+        await capabilitiesPromise;
+        await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 1_500));
+        expect(profileRequestBeforeReady).toBe(false);
+
+        readySent = true;
+        agentSocket.emit(
+          "agent:ready",
+          encodePayloadFrame({
+            agent_id: explicitReadyAgentId,
+            protocol: "jsonrpc-v2",
+            timestamp: new Date().toISOString(),
+          }),
+        );
+        await profileSyncHandled;
+      } finally {
+        agentSocket.disconnect();
+      }
+    });
+
     it("should reject user token (role user) from /agents", async () => {
       await expect(
         new Promise<void>((resolve, reject) => {

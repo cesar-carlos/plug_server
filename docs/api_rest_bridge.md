@@ -20,6 +20,18 @@ para o agente, aguarda a resposta e devolve ao cliente HTTP.
 - O cliente pode usar **apenas REST** (sem abrir Socket de consumer), **apenas Socket**, ou **misturar** (ex.: login e `GET /agents` por HTTP e comandos por Socket).
 - **Streaming**: no REST, o hub **nao** envia chunks progressivos ao cliente HTTP; quando o agente devolve `stream_id`, o servidor **materializa** o stream por dentro e responde com **um** JSON final. Para chunks em tempo real e `stream_pull`, usar o canal Socket (legado ou relay). Ver `docs/PROJECT_OVERVIEW.md` e `docs/performance_hub_agent.md`.
 
+#### Matriz de decisao de canal (operacao)
+
+| Cenario | Canal recomendado | Motivo |
+| ------- | ----------------- | ------ |
+| Consulta curta/ocasional, cliente sem Socket | REST `POST /agents/commands` | Integracao simples, custo operacional menor |
+| Resultado grande (`stream_id`) e baixa latencia | `relay:rpc.request` | Evita materializacao REST e reduz RAM no hub |
+| Necessidade de progresso em tempo real | `relay:*` ou `agents:*` | Chunks e `stream_pull` no consumer |
+| Carga alta e continua por consumer | `relay:*` | Melhor controle de backpressure e isolamento por conversa |
+
+Regra pratica: se o mesmo fluxo gera streams grandes repetidamente, migre para
+Socket/relay em vez de aumentar apenas limites de materializacao no REST.
+
 Alternativa em tempo real: consumers podem conectar ao namespace `/consumers`
 e emitir `agents:command` com o mesmo payload. A resposta inicial chega em
 `agents:command_response`. Quando a execucao entra em streaming, os chunks
@@ -40,6 +52,18 @@ No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
 (por exemplo, `io("/agents")`). Conexoes no namespace padrao `/` sao rejeitadas com
 `app:error` (code `NAMESPACE_DEPRECATED`) e desconectadas. O token deve ter `role` em `SOCKET_AGENT_ROLES`
 (default: `agent`). Consumers usam `role` em `SOCKET_CONSUMER_ROLES` (default: `user`, `admin`).
+
+### Ownership automatica do agente
+
+- `POST /api/v1/auth/agent-login` autentica a sessao do agente, mas nao cria ownership sozinho
+- o ownership oficial do `Agent` nasce quando o agente conclui `agent:register`
+- o sync de cadastro via `agent.getProfile` ocorre no momento de prontidao:
+  - sem `extensions.protocolReadyAck`: logo apos `agent:register` (com grace window)
+  - com `extensions.protocolReadyAck=true`: apenas apos `agent:ready`
+- `lastLoginUserId` e apenas atributo operacional e nao substitui `AgentIdentity`
+
+As regras de negocio completas de ownership, `ClientAgentAccess`, aprovacao por owner e rotas
+de consulta do `Client` vivem em `docs/client_agent_business_rules.md`.
 
 ### Periodo de compatibilidade: SOCKET_AGENT_ROLES=agent,user
 
@@ -63,7 +87,7 @@ aceitar tanto tokens com `role: agent` quanto `role: user` no namespace `/agents
 **Apos a migracao:** Remova `user` de `SOCKET_AGENT_ROLES` e mantenha apenas `agent`.
 
 Para o passo a passo completo da migracao no plug_agente (conexao, login, refresh e
-agent:register), consulte `docs/migracao_plug_agente_namespaces.md`.
+`agent:register`), consulte `docs/migracao_plug_agente_namespaces.md`.
 
 ## Fluxo resumido
 
@@ -77,15 +101,17 @@ Consumer (HTTP) <- plug_server (REST) <- plug_server (Socket bridge) <-
 2. Middleware `requireAuth` valida JWT do consumer.
 3. Middleware `validateRequest` valida o body com `agentCommandBodySchema`.
 4. Controller aplica paginacao em `command.params.options` quando presente.
-5. Bridge localiza o agente no registry, gera ou reutiliza `requestId`,
+5. O agente ja deve ter concluido `agent:register`, que tambem e o ponto em que o
+   ownership oficial do agente e confirmado no servidor.
+6. Bridge localiza o agente no registry, gera ou reutiliza `requestId`,
    empacota o comando em `PayloadFrame` e emite `rpc:request`.
    Antes do primeiro dispatch, o hub aplica uma curta janela de estabilizacao
    apos `agent:register` (`SOCKET_AGENT_PROTOCOL_READY_GRACE_MS`) e pode liberar
    mais cedo ao receber `agent:heartbeat`; agentes que anunciam
    `extensions.protocolReadyAck` podem liberar o dispatch de forma explicita com
    `agent:ready`, reduzindo corrida com `protocol_not_ready` no `plug_agente`.
-6. Bridge aguarda `rpc:response` (timeout efetivo: veja `timeoutMs` abaixo).
-7. Se for `sql.execute` **unico** pelo REST e a resposta trouxer `stream_id`, o hub concede
+7. Bridge aguarda `rpc:response` (timeout efetivo: veja `timeoutMs` abaixo).
+8. Se for `sql.execute` **unico** pelo REST e a resposta trouxer `stream_id`, o hub concede
    creditos de entrega como no relay: um `rpc:stream.pull` inicial com
    `window_size` baseado em `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` e opcionalmente
    **clampado** por capabilities do agente (`recommendedStreamPullWindowSize` /
@@ -102,8 +128,8 @@ Consumer (HTTP) <- plug_server (REST) <- plug_server (Socket bridge) <-
    `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` (`0` = sem limite de frames `rpc:chunk`).
    Se o agregado exceder o limite, o hub responde **`503`** de imediato, incrementa métricas
    `plug_rest_sql_stream_materialize_*_limit_exceeded_total` e recomenda o canal **Socket** para streams grandes.
-8. Serializer normaliza a resposta JSON-RPC para formato HTTP.
-9. Controller retorna `200` com a resposta normalizada.
+9. Serializer normaliza a resposta JSON-RPC para formato HTTP.
+10. Controller retorna `200` com a resposta normalizada.
 
 ## Autenticacao
 
