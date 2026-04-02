@@ -9,9 +9,11 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import { agentRegistry } from "../hub/agent_registry";
 import { conversationRegistry } from "../hub/conversation_registry";
-import { container } from "../../../shared/di/container";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
-import type { AgentAccessPrincipal } from "../../../application/services/agent_access.service";
+import {
+  assertConsumerSocketAgentAccess,
+  resolveSocketActorRole,
+} from "./consumer_socket_guard";
 
 const conversationStartPayloadSchema = z.object({
   agentId: nonEmptyStringSchema,
@@ -36,20 +38,6 @@ const emitConversationStarted = (
 
 const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_ERROR"): void => {
   socket.emit(socketEvents.appError, { message, code });
-};
-
-const resolveRole = (user: JwtAccessPayload | undefined): string | null =>
-  typeof user?.role === "string" && user.role.trim() !== "" ? user.role : null;
-
-const resolveAgentAccessPrincipal = (
-  user: JwtAccessPayload | undefined,
-): AgentAccessPrincipal | null => {
-  if (typeof user?.sub !== "string" || user.sub.trim() === "") {
-    return null;
-  }
-  return user.principal_type === "client"
-    ? { type: "client", id: user.sub }
-    : { type: "user", id: user.sub, ...(user.role !== undefined ? { role: user.role } : {}) };
 };
 
 export const handleRelayConversationStart = async (
@@ -79,18 +67,7 @@ export const handleRelayConversationStart = async (
       throw conflict("Consumer reached max active relay conversations");
     }
 
-    const principal = resolveAgentAccessPrincipal(socket.data.user);
-    if (!principal) {
-      throw serviceUnavailable("Authenticated user context is missing");
-    }
-
-    const accessResult = await container.agentAccessService.assertPrincipalAccess(
-      principal,
-      parsed.data.agentId,
-    );
-    if (!accessResult.ok) {
-      throw accessResult.error;
-    }
+    await assertConsumerSocketAgentAccess(socket.data.user, parsed.data.agentId);
 
     const registeredAgent = agentRegistry.findByAgentId(parsed.data.agentId);
     if (!registeredAgent) {
@@ -115,7 +92,7 @@ export const handleRelayConversationStart = async (
       createdAt: conversation.createdAt,
     });
 
-    const actorRole = resolveRole(socket.data.user);
+    const actorRole = resolveSocketActorRole(socket.data.user);
     void recordSocketAuditEvent({
       eventType: socketEvents.relayConversationStart,
       actorSocketId: socket.id,

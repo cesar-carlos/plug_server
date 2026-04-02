@@ -8,6 +8,11 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { allowRelayStreamPull } from "../hub/consumer_relay_rate_limiter";
+import { conversationRegistry } from "../hub/conversation_registry";
+import {
+  assertConsumerSocketAgentAccess,
+  resolveSocketActorRole,
+} from "./consumer_socket_guard";
 
 const relayStreamPullEnvelopeSchema = z.object({
   conversationId: nonEmptyStringSchema,
@@ -44,9 +49,6 @@ const emitRelayStreamPullResponse = (
   socket.emit(socketEvents.relayRpcStreamPullResponse, payload);
 };
 
-const resolveRole = (user: JwtAccessPayload | undefined): string | null =>
-  typeof user?.role === "string" && user.role.trim() !== "" ? user.role : null;
-
 export const handleRelayRpcStreamPull = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
@@ -66,6 +68,13 @@ export const handleRelayRpcStreamPull = (
 
   void (async () => {
     try {
+      const conversation = conversationRegistry.findInternalByConversationId(parsed.data.conversationId);
+      if (!conversation || conversation.consumerSocketId !== socket.id) {
+        throw new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 });
+      }
+
+      await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId);
+
       const result = await requestRelayStreamPull({
         consumerSocketId: socket.id,
         conversationId: parsed.data.conversationId,
@@ -104,7 +113,7 @@ export const handleRelayRpcStreamPull = (
         },
       });
 
-      const actorRole = resolveRole(socket.data.user);
+      const actorRole = resolveSocketActorRole(socket.data.user);
       void recordSocketAuditEvent({
         eventType: socketEvents.relayRpcStreamPull,
         actorSocketId: socket.id,

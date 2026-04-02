@@ -10,8 +10,10 @@ import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { conversationRegistry } from "../hub/conversation_registry";
-import type { AgentAccessPrincipal } from "../../../application/services/agent_access.service";
-import { container } from "../../../shared/di/container";
+import {
+  assertConsumerSocketAgentAccess,
+  resolveSocketActorRole,
+} from "./consumer_socket_guard";
 
 const relayRpcEnvelopeSchema = z.object({
   conversationId: nonEmptyStringSchema,
@@ -32,20 +34,6 @@ type RelayRpcAcceptedPayload =
 
 const emitRelayRpcAccepted = (socket: Socket, payload: RelayRpcAcceptedPayload): void => {
   socket.emit(socketEvents.relayRpcAccepted, payload);
-};
-
-const resolveRole = (user: JwtAccessPayload | undefined): string | null =>
-  typeof user?.role === "string" && user.role.trim() !== "" ? user.role : null;
-
-const resolveAgentAccessPrincipal = (
-  user: JwtAccessPayload | undefined,
-): AgentAccessPrincipal | null => {
-  if (typeof user?.sub !== "string" || user.sub.trim() === "") {
-    return null;
-  }
-  return user.principal_type === "client"
-    ? { type: "client", id: user.sub }
-    : { type: "user", id: user.sub, ...(user.role !== undefined ? { role: user.role } : {}) };
 };
 
 export const handleRelayRpcRequest = (
@@ -73,21 +61,12 @@ export const handleRelayRpcRequest = (
 
   void (async () => {
     try {
-      const principal = resolveAgentAccessPrincipal(socket.data.user);
-      if (!principal) {
-        throw new AppError("Authentication required", { code: "UNAUTHORIZED", statusCode: 401 });
-      }
       const conversation = conversationRegistry.findInternalByConversationId(parsed.data.conversationId);
       if (!conversation || conversation.consumerSocketId !== socket.id) {
         throw new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 });
       }
-      const accessResult = await container.agentAccessService.assertPrincipalAccess(
-        principal,
-        conversation.agentId,
-      );
-      if (!accessResult.ok) {
-        throw accessResult.error;
-      }
+
+      await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId);
 
       const result = await dispatchRelayRpcToAgent({
         conversationId: parsed.data.conversationId,
@@ -108,7 +87,7 @@ export const handleRelayRpcRequest = (
         ...(result.replayed ? { replayed: true } : {}),
       });
 
-      const actorRole = resolveRole(socket.data.user);
+      const actorRole = resolveSocketActorRole(socket.data.user);
       void recordSocketAuditEvent({
         eventType: socketEvents.relayRpcRequest,
         actorSocketId: socket.id,

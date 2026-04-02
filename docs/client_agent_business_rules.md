@@ -219,16 +219,20 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 
 - namespace `/consumers` aceita roles configuradas em `SOCKET_CONSUMER_ROLES`
 - principal autenticado e resolvido pelo JWT
-- `agents:command` e `relay:conversation.start` autorizam por principal:
+- a autenticacao inicial acontece no handshake, mas conta ativa e autorizacao efetiva tambem sao revalidadas por evento nas operacoes sensiveis do namespace `/consumers`
+- `agents:command`, `relay:conversation.start`, `relay:rpc.request`, `agents:stream_pull` e `relay:rpc.stream.pull` autorizam por principal:
   - `user` -> `AgentIdentity`
   - `client` -> `ClientAgentAccess`
 - `admin` pode iniciar operacao em qualquer agente ativo
+- se a conta do `User` ou do `Client` for bloqueada depois da conexao socket, novas operacoes sensiveis devem falhar imediatamente com erro de autorizacao; permanecer conectado nao preserva permissao operacional
 - apos revogacao de `ClientAgentAccess`, novas chamadas `relay:rpc.request` na conversa existente voltam a validar acesso e devem falhar com `AGENT_ACCESS_DENIED`; a conversa pode permanecer aberta ate encerramento explicito/timeout
+- apos revogacao de `ClientAgentAccess`, novas chamadas `agents:stream_pull` e `relay:rpc.stream.pull` tambem devem falhar com `AGENT_ACCESS_DENIED`
 
 ## 5) Regras de validacao e estado
 
 - `agentId` precisa existir para pedido de acesso
-- conta `Client` bloqueada nao pode autenticar/operar
+- conta `Client` bloqueada nao pode autenticar/operar por HTTP nem por socket
+- conta `User` bloqueada nao pode autenticar/operar por HTTP nem por socket
 - conta owner (`User`) bloqueada nao pode ser usada para novos cadastros de `Client`
 - pedido pode estar em: `pending`, `approved`, `rejected`, `expired`
 - acesso efetivo para executar comando existe apenas com registro em `ClientAgentAccess`

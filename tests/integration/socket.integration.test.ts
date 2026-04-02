@@ -10,6 +10,7 @@ import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/p
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
 import { getTestRepositoryAccess } from "../../src/shared/di/container";
+import { Client } from "../../src/domain/entities/client.entity";
 import { User } from "../../src/domain/entities/user.entity";
 
 const testAgentId = "5b9ae809-4e2f-454f-8967-f0b535d5e8f5";
@@ -128,6 +129,83 @@ const createAdminAccessToken = async (baseUrl: string): Promise<string> => {
   });
   expect(loginRes.status).toBe(200);
   return loginRes.body.accessToken as string;
+};
+
+const createUserAccessToken = async (baseUrl: string): Promise<{ userId: string; accessToken: string }> => {
+  const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const email = `socket-user-${unique}@test.com`;
+  const password = "SocketUser1";
+  const registerRes = await request(baseUrl).post("/api/v1/auth/register").send({ email, password });
+  expect(registerRes.status).toBe(201);
+  await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
+
+  const loginRes = await request(baseUrl).post("/api/v1/auth/login").send({
+    email,
+    password,
+  });
+  expect(loginRes.status).toBe(200);
+
+  return {
+    userId: registerRes.body.user.id as string,
+    accessToken: loginRes.body.accessToken as string,
+  };
+};
+
+const createClientAccessToken = async (
+  baseUrl: string,
+  ownerAccessToken: string,
+): Promise<{ clientId: string; accessToken: string }> => {
+  const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const response = await request(baseUrl)
+    .post("/api/v1/client-auth/register")
+    .set("Authorization", `Bearer ${ownerAccessToken}`)
+    .send({
+      email: `socket-client-${unique}@test.com`,
+      password: "SocketClient1",
+      name: "Socket",
+      lastName: "Client",
+    });
+  expect(response.status).toBe(201);
+
+  return {
+    clientId: response.body.client.id as string,
+    accessToken: response.body.accessToken as string,
+  };
+};
+
+const setUserStatus = async (userId: string, status: "active" | "blocked"): Promise<void> => {
+  const currentUser = await repositories.user.findById(userId);
+  expect(currentUser).not.toBeNull();
+  await repositories.user.save(
+    User.create({
+      id: userId,
+      email: currentUser!.email,
+      passwordHash: currentUser!.passwordHash,
+      role: currentUser!.role,
+      status,
+      createdAt: currentUser!.createdAt,
+      ...(currentUser!.celular !== undefined ? { celular: currentUser!.celular } : {}),
+    }),
+  );
+};
+
+const setClientStatus = async (clientId: string, status: "active" | "blocked"): Promise<void> => {
+  const currentClient = await repositories.client.findById(clientId);
+  expect(currentClient).not.toBeNull();
+  await repositories.client.save(
+    new Client({
+      id: currentClient!.id,
+      userId: currentClient!.userId,
+      email: currentClient!.email,
+      passwordHash: currentClient!.passwordHash,
+      name: currentClient!.name,
+      lastName: currentClient!.lastName,
+      ...(currentClient!.mobile !== undefined ? { mobile: currentClient!.mobile } : {}),
+      status,
+      createdAt: currentClient!.createdAt,
+      updatedAt: new Date(),
+    }),
+  );
 };
 
 describe("Socket namespaces", () => {
@@ -367,6 +445,322 @@ describe("Socket namespaces", () => {
         expect(accepted.success).toBe(false);
         expect(accepted.error?.code).toBe("AGENT_ACCESS_DENIED");
         expect(accepted.error?.statusCode).toBe(403);
+      } finally {
+        clientSocket.disconnect();
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should deny agents:command after user is blocked post-connect", async () => {
+      const user = await createUserAccessToken(baseUrl);
+      const blockedAgentId = randomUUID();
+      await seedAgent({
+        agentId: blockedAgentId,
+        name: "Blocked Command Agent",
+        cnpjCpf: `blocked-cmd-${blockedAgentId.slice(0, 8)}`,
+      });
+      await seedAgentBinding(user.userId, blockedAgentId);
+      const socket = await connectConsumer(baseUrl, user.accessToken);
+
+      try {
+        await setUserStatus(user.userId, "blocked");
+
+        const response = await new Promise<{
+          success: boolean;
+          error?: { code?: string; message?: string; statusCode?: number };
+        }>((resolve) => {
+          socket.once("agents:command_response", resolve);
+          socket.emit("agents:command", {
+            agentId: blockedAgentId,
+            command: {
+              jsonrpc: "2.0",
+              method: "sql.execute",
+              id: "blocked-user-command",
+              params: { sql: "SELECT 1" },
+            },
+          });
+        });
+
+        expect(response.success).toBe(false);
+        expect(response.error?.code).toBe("FORBIDDEN");
+        expect(response.error?.statusCode).toBe(403);
+        expect(response.error?.message).toContain("blocked");
+      } finally {
+        socket.disconnect();
+      }
+    });
+
+    it("should deny relay conversation start after user is blocked post-connect", async () => {
+      const user = await createUserAccessToken(baseUrl);
+      const blockedAgentId = randomUUID();
+      await seedAgent({
+        agentId: blockedAgentId,
+        name: "Blocked Relay Agent",
+        cnpjCpf: `blocked-relay-${blockedAgentId.slice(0, 8)}`,
+      });
+      await seedAgentBinding(user.userId, blockedAgentId);
+      const socket = await connectConsumer(baseUrl, user.accessToken);
+
+      try {
+        await setUserStatus(user.userId, "blocked");
+
+        const response = await new Promise<{
+          success: boolean;
+          error?: { code?: string; message?: string; statusCode?: number };
+        }>((resolve) => {
+          socket.once("relay:conversation.started", resolve);
+          socket.emit("relay:conversation.start", { agentId: blockedAgentId });
+        });
+
+        expect(response.success).toBe(false);
+        expect(response.error?.code).toBe("FORBIDDEN");
+        expect(response.error?.statusCode).toBe(403);
+        expect(response.error?.message).toContain("blocked");
+      } finally {
+        socket.disconnect();
+      }
+    });
+
+    it("should deny relay rpc requests after client is blocked during an active conversation", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+
+      const client = await createClientAccessToken(baseUrl, accessToken);
+      await repositories.clientAgentAccess.addAccess(client.clientId, testAgentId, new Date());
+      const clientSocket = await connectConsumer(baseUrl, client.accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
+
+        const startedPromise = waitForEvent<{
+          success: boolean;
+          conversationId?: string;
+        }>(clientSocket, "relay:conversation.started");
+        clientSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+        expect(started.conversationId).toBeDefined();
+
+        await setClientStatus(client.clientId, "blocked");
+
+        const accepted = await new Promise<{
+          success: boolean;
+          error?: { code?: string; message?: string; statusCode?: number };
+        }>((resolve) => {
+          clientSocket.once("relay:rpc.accepted", resolve);
+          clientSocket.emit("relay:rpc.request", {
+            conversationId: started.conversationId,
+            frame: encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: "blocked-client-request",
+              method: "sql.execute",
+              params: { sql: "SELECT 1", client_token: "blocked-client-token" },
+            }),
+          });
+        });
+
+        expect(accepted.success).toBe(false);
+        expect(accepted.error?.code).toBe("FORBIDDEN");
+        expect(accepted.error?.statusCode).toBe(403);
+        expect(accepted.error?.message).toContain("blocked");
+      } finally {
+        clientSocket.disconnect();
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should deny agents:stream_pull after client access is revoked", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+
+      const client = await createClientAccessToken(baseUrl, accessToken);
+      await repositories.clientAgentAccess.addAccess(client.clientId, testAgentId, new Date());
+      const clientSocket = await connectConsumer(baseUrl, client.accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
+
+        const commandResponsePromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          streamId?: string;
+        }>(clientSocket, "agents:command_response");
+
+        agentSocket.once("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: {
+                stream_id: `stream-${requestId}`,
+                row_count: 0,
+              },
+            }),
+          );
+        });
+
+        clientSocket.emit("agents:command", {
+          agentId: testAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: "legacy-stream-revoke-1",
+            params: {
+              sql: "SELECT 1",
+              client_token: "legacy-stream-revoke-token",
+            },
+          },
+        });
+
+        const commandResponse = await commandResponsePromise;
+        expect(commandResponse.success).toBe(true);
+        expect(commandResponse.requestId).toBeDefined();
+
+        await repositories.clientAgentAccess.removeAccess(client.clientId, testAgentId);
+
+        const pullResponse = await new Promise<{
+          success: boolean;
+          error?: { code?: string; statusCode?: number };
+        }>((resolve) => {
+          clientSocket.once("agents:stream_pull_response", resolve);
+          clientSocket.emit("agents:stream_pull", {
+            requestId: commandResponse.requestId,
+            windowSize: 1,
+          });
+        });
+
+        expect(pullResponse.success).toBe(false);
+        expect(pullResponse.error?.code).toBe("AGENT_ACCESS_DENIED");
+        expect(pullResponse.error?.statusCode).toBe(403);
+      } finally {
+        clientSocket.disconnect();
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should deny relay stream pull after client access is revoked", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+
+      const client = await createClientAccessToken(baseUrl, accessToken);
+      await repositories.clientAgentAccess.addAccess(client.clientId, testAgentId, new Date());
+      const clientSocket = await connectConsumer(baseUrl, client.accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+          extensions: {
+            streamingResults: true,
+          },
+        });
+
+        const startedPromise = waitForEvent<{ success: boolean; conversationId?: string }>(
+          clientSocket,
+          "relay:conversation.started",
+        );
+        clientSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+        expect(started.conversationId).toBeDefined();
+
+        let acceptedRequestId = "";
+        agentSocket.once("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (!requestId) {
+            return;
+          }
+          acceptedRequestId = requestId;
+
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: {
+                stream_id: `relay-stream-${requestId}`,
+              },
+            }),
+          );
+        });
+
+        const acceptedPromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+        }>(clientSocket, "relay:rpc.accepted");
+        const responsePromise = waitForEvent<unknown>(clientSocket, "relay:rpc.response", 8_000);
+
+        clientSocket.emit("relay:rpc.request", {
+          conversationId: started.conversationId,
+          frame: encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: "relay-stream-revoke-1",
+            method: "sql.execute",
+            params: {
+              sql: "SELECT 1",
+              client_token: "relay-stream-revoke-token",
+            },
+          }),
+        });
+
+        const [accepted] = await Promise.all([acceptedPromise, responsePromise]);
+        expect(accepted.success).toBe(true);
+        expect(accepted.requestId).toBeDefined();
+        expect(acceptedRequestId).toBeTruthy();
+
+        await repositories.clientAgentAccess.removeAccess(client.clientId, testAgentId);
+
+        const pullResponse = await new Promise<{
+          success: boolean;
+          error?: { code?: string; statusCode?: number };
+        }>((resolve) => {
+          clientSocket.once("relay:rpc.stream.pull_response", resolve);
+          clientSocket.emit("relay:rpc.stream.pull", {
+            conversationId: started.conversationId,
+            frame: encodePayloadFrame({
+              request_id: accepted.requestId,
+              window_size: 1,
+            }),
+          });
+        });
+
+        expect(pullResponse.success).toBe(false);
+        expect(pullResponse.error?.code).toBe("AGENT_ACCESS_DENIED");
+        expect(pullResponse.error?.statusCode).toBe(403);
       } finally {
         clientSocket.disconnect();
         agentSocket.disconnect();
