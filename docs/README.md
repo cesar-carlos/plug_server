@@ -61,5 +61,5 @@ Quando dois documentos tocarem no mesmo tema, use esta precedencia:
 - `socket_relay_protocol.md`: contrato detalhado do relay
 - `socket_client_sdk.md`: guia pragmatico do consumidor Socket
 - `communication_sync_plug_agente.md`: resumo de alinhamento com o repositório `plug_agente`
-- `nginx_production.md`: ajuste de proxy reverso para producao (API, Socket.IO e uploads)
+- `nginx_production.md`: ajuste de proxy reverso para producao (API, Socket.IO, uploads, `/docs`, `/metrics`); exemplo completo em `deploy/nginx/plug_server.conf.example`
 - `scaling_and_roadmap.md`: backlog e limites conhecidos, nao contrato atual

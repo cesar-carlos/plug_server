@@ -40,7 +40,7 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | -------- | ------- | ----- |
 | `UPLOADS_DIR` | `uploads` | Diretório base para arquivos locais servidos em `/uploads`. Em produção, usar volume persistente. |
 | `UPLOADS_PUBLIC_BASE_URL` | `APP_BASE_URL + /uploads` | Prefixo público das URLs de thumbnail. |
-| `CLIENT_THUMBNAIL_MAX_BYTES` | `2097152` | Limite do upload da thumbnail; alinhar com `client_max_body_size` no Nginx. |
+| `CLIENT_THUMBNAIL_MAX_BYTES` | `2097152` | Limite do upload da thumbnail (max **10 MiB** em `env.ts`); `client_max_body_size` no Nginx deve ser >= este valor — ver exemplo **11m** em `docs/nginx_production.md` e `deploy/nginx/plug_server.conf.example`. |
 | `CLIENT_THUMBNAIL_WIDTH` | `256` | Largura final da thumbnail após normalização. |
 | `CLIENT_THUMBNAIL_HEIGHT` | `256` | Altura final da thumbnail após normalização. |
 | `CLIENT_THUMBNAIL_WEBP_QUALITY` | `82` | Qualidade da conversão para `webp`. |
