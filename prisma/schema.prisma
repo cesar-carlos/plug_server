@@ -69,6 +69,8 @@ model Client {
   name        String                   @db.VarChar(120)
   lastName    String                   @map("last_name") @db.VarChar(120)
   mobile      String?                  @db.VarChar(20)
+  thumbnailUrl String?                 @map("thumbnail_url") @db.VarChar(2048)
+  credentialsUpdatedAt DateTime        @default(now()) @map("credentials_updated_at")
   status      ClientStatus             @default(pending)
   createdAt   DateTime                 @default(now()) @map("created_at")
   updatedAt   DateTime                 @updatedAt @map("updated_at")
@@ -76,6 +78,7 @@ model Client {
   agentAccesses ClientAgentAccess[]
   agentAccessRequests ClientAgentAccessRequest[]
   registrationApprovalToken ClientRegistrationApprovalToken?
+  passwordRecoveryToken ClientPasswordRecoveryToken?
 
   @@index([userId])
   @@index([status])
@@ -104,6 +107,17 @@ model ClientRegistrationApprovalToken {
 
   @@index([expiresAt])
   @@map("client_registration_approval_tokens")
+}
+
+model ClientPasswordRecoveryToken {
+  id        String   @id @db.VarChar(128)
+  clientId  String   @unique @map("client_id")
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("client_password_recovery_tokens")
 }
 
 model RegistrationApprovalToken {

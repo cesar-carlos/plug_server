@@ -138,7 +138,11 @@ const requirePrincipalActiveAccount = async (
   }
 
   if (authPrincipal.principal_type === "client") {
-    const result = await container.clientAuthService.getActiveClient(authPrincipal.sub);
+    const result = await container.clientAuthService.getActiveClient(
+      authPrincipal.sub,
+      undefined,
+      authPrincipal.credentials_version,
+    );
     if (!result.ok) {
       next(result.error);
       return;
@@ -176,7 +180,11 @@ export const requireClientActiveAccount = async (
     return;
   }
 
-  const result = await container.clientAuthService.getActiveClient(authClient.sub);
+  const result = await container.clientAuthService.getActiveClient(
+    authClient.sub,
+    undefined,
+    authClient.credentials_version,
+  );
   if (!result.ok) {
     next(result.error);
     return;

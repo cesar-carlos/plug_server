@@ -1,9 +1,11 @@
 import { v4 as uuidv4 } from "uuid";
 
+import type { IFileStorage } from "../../domain/ports/file_storage.port";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import { Client, type ClientStatus } from "../../domain/entities/client.entity";
 import { ClientRefreshToken } from "../../domain/entities/client_refresh_token.entity";
+import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
 import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
@@ -20,6 +22,7 @@ import {
   badRequest,
   conflict,
   forbidden,
+  invalidToken,
   notFound,
   registrationTokenExpired,
   unauthorized,
@@ -30,6 +33,7 @@ import { generateOpaqueClientRegistrationToken } from "../../shared/utils/client
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
 import { logger } from "../../shared/utils/logger";
 import { redactEmail } from "../../shared/utils/pii_redaction";
+import { generateOpaqueClientPasswordRecoveryToken } from "../../shared/utils/client_password_recovery_token";
 
 export interface RegisterClientServiceInput {
   readonly ownerEmail: string;
@@ -43,6 +47,19 @@ export interface RegisterClientServiceInput {
 export interface LoginClientServiceInput {
   readonly email: string;
   readonly password: string;
+}
+
+export interface UpdateMyClientProfileInput {
+  readonly name?: string;
+  readonly lastName?: string;
+  readonly mobile?: string | null;
+  readonly thumbnailUrl?: null;
+}
+
+export interface ChangeClientPasswordServiceInput {
+  readonly clientId: string;
+  readonly currentPassword: string;
+  readonly newPassword: string;
 }
 
 export interface ListManagedClientsFilter {
@@ -63,10 +80,12 @@ export class ClientAuthService {
   constructor(
     private readonly clientRepository: IClientRepository,
     private readonly clientRefreshTokenRepository: IClientRefreshTokenRepository,
+    private readonly clientPasswordRecoveryTokenRepository: IClientPasswordRecoveryTokenRepository,
     private readonly clientRegistrationApprovalTokenRepository: IClientRegistrationApprovalTokenRepository,
     private readonly userRepository: IUserRepository,
     private readonly passwordHasher: IPasswordHasher,
     private readonly emailSender: IEmailSender,
+    private readonly fileStorage: IFileStorage,
   ) {}
 
   async register(input: RegisterClientServiceInput): Promise<Result<ClientRegistrationRequestResponseDto>> {
@@ -273,8 +292,12 @@ export class ClientAuthService {
     return ok(undefined);
   }
 
-  async getActiveClient(clientId: string): Promise<Result<Client>> {
-    const client = await this.clientRepository.findById(clientId);
+  async getActiveClient(
+    clientId: string,
+    preloaded?: Client,
+    accessTokenCredentialsVersion?: number,
+  ): Promise<Result<Client>> {
+    const client = preloaded?.id === clientId ? preloaded : await this.clientRepository.findById(clientId);
     if (!client) {
       return err(notFound("Client"));
     }
@@ -284,7 +307,126 @@ export class ClientAuthService {
     if (client.status !== "active") {
       return err(forbidden("Client account is pending approval"));
     }
+    if (
+      typeof accessTokenCredentialsVersion === "number" &&
+      client.credentialsUpdatedAt.getTime() !== accessTokenCredentialsVersion
+    ) {
+      return err(invalidToken("Access token is no longer valid"));
+    }
     return ok(client);
+  }
+
+  async updateMyProfile(
+    clientId: string,
+    input: UpdateMyClientProfileInput,
+    preloaded?: Client,
+  ): Promise<Result<ClientAuthUserDto>> {
+    const active = await this.getActiveClient(clientId, preloaded);
+    if (!active.ok) {
+      return active;
+    }
+
+    const current = active.value;
+    const nextName = input.name ?? current.name;
+    const nextLastName = input.lastName ?? current.lastName;
+    const nextMobile = input.mobile === undefined ? current.mobile : (input.mobile ?? undefined);
+    const nextThumbnailUrl = input.thumbnailUrl === undefined ? current.thumbnailUrl : undefined;
+
+    if (
+      nextName === current.name &&
+      nextLastName === current.lastName &&
+      nextMobile === current.mobile &&
+      nextThumbnailUrl === current.thumbnailUrl
+    ) {
+      return ok(this.toClientDto(current));
+    }
+
+    const updated = new Client({
+      ...current,
+      name: nextName,
+      lastName: nextLastName,
+      ...(nextMobile !== undefined ? { mobile: nextMobile } : {}),
+      ...(nextThumbnailUrl !== undefined ? { thumbnailUrl: nextThumbnailUrl } : {}),
+      updatedAt: new Date(),
+    });
+    await this.clientRepository.save(updated);
+    if (
+      input.thumbnailUrl === null &&
+      current.thumbnailUrl?.startsWith(`${env.uploadsPublicBaseUrl}/`)
+    ) {
+      await this.fileStorage.delete(current.thumbnailUrl.slice(`${env.uploadsPublicBaseUrl}/`.length));
+    }
+    return ok(this.toClientDto(updated));
+  }
+
+  async updateThumbnail(
+    clientId: string,
+    file: {
+      readonly buffer: Buffer;
+      readonly mimeType: string;
+    },
+    preloaded?: Client,
+  ): Promise<Result<ClientAuthUserDto>> {
+    const active = await this.getActiveClient(clientId, preloaded);
+    if (!active.ok) {
+      return active;
+    }
+
+    const current = active.value;
+    let stored: { url: string; storageKey: string };
+    try {
+      stored = await this.fileStorage.saveClientThumbnail({
+        clientId: current.id,
+        buffer: file.buffer,
+        mimeType: file.mimeType,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid thumbnail image file";
+      return err(badRequest(message));
+    }
+
+    const updated = new Client({
+      ...current,
+      thumbnailUrl: stored.url,
+      updatedAt: new Date(),
+    });
+    await this.clientRepository.save(updated);
+
+    if (current.thumbnailUrl?.startsWith(env.uploadsPublicBaseUrl)) {
+      const prefix = `${env.uploadsPublicBaseUrl}/`;
+      const previousStorageKey = current.thumbnailUrl.slice(prefix.length);
+      if (previousStorageKey.trim() !== "") {
+        await this.fileStorage.delete(previousStorageKey);
+      }
+    }
+
+    return ok(this.toClientDto(updated));
+  }
+
+  async changePassword(input: ChangeClientPasswordServiceInput): Promise<Result<void>> {
+    const active = await this.getActiveClient(input.clientId);
+    if (!active.ok) {
+      if (active.error.code === "NOT_FOUND") {
+        return err(unauthorized("Invalid credentials"));
+      }
+      return active;
+    }
+
+    const isMatch = await this.passwordHasher.compare(input.currentPassword, active.value.passwordHash);
+    if (!isMatch) {
+      return err(unauthorized("Invalid credentials"));
+    }
+
+    const updated = new Client({
+      ...active.value,
+      passwordHash: await this.passwordHasher.hash(input.newPassword),
+      credentialsUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await this.clientRepository.save(updated);
+    await this.clientRefreshTokenRepository.revokeAllForClient(updated.id);
+    await this.clientPasswordRecoveryTokenRepository.deleteByClientId(updated.id);
+    return ok(undefined);
   }
 
   async approveRegistration(tokenId: string): Promise<Result<{ clientEmail: string }>> {
@@ -385,8 +527,77 @@ export class ClientAuthService {
     return ok({ status: "pending" });
   }
 
-  async getMeProfile(clientId: string): Promise<Result<ClientAuthUserDto>> {
-    const active = await this.getActiveClient(clientId);
+  async requestPasswordRecovery(email: string): Promise<Result<void>> {
+    const client = await this.clientRepository.findByEmail(email);
+    if (!client || client.status !== "active") {
+      return ok(undefined);
+    }
+
+    const tokenId = generateOpaqueClientPasswordRecoveryToken();
+    await this.clientPasswordRecoveryTokenRepository.save({
+      id: tokenId,
+      clientId: client.id,
+      expiresAt: parseExpiryToDate(env.clientPasswordRecoveryTokenExpiresIn),
+      createdAt: new Date(),
+    });
+    try {
+      await this.emailSender.sendClientPasswordRecovery({
+        clientEmail: client.email,
+        recoveryToken: tokenId,
+      });
+    } catch (error: unknown) {
+      logger.error("client_password_recovery_email_failed", {
+        clientEmailRedacted: redactEmail(client.email),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return ok(undefined);
+  }
+
+  async getPasswordRecoveryStatus(tokenId: string): Promise<Result<{ status: "pending" | "expired" }>> {
+    const token = await this.clientPasswordRecoveryTokenRepository.findById(tokenId);
+    if (!token) {
+      return err(notFound("Password recovery token"));
+    }
+    if (isExpired(token.expiresAt)) {
+      return ok({ status: "expired" });
+    }
+    return ok({ status: "pending" });
+  }
+
+  async resetPasswordByRecoveryToken(tokenId: string, newPassword: string): Promise<Result<void>> {
+    const token = await this.clientPasswordRecoveryTokenRepository.findById(tokenId);
+    if (!token) {
+      return err(notFound("Password recovery token"));
+    }
+    if (isExpired(token.expiresAt)) {
+      await this.clientPasswordRecoveryTokenRepository.deleteById(tokenId);
+      return err(registrationTokenExpired("This password recovery link has expired"));
+    }
+
+    const active = await this.getActiveClient(token.clientId);
+    if (!active.ok) {
+      await this.clientPasswordRecoveryTokenRepository.deleteById(tokenId);
+      if (active.error.code === "NOT_FOUND") {
+        return err(notFound("Client"));
+      }
+      return active;
+    }
+
+    const updated = new Client({
+      ...active.value,
+      passwordHash: await this.passwordHasher.hash(newPassword),
+      credentialsUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await this.clientRepository.save(updated);
+    await this.clientPasswordRecoveryTokenRepository.deleteById(tokenId);
+    await this.clientRefreshTokenRepository.revokeAllForClient(updated.id);
+    return ok(undefined);
+  }
+
+  async getMeProfile(clientId: string, preloaded?: Client): Promise<Result<ClientAuthUserDto>> {
+    const active = await this.getActiveClient(clientId, preloaded);
     if (!active.ok) {
       return active;
     }
@@ -401,6 +612,7 @@ export class ClientAuthService {
       email: client.email,
       role: "client",
       principal_type: "client",
+      credentials_version: client.credentialsUpdatedAt.getTime(),
       tokenType: "access",
     });
     const refreshToken = signRefreshToken({
@@ -428,6 +640,7 @@ export class ClientAuthService {
       name: client.name,
       lastName: client.lastName,
       ...(client.mobile !== undefined ? { mobile: client.mobile } : {}),
+      ...(client.thumbnailUrl !== undefined ? { thumbnailUrl: client.thumbnailUrl } : {}),
       status: client.status,
       role: "client",
     };

@@ -137,3 +137,25 @@ export const adminUserStatusRateLimit = rateLimit({
   },
 });
 
+export const clientThumbnailRateLimit = rateLimit({
+  windowMs: env.restClientThumbnailRateLimitWindowMs,
+  limit: env.restClientThumbnailRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many thumbnail uploads, please try again later.",
+    code: "TOO_MANY_REQUESTS",
+  },
+});
+
+export const clientPasswordRecoveryRequestRateLimit = rateLimit({
+  windowMs: env.restClientPasswordRecoveryRateLimitWindowMs,
+  limit: env.restClientPasswordRecoveryRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many password recovery requests, please try again later.",
+    code: "TOO_MANY_REQUESTS",
+  },
+});
+

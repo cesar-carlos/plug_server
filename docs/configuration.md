@@ -34,6 +34,22 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_AGENT_PROTOCOL_READY_GRACE_MS` | `100` | Fallback de estabilização após `agent:register` antes do primeiro `rpc:request`; o hub libera mais cedo com `agent:heartbeat` e também suporta `agent:ready` explícito quando o agente anuncia `extensions.protocolReadyAck`. Reduz corrida com `protocol_not_ready` do `plug_agente`. |
 | `PAYLOAD_SIGN_OUTBOUND` | `false` | Assina frames de saída com `PAYLOAD_SIGNING_KEY`. |
 
+## Client thumbnail e password recovery
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `UPLOADS_DIR` | `uploads` | Diretório base para arquivos locais servidos em `/uploads`. Em produção, usar volume persistente. |
+| `UPLOADS_PUBLIC_BASE_URL` | `APP_BASE_URL + /uploads` | Prefixo público das URLs de thumbnail. |
+| `CLIENT_THUMBNAIL_MAX_BYTES` | `2097152` | Limite do upload da thumbnail; alinhar com `client_max_body_size` no Nginx. |
+| `CLIENT_THUMBNAIL_WIDTH` | `256` | Largura final da thumbnail após normalização. |
+| `CLIENT_THUMBNAIL_HEIGHT` | `256` | Altura final da thumbnail após normalização. |
+| `CLIENT_THUMBNAIL_WEBP_QUALITY` | `82` | Qualidade da conversão para `webp`. |
+| `CLIENT_PASSWORD_RECOVERY_TOKEN_EXPIRES_IN` | `30m` | Expiração do token de recuperação de senha do client. |
+| `REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS` | `60000` | Janela do rate limit para upload de thumbnail. |
+| `REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX` | `20` | Máximo de uploads de thumbnail por janela. |
+| `REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS` | `300000` | Janela do rate limit para request de recuperação de senha. |
+| `REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX` | `10` | Máximo de requests de recuperação por janela. |
+
 ## REST bridge e auditoria (env)
 
 | Variável | Defeito | Notas |

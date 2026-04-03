@@ -40,6 +40,8 @@ export class PrismaClientRepository implements IClientRepository {
           name: client.name,
           lastName: client.lastName,
           mobile: client.mobile ?? null,
+          thumbnailUrl: client.thumbnailUrl ?? null,
+          credentialsUpdatedAt: client.credentialsUpdatedAt,
           status: client.status as PrismaClientStatus,
           createdAt: client.createdAt,
           updatedAt: client.updatedAt,
@@ -51,6 +53,8 @@ export class PrismaClientRepository implements IClientRepository {
           name: client.name,
           lastName: client.lastName,
           mobile: client.mobile ?? null,
+          thumbnailUrl: client.thumbnailUrl ?? null,
+          credentialsUpdatedAt: client.credentialsUpdatedAt,
           status: client.status as PrismaClientStatus,
           updatedAt: client.updatedAt,
         },
@@ -76,6 +80,10 @@ export class PrismaClientRepository implements IClientRepository {
       name: client.name,
       lastName: client.lastName,
       ...(client.mobile != null && client.mobile !== "" ? { mobile: client.mobile } : {}),
+      ...(client.thumbnailUrl != null && client.thumbnailUrl !== ""
+        ? { thumbnailUrl: client.thumbnailUrl }
+        : {}),
+      credentialsUpdatedAt: client.credentialsUpdatedAt,
       status: client.status as ClientStatus,
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,

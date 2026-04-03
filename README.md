@@ -23,6 +23,7 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 
 - [docs/PROJECT_OVERVIEW.md](./docs/PROJECT_OVERVIEW.md) — visão geral, papéis, canais e arquitetura
 - [docs/configuration.md](./docs/configuration.md) — onde estão os defaults (`env.ts`, `.env.example`)
+- [docs/nginx_production.md](./docs/nginx_production.md) — ajustes de Nginx para produção (API, Socket.IO e uploads)
 - [CHANGELOG.md](./CHANGELOG.md) — mudancas, migracao e roadmap tecnico
 - [docs/api_rest_bridge.md](./docs/api_rest_bridge.md) — `POST /api/v1/agents/commands` e canal legado `agents:*`
 - [docs/socket_client_sdk.md](./docs/socket_client_sdk.md) — relay `PayloadFrame`, `agents:command`, exemplos

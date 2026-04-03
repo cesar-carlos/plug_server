@@ -7,6 +7,7 @@ export interface ClientAuthUserDto {
   readonly name: string;
   readonly lastName: string;
   readonly mobile?: string;
+  readonly thumbnailUrl?: string;
   readonly status: ClientStatus;
   readonly role: "client";
 }

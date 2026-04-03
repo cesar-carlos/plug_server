@@ -68,6 +68,11 @@ export class NodemailerEmailSender implements IEmailSender {
     return `${base}/api/v1/client-auth/registration/review?token=${encodeURIComponent(reviewToken)}`;
   }
 
+  private clientPasswordRecoveryReviewPageUrl(recoveryToken: string): string {
+    const base = normalizeBaseUrl(this.config.appBaseUrl);
+    return `${base}/api/v1/client-auth/password-recovery/review?token=${encodeURIComponent(recoveryToken)}`;
+  }
+
   async sendAdminApprovalRequest(params: {
     readonly userEmail: string;
     readonly reviewToken: string;
@@ -298,6 +303,27 @@ export class NodemailerEmailSender implements IEmailSender {
           ? `Your client registration was not approved. Reason: ${params.reason.trim()}`
           : "Your client registration was not approved. If you believe this is a mistake, contact support.",
       html: `<p>Your client registration was not approved. If you believe this is a mistake, contact support.</p>${reasonBlock}`,
+    });
+  }
+
+  async sendClientPasswordRecovery(params: {
+    readonly clientEmail: string;
+    readonly recoveryToken: string;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      logger.warn("SMTP not configured; skipping client password recovery email", {
+        email: params.clientEmail,
+      });
+      return;
+    }
+
+    const reviewUrl = this.clientPasswordRecoveryReviewPageUrl(params.recoveryToken);
+    await this.getTransport().sendMail({
+      from: this.fromAddress(),
+      to: params.clientEmail,
+      subject: `[${this.config.appName}] Client password recovery`,
+      text: `A password reset was requested for your account. Open this link to set a new password: ${reviewUrl}`,
+      html: `<p>A password reset was requested for your account.</p><p><a href="${reviewUrl}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">Reset password</a></p><p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(reviewUrl)}</p>`,
     });
   }
 }

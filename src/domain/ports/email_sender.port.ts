@@ -47,4 +47,9 @@ export interface IEmailSender {
     readonly clientEmail: string;
     readonly reason?: string;
   }): Promise<void>;
+
+  sendClientPasswordRecovery(params: {
+    readonly clientEmail: string;
+    readonly recoveryToken: string;
+  }): Promise<void>;
 }

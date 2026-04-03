@@ -58,3 +58,48 @@ export const clientRegistrationRejectBodySchema = z.object({
 });
 
 export type ClientRegistrationRejectBody = z.infer<typeof clientRegistrationRejectBodySchema>;
+
+/** Partial profile update for authenticated client. `null` clears optional fields. */
+export const clientPatchMeBodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    lastName: z.string().trim().min(1).max(120).optional(),
+    mobile: z.union([z.null(), brazilianCelularSchema]).optional(),
+    thumbnailUrl: z.null().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one profile field must be provided",
+  });
+
+export type ClientPatchMeBody = z.infer<typeof clientPatchMeBodySchema>;
+
+export const clientChangePasswordBodySchema = z
+  .object({
+    currentPassword: nonEmptyStringSchema,
+    newPassword: passwordSchema,
+  })
+  .refine((data) => data.currentPassword !== data.newPassword, {
+    message: "New password must be different from current password",
+    path: ["newPassword"],
+  });
+
+export type ClientChangePasswordBody = z.infer<typeof clientChangePasswordBodySchema>;
+
+export const clientPasswordRecoveryRequestBodySchema = z.object({
+  email: emailSchema,
+});
+
+export type ClientPasswordRecoveryRequestBody = z.infer<typeof clientPasswordRecoveryRequestBodySchema>;
+
+export const clientPasswordRecoveryTokenQuerySchema = z.object({
+  token: registrationOpaqueTokenSchema,
+});
+
+export type ClientPasswordRecoveryTokenQuery = z.infer<typeof clientPasswordRecoveryTokenQuerySchema>;
+
+export const clientPasswordRecoveryResetBodySchema = z.object({
+  token: registrationOpaqueTokenSchema,
+  newPassword: passwordSchema,
+});
+
+export type ClientPasswordRecoveryResetBody = z.infer<typeof clientPasswordRecoveryResetBodySchema>;

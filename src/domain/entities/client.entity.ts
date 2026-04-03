@@ -8,6 +8,8 @@ export interface ClientProps {
   readonly name: string;
   readonly lastName: string;
   readonly mobile?: string;
+  readonly thumbnailUrl?: string;
+  readonly credentialsUpdatedAt: Date;
   readonly status: ClientStatus;
   readonly createdAt: Date;
   readonly updatedAt: Date;
@@ -21,6 +23,8 @@ export class Client {
   readonly name: string;
   readonly lastName: string;
   readonly mobile?: string;
+  readonly thumbnailUrl?: string;
+  readonly credentialsUpdatedAt: Date;
   readonly status: ClientStatus;
   readonly createdAt: Date;
   readonly updatedAt: Date;
@@ -35,17 +39,22 @@ export class Client {
     if (props.mobile !== undefined) {
       this.mobile = props.mobile;
     }
+    if (props.thumbnailUrl !== undefined) {
+      this.thumbnailUrl = props.thumbnailUrl;
+    }
+    this.credentialsUpdatedAt = props.credentialsUpdatedAt;
     this.status = props.status;
     this.createdAt = props.createdAt;
     this.updatedAt = props.updatedAt;
   }
 
   static create(
-    props: Omit<ClientProps, "id" | "status" | "createdAt" | "updatedAt"> & {
+    props: Omit<ClientProps, "id" | "status" | "createdAt" | "updatedAt" | "credentialsUpdatedAt"> & {
       id?: string;
       status?: ClientStatus;
       createdAt?: Date;
       updatedAt?: Date;
+      credentialsUpdatedAt?: Date;
     },
   ): Client {
     const now = new Date();
@@ -57,6 +66,8 @@ export class Client {
       name: props.name,
       lastName: props.lastName,
       ...(props.mobile !== undefined ? { mobile: props.mobile } : {}),
+      ...(props.thumbnailUrl !== undefined ? { thumbnailUrl: props.thumbnailUrl } : {}),
+      credentialsUpdatedAt: props.credentialsUpdatedAt ?? now,
       status: props.status ?? "pending",
       createdAt: props.createdAt ?? now,
       updatedAt: props.updatedAt ?? now,

@@ -3,6 +3,7 @@ import cors from "cors";
 import express, { type Express } from "express";
 import helmet from "helmet";
 import morgan from "morgan";
+import path from "node:path";
 
 import { setupSwagger } from "./presentation/docs/swagger";
 import { errorMiddleware } from "./presentation/http/middlewares/error.middleware";
@@ -51,6 +52,7 @@ export const createApp = (): Express => {
   app.use(express.json({ limit: env.requestBodyLimit }));
   app.use(express.urlencoded({ extended: true, limit: env.requestBodyLimit }));
   app.use(cookieParser());
+  app.use("/uploads", express.static(path.resolve(env.uploadsDir)));
 
   app.get("/metrics", ...requireAuthAndActiveAccount, getMetrics);
 

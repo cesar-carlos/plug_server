@@ -1,9 +1,14 @@
+import { access, readFile } from "node:fs/promises";
+import path from "node:path";
+
+import sharp from "sharp";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
 import { User } from "../../src/domain/entities/user.entity";
-import { getTestRepositoryAccess } from "../../src/shared/di/container";
+import { env } from "../../src/shared/config/env";
+import { getTestNoopEmailSender, getTestRepositoryAccess } from "../../src/shared/di/container";
 import {
   registerOwnerSession,
   registerOwnerAndClientSession,
@@ -11,6 +16,7 @@ import {
 
 const app = createApp();
 const repositories = getTestRepositoryAccess();
+const noopEmailSender = getTestNoopEmailSender();
 
 describe("Client auth registration approval flow", () => {
   it("creates pending client registration for a valid owner email", async () => {
@@ -263,6 +269,226 @@ describe("Client auth authenticated session flow", () => {
       .send({ refreshToken: client.refreshToken });
     expect(refreshAfterLogout.status).toBe(401);
   });
+
+  it("updates authenticated client profile from /api/v1/client-auth/me", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-patch-me`,
+    });
+
+    const patchResponse = await request(app)
+      .patch("/api/v1/client-auth/me")
+      .set("Authorization", `Bearer ${client.accessToken}`)
+      .send({
+        name: "Updated",
+        lastName: "Client",
+        mobile: "+55 (11) 91234-5678",
+      });
+    expect(patchResponse.status).toBe(200);
+    expect(patchResponse.body.client).toMatchObject({
+      id: client.clientId,
+      name: "Updated",
+      lastName: "Client",
+      mobile: "+5511912345678",
+    });
+  });
+
+  it("rejects direct thumbnail URL updates in /api/v1/client-auth/me", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-patch-thumbnail-url`,
+    });
+
+    const response = await request(app)
+      .patch("/api/v1/client-auth/me")
+      .set("Authorization", `Bearer ${client.accessToken}`)
+      .send({
+        thumbnailUrl: "https://cdn.example.com/clients/updated.png",
+      });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("changes authenticated client password and revokes previous refresh token", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-change-password`,
+    });
+    const newPassword = "ClientNewPass1";
+
+    const response = await request(app)
+      .patch("/api/v1/client-auth/password")
+      .set("Authorization", `Bearer ${client.accessToken}`)
+      .send({
+        currentPassword: client.password,
+        newPassword,
+      });
+    expect(response.status).toBe(204);
+
+    const oldAccessOnMe = await request(app)
+      .get("/api/v1/client-auth/me")
+      .set("Authorization", `Bearer ${client.accessToken}`);
+    expect(oldAccessOnMe.status).toBe(401);
+
+    const oldLogin = await request(app).post("/api/v1/client-auth/login").send({
+      email: client.email,
+      password: client.password,
+    });
+    expect(oldLogin.status).toBe(401);
+
+    const refreshAfterChange = await request(app)
+      .post("/api/v1/client-auth/refresh")
+      .send({ refreshToken: client.refreshToken });
+    expect(refreshAfterChange.status).toBe(401);
+
+    const newLogin = await request(app).post("/api/v1/client-auth/login").send({
+      email: client.email,
+      password: newPassword,
+    });
+    expect(newLogin.status).toBe(200);
+  });
+
+  it("uploads thumbnail file for authenticated client", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-thumbnail-upload`,
+    });
+    // 1x1 transparent PNG
+    const tinyPng = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2x0AAAAASUVORK5CYII=",
+      "base64",
+    );
+
+    const response = await request(app)
+      .post("/api/v1/client-auth/thumbnail")
+      .set("Authorization", `Bearer ${client.accessToken}`)
+      .attach("thumbnail", tinyPng, {
+        filename: "thumbnail.png",
+        contentType: "image/png",
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.client.thumbnailUrl).toContain("/uploads/client-thumbnails/");
+    expect(response.body.client.thumbnailUrl).toMatch(/\.webp$/);
+
+    const savedPath = resolveUploadPathFromUrl(response.body.client.thumbnailUrl as string);
+    await access(savedPath);
+    const metadata = await sharp(await readFile(savedPath)).metadata();
+    expect(metadata.format).toBe("webp");
+    expect(metadata.width).toBe(env.clientThumbnailWidth);
+    expect(metadata.height).toBe(env.clientThumbnailHeight);
+  });
+
+  it("rejects invalid thumbnail payload even with image mime type", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-thumbnail-invalid`,
+    });
+
+    const response = await request(app)
+      .post("/api/v1/client-auth/thumbnail")
+      .set("Authorization", `Bearer ${client.accessToken}`)
+      .attach("thumbnail", Buffer.from("not-a-real-image"), {
+        filename: "invalid.png",
+        contentType: "image/png",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("BAD_REQUEST");
+  });
+});
+
+describe("Client auth password recovery flow", () => {
+  it("returns generic response for unknown email", async () => {
+    const beforeCount = noopEmailSender.clientPasswordRecovery.length;
+
+    const response = await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: `missing-${Date.now()}@test.com` });
+
+    expect(response.status).toBe(202);
+    expect(noopEmailSender.clientPasswordRecovery.length).toBe(beforeCount);
+  });
+
+  it("sends recovery email and resets password with token", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery`,
+    });
+    const newPassword = "ClientRecover2";
+    const beforeCount = noopEmailSender.clientPasswordRecovery.length;
+
+    const requestResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+    expect(requestResponse.status).toBe(202);
+    expect(noopEmailSender.clientPasswordRecovery.length).toBe(beforeCount + 1);
+    const token = noopEmailSender.clientPasswordRecovery.at(-1)?.recoveryToken;
+    expect(token).toEqual(expect.any(String));
+    if (!token) {
+      throw new Error("Expected recovery token to be generated");
+    }
+
+    const statusResponse = await request(app)
+      .get("/api/v1/client-auth/password-recovery/status")
+      .query({ token });
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.status).toBe("pending");
+
+    const resetResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .send({ token, newPassword });
+    expect(resetResponse.status).toBe(204);
+
+    const oldAccessOnMe = await request(app)
+      .get("/api/v1/client-auth/me")
+      .set("Authorization", `Bearer ${client.accessToken}`);
+    expect(oldAccessOnMe.status).toBe(401);
+
+    const oldLogin = await request(app).post("/api/v1/client-auth/login").send({
+      email: client.email,
+      password: client.password,
+    });
+    expect(oldLogin.status).toBe(401);
+
+    const newLogin = await request(app).post("/api/v1/client-auth/login").send({
+      email: client.email,
+      password: newPassword,
+    });
+    expect(newLogin.status).toBe(200);
+
+    const reuseResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .send({ token, newPassword: "AnotherPass2" });
+    expect(reuseResponse.status).toBe(404);
+  });
+
+  it("returns 404 for missing password recovery token", async () => {
+    const response = await request(app)
+      .get("/api/v1/client-auth/password-recovery/status")
+      .query({ token: "missing-password-recovery-token-012345678901234567890" });
+
+    expect(response.status).toBe(404);
+  });
+
+  it("returns 410 for expired password recovery token", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-expired`,
+    });
+
+    const expiredToken = "expired-password-recovery-token-0123456789012345678";
+    await repositories.clientPasswordRecoveryToken.save({
+      id: expiredToken,
+      clientId: client.clientId,
+      createdAt: new Date(Date.now() - 60_000),
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+
+    const statusResponse = await request(app)
+      .get("/api/v1/client-auth/password-recovery/status")
+      .query({ token: expiredToken });
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.status).toBe("expired");
+
+    const resetResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .send({ token: expiredToken, newPassword: "ClientRecover2" });
+    expect(resetResponse.status).toBe(410);
+  });
 });
 
 const responseClearsCookie = (setCookieHeader: string[] | string | undefined): boolean => {
@@ -272,4 +498,11 @@ const responseClearsCookie = (setCookieHeader: string[] | string | undefined): b
       ? [setCookieHeader]
       : [];
   return values.some((value) => value.startsWith("client_refresh_token="));
+};
+
+const resolveUploadPathFromUrl = (url: string): string => {
+  const publicBase = new URL(env.uploadsPublicBaseUrl);
+  const fileUrl = new URL(url);
+  const relativePath = fileUrl.pathname.replace(publicBase.pathname.replace(/\/+$/, ""), "").replace(/^\/+/, "");
+  return path.resolve(env.uploadsDir, relativePath);
 };

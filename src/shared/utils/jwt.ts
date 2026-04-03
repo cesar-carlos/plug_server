@@ -14,6 +14,8 @@ export interface JwtAccessPayload {
   readonly role?: string;
   readonly principal_type?: "user" | "client";
   readonly agent_id?: string;
+  readonly credentials_version?: number;
+  readonly iat?: number;
   readonly tokenType: "access";
 }
 

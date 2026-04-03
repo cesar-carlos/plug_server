@@ -27,6 +27,24 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   CORS_ORIGIN: z.string().default("*"),
   REQUEST_BODY_LIMIT: z.string().default("1mb"),
+  UPLOADS_DIR: z.string().default("uploads"),
+  UPLOADS_PUBLIC_BASE_URL: z.preprocess(
+    (val) => {
+      if (val !== undefined && String(val).trim() !== "") {
+        return String(val).trim();
+      }
+      return `${process.env.APP_BASE_URL ?? "http://localhost:3000"}/uploads`;
+    },
+    z.string().url(),
+  ),
+  CLIENT_THUMBNAIL_MAX_BYTES: z.coerce.number().int().positive().max(10 * 1024 * 1024).default(2 * 1024 * 1024),
+  CLIENT_THUMBNAIL_WIDTH: z.coerce.number().int().positive().max(4096).default(256),
+  CLIENT_THUMBNAIL_HEIGHT: z.coerce.number().int().positive().max(4096).default(256),
+  CLIENT_THUMBNAIL_WEBP_QUALITY: z.coerce.number().int().min(1).max(100).default(82),
+  REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(300_000),
+  REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   DATABASE_URL: z.string().min(1),
   JWT_ACCESS_SECRET: z.string().min(16).default("change-me-access-development"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
@@ -46,6 +64,7 @@ const envSchema = z.object({
   SMTP_FROM: z.string().default(""),
   /** Shorthand like JWT refresh: 7d, 24h, 30m. */
   APPROVAL_TOKEN_EXPIRES_IN: z.string().default("7d"),
+  CLIENT_PASSWORD_RECOVERY_TOKEN_EXPIRES_IN: z.string().default("30m"),
   /**
    * When true (default in production), refuse to boot without SMTP_USER/SMTP_PASS.
    * Set to false only if you use another path to approve users (not recommended).
@@ -450,6 +469,17 @@ export const env = {
   port: parsedEnv.PORT,
   corsOrigin: parsedEnv.CORS_ORIGIN,
   requestBodyLimit: parsedEnv.REQUEST_BODY_LIMIT,
+  uploadsDir: parsedEnv.UPLOADS_DIR,
+  uploadsPublicBaseUrl: parsedEnv.UPLOADS_PUBLIC_BASE_URL.replace(/\/+$/, ""),
+  clientThumbnailMaxBytes: parsedEnv.CLIENT_THUMBNAIL_MAX_BYTES,
+  clientThumbnailWidth: parsedEnv.CLIENT_THUMBNAIL_WIDTH,
+  clientThumbnailHeight: parsedEnv.CLIENT_THUMBNAIL_HEIGHT,
+  clientThumbnailWebpQuality: parsedEnv.CLIENT_THUMBNAIL_WEBP_QUALITY,
+  restClientThumbnailRateLimitWindowMs: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS,
+  restClientThumbnailRateLimitMax: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX,
+  restClientPasswordRecoveryRateLimitWindowMs:
+    parsedEnv.REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS,
+  restClientPasswordRecoveryRateLimitMax: parsedEnv.REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX,
   databaseUrl: parsedEnv.DATABASE_URL,
   jwtAccessSecret: parsedEnv.JWT_ACCESS_SECRET,
   jwtAccessExpiresIn: parsedEnv.JWT_ACCESS_EXPIRES_IN,
@@ -555,6 +585,7 @@ export const env = {
   smtpPass: parsedEnv.SMTP_PASS,
   smtpFrom: parsedEnv.SMTP_FROM,
   approvalTokenExpiresIn: parsedEnv.APPROVAL_TOKEN_EXPIRES_IN,
+  clientPasswordRecoveryTokenExpiresIn: parsedEnv.CLIENT_PASSWORD_RECOVERY_TOKEN_EXPIRES_IN,
   requireSmtpInProduction: parsedEnv.REQUIRE_SMTP_IN_PRODUCTION,
   registrationEmailAsync: parsedEnv.REGISTRATION_EMAIL_ASYNC,
   registrationEmailMaxRetries: parsedEnv.REGISTRATION_EMAIL_MAX_RETRIES,

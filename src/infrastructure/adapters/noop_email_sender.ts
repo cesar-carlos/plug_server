@@ -22,6 +22,11 @@ export class NoopEmailSender implements IEmailSender {
     reason?: string;
   }> = [];
 
+  readonly clientPasswordRecovery: Array<{
+    clientEmail: string;
+    recoveryToken: string;
+  }> = [];
+
   async sendAdminApprovalRequest(): Promise<void> {}
 
   async sendUserPendingRegistration(): Promise<void> {}
@@ -71,4 +76,14 @@ export class NoopEmailSender implements IEmailSender {
   async sendClientRegistrationApproved(): Promise<void> {}
 
   async sendClientRegistrationRejected(): Promise<void> {}
+
+  async sendClientPasswordRecovery(params: {
+    readonly clientEmail: string;
+    readonly recoveryToken: string;
+  }): Promise<void> {
+    this.clientPasswordRecovery.push({
+      clientEmail: params.clientEmail,
+      recoveryToken: params.recoveryToken,
+    });
+  }
 }

@@ -8,6 +8,7 @@ import { UserAgentService } from "../../application/services/user_agent.service"
 import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
 import type { IClientAgentAccessApprovalTokenRepository } from "../../domain/repositories/client_agent_access_approval_token.repository.interface";
 import type { IClientAgentAccessRequestRepository } from "../../domain/repositories/client_agent_access_request.repository.interface";
+import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
 import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
@@ -26,6 +27,7 @@ import { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registr
 import { AdminSetUserStatusUseCase } from "../../domain/use_cases/admin_set_user_status.use_case";
 import { UpdateMyCelularUseCase } from "../../domain/use_cases/update_my_celular.use_case";
 import { BcryptPasswordHasher } from "../../infrastructure/adapters/bcrypt_password_hasher";
+import { LocalFileStorage } from "../../infrastructure/adapters/local_file_storage";
 import { NoopEmailSender } from "../../infrastructure/adapters/noop_email_sender";
 import { NodemailerEmailSender } from "../../infrastructure/adapters/nodemailer_email_sender";
 import { InMemoryAgentIdentityRepository } from "../../infrastructure/repositories/in_memory_agent_identity.repository";
@@ -33,6 +35,7 @@ import { InMemoryAgentRepository } from "../../infrastructure/repositories/in_me
 import { InMemoryClientAgentAccessApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_client_agent_access_approval_token.repository";
 import { InMemoryClientAgentAccessRepository } from "../../infrastructure/repositories/in_memory_client_agent_access.repository";
 import { InMemoryClientAgentAccessRequestRepository } from "../../infrastructure/repositories/in_memory_client_agent_access_request.repository";
+import { InMemoryClientPasswordRecoveryTokenRepository } from "../../infrastructure/repositories/in_memory_client_password_recovery_token.repository";
 import { InMemoryClientRefreshTokenRepository } from "../../infrastructure/repositories/in_memory_client_refresh_token.repository";
 import { InMemoryClientRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_client_registration_approval_token.repository";
 import { InMemoryClientRepository } from "../../infrastructure/repositories/in_memory_client.repository";
@@ -44,6 +47,7 @@ import { PrismaAgentRepository } from "../../infrastructure/repositories/prisma_
 import { PrismaClientAgentAccessApprovalTokenRepository } from "../../infrastructure/repositories/prisma_client_agent_access_approval_token.repository";
 import { PrismaClientAgentAccessRepository } from "../../infrastructure/repositories/prisma_client_agent_access.repository";
 import { PrismaClientAgentAccessRequestRepository } from "../../infrastructure/repositories/prisma_client_agent_access_request.repository";
+import { PrismaClientPasswordRecoveryTokenRepository } from "../../infrastructure/repositories/prisma_client_password_recovery_token.repository";
 import { PrismaClientRefreshTokenRepository } from "../../infrastructure/repositories/prisma_client_refresh_token.repository";
 import { PrismaClientRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_client_registration_approval_token.repository";
 import { PrismaClientRepository } from "../../infrastructure/repositories/prisma_client.repository";
@@ -76,6 +80,10 @@ const clientRepository: IClientRepository = shouldUseInMemoryPersistence
 const clientRefreshTokenRepository: IClientRefreshTokenRepository = shouldUseInMemoryPersistence
   ? new InMemoryClientRefreshTokenRepository()
   : new PrismaClientRefreshTokenRepository();
+const clientPasswordRecoveryTokenRepository: IClientPasswordRecoveryTokenRepository =
+  shouldUseInMemoryPersistence
+    ? new InMemoryClientPasswordRecoveryTokenRepository()
+    : new PrismaClientPasswordRecoveryTokenRepository();
 const clientRegistrationApprovalTokenRepository: IClientRegistrationApprovalTokenRepository =
   shouldUseInMemoryPersistence
     ? new InMemoryClientRegistrationApprovalTokenRepository()
@@ -104,6 +112,13 @@ const emailSender = shouldUseInMemoryPersistence
       smtpPass: env.smtpPass,
       smtpFrom: env.smtpFrom,
     });
+const fileStorage = new LocalFileStorage({
+  uploadsDir: env.uploadsDir,
+  uploadsPublicBaseUrl: env.uploadsPublicBaseUrl,
+  clientThumbnailWidth: env.clientThumbnailWidth,
+  clientThumbnailHeight: env.clientThumbnailHeight,
+  clientThumbnailWebpQuality: env.clientThumbnailWebpQuality,
+});
 
 const registerUseCase = new RegisterUseCase(userRepository, registrationApprovalTokenRepository);
 const approveRegistrationUseCase = new ApproveRegistrationUseCase(
@@ -135,10 +150,12 @@ const userAgentService = new UserAgentService(agentRepository, agentIdentityRepo
 const clientAuthService = new ClientAuthService(
   clientRepository,
   clientRefreshTokenRepository,
+  clientPasswordRecoveryTokenRepository,
   clientRegistrationApprovalTokenRepository,
   userRepository,
   passwordHasher,
   emailSender,
+  fileStorage,
 );
 const clientAgentAccessService = new ClientAgentAccessService(
   agentRepository,
@@ -187,6 +204,7 @@ export const getTestRepositoryAccess = (): {
   readonly clientAgentAccessApprovalToken: IClientAgentAccessApprovalTokenRepository;
   readonly registrationApprovalToken: typeof registrationApprovalTokenRepository;
   readonly clientRegistrationApprovalToken: IClientRegistrationApprovalTokenRepository;
+  readonly clientPasswordRecoveryToken: IClientPasswordRecoveryTokenRepository;
 } => {
   if (env.nodeEnv !== "test") {
     throw new Error("getTestRepositoryAccess is only available in test environment");
@@ -201,6 +219,7 @@ export const getTestRepositoryAccess = (): {
     clientAgentAccessApprovalToken: clientAgentAccessApprovalTokenRepository,
     registrationApprovalToken: registrationApprovalTokenRepository,
     clientRegistrationApprovalToken: clientRegistrationApprovalTokenRepository,
+    clientPasswordRecoveryToken: clientPasswordRecoveryTokenRepository,
   };
 };
 
