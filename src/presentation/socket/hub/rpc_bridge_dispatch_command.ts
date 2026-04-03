@@ -47,7 +47,13 @@ import {
   registerRestPendingRequest,
 } from "./rest_pending_requests";
 import { hasRelayRequestRoute } from "./relay_request_registry";
-import { isBatchCommand, toCorrelationIds, withBridgeMeta } from "./rpc_bridge_command_helpers";
+import {
+  clampCommandMaxRows,
+  countBatchItems,
+  isBatchCommand,
+  toCorrelationIds,
+  withBridgeMeta,
+} from "./rpc_bridge_command_helpers";
 
 const defaultRequestTimeoutMs = 15_000;
 
@@ -124,7 +130,39 @@ export const createDispatchRpcCommandToAgent = (
       throw badRequest("Command must be a JSON object or JSON-RPC batch array");
     }
 
-    const command = input.command;
+    const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(input.agentId);
+    const compressionPreference = input.payloadFrameCompression;
+    if (!effectivePolicy.allowsNoneCompression && !effectivePolicy.allowsGzip) {
+      throw serviceUnavailable("Agent transport capabilities are incompatible with hub compression");
+    }
+    if (compressionPreference === "always" && !effectivePolicy.allowsGzip) {
+      throw badRequest("Agent capabilities do not allow gzip compression for PayloadFrame");
+    }
+    if (compressionPreference === "none" && !effectivePolicy.allowsNoneCompression) {
+      throw badRequest("Agent capabilities do not allow uncompressed PayloadFrame");
+    }
+    const effectiveCompressionPreference =
+      compressionPreference === undefined
+        ? effectivePolicy.allowsGzip
+          ? undefined
+          : "none"
+        : compressionPreference;
+
+    const rawCommand = input.command;
+    if (isBatchCommand(rawCommand) && countBatchItems(rawCommand) > effectivePolicy.maxBatchSize) {
+      throw badRequest(
+        `Batch cannot exceed negotiated max_batch_size (${effectivePolicy.maxBatchSize})`,
+      );
+    }
+    const clamped = clampCommandMaxRows(rawCommand, effectivePolicy.maxRows);
+    if (clamped.adjusted) {
+      logger.debug("bridge_command_max_rows_clamped", {
+        agentId: input.agentId,
+        maxRows: effectivePolicy.maxRows,
+      });
+    }
+    const command = clamped.command;
+
     const correlationIds = toCorrelationIds(command);
     const firstCorrelationId = correlationIds.at(0);
     const requestId =
@@ -144,7 +182,7 @@ export const createDispatchRpcCommandToAgent = (
     });
     const timeoutMs = input.timeoutMs ?? defaultRequestTimeoutMs;
     const payloadFrameEncodeOpts = payloadFrameEncodeOptionsFromPreference(
-      input.payloadFrameCompression,
+      effectiveCompressionPreference,
     );
 
     for (const correlationId of correlationIds) {

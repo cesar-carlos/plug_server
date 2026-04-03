@@ -111,3 +111,114 @@ export const extractStreamIdFromRpcResponse = (payload: unknown): string | null 
 
   return toRequestId(result.stream_id);
 };
+
+const clampSingleCommandMaxRows = (
+  command: BridgeCommand,
+  maxRows: number,
+): { readonly command: BridgeCommand; readonly adjusted: boolean } => {
+  if (Array.isArray(command)) {
+    let adjusted = false;
+    const next = command.map((item) => {
+      if (item.method === "sql.execute") {
+        const current = item.params.options?.max_rows;
+        if (typeof current === "number" && Number.isFinite(current) && current > maxRows) {
+          adjusted = true;
+          return {
+            ...item,
+            params: {
+              ...item.params,
+              options: {
+                ...item.params.options,
+                max_rows: maxRows,
+              },
+            },
+          };
+        }
+        return item;
+      }
+      if (item.method === "sql.executeBatch") {
+        const current = item.params.options?.max_rows;
+        if (typeof current === "number" && Number.isFinite(current) && current > maxRows) {
+          adjusted = true;
+          return {
+            ...item,
+            params: {
+              ...item.params,
+              options: {
+                ...item.params.options,
+                max_rows: maxRows,
+              },
+            },
+          };
+        }
+        return item;
+      }
+      return item;
+    }) as BridgeBatchCommand;
+    return { command: next, adjusted };
+  }
+
+  if (command.method === "sql.execute") {
+    const current = command.params.options?.max_rows;
+    if (typeof current !== "number" || !Number.isFinite(current) || current <= maxRows) {
+      return { command, adjusted: false };
+    }
+    return {
+      adjusted: true,
+      command: {
+        ...command,
+        params: {
+          ...command.params,
+          options: {
+            ...command.params.options,
+            max_rows: maxRows,
+          },
+        },
+      },
+    };
+  }
+
+  if (command.method === "sql.executeBatch") {
+    const current = command.params.options?.max_rows;
+    if (typeof current !== "number" || !Number.isFinite(current) || current <= maxRows) {
+      return { command, adjusted: false };
+    }
+    return {
+      adjusted: true,
+      command: {
+        ...command,
+        params: {
+          ...command.params,
+          options: {
+            ...command.params.options,
+            max_rows: maxRows,
+          },
+        },
+      },
+    };
+  }
+
+  return { command, adjusted: false };
+};
+
+export const clampCommandMaxRows = (
+  command: BridgeCommand,
+  maxRows: number,
+): { readonly command: BridgeCommand; readonly adjusted: boolean } => {
+  const safeMaxRows = Number.isFinite(maxRows) && maxRows > 0 ? Math.floor(maxRows) : maxRows;
+  if (typeof safeMaxRows !== "number" || !Number.isFinite(safeMaxRows) || safeMaxRows <= 0) {
+    return { command, adjusted: false };
+  }
+  return clampSingleCommandMaxRows(command, safeMaxRows);
+};
+
+export const countBatchItems = (command: BridgeCommand): number => {
+  return Array.isArray(command) ? command.length : 1;
+};
+
+export const hasNotificationCommand = (command: BridgeCommand): boolean => {
+  if (Array.isArray(command)) {
+    return command.some((item) => item.id === null);
+  }
+  return command.id === null;
+};

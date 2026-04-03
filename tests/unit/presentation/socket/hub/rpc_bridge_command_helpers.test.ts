@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { BridgeCommand } from "../../../../../src/shared/validators/agent_command";
 import {
+  clampCommandMaxRows,
+  countBatchItems,
   extractStreamIdFromRpcResponse,
+  hasNotificationCommand,
   isBatchCommand,
   pickResponseIds,
   resolveOutboundApiVersion,
@@ -93,5 +96,63 @@ describe("rpc_bridge_command_helpers", () => {
     expect(extractStreamIdFromRpcResponse({ result: { stream_id: " sid " } })).toBe("sid");
     expect(extractStreamIdFromRpcResponse({ result: {} })).toBeNull();
     expect(extractStreamIdFromRpcResponse(null)).toBeNull();
+  });
+
+  it("clampCommandMaxRows caps sql max_rows for single and batch commands", () => {
+    const single: BridgeCommand = {
+      jsonrpc: "2.0",
+      method: "sql.execute",
+      id: "s1",
+      params: {
+        sql: "SELECT 1",
+        options: { max_rows: 2000 },
+      },
+    };
+    const singleOut = clampCommandMaxRows(single, 1000);
+    expect(singleOut.adjusted).toBe(true);
+    expect(Array.isArray(singleOut.command)).toBe(false);
+    if (!Array.isArray(singleOut.command)) {
+      expect(singleOut.command.params.options?.max_rows).toBe(1000);
+    }
+
+    const batch: BridgeCommand = [
+      {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "b1",
+        params: { sql: "SELECT 1", options: { max_rows: 5000 } },
+      },
+      {
+        jsonrpc: "2.0",
+        method: "rpc.discover",
+        id: "b2",
+      },
+    ];
+    const batchOut = clampCommandMaxRows(batch, 100);
+    expect(batchOut.adjusted).toBe(true);
+    expect(Array.isArray(batchOut.command)).toBe(true);
+    if (Array.isArray(batchOut.command)) {
+      expect(batchOut.command[0].method).toBe("sql.execute");
+      if (batchOut.command[0].method === "sql.execute") {
+        expect(batchOut.command[0].params.options?.max_rows).toBe(100);
+      }
+    }
+  });
+
+  it("countBatchItems and hasNotificationCommand work for single and batch", () => {
+    const singleNotification: BridgeCommand = {
+      jsonrpc: "2.0",
+      method: "rpc.discover",
+      id: null,
+    };
+    const batch: BridgeCommand = [
+      { jsonrpc: "2.0", method: "rpc.discover", id: "b1" },
+      { jsonrpc: "2.0", method: "sql.cancel", id: null, params: { request_id: "r1" } },
+    ];
+
+    expect(countBatchItems(singleNotification)).toBe(1);
+    expect(countBatchItems(batch)).toBe(2);
+    expect(hasNotificationCommand(singleNotification)).toBe(true);
+    expect(hasNotificationCommand(batch)).toBe(true);
   });
 });

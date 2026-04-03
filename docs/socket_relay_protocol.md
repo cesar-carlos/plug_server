@@ -94,14 +94,16 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 `plug_agente/docs/communication/socket_communication_standard.md`.
 
-**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`.
+**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`, `agent.getProfile`.
 
 **Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
 
-O servidor valida o payload com o schema do bridge (`bridgeCommandSchema`, o mesmo nucleo que REST) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). Payloads
+O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). Payloads
 invalidos retornam erro `VALIDATION_ERROR` em `relay:rpc.accepted`. O relay **nao**
 suporta batch JSON-RPC (array); envie um unico request por `relay:rpc.request`.
+
+**Notifications no relay:** `id: null` nao e aceito em `relay:rpc.request`. O relay exige request correlacionavel para timeout, idempotencia e roteamento de resposta/chunks.
 
 O servidor normaliza `preserve_sql: true` para `execution_mode: "preserve"` antes
 de enviar ao agente.
@@ -136,6 +138,7 @@ Regras atuais no servidor:
 - validacao estrutural do envelope recebido (agente/consumer → hub) alinhada ao schema `payload-frame.schema.json` do plug_agente: `schemaVersion` **1.0**, `contentType` **application/json**, inteiros nao negativos, sem chaves desconhecidas no raiz; bloco `signature` sem propriedades extra (`isPayloadFrameEnvelope` em `payload_frame.ts`)
 - compressao de saida: acima do limiar, modo **automatico** (gzip so quando a economia supera `PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES`) no hub por defeito; `payloadFrameCompression: always` forca gzip como no agente “sempre GZIP”
 - para JSON UTF-8 **acima do teto configuravel** (`PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **512 KiB**), o hub **nao tenta** gzip na codificacao interna (`preencodePayloadFrameJson` em `payload_frame.ts`); o frame segue com `cmp: none` ate ao limite de `10 MB` no fio
+- limites de despacho (`max_rows`, `max_batch_size`) seguem politica efetiva por agente: o hub aplica o minimo entre o contrato anunciado e limites declarados pelo agente nas capabilities, quando presentes. `max_concurrent_streams` permanece informativo no handshake nesta fase.
 - limite de payload comprimido: `10 MB`
 - limite de payload decodificado: `10 MB`
 - limite de inflacao gzip: `20x`

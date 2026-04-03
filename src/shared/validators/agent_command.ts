@@ -5,6 +5,10 @@
 
 import { z } from "zod";
 
+import {
+  HUB_MAX_BATCH_SIZE,
+  HUB_MAX_ROWS,
+} from "../constants/agent_transport_contract";
 import { nonEmptyStringSchema } from "./schemas";
 
 const jsonRpcIdSchema = z.union([z.string().min(1), z.number().finite(), z.null()]);
@@ -33,7 +37,9 @@ const tokenCarrierSchema = z.object({
 });
 
 /** Maximum allowed value for options.max_rows, aligned with plug_agente negotiated limits. */
-export const AGENT_MAX_ROWS_LIMIT = 1_000_000;
+export const AGENT_MAX_ROWS_LIMIT = HUB_MAX_ROWS;
+/** Maximum commands allowed in JSON-RPC batch. */
+export const AGENT_MAX_BATCH_SIZE_LIMIT = HUB_MAX_BATCH_SIZE;
 
 /** Maximum allowed value for options.timeout_ms (5 minutes). */
 export const AGENT_TIMEOUT_MS_LIMIT = 300_000;
@@ -193,7 +199,7 @@ const sqlExecuteBatchOptionsSchema = z
 
 const sqlExecuteBatchParamsSchema = z
   .object({
-    commands: z.array(sqlExecuteBatchCommandItemSchema).min(1).max(32),
+    commands: z.array(sqlExecuteBatchCommandItemSchema).min(1).max(AGENT_MAX_BATCH_SIZE_LIMIT),
     options: sqlExecuteBatchOptionsSchema.optional(),
     idempotency_key: nonEmptyStringSchema.optional(),
     database: nonEmptyStringSchema.optional(),
@@ -337,7 +343,9 @@ export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
 const bridgeBatchCommandSchema = z
   .array(bridgeSingleCommandSchema)
   .min(1, { message: "Batch must include at least one command" })
-  .max(32, { message: "Batch cannot exceed 32 commands" })
+  .max(AGENT_MAX_BATCH_SIZE_LIMIT, {
+    message: `Batch cannot exceed ${AGENT_MAX_BATCH_SIZE_LIMIT} commands`,
+  })
   .superRefine((items, ctx) => {
     const seenIds = new Set<string>();
     items.forEach((item, index) => {

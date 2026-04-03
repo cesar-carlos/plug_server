@@ -58,6 +58,7 @@ import { handleRelayRpcStreamPull } from "./presentation/socket/consumers/relay_
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { env } from "./shared/config/env";
 import { AppError } from "./shared/errors/app_error";
+import { HUB_SERVER_CAPABILITIES } from "./shared/constants/agent_transport_contract";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { container } from "./shared/di/container";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
@@ -71,44 +72,6 @@ type SocketData = {
 };
 
 type HubSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
-
-const serverCapabilities = {
-  protocols: ["jsonrpc-v2"],
-  encodings: ["json"],
-  compressions: ["gzip", "none"],
-  extensions: {
-    batchSupport: true,
-    binaryPayload: true,
-    compressionThreshold: 1024,
-    /** Aligned with plug_agente OutboundCompressionMode.auto: gzip only when smaller than raw UTF-8. */
-    outboundCompressionMode: "auto",
-    /** Optional explicit handshake completion sent by newer agents through `agent:ready`. */
-    protocolReadyAck: true,
-    maxInflationRatio: 20,
-    signatureRequired: false,
-    signatureScope: "transport-frame",
-    /** Aligned with plug_agente capabilities example (`hmac-sha256` transport-frame signing). */
-    signatureAlgorithms: ["hmac-sha256"],
-    streamingResults: true,
-    plugProfile: "plug-jsonrpc-profile/2.6",
-    orderedBatchResponses: true,
-    notificationNullIdCompatibility: true,
-    paginationModes: ["page-offset", "cursor-keyset"],
-    traceContext: ["w3c-trace-context", "legacy-trace-id"],
-    errorFormat: "structured-error-data",
-    transportFrame: "payload-frame/1.0",
-  },
-  limits: {
-    max_payload_bytes: 10 * 1024 * 1024,
-    max_compressed_payload_bytes: 10 * 1024 * 1024,
-    max_decoded_payload_bytes: 10 * 1024 * 1024,
-    max_rows: 50000,
-    max_batch_size: 32,
-    max_concurrent_streams: 1,
-    streaming_chunk_size: 500,
-    streaming_row_threshold: 500,
-  },
-} as const;
 
 const emitAppError = (socket: HubSocket, message: string): void => {
   socket.emit(socketEvents.appError, {
@@ -453,7 +416,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         socketEvents.agentCapabilities,
         encodePayloadFrame(
           {
-            capabilities: serverCapabilities,
+            capabilities: HUB_SERVER_CAPABILITIES,
           },
           { ...withOptionalRequestId(decoded.value.frame.requestId), omitTraceId: true },
         ),

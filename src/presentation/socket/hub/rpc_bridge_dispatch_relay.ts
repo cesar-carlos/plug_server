@@ -54,7 +54,11 @@ import {
   registerRelayRequestRoute,
   removeRelayRequestRoute,
 } from "./relay_request_registry";
-import { resolveOutboundApiVersion } from "./rpc_bridge_command_helpers";
+import {
+  clampCommandMaxRows,
+  hasNotificationCommand,
+  resolveOutboundApiVersion,
+} from "./rpc_bridge_command_helpers";
 import {
   createRelayStreamHandlers,
   emitRelayTimeoutResponse,
@@ -165,13 +169,20 @@ export const createRpcBridgeRelayDispatch = (
     }
 
     const command = parsed.data;
+    if (hasNotificationCommand(command)) {
+      throw badRequest(
+        "relay:rpc.request does not support JSON-RPC notifications (`id: null`); provide a request id",
+      );
+    }
     const normalizedCommand = normalizeCommandForAgent(command);
 
     const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
     if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
       throw notFound("Conversation not found");
     }
-
+    const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(conversation.agentId);
+    const clamped = clampCommandMaxRows(normalizedCommand, effectivePolicy.maxRows);
+    const normalizedAndClamped = clamped.command as typeof normalizedCommand;
     if (getRelayRegisteredRouteCount() >= relayMaxPendingRequests) {
       throw serviceUnavailable("Relay pending request capacity reached");
     }
@@ -210,7 +221,7 @@ export const createRpcBridgeRelayDispatch = (
       throw serviceUnavailable("Agent socket is unavailable");
     }
 
-    const cmdRecord = normalizedCommand as Record<string, unknown>;
+    const cmdRecord = normalizedAndClamped as Record<string, unknown>;
     const clientRequestId = toRequestId(cmdRecord.id);
     const idempotencyMap = clientRequestId
       ? getOrCreateRelayIdempotencyMap(conversation.conversationId)
@@ -253,7 +264,7 @@ export const createRpcBridgeRelayDispatch = (
     const traceId = toRequestId(decoded.value.frame.traceId) ?? randomUUID();
     const existingMeta = toRecord(cmdRecord.meta) ?? {};
     const commandPayload: Record<string, unknown> = {
-      ...normalizedCommand,
+      ...normalizedAndClamped,
       id: requestId,
       api_version: resolveOutboundApiVersion(cmdRecord),
       meta: {
@@ -273,6 +284,20 @@ export const createRpcBridgeRelayDispatch = (
       jsonRpcMethod: inferBridgeCommandMethod(command),
       agentId: conversation.agentId,
     });
+
+    if (!effectivePolicy.allowsNoneCompression && !effectivePolicy.allowsGzip) {
+      throw badRequest("Agent capabilities do not support any advertised PayloadFrame compression");
+    }
+    if (input.payloadFrameCompression === "always" && !effectivePolicy.allowsGzip) {
+      throw badRequest("Agent capabilities do not allow gzip compression for PayloadFrame");
+    }
+    if (input.payloadFrameCompression === "none" && !effectivePolicy.allowsNoneCompression) {
+      throw badRequest("Agent capabilities do not allow uncompressed PayloadFrame");
+    }
+    const relayCompressionPreference =
+      input.payloadFrameCompression === undefined && !effectivePolicy.allowsGzip
+        ? "none"
+        : input.payloadFrameCompression;
 
     const timeoutHandle = setTimeout(() => {
       const route = getRelayRequestRoute(requestId);
@@ -320,9 +345,7 @@ export const createRpcBridgeRelayDispatch = (
       streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
     });
 
-    const relayPayloadFrameOpts = payloadFrameEncodeOptionsFromPreference(
-      input.payloadFrameCompression,
-    );
+    const relayPayloadFrameOpts = payloadFrameEncodeOptionsFromPreference(relayCompressionPreference);
 
     trace?.addPhaseMs("relay_preflight_ms", performance.now() - relayPreflightStart);
 

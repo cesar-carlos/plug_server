@@ -1,4 +1,9 @@
 import { env } from "../../../shared/config/env";
+import {
+  HUB_MAX_BATCH_SIZE,
+  HUB_MAX_CONCURRENT_STREAMS,
+  HUB_MAX_ROWS,
+} from "../../../shared/constants/agent_transport_contract";
 
 export interface RegisteredAgent {
   readonly agentId: string;
@@ -89,6 +94,61 @@ const resolveStreamPullWindowPolicy = (
     pickPositiveInteger(limits, ["maxStreamPullWindowSize", "max_stream_pull_window_size"]);
 
   return { recommendedWindow, maxWindow };
+};
+
+const toCompressionSet = (value: unknown): ReadonlySet<string> => {
+  if (!Array.isArray(value)) {
+    return new Set<string>();
+  }
+  const out = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+    const normalized = item.trim().toLowerCase();
+    if (normalized !== "") {
+      out.add(normalized);
+    }
+  }
+  return out;
+};
+
+const resolveDispatchPolicy = (
+  capabilities: Record<string, unknown>,
+): {
+  readonly maxRows: number;
+  readonly maxBatchSize: number;
+  readonly maxConcurrentStreams: number;
+  readonly allowsGzip: boolean;
+  readonly allowsNoneCompression: boolean;
+} => {
+  const limits = isRecord(capabilities.limits) ? capabilities.limits : null;
+  const compressions = toCompressionSet(capabilities.compressions);
+  const advertisedMaxRows = pickPositiveInteger(limits, ["max_rows", "maxRows"]);
+  const advertisedMaxBatch = pickPositiveInteger(limits, ["max_batch_size", "maxBatchSize"]);
+  const advertisedMaxConcurrentStreams = pickPositiveInteger(limits, [
+    "max_concurrent_streams",
+    "maxConcurrentStreams",
+  ]);
+
+  const maxRows =
+    advertisedMaxRows !== null ? Math.max(1, Math.min(HUB_MAX_ROWS, advertisedMaxRows)) : HUB_MAX_ROWS;
+  const maxBatchSize =
+    advertisedMaxBatch !== null
+      ? Math.max(1, Math.min(HUB_MAX_BATCH_SIZE, advertisedMaxBatch))
+      : HUB_MAX_BATCH_SIZE;
+  const maxConcurrentStreams =
+    advertisedMaxConcurrentStreams !== null
+      ? Math.max(1, Math.min(HUB_MAX_CONCURRENT_STREAMS, advertisedMaxConcurrentStreams))
+      : HUB_MAX_CONCURRENT_STREAMS;
+
+  return {
+    maxRows,
+    maxBatchSize,
+    maxConcurrentStreams,
+    allowsGzip: compressions.size === 0 ? true : compressions.has("gzip"),
+    allowsNoneCompression: compressions.size === 0 ? true : compressions.has("none"),
+  };
 };
 
 class InMemoryAgentRegistry {
@@ -292,6 +352,26 @@ class InMemoryAgentRegistry {
       requestedWindow === undefined && recommendedWindow !== null ? recommendedWindow : baseWindow;
 
     return maxWindow !== null ? Math.max(1, Math.min(resolved, maxWindow)) : resolved;
+  }
+
+  resolveEffectiveDispatchPolicy(agentId: string): {
+    readonly maxRows: number;
+    readonly maxBatchSize: number;
+    readonly maxConcurrentStreams: number;
+    readonly allowsGzip: boolean;
+    readonly allowsNoneCompression: boolean;
+  } {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      return {
+        maxRows: HUB_MAX_ROWS,
+        maxBatchSize: HUB_MAX_BATCH_SIZE,
+        maxConcurrentStreams: HUB_MAX_CONCURRENT_STREAMS,
+        allowsGzip: true,
+        allowsNoneCompression: true,
+      };
+    }
+    return resolveDispatchPolicy(agent.capabilities);
   }
 
   clear(): void {

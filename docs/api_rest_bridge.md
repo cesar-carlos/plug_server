@@ -262,7 +262,7 @@ O limite HTTP total continua a ser `REQUEST_BODY_LIMIT`; estes tetos evitam carg
 | Campo             | Tipo    | Obrigatorio | Restricoes                               | Descricao                                                      |
 | ----------------- | ------- | ----------- | ---------------------------------------- | -------------------------------------------------------------- |
 | `timeout_ms`      | integer | nao         | 1..300000 (5 min)                        | Timeout de execucao SQL no agente (ms)                         |
-| `max_rows`        | integer | nao         | 1..1000000, default 50000                | Maximo de linhas retornadas (limite alinhado ao agente)        |
+| `max_rows`        | integer | nao         | 1..1000000                               | Maximo de linhas retornadas; o limite efetivo pode ser reduzido pelo acordo hub/agente nas capabilities |
 | `page`            | integer | nao         | >= 1, requer `page_size`                 | Numero da pagina (1-based)                                     |
 | `page_size`      | integer | nao         | 1..50000, requer `page`                  | Linhas por pagina                                              |
 | `cursor`         | string  | nao         | exclusivo com `page`/`page_size`         | Token opaco de continuacao (keyset)                            |
