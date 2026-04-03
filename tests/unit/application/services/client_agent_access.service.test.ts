@@ -109,6 +109,7 @@ describe("ClientAgentAccessService", () => {
         passwordHash: "hash",
         name: "Client",
         lastName: "One",
+        status: "active",
       }),
     );
 
@@ -153,5 +154,28 @@ describe("ClientAgentAccessService", () => {
 
     const hasAccess = await accessRepository.hasAccess(clientId, agentId);
     expect(hasAccess).toBe(true);
+  });
+
+  it("should reset decision metadata when reopening a processed request", async () => {
+    const initialRequest = await service.requestAccess(clientId, [agentId]);
+    expect(initialRequest.ok).toBe(true);
+
+    const token = emailSender.ownerAccessRequests[0]?.token;
+    expect(token).toBeTruthy();
+
+    const rejected = await service.rejectByToken(token!, "Needs review");
+    expect(rejected.ok).toBe(true);
+
+    const reopened = await service.requestAccess(clientId, [agentId]);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) {
+      return;
+    }
+
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored).not.toBeNull();
+    expect(stored?.status).toBe("pending");
+    expect(stored?.decidedAt).toBeUndefined();
+    expect(stored?.decisionReason).toBeUndefined();
   });
 });

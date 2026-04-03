@@ -6,6 +6,7 @@ import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
+import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 import { env } from "../../src/shared/config/env";
@@ -61,6 +62,36 @@ const waitForEvent = <T>(
 
     socket.on(eventName, onEvent);
   });
+};
+
+const registerApprovedClient = async (
+  baseUrl: string,
+  ownerEmail: string,
+): Promise<{ clientId: string; accessToken: string }> => {
+  const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const clientEmail = `agents-http-client-${unique}@test.com`;
+  const password = "ClientAgentsHttp1";
+
+  const registerRes = await request(baseUrl).post("/api/v1/client-auth/register").send({
+    ownerEmail,
+    email: clientEmail,
+    password,
+    name: "HTTP",
+    lastName: "Client",
+  });
+  expect(registerRes.status).toBe(201);
+  await approveClientRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
+
+  const loginRes = await request(baseUrl).post("/api/v1/client-auth/login").send({
+    email: clientEmail,
+    password,
+  });
+  expect(loginRes.status).toBe(200);
+
+  return {
+    clientId: registerRes.body.client.id as string,
+    accessToken: loginRes.body.accessToken as string,
+  };
 };
 
 const emitAgentReady = (socket: ReturnType<typeof ioClient>, agentId: string): void => {
@@ -155,6 +186,70 @@ describe("Agents HTTP bridge", () => {
   it("should require auth for GET /api/v1/agents", async () => {
     const response = await request(baseUrl).get("/api/v1/agents");
     expect(response.status).toBe(401);
+  });
+
+  it("should allow client principals to dispatch commands only with approved access", async () => {
+    const approvedClient = await registerApprovedClient(baseUrl, email);
+    await repositories.clientAgentAccess.addAccess(approvedClient.clientId, testAgentId);
+
+    const onRpcRequest = (rawPayload: unknown): void => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok || !isRecord(decoded.value.data)) {
+        return;
+      }
+
+      const requestId = toRequestId(decoded.value.data.id);
+      if (!requestId || !requestId.startsWith("client-http-")) {
+        return;
+      }
+
+      agentSocket?.emit(
+        "rpc:response",
+        encodePayloadFrame({
+          jsonrpc: "2.0",
+          id: requestId,
+          result: { ok: true, principal: "client" },
+        }),
+      );
+    };
+    agentSocket?.on("rpc:request", onRpcRequest);
+
+    try {
+      const okResponse = await request(baseUrl)
+        .post("/api/v1/agents/commands")
+        .set("Authorization", `Bearer ${approvedClient.accessToken}`)
+        .send({
+          agentId: testAgentId,
+          command: {
+            jsonrpc: "2.0",
+            id: `client-http-${Date.now()}`,
+            method: "sql.execute",
+            params: { sql: "select 1" },
+          },
+        });
+      expect(okResponse.status).toBe(200);
+      expect(okResponse.body.response?.type).toBe("single");
+      expect(okResponse.body.response?.success).toBe(true);
+      expect(okResponse.body.response?.item?.result).toEqual({ ok: true, principal: "client" });
+    } finally {
+      agentSocket?.off("rpc:request", onRpcRequest);
+    }
+
+    const unapprovedClient = await registerApprovedClient(baseUrl, email);
+    const forbiddenResponse = await request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${unapprovedClient.accessToken}`)
+      .send({
+        agentId: testAgentId,
+        command: {
+          jsonrpc: "2.0",
+          id: `client-http-forbidden-${Date.now()}`,
+          method: "sql.execute",
+          params: { sql: "select 1" },
+        },
+      });
+    expect(forbiddenResponse.status).toBe(403);
+    expect(forbiddenResponse.body.code).toBe("AGENT_ACCESS_DENIED");
   });
 
   it("should list connected agents for authenticated users", async () => {
@@ -1378,6 +1473,8 @@ describe("Agents HTTP bridge", () => {
       throw new Error("Agent socket not initialized");
     }
 
+    const overloadAccessToken = await createAdminAccessToken(baseUrl);
+
     const onRpcRequest = (rawPayload: unknown): void => {
       const decoded = decodePayloadFrame(rawPayload);
       if (!decoded.ok || !isRecord(decoded.value.data)) {
@@ -1398,18 +1495,18 @@ describe("Agents HTTP bridge", () => {
             result: { ok: true },
           }),
         );
-      }, 250);
+      }, Math.max(env.socketRestAgentQueueWaitMs + 150, 350));
     };
     agentSocket.on("rpc:request", onRpcRequest);
 
-    const requestCount = 36;
+    const requestCount = env.socketRestAgentMaxInflight + env.socketRestAgentMaxQueue + 1;
     const requests = Array.from({ length: requestCount }, (_item, index) => {
       return request(baseUrl)
         .post("/api/v1/agents/commands")
-        .set("Authorization", `Bearer ${accessToken}`)
+        .set("Authorization", `Bearer ${overloadAccessToken}`)
         .send({
           agentId: testAgentId,
-          timeoutMs: 800,
+          timeoutMs: Math.max(env.socketRestAgentQueueWaitMs + 1000, 1500),
           command: {
             jsonrpc: "2.0",
             method: "sql.execute",

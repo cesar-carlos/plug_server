@@ -219,6 +219,7 @@ describe("Socket namespaces", () => {
   let server: Awaited<ReturnType<typeof createTestServer>>;
   let baseUrl: string;
   let accessToken: string;
+  let ownerUserId: string;
   let ownerEmail: string;
   let clientAccessToken: string;
   let clientId: string;
@@ -244,6 +245,7 @@ describe("Socket namespaces", () => {
     ownerEmail = "socket@test.com";
 
     const userId: string = registerRes.body.user.id as string;
+    ownerUserId = userId;
     await seedAgent({
       agentId: testAgentId,
       name: "Socket Test Agent",
@@ -2067,6 +2069,257 @@ describe("Socket namespaces", () => {
         expect(catalogRes.body.agent.tradeName).toBe("Socket Store");
         expect(catalogRes.body.agent.document).toBe("11222333000181");
         expect(catalogRes.body.agent.lastLoginUserId).toBeDefined();
+      } finally {
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should refresh an existing catalog agent from agent.getProfile on register", async () => {
+      const existingAgentId = randomUUID();
+      await seedAgent({
+        agentId: existingAgentId,
+        name: "Stale Catalog Agent",
+        tradeName: "Stale Trade",
+        cnpjCpf: `stale-${existingAgentId.slice(0, 8)}`,
+        mobile: "11000000000",
+        email: "stale-agent@plug.local",
+        notes: "stale profile",
+        address: {
+          city: "Old City",
+          state: "RJ",
+        },
+      });
+
+      const loginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+        email: "socket@test.com",
+        password: "SocketTest1",
+        agentId: existingAgentId,
+      });
+      expect(loginRes.status).toBe(200);
+
+      const agentSocket = await connectAgent(baseUrl, loginRes.body.accessToken as string);
+      try {
+        const syncHandled = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("Timed out waiting for existing profile sync RPC")),
+            6_000,
+          );
+          agentSocket.on("rpc:request", (rawPayload: unknown) => {
+            const decoded = decodePayloadFrame(rawPayload);
+            if (!decoded.ok || !isRecord(decoded.value.data)) {
+              clearTimeout(timeout);
+              reject(new Error("Invalid existing sync rpc:request payload"));
+              return;
+            }
+            if (decoded.value.data.method !== "agent.getProfile") {
+              return;
+            }
+
+            const rpcId = toRequestId(decoded.value.data.id);
+            if (!rpcId) {
+              clearTimeout(timeout);
+              reject(new Error("Expected JSON-RPC id on existing agent.getProfile"));
+              return;
+            }
+
+            agentSocket.emit(
+              "rpc:response",
+              encodePayloadFrame({
+                jsonrpc: "2.0",
+                id: rpcId,
+                result: {
+                  agent_id: existingAgentId,
+                  profile: {
+                    name: "Fresh Catalog Agent",
+                    trade_name: "Fresh Trade",
+                    document: "99887766000155",
+                    document_type: "cnpj",
+                    mobile: "11988887777",
+                    email: "fresh-agent@plug.local",
+                    address: {
+                      city: "Curitiba",
+                      state: "PR",
+                    },
+                    notes: "fresh profile",
+                  },
+                  updated_at: new Date().toISOString(),
+                },
+              }),
+            );
+
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+
+        await registerAgentAndWaitReady(
+          agentSocket,
+          {
+            protocols: ["jsonrpc-v2"],
+            encodings: ["json"],
+            compressions: ["none"],
+          },
+          existingAgentId,
+        );
+        await syncHandled;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        const catalogRes = await request(baseUrl)
+          .get(`/api/v1/agents/catalog/${existingAgentId}`)
+          .set("Authorization", `Bearer ${accessToken}`);
+        expect(catalogRes.status).toBe(200);
+        expect(catalogRes.body.agent.agentId).toBe(existingAgentId);
+        expect(catalogRes.body.agent.name).toBe("Fresh Catalog Agent");
+        expect(catalogRes.body.agent.tradeName).toBe("Fresh Trade");
+        expect(catalogRes.body.agent.document).toBe("99887766000155");
+        expect(catalogRes.body.agent.mobile).toBe("11988887777");
+        expect(catalogRes.body.agent.email).toBe("fresh-agent@plug.local");
+        expect(catalogRes.body.agent.address?.city).toBe("Curitiba");
+        expect(catalogRes.body.agent.address?.state).toBe("PR");
+        expect(catalogRes.body.agent.notes).toBe("fresh profile");
+        expect(catalogRes.body.agent.lastLoginUserId).toBeDefined();
+        expect(catalogRes.body.agent.profileUpdatedAt).toEqual(expect.any(String));
+      } finally {
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should keep ownership idempotent when agent:register repeats for the same user", async () => {
+      const ownedAgentId = randomUUID();
+      await seedAgent({
+        agentId: ownedAgentId,
+        name: "Already Owned Agent",
+        cnpjCpf: `owned-${ownedAgentId.slice(0, 8)}`,
+      });
+      await seedAgentBinding(ownerUserId, ownedAgentId);
+
+      const loginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+        email: "socket@test.com",
+        password: "SocketTest1",
+        agentId: ownedAgentId,
+      });
+      expect(loginRes.status).toBe(200);
+
+      const agentSocket = await connectAgent(baseUrl, loginRes.body.accessToken as string);
+      try {
+        const syncHandled = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("Timed out waiting for idempotent profile sync RPC")),
+            6_000,
+          );
+          agentSocket.on("rpc:request", (rawPayload: unknown) => {
+            const decoded = decodePayloadFrame(rawPayload);
+            if (!decoded.ok || !isRecord(decoded.value.data)) {
+              clearTimeout(timeout);
+              reject(new Error("Invalid idempotent sync rpc:request payload"));
+              return;
+            }
+            if (decoded.value.data.method !== "agent.getProfile") {
+              return;
+            }
+
+            const rpcId = toRequestId(decoded.value.data.id);
+            if (!rpcId) {
+              clearTimeout(timeout);
+              reject(new Error("Expected JSON-RPC id on idempotent agent.getProfile"));
+              return;
+            }
+
+            agentSocket.emit(
+              "rpc:response",
+              encodePayloadFrame({
+                jsonrpc: "2.0",
+                id: rpcId,
+                result: {
+                  agent_id: ownedAgentId,
+                  profile: {
+                    name: "Already Owned Agent",
+                    trade_name: "Idempotent Sync",
+                  },
+                  updated_at: new Date().toISOString(),
+                },
+              }),
+            );
+
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+
+        await registerAgentAndWaitReady(
+          agentSocket,
+          {
+            protocols: ["jsonrpc-v2"],
+            encodings: ["json"],
+            compressions: ["none"],
+          },
+          ownedAgentId,
+        );
+        await syncHandled;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        await expect(repositories.agentIdentity.findOwnerUserId(ownedAgentId)).resolves.toBe(
+          ownerUserId,
+        );
+
+        const meList = await request(baseUrl)
+          .get("/api/v1/me/agents")
+          .set("Authorization", `Bearer ${accessToken}`);
+        expect(meList.status).toBe(200);
+        expect(
+          (meList.body.agents as Array<{ agentId: string; tradeName?: string | null }>).some(
+            (agent) => agent.agentId === ownedAgentId && agent.tradeName === "Idempotent Sync",
+          ),
+        ).toBe(true);
+      } finally {
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should reject agent:register when ownership changes after agent-login", async () => {
+      const racedAgentId = randomUUID();
+      await seedAgent({
+        agentId: racedAgentId,
+        name: "Race Agent",
+        cnpjCpf: `race-${racedAgentId.slice(0, 8)}`,
+      });
+
+      const loginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+        email: "socket@test.com",
+        password: "SocketTest1",
+        agentId: racedAgentId,
+      });
+      expect(loginRes.status).toBe(200);
+
+      const otherUser = await createUserAccessToken(baseUrl);
+      await seedAgentBinding(otherUser.userId, racedAgentId);
+
+      const agentSocket = await connectAgent(baseUrl, loginRes.body.accessToken as string);
+      try {
+        const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
+          agentSocket,
+          "app:error",
+        );
+
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: racedAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        );
+
+        const appError = await appErrorPromise;
+        expect(appError.code).toBe("SOCKET_PROTOCOL_ERROR");
+        expect(String(appError.message)).toContain("already linked");
+        await expect(repositories.agentIdentity.findOwnerUserId(racedAgentId)).resolves.toBe(
+          otherUser.userId,
+        );
       } finally {
         agentSocket.disconnect();
       }

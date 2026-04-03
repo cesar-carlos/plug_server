@@ -2,7 +2,7 @@ ALTER TYPE "ClientStatus" ADD VALUE IF NOT EXISTS 'pending';
 
 CREATE TABLE "client_registration_approval_tokens" (
     "id" VARCHAR(128) NOT NULL,
-    "client_id" UUID NOT NULL,
+    "client_id" TEXT NOT NULL,
     "expires_at" TIMESTAMP(3) NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

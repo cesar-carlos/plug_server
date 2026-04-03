@@ -2,6 +2,7 @@ import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { User } from "../../src/domain/entities/user.entity";
 import { getTestRepositoryAccess } from "../../src/shared/di/container";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
@@ -125,6 +126,48 @@ describe("Auth API", () => {
       const second = await request(app).post("/api/v1/auth/registration/approve").send({ token });
       expect(second.status).toBe(404);
     });
+
+    it("POST /api/v1/auth/registration/reject rejects the registration and blocks login", async () => {
+      const rejectedUser = { email: `rejected-${Date.now()}@test.com`, password: "Rejected1" };
+      const reg = await request(app).post("/api/v1/auth/register").send(rejectedUser);
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const reject = await request(app)
+        .post("/api/v1/auth/registration/reject")
+        .send({ token, reason: "Manual review failed" });
+      expect(reject.status).toBe(200);
+      expect(reject.text).toContain("Registration rejected");
+      expect(reject.text).toContain(rejectedUser.email);
+
+      const login = await request(app).post("/api/v1/auth/login").send(rejectedUser);
+      expect(login.status).toBe(403);
+      expect(login.body.code).toBe("FORBIDDEN");
+      expect(String(login.body.message)).toContain("rejected");
+    });
+
+    it("GET /api/v1/auth/registration/status returns expired and approve returns 410 for expired tokens", async () => {
+      const reg = await request(app)
+        .post("/api/v1/auth/register")
+        .send({ email: `expired-user-${Date.now()}@test.com`, password: "ExpiredFlow1" });
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const storedToken = await repositories.registrationApprovalToken.findById(token);
+      expect(storedToken).not.toBeNull();
+      await repositories.registrationApprovalToken.save({
+        ...storedToken!,
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+
+      const status = await request(app).get("/api/v1/auth/registration/status").query({ token });
+      expect(status.status).toBe(200);
+      expect(status.body.status).toBe("expired");
+
+      const approve = await request(app).post("/api/v1/auth/registration/approve").send({ token });
+      expect(approve.status).toBe(410);
+      expect(approve.body.code).toBe("REGISTRATION_TOKEN_EXPIRED");
+    });
   });
 
   // ─── Login ─────────────────────────────────────────────────────────────────
@@ -165,6 +208,32 @@ describe("Auth API", () => {
         .send({ email: "nobody@test.com", password: "Password1" });
 
       expect(response.status).toBe(401);
+    });
+
+    it("should return 403 when account was blocked after approval", async () => {
+      const blockedCredentials = { email: `blocked-login-${Date.now()}@test.com`, password: "Blocked1A" };
+      const reg = await request(app).post("/api/v1/auth/register").send(blockedCredentials);
+      expect(reg.status).toBe(201);
+      await approveRegistrationByToken(app, reg.body.approvalToken as string);
+
+      const user = await repositories.user.findById(reg.body.user.id as string);
+      expect(user).not.toBeNull();
+      await repositories.user.save(
+        new User({
+          id: user!.id,
+          email: user!.email,
+          passwordHash: user!.passwordHash,
+          role: user!.role,
+          status: "blocked",
+          createdAt: user!.createdAt,
+          ...(user!.celular !== undefined ? { celular: user!.celular } : {}),
+        }),
+      );
+
+      const login = await request(app).post("/api/v1/auth/login").send(blockedCredentials);
+      expect(login.status).toBe(403);
+      expect(login.body.code).toBe("FORBIDDEN");
+      expect(String(login.body.message)).toContain("blocked");
     });
   });
 

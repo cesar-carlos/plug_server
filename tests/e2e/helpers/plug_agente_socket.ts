@@ -7,8 +7,46 @@ import { io as ioClient, type Socket as IoSocket } from "socket.io-client";
 
 import { env } from "../../../src/shared/config/env";
 import { encodePayloadFrame, decodePayloadFrame } from "../../../src/shared/utils/payload_frame";
+import { isRecord, toRequestId } from "../../../src/shared/utils/rpc_types";
 
 export type AgentSocket = IoSocket;
+
+const handleInitialAgentProfileSync = async (
+  socket: AgentSocket,
+  agentId: string,
+  timeoutMs = 15_000,
+): Promise<void> => {
+  const raw = await waitForSocketEvent<unknown>(socket, "rpc:request", timeoutMs);
+  const decoded = decodePayloadFrame(raw);
+  if (!decoded.ok || !isRecord(decoded.value.data)) {
+    throw new Error("expected initial agent.getProfile rpc:request");
+  }
+
+  const payload = decoded.value.data;
+  if (payload.method !== "agent.getProfile") {
+    throw new Error(`expected initial agent.getProfile, got ${String(payload.method)}`);
+  }
+
+  const id = toRequestId(payload.id);
+  if (!id) {
+    throw new Error("agent.getProfile request is missing id");
+  }
+
+  await emitAgentRpcResponseWithAck(
+    socket,
+    encodePayloadFrame({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        agent_id: agentId,
+        updated_at: new Date().toISOString(),
+        profile: {
+          name: `E2E Agent ${agentId.slice(0, 8)}`,
+        },
+      },
+    }),
+  );
+};
 
 /** Default capabilities aligned with plug_agente negotiation (binary PayloadFrame). */
 export const defaultPlugAgenteCapabilities = {
@@ -67,11 +105,11 @@ export const connectPlugAgenteSocket = (
   });
 };
 
-export const emitAgentReady = (
+export const emitAgentReady = async (
   socket: AgentSocket,
   agentId: string,
   protocol = "jsonrpc-v2",
-): void => {
+): Promise<void> => {
   socket.emit(
     "agent:ready",
     encodePayloadFrame({
@@ -80,6 +118,7 @@ export const emitAgentReady = (
       protocol,
     }),
   );
+  await handleInitialAgentProfileSync(socket, agentId);
 };
 
 /**
@@ -112,13 +151,16 @@ export const registerAgentOnHub = async (
   const autoReady = options?.autoReady ?? true;
 
   if (protocolReadyAck && autoReady) {
-    emitAgentReady(socket, agentId);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await emitAgentReady(socket, agentId);
     return;
   }
 
   if (!protocolReadyAck && env.socketAgentProtocolReadyGraceMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs));
+  }
+
+  if (!protocolReadyAck) {
+    await handleInitialAgentProfileSync(socket, agentId);
   }
 };
 

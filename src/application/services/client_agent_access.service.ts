@@ -212,8 +212,9 @@ export class ClientAgentAccessService {
           alreadyApproved.push(agentId);
           continue;
         }
+        const { decidedAt: _decidedAt, decisionReason: _decisionReason, ...baseRequest } = existing;
         request = new ClientAgentAccessRequest({
-          ...existing,
+          ...baseRequest,
           status: "pending",
           requestedAt: new Date(),
           updatedAt: new Date(),

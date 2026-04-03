@@ -96,7 +96,7 @@ describe("E2E plug_agente communication (hub ↔ agent)", () => {
         expect(blocked.status).toBe(503);
         expect(String(blocked.body.message)).toContain("protocol negotiation is not ready");
 
-        emitAgentReady(agentSocket, ctx.agentId);
+        await emitAgentReady(agentSocket, ctx.agentId);
 
         const rpcHandled = new Promise<void>((resolve, reject) => {
           const t = setTimeout(() => reject(new Error("rpc:request timeout")), 15_000);

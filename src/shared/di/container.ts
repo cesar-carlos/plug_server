@@ -184,6 +184,8 @@ export const getTestRepositoryAccess = (): {
   readonly agent: IAgentRepository;
   readonly client: IClientRepository;
   readonly clientAgentAccess: IClientAgentAccessRepository;
+  readonly clientAgentAccessApprovalToken: IClientAgentAccessApprovalTokenRepository;
+  readonly registrationApprovalToken: typeof registrationApprovalTokenRepository;
   readonly clientRegistrationApprovalToken: IClientRegistrationApprovalTokenRepository;
 } => {
   if (env.nodeEnv !== "test") {
@@ -196,6 +198,16 @@ export const getTestRepositoryAccess = (): {
     agent: agentRepository,
     client: clientRepository,
     clientAgentAccess: clientAgentAccessRepository,
+    clientAgentAccessApprovalToken: clientAgentAccessApprovalTokenRepository,
+    registrationApprovalToken: registrationApprovalTokenRepository,
     clientRegistrationApprovalToken: clientRegistrationApprovalTokenRepository,
   };
+};
+
+export const getTestNoopEmailSender = (): NoopEmailSender => {
+  if (env.nodeEnv !== "test" || !(emailSender instanceof NoopEmailSender)) {
+    throw new Error("getTestNoopEmailSender is only available with NoopEmailSender in test environment");
+  }
+
+  return emailSender;
 };

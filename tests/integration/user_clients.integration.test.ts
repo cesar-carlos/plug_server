@@ -2,33 +2,15 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { registerOwnerSession } from "./helpers/client_sessions";
 import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
-import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
 const app = createApp();
 
-const registerOwner = async (): Promise<{
-  userId: string;
-  accessToken: string;
-}> => {
-  const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const email = `owner-clients-${unique}@test.com`;
-  const password = "OwnerClients1";
-  const registerRes = await request(app).post("/api/v1/auth/register").send({ email, password });
-  expect(registerRes.status).toBe(201);
-  await approveRegistrationByToken(app, registerRes.body.approvalToken as string);
-  const loginRes = await request(app).post("/api/v1/auth/login").send({ email, password });
-  expect(loginRes.status).toBe(200);
-  return {
-    userId: registerRes.body.user.id as string,
-    accessToken: loginRes.body.accessToken as string,
-  };
-};
-
 describe("User client governance API", () => {
   it("registers client under authenticated owner and lists owner clients", async () => {
-    const owner = await registerOwner();
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
     const ownerProfile = await request(app)
       .get("/api/v1/auth/me")
       .set("Authorization", `Bearer ${owner.accessToken}`);
@@ -65,8 +47,42 @@ describe("User client governance API", () => {
     ).toBe(true);
   });
 
+  it("gets a managed client by id and hides clients from other owners", async () => {
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
+    const registerClient = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `managed-detail-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Managed",
+        lastName: "Detail",
+      });
+    expect(registerClient.status).toBe(201);
+    await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
+
+    const detailResponse = await request(app)
+      .get(`/api/v1/me/clients/${registerClient.body.client.id as string}`)
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(detailResponse.status).toBe(200);
+    expect(detailResponse.body.client.id).toBe(registerClient.body.client.id);
+    expect(detailResponse.body.client.email).toBe(registerClient.body.client.email);
+
+    const otherOwner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
+    const hiddenResponse = await request(app)
+      .get(`/api/v1/me/clients/${registerClient.body.client.id as string}`)
+      .set("Authorization", `Bearer ${otherOwner.accessToken}`);
+    expect(hiddenResponse.status).toBe(404);
+  });
+
   it("does not allow owner status endpoint to process pending registrations", async () => {
-    const owner = await registerOwner();
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
     const ownerProfile = await request(app)
       .get("/api/v1/auth/me")
       .set("Authorization", `Bearer ${owner.accessToken}`);
@@ -93,7 +109,7 @@ describe("User client governance API", () => {
   });
 
   it("lets owner review and approve access requests from managed clients", async () => {
-    const owner = await registerOwner();
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
     const ownerProfile = await request(app)
       .get("/api/v1/auth/me")
       .set("Authorization", `Bearer ${owner.accessToken}`);
@@ -150,8 +166,49 @@ describe("User client governance API", () => {
     expect(approvedAgents.body.agentIds).toContain(agent.agentId);
   });
 
+  it("revokes client refresh tokens when owner blocks a managed client", async () => {
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
+    const registerClient = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `blocked-client-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Blocked",
+        lastName: "Managed",
+      });
+    expect(registerClient.status).toBe(201);
+    await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
+
+    const clientLogin = await request(app).post("/api/v1/client-auth/login").send({
+      email: registerClient.body.client.email as string,
+      password: "ClientPwd1",
+    });
+    expect(clientLogin.status).toBe(200);
+    const refreshToken = clientLogin.body.refreshToken as string;
+    expect(typeof refreshToken).toBe("string");
+
+    const blockResponse = await request(app)
+      .patch(`/api/v1/me/clients/${registerClient.body.client.id as string}/status`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ status: "blocked" });
+    expect(blockResponse.status).toBe(200);
+    expect(blockResponse.body.client.status).toBe("blocked");
+
+    const refreshResponse = await request(app)
+      .post("/api/v1/client-auth/refresh")
+      .send({ refreshToken });
+    expect(refreshResponse.status).toBe(401);
+  });
+
   it("allows owner to revoke agent access from a managed client", async () => {
-    const owner = await registerOwner();
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
     const ownerProfile = await request(app)
       .get("/api/v1/auth/me")
       .set("Authorization", `Bearer ${owner.accessToken}`);

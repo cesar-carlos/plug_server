@@ -4,10 +4,12 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { getTestRepositoryAccess } from "../../src/shared/di/container";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
 const app = createApp();
+const repositories = getTestRepositoryAccess();
 
 const registerAndApprove = async (email: string, password: string): Promise<string> => {
   const reg = await request(app).post("/api/v1/auth/register").send({ email, password });
@@ -33,6 +35,33 @@ describe("Agent login ownership", () => {
 
     expect(login.status).toBe(200);
     expect(login.body.user.agentId).toBe(agentId);
+  });
+
+  it("agent-login alone does not create ownership before agent:register", async () => {
+    const agentId = randomUUID();
+    const email = `login-only-${Date.now()}@test.com`;
+    const password = "Ownership1";
+
+    await registerAndApprove(email, password);
+    await seedAgent({ agentId, name: "Login Only Agent", cnpjCpf: "52998224724" });
+
+    const login = await request(app).post("/api/v1/auth/agent-login").send({
+      email,
+      password,
+      agentId,
+    });
+
+    expect(login.status).toBe(200);
+    await expect(repositories.agentIdentity.findOwnerUserId(agentId)).resolves.toBeNull();
+
+    const userLogin = await request(app).post("/api/v1/auth/login").send({ email, password });
+    expect(userLogin.status).toBe(200);
+
+    const meAgents = await request(app)
+      .get("/api/v1/me/agents")
+      .set("Authorization", `Bearer ${userLogin.body.accessToken as string}`);
+    expect(meAgents.status).toBe(200);
+    expect(meAgents.body.agents).toEqual([]);
   });
 
   it("agent-login succeeds when the agent is already bound to the same user", async () => {

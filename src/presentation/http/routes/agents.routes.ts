@@ -2,7 +2,10 @@ import { Router } from "express";
 
 import { listConnectedAgents, proxyCommandToAgent } from "../controllers/agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
-import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
+import {
+  requireAuthAndActiveAccount,
+  requirePrincipalAuthAndActiveAccount,
+} from "../middlewares/auth.middleware";
 import {
   agentsCommandsIpRateLimit,
   agentsCommandsUserRateLimit,
@@ -295,7 +298,7 @@ agentsRouter.get("/", ...requireAuthAndActiveAccount, asyncHandler(listConnected
  */
 agentsRouter.post(
   "/commands",
-  ...requireAuthAndActiveAccount,
+  ...requirePrincipalAuthAndActiveAccount,
   agentsCommandsIpRateLimit,
   agentsCommandsUserRateLimit,
   validateRequest({ body: agentCommandBodySchema }),

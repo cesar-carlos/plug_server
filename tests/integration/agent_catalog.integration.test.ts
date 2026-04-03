@@ -87,6 +87,21 @@ describe("Agent catalog API", () => {
     expect(res.status).toBe(404);
   });
 
+  it("GET /api/v1/agents/catalog/:agentId — admin can read inactive unlinked agent", async () => {
+    const inactive = await seedAgent({
+      name: "Inactive Admin Read",
+      cnpjCpf: `inactive-admin-${Date.now()}`,
+      status: "inactive",
+    });
+
+    const res = await request(app)
+      .get(`/api/v1/agents/catalog/${inactive.agentId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.agent.agentId).toBe(inactive.agentId);
+    expect(res.body.agent.status).toBe("inactive");
+  });
+
   it("DELETE /api/v1/agents/catalog/:agentId — deactivates agent", async () => {
     const agent = await seedAgent({ name: "To Deactivate", cnpjCpf: "deactivate-unique-1" });
 
@@ -111,6 +126,24 @@ describe("Agent catalog API", () => {
       .set("Authorization", `Bearer ${userToken}`)
       .send();
     expect(res.status).toBe(403);
+  });
+
+  it("GET catalog — admin can filter by inactive status across unlinked agents", async () => {
+    const inactive = await seedAgent({
+      name: "Inactive Filtered Admin",
+      cnpjCpf: `inactive-filter-admin-${Date.now()}`,
+      status: "inactive",
+    });
+    await seedAgent({ name: "Active Filtered Admin", cnpjCpf: `active-filter-admin-${Date.now()}` });
+
+    const res = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ status: "inactive", search: "Inactive Filtered Admin" })
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.agents[0]?.agentId).toBe(inactive.agentId);
+    expect(res.body.agents[0]?.status).toBe("inactive");
   });
 
   it("GET catalog — non-admin sees only linked agents and 403 on unlinked id", async () => {
@@ -172,5 +205,38 @@ describe("Agent catalog API", () => {
       .set("Authorization", `Bearer ${userToken}`);
     expect(res.status).toBe(200);
     expect(res.body.agent.status).toBe("inactive");
+  });
+
+  it("GET catalog — non-admin status filter stays scoped to linked agents", async () => {
+    const email = `cat-filter-${Date.now()}@test.com`;
+    const password = "User1234";
+    const regRes = await request(app).post("/api/v1/auth/register").send({ email, password });
+    expect(regRes.status).toBe(201);
+    await approveRegistrationByToken(app, regRes.body.approvalToken as string);
+    const userId = regRes.body.user.id as string;
+    const loginRes = await request(app).post("/api/v1/auth/login").send({ email, password });
+    expect(loginRes.status).toBe(200);
+    const userToken = loginRes.body.accessToken as string;
+
+    const linkedInactive = await seedAgent({
+      name: "Linked Inactive Filter",
+      cnpjCpf: `linked-inactive-${Date.now()}`,
+      status: "inactive",
+    });
+    const unlinkedInactive = await seedAgent({
+      name: "Unlinked Inactive Filter",
+      cnpjCpf: `unlinked-inactive-${Date.now()}`,
+      status: "inactive",
+    });
+    await seedAgentBinding(userId, linkedInactive.agentId);
+
+    const res = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ status: "inactive" })
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(res.status).toBe(200);
+    const ids = (res.body.agents as Array<{ agentId: string }>).map((agent) => agent.agentId);
+    expect(ids).toContain(linkedInactive.agentId);
+    expect(ids).not.toContain(unlinkedInactive.agentId);
   });
 });

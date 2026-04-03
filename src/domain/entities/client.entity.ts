@@ -57,7 +57,7 @@ export class Client {
       name: props.name,
       lastName: props.lastName,
       ...(props.mobile !== undefined ? { mobile: props.mobile } : {}),
-      status: props.status ?? "active",
+      status: props.status ?? "pending",
       createdAt: props.createdAt ?? now,
       updatedAt: props.updatedAt ?? now,
     });

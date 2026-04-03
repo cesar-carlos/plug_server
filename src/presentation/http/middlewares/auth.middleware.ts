@@ -93,6 +93,10 @@ export const requireActiveAccount = async (
     next(unauthorized("Authentication required"));
     return;
   }
+  if (authUser.principal_type === "client") {
+    next(forbidden("User token required"));
+    return;
+  }
   const result = await container.authService.getActiveAccountUser(
     authUser.sub,
     response.locals.activeAccountUser,
@@ -120,6 +124,45 @@ export const resolveActiveAccountUser = async (
 export const requireAuthAndActiveAccount: RequestHandler[] = [
   requireAuth,
   asyncHandler(requireActiveAccount),
+];
+
+const requirePrincipalActiveAccount = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authPrincipal = response.locals.authUser as JwtAccessPayload | undefined;
+  if (!authPrincipal?.sub) {
+    next(unauthorized("Authentication required"));
+    return;
+  }
+
+  if (authPrincipal.principal_type === "client") {
+    const result = await container.clientAuthService.getActiveClient(authPrincipal.sub);
+    if (!result.ok) {
+      next(result.error);
+      return;
+    }
+    response.locals.activeAccountClient = result.value;
+    next();
+    return;
+  }
+
+  const result = await container.authService.getActiveAccountUser(
+    authPrincipal.sub,
+    response.locals.activeAccountUser,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.locals.activeAccountUser = result.value;
+  next();
+};
+
+export const requirePrincipalAuthAndActiveAccount: RequestHandler[] = [
+  requireAuth,
+  asyncHandler(requirePrincipalActiveAccount),
 ];
 
 export const requireClientActiveAccount = async (
