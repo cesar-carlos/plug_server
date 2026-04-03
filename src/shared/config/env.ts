@@ -11,6 +11,19 @@ const isProductionNodeEnv = (): boolean => nodeEnvForDefaults === "production";
 const envSchema = z.object({
   APP_NAME: z.string().default("plug_server"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  /**
+   * When true, Express `trust proxy` is set so `req.ip` and rate-limit keys use `X-Forwarded-For`
+   * correctly behind nginx/reverse proxies. Defaults to true in production, false otherwise.
+   */
+  HTTP_TRUST_PROXY: z.preprocess(
+    (val) => {
+      if (val !== undefined && val !== "" && String(val).trim() !== "") {
+        return String(val).trim().toLowerCase();
+      }
+      return isProductionNodeEnv() ? "true" : "false";
+    },
+    z.enum(["true", "false"]).transform((v) => v === "true"),
+  ),
   PORT: z.coerce.number().int().positive().default(3000),
   CORS_ORIGIN: z.string().default("*"),
   REQUEST_BODY_LIMIT: z.string().default("1mb"),
@@ -433,6 +446,7 @@ if (parsedEnv.NODE_ENV === "production") {
 export const env = {
   appName: parsedEnv.APP_NAME,
   nodeEnv: parsedEnv.NODE_ENV,
+  httpTrustProxy: parsedEnv.HTTP_TRUST_PROXY,
   port: parsedEnv.PORT,
   corsOrigin: parsedEnv.CORS_ORIGIN,
   requestBodyLimit: parsedEnv.REQUEST_BODY_LIMIT,

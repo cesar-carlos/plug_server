@@ -23,6 +23,8 @@ const authRateLimitDisabled: express.RequestHandler = (_req, _res, next) => {
 
 export const createApp = (): Express => {
   const app = express();
+  /** Single reverse proxy hop (e.g. nginx) — required for correct `req.ip` and express-rate-limit when `X-Forwarded-For` is set. */
+  app.set("trust proxy", env.httpTrustProxy ? 1 : false);
 
   morgan.token("request-id", (_request, response) => {
     const requestId = response.getHeader("x-request-id");
