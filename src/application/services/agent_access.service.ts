@@ -1,4 +1,4 @@
-import type { Agent } from "../../domain/entities/agent.entity";
+import { Agent } from "../../domain/entities/agent.entity";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
@@ -79,6 +79,10 @@ export class AgentAccessService {
       return allowed;
     }
 
+    // `agent_identities.agent_id` FK-references `agents`. Catalog rows are normally filled by
+    // profile sync after register; ensure a stub exists before inserting identity.
+    await this.ensureCatalogAgentExistsForIdentity(agentId, userId);
+
     const status = await this.agentIdentityRepository.bindIfUnbound(agentId, userId);
     if (status === "bound_to_other_user") {
       return err(agentAlreadyLinked(agentId));
@@ -102,6 +106,30 @@ export class AgentAccessService {
     }
 
     return ok(agent);
+  }
+
+  private async ensureCatalogAgentExistsForIdentity(agentId: string, userId: string): Promise<void> {
+    const existing = await this.agentRepository.findById(agentId);
+    if (existing) {
+      return;
+    }
+
+    const stub = Agent.create({
+      agentId,
+      name: `Agent ${agentId}`,
+      lastLoginUserId: userId,
+      status: "active",
+    });
+
+    try {
+      await this.agentRepository.save(stub);
+    } catch (e) {
+      const race = await this.agentRepository.findById(agentId);
+      if (race) {
+        return;
+      }
+      throw e;
+    }
   }
 
   private async assertOwnershipEligible(userId: string, agentId: string): Promise<Result<void>> {
