@@ -506,17 +506,14 @@ authRouter.patch(
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required: [currentPassword, newPassword]
- *             properties:
- *               currentPassword:
- *                 type: string
- *               newPassword:
- *                 type: string
- *                 minLength: 8
+ *             $ref: '#/components/schemas/AuthChangePasswordRequest'
  *     responses:
  *       204:
- *         description: Password changed successfully
+ *         description: Password changed successfully (previous access and refresh sessions are invalidated)
+ *       403:
+ *         description: Account is blocked
+ *       404:
+ *         description: User no longer exists
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       400:

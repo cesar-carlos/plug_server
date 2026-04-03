@@ -9,6 +9,7 @@ export interface UserProps {
   /** E.164 Brazilian mobile, e.g. +5511987654321 */
   readonly celular?: string;
   readonly passwordHash: string;
+  readonly credentialsUpdatedAt: Date;
   readonly role: UserRole;
   readonly status: UserStatus;
   readonly createdAt: Date;
@@ -19,6 +20,7 @@ export class User {
   readonly email: string;
   readonly celular?: string;
   readonly passwordHash: string;
+  readonly credentialsUpdatedAt: Date;
   readonly role: UserRole;
   readonly status: UserStatus;
   readonly createdAt: Date;
@@ -30,25 +32,29 @@ export class User {
       this.celular = props.celular;
     }
     this.passwordHash = props.passwordHash;
+    this.credentialsUpdatedAt = props.credentialsUpdatedAt;
     this.role = props.role;
     this.status = props.status;
     this.createdAt = props.createdAt;
   }
 
   static create(
-    props: Omit<UserProps, "id" | "createdAt" | "status"> & {
+    props: Omit<UserProps, "id" | "createdAt" | "status" | "credentialsUpdatedAt"> & {
       id?: string;
       createdAt?: Date;
       status?: UserStatus;
+      credentialsUpdatedAt?: Date;
     },
   ): User {
+    const now = new Date();
     return new User({
       id: props.id ?? crypto.randomUUID(),
       email: props.email,
       passwordHash: props.passwordHash,
+      credentialsUpdatedAt: props.credentialsUpdatedAt ?? now,
       role: props.role,
       status: props.status ?? "pending",
-      createdAt: props.createdAt ?? new Date(),
+      createdAt: props.createdAt ?? now,
       ...(props.celular !== undefined ? { celular: props.celular } : {}),
     });
   }

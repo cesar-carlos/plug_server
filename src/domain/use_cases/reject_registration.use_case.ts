@@ -42,6 +42,7 @@ export class RejectRegistrationUseCase {
       id: user.id,
       email: user.email,
       passwordHash: user.passwordHash,
+      credentialsUpdatedAt: user.credentialsUpdatedAt,
       role: user.role,
       status: "rejected",
       createdAt: user.createdAt,

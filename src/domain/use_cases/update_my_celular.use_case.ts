@@ -40,6 +40,7 @@ export class UpdateMyCelularUseCase {
       id: user.id,
       email: user.email,
       passwordHash: user.passwordHash,
+      credentialsUpdatedAt: user.credentialsUpdatedAt,
       role: user.role,
       status: user.status,
       createdAt: user.createdAt,

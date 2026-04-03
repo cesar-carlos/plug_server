@@ -11,6 +11,7 @@ describe("PATCH /api/v1/auth/password", () => {
   const initialPassword = "Password1";
   const updatedPassword = "Password2";
   let accessToken = "";
+  let refreshToken = "";
 
   beforeAll(async () => {
     const registerResponse = await request(app).post("/api/v1/auth/register").send({
@@ -26,6 +27,7 @@ describe("PATCH /api/v1/auth/password", () => {
     });
     expect(loginResponse.status).toBe(200);
     accessToken = loginResponse.body.accessToken as string;
+    refreshToken = loginResponse.body.refreshToken as string;
   });
 
   it("should return 401 when access token is missing", async () => {
@@ -65,6 +67,16 @@ describe("PATCH /api/v1/auth/password", () => {
       password: initialPassword,
     });
     expect(oldLogin.status).toBe(401);
+
+    const oldAccessTokenMe = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${accessToken}`);
+    expect(oldAccessTokenMe.status).toBe(401);
+
+    const oldRefreshTokenAttempt = await request(app).post("/api/v1/auth/refresh").send({
+      refreshToken,
+    });
+    expect(oldRefreshTokenAttempt.status).toBe(401);
 
     const newLogin = await request(app).post("/api/v1/auth/login").send({
       email,

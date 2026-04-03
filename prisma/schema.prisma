@@ -48,6 +48,7 @@ model User {
   /// Brazilian mobile (E.164), optional; unique when set (PostgreSQL allows multiple NULL)
   celular         String?         @unique @map("celular") @db.VarChar(20)
   passwordHash    String          @map("password_hash")
+  credentialsUpdatedAt DateTime   @default(now()) @map("credentials_updated_at")
   role            UserRole        @default(user)
   status          UserStatus      @default(pending) @map("status")
   createdAt       DateTime        @default(now()) @map("created_at")

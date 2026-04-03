@@ -1,9 +1,9 @@
 import { v4 as uuidv4 } from "uuid";
 
 import { RefreshToken } from "../../domain/entities/refresh_token.entity";
+import { User } from "../../domain/entities/user.entity";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
-import type { User } from "../../domain/entities/user.entity";
 import type { AdminSetUserStatusInput } from "../../domain/use_cases/admin_set_user_status.use_case";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
 import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
@@ -20,7 +20,7 @@ import type { UpdateMyCelularUseCase } from "../../domain/use_cases/update_my_ce
 import type { AgentAccessService } from "./agent_access.service";
 import { enqueueRegistrationApprovalEmails } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
-import { forbidden, notFound } from "../../shared/errors/http_errors";
+import { forbidden, invalidToken, notFound } from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
 import { parseExpiryToDate } from "../../shared/utils/date";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
@@ -94,10 +94,20 @@ export class AuthService {
    * When `preloaded` is set and `preloaded.id === userId`, skips `findById` (same HTTP request after
    * the active-account middleware stored the row in `response.locals.activeAccountUser`).
    */
-  async getActiveAccountUser(userId: string, preloaded?: User): Promise<Result<User>> {
+  async getActiveAccountUser(
+    userId: string,
+    preloaded?: User,
+    accessTokenCredentialsVersion?: number,
+  ): Promise<Result<User>> {
     if (preloaded !== undefined && preloaded.id === userId) {
       if (preloaded.status === "blocked") {
         return err(forbidden("Account is blocked"));
+      }
+      if (
+        typeof accessTokenCredentialsVersion === "number" &&
+        preloaded.credentialsUpdatedAt.getTime() > accessTokenCredentialsVersion
+      ) {
+        return err(invalidToken("Invalid or expired access token"));
       }
       return ok(preloaded);
     }
@@ -108,6 +118,12 @@ export class AuthService {
     }
     if (user.status === "blocked") {
       return err(forbidden("Account is blocked"));
+    }
+    if (
+      typeof accessTokenCredentialsVersion === "number" &&
+      user.credentialsUpdatedAt.getTime() > accessTokenCredentialsVersion
+    ) {
+      return err(invalidToken("Invalid or expired access token"));
     }
     return ok(user);
   }
@@ -142,7 +158,11 @@ export class AuthService {
     jwtUser: JwtAccessPayload,
     preloadedUser?: User,
   ): Promise<Result<MeUserResponseDto>> {
-    const userResult = await this.getActiveAccountUser(jwtUser.sub, preloadedUser);
+    const userResult = await this.getActiveAccountUser(
+      jwtUser.sub,
+      preloadedUser,
+      jwtUser.credentials_version,
+    );
     if (!userResult.ok) {
       if (userResult.error.code === "NOT_FOUND") {
         return err(notFound("User"));
@@ -359,7 +379,31 @@ export class AuthService {
   }
 
   async changePassword(input: ChangePasswordServiceInput): Promise<Result<void>> {
-    return this.changePasswordUseCase.execute(input);
+    const result = await this.changePasswordUseCase.execute(input);
+    if (!result.ok) {
+      return result;
+    }
+
+    const user = await this.userRepository.findById(input.userId);
+    if (!user) {
+      return err(notFound("User"));
+    }
+
+    const now = new Date();
+    const updatedUser = new User({
+      id: user.id,
+      email: user.email,
+      passwordHash: user.passwordHash,
+      credentialsUpdatedAt: now,
+      role: user.role,
+      status: user.status,
+      createdAt: user.createdAt,
+      ...(user.celular !== undefined ? { celular: user.celular } : {}),
+    });
+
+    await this.userRepository.save(updatedUser);
+    await this.refreshTokenRepository.revokeAllForUser(user.id);
+    return ok(undefined);
   }
 
   async refresh(rawRefreshToken: string): Promise<Result<AuthTokensDto>> {
@@ -397,6 +441,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       principal_type: "user",
+      credentials_version: user.credentialsUpdatedAt.getTime(),
       tokenType: "access",
     });
     const refreshToken = signRefreshToken({
@@ -423,6 +468,7 @@ export class AuthService {
       role: "agent",
       principal_type: "user",
       agent_id: agentId,
+      credentials_version: user.credentialsUpdatedAt.getTime(),
       tokenType: "access",
     });
     const refreshToken = signRefreshToken({

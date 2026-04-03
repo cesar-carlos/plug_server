@@ -100,6 +100,7 @@ export const requireActiveAccount = async (
   const result = await container.authService.getActiveAccountUser(
     authUser.sub,
     response.locals.activeAccountUser,
+    authUser.credentials_version,
   );
   if (!result.ok) {
     next(result.error);
@@ -117,7 +118,12 @@ export const resolveActiveAccountUser = async (
   response: Response,
   userId: string,
 ): Promise<Result<User>> => {
-  return container.authService.getActiveAccountUser(userId, response.locals.activeAccountUser);
+  const authUser = response.locals.authUser as JwtAccessPayload | undefined;
+  return container.authService.getActiveAccountUser(
+    userId,
+    response.locals.activeAccountUser,
+    authUser?.credentials_version,
+  );
 };
 
 /** `requireAuth` plus DB check that the account is not blocked. */
@@ -155,6 +161,7 @@ const requirePrincipalActiveAccount = async (
   const result = await container.authService.getActiveAccountUser(
     authPrincipal.sub,
     response.locals.activeAccountUser,
+    authPrincipal.credentials_version,
   );
   if (!result.ok) {
     next(result.error);

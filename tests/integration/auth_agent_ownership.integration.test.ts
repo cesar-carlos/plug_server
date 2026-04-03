@@ -83,6 +83,55 @@ describe("Agent login ownership", () => {
     expect(login.body.user.agentId).toBe(agentId);
   });
 
+  it("invalidates previous agent session after password change", async () => {
+    const agentId = randomUUID();
+    const email = `agent-session-${Date.now()}@test.com`;
+    const initialPassword = "Ownership1";
+    const updatedPassword = "Ownership2";
+
+    await registerAndApprove(email, initialPassword);
+    await seedAgent({ agentId, name: "Session Agent", cnpjCpf: "11222333000183" });
+
+    const userLogin = await request(app).post("/api/v1/auth/login").send({
+      email,
+      password: initialPassword,
+    });
+    expect(userLogin.status).toBe(200);
+
+    const agentLogin = await request(app).post("/api/v1/auth/agent-login").send({
+      email,
+      password: initialPassword,
+      agentId,
+    });
+    expect(agentLogin.status).toBe(200);
+
+    const changePassword = await request(app)
+      .patch("/api/v1/auth/password")
+      .set("Authorization", `Bearer ${userLogin.body.accessToken as string}`)
+      .send({
+        currentPassword: initialPassword,
+        newPassword: updatedPassword,
+      });
+    expect(changePassword.status).toBe(204);
+
+    const oldAgentAccess = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${agentLogin.body.accessToken as string}`);
+    expect(oldAgentAccess.status).toBe(401);
+
+    const oldAgentRefresh = await request(app).post("/api/v1/auth/refresh").send({
+      refreshToken: agentLogin.body.refreshToken as string,
+    });
+    expect(oldAgentRefresh.status).toBe(401);
+
+    const newAgentLogin = await request(app).post("/api/v1/auth/agent-login").send({
+      email,
+      password: updatedPassword,
+      agentId,
+    });
+    expect(newAgentLogin.status).toBe(200);
+  });
+
   it("agent-login succeeds when agent is not yet in catalog", async () => {
     const agentId = randomUUID();
     const email = `no-catalog-${Date.now()}@test.com`;

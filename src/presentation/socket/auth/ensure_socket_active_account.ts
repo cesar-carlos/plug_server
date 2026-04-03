@@ -17,7 +17,11 @@ export const assertJwtUserAccountActive = async (
   const result =
     user.principal_type === "client"
       ? await container.clientAuthService.getActiveClient(user.sub)
-      : await container.authService.getActiveAccountUser(user.sub);
+      : await container.authService.getActiveAccountUser(
+          user.sub,
+          undefined,
+          user.credentials_version,
+        );
   if (!result.ok) {
     if (result.error.code === "FORBIDDEN" && result.error.message === "Account is blocked") {
       incrementAuthSocketBlocked();

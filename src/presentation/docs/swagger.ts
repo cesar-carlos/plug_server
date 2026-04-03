@@ -110,6 +110,14 @@ const swaggerSpec = swaggerJSDoc({
             },
           ],
         },
+        AuthChangePasswordRequest: {
+          type: "object",
+          required: ["currentPassword", "newPassword"],
+          properties: {
+            currentPassword: { type: "string" },
+            newPassword: { type: "string", minLength: 8, maxLength: 128 },
+          },
+        },
         AgentAuthUser: {
           type: "object",
           required: ["id", "email", "role", "agentId"],

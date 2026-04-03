@@ -42,6 +42,7 @@ export class ApproveRegistrationUseCase {
       id: user.id,
       email: user.email,
       passwordHash: user.passwordHash,
+      credentialsUpdatedAt: user.credentialsUpdatedAt,
       role: user.role,
       status: "active",
       createdAt: user.createdAt,
