@@ -14,6 +14,18 @@ const appendArrayElements = (target: unknown[], source: readonly unknown[]): voi
   }
 };
 
+export const appendSqlStreamChunkRows = (
+  target: unknown[],
+  chunk: Record<string, unknown>,
+): number => {
+  const chunkRows = chunk.rows;
+  if (!Array.isArray(chunkRows)) {
+    return 0;
+  }
+  appendArrayElements(target, chunkRows);
+  return chunkRows.length;
+};
+
 export const mergeSqlStreamRpcResponse = (
   initialRpc: unknown,
   chunks: readonly Record<string, unknown>[],
@@ -46,6 +58,54 @@ export const mergeSqlStreamRpcResponse = (
       appendArrayElements(rows, chunkRows);
     }
   }
+
+  const totalFromComplete =
+    typeof complete.total_rows === "number" && Number.isFinite(complete.total_rows)
+      ? complete.total_rows
+      : rows.length;
+
+  const mergedResult: Record<string, unknown> = {
+    ...result,
+    rows,
+    total_rows: totalFromComplete,
+  };
+  delete mergedResult.stream_id;
+
+  return {
+    ...envelope,
+    result: mergedResult,
+  };
+};
+
+export const mergeSqlStreamRpcResponseWithAppendedRows = (
+  initialRpc: unknown,
+  appendedRows: readonly unknown[],
+  complete: Record<string, unknown>,
+): unknown => {
+  const envelope = isRecord(initialRpc) ? initialRpc : null;
+  if (!envelope) {
+    return initialRpc;
+  }
+
+  const result = isRecord(envelope.result) ? envelope.result : null;
+  if (!result) {
+    return initialRpc;
+  }
+
+  const terminalStatus = complete.terminal_status;
+  if (terminalStatus === "aborted" || terminalStatus === "error") {
+    throw new Error(`Agent SQL stream ended with terminal_status=${terminalStatus}`);
+  }
+
+  const initialRows = Array.isArray(result.rows) ? result.rows : [];
+  const rows =
+    appendedRows.length === 0
+      ? initialRows.slice()
+      : (() => {
+          const mergedRows = initialRows.slice();
+          appendArrayElements(mergedRows, appendedRows);
+          return mergedRows;
+        })();
 
   const totalFromComplete =
     typeof complete.total_rows === "number" && Number.isFinite(complete.total_rows)

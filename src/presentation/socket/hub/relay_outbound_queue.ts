@@ -124,6 +124,23 @@ const updateOverloadStateCache = (input: {
   };
 };
 
+const updateBacklogOnlyOverloadStateCache = (nowMs = Date.now()): void => {
+  const backlog = deriveBacklog();
+  const backlogThreshold = env.socketRelayOutboundOverloadBacklog;
+  const p95Threshold = env.socketRelayOutboundOverloadP95Ms;
+  const overloadedByBacklog = backlogThreshold > 0 && backlog >= backlogThreshold;
+  const overloadedByP95 = p95Threshold > 0 && overloadStateCache.p95Ms >= p95Threshold;
+  overloadStateCache = {
+    overloaded: overloadedByBacklog || overloadedByP95,
+    reason: overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null,
+    retryAfterMs: overloadedByBacklog || overloadedByP95 ? retryAfterFromSweep() : 0,
+    p95Ms: overloadStateCache.p95Ms,
+    p99Ms: overloadStateCache.p99Ms,
+    backlog,
+    computedAtMs: nowMs,
+  };
+};
+
 export const getRelayOutboundQueueMetricsSnapshot = (): RelayOutboundQueueMetricsSnapshot => {
   const finished = metrics.jobsFinishedTotal;
   const sampleSlice = latencyRingBufferValues(metrics.durationRing);
@@ -262,14 +279,15 @@ export const resetRelayOutboundQueueTails = (): void => {
 
 export const enqueueRelayOutbound = (requestId: string, work: () => void | Promise<void>): void => {
   metrics.jobsEnqueuedTotal += 1;
-  updateOverloadStateCache({});
+  const nowMs = Date.now();
+  updateBacklogOnlyOverloadStateCache(nowMs);
   const entry = tailByRequestId.get(requestId) ?? {
     tail: Promise.resolve(),
     pendingJobs: 0,
-    lastActivityAtMs: Date.now(),
+    lastActivityAtMs: nowMs,
   };
   entry.pendingJobs += 1;
-  entry.lastActivityAtMs = Date.now();
+  entry.lastActivityAtMs = nowMs;
   const prev = entry.tail;
   const next = prev.then(async () => {
     const t0 = performance.now();
@@ -287,7 +305,7 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
       metrics.jobDurationSumMs += ms;
       metrics.jobDurationMaxMs = Math.max(metrics.jobDurationMaxMs, ms);
       pushLatencyRingBuffer(metrics.durationRing, ms);
-      updateOverloadStateCache({});
+      updateBacklogOnlyOverloadStateCache();
     }
   });
   entry.tail = next;

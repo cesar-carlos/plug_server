@@ -1,7 +1,9 @@
 import {
+  appendSqlStreamChunkRows,
   countSqlExecuteResultRowsInEnvelope,
   countSqlStreamChunkRows,
   mergeSqlStreamRpcResponse,
+  mergeSqlStreamRpcResponseWithAppendedRows,
 } from "../../../application/agent_commands/merge_sql_stream_rpc_response";
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { env } from "../../../shared/config/env";
@@ -373,7 +375,7 @@ export const createRpcBridgeAgentInboundHandlers = (
             const resolveOnce = pendingRequest.resolve;
             const rejectOnce = pendingRequest.reject;
             const primaryRequestId = pendingRequestId;
-            const chunkBuffer: Record<string, unknown>[] = [];
+            const streamedRows: unknown[] = [];
             const pullWindow = agentRegistry.resolveStreamPullWindow(
               pendingRequest.agentId,
               env.socketRestStreamPullWindowSize,
@@ -440,7 +442,7 @@ export const createRpcBridgeAgentInboundHandlers = (
                 }
 
                 aggregatedRowCount += chunkRows;
-                chunkBuffer.push(payload);
+                appendSqlStreamChunkRows(streamedRows, payload);
                 restSqlStreamMaterializeConsumeChunk(primaryRequestId, pullWindow, () => {
                   const route = getActiveStreamRouteByRequestId(primaryRequestId);
                   if (route) {
@@ -452,7 +454,10 @@ export const createRpcBridgeAgentInboundHandlers = (
                 restMaterializeState.settled = true;
                 clearTimeout(timeoutHandle);
                 try {
-                  const merged = mergeSqlStreamRpcResponse(initialJson, chunkBuffer, payload);
+                  const merged =
+                    streamedRows.length > 0
+                      ? mergeSqlStreamRpcResponseWithAppendedRows(initialJson, streamedRows, payload)
+                      : mergeSqlStreamRpcResponse(initialJson, [], payload);
                   relayMetrics.restSqlStreamMaterializeCompleted += 1;
                   relayMetrics.restSqlStreamMaterializeRowsMerged +=
                     countSqlExecuteResultRowsInEnvelope(merged);

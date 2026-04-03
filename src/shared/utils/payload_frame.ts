@@ -11,6 +11,7 @@ const defaultCompressionThreshold = 1024;
 
 const gzipAsync = promisify(zlibGzip);
 const gunzipAsync = promisify(zlibGunzip);
+const EMPTY_BUFFER = Buffer.alloc(0);
 
 /** Hub → agent PayloadFrame gzip policy (see `payloadFrameEncodeOptionsFromPreference`). */
 export type PayloadFrameCompressionPreference = "default" | "none" | "always";
@@ -109,6 +110,23 @@ export interface DecodedPayloadFrame {
   readonly data: unknown;
 }
 
+const toBufferFromReadonlyNumberArray = (payload: readonly number[]): Buffer | null => {
+  const len = payload.length;
+  if (len === 0) {
+    return EMPTY_BUFFER;
+  }
+
+  const binary = Buffer.allocUnsafe(len);
+  for (let index = 0; index < len; index += 1) {
+    const value = payload[index];
+    if (value === undefined || !Number.isInteger(value) || value < 0 || value > 255) {
+      return null;
+    }
+    binary[index] = value;
+  }
+  return binary;
+};
+
 const toBuffer = (payload: PayloadFrameEnvelope["payload"] | unknown): Buffer | null => {
   if (Buffer.isBuffer(payload)) {
     return payload;
@@ -118,8 +136,8 @@ const toBuffer = (payload: PayloadFrameEnvelope["payload"] | unknown): Buffer | 
     return Buffer.from(payload);
   }
 
-  if (Array.isArray(payload) && payload.every((item) => typeof item === "number")) {
-    return Buffer.from(payload);
+  if (Array.isArray(payload)) {
+    return toBufferFromReadonlyNumberArray(payload);
   }
 
   if (typeof payload === "string") {
@@ -175,12 +193,15 @@ const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer)
   return Buffer.concat([Buffer.from(metadata, "utf8"), Buffer.from([0]), binaryPayload]);
 };
 
-const signOutboundFrameIfConfigured = (frame: PayloadFrameEnvelope): PayloadFrameEnvelope => {
+const signOutboundFrameIfConfigured = (
+  frame: PayloadFrameEnvelope,
+  binaryPayloadOverride?: Buffer,
+): PayloadFrameEnvelope => {
   if (!env.payloadSignOutbound || !env.payloadSigningKey || env.payloadSigningKey.trim() === "") {
     return frame;
   }
 
-  const binaryPayload = toBuffer(frame.payload);
+  const binaryPayload = binaryPayloadOverride ?? toBuffer(frame.payload);
   if (!binaryPayload) {
     return frame;
   }
@@ -436,17 +457,20 @@ export const finishPayloadFrameEnvelope = (
         ? {}
         : { traceId: randomUUID() };
 
-  return signOutboundFrameIfConfigured({
-    schemaVersion: PAYLOAD_FRAME_SCHEMA_VERSION,
-    enc: "json",
-    cmp: body.cmp,
-    contentType: "application/json",
-    originalSize: body.originalSize,
-    compressedSize: body.wireBytes.length,
-    payload: body.wireBytes,
-    ...traceFields,
-    ...(options?.requestId ? { requestId: options.requestId } : {}),
-  });
+  return signOutboundFrameIfConfigured(
+    {
+      schemaVersion: PAYLOAD_FRAME_SCHEMA_VERSION,
+      enc: "json",
+      cmp: body.cmp,
+      contentType: "application/json",
+      originalSize: body.originalSize,
+      compressedSize: body.wireBytes.length,
+      payload: body.wireBytes,
+      ...traceFields,
+      ...(options?.requestId ? { requestId: options.requestId } : {}),
+    },
+    body.wireBytes,
+  );
 };
 
 export type EncodePayloadFrameOptions = {
@@ -582,11 +606,10 @@ const finalizeDecodedPayloadBytes = (
 
   try {
     const decoded = JSON.parse(decodedBytes.toString("utf8"));
+    const normalizedEnvelope =
+      envelope.payload === binaryPayload ? envelope : { ...envelope, payload: binaryPayload };
     return ok({
-      frame: {
-        ...envelope,
-        payload: binaryPayload,
-      },
+      frame: normalizedEnvelope,
       data: decoded,
     });
   } catch {
