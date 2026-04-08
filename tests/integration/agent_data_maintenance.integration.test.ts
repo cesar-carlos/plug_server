@@ -232,7 +232,9 @@ describe("agent_data_maintenance.service (integration)", () => {
     const approvedAgent = await createAgent("Approved Expiry Agent");
     const pendingRequestId = randomUUID();
     const approvedRequestId = randomUUID();
-    const expiredAt = new Date(Date.now() - 60_000);
+    const now = Date.now();
+    const expiredAt = new Date(now - 60_000);
+    const tokenCreatedAt = new Date(now - 120_000);
 
     createdRequestIds.add(pendingRequestId);
     createdRequestIds.add(approvedRequestId);
@@ -249,6 +251,7 @@ describe("agent_data_maintenance.service (integration)", () => {
       data: {
         id: `pending-token-${randomUUID()}`,
         requestId: pendingRequestId,
+        createdAt: tokenCreatedAt,
         expiresAt: expiredAt,
       },
     });
@@ -266,6 +269,7 @@ describe("agent_data_maintenance.service (integration)", () => {
       data: {
         id: `approved-token-${randomUUID()}`,
         requestId: approvedRequestId,
+        createdAt: tokenCreatedAt,
         expiresAt: expiredAt,
       },
     });
