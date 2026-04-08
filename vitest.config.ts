@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    setupFiles: ["tests/setup/vitest.socket_consumer_roles.ts"],
     globals: true,
     environment: "node",
     root: ".",

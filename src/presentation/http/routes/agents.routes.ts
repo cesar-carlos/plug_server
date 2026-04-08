@@ -1,6 +1,10 @@
 import { Router } from "express";
 
-import { listConnectedAgents, proxyCommandToAgent } from "../controllers/agents.controller";
+import {
+  listConnectedAgents,
+  patchMyAgentProfile,
+  proxyCommandToAgent,
+} from "../controllers/agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import {
   requireAuthAndActiveAccount,
@@ -8,10 +12,15 @@ import {
 } from "../middlewares/auth.middleware";
 import {
   agentsCommandsIpRateLimit,
+  agentsSelfProfileRateLimit,
   agentsCommandsUserRateLimit,
 } from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { agentCommandBodySchema } from "../validators/agents.validator";
+import {
+  agentSelfProfileHttpBodySchema,
+  agentSelfProfileParamsSchema,
+} from "../validators/agent_self_profile.validator";
 
 export const agentsRouter = Router();
 
@@ -70,6 +79,90 @@ export const agentsRouter = Router();
  *         $ref: '#/components/responses/Unauthorized'
  */
 agentsRouter.get("/", ...requireAuthAndActiveAccount, asyncHandler(listConnectedAgents));
+
+/**
+ * @openapi
+ * /agents/{agentId}/profile:
+ *   patch:
+ *     summary: Update the authenticated agent profile
+ *     description: >
+ *       Self-service profile update for agents authenticated with a token issued by `POST /auth/agent-login`.
+ *       The path `agentId` must match the JWT `agent_id` claim. The route works even when the agent is not
+ *       connected to the `/agents` Socket.IO namespace and persists the updated catalog snapshot immediately.
+ *       Omitted fields keep their stored values. `null` clears optional fields. Empty strings are normalized
+ *       to `null` for nullable text fields and rejected for `name`.
+ *       Send `expectedProfileVersion` (or rely on body `idempotencyKey` / `Idempotency-Key` header) for safe retries
+ *       and optimistic concurrency; the response `agent.profileVersion` is the new server revision after a successful write.
+ *     tags: [Agents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: agentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: header
+ *         name: Idempotency-Key
+ *         required: false
+ *         description: >
+ *           Preferred idempotency token for safe retries. When present, it must be reused with the same JSON body;
+ *           reusing it with a different profile payload returns 409. Equivalent to body field `idempotencyKey` with prefix applied server-side.
+ *         schema:
+ *           type: string
+ *           minLength: 1
+ *           maxLength: 256
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/AgentSelfProfilePatchRequest'
+ *     responses:
+ *       200:
+ *         description: Updated agent snapshot
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [agent]
+ *               properties:
+ *                 agent:
+ *                   $ref: '#/components/schemas/AgentCatalogRecord'
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         description: >
+ *           Optimistic concurrency or idempotency conflict: `expectedProfileVersion` does not match the current
+ *           server `profileVersion`, or the same idempotency key was reused with a different profile payload.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       429:
+ *         description: Too many profile updates in a short period
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+agentsRouter.patch(
+  "/:agentId/profile",
+  ...requireAuthAndActiveAccount,
+  agentsSelfProfileRateLimit,
+  validateRequest({
+    params: agentSelfProfileParamsSchema,
+    body: agentSelfProfileHttpBodySchema,
+  }),
+  asyncHandler(patchMyAgentProfile),
+);
 
 /**
  * @openapi

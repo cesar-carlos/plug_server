@@ -10,6 +10,15 @@ export interface AgentAddress {
   readonly state?: string | undefined;
 }
 
+export interface AgentAddressPatch {
+  readonly street?: string | null | undefined;
+  readonly number?: string | null | undefined;
+  readonly district?: string | null | undefined;
+  readonly postalCode?: string | null | undefined;
+  readonly city?: string | null | undefined;
+  readonly state?: string | null | undefined;
+}
+
 export interface AgentProps {
   readonly agentId: string;
   readonly name: string;
@@ -27,6 +36,7 @@ export interface AgentProps {
   readonly state: string | undefined;
   readonly notes: string | undefined;
   readonly profileUpdatedAt: Date | undefined;
+  readonly profileVersion: number;
   readonly lastLoginUserId: string | undefined;
   readonly status: AgentStatus;
   readonly createdAt: Date;
@@ -50,6 +60,7 @@ export class Agent {
   readonly state: string | undefined;
   readonly notes: string | undefined;
   readonly profileUpdatedAt: Date | undefined;
+  readonly profileVersion: number;
   readonly lastLoginUserId: string | undefined;
   readonly status: AgentStatus;
   readonly createdAt: Date;
@@ -72,6 +83,7 @@ export class Agent {
     this.state = props.state;
     this.notes = props.notes;
     this.profileUpdatedAt = props.profileUpdatedAt;
+    this.profileVersion = props.profileVersion;
     this.lastLoginUserId = props.lastLoginUserId;
     this.status = props.status;
     this.createdAt = props.createdAt;
@@ -90,6 +102,7 @@ export class Agent {
     address?: AgentAddress;
     notes?: string;
     profileUpdatedAt?: Date;
+    profileVersion?: number;
     lastLoginUserId?: string;
     status?: AgentStatus;
     createdAt?: Date;
@@ -113,6 +126,7 @@ export class Agent {
       state: opts.address?.state,
       notes: opts.notes,
       profileUpdatedAt: opts.profileUpdatedAt,
+      profileVersion: opts.profileVersion ?? 0,
       lastLoginUserId: opts.lastLoginUserId,
       status: opts.status ?? "active",
       createdAt: opts.createdAt ?? now,
@@ -138,6 +152,7 @@ export class Agent {
       state: this.state,
       notes: this.notes,
       profileUpdatedAt: this.profileUpdatedAt,
+      profileVersion: this.profileVersion,
       lastLoginUserId: this.lastLoginUserId,
       status: "inactive",
       createdAt: this.createdAt,
@@ -153,10 +168,11 @@ export class Agent {
     phone?: string | null;
     mobile?: string | null;
     email?: string | null;
-    address?: AgentAddress | null;
+    address?: AgentAddressPatch | null;
     notes?: string | null;
     lastLoginUserId?: string | null;
     profileUpdatedAt?: Date | null;
+    profileVersion?: number;
   }): Agent {
     const patchAddress = patch.address;
     const addressCleared = patchAddress === null;
@@ -171,8 +187,25 @@ export class Agent {
     const nextAddress: AgentAddress = addressCleared
       ? {}
       : {
-          ...currentAddress,
-          ...(patchAddress ?? {}),
+          street:
+            patchAddress?.street === null
+              ? undefined
+              : (patchAddress?.street ?? currentAddress.street),
+          number:
+            patchAddress?.number === null
+              ? undefined
+              : (patchAddress?.number ?? currentAddress.number),
+          district:
+            patchAddress?.district === null
+              ? undefined
+              : (patchAddress?.district ?? currentAddress.district),
+          postalCode:
+            patchAddress?.postalCode === null
+              ? undefined
+              : (patchAddress?.postalCode ?? currentAddress.postalCode),
+          city: patchAddress?.city === null ? undefined : (patchAddress?.city ?? currentAddress.city),
+          state:
+            patchAddress?.state === null ? undefined : (patchAddress?.state ?? currentAddress.state),
         };
 
     return new Agent({
@@ -200,6 +233,7 @@ export class Agent {
         patch.profileUpdatedAt === null
           ? undefined
           : (patch.profileUpdatedAt ?? this.profileUpdatedAt),
+      profileVersion: patch.profileVersion ?? this.profileVersion,
       status: this.status,
       createdAt: this.createdAt,
       updatedAt: new Date(),

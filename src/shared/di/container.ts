@@ -2,6 +2,7 @@ import { AuthService } from "../../application/services/auth.service";
 import { AgentAccessService } from "../../application/services/agent_access.service";
 import { AgentCatalogService } from "../../application/services/agent_catalog.service";
 import { AgentProfileSyncService } from "../../application/services/agent_profile_sync.service";
+import { AgentSelfProfileService } from "../../application/services/agent_self_profile.service";
 import { ClientAgentAccessService } from "../../application/services/client_agent_access.service";
 import { ClientAuthService } from "../../application/services/client_auth.service";
 import { UserAgentService } from "../../application/services/user_agent.service";
@@ -54,6 +55,8 @@ import { PrismaClientRepository } from "../../infrastructure/repositories/prisma
 import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/prisma_refresh_token.repository";
 import { PrismaRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_registration_approval_token.repository";
 import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_user.repository";
+import { agentRegistry } from "../../presentation/socket/hub/agent_registry";
+import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/rpc_bridge";
 import { env } from "../config/env";
 
 const passwordHasher = new BcryptPasswordHasher();
@@ -145,7 +148,8 @@ const agentAccessService = new AgentAccessService(
   clientAgentAccessRepository,
 );
 const agentCatalogService = new AgentCatalogService(agentRepository);
-const agentProfileSyncService = new AgentProfileSyncService(agentRepository);
+const agentSelfProfileService = new AgentSelfProfileService(agentRepository);
+const agentProfileSyncService = new AgentProfileSyncService(agentSelfProfileService);
 const userAgentService = new UserAgentService(agentRepository, agentIdentityRepository);
 const clientAuthService = new ClientAuthService(
   clientRepository,
@@ -166,6 +170,15 @@ const clientAgentAccessService = new ClientAgentAccessService(
   clientAgentAccessRequestRepository,
   clientAgentAccessApprovalTokenRepository,
   emailSender,
+  {
+    isAgentOnline: (agentId) => agentRegistry.findByAgentId(agentId) !== null,
+    refreshAgentProfile: (agentId) =>
+      agentProfileSyncService.syncFromConnectedAgent({
+        agentId,
+        dispatch: dispatchRpcCommandToAgent,
+        timeoutMs: 10_000,
+      }),
+  },
 );
 
 export const container = {
@@ -189,6 +202,7 @@ export const container = {
   emailSender,
   agentAccessService,
   agentCatalogService,
+  agentSelfProfileService,
   agentProfileSyncService,
   userAgentService,
   clientAuthService,

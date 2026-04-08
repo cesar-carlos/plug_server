@@ -111,7 +111,7 @@ describe("authenticateSocket middleware", () => {
     await authenticateSocket(socket as never, next);
 
     expect(next).toHaveBeenCalledWith();
-    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("user-1");
+    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("user-1", undefined, undefined);
     expect(socket.data.user).toMatchObject({ sub: "user-1", tokenType: "access" });
   });
 });

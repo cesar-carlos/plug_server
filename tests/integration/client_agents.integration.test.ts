@@ -363,6 +363,7 @@ describe("Client agent access API", () => {
     expect(requestsResponse.status).toBe(200);
     expect(requestsResponse.body.count).toBe(1);
     expect(requestsResponse.body.requests[0]?.status).toBe("expired");
+    expect(requestsResponse.body.requests[0]?.decisionReason).toBe("Approval token expired");
   });
 
   it("POST /api/v1/client-access/reject rejects access via public token flow", async () => {

@@ -28,6 +28,7 @@ export const seedAdminUser = async (
     id: currentUser.id,
     email: currentUser.email,
     passwordHash: currentUser.passwordHash,
+    credentialsUpdatedAt: currentUser.credentialsUpdatedAt,
     role: "admin",
     status: "active",
     createdAt: currentUser.createdAt,

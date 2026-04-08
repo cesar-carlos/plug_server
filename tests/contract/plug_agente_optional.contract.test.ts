@@ -261,11 +261,20 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       api_version: "2.5",
       meta: {
         traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-        outbound_compression: "auto",
       },
-      params: {},
+      params: { sql: "SELECT 1", client_token: "a1b2c3d4" },
     };
     expect(validateRpcRequest!(rpcReq)).toBe(true);
+    assertZodAcceptsCommand(rpcReq);
+
+    const rpcReqWithOutboundCompression = {
+      ...rpcReq,
+      meta: {
+        ...rpcReq.meta,
+        outbound_compression: "auto" as const,
+      },
+    };
+    assertZodAcceptsCommand(rpcReqWithOutboundCompression);
 
     const logicalJson = JSON.stringify({ ok: true });
     const payloadBytes = Array.from(Buffer.from(logicalJson, "utf8"));

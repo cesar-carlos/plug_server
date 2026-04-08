@@ -4,9 +4,17 @@ import type {
   IAgentRepository,
   PaginatedAgentList,
 } from "../../domain/repositories/agent.repository.interface";
+import type {
+  AgentProfileCommitInput,
+  AgentProfileCommitResult,
+} from "../../domain/repositories/agent_profile_commit";
 
 export class InMemoryAgentRepository implements IAgentRepository {
   private readonly agentsById = new Map<string, Agent>();
+  private readonly profileIdempotency = new Map<
+    string,
+    { readonly fingerprint: string; readonly resultingVersion: number }
+  >();
 
   async findById(agentId: string): Promise<Agent | null> {
     return this.agentsById.get(agentId) ?? null;
@@ -71,7 +79,58 @@ export class InMemoryAgentRepository implements IAgentRepository {
     this.agentsById.set(agent.agentId, agent);
   }
 
+  async commitAgentProfileChange(input: AgentProfileCommitInput): Promise<AgentProfileCommitResult> {
+    const agentId = input.nextAgent.agentId;
+
+    if (input.dedupeKey) {
+      const idemKey = `${agentId}::${input.dedupeKey}`;
+      const existingIdem = this.profileIdempotency.get(idemKey);
+      if (existingIdem) {
+        if (existingIdem.fingerprint !== input.patchFingerprint) {
+          return {
+            status: "conflict",
+            message: "Idempotency key reused with a different profile payload",
+          };
+        }
+        const agent = this.agentsById.get(agentId);
+        if (!agent) {
+          return { status: "conflict", message: "Agent not found after idempotent lookup" };
+        }
+        return { status: "idempotent", agent };
+      }
+    }
+
+    if (input.mode === "create") {
+      this.agentsById.set(agentId, input.nextAgent);
+      if (input.dedupeKey) {
+        this.profileIdempotency.set(`${agentId}::${input.dedupeKey}`, {
+          fingerprint: input.patchFingerprint,
+          resultingVersion: input.nextAgent.profileVersion,
+        });
+      }
+      return { status: "committed", agent: input.nextAgent };
+    }
+
+    const current = this.agentsById.get(agentId);
+    if (!current || current.profileVersion !== input.previousProfileVersion) {
+      return {
+        status: "conflict",
+        message: "Agent profile version changed concurrently or expected version mismatch",
+      };
+    }
+
+    this.agentsById.set(agentId, input.nextAgent);
+    if (input.dedupeKey) {
+      this.profileIdempotency.set(`${agentId}::${input.dedupeKey}`, {
+        fingerprint: input.patchFingerprint,
+        resultingVersion: input.nextAgent.profileVersion,
+      });
+    }
+    return { status: "committed", agent: input.nextAgent };
+  }
+
   clear(): void {
     this.agentsById.clear();
+    this.profileIdempotency.clear();
   }
 }

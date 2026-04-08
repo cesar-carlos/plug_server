@@ -118,7 +118,7 @@ O agente usa o protocolo do `plug_agente` no namespace `/agents`, incluindo:
 
 - a fonte oficial de ownership continua sendo `AgentIdentity`
 - `agent-login` apenas autentica a sessao; o bind oficial nasce em `agent:register`
-- o cadastro do agente e sincronizado automaticamente via `agent.getProfile`
+- o cadastro do agente e sincronizado automaticamente via `agent.getProfile` (com `profile_version` quando o agente expõe; ver regras em `docs/client_agent_business_rules.md`)
 - nao existem mais rotas HTTP para vincular ou editar manualmente ownership de agente
 - conflitos de ownership continuam a ser rejeitados quando o `agentId` pertence a outro `User`
 

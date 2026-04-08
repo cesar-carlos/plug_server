@@ -121,6 +121,21 @@ Importante:
 - `GET /api/v1/agents/catalog` e `GET /api/v1/agents/catalog/{agentId}` sao leitura
 - `DELETE /api/v1/agents/catalog/{agentId}` e apenas desativacao administrativa, nao criacao/edicao de cadastro
 
+### Perfil no catalogo: versao, pull sync e tempo real
+
+- O RPC `agent.getProfile` deve preferencialmente devolver `profile_version` (inteiro monotonico alinhado ao servidor). Agentes legados podem omitir o campo; o hub aplica regras de *fallback* ao sincronizar.
+- O *pull sync* no registo compara a versao remota com a do catalogo: versao remota **menor** que a do servidor é ignorada (servidor mais novo); versao **igual** com **conteudo** de perfil diferente falha o sync (divergencia operacional a resolver antes de novo registo/sync).
+- O proprio agente (JWT de `agent-login`) pode atualizar o perfil por HTTP em `PATCH /api/v1/agents/{agentId}/profile` com patch parcial; o OpenAPI em `/docs` descreve `expectedProfileVersion` (CAS), `Idempotency-Key` / `idempotencyKey` e respostas `409` quando aplicavel.
+- Quando ligado ao namespace `/agents`, o proprio agente tambem pode enviar `agent:profile.update` em `PayloadFrame`; o payload usa `snake_case` (`trade_name`, `postal_code`, `profile_version`, `expected_profile_version`, `idempotency_key`) e o hub responde em `agent:profile.updated` com `success=true|false`, `agent_id`, `profileVersion`, `profileUpdatedAt` e o snapshot atualizado quando a escrita e aceite.
+- Respostas HTTP e listagens de catalogo expoem `profileVersion` (e `profileUpdatedAt` quando existir) para clientes e administracao acompanharem revisoes.
+- `Client` com acesso aprovado ao agente, ligado ao namespace `/consumers`, pode receber push `client:agent.profile.updated` (envelope `PayloadFrame`) quando o catalogo desse agente é atualizado, para refrescar UI sem novo `GET`. O payload logico inclui tipicamente `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields` e `source`.
+
+### Manutencao operacional dos dados satelite
+
+- `agents`, `agent_identities` e `client_agent_accesses` sao dados vivos e nao usam TTL automatica.
+- `agent_profile_revisions` e `agent_profile_write_idempotencies` sao podados por job periodico de manutencao; a retencao e controlada por `AGENT_PROFILE_*` no ambiente.
+- pedidos `Client -> Agent` com token de aprovacao expirado deixam de depender apenas de leitura tardia: o servidor varre `client_agent_access_approval_tokens` vencidos e marca `client_agent_access_requests` pendentes como `expired`.
+
 ## 3) Fluxo de acesso Client -> Agent
 
 ### 3.1 Solicitar acesso

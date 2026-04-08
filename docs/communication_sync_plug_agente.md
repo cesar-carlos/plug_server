@@ -57,6 +57,8 @@ Historico detalhado de mudancas: `CHANGELOG.md`.
 | `execution_mode`, `preserve_sql`, `effective_max_rows` | alinhado | `docs/api_rest_bridge.md` |
 | `id` omitido vs `id: null` no bridge | alinhado | `docs/api_rest_bridge.md`, `docs/socket_client_sdk.md` |
 | Teste de contrato contra OpenRPC/schemas do agente | alinhado | `docs/observability.md` |
+| `profile_version` no resultado de `agent.getProfile` | hub usa para *pull sync* / consistencia | `docs/client_agent_business_rules.md`, `docs/configuration.md`; o JSON Schema publicado em `plug_agente` pode ainda omitir o campo — o hub tolera extensao |
+| `agent:profile.update` para self-service do cadastro | alinhado no hub | `docs/client_agent_business_rules.md`; patch parcial por socket em `/agents`, com `snake_case` e ack `agent:profile.updated` |
 
 ## Diferencas intencionais
 

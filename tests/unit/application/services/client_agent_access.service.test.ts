@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Client } from "../../../../src/domain/entities/client.entity";
 import { Agent } from "../../../../src/domain/entities/agent.entity";
@@ -177,5 +177,70 @@ describe("ClientAgentAccessService", () => {
     expect(stored?.status).toBe("pending");
     expect(stored?.decidedAt).toBeUndefined();
     expect(stored?.decisionReason).toBeUndefined();
+  });
+
+  it("should prefer live profile refresh for approved online agents", async () => {
+    await accessRepository.addAccess(clientId, agentId);
+    const refreshed = Agent.create({
+      agentId,
+      name: "Agent A Online",
+      tradeName: "Online Trade",
+      document: "11222333000181",
+    });
+    const refreshAgentProfile = vi.fn(async () => refreshed);
+    service = new ClientAgentAccessService(
+      agentRepository,
+      identityRepository,
+      clientRepository,
+      userRepository,
+      accessRepository,
+      requestRepository,
+      tokenRepository,
+      emailSender,
+      {
+        isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
+        refreshAgentProfile,
+      },
+    );
+
+    const result = await service.findApprovedAgent(clientId, agentId);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.name).toBe("Agent A Online");
+    expect(result.value.tradeName).toBe("Online Trade");
+    expect(refreshAgentProfile).toHaveBeenCalledWith(agentId);
+  });
+
+  it("should fall back to persisted snapshot when live refresh fails", async () => {
+    await accessRepository.addAccess(clientId, agentId);
+    const refreshAgentProfile = vi.fn(async () => {
+      throw new Error("agent.getProfile failed");
+    });
+    service = new ClientAgentAccessService(
+      agentRepository,
+      identityRepository,
+      clientRepository,
+      userRepository,
+      accessRepository,
+      requestRepository,
+      tokenRepository,
+      emailSender,
+      {
+        isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
+        refreshAgentProfile,
+      },
+    );
+
+    const result = await service.findApprovedAgent(clientId, agentId);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.name).toBe("Agent A");
+    expect(refreshAgentProfile).toHaveBeenCalledWith(agentId);
   });
 });

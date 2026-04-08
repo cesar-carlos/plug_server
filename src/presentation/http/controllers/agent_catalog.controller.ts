@@ -38,7 +38,7 @@ export const listAgents = async (
           },
     );
     response.status(200).json({
-      agents: pageResult.items.map(toDto),
+      agents: pageResult.items.map(toAgentCatalogDto),
       count: pageResult.items.length,
       total: pageResult.total,
       page: pageResult.page,
@@ -71,7 +71,7 @@ export const getAgent = async (
       next(result.error);
       return;
     }
-    response.status(200).json({ agent: toDto(result.value) });
+    response.status(200).json({ agent: toAgentCatalogDto(result.value) });
   } catch (e) {
     next(e);
   }
@@ -89,13 +89,13 @@ export const deactivateAgent = async (
       next(result.error);
       return;
     }
-    response.status(200).json({ agent: toDto(result.value) });
+    response.status(200).json({ agent: toAgentCatalogDto(result.value) });
   } catch (e) {
     next(e);
   }
 };
 
-const toDto = (
+export const toAgentCatalogDto = (
   agent: Agent,
 ): {
   agentId: string;
@@ -119,6 +119,7 @@ const toDto = (
   observation: string | null;
   lastLoginUserId: string | null;
   profileUpdatedAt: string | null;
+  profileVersion: number;
   status: Agent["status"];
   createdAt: string;
   updatedAt: string;
@@ -144,6 +145,7 @@ const toDto = (
   observation: agent.notes ?? null,
   lastLoginUserId: agent.lastLoginUserId ?? null,
   profileUpdatedAt: agent.profileUpdatedAt?.toISOString() ?? null,
+  profileVersion: agent.profileVersion,
   status: agent.status,
   createdAt: agent.createdAt.toISOString(),
   updatedAt: agent.updatedAt.toISOString(),

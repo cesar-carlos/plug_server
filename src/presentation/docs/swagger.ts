@@ -639,7 +639,7 @@ const swaggerSpec = swaggerJSDoc({
         },
         AgentCatalogRecord: {
           type: "object",
-          required: ["agentId", "name", "status", "createdAt", "updatedAt"],
+          required: ["agentId", "name", "status", "profileVersion", "createdAt", "updatedAt"],
           properties: {
             agentId: { type: "string", format: "uuid" },
             name: { type: "string", maxLength: 120 },
@@ -674,9 +674,54 @@ const swaggerSpec = swaggerJSDoc({
             observation: { type: "string", nullable: true, maxLength: 2000 },
             lastLoginUserId: { type: "string", format: "uuid", nullable: true },
             profileUpdatedAt: { type: "string", format: "date-time", nullable: true },
+            profileVersion: {
+              type: "integer",
+              minimum: 0,
+              description: "Monotonic profile revision counter on the server.",
+            },
             status: { type: "string", enum: ["active", "inactive"] },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        AgentSelfProfilePatchRequest: {
+          type: "object",
+          description:
+            "Partial self-service agent profile update. Omitted fields keep their current value; null clears optional fields.",
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 120 },
+            tradeName: { type: "string", nullable: true, maxLength: 120 },
+            document: { type: "string", nullable: true, maxLength: 40 },
+            documentType: { type: "string", enum: ["cpf", "cnpj"], nullable: true },
+            phone: { type: "string", nullable: true, maxLength: 20 },
+            mobile: { type: "string", nullable: true, maxLength: 20 },
+            email: { type: "string", nullable: true, format: "email", maxLength: 255 },
+            address: {
+              type: "object",
+              nullable: true,
+              properties: {
+                street: { type: "string", nullable: true, maxLength: 120 },
+                number: { type: "string", nullable: true, maxLength: 20 },
+                district: { type: "string", nullable: true, maxLength: 120 },
+                postalCode: { type: "string", nullable: true, maxLength: 20 },
+                city: { type: "string", nullable: true, maxLength: 120 },
+                state: { type: "string", nullable: true, maxLength: 2 },
+              },
+            },
+            notes: { type: "string", nullable: true, maxLength: 2000 },
+            expectedProfileVersion: {
+              type: "integer",
+              minimum: 0,
+              description:
+                "Optional CAS token: must match current server profileVersion or the request is rejected with 409.",
+            },
+            idempotencyKey: {
+              type: "string",
+              minLength: 1,
+              maxLength: 256,
+              description:
+                "Optional idempotency key when the Idempotency-Key header is not used. Prefer the header for HTTP clients.",
+            },
           },
         },
         UserAgentEnriched: {
@@ -695,7 +740,7 @@ const swaggerSpec = swaggerJSDoc({
         },
         ClientAccessibleAgent: {
           type: "object",
-          required: ["agentId", "name", "status", "createdAt", "updatedAt"],
+          required: ["agentId", "name", "status", "profileVersion", "createdAt", "updatedAt"],
           properties: {
             agentId: { type: "string", format: "uuid" },
             name: { type: "string" },
@@ -721,6 +766,11 @@ const swaggerSpec = swaggerJSDoc({
             notes: { type: "string", nullable: true },
             observation: { type: "string", nullable: true },
             profileUpdatedAt: { type: "string", format: "date-time", nullable: true },
+            profileVersion: {
+              type: "integer",
+              minimum: 0,
+              description: "Monotonic profile revision counter on the server.",
+            },
             status: { type: "string", enum: ["active", "inactive"] },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
@@ -776,7 +826,8 @@ const swaggerSpec = swaggerJSDoc({
           },
         },
         Conflict: {
-          description: "Conflict (e.g. duplicate agentId or document)",
+          description:
+            "Conflict (e.g. duplicate agentId or document, agent profile CAS / idempotency mismatch, or registration state conflict)",
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/ErrorResponse" },

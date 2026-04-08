@@ -59,6 +59,17 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_AUDIT_BATCH_FLUSH_MS` | `200` | Intervalo máximo antes de flush do lote de auditoria. |
 | `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT` | ver tabela *production*; senão `100` | Percentagem de eventos de auditoria em `relay:rpc.chunk` persistidos. |
 
+## Manutencao de dados Agent
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `AGENT_PROFILE_REVISION_RETENTION_DAYS` | `180` | Retencao do historico `agent_profile_revisions` (snapshots versionados do perfil). |
+| `AGENT_PROFILE_IDEMPOTENCY_RETENTION_DAYS` | `30` | TTL operacional para `agent_profile_write_idempotencies`; evita idempotencia eterna na BD. |
+| `AGENT_PROFILE_MAINTENANCE_INTERVAL_MINUTES` | `1440` | Cadencia do scheduler que poda revisoes antigas e chaves de idempotencia expiradas. |
+| `AGENT_PROFILE_MAINTENANCE_PRUNE_BATCH_SIZE` | `5000` | Batch de prune para tabelas de perfil do agente. |
+| `CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_INTERVAL_MINUTES` | `60` | Cadencia do sweep que fecha pedidos `pending` cujo token de aprovacao expirou. |
+| `CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_BATCH_SIZE` | `1000` | Batch do sweep de expiracao `Client -> Agent`. |
+
 ## Socket.IO (Engine.IO)
 
 | Variável | Defeito | Notas |
@@ -72,7 +83,7 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 
 ## Ownership de agentes
 
-O ownership oficial do agente nasce em `agent:register`, depois de um `agent-login` válido. Nesse mesmo registo o hub consulta `agent.getProfile` e cria/atualiza automaticamente o cadastro do agente no catálogo, incluindo `lastLoginUserId` como atributo operacional. Não existem mais variáveis de ambiente nem rate limits dedicados ao antigo fluxo HTTP de self-service bind em `/api/v1/me/agents`, e o catálogo também não aceita mais criação/edição manual por HTTP; por gestão administrativa, apenas a desativação permanece exposta.
+O ownership oficial do agente nasce em `agent:register`, depois de um `agent-login` válido. Nesse mesmo registo o hub consulta `agent.getProfile` e cria/atualiza automaticamente o cadastro do agente no catálogo, incluindo `lastLoginUserId` como atributo operacional. O resultado RPC pode incluir `profile_version` (contador monotónico no servidor); o hub usa-o para ordenar o *pull sync* e detetar divergência quando a versão coincide mas o conteúdo do perfil não bate com o catálogo. Não existem mais variáveis de ambiente nem rate limits dedicados ao antigo fluxo HTTP de self-service bind em `/api/v1/me/agents`, e o catálogo também não aceita mais criação/edição manual por HTTP; por gestão administrativa, apenas a desativação permanece exposta. Atualização self-service pelo próprio agente (fora do registo) está em `PATCH /api/v1/agents/{agentId}/profile`, documentada no OpenAPI (`/docs`, `/docs.json`), e também em `agent:profile.update` no namespace `/agents`.
 
 ## Leitura recomendada
 

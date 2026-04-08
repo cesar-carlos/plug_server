@@ -21,6 +21,7 @@ Quando dois documentos tocarem no mesmo tema, use esta precedencia:
 - `docs/PROJECT_OVERVIEW.md`: ponto de entrada para entender o hub, os papeis e os canais
 - `docs/client_agent_business_rules.md`: regra oficial de negocio do modelo `User` / `Agent` / `Client`
 - `docs/api_rest_bridge.md`: uso de `POST /api/v1/agents/commands` e `agents:*`
+- OpenAPI em `GET /docs` e `GET /docs.json` (inclui `PATCH /api/v1/agents/{agentId}/profile`, catalogo com `profileVersion`, etc.)
 - `docs/socket_relay_protocol.md`: contrato relay no namespace `/consumers`
 - `docs/socket_client_sdk.md`: guia minimo para implementar um cliente Socket relay
 

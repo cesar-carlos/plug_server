@@ -1,9 +1,17 @@
+import { randomUUID } from "node:crypto";
+
+import type { Prisma } from "@prisma/client";
+
 import { Agent } from "../../domain/entities/agent.entity";
 import type {
   AgentListFilter,
   IAgentRepository,
   PaginatedAgentList,
 } from "../../domain/repositories/agent.repository.interface";
+import type {
+  AgentProfileCommitInput,
+  AgentProfileCommitResult,
+} from "../../domain/repositories/agent_profile_commit";
 import { prismaClient } from "../database/prisma/client";
 
 export class PrismaAgentRepository implements IAgentRepository {
@@ -95,6 +103,7 @@ export class PrismaAgentRepository implements IAgentRepository {
         state: agent.state ?? null,
         notes: agent.notes ?? null,
         profileUpdatedAt: agent.profileUpdatedAt ?? null,
+        profileVersion: agent.profileVersion,
         lastLoginUserId: agent.lastLoginUserId ?? null,
         status: agent.status,
       },
@@ -120,10 +129,231 @@ export class PrismaAgentRepository implements IAgentRepository {
         state: agent.state ?? null,
         notes: agent.notes ?? null,
         profileUpdatedAt: agent.profileUpdatedAt ?? null,
+        profileVersion: agent.profileVersion,
         lastLoginUserId: agent.lastLoginUserId ?? null,
         status: agent.status,
       },
     });
+  }
+
+  async commitAgentProfileChange(input: AgentProfileCommitInput): Promise<AgentProfileCommitResult> {
+    return prismaClient.$transaction(async (tx) => {
+      const agentId = input.nextAgent.agentId;
+
+      if (input.dedupeKey) {
+        const idem = await tx.agentProfileWriteIdempotency.findUnique({
+          where: {
+            agentId_dedupeKey: {
+              agentId,
+              dedupeKey: input.dedupeKey,
+            },
+          },
+        });
+        if (idem) {
+          if (idem.patchFingerprint !== input.patchFingerprint) {
+            return {
+              status: "conflict",
+              message: "Idempotency key reused with a different profile payload",
+            };
+          }
+          const row = await tx.agent.findUnique({ where: { agentId } });
+          if (!row) {
+            return { status: "conflict", message: "Agent not found after idempotent lookup" };
+          }
+          return { status: "idempotent", agent: this.toEntity(row) };
+        }
+      }
+
+      if (input.mode === "create") {
+        await tx.agent.create({
+          data: PrismaAgentRepository.agentToPrismaCreate(input.nextAgent),
+        });
+        await tx.agentProfileRevision.create({
+          data: {
+            id: randomUUID(),
+            agentId,
+            profileVersion: input.nextAgent.profileVersion,
+            source: input.source,
+            actorUserId: input.actorUserId ?? null,
+            requestId: input.requestId ?? null,
+            idempotencyKey: input.idempotencyKey ?? null,
+            changedFields: [...input.changedFields],
+            snapshotJson: input.snapshotJson as Prisma.InputJsonValue,
+          },
+        });
+        if (input.dedupeKey) {
+          await tx.agentProfileWriteIdempotency.create({
+            data: {
+              id: randomUUID(),
+              agentId,
+              dedupeKey: input.dedupeKey,
+              patchFingerprint: input.patchFingerprint,
+              resultingProfileVersion: input.nextAgent.profileVersion,
+            },
+          });
+        }
+        await tx.auditEvent.create({
+          data: {
+            id: randomUUID(),
+            eventType: "agent.profile.updated",
+            actorUserId: input.actorUserId ?? null,
+            agentId,
+            requestId: input.requestId ?? null,
+            payloadJson: {
+              source: input.source,
+              profileVersion: input.nextAgent.profileVersion,
+              changedFields: input.changedFields,
+              mode: "created",
+            },
+          },
+        });
+        const row = await tx.agent.findUnique({ where: { agentId } });
+        return { status: "committed", agent: this.toEntity(row!) };
+      }
+
+      const updated = await tx.agent.updateMany({
+        where: { agentId, profileVersion: input.previousProfileVersion },
+        data: PrismaAgentRepository.agentToPrismaUpdate(input.nextAgent),
+      });
+
+      if (updated.count === 0) {
+        return {
+          status: "conflict",
+          message: "Agent profile version changed concurrently or expected version mismatch",
+        };
+      }
+
+      await tx.agentProfileRevision.create({
+        data: {
+          id: randomUUID(),
+          agentId,
+          profileVersion: input.nextAgent.profileVersion,
+          source: input.source,
+          actorUserId: input.actorUserId ?? null,
+          requestId: input.requestId ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
+          changedFields: [...input.changedFields],
+          snapshotJson: input.snapshotJson as Prisma.InputJsonValue,
+        },
+      });
+
+      if (input.dedupeKey) {
+        await tx.agentProfileWriteIdempotency.create({
+          data: {
+            id: randomUUID(),
+            agentId,
+            dedupeKey: input.dedupeKey,
+            patchFingerprint: input.patchFingerprint,
+            resultingProfileVersion: input.nextAgent.profileVersion,
+          },
+        });
+      }
+
+      await tx.auditEvent.create({
+        data: {
+          id: randomUUID(),
+          eventType: "agent.profile.updated",
+          actorUserId: input.actorUserId ?? null,
+          agentId,
+          requestId: input.requestId ?? null,
+          payloadJson: {
+            source: input.source,
+            profileVersion: input.nextAgent.profileVersion,
+            changedFields: input.changedFields,
+            mode: "updated",
+          },
+        },
+      });
+
+      const row = await tx.agent.findUnique({ where: { agentId } });
+      return { status: "committed", agent: this.toEntity(row!) };
+    });
+  }
+
+  private static agentToPrismaCreate(agent: Agent): {
+    agentId: string;
+    name: string;
+    tradeName: string | null;
+    document: string | null;
+    documentType: "cpf" | "cnpj" | null;
+    phone: string | null;
+    mobile: string | null;
+    email: string | null;
+    street: string | null;
+    number: string | null;
+    district: string | null;
+    postalCode: string | null;
+    city: string | null;
+    state: string | null;
+    notes: string | null;
+    profileUpdatedAt: Date | null;
+    profileVersion: number;
+    lastLoginUserId: string | null;
+    status: "active" | "inactive";
+  } {
+    return {
+      agentId: agent.agentId,
+      name: agent.name,
+      tradeName: agent.tradeName ?? null,
+      document: agent.document ?? null,
+      documentType: agent.documentType ?? null,
+      phone: agent.phone ?? null,
+      mobile: agent.mobile ?? null,
+      email: agent.email ?? null,
+      street: agent.street ?? null,
+      number: agent.number ?? null,
+      district: agent.district ?? null,
+      postalCode: agent.postalCode ?? null,
+      city: agent.city ?? null,
+      state: agent.state ?? null,
+      notes: agent.notes ?? null,
+      profileUpdatedAt: agent.profileUpdatedAt ?? null,
+      profileVersion: agent.profileVersion,
+      lastLoginUserId: agent.lastLoginUserId ?? null,
+      status: agent.status,
+    };
+  }
+
+  private static agentToPrismaUpdate(agent: Agent): {
+    name: string;
+    tradeName: string | null;
+    document: string | null;
+    documentType: "cpf" | "cnpj" | null;
+    phone: string | null;
+    mobile: string | null;
+    email: string | null;
+    street: string | null;
+    number: string | null;
+    district: string | null;
+    postalCode: string | null;
+    city: string | null;
+    state: string | null;
+    notes: string | null;
+    profileUpdatedAt: Date | null;
+    profileVersion: number;
+    lastLoginUserId: string | null;
+    status: "active" | "inactive";
+  } {
+    return {
+      name: agent.name,
+      tradeName: agent.tradeName ?? null,
+      document: agent.document ?? null,
+      documentType: agent.documentType ?? null,
+      phone: agent.phone ?? null,
+      mobile: agent.mobile ?? null,
+      email: agent.email ?? null,
+      street: agent.street ?? null,
+      number: agent.number ?? null,
+      district: agent.district ?? null,
+      postalCode: agent.postalCode ?? null,
+      city: agent.city ?? null,
+      state: agent.state ?? null,
+      notes: agent.notes ?? null,
+      profileUpdatedAt: agent.profileUpdatedAt ?? null,
+      profileVersion: agent.profileVersion,
+      lastLoginUserId: agent.lastLoginUserId ?? null,
+      status: agent.status,
+    };
   }
 
   private toEntity(record: {
@@ -143,6 +373,7 @@ export class PrismaAgentRepository implements IAgentRepository {
     state: string | null;
     notes: string | null;
     profileUpdatedAt: Date | null;
+    profileVersion: number;
     lastLoginUserId: string | null;
     status: "active" | "inactive";
     createdAt: Date;
@@ -159,6 +390,7 @@ export class PrismaAgentRepository implements IAgentRepository {
       ...(record.email !== null ? { email: record.email } : {}),
       ...(record.notes !== null ? { notes: record.notes } : {}),
       ...(record.profileUpdatedAt !== null ? { profileUpdatedAt: record.profileUpdatedAt } : {}),
+      profileVersion: record.profileVersion,
       ...(record.lastLoginUserId !== null ? { lastLoginUserId: record.lastLoginUserId } : {}),
       address: {
         ...(record.street !== null ? { street: record.street } : {}),

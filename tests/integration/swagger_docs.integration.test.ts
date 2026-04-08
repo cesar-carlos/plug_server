@@ -42,6 +42,7 @@ describe("Swagger docs", () => {
         expect.objectContaining({ name: "search" }),
         expect.objectContaining({ name: "page" }),
         expect.objectContaining({ name: "pageSize" }),
+        expect.objectContaining({ name: "refresh" }),
       ]),
     );
     expect(response.body.paths?.["/client/me/agent-access-requests"]?.get?.parameters).toEqual(
@@ -84,7 +85,22 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/users/{userId}/agents"]?.put).toBeUndefined();
     expect(response.body.paths?.["/auth/agent-login"]?.post?.responses?.["409"]).toBeDefined();
     expect(response.body.paths?.["/auth/agent-login"]?.post?.responses?.["404"]).toBeUndefined();
+    const agentsProfilePatch = response.body.paths?.["/agents/{agentId}/profile"]?.patch;
+    expect(agentsProfilePatch?.tags).toContain("Agents");
+    expect(agentsProfilePatch?.responses?.["409"]?.content?.["application/json"]?.schema?.$ref).toBe(
+      "#/components/schemas/ErrorResponse",
+    );
+    expect(
+      agentsProfilePatch?.parameters?.some(
+        (p: { name?: string; in?: string }) => p.name === "Idempotency-Key" && p.in === "header",
+      ),
+    ).toBe(true);
+    expect(
+      agentsProfilePatch?.requestBody?.content?.["application/json"]?.schema?.$ref,
+    ).toBe("#/components/schemas/AgentSelfProfilePatchRequest");
     expect(schemas?.AgentCatalogRecord?.properties).toHaveProperty("cnpjCpf");
+    expect(schemas?.AgentSelfProfilePatchRequest?.properties).toHaveProperty("tradeName");
+    expect(schemas?.AgentSelfProfilePatchRequest?.properties).toHaveProperty("address");
     expect(schemas?.ClientAccessibleAgent?.properties).toHaveProperty("profileUpdatedAt");
     expect(schemas?.CreateAgentCatalogRequest).toBeUndefined();
     expect(schemas?.UpdateAgentCatalogRequest).toBeUndefined();

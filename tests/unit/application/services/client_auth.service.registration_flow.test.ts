@@ -7,6 +7,7 @@ import type {
   ClientRegistrationApprovalToken,
   IClientRegistrationApprovalTokenRepository,
 } from "../../../../src/domain/repositories/client_registration_approval_token.repository.interface";
+import { InMemoryClientPasswordRecoveryTokenRepository } from "../../../../src/infrastructure/repositories/in_memory_client_password_recovery_token.repository";
 import { InMemoryClientRefreshTokenRepository } from "../../../../src/infrastructure/repositories/in_memory_client_refresh_token.repository";
 import { InMemoryClientRepository } from "../../../../src/infrastructure/repositories/in_memory_client.repository";
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
@@ -73,6 +74,7 @@ describe("ClientAuthService registration flow", () => {
     service = new ClientAuthService(
       clientRepository,
       new InMemoryClientRefreshTokenRepository(),
+      new InMemoryClientPasswordRecoveryTokenRepository(),
       clientRegistrationApprovalTokenRepository,
       userRepository,
       new FakePasswordHasher(),
@@ -87,6 +89,13 @@ describe("ClientAuthService registration flow", () => {
         sendClientRegistrationRequestToOwner,
         sendClientRegistrationApproved,
         sendClientRegistrationRejected,
+      },
+      {
+        saveClientThumbnail: async () => ({
+          url: "http://test.local/uploads/client-thumbnails/mock.webp",
+          storageKey: "client-thumbnails/mock.webp",
+        }),
+        delete: async () => {},
       },
     );
 

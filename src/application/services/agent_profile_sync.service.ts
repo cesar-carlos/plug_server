@@ -1,28 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import { Agent } from "../../domain/entities/agent.entity";
-import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
+import type { Agent } from "../../domain/entities/agent.entity";
 import type { AgentCommandDispatcher } from "../agent_commands/execute_agent_command";
+import { forbidden } from "../../shared/errors/http_errors";
 import { logger } from "../../shared/utils/logger";
-
-type AgentProfilePayload = {
-  readonly name: string;
-  readonly trade_name?: string;
-  readonly document?: string;
-  readonly document_type?: "cpf" | "cnpj";
-  readonly phone?: string;
-  readonly mobile?: string;
-  readonly email?: string;
-  readonly address?: {
-    readonly street?: string;
-    readonly number?: string;
-    readonly district?: string;
-    readonly postal_code?: string;
-    readonly city?: string;
-    readonly state?: string;
-  };
-  readonly notes?: string;
-};
+import type {
+  AgentPulledProfilePayload,
+  AgentSelfProfileService,
+} from "./agent_self_profile.service";
 
 export interface SyncAgentProfileInput {
   readonly agentId: string;
@@ -32,7 +17,7 @@ export interface SyncAgentProfileInput {
 }
 
 export class AgentProfileSyncService {
-  constructor(private readonly agentRepository: IAgentRepository) {}
+  constructor(private readonly agentSelfProfileService: AgentSelfProfileService) {}
 
   async syncFromConnectedAgent(input: SyncAgentProfileInput): Promise<Agent> {
     const result = await input.dispatch({
@@ -71,54 +56,30 @@ export class AgentProfileSyncService {
 
     const profile = parseProfile(rpcResult.profile);
     const updatedAt = parseOptionalDate(rpcResult.updated_at);
+    const remoteProfileVersion = parseOptionalNonNegativeInt(rpcResult.profile_version);
     const responseAgentId = readString(rpcResult.agent_id);
-    const persistedAgentId = responseAgentId ?? input.agentId;
     if (responseAgentId && responseAgentId !== input.agentId) {
       logger.warn("agent_profile_sync_agent_id_mismatch", {
         expectedAgentId: input.agentId,
         responseAgentId,
       });
+      throw forbidden("agent.getProfile agent_id does not match authenticated agent");
     }
 
-    const existing = await this.agentRepository.findById(persistedAgentId);
-    const profileAddress = profile.address
-      ? {
-          ...(profile.address.street !== undefined ? { street: profile.address.street } : {}),
-          ...(profile.address.number !== undefined ? { number: profile.address.number } : {}),
-          ...(profile.address.district !== undefined ? { district: profile.address.district } : {}),
-          ...(profile.address.postal_code !== undefined
-            ? { postalCode: profile.address.postal_code }
-            : {}),
-          ...(profile.address.city !== undefined ? { city: profile.address.city } : {}),
-          ...(profile.address.state !== undefined ? { state: profile.address.state } : {}),
-        }
-      : undefined;
-    const commonPayload = {
-      name: profile.name,
-      ...(profile.trade_name !== undefined ? { tradeName: profile.trade_name } : {}),
-      ...(profile.document !== undefined ? { document: profile.document } : {}),
-      ...(profile.document_type !== undefined ? { documentType: profile.document_type } : {}),
-      ...(profile.phone !== undefined ? { phone: profile.phone } : {}),
-      ...(profile.mobile !== undefined ? { mobile: profile.mobile } : {}),
-      ...(profile.email !== undefined ? { email: profile.email } : {}),
-      ...(profileAddress !== undefined ? { address: profileAddress } : {}),
-      ...(profile.notes !== undefined ? { notes: profile.notes } : {}),
-      profileUpdatedAt: updatedAt ?? new Date(),
-      ...(input.userId !== undefined ? { lastLoginUserId: input.userId } : {}),
-    };
-
-    if (!existing) {
-      const created = Agent.create({
-        agentId: persistedAgentId,
-        ...commonPayload,
+    if (updatedAt === undefined) {
+      logger.warn("agent_profile_sync_missing_updated_at", {
+        agentId: input.agentId,
       });
-      await this.agentRepository.save(created);
-      return created;
     }
 
-    const updated = existing.update(commonPayload);
-    await this.agentRepository.update(updated);
-    return updated;
+    return this.agentSelfProfileService.persistProfilePatch({
+      agentId: input.agentId,
+      patch: this.agentSelfProfileService.toPatchFromPulledProfile(profile),
+      source: "pull_sync",
+      ...(updatedAt !== undefined ? { profileUpdatedAt: updatedAt } : {}),
+      ...(remoteProfileVersion !== undefined ? { remoteProfileVersion } : {}),
+      ...(input.userId !== undefined ? { lastLoginUserId: input.userId } : {}),
+    });
   }
 }
 
@@ -136,7 +97,20 @@ const parseOptionalDate = (value: unknown): Date | undefined => {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 };
 
-const parseProfile = (value: unknown): AgentProfilePayload => {
+const parseOptionalNonNegativeInt = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number.parseInt(value.trim(), 10);
+    if (!Number.isNaN(n) && n >= 0) {
+      return n;
+    }
+  }
+  return undefined;
+};
+
+const parseProfile = (value: unknown): AgentPulledProfilePayload => {
   const profile = toRecord(value);
   if (!profile) {
     throw new Error("agent.getProfile profile must be an object");

@@ -435,6 +435,16 @@ const envSchema = z.object({
     (val) => (val === undefined || val === "" ? undefined : val),
     z.coerce.number().int().positive().optional(),
   ),
+  AGENT_PROFILE_REVISION_RETENTION_DAYS: z.coerce.number().int().positive().default(180),
+  AGENT_PROFILE_IDEMPOTENCY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  AGENT_PROFILE_MAINTENANCE_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
+  AGENT_PROFILE_MAINTENANCE_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
+  CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_INTERVAL_MINUTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60),
+  CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_BATCH_SIZE: z.coerce.number().int().positive().default(1_000),
 });
 
 const parsedEnv = envSchema.parse(process.env);
@@ -577,6 +587,13 @@ export const env = {
   bridgeLatencyTraceRelayRetentionDays:
     parsedEnv.BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS ??
     parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_DAYS,
+  agentProfileRevisionRetentionDays: parsedEnv.AGENT_PROFILE_REVISION_RETENTION_DAYS,
+  agentProfileIdempotencyRetentionDays: parsedEnv.AGENT_PROFILE_IDEMPOTENCY_RETENTION_DAYS,
+  agentProfileMaintenanceIntervalMinutes: parsedEnv.AGENT_PROFILE_MAINTENANCE_INTERVAL_MINUTES,
+  agentProfileMaintenancePruneBatchSize: parsedEnv.AGENT_PROFILE_MAINTENANCE_PRUNE_BATCH_SIZE,
+  clientAgentAccessExpirySweepIntervalMinutes:
+    parsedEnv.CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_INTERVAL_MINUTES,
+  clientAgentAccessExpirySweepBatchSize: parsedEnv.CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_BATCH_SIZE,
   appBaseUrl: parsedEnv.APP_BASE_URL.replace(/\/+$/, ""),
   adminEmail: parsedEnv.ADMIN_EMAIL,
   smtpHost: parsedEnv.SMTP_HOST,

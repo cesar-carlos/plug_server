@@ -1,4 +1,5 @@
 import type { Agent, AgentStatus } from "../entities/agent.entity";
+import type { AgentProfileCommitInput, AgentProfileCommitResult } from "./agent_profile_commit";
 
 export interface AgentListFilter {
   readonly status?: AgentStatus;
@@ -23,4 +24,5 @@ export interface IAgentRepository {
   findAll(filter?: AgentListFilter): Promise<PaginatedAgentList>;
   save(agent: Agent): Promise<void>;
   update(agent: Agent): Promise<void>;
+  commitAgentProfileChange(input: AgentProfileCommitInput): Promise<AgentProfileCommitResult>;
 }

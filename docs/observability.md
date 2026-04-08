@@ -109,6 +109,29 @@ rate(plug_rest_http_rate_limit_admin_user_status_rejected_total[5m])
 
 # Alertas (exemplos): muitas tentativas de login bloqueadas (possivel abuso ou lista de contas)
 rate(plug_auth_login_blocked_total[5m]) > 0.5
+
+# Escritas versionadas de perfil de agente (HTTP / socket / pull sync) e broadcast para clientes
+rate(plug_agent_profile_writes_committed_total[5m])
+rate(plug_agent_profile_writes_idempotent_total[5m])
+rate(plug_agent_profile_writes_conflict_total[5m])
+rate(plug_agent_profile_writes_pull_sync_version_content_conflict_total[5m])
+rate(plug_agent_profile_writes_skipped_stale_remote_version_total[5m])
+rate(plug_agent_profile_writes_skipped_missing_timestamp_total[5m])
+rate(plug_agent_profile_writes_skipped_stale_timestamp_total[5m])
+rate(plug_agent_profile_writes_legacy_no_expected_version_total[5m])
+rate(plug_agent_profile_broadcast_emitted_total[5m])
+rate(plug_agent_profile_broadcast_failed_total[5m])
+
+# Manutencao de dados Agent
+rate(plug_agent_profile_maintenance_prune_runs_total[5m])
+rate(plug_agent_profile_maintenance_revisions_deleted_total[5m])
+rate(plug_agent_profile_maintenance_idempotency_deleted_total[5m])
+rate(plug_agent_profile_maintenance_prune_failed_total[5m])
+rate(plug_client_agent_access_expiry_runs_total[5m])
+rate(plug_client_agent_access_requests_expired_total[5m])
+rate(plug_client_agent_access_expired_tokens_deleted_total[5m])
+rate(plug_client_agent_access_expiry_failed_total[5m])
+plug_agent_data_maintenance_pending_operations
 ```
 
 Regras de transicao e API: `docs/user_status.md`.

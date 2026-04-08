@@ -56,6 +56,11 @@ const agentsCommandsTooManyMessage = {
   code: "TOO_MANY_REQUESTS",
 };
 
+const agentSelfProfileTooManyMessage = {
+  message: "Too many agent profile updates, please try again later.",
+  code: "TOO_MANY_REQUESTS",
+};
+
 /** Rate-limit store key for `POST /agents/commands` when limiting by `req.ip`. */
 export const agentsCommandsIpRateLimitKey = (req: Request): string =>
   `agents_commands:ip:${req.ip ?? "unknown"}`;
@@ -72,6 +77,20 @@ export const adminUserStatusRateLimitKey = (res: Response): string => {
   const authUser = res.locals.authUser as JwtAccessPayload | undefined;
   const sub = authUser?.sub?.trim();
   return sub ? `admin_user_status:${sub}` : "admin_user_status:anonymous";
+};
+
+/** Rate-limit store key for `PATCH /agents/:agentId/profile` keyed by authenticated user and bound agent claim. */
+export const agentsSelfProfileRateLimitKey = (res: Response): string => {
+  const authUser = res.locals.authUser as JwtAccessPayload | undefined;
+  const sub = authUser?.sub?.trim();
+  const agentId = authUser?.agent_id?.trim();
+  if (sub && agentId) {
+    return `agents_self_profile:user:${sub}:${agentId}`;
+  }
+  if (sub) {
+    return `agents_self_profile:user:${sub}`;
+  }
+  return "agents_self_profile:anonymous";
 };
 
 /**
@@ -110,6 +129,22 @@ export const agentsCommandsUserRateLimit = rateLimit({
   keyGenerator: (_req: Request, res: Response) => agentsCommandsUserRateLimitKey(res),
   handler: async (request, response, _next, optionsUsed) => {
     incrementRestHttpAgentsCommandsUserRateLimitRejected();
+    await sendRateLimitResponse(request, response, optionsUsed);
+  },
+});
+
+/**
+ * Per authenticated agent on `PATCH /agents/:agentId/profile`.
+ * Reuses the same window/max defaults as the agent command bridge but keeps an independent bucket.
+ */
+export const agentsSelfProfileRateLimit = rateLimit({
+  windowMs: env.restAgentsCommandsRateLimitWindowMs,
+  limit: env.restAgentsCommandsRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: agentSelfProfileTooManyMessage,
+  keyGenerator: (_req: Request, res: Response) => agentsSelfProfileRateLimitKey(res),
+  handler: async (request, response, _next, optionsUsed) => {
     await sendRateLimitResponse(request, response, optionsUsed);
   },
 });

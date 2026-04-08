@@ -47,6 +47,13 @@ import {
   sweepAgentsCommandSocketRateLimitState,
 } from "./presentation/socket/hub/agents_command_socket_rate_limiter";
 import {
+  allowAgentProfileSocketUpdate,
+  clearAgentProfileSocketRateLimitStateForAgentId,
+  clearAgentProfileSocketRateLimitStateForSocketId,
+  resetAgentProfileSocketRateLimitState,
+  sweepAgentProfileSocketRateLimitState,
+} from "./presentation/socket/hub/agent_profile_socket_rate_limiter";
+import {
   getRelayOutboundQueueOverloadState,
   noteRelayOutboundQueueOverloadRejected,
   sweepRelayOutboundQueueState,
@@ -55,15 +62,19 @@ import { handleRelayConversationStart } from "./presentation/socket/consumers/re
 import { handleRelayConversationEnd } from "./presentation/socket/consumers/relay_conversation_end.handler";
 import { handleRelayRpcRequest } from "./presentation/socket/consumers/relay_rpc_request.handler";
 import { handleRelayRpcStreamPull } from "./presentation/socket/consumers/relay_rpc_stream_pull.handler";
+import { registerAgentProfileBroadcastHandler } from "./application/services/agent_profile_broadcast_sink";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { env } from "./shared/config/env";
 import { AppError } from "./shared/errors/app_error";
+import { badRequest, forbidden, tooManyRequests } from "./shared/errors/http_errors";
 import { HUB_SERVER_CAPABILITIES } from "./shared/constants/agent_transport_contract";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { container } from "./shared/di/container";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
 import { decodePayloadFrame, encodePayloadFrame } from "./shared/utils/payload_frame";
+import { agentSelfProfileSocketSchema } from "./presentation/http/validators/agent_self_profile.validator";
+import { toAgentCatalogDto } from "./presentation/http/controllers/agent_catalog.controller";
 
 type SocketData = {
   user?: JwtAccessPayload;
@@ -120,6 +131,36 @@ const withOptionalRequestId = (
   requestId: string | null | undefined,
 ): { readonly requestId?: string } => {
   return requestId ? { requestId } : {};
+};
+
+const emitAgentProfileUpdated = (
+  socket: HubSocket,
+  requestId: string | null | undefined,
+  payload: Record<string, unknown>,
+): void => {
+  socket.emit(
+    socketEvents.agentProfileUpdated,
+    encodePayloadFrame(payload, { ...withOptionalRequestId(requestId), omitTraceId: true }),
+  );
+};
+
+const emitAgentProfileUpdateError = (
+  socket: HubSocket,
+  input: {
+    readonly requestId: string | null | undefined;
+    readonly agentId?: string;
+    readonly error: AppError;
+  },
+): void => {
+  emitAgentProfileUpdated(socket, input.requestId, {
+    success: false,
+    ...(input.agentId !== undefined ? { agent_id: input.agentId } : {}),
+    error: {
+      code: input.error.code,
+      message: input.error.message,
+      statusCode: input.error.statusCode,
+    },
+  });
 };
 
 const clearAgentProfileSyncState = (agentId: string): void => {
@@ -251,6 +292,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
 
   resetRelayRateLimiterState();
   resetAgentsCommandSocketRateLimitState();
+  resetAgentProfileSocketRateLimitState();
   resetSocketBridgeState();
   resetRestBridgeMetrics();
   conversationRegistry.clear();
@@ -264,6 +306,8 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
     activeSocketServer = null;
   }
   agentsNamespace = null;
+
+  registerAgentProfileBroadcastHandler(undefined);
 
   await new Promise<void>((resolve) => {
     io.close(() => resolve());
@@ -321,6 +365,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   conversationSweepTimer = setInterval(() => {
     sweepRelayRateLimitState();
     sweepAgentsCommandSocketRateLimitState();
+    sweepAgentProfileSocketRateLimitState();
     sweepRelayOutboundQueueState();
     const expiredConversations = conversationRegistry.removeExpired(
       env.socketRelayConversationIdleTimeoutMs,
@@ -492,6 +537,157 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       }
     });
 
+    socket.on(socketEvents.agentProfileUpdate, async (rawPayload: unknown) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        emitAgentProfileUpdateError(socket, {
+          requestId: undefined,
+          error: badRequest(decoded.error.message),
+        });
+        return;
+      }
+
+      const requestId = decoded.value.frame.requestId;
+
+      if (!isRecord(decoded.value.data)) {
+        emitAgentProfileUpdateError(socket, {
+          requestId,
+          error: badRequest("agent:profile.update payload must be an object"),
+        });
+        return;
+      }
+
+      const authenticatedAgentId = socket.data.agentId;
+      const tokenAgentId = socket.data.user?.agent_id;
+      const userId = getUserId(socket);
+
+      if (!authenticatedAgentId) {
+        emitAgentProfileUpdateError(socket, {
+          requestId,
+          error: badRequest("agent:profile.update received before agent registration"),
+        });
+        return;
+      }
+
+      if (!tokenAgentId || tokenAgentId !== authenticatedAgentId) {
+        logger.warn("agent_self_profile_socket_token_mismatch", {
+          userId,
+          socketId: socket.id,
+          socketAgentId: authenticatedAgentId,
+          tokenAgentId,
+        });
+        emitAgentProfileUpdateError(socket, {
+          requestId,
+          agentId: authenticatedAgentId,
+          error: forbidden("Authenticated socket is not allowed to update this agent profile"),
+        });
+        return;
+      }
+
+      if (!allowAgentProfileSocketUpdate(authenticatedAgentId, socket.id)) {
+        logger.warn("agent_self_profile_socket_rate_limited", {
+          userId,
+          socketId: socket.id,
+          agentId: authenticatedAgentId,
+        });
+        emitAgentProfileUpdateError(socket, {
+          requestId,
+          agentId: authenticatedAgentId,
+          error: tooManyRequests("Rate limit exceeded for agent:profile.update"),
+        });
+        return;
+      }
+
+      const parsed = agentSelfProfileSocketSchema.safeParse(decoded.value.data);
+      if (!parsed.success) {
+        emitAgentProfileUpdateError(socket, {
+          requestId,
+          agentId: authenticatedAgentId,
+          error: badRequest(
+            parsed.error.issues[0]?.message ?? "Invalid agent:profile.update payload",
+          ),
+        });
+        return;
+      }
+
+      if (
+        parsed.data.agent_id !== undefined &&
+        (parsed.data.agent_id !== authenticatedAgentId || parsed.data.agent_id !== tokenAgentId)
+      ) {
+        logger.warn("agent_self_profile_socket_identity_mismatch", {
+          userId,
+          socketId: socket.id,
+          socketAgentId: authenticatedAgentId,
+          tokenAgentId,
+          payloadAgentId: parsed.data.agent_id,
+        });
+        emitAgentProfileUpdateError(socket, {
+          requestId,
+          agentId: authenticatedAgentId,
+          error: forbidden("agent:profile.update agent_id does not match the authenticated agent"),
+        });
+        return;
+      }
+
+      try {
+        const expectedProfileVersion =
+          parsed.data.expected_profile_version ?? parsed.data.profile_version;
+        const dedupeKey =
+          parsed.data.idempotency_key !== undefined && parsed.data.idempotency_key.trim() !== ""
+            ? `idem:${parsed.data.idempotency_key.trim()}`
+            : typeof requestId === "string" && requestId.trim() !== ""
+              ? `socket:req:${requestId}`
+              : undefined;
+
+        const updated = await container.agentSelfProfileService.persistProfilePatch({
+          agentId: authenticatedAgentId,
+          patch: container.agentSelfProfileService.toPatchFromSocketPayload(parsed.data),
+          source: "socket",
+          ...(userId !== null ? { lastLoginUserId: userId } : {}),
+          ...(expectedProfileVersion !== undefined ? { expectedProfileVersion } : {}),
+          ...(dedupeKey !== undefined ? { dedupeKey } : {}),
+          ...(typeof requestId === "string" ? { requestId } : {}),
+          ...(parsed.data.idempotency_key !== undefined
+            ? { idempotencyKey: parsed.data.idempotency_key }
+            : {}),
+        });
+
+        logger.info("agent_self_profile_socket_updated", {
+          userId,
+          socketId: socket.id,
+          agentId: updated.agentId,
+        });
+        emitAgentProfileUpdated(socket, requestId, {
+          success: true,
+          agent_id: updated.agentId,
+          profileVersion: updated.profileVersion,
+          profileUpdatedAt: updated.profileUpdatedAt?.toISOString() ?? null,
+          agent: toAgentCatalogDto(updated),
+        });
+      } catch (error: unknown) {
+        const appError =
+          error instanceof AppError
+            ? error
+            : new AppError("Internal server error", {
+                statusCode: 500,
+                code: "INTERNAL_SERVER_ERROR",
+              });
+        logger.warn("agent_self_profile_socket_failed", {
+          userId,
+          socketId: socket.id,
+          agentId: authenticatedAgentId,
+          code: appError.code,
+          statusCode: appError.statusCode,
+          message: appError.message,
+        });
+        emitAgentProfileUpdateError(socket, {
+          requestId,
+          agentId: authenticatedAgentId,
+          error: appError,
+        });
+      }
+    });
+
     socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: () => void) => {
       handleAgentRpcResponse(socket.id, rawPayload, ack);
     });
@@ -515,6 +711,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     socket.on("disconnect", () => {
       const cleanedPendingRequests = cleanupPendingRequestsForAgentSocket(socket.id);
       cleanupAgentStreamSubscriptions(socket.id);
+      clearAgentProfileSocketRateLimitStateForSocketId(socket.id);
       const endedConversations = conversationRegistry.removeByAgentSocketId(socket.id);
       for (const conversation of endedConversations) {
         cleanupConversationStreamSubscriptions(conversation.conversationId);
@@ -529,6 +726,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       const removedAgent = agentRegistry.removeBySocketId(socket.id);
       if (removedAgent) {
         clearAgentProfileSyncState(removedAgent.agentId);
+        clearAgentProfileSocketRateLimitStateForAgentId(removedAgent.agentId);
         logSocketLifecycleInfo("Agent disconnected from hub", {
           socketId: socket.id,
           agentId: removedAgent.agentId,
@@ -550,6 +748,15 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       message: "Consumer socket connected successfully",
       user: socket.data.user ?? null,
     });
+
+    const consumerUser = socket.data.user;
+    if (
+      consumerUser?.principal_type === "client" &&
+      typeof consumerUser.sub === "string" &&
+      consumerUser.sub.trim() !== ""
+    ) {
+      void socket.join(`client:${consumerUser.sub}`);
+    }
 
     socket.on(socketEvents.agentsCommand, (rawPayload: unknown) => {
       handleAgentsCommand(socket, rawPayload);
@@ -650,11 +857,32 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       cleanupConsumerStreamSubscriptions(socket.id);
       clearRelayRateLimitStateByConsumerSocket(socket.id);
       clearAgentsCommandSocketRateLimitStateForSocketId(socket.id);
+      clearAgentProfileSocketRateLimitStateForSocketId(socket.id);
       const endedConversations = conversationRegistry.removeByConsumerSocketId(socket.id);
       for (const conversation of endedConversations) {
         cleanupConversationStreamSubscriptions(conversation.conversationId);
       }
     });
+  });
+
+  registerAgentProfileBroadcastHandler(async (event) => {
+    const clientIds = await container.clientAgentAccessService.listApprovedClientIdsForAgent(
+      event.agentId,
+    );
+    const frame = encodePayloadFrame(
+      {
+        success: true,
+        agent_id: event.agentId,
+        profile_version: event.profileVersion,
+        profileUpdatedAt: event.profileUpdatedAt,
+        changed_fields: event.changedFields,
+        source: event.source,
+      },
+      { omitTraceId: true },
+    );
+    for (const clientId of clientIds) {
+      consumersNsp.to(`client:${clientId}`).emit(socketEvents.clientAgentProfileUpdated, frame);
+    }
   });
 
   return io;

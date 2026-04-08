@@ -177,6 +177,8 @@ model Agent {
   state            String?            @db.VarChar(2)
   notes            String?            @db.VarChar(2000)
   profileUpdatedAt DateTime?          @map("profile_updated_at")
+  /// Monotonic server-side version; incremented on each applied profile-affecting write.
+  profileVersion   Int                @default(0) @map("profile_version")
   lastLoginUserId  String?            @map("last_login_user_id")
   lastLoginUser    User?              @relation("AgentLastLoginUser", fields: [lastLoginUserId], references: [id], onDelete: SetNull)
   status           AgentStatus        @default(active)
@@ -185,10 +187,46 @@ model Agent {
   agentIdentities  AgentIdentity[]
   clientAccesses   ClientAgentAccess[]
   clientAccessRequests ClientAgentAccessRequest[]
+  profileRevisions     AgentProfileRevision[]
+  profileWriteIdempotencies AgentProfileWriteIdempotency[]
 
   @@index([lastLoginUserId])
 
   @@map("agents")
+}
+
+model AgentProfileRevision {
+  id               String   @id @default(uuid())
+  agentId          String   @map("agent_id") @db.VarChar(36)
+  agent            Agent    @relation(fields: [agentId], references: [agentId], onDelete: Cascade, onUpdate: Cascade)
+  profileVersion   Int      @map("profile_version")
+  source           String   @db.VarChar(32)
+  actorUserId      String?  @map("actor_user_id") @db.VarChar(36)
+  requestId        String?  @map("request_id") @db.VarChar(128)
+  idempotencyKey   String?  @map("idempotency_key") @db.VarChar(256)
+  changedFields    Json     @map("changed_fields")
+  snapshotJson     Json     @map("snapshot_json")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([agentId, profileVersion])
+  @@index([agentId, createdAt])
+  @@index([createdAt])
+  @@map("agent_profile_revisions")
+}
+
+model AgentProfileWriteIdempotency {
+  id             String   @id @default(uuid())
+  agentId        String   @map("agent_id") @db.VarChar(36)
+  agent          Agent    @relation(fields: [agentId], references: [agentId], onDelete: Cascade, onUpdate: Cascade)
+  dedupeKey      String   @map("dedupe_key") @db.VarChar(256)
+  patchFingerprint String @map("patch_fingerprint") @db.VarChar(64)
+  resultingProfileVersion Int @map("resulting_profile_version")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([agentId, dedupeKey])
+  @@index([agentId])
+  @@index([createdAt])
+  @@map("agent_profile_write_idempotencies")
 }
 
 model ClientAgentAccess {

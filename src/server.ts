@@ -2,6 +2,13 @@ import { createServer } from "node:http";
 
 import { createApp } from "./app";
 import {
+  startAgentProfileMaintenanceScheduler,
+  startClientAgentAccessExpiryScheduler,
+  stopAgentProfileMaintenanceScheduler,
+  stopClientAgentAccessExpiryScheduler,
+  waitForAgentDataMaintenanceDrain,
+} from "./application/services/agent_data_maintenance.service";
+import {
   flushPendingBridgeLatencyTraces,
   startBridgeLatencyTraceRetentionScheduler,
   stopBridgeLatencyTraceRetentionScheduler,
@@ -39,6 +46,14 @@ startBridgeLatencyTraceRetentionScheduler({
   intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
   batchSize: env.bridgeLatencyTracePruneBatchSize,
 });
+startAgentProfileMaintenanceScheduler({
+  intervalMs: env.agentProfileMaintenanceIntervalMinutes * 60 * 1000,
+  batchSize: env.agentProfileMaintenancePruneBatchSize,
+});
+startClientAgentAccessExpiryScheduler({
+  intervalMs: env.clientAgentAccessExpirySweepIntervalMinutes * 60 * 1000,
+  batchSize: env.clientAgentAccessExpirySweepBatchSize,
+});
 startRegistrationEmailOutboxWorker(container.emailSender);
 
 httpServer.listen(env.port, "0.0.0.0", () => {
@@ -72,6 +87,8 @@ const shutdown = async (signal: string): Promise<void> => {
   try {
     stopSocketAuditRetentionScheduler();
     stopBridgeLatencyTraceRetentionScheduler();
+    stopAgentProfileMaintenanceScheduler();
+    stopClientAgentAccessExpiryScheduler();
     stopRegistrationEmailOutboxWorker();
     await flushPendingSocketAuditEvents();
     const auditDrain = await waitForSocketAuditDrain(2_500);
@@ -83,6 +100,11 @@ const shutdown = async (signal: string): Promise<void> => {
     const traceDrain = await waitForBridgeLatencyTraceDrain(2_500);
     if (!traceDrain.drained) {
       logger.warn("bridge_latency_trace_drain_timeout", { pending: traceDrain.pending });
+    }
+
+    const maintenanceDrain = await waitForAgentDataMaintenanceDrain(2_500);
+    if (!maintenanceDrain.drained) {
+      logger.warn("agent_data_maintenance_drain_timeout", { pending: maintenanceDrain.pending });
     }
 
     await flushRegistrationEmailOutbox(container.emailSender);

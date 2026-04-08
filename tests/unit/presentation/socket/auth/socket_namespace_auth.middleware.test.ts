@@ -112,7 +112,7 @@ describe("authenticateAgentSocket", () => {
     await authenticateAgentSocket(socket as never, next);
 
     expect(next).toHaveBeenCalledWith();
-    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("agent-1");
+    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("agent-1", undefined, undefined);
     expect(socket.data.user).toMatchObject({ sub: "agent-1", role: "agent" });
   });
 
@@ -209,7 +209,7 @@ describe("authenticateConsumerSocket", () => {
     await authenticateConsumerSocket(socket as never, next);
 
     expect(next).toHaveBeenCalledWith();
-    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("user-1");
+    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("user-1", undefined, undefined);
     expect(socket.data.user).toMatchObject({ sub: "user-1", role: "user" });
   });
 

@@ -9,7 +9,7 @@ import {
   observeRestBridgeLatency,
 } from "../../../application/services/rest_bridge_metrics.service";
 import { AppError } from "../../../shared/errors/app_error";
-import { notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
+import { forbidden, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
 import { agentRegistry } from "../../socket/hub/agent_registry";
 import { agentsNamespace } from "../../../socket";
 import { dispatchRpcCommandToAgent } from "../../socket/hub/rpc_bridge";
@@ -17,6 +17,10 @@ import { normalizeAgentRpcResponse } from "../serializers/agent_rpc_response.ser
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
 import type { AgentCommandBody } from "../validators/agents.validator";
+import type {
+  AgentSelfProfileHttpBody,
+  AgentSelfProfileParams,
+} from "../validators/agent_self_profile.validator";
 import { env } from "../../../shared/config/env";
 import { container } from "../../../shared/di/container";
 import {
@@ -24,6 +28,8 @@ import {
   resolveVisibleAgentIds,
 } from "../../../application/policies/agent_visibility.policy";
 import type { AgentAccessPrincipal } from "../../../application/services/agent_access.service";
+import { toAgentCatalogDto } from "./agent_catalog.controller";
+import { logger } from "../../../shared/utils/logger";
 
 const resolveAgentAccessPrincipal = (
   sub: string,
@@ -69,6 +75,80 @@ export const listConnectedAgents = async (
     response.status(200).json(payload);
   } catch (e) {
     next(e);
+  }
+};
+
+export const patchMyAgentProfile = async (
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = getAuthUser(response);
+    const { agentId } = getValidated<AgentSelfProfileParams>(response, "params");
+    const body = getValidated<AgentSelfProfileHttpBody>(response, "body");
+    const tokenAgentId = authUser.agent_id;
+
+    if (authUser.role !== "agent" || typeof tokenAgentId !== "string" || tokenAgentId.trim() === "") {
+      logger.warn("agent_self_profile_http_token_missing_agent_claim", {
+        userId: authUser.sub,
+        role: authUser.role,
+        pathAgentId: agentId,
+      });
+      throw forbidden("Agent token with agent_id claim is required");
+    }
+
+    if (tokenAgentId !== agentId) {
+      logger.warn("agent_self_profile_http_identity_mismatch", {
+        userId: authUser.sub,
+        tokenAgentId,
+        pathAgentId: agentId,
+      });
+      throw forbidden("Authenticated agent cannot update another agent profile");
+    }
+
+    const idemHeader = request.get("Idempotency-Key")?.trim();
+    const dedupeKey =
+      idemHeader !== undefined && idemHeader !== ""
+        ? `idem:${idemHeader}`
+        : body.idempotencyKey !== undefined && body.idempotencyKey.trim() !== ""
+          ? `idem:${body.idempotencyKey.trim()}`
+          : undefined;
+
+    const requestId =
+      typeof response.locals.requestId === "string" ? response.locals.requestId : undefined;
+
+    const updated = await container.agentSelfProfileService.persistProfilePatch({
+      agentId,
+      patch: container.agentSelfProfileService.toPatchFromHttpPayload(body),
+      source: "http",
+      lastLoginUserId: authUser.sub,
+      ...(body.expectedProfileVersion !== undefined
+        ? { expectedProfileVersion: body.expectedProfileVersion }
+        : {}),
+      ...(dedupeKey !== undefined ? { dedupeKey } : {}),
+      ...(requestId !== undefined ? { requestId } : {}),
+      ...(body.idempotencyKey !== undefined ? { idempotencyKey: body.idempotencyKey } : {}),
+    });
+
+    logger.info("agent_self_profile_http_updated", {
+      userId: authUser.sub,
+      agentId,
+    });
+    response.status(200).json({ agent: toAgentCatalogDto(updated) });
+  } catch (error) {
+    const authUser = response.locals.authUser as { sub?: string } | undefined;
+    const params = response.locals.validated?.params as { agentId?: string } | undefined;
+    if (error instanceof AppError) {
+      logger.warn("agent_self_profile_http_failed", {
+        userId: authUser?.sub,
+        agentId: params?.agentId,
+        code: error.code,
+        statusCode: error.statusCode,
+        message: error.message,
+      });
+    }
+    next(error);
   }
 };
 

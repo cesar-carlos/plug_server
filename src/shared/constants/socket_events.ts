@@ -5,6 +5,8 @@ export const socketEvents = {
   agentCapabilities: "agent:capabilities",
   agentReady: "agent:ready",
   agentHeartbeat: "agent:heartbeat",
+  agentProfileUpdate: "agent:profile.update",
+  agentProfileUpdated: "agent:profile.updated",
   hubHeartbeatAck: "hub:heartbeat_ack",
   rpcRequest: "rpc:request",
   rpcResponse: "rpc:response",
@@ -32,6 +34,8 @@ export const socketEvents = {
   relayRpcBatchAck: "relay:rpc.batch_ack",
   relayRpcStreamPull: "relay:rpc.stream.pull",
   relayRpcStreamPullResponse: "relay:rpc.stream.pull_response",
+  /** Server → consumer: agent catalog profile changed (approved clients only). */
+  clientAgentProfileUpdated: "client:agent.profile.updated",
 } as const;
 
 export const SOCKET_NAMESPACES = {

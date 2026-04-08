@@ -57,6 +57,11 @@ export const clientAccessReviewRouter = Router();
  *           type: integer
  *           minimum: 1
  *           maximum: 100
+ *       - in: query
+ *         name: refresh
+ *         description: When `true`, refreshes online agents in the current page from the live socket profile before responding.
+ *         schema:
+ *           type: boolean
  *     responses:
  *       200:
  *         description: Approved agents with profile data

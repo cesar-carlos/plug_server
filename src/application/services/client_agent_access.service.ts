@@ -26,6 +26,8 @@ import {
 import { type Result, err, ok } from "../../shared/errors/result";
 import { isExpired, parseExpiryToDate } from "../../shared/utils/date";
 import { generateOpaqueClientAccessToken } from "../../shared/utils/client_access_token";
+import { logger } from "../../shared/utils/logger";
+import { clientAgentAccessExpiredDecisionReason } from "./client_agent_access_decision_reasons";
 
 export interface ClientAgentAccessRequestRecord {
   readonly id: string;
@@ -78,6 +80,11 @@ export interface ClientAgentAccessRequestResult {
   readonly alreadyApproved: string[];
 }
 
+export interface ClientAgentLiveProfileDeps {
+  readonly isAgentOnline?: (agentId: string) => boolean;
+  readonly refreshAgentProfile?: (agentId: string) => Promise<Agent>;
+}
+
 export class ClientAgentAccessService {
   constructor(
     private readonly agentRepository: IAgentRepository,
@@ -88,10 +95,17 @@ export class ClientAgentAccessService {
     private readonly clientAgentAccessRequestRepository: IClientAgentAccessRequestRepository,
     private readonly approvalTokenRepository: IClientAgentAccessApprovalTokenRepository,
     private readonly emailSender: IEmailSender,
+    private readonly liveProfileDeps?: ClientAgentLiveProfileDeps,
   ) {}
 
   async listApprovedAgentIds(clientId: string): Promise<string[]> {
     return this.clientAgentAccessRepository.listAgentIdsByClientId(clientId);
+  }
+
+  /** Client IDs with approved access to this agent (for realtime fan-out). */
+  async listApprovedClientIdsForAgent(agentId: string): Promise<string[]> {
+    const accesses = await this.clientAgentAccessRepository.listByAgentId(agentId);
+    return accesses.map((access) => access.clientId);
   }
 
   async listApprovedAgents(clientId: string): Promise<Agent[]> {
@@ -103,12 +117,25 @@ export class ClientAgentAccessService {
       .filter((agent): agent is Agent => agent !== undefined);
   }
 
-  async listApprovedAgentsPage(clientId: string, filter?: AgentListFilter): Promise<PaginatedAgentList> {
+  async listApprovedAgentsPage(
+    clientId: string,
+    filter?: AgentListFilter,
+    options?: { readonly refreshOnline?: boolean },
+  ): Promise<PaginatedAgentList> {
     const agentIds = await this.clientAgentAccessRepository.listAgentIdsByClientId(clientId);
-    return this.agentRepository.findAll({
+    const pageResult = await this.agentRepository.findAll({
       ...(filter ?? {}),
       agentIds,
     });
+    if (options?.refreshOnline !== true) {
+      return pageResult;
+    }
+    return {
+      ...pageResult,
+      items: await Promise.all(
+        pageResult.items.map((agent) => this.resolvePreferredAgentSnapshot(clientId, agent.agentId, agent)),
+      ),
+    };
   }
 
   async findApprovedAgent(clientId: string, agentId: string): Promise<Result<Agent>> {
@@ -117,12 +144,12 @@ export class ClientAgentAccessService {
       return err(agentAccessDenied(agentId));
     }
 
-    const agent = await this.agentRepository.findById(agentId);
-    if (!agent) {
+    const persistedAgent = await this.agentRepository.findById(agentId);
+    if (!persistedAgent) {
       return err(notFound(`Agent ${agentId}`));
     }
 
-    return ok(agent);
+    return ok(await this.resolvePreferredAgentSnapshot(clientId, agentId, persistedAgent));
   }
 
   async listRequests(clientId: string): Promise<ClientAgentAccessRequestRecord[]> {
@@ -261,7 +288,9 @@ export class ClientAgentAccessService {
       return err(notFound("Access request not found"));
     }
     if (isExpired(token.expiresAt)) {
-      await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired");
+      await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {
+        reason: clientAgentAccessExpiredDecisionReason,
+      });
       await this.approvalTokenRepository.deleteById(tokenId);
       return err(registrationTokenExpired("This approval link has expired"));
     }
@@ -296,7 +325,9 @@ export class ClientAgentAccessService {
       return err(notFound("Access request not found"));
     }
     if (isExpired(token.expiresAt)) {
-      await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired");
+      await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {
+        reason: clientAgentAccessExpiredDecisionReason,
+      });
       await this.approvalTokenRepository.deleteById(tokenId);
       return err(registrationTokenExpired("This rejection link has expired"));
     }
@@ -553,6 +584,30 @@ export class ClientAgentAccessService {
       expiresAt: parseExpiryToDate(env.approvalTokenExpiresIn),
       createdAt: new Date(),
     };
+  }
+
+  private async resolvePreferredAgentSnapshot(
+    clientId: string,
+    agentId: string,
+    persistedAgent: Agent,
+  ): Promise<Agent> {
+    if (
+      this.liveProfileDeps?.refreshAgentProfile === undefined ||
+      this.liveProfileDeps.isAgentOnline?.(agentId) !== true
+    ) {
+      return persistedAgent;
+    }
+
+    try {
+      return await this.liveProfileDeps.refreshAgentProfile(agentId);
+    } catch (error) {
+      logger.warn("client_agent_live_profile_refresh_failed", {
+        clientId,
+        agentId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return (await this.agentRepository.findById(agentId)) ?? persistedAgent;
+    }
   }
 
   private async loadAgentsById(agentIds: readonly string[]): Promise<Map<string, Agent>> {

@@ -47,6 +47,8 @@ export const listMyClientAgents = async (
       ...(query.search !== undefined ? { search: query.search } : {}),
       ...(query.page !== undefined ? { page: query.page } : {}),
       ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+    }, {
+      refreshOnline: query.refresh === true,
     });
     response.status(200).json({
       agents: pageResult.items.map(toClientAgentDto),
@@ -258,6 +260,7 @@ const toClientAgentDto = (
   notes: string | null;
   observation: string | null;
   profileUpdatedAt: string | null;
+  profileVersion: number;
   status: Agent["status"];
   createdAt: string;
   updatedAt: string;
@@ -282,6 +285,7 @@ const toClientAgentDto = (
   notes: agent.notes ?? null,
   observation: agent.notes ?? null,
   profileUpdatedAt: agent.profileUpdatedAt?.toISOString() ?? null,
+  profileVersion: agent.profileVersion,
   status: agent.status,
   createdAt: agent.createdAt.toISOString(),
   updatedAt: agent.updatedAt.toISOString(),

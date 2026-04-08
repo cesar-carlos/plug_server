@@ -102,6 +102,8 @@ describe("GET /api/v1/health", () => {
     expect(response.text).toContain("plug_socket_relay_rest_pending_requests");
     expect(response.text).toContain("plug_socket_relay_rate_limit_request_rejected_total");
     expect(response.text).toContain("plug_socket_audit_prune_runs_total");
+    expect(response.text).toContain("plug_agent_profile_maintenance_prune_runs_total");
+    expect(response.text).toContain("plug_client_agent_access_expiry_runs_total");
     expect(response.text).toContain("plug_registration_approved_total");
     expect(response.text).toContain("plug_registration_rejected_total");
     expect(response.text).toContain("plug_registration_token_expired_total");
