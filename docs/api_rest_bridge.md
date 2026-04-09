@@ -163,7 +163,7 @@ O token e validado por `requireAuth` antes de qualquer processamento.
 
 ### OpenAPI (Swagger)
 
-Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` (execute e batch) ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `sql.cancel` e `rpc.discover`.
+Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` (execute e batch) ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel` e `rpc.discover`.
 
 ## Request body
 
@@ -253,6 +253,7 @@ Validacao no hub antes do `PayloadFrame` (constantes em `agent_command.ts`):
 | ----- | ---- |
 | `sql` (`sql.execute` e cada item de `sql.executeBatch`) | **1 MiB** UTF-8 |
 | `params` nomeado (objeto serializado em JSON) | **2 MiB** UTF-8 |
+| `agent.getProfile` / `client_token.getPolicy` `params` (objeto serializado) | **64 KiB** UTF-8 |
 | `rpc.discover` `params` (objeto serializado) | **64 KiB** UTF-8 |
 
 O limite HTTP total continua a ser `REQUEST_BODY_LIMIT`; estes tetos evitam cargas JSON enormes mesmo com body permitido maior.
@@ -339,6 +340,32 @@ Cancela uma execucao em streaming ativa.
 | `request_id`   | string | condicional | ID do request a cancelar (pelo menos um dos dois)   |
 
 Nao requer token de autorizacao.
+
+---
+
+### `client_token.getPolicy`
+
+Introspecao da **politica de autorizacao** ja resolvida para o token apresentado
+(mesmo pipeline que `sql.execute` no agente), **sem executar SQL**. O resultado
+inclui identificadores, flags (`all_tables`, `all_views`, `all_permissions`),
+regras por recurso, estado de revogacao e `payload` com metadados (valores
+sensiveis podem ser redigidos no agente).
+
+Requer plug_agente com o metodo implementado (perfil **2.7+**). Com auth
+desativada no agente ou introspecao desativada (`enableClientTokenPolicyIntrospection`),
+o agente pode responder com erro `-32602` e `reason` especifico; rate limit do
+agente pode devolver `-32013` (`client_token_get_policy_rate_limited`). Ver
+`plug_agente/docs/communication/socket_communication_standard.md` e os JSON
+Schemas `rpc.params.client-token-get-policy.schema.json` /
+`rpc.result.client-token-get-policy.schema.json`.
+
+#### `command.params`
+
+| Campo          | Tipo   | Obrigatorio | Descricao                                                               |
+| -------------- | ------ | ----------- | ----------------------------------------------------------------------- |
+| `client_token` | string | condicional | Token opaco ou JWT (ou alias `clientToken` / `auth`)                    |
+
+Obrigatorio quando `enableClientTokenAuthorization` estiver ativo no agente (mesma regra que `sql.execute`).
 
 ---
 
@@ -1110,6 +1137,7 @@ deste arquivo e em `docs/socket_relay_protocol.md`.
 | `sql.executeBatch`                         | implementado  | exposto         | -                                        |
 | `sql.cancel`                               | implementado  | exposto         | -                                        |
 | `rpc.discover`                             | implementado  | exposto         | -                                        |
+| `client_token.getPolicy`                   | implementado  | exposto         | -                                        |
 | PayloadFrame encode/decode                 | implementado  | transparente    | -                                        |
 | Compressao GZIP (modo **auto** por defeito; `payloadFrameCompression`) | implementado  | transparente    | cliente escolhe `default` / `none` / `always` no body REST ou envelope relay |
 | Assinatura de payload (HMAC-SHA256)        | implementado  | opcional saida  | verificacao de frames **do** agente quando assinados; assinatura **de saida** do hub com `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY` |

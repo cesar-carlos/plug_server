@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES,
   AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES,
   AGENT_SQL_MAX_UTF8_BYTES,
   AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES,
@@ -514,6 +515,45 @@ describe("agentCommandBodySchema", () => {
       },
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("should reject client_token.getPolicy when params JSON exceeds token-carrier max UTF-8 bytes", () => {
+    const hugeToken = "z".repeat(AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES);
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "client_token.getPolicy",
+        id: "gp1",
+        params: { client_token: hugeToken },
+      },
+    });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      const combined = parsed.error.issues.map((i) => i.message).join(" ");
+      expect(combined).toContain("client_token.getPolicy");
+    }
+  });
+
+  it("should accept JSON-RPC batch mixing client_token.getPolicy and sql.execute", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: [
+        {
+          jsonrpc: "2.0",
+          method: "client_token.getPolicy",
+          id: "p1",
+          params: { client_token: "tok" },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "q1",
+          params: { sql: "SELECT 1", client_token: "tok" },
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
   });
 
   it("should reject sql.executeBatch item when SQL exceeds max UTF-8 bytes", () => {

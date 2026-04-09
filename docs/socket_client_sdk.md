@@ -15,6 +15,8 @@ Mapa geral da documentacao: `docs/README.md`.
 streaming progressivo (resultado agregado num unico JSON). Para chunks em tempo
 real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 
+**Catalogo de metodos RPC no bridge** (`sql.execute`, `client_token.getPolicy`, `rpc.discover`, etc.), limites UTF-8 e exemplos: `docs/api_rest_bridge.md` (fonte normativa partilhada com o REST).
+
 ## Eventos e formato
 
 - **Handshake**: `connection:ready` (PayloadFrame desde versão mais recente)

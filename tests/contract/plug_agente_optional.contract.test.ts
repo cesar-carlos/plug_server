@@ -31,6 +31,8 @@ const SCHEMA_FILES = [
   "agent.ready.schema.json",
   "rpc.params.agent-get-profile.schema.json",
   "rpc.result.agent-get-profile.schema.json",
+  "rpc.params.client-token-get-policy.schema.json",
+  "rpc.result.client-token-get-policy.schema.json",
 ] as const;
 
 function resolvePlugAgenteRoot(): string | null {
@@ -132,6 +134,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     expect(names.has("sql.cancel")).toBe(true);
     expect(names.has("rpc.discover")).toBe(true);
     expect(names.has("agent.getProfile")).toBe(true);
+    expect(names.has("client_token.getPolicy")).toBe(true);
 
     const version = doc.info?.version;
     expect(typeof version).toBe("string");
@@ -179,6 +182,12 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     const validateAgentGetProfileResult = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.result.agent-get-profile.v1.json",
     );
+    const validateClientTokenGetPolicyParams = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.params.client-token-get-policy.v1.json",
+    );
+    const validateClientTokenGetPolicyResult = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.result.client-token-get-policy.v1.json",
+    );
     const validateBatchRequest = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.batch.request.v1.json",
     );
@@ -194,6 +203,8 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     expect(validateSqlResult).toBeDefined();
     expect(validateAgentGetProfileParams).toBeDefined();
     expect(validateAgentGetProfileResult).toBeDefined();
+    expect(validateClientTokenGetPolicyParams).toBeDefined();
+    expect(validateClientTokenGetPolicyResult).toBeDefined();
     expect(validateBatchRequest).toBeDefined();
     expect(validateBatchResponse).toBeDefined();
 
@@ -253,6 +264,35 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       id: "contract-profile-1",
       params: getProfileParams,
     });
+
+    const getPolicyParams = { client_token: "a1b2c3d4" };
+    expect(validateClientTokenGetPolicyParams!(getPolicyParams)).toBe(true);
+    assertZodAcceptsCommand({
+      jsonrpc: "2.0",
+      method: "client_token.getPolicy",
+      id: "contract-get-policy-1",
+      params: getPolicyParams,
+    });
+
+    const getPolicyResult = {
+      client_id: "client-1",
+      payload: {},
+      all_tables: false,
+      all_views: false,
+      all_permissions: false,
+      is_revoked: false,
+      rules: [
+        {
+          resource_type: "table" as const,
+          resource: "orders",
+          effect: "allow" as const,
+          read: true,
+          update: false,
+          delete: false,
+        },
+      ],
+    };
+    expect(validateClientTokenGetPolicyResult!(getPolicyResult)).toBe(true);
 
     const rpcReq = {
       jsonrpc: "2.0",

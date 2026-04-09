@@ -80,7 +80,7 @@ Detalhes:
 Sempre que o `plug_agente` mudar o contrato de comunicacao:
 
 1. Rever `socket_communication_standard.md` e `socketio_client_binary_transport.md`.
-2. Comparar `openrpc.json` com os metodos e versao minima esperada no hub.
+2. Comparar `openrpc.json` com os metodos e versao minima esperada no hub. Para cada **metodo RPC novo ou alterado**, atualizar o hub em conjunto: `src/shared/validators/agent_command.ts` (Zod / `supportedAgentRpcMethods`), `src/presentation/docs/swagger.ts` (OpenAPI, incl. `BridgeSingleCommand`), e a documentacao aplicavel (`api_rest_bridge.md`, `socket_relay_protocol.md`, e remissoes em `socket_client_sdk.md` quando a lista de metodos mudar).
 3. Revalidar `schemas/*.json` e exemplos com `npm run test:contract`.
 4. Atualizar os docs normativos do hub, nao este ficheiro primeiro:
    `api_rest_bridge.md`, `socket_relay_protocol.md`, `socket_client_sdk.md`.

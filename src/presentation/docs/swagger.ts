@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { env } from "../../shared/config/env";
 import {
-  AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES,
+  AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES,
   AGENT_MAX_ROWS_LIMIT,
   AGENT_PAGE_SIZE_LIMIT,
   AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES,
@@ -427,7 +427,7 @@ const swaggerSpec = swaggerJSDoc({
             clientToken: { type: "string", minLength: 1 },
             auth: { type: "string", minLength: 1 },
           },
-          description: `Optional token aliases accepted by agent.getProfile; serialized JSON max ${AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES} UTF-8 bytes (Zod).`,
+          description: `Optional client_token / clientToken / auth aliases accepted by agent.getProfile and client_token.getPolicy; serialized JSON max ${AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES} UTF-8 bytes (Zod).`,
         },
         RpcSqlExecuteCommand: {
           type: "object",
@@ -494,9 +494,23 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: true,
         },
+        RpcClientTokenGetPolicyCommand: {
+          type: "object",
+          required: ["method"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["client_token.getPolicy"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/AgentGetProfileParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
         BridgeSingleCommand: {
           oneOf: [
             { $ref: "#/components/schemas/RpcAgentGetProfileCommand" },
+            { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteBatchCommand" },
             { $ref: "#/components/schemas/RpcSqlCancelCommand" },

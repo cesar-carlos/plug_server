@@ -153,6 +153,7 @@ Regras:
 - se nao existe, cria/atualiza pedido `ClientAgentAccessRequest` com status `pending`
 - gera token de aprovacao e envia email para o owner do agente
 - depois de aprovado, o `Client` pode consultar os dados gerais e de perfil desses agentes pela propria area `/client/me/agents`
+- introspecao da politica de autorizacao do `client_token` no plug_agente (sem executar SQL): RPC `client_token.getPolicy` via `POST /api/v1/agents/commands` ou Socket, quando o agente expuser o metodo; contrato e limites em `docs/api_rest_bridge.md`
 
 ### 3.2 Aprovar/Rejeitar
 

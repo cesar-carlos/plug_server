@@ -188,4 +188,21 @@ describe("agent_command contract (plug_agente compatibility)", () => {
     const parsed = agentCommandBodySchema.safeParse(payload);
     expect(parsed.success).toBe(true);
   });
+
+  it("should accept client_token.getPolicy with token carrier params", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "client_token.getPolicy",
+        id: "req-policy",
+        params: {
+          client_token: "a1b2c3d4e5f6",
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+  });
 });
