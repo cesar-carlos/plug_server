@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { Agent } from "../../domain/entities/agent.entity";
 import type {
@@ -12,7 +12,18 @@ import type {
   AgentProfileCommitInput,
   AgentProfileCommitResult,
 } from "../../domain/repositories/agent_profile_commit";
+import { AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE } from "../../shared/messages/agent_profile";
 import { prismaClient } from "../database/prisma/client";
+
+function isPrismaUniqueConstraintOnAgentDocument(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+    return false;
+  }
+  const target = error.meta?.target;
+  const fields = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+  const joined = fields.join(" ");
+  return fields.includes("document") || joined.includes("document");
+}
 
 export class PrismaAgentRepository implements IAgentRepository {
   async findById(agentId: string): Promise<Agent | null> {
@@ -165,9 +176,29 @@ export class PrismaAgentRepository implements IAgentRepository {
       }
 
       if (input.mode === "create") {
-        await tx.agent.create({
-          data: PrismaAgentRepository.agentToPrismaCreate(input.nextAgent),
-        });
+        if (
+          await PrismaAgentRepository.anotherAgentOwnsDocument(tx, agentId, input.nextAgent.document)
+        ) {
+          return {
+            status: "conflict",
+            message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+            reason: "document_not_unique",
+          };
+        }
+        try {
+          await tx.agent.create({
+            data: PrismaAgentRepository.agentToPrismaCreate(input.nextAgent),
+          });
+        } catch (error) {
+          if (isPrismaUniqueConstraintOnAgentDocument(error)) {
+            return {
+              status: "conflict",
+              message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+              reason: "document_not_unique",
+            };
+          }
+          throw error;
+        }
         await tx.agentProfileRevision.create({
           data: {
             id: randomUUID(),
@@ -211,10 +242,32 @@ export class PrismaAgentRepository implements IAgentRepository {
         return { status: "committed", agent: this.toEntity(row!) };
       }
 
-      const updated = await tx.agent.updateMany({
-        where: { agentId, profileVersion: input.previousProfileVersion },
-        data: PrismaAgentRepository.agentToPrismaUpdate(input.nextAgent),
-      });
+      if (
+        await PrismaAgentRepository.anotherAgentOwnsDocument(tx, agentId, input.nextAgent.document)
+      ) {
+        return {
+          status: "conflict",
+          message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+          reason: "document_not_unique",
+        };
+      }
+
+      let updated;
+      try {
+        updated = await tx.agent.updateMany({
+          where: { agentId, profileVersion: input.previousProfileVersion },
+          data: PrismaAgentRepository.agentToPrismaUpdate(input.nextAgent),
+        });
+      } catch (error) {
+        if (isPrismaUniqueConstraintOnAgentDocument(error)) {
+          return {
+            status: "conflict",
+            message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+            reason: "document_not_unique",
+          };
+        }
+        throw error;
+      }
 
       if (updated.count === 0) {
         return {
@@ -268,6 +321,21 @@ export class PrismaAgentRepository implements IAgentRepository {
       const row = await tx.agent.findUnique({ where: { agentId } });
       return { status: "committed", agent: this.toEntity(row!) };
     });
+  }
+
+  private static async anotherAgentOwnsDocument(
+    tx: Prisma.TransactionClient,
+    agentId: string,
+    document: string | undefined,
+  ): Promise<boolean> {
+    if (document === undefined || document === null || document === "") {
+      return false;
+    }
+    const row = await tx.agent.findFirst({
+      where: { document, NOT: { agentId } },
+      select: { agentId: true },
+    });
+    return row !== null;
   }
 
   private static agentToPrismaCreate(agent: Agent): {

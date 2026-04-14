@@ -297,8 +297,10 @@ const rpcDiscoverCommandSchema = z
 
 const clientTokenCarrierParamsSchema = tokenCarrierSchema.strict();
 
+type ClientTokenCarrierParams = z.infer<typeof clientTokenCarrierParamsSchema>;
+
 const refineClientTokenCarrierParamsSize = (
-  value: { params?: Record<string, unknown> },
+  value: { params?: ClientTokenCarrierParams | undefined },
   ctx: z.RefinementCtx,
   methodLabel: string,
 ): void => {

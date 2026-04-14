@@ -3,6 +3,30 @@ import { badRequest } from "../errors/http_errors";
 
 export const normalizeCnpjCpf = (raw: string): string => raw.replace(/\D/g, "");
 
+const cnpjWeightsFirstCheck = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] as const;
+const cnpjWeightsSecondCheck = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] as const;
+
+const calcCnpjCheckDigit = (slice: string, weights: readonly number[]): number => {
+  const sum = slice.split("").reduce((acc, d, i) => acc + Number(d) * weights[i]!, 0);
+  const remainder = sum % 11;
+  return remainder < 2 ? 0 : 11 - remainder;
+};
+
+/**
+ * Completes a 12-digit CNPJ root with Mod 11 check digits (positions 13–14).
+ * Used for tests and for verifying {@link isValidCnpj}.
+ */
+export const appendCnpjCheckDigits = (twelveDigitRoot: string): string => {
+  const base = normalizeCnpjCpf(twelveDigitRoot).slice(0, 12);
+  if (base.length !== 12) {
+    throw new Error("CNPJ base must contain exactly 12 digits");
+  }
+  const d1 = calcCnpjCheckDigit(base, cnpjWeightsFirstCheck);
+  const withFirst = base + String(d1);
+  const d2 = calcCnpjCheckDigit(withFirst, cnpjWeightsSecondCheck);
+  return withFirst + String(d2);
+};
+
 export const isValidCpf = (digits: string): boolean => {
   if (digits.length !== 11) return false;
   if (/^(\d)\1{10}$/.test(digits)) return false;
@@ -23,18 +47,11 @@ export const isValidCpf = (digits: string): boolean => {
 export const isValidCnpj = (digits: string): boolean => {
   if (digits.length !== 14) return false;
   if (/^(\d)\1{13}$/.test(digits)) return false;
-
-  const calcDigit = (slice: string, weights: number[]): number => {
-    const sum = slice.split("").reduce((acc, d, i) => acc + Number(d) * weights[i]!, 0);
-    const remainder = sum % 11;
-    return remainder < 2 ? 0 : 11 - remainder;
-  };
-
-  const d1 = calcDigit(digits.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  if (d1 !== Number(digits[12])) return false;
-
-  const d2 = calcDigit(digits.slice(0, 13), [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  return d2 === Number(digits[13]);
+  try {
+    return appendCnpjCheckDigits(digits.slice(0, 12)) === digits;
+  } catch {
+    return false;
+  }
 };
 
 /**

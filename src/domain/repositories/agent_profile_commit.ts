@@ -17,4 +17,9 @@ export interface AgentProfileCommitInput {
 export type AgentProfileCommitResult =
   | { readonly status: "committed"; readonly agent: Agent }
   | { readonly status: "idempotent"; readonly agent: Agent }
-  | { readonly status: "conflict"; readonly message: string };
+  | {
+      readonly status: "conflict";
+      readonly message: string;
+      /** When set, HTTP layer maps to 409 `AGENT_DOCUMENT_CONFLICT` instead of generic `CONFLICT`. */
+      readonly reason?: "document_not_unique";
+    };

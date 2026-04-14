@@ -1,6 +1,15 @@
 import { Agent, type AgentAddressPatch, type AgentDocumentType } from "../../domain/entities/agent.entity";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
-import { badRequest, agentNotFound, conflict } from "../../shared/errors/http_errors";
+import {
+  agentDocumentConflict,
+  agentNotFound,
+  badRequest,
+  conflict,
+} from "../../shared/errors/http_errors";
+import {
+  assertSubmittedAgentProfileDocumentValid,
+  normalizeAgentDocumentForStorage,
+} from "../../shared/utils/agent_document_normalize";
 import { logger } from "../../shared/utils/logger";
 import { emitAgentProfileBroadcastEvent } from "./agent_profile_broadcast_sink";
 import { agentsProfileCatalogContentEqual } from "./agent_profile_catalog_compare";
@@ -202,6 +211,7 @@ export class AgentSelfProfileService {
   }
 
   async persistProfilePatch(input: PersistAgentProfilePatchInput): Promise<Agent> {
+    this.assertPatchTaxDocumentValid(input.patch);
     const existing = await this.agentRepository.findById(input.agentId);
     const patchFingerprint = fingerprintAgentProfilePatch(input.patch);
     const changedFields = describeUpdatedFields(input.patch);
@@ -232,11 +242,13 @@ export class AgentSelfProfileService {
         return existing;
       }
       if (input.remoteProfileVersion === existing.profileVersion) {
-        const candidate = existing.update({
-          ...input.patch,
-          ...(existing.profileUpdatedAt !== undefined ? { profileUpdatedAt: existing.profileUpdatedAt } : {}),
-          profileVersion: existing.profileVersion,
-        });
+        const candidate = this.agentWithStoredDocumentNormalized(
+          existing.update({
+            ...input.patch,
+            ...(existing.profileUpdatedAt !== undefined ? { profileUpdatedAt: existing.profileUpdatedAt } : {}),
+            profileVersion: existing.profileVersion,
+          }),
+        );
         if (agentsProfileCatalogContentEqual(existing, candidate)) {
           return existing;
         }
@@ -299,7 +311,9 @@ export class AgentSelfProfileService {
     }
 
     if (!existing) {
-      const created = this.createAgentFromPatch(input, effectiveProfileUpdatedAt, nextProfileVersion);
+      const created = this.agentWithStoredDocumentNormalized(
+        this.createAgentFromPatch(input, effectiveProfileUpdatedAt, nextProfileVersion),
+      );
       const commit = await this.agentRepository.commitAgentProfileChange({
         mode: "create",
         previousProfileVersion: 0,
@@ -315,6 +329,14 @@ export class AgentSelfProfileService {
       });
       if (commit.status === "conflict") {
         agentProfileReliabilityMetrics.profileWritesConflictTotal += 1;
+        if (commit.reason === "document_not_unique") {
+          logger.warn("agent_profile_document_conflict", {
+            agentId: input.agentId,
+            source: input.source,
+            reason: "document_not_unique",
+          });
+          throw agentDocumentConflict();
+        }
         throw conflict(commit.message);
       }
       if (commit.status === "idempotent") {
@@ -333,12 +355,14 @@ export class AgentSelfProfileService {
       return commit.agent;
     }
 
-    const nextAgent = existing.update({
-      ...input.patch,
-      profileUpdatedAt: effectiveProfileUpdatedAt,
-      ...(input.lastLoginUserId !== undefined ? { lastLoginUserId: input.lastLoginUserId } : {}),
-      profileVersion: nextProfileVersion,
-    });
+    const nextAgent = this.agentWithStoredDocumentNormalized(
+      existing.update({
+        ...input.patch,
+        profileUpdatedAt: effectiveProfileUpdatedAt,
+        ...(input.lastLoginUserId !== undefined ? { lastLoginUserId: input.lastLoginUserId } : {}),
+        profileVersion: nextProfileVersion,
+      }),
+    );
 
     const commit = await this.agentRepository.commitAgentProfileChange({
       mode: "update",
@@ -356,6 +380,14 @@ export class AgentSelfProfileService {
 
     if (commit.status === "conflict") {
       agentProfileReliabilityMetrics.profileWritesConflictTotal += 1;
+      if (commit.reason === "document_not_unique") {
+        logger.warn("agent_profile_document_conflict", {
+          agentId: input.agentId,
+          source: input.source,
+          reason: "document_not_unique",
+        });
+        throw agentDocumentConflict();
+      }
       throw conflict(commit.message);
     }
     if (commit.status === "idempotent") {
@@ -372,6 +404,30 @@ export class AgentSelfProfileService {
     });
     this.emitBroadcastIfNeeded(commit.agent, input.source, changedFields);
     return commit.agent;
+  }
+
+  private assertPatchTaxDocumentValid(patch: AgentSelfProfilePatch): void {
+    if (patch.document === undefined) {
+      return;
+    }
+    assertSubmittedAgentProfileDocumentValid(patch.document);
+  }
+
+  /**
+   * Persists CPF/CNPJ as digits-only (DB unique key) so formatted inputs do not create false duplicates.
+   */
+  private agentWithStoredDocumentNormalized(agent: Agent): Agent {
+    if (agent.document === undefined) {
+      return agent;
+    }
+    const normalized = normalizeAgentDocumentForStorage(agent.document);
+    if (normalized === agent.document) {
+      return agent;
+    }
+    if (normalized === undefined) {
+      return agent.update({ document: null });
+    }
+    return agent.update({ document: normalized });
   }
 
   private emitBroadcastIfNeeded(

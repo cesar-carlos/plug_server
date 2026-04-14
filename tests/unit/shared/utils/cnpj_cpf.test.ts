@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  appendCnpjCheckDigits,
   normalizeCnpjCpf,
   isValidCpf,
   isValidCnpj,
@@ -39,6 +40,16 @@ describe("isValidCpf", () => {
 
   it("rejects empty string", () => {
     expect(isValidCpf("")).toBe(false);
+  });
+});
+
+describe("appendCnpjCheckDigits", () => {
+  it("matches known valid CNPJ for a 12-digit root", () => {
+    expect(appendCnpjCheckDigits("11.222.333/0001")).toBe("11222333000181");
+  });
+
+  it("throws when the base does not have 12 digits", () => {
+    expect(() => appendCnpjCheckDigits("123")).toThrow("12 digits");
   });
 });
 

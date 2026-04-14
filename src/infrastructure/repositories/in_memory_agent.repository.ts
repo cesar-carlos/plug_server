@@ -8,6 +8,7 @@ import type {
   AgentProfileCommitInput,
   AgentProfileCommitResult,
 } from "../../domain/repositories/agent_profile_commit";
+import { AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE } from "../../shared/messages/agent_profile";
 
 export class InMemoryAgentRepository implements IAgentRepository {
   private readonly agentsById = new Map<string, Agent>();
@@ -101,6 +102,13 @@ export class InMemoryAgentRepository implements IAgentRepository {
     }
 
     if (input.mode === "create") {
+      if (InMemoryAgentRepository.anotherAgentOwnsDocument(this.agentsById, agentId, input.nextAgent.document)) {
+        return {
+          status: "conflict",
+          message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+          reason: "document_not_unique",
+        };
+      }
       this.agentsById.set(agentId, input.nextAgent);
       if (input.dedupeKey) {
         this.profileIdempotency.set(`${agentId}::${input.dedupeKey}`, {
@@ -119,6 +127,14 @@ export class InMemoryAgentRepository implements IAgentRepository {
       };
     }
 
+    if (InMemoryAgentRepository.anotherAgentOwnsDocument(this.agentsById, agentId, input.nextAgent.document)) {
+      return {
+        status: "conflict",
+        message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+        reason: "document_not_unique",
+      };
+    }
+
     this.agentsById.set(agentId, input.nextAgent);
     if (input.dedupeKey) {
       this.profileIdempotency.set(`${agentId}::${input.dedupeKey}`, {
@@ -132,5 +148,21 @@ export class InMemoryAgentRepository implements IAgentRepository {
   clear(): void {
     this.agentsById.clear();
     this.profileIdempotency.clear();
+  }
+
+  private static anotherAgentOwnsDocument(
+    agentsById: Map<string, Agent>,
+    agentId: string,
+    document: string | undefined,
+  ): boolean {
+    if (document === undefined || document === "") {
+      return false;
+    }
+    for (const agent of agentsById.values()) {
+      if (agent.agentId !== agentId && agent.document === document) {
+        return true;
+      }
+    }
+    return false;
   }
 }

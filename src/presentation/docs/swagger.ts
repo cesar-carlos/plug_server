@@ -705,7 +705,13 @@ const swaggerSpec = swaggerJSDoc({
           properties: {
             name: { type: "string", minLength: 1, maxLength: 120 },
             tradeName: { type: "string", nullable: true, maxLength: 120 },
-            document: { type: "string", nullable: true, maxLength: 40 },
+            document: {
+              type: "string",
+              nullable: true,
+              maxLength: 40,
+              description:
+                "When set, must normalize to a valid Brazilian CPF (11 digits) or CNPJ (14 digits) with correct check digits; punctuation is stripped before validation and storage.",
+            },
             documentType: { type: "string", enum: ["cpf", "cnpj"], nullable: true },
             phone: { type: "string", nullable: true, maxLength: 20 },
             mobile: { type: "string", nullable: true, maxLength: 20 },
@@ -841,7 +847,7 @@ const swaggerSpec = swaggerJSDoc({
         },
         Conflict: {
           description:
-            "Conflict (e.g. duplicate agentId or document, agent profile CAS / idempotency mismatch, or registration state conflict)",
+            "Conflict (e.g. duplicate agentId or document, agent profile CAS / idempotency mismatch, or registration state conflict). Duplicate CPF/CNPJ across agents returns `code` `AGENT_DOCUMENT_CONFLICT`.",
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/ErrorResponse" },

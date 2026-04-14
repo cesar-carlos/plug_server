@@ -201,6 +201,62 @@ describe("AgentSelfProfileService", () => {
     expect(second.tradeName).toBe("Idem Trade");
   });
 
+  it("should reject profile patch when normalized document is already used by another agent", async () => {
+    const otherAgentId = "a0000000-0000-4000-8000-000000000001";
+    await agentRepository.save(
+      Agent.create({
+        agentId: otherAgentId,
+        name: "Other Agent",
+        document: "11111111000191",
+        documentType: "cnpj",
+      }),
+    );
+
+    await expect(
+      service.persistProfilePatch({
+        agentId,
+        patch: service.toPatchFromHttpPayload({
+          document: "11.111.111/0001-91",
+          documentType: "cnpj",
+        }),
+        source: "http",
+        profileUpdatedAt: new Date("2026-04-08T10:11:00.000Z"),
+      }),
+    ).rejects.toMatchObject<AppError>({
+      code: "AGENT_DOCUMENT_CONFLICT",
+    });
+  });
+
+  it("should reject profile patch when submitted document has invalid CNPJ check digits", async () => {
+    await expect(
+      service.persistProfilePatch({
+        agentId,
+        patch: service.toPatchFromHttpPayload({
+          document: "11.222.333/0001-99",
+          documentType: "cnpj",
+        }),
+        source: "http",
+        profileUpdatedAt: new Date("2026-04-08T10:12:30.000Z"),
+      }),
+    ).rejects.toMatchObject<AppError>({
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("should normalize formatted tax document to digits for storage when updating own profile", async () => {
+    const updated = await service.persistProfilePatch({
+      agentId,
+      patch: service.toPatchFromHttpPayload({
+        document: "11.222.333/0001-81",
+        documentType: "cnpj",
+      }),
+      source: "http",
+      profileUpdatedAt: new Date("2026-04-08T10:12:00.000Z"),
+    });
+    expect(updated.document).toBe("11222333000181");
+    expect(updated.profileVersion).toBe(1);
+  });
+
   it("should reject when dedupeKey repeats with a different payload", async () => {
     await service.persistProfilePatch({
       agentId,

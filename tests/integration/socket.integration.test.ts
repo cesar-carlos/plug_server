@@ -2132,7 +2132,7 @@ describe("Socket namespaces", () => {
                   profile: {
                     name: "Fresh Catalog Agent",
                     trade_name: "Fresh Trade",
-                    document: "99887766000155",
+                    document: "99887766000105",
                     document_type: "cnpj",
                     mobile: "11988887777",
                     email: "fresh-agent@plug.local",
@@ -2171,7 +2171,7 @@ describe("Socket namespaces", () => {
         expect(catalogRes.body.agent.agentId).toBe(existingAgentId);
         expect(catalogRes.body.agent.name).toBe("Fresh Catalog Agent");
         expect(catalogRes.body.agent.tradeName).toBe("Fresh Trade");
-        expect(catalogRes.body.agent.document).toBe("99887766000155");
+        expect(catalogRes.body.agent.document).toBe("99887766000105");
         expect(catalogRes.body.agent.mobile).toBe("11988887777");
         expect(catalogRes.body.agent.email).toBe("fresh-agent@plug.local");
         expect(catalogRes.body.agent.address?.city).toBe("Curitiba");

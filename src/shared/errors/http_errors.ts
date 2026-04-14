@@ -1,3 +1,4 @@
+import { AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE } from "../messages/agent_profile";
 import { AppError } from "./app_error";
 
 // ─── 400 Bad Request ─────────────────────────────────────────────────────────
@@ -35,6 +36,10 @@ export const registrationTokenExpired = (message: string): AppError =>
 
 export const conflict = (message: string): AppError =>
   new AppError(message, { statusCode: 409, code: "CONFLICT" });
+
+/** Another agent already owns this tax document (CPF/CNPJ) in the catalog. */
+export const agentDocumentConflict = (message = AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE): AppError =>
+  new AppError(message, { statusCode: 409, code: "AGENT_DOCUMENT_CONFLICT" });
 
 export const agentAlreadyLinked = (agentId: string): AppError =>
   new AppError(`Agent ${agentId} is already linked to another user`, {

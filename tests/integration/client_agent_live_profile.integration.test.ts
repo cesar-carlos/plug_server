@@ -12,6 +12,7 @@ import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { createTestServer, type TestServerResult } from "../helpers/test_server";
 import { registerOwnerAndClientSession } from "./helpers/client_sessions";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
+import { nextValidTestCnpj } from "./helpers/valid_test_cnpj";
 
 const repositories = getTestRepositoryAccess();
 
@@ -205,6 +206,7 @@ describe("Client agent live profile API", () => {
     try {
       await registerAgentAndWaitReady(agentSocket, agentId);
 
+      const initialSyncDocument = nextValidTestCnpj();
       const initialSyncRpcId = await waitForAgentGetProfileRequest(agentSocket);
       await emitAgentProfileResponse(
         agentSocket,
@@ -213,7 +215,7 @@ describe("Client agent live profile API", () => {
         {
           name: "Initial Sync Agent",
           trade_name: "Initial Sync Trade",
-          document: "11122233344455",
+          document: initialSyncDocument,
           document_type: "cnpj",
           mobile: "65990000001",
           email: "initial-sync@test.local",
@@ -295,6 +297,8 @@ describe("Client agent live profile API", () => {
     const session = await registerOwnerAndClientSession(baseUrl);
     const liveAgentId = randomUUID();
     const offlineAgentId = randomUUID();
+    const initialListSyncDocument = nextValidTestCnpj();
+    const secondProfileDocument = nextValidTestCnpj();
 
     await seedAgent({
       agentId: liveAgentId,
@@ -332,7 +336,7 @@ describe("Client agent live profile API", () => {
         {
           name: "Alpha Synced Agent",
           trade_name: "Alpha Synced Trade",
-          document: "11122233344456",
+          document: initialListSyncDocument,
           document_type: "cnpj",
         },
         { profileVersion: 1 },
@@ -353,7 +357,7 @@ describe("Client agent live profile API", () => {
         {
           name: "Alpha Live Refresh",
           trade_name: "Alpha Live Trade",
-          document: "59261947000107",
+          document: secondProfileDocument,
           document_type: "cnpj",
           email: "alpha-live@test.local",
         },
