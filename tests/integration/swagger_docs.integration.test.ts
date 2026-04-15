@@ -102,6 +102,7 @@ describe("Swagger docs", () => {
     expect(schemas?.AgentSelfProfilePatchRequest?.properties).toHaveProperty("tradeName");
     expect(schemas?.AgentSelfProfilePatchRequest?.properties).toHaveProperty("address");
     expect(schemas?.ClientAccessibleAgent?.properties).toHaveProperty("profileUpdatedAt");
+    expect(schemas?.ClientAccessibleAgent?.properties).toHaveProperty("isHubConnected");
     expect(schemas?.CreateAgentCatalogRequest).toBeUndefined();
     expect(schemas?.UpdateAgentCatalogRequest).toBeUndefined();
     expect(schemas?.PaginatedAgentCatalogResponse?.required).toContain("total");

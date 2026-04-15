@@ -13,7 +13,11 @@ import type {
   ClientListAgentAccessRequestsQuery,
   ClientListAgentsQuery,
 } from "../validators/client_agents.validator";
-import type { Agent } from "../../../domain/entities/agent.entity";
+import {
+  recordClientMeAgentsDetailResponse,
+  recordClientMeAgentsListResponse,
+} from "../../../shared/metrics/client_me_agents.metrics";
+import { toClientAgentDto } from "../mappers/client_agent.mapper";
 
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -50,8 +54,13 @@ export const listMyClientAgents = async (
     }, {
       refreshOnline: query.refresh === true,
     });
+    const agents = pageResult.items.map((agent) =>
+      toClientAgentDto(agent, container.isAgentConnectedToHub(agent.agentId)),
+    );
+    recordClientMeAgentsListResponse(agents.filter((a) => a.isHubConnected).length);
+    maybeSetHubInstanceIdHeader(response);
     response.status(200).json({
-      agents: pageResult.items.map(toClientAgentDto),
+      agents,
       agentIds: pageResult.items.map((agent) => agent.agentId),
       count: pageResult.items.length,
       total: pageResult.total,
@@ -76,7 +85,12 @@ export const getMyClientAgent = async (
       next(result.error);
       return;
     }
-    response.status(200).json({ agent: toClientAgentDto(result.value) });
+    const isHubConnected = container.isAgentConnectedToHub(agentId);
+    recordClientMeAgentsDetailResponse(isHubConnected);
+    maybeSetHubInstanceIdHeader(response);
+    response.status(200).json({
+      agent: toClientAgentDto(result.value, isHubConnected),
+    });
   } catch (error) {
     next(error);
   }
@@ -237,59 +251,12 @@ export const clientAccessStatus = async (
   response.status(200).json(result.value);
 };
 
-const toClientAgentDto = (
-  agent: Agent,
-): {
-  agentId: string;
-  name: string;
-  tradeName: string | null;
-  document: string | null;
-  cnpjCpf: string | null;
-  documentType: Agent["documentType"] | null;
-  phone: string | null;
-  mobile: string | null;
-  email: string | null;
-  address: {
-    street: string | null;
-    number: string | null;
-    district: string | null;
-    postalCode: string | null;
-    city: string | null;
-    state: string | null;
-  };
-  notes: string | null;
-  observation: string | null;
-  profileUpdatedAt: string | null;
-  profileVersion: number;
-  status: Agent["status"];
-  createdAt: string;
-  updatedAt: string;
-} => ({
-  agentId: agent.agentId,
-  name: agent.name,
-  tradeName: agent.tradeName ?? null,
-  document: agent.document ?? null,
-  cnpjCpf: agent.document ?? null,
-  documentType: agent.documentType ?? null,
-  phone: agent.phone ?? null,
-  mobile: agent.mobile ?? null,
-  email: agent.email ?? null,
-  address: {
-    street: agent.street ?? null,
-    number: agent.number ?? null,
-    district: agent.district ?? null,
-    postalCode: agent.postalCode ?? null,
-    city: agent.city ?? null,
-    state: agent.state ?? null,
-  },
-  notes: agent.notes ?? null,
-  observation: agent.notes ?? null,
-  profileUpdatedAt: agent.profileUpdatedAt?.toISOString() ?? null,
-  profileVersion: agent.profileVersion,
-  status: agent.status,
-  createdAt: agent.createdAt.toISOString(),
-  updatedAt: agent.updatedAt.toISOString(),
-});
+const maybeSetHubInstanceIdHeader = (response: Response): void => {
+  const id = env.hubInstanceId.trim();
+  if (id !== "") {
+    response.setHeader("X-Hub-Instance-Id", id);
+  }
+};
 
 const toClientAgentAccessRequestDto = (
   request: {

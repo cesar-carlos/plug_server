@@ -55,7 +55,7 @@ import { PrismaClientRepository } from "../../infrastructure/repositories/prisma
 import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/prisma_refresh_token.repository";
 import { PrismaRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_registration_approval_token.repository";
 import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_user.repository";
-import { agentRegistry } from "../../presentation/socket/hub/agent_registry";
+import { isAgentConnectedToHub } from "../../presentation/socket/hub/agent_hub_connection";
 import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/rpc_bridge";
 import { env } from "../config/env";
 
@@ -171,7 +171,7 @@ const clientAgentAccessService = new ClientAgentAccessService(
   clientAgentAccessApprovalTokenRepository,
   emailSender,
   {
-    isAgentOnline: (agentId) => agentRegistry.findByAgentId(agentId) !== null,
+    isAgentOnline: isAgentConnectedToHub,
     refreshAgentProfile: (agentId) =>
       agentProfileSyncService.syncFromConnectedAgent({
         agentId,
@@ -207,6 +207,7 @@ export const container = {
   userAgentService,
   clientAuthService,
   clientAgentAccessService,
+  isAgentConnectedToHub,
 };
 
 export const getTestRepositoryAccess = (): {

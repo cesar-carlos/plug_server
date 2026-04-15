@@ -760,7 +760,15 @@ const swaggerSpec = swaggerJSDoc({
         },
         ClientAccessibleAgent: {
           type: "object",
-          required: ["agentId", "name", "status", "profileVersion", "createdAt", "updatedAt"],
+          required: [
+            "agentId",
+            "name",
+            "status",
+            "profileVersion",
+            "createdAt",
+            "updatedAt",
+            "isHubConnected",
+          ],
           properties: {
             agentId: { type: "string", format: "uuid" },
             name: { type: "string" },
@@ -794,6 +802,11 @@ const swaggerSpec = swaggerJSDoc({
             status: { type: "string", enum: ["active", "inactive"] },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
+            isHubConnected: {
+              type: "boolean",
+              description:
+                "Snapshot at response time: whether this hub process currently has this agent registered on the /agents Socket.IO namespace after agent:register. May change between polls; with refresh=true the value reflects the registry after any live profile work for that request. Per-process: false if the agent is connected only to another replica or not registered on this instance. Not the same as catalog status (active/inactive). When `HUB_INSTANCE_ID` is set, responses may include header `X-Hub-Instance-Id` for replica correlation.",
+            },
           },
         },
         PaginatedAgentCatalogResponse: {

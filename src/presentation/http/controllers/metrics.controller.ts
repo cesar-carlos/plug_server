@@ -6,6 +6,7 @@ import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
+import { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getSocketMetricsSnapshot } from "../../../socket";
@@ -37,6 +38,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const restHttpRl = getRestHttpRateLimitMetricsSnapshot();
   const registrationFlow = getRegistrationFlowMetricsSnapshot();
   const authAccount = getAuthAccountMetricsSnapshot();
+  const clientMeAgents = getClientMeAgentsMetricsSnapshot();
 
   const lines: string[] = [];
 
@@ -197,6 +199,24 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_client_agent_access_expiry_failed_total",
       agentDataMaintenance.clientAccessExpiryFailed,
+    ),
+  );
+  lines.push(
+    metricLine("plug_client_me_agents_list_responses_total", clientMeAgents.listResponsesTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_client_me_agents_list_hub_connected_true_total",
+      clientMeAgents.listHubConnectedTrueTotal,
+    ),
+  );
+  lines.push(
+    metricLine("plug_client_me_agents_detail_responses_total", clientMeAgents.detailResponsesTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_client_me_agents_detail_hub_connected_true_total",
+      clientMeAgents.detailHubConnectedTrueTotal,
     ),
   );
   lines.push(

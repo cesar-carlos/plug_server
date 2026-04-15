@@ -141,6 +141,9 @@ describe("Client agent access API", () => {
     );
     expect(approvedDto?.tradeName).toBe("Approved Trade");
     expect(approvedDto?.email).toBe("approved@test.com");
+    for (const agent of response.body.agents as Array<{ isHubConnected: boolean }>) {
+      expect(agent.isHubConnected).toBe(false);
+    }
     expect(response.body.total).toBe(2);
     expect(response.body.page).toBe(1);
     expect(response.body.pageSize).toBe(20);
@@ -199,6 +202,7 @@ describe("Client agent access API", () => {
     expect(okResponse.body.agent.agentId).toBe(approved.agentId);
     expect(okResponse.body.agent.tradeName).toBe("Single Trade");
     expect(okResponse.body.agent.status).toBe("inactive");
+    expect(okResponse.body.agent.isHubConnected).toBe(false);
 
     const forbiddenResponse = await request(app)
       .get(`/api/v1/client/me/agents/${unapproved.agentId}`)

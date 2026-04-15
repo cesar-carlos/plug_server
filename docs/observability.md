@@ -131,6 +131,12 @@ rate(plug_client_agent_access_expiry_runs_total[5m])
 rate(plug_client_agent_access_requests_expired_total[5m])
 rate(plug_client_agent_access_expired_tokens_deleted_total[5m])
 rate(plug_client_agent_access_expiry_failed_total[5m])
+
+# Client — GET /api/v1/client/me/agents (listagem e detalhe)
+rate(plug_client_me_agents_list_responses_total[5m])
+rate(plug_client_me_agents_list_hub_connected_true_total[5m])
+rate(plug_client_me_agents_detail_responses_total[5m])
+rate(plug_client_me_agents_detail_hub_connected_true_total[5m])
 plug_agent_data_maintenance_pending_operations
 ```
 

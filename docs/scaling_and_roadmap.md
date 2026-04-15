@@ -2,6 +2,8 @@
 
 Este documento consolida melhorias sugeridas que **nao** estao implementadas de forma completa no `plug_server`, para orientar roadmap e operacao.
 
+**Principio:** o desenho alvo e extrair o maximo de desempenho e fiabilidade **com as dependencias ja declaradas no repositorio** (Node, Express, Socket.IO, Prisma, etc.). Presenca de agente em REST (`isHubConnected`) e o `agentRegistry` em memoria **nao** pressupoem Redis nem outros pacotes novos; em multi-instancia, a estrategia suportada e afinidade de sessao / mesma base URL e header opcional `HUB_INSTANCE_ID` (ver `docs/client_agent_business_rules.md`). Itens abaixo como Redis ou OTel sao **evolucoes opcionais** de roadmap, nao requisitos para o contrato actual.
+
 ## Multi-instancia HTTP / estado em memoria
 
 O bridge REST e parte do relay mantem **correlacao e filas em memoria** por processo. Varias replicas sem afinidade de sessao ou store partilhado podem perder pedidos pendentes ou duplicar comportamento estranho. Num **unico** processo, afina primeiro throughput com os presets em `docs/performance_hub_agent.md` antes de investir em store partilhado.

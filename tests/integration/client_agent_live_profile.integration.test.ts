@@ -274,6 +274,7 @@ describe("Client agent live profile API", () => {
         state: "MT",
       });
       expect(response.body.agent.notes).toBe("TESTE DE SISTEMA");
+      expect(response.body.agent.isHubConnected).toBe(true);
 
       const persisted = await repositories.agent.findById(agentId);
       expect(persisted).not.toBeNull();
@@ -378,6 +379,8 @@ describe("Client agent live profile API", () => {
       expect(liveAgent?.email).toBe("alpha-live@test.local");
       expect(offlineAgent?.name).toBe("Beta Persisted Agent");
       expect(offlineAgent?.tradeName).toBe("Beta Persisted");
+      expect(liveAgent?.isHubConnected).toBe(true);
+      expect(offlineAgent?.isHubConnected).toBe(false);
 
       const persistedLive = await repositories.agent.findById(liveAgentId);
       expect(persistedLive?.name).toBe("Alpha Live Refresh");
@@ -455,6 +458,7 @@ describe("Client agent live profile API", () => {
       expect(response.body.agent.name).toBe("Versioned Snapshot");
       expect(response.body.agent.tradeName).toBe("Versioned Trade");
       expect(response.body.agent.email).toBe("versioned@test.local");
+      expect(response.body.agent.isHubConnected).toBe(true);
 
       const persisted = await repositories.agent.findById(agentId);
       expect(persisted?.name).toBe("Versioned Snapshot");

@@ -33,6 +33,7 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - [docs/user_status.md](./docs/user_status.md) — estados da conta (`pending`, `active`, `rejected`, `blocked`), API admin e métricas Prometheus
 - [docs/load_testing.md](./docs/load_testing.md) — notas para carga HTTP/Socket
 - [docs/scaling_and_roadmap.md](./docs/scaling_and_roadmap.md) — multi-instância, SSE, OpenTelemetry, SDK
+- [docs/client_agent_business_rules.md](./docs/client_agent_business_rules.md) — regras User / Agent / Client; `GET /api/v1/client/me/agents` e `GET /api/v1/client/me/agents/{agentId}` expõem `isHubConnected` (ligado a **este** processo do hub após `agent:register` no Socket `/agents`; contrato em `GET /docs.json`, componente `ClientAccessibleAgent`). Opcional: `HUB_INSTANCE_ID` no `.env` envia o header `X-Hub-Instance-Id`; métricas `plug_client_me_agents_*` em `GET /metrics` (ver `docs/observability.md`)
 
 ## Scripts
 

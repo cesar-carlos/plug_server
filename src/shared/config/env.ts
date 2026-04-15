@@ -10,6 +10,11 @@ const isProductionNodeEnv = (): boolean => nodeEnvForDefaults === "production";
 
 const envSchema = z.object({
   APP_NAME: z.string().default("plug_server"),
+  /**
+   * Optional stable identifier for this hub process (e.g. pod name, UUID).
+   * When non-empty, sent as `X-Hub-Instance-Id` on `GET /client/me/agents` responses for multi-replica debugging.
+   */
+  HUB_INSTANCE_ID: z.string().max(256).default(""),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   /**
    * When true, Express `trust proxy` is set so `req.ip` and rate-limit keys use `X-Forwarded-For`
@@ -474,6 +479,7 @@ if (parsedEnv.NODE_ENV === "production") {
 
 export const env = {
   appName: parsedEnv.APP_NAME,
+  hubInstanceId: parsedEnv.HUB_INSTANCE_ID,
   nodeEnv: parsedEnv.NODE_ENV,
   httpTrustProxy: parsedEnv.HTTP_TRUST_PROXY,
   port: parsedEnv.PORT,

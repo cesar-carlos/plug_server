@@ -9,6 +9,12 @@
 
 Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, confira o ficheiro de env ou `.env.example`.
 
+### `HUB_INSTANCE_ID` (opcional)
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `HUB_INSTANCE_ID` | *(vazio)* | Quando definida (string não vazia), as respostas de `GET /api/v1/client/me/agents` e `GET /api/v1/client/me/agents/{agentId}` incluem o header HTTP `X-Hub-Instance-Id` com este valor, para correlacionar o cliente com a réplica do hub. O campo JSON `isHubConnected` continua a ser por processo. |
+
 ### `NODE_ENV=production` sem variável definida
 
 Se a variável **não** estiver no ambiente, alguns defaults diferem em produção (desempenho):
