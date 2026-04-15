@@ -14,7 +14,6 @@ export default defineConfig({
       reportsDirectory: "./coverage",
       include: ["src/**/*.ts"],
       exclude: ["src/server.ts", "src/**/*.d.ts"],
-      // Increase thresholds incrementally as test coverage grows
       thresholds: {
         lines: 45,
         functions: 35,
