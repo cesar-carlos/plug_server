@@ -15,6 +15,17 @@ export class InMemoryAgentIdentityRepository implements IAgentIdentityRepository
     return this.ownerByAgentId.get(agentId)?.userId ?? null;
   }
 
+  async findOwnerUserIdsByAgentIds(agentIds: readonly string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    for (const agentId of new Set(agentIds)) {
+      const userId = this.ownerByAgentId.get(agentId)?.userId;
+      if (userId !== undefined) {
+        map.set(agentId, userId);
+      }
+    }
+    return map;
+  }
+
   async bindIfUnbound(agentId: string, userId: string): Promise<BindAgentIdentityStatus> {
     const existing = this.ownerByAgentId.get(agentId);
     if (!existing) {

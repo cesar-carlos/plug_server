@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { Agent, Client, User } from "@prisma/client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -20,7 +21,7 @@ describe("agent_data_maintenance.service (integration)", () => {
 
   const uniqueSuffix = (): string => `${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-  const createUser = async () => {
+  const createUser = async (): Promise<User> => {
     const suffix = uniqueSuffix();
     const user = await prismaClient.user.create({
       data: {
@@ -34,7 +35,7 @@ describe("agent_data_maintenance.service (integration)", () => {
     return user;
   };
 
-  const createClient = async (userId: string) => {
+  const createClient = async (userId: string): Promise<Client> => {
     const suffix = uniqueSuffix();
     const client = await prismaClient.client.create({
       data: {
@@ -50,7 +51,7 @@ describe("agent_data_maintenance.service (integration)", () => {
     return client;
   };
 
-  const createAgent = async (name: string) => {
+  const createAgent = async (name: string): Promise<Agent> => {
     const agent = await prismaClient.agent.create({
       data: {
         agentId: randomUUID(),
@@ -81,9 +82,9 @@ describe("agent_data_maintenance.service (integration)", () => {
       `;
       tablesAvailable = Boolean(
         rows[0]?.profileRevisionsExists &&
-          rows[0]?.profileIdempotenciesExists &&
-          rows[0]?.accessRequestsExists &&
-          rows[0]?.accessTokensExists,
+        rows[0]?.profileIdempotenciesExists &&
+        rows[0]?.accessRequestsExists &&
+        rows[0]?.accessTokensExists,
       );
     } catch {
       tablesAvailable = false;

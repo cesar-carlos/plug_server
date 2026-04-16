@@ -89,7 +89,11 @@ export const patchMyAgentProfile = async (
     const body = getValidated<AgentSelfProfileHttpBody>(response, "body");
     const tokenAgentId = authUser.agent_id;
 
-    if (authUser.role !== "agent" || typeof tokenAgentId !== "string" || tokenAgentId.trim() === "") {
+    if (
+      authUser.role !== "agent" ||
+      typeof tokenAgentId !== "string" ||
+      tokenAgentId.trim() === ""
+    ) {
       logger.warn("agent_self_profile_http_token_missing_agent_claim", {
         userId: authUser.sub,
         role: authUser.role,
@@ -188,7 +192,11 @@ export const proxyCommandToAgent = async (
   try {
     const result = await executeAuthorizedAgentCommand(
       {
-        principal: resolveAgentAccessPrincipal(authUser.sub, authUser.principal_type, authUser.role),
+        principal: resolveAgentAccessPrincipal(
+          authUser.sub,
+          authUser.principal_type,
+          authUser.role,
+        ),
         agentId: body.agentId,
         command: body.command,
         ...(body.timeoutMs !== undefined ? { timeoutMs: body.timeoutMs } : {}),

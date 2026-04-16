@@ -456,7 +456,11 @@ export const createRpcBridgeAgentInboundHandlers = (
                 try {
                   const merged =
                     streamedRows.length > 0
-                      ? mergeSqlStreamRpcResponseWithAppendedRows(initialJson, streamedRows, payload)
+                      ? mergeSqlStreamRpcResponseWithAppendedRows(
+                          initialJson,
+                          streamedRows,
+                          payload,
+                        )
                       : mergeSqlStreamRpcResponse(initialJson, [], payload);
                   relayMetrics.restSqlStreamMaterializeCompleted += 1;
                   relayMetrics.restSqlStreamMaterializeRowsMerged +=

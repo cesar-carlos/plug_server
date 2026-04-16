@@ -29,9 +29,8 @@ describe("agent_data_maintenance.service", () => {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     }));
 
-    const { pruneAgentProfileData, getAgentDataMaintenanceMetricsSnapshot } = await import(
-      "../../../../src/application/services/agent_data_maintenance.service"
-    );
+    const { pruneAgentProfileData, getAgentDataMaintenanceMetricsSnapshot } =
+      await import("../../../../src/application/services/agent_data_maintenance.service");
 
     await expect(pruneAgentProfileData()).resolves.toEqual({
       revisionsDeleted: 2,
@@ -78,10 +77,8 @@ describe("agent_data_maintenance.service", () => {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     }));
 
-    const {
-      sweepExpiredClientAgentAccessData,
-      getAgentDataMaintenanceMetricsSnapshot,
-    } = await import("../../../../src/application/services/agent_data_maintenance.service");
+    const { sweepExpiredClientAgentAccessData, getAgentDataMaintenanceMetricsSnapshot } =
+      await import("../../../../src/application/services/agent_data_maintenance.service");
 
     await expect(sweepExpiredClientAgentAccessData()).resolves.toEqual({
       requestsExpired: 3,

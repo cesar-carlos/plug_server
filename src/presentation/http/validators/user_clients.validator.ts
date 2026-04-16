@@ -43,7 +43,7 @@ export const userSetClientStatusBodySchema = z.object({
 export type UserSetClientStatusBody = z.infer<typeof userSetClientStatusBodySchema>;
 
 export const userListClientAccessRequestsQuerySchema = z.object({
-  status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
+  status: z.enum(["pending", "approved", "rejected", "expired", "revoked"]).optional(),
   search: z.string().max(120).optional(),
   agentId: uuidSchema.optional(),
   clientId: uuidSchema.optional(),
@@ -51,7 +51,9 @@ export const userListClientAccessRequestsQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
 });
 
-export type UserListClientAccessRequestsQuery = z.infer<typeof userListClientAccessRequestsQuerySchema>;
+export type UserListClientAccessRequestsQuery = z.infer<
+  typeof userListClientAccessRequestsQuerySchema
+>;
 
 export const userRejectClientAccessRequestBodySchema = z.object({
   reason: z.preprocess(
@@ -60,7 +62,9 @@ export const userRejectClientAccessRequestBodySchema = z.object({
   ),
 });
 
-export type UserRejectClientAccessRequestBody = z.infer<typeof userRejectClientAccessRequestBodySchema>;
+export type UserRejectClientAccessRequestBody = z.infer<
+  typeof userRejectClientAccessRequestBodySchema
+>;
 
 export const userListAgentClientsQuerySchema = z.object({
   status: z.enum(["active", "blocked"]).optional(),

@@ -117,7 +117,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
-const resolveRequiresExplicitProtocolReadyAck = (capabilities: Record<string, unknown>): boolean => {
+const resolveRequiresExplicitProtocolReadyAck = (
+  capabilities: Record<string, unknown>,
+): boolean => {
   const extensions = isRecord(capabilities.extensions) ? capabilities.extensions : null;
   return (
     extensions?.protocolReadyAck === true ||
@@ -187,56 +189,64 @@ const scheduleAgentProfileSync = (
     clearTimeout(existing);
   }
 
-  const timer = setTimeout(() => {
-    agentProfileSyncTimers.delete(input.agentId);
-    void container.agentProfileSyncService
-      .syncFromConnectedAgent({
-        agentId: input.agentId,
-        ...(input.userId !== null ? { userId: input.userId } : {}),
-        dispatch: dispatchRpcCommandToAgent,
-        timeoutMs: 10_000,
-      })
-      .then(() => {
-        agentProfileSyncAttempts.delete(input.agentId);
-        logger.info("agent_profile_sync_success", {
+  const timer = setTimeout(
+    () => {
+      agentProfileSyncTimers.delete(input.agentId);
+      void container.agentProfileSyncService
+        .syncFromConnectedAgent({
           agentId: input.agentId,
-          userId: input.userId,
-          attempt,
-        });
-      })
-      .catch((error: unknown) => {
-        const retryAfterMs =
-          error instanceof AppError &&
-          typeof error.details === "object" &&
-          error.details !== null &&
-          "retry_after_ms" in error.details &&
-          typeof (error.details as { retry_after_ms?: unknown }).retry_after_ms === "number"
-            ? Math.max(0, Math.floor((error.details as { retry_after_ms: number }).retry_after_ms))
-            : 0;
-        const retryableProtocolWindow =
-          error instanceof AppError &&
-          error.code === "SERVICE_UNAVAILABLE" &&
-          typeof error.message === "string" &&
-          (error.message.includes("protocol negotiation is not ready") ||
-            error.message.includes("Agent disconnected while waiting for response"));
-        const shouldRetry = retryableProtocolWindow && attempt < 4;
-        logger.warn("agent_profile_sync_failed", {
-          agentId: input.agentId,
-          userId: input.userId,
-          attempt,
-          message: error instanceof Error ? error.message : String(error),
-          ...(error instanceof AppError ? { code: error.code, statusCode: error.statusCode } : {}),
-          retryAfterMs,
-          shouldRetry,
-        });
-        if (!shouldRetry) {
+          ...(input.userId !== null ? { userId: input.userId } : {}),
+          dispatch: dispatchRpcCommandToAgent,
+          timeoutMs: 10_000,
+        })
+        .then(() => {
           agentProfileSyncAttempts.delete(input.agentId);
-          return;
-        }
-        const nextDelay = retryAfterMs > 0 ? retryAfterMs : Math.min(8_000, 1_000 * attempt);
-        scheduleAgentProfileSync(input, nextDelay);
-      });
-  }, Math.max(0, delayMs));
+          logger.info("agent_profile_sync_success", {
+            agentId: input.agentId,
+            userId: input.userId,
+            attempt,
+          });
+        })
+        .catch((error: unknown) => {
+          const retryAfterMs =
+            error instanceof AppError &&
+            typeof error.details === "object" &&
+            error.details !== null &&
+            "retry_after_ms" in error.details &&
+            typeof (error.details as { retry_after_ms?: unknown }).retry_after_ms === "number"
+              ? Math.max(
+                  0,
+                  Math.floor((error.details as { retry_after_ms: number }).retry_after_ms),
+                )
+              : 0;
+          const retryableProtocolWindow =
+            error instanceof AppError &&
+            error.code === "SERVICE_UNAVAILABLE" &&
+            typeof error.message === "string" &&
+            (error.message.includes("protocol negotiation is not ready") ||
+              error.message.includes("Agent disconnected while waiting for response"));
+          const shouldRetry = retryableProtocolWindow && attempt < 4;
+          logger.warn("agent_profile_sync_failed", {
+            agentId: input.agentId,
+            userId: input.userId,
+            attempt,
+            message: error instanceof Error ? error.message : String(error),
+            ...(error instanceof AppError
+              ? { code: error.code, statusCode: error.statusCode }
+              : {}),
+            retryAfterMs,
+            shouldRetry,
+          });
+          if (!shouldRetry) {
+            agentProfileSyncAttempts.delete(input.agentId);
+            return;
+          }
+          const nextDelay = retryAfterMs > 0 ? retryAfterMs : Math.min(8_000, 1_000 * attempt);
+          scheduleAgentProfileSync(input, nextDelay);
+        });
+    },
+    Math.max(0, delayMs),
+  );
 
   timer.unref?.();
   agentProfileSyncTimers.set(input.agentId, timer);
@@ -431,7 +441,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      const bindResult = await container.agentAccessService.bindOwnershipOnRegister(userId, agentId);
+      const bindResult = await container.agentAccessService.bindOwnershipOnRegister(
+        userId,
+        agentId,
+      );
       if (!bindResult.ok) {
         emitAppError(socket, bindResult.error.message);
         return;

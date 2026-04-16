@@ -80,7 +80,9 @@ export class InMemoryAgentRepository implements IAgentRepository {
     this.agentsById.set(agent.agentId, agent);
   }
 
-  async commitAgentProfileChange(input: AgentProfileCommitInput): Promise<AgentProfileCommitResult> {
+  async commitAgentProfileChange(
+    input: AgentProfileCommitInput,
+  ): Promise<AgentProfileCommitResult> {
     const agentId = input.nextAgent.agentId;
 
     if (input.dedupeKey) {
@@ -102,7 +104,13 @@ export class InMemoryAgentRepository implements IAgentRepository {
     }
 
     if (input.mode === "create") {
-      if (InMemoryAgentRepository.anotherAgentOwnsDocument(this.agentsById, agentId, input.nextAgent.document)) {
+      if (
+        InMemoryAgentRepository.anotherAgentOwnsDocument(
+          this.agentsById,
+          agentId,
+          input.nextAgent.document,
+        )
+      ) {
         return {
           status: "conflict",
           message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
@@ -127,7 +135,13 @@ export class InMemoryAgentRepository implements IAgentRepository {
       };
     }
 
-    if (InMemoryAgentRepository.anotherAgentOwnsDocument(this.agentsById, agentId, input.nextAgent.document)) {
+    if (
+      InMemoryAgentRepository.anotherAgentOwnsDocument(
+        this.agentsById,
+        agentId,
+        input.nextAgent.document,
+      )
+    ) {
       return {
         status: "conflict",
         message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,

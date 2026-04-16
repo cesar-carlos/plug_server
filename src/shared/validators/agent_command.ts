@@ -5,10 +5,7 @@
 
 import { z } from "zod";
 
-import {
-  HUB_MAX_BATCH_SIZE,
-  HUB_MAX_ROWS,
-} from "../constants/agent_transport_contract";
+import { HUB_MAX_BATCH_SIZE, HUB_MAX_ROWS } from "../constants/agent_transport_contract";
 import { nonEmptyStringSchema } from "./schemas";
 
 const jsonRpcIdSchema = z.union([z.string().min(1), z.number().finite(), z.null()]);
@@ -62,7 +59,8 @@ export const AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
  * @deprecated Use {@link AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES} (same value).
  * Kept for backward compatibility with imports of the previous name.
  */
-export const AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES = AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES;
+export const AGENT_GET_PROFILE_PARAMS_JSON_MAX_BYTES =
+  AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES;
 
 const utf8ByteLength = (value: string): number => Buffer.byteLength(value, "utf8");
 

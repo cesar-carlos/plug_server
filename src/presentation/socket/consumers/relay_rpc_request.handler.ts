@@ -10,10 +10,7 @@ import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { conversationRegistry } from "../hub/conversation_registry";
-import {
-  assertConsumerSocketAgentAccess,
-  resolveSocketActorRole,
-} from "./consumer_socket_guard";
+import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 
 const relayRpcEnvelopeSchema = z.object({
   conversationId: nonEmptyStringSchema,
@@ -61,7 +58,9 @@ export const handleRelayRpcRequest = (
 
   void (async () => {
     try {
-      const conversation = conversationRegistry.findInternalByConversationId(parsed.data.conversationId);
+      const conversation = conversationRegistry.findInternalByConversationId(
+        parsed.data.conversationId,
+      );
       if (!conversation || conversation.consumerSocketId !== socket.id) {
         throw new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 });
       }

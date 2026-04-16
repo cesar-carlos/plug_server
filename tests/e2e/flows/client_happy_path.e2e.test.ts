@@ -42,6 +42,9 @@ describe("E2E client happy path", () => {
         .send({ agentIds: [ctx.agentId] });
       expect(requestAccess.status).toBe(200);
       expect(requestAccess.body.requested).toEqual([ctx.agentId]);
+      expect(requestAccess.body.newRequests).toEqual([ctx.agentId]);
+      expect(requestAccess.body.reopened).toEqual([]);
+      expect(requestAccess.body.debounced).toEqual([]);
 
       const ownerRequests = await request(ctx.baseUrl)
         .get("/api/v1/me/client-access-requests")
@@ -49,9 +52,9 @@ describe("E2E client happy path", () => {
         .query({ status: "pending", agentId: ctx.agentId });
       expect(ownerRequests.status).toBe(200);
       expect(ownerRequests.body.count).toBeGreaterThanOrEqual(1);
-      const requestId = (ownerRequests.body.requests as Array<{ id: string; clientId: string }>).find(
-        (item) => item.clientId === client.clientId,
-      )?.id;
+      const requestId = (
+        ownerRequests.body.requests as Array<{ id: string; clientId: string }>
+      ).find((item) => item.clientId === client.clientId)?.id;
       expect(typeof requestId).toBe("string");
 
       const approve = await request(ctx.baseUrl)

@@ -26,10 +26,7 @@ const makeLargeText = (length: number): string => {
   return output;
 };
 
-const connectConsumer = (
-  baseUrl: string,
-  token: string,
-): Promise<ReturnType<typeof ioClient>> =>
+const connectConsumer = (baseUrl: string, token: string): Promise<ReturnType<typeof ioClient>> =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
     const socket = ioClient(`${baseUrl}/consumers`, {
       auth: { token },
@@ -107,7 +104,9 @@ const createAdminAccessToken = async (baseUrl: string): Promise<string> => {
   const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const email = `socket-admin-${unique}@test.com`;
   const password = "SocketAdmin1";
-  const registerRes = await request(baseUrl).post("/api/v1/auth/register").send({ email, password });
+  const registerRes = await request(baseUrl)
+    .post("/api/v1/auth/register")
+    .send({ email, password });
   expect(registerRes.status).toBe(201);
   await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
   const userId = registerRes.body.user.id as string;
@@ -132,11 +131,15 @@ const createAdminAccessToken = async (baseUrl: string): Promise<string> => {
   return loginRes.body.accessToken as string;
 };
 
-const createUserAccessToken = async (baseUrl: string): Promise<{ userId: string; accessToken: string }> => {
+const createUserAccessToken = async (
+  baseUrl: string,
+): Promise<{ userId: string; accessToken: string }> => {
   const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const email = `socket-user-${unique}@test.com`;
   const password = "SocketUser1";
-  const registerRes = await request(baseUrl).post("/api/v1/auth/register").send({ email, password });
+  const registerRes = await request(baseUrl)
+    .post("/api/v1/auth/register")
+    .send({ email, password });
   expect(registerRes.status).toBe(201);
   await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
 
@@ -168,10 +171,12 @@ const createClientAccessToken = async (
     });
   expect(registerResponse.status).toBe(201);
   await approveClientRegistrationByToken(baseUrl, registerResponse.body.approvalToken as string);
-  const loginResponse = await request(baseUrl).post("/api/v1/client-auth/login").send({
-    email: `socket-client-${unique}@test.com`,
-    password: "SocketClient1",
-  });
+  const loginResponse = await request(baseUrl)
+    .post("/api/v1/client-auth/login")
+    .send({
+      email: `socket-client-${unique}@test.com`,
+      password: "SocketClient1",
+    });
   expect(loginResponse.status).toBe(200);
 
   return {
@@ -253,15 +258,13 @@ describe("Socket namespaces", () => {
     });
     await seedAgentBinding(userId, testAgentId);
 
-    const clientRegisterRes = await request(baseUrl)
-      .post("/api/v1/client-auth/register")
-      .send({
-        ownerEmail,
-        email: "socket-client@test.com",
-        password: "SocketClient1",
-        name: "Socket",
-        lastName: "Client",
-      });
+    const clientRegisterRes = await request(baseUrl).post("/api/v1/client-auth/register").send({
+      ownerEmail,
+      email: "socket-client@test.com",
+      password: "SocketClient1",
+      name: "Socket",
+      lastName: "Client",
+    });
     expect(clientRegisterRes.status).toBe(201);
     await approveClientRegistrationByToken(baseUrl, clientRegisterRes.body.approvalToken as string);
     const clientLoginRes = await request(baseUrl).post("/api/v1/client-auth/login").send({
@@ -1993,10 +1996,16 @@ describe("Socket namespaces", () => {
       });
       expect(freshAgentLoginRes.status).toBe(200);
 
-      const agentSocket = await connectAgent(baseUrl, freshAgentLoginRes.body.accessToken as string);
+      const agentSocket = await connectAgent(
+        baseUrl,
+        freshAgentLoginRes.body.accessToken as string,
+      );
       try {
         const syncHandled = new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error("Timed out waiting for profile sync RPC")), 6_000);
+          const timeout = setTimeout(
+            () => reject(new Error("Timed out waiting for profile sync RPC")),
+            6_000,
+          );
           agentSocket.on("rpc:request", (rawPayload: unknown) => {
             const decoded = decodePayloadFrame(rawPayload);
             if (!decoded.ok || !isRecord(decoded.value.data)) {
@@ -2403,7 +2412,9 @@ describe("Socket namespaces", () => {
           }),
         );
         await capabilitiesPromise;
-        await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 1_500));
+        await new Promise((resolve) =>
+          setTimeout(resolve, env.socketAgentProtocolReadyGraceMs + 1_500),
+        );
         expect(profileRequestBeforeReady).toBe(false);
 
         readySent = true;

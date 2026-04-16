@@ -31,7 +31,10 @@ export type ClientAccessibleAgentDto = {
   isHubConnected: boolean;
 };
 
-export const toClientAgentDto = (agent: Agent, isHubConnected: boolean): ClientAccessibleAgentDto => ({
+export const toClientAgentDto = (
+  agent: Agent,
+  isHubConnected: boolean,
+): ClientAccessibleAgentDto => ({
   agentId: agent.agentId,
   name: agent.name,
   tradeName: agent.tradeName ?? null,

@@ -4,6 +4,8 @@ export type BindAgentIdentityStatus = "bound" | "already_bound_to_user" | "bound
 
 export interface IAgentIdentityRepository {
   findOwnerUserId(agentId: string): Promise<string | null>;
+  /** Resolves owner user id per agent id; missing agents are omitted from the map. */
+  findOwnerUserIdsByAgentIds(agentIds: readonly string[]): Promise<Map<string, string>>;
   bindIfUnbound(agentId: string, userId: string): Promise<BindAgentIdentityStatus>;
 
   hasAccess(userId: string, agentId: string): Promise<boolean>;

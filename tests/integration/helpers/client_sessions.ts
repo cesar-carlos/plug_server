@@ -37,7 +37,9 @@ export const registerOwnerSession = async (
   const email = `${options?.emailPrefix ?? "client-owner"}-${suffix}@test.com`;
   const password = options?.password ?? "OwnerClientReg1";
 
-  const registerRes = await request(httpTarget).post("/api/v1/auth/register").send({ email, password });
+  const registerRes = await request(httpTarget)
+    .post("/api/v1/auth/register")
+    .send({ email, password });
   if (registerRes.status !== 201) {
     throw new Error(`owner register failed: ${registerRes.status} ${registerRes.text}`);
   }
@@ -71,19 +73,23 @@ export const registerApprovedClientSession = async (
   const email = `${options?.emailPrefix ?? "client"}-${suffix}@test.com`;
   const password = options?.password ?? "Client1234";
 
-  const registerRes = await request(httpTarget).post("/api/v1/client-auth/register").send({
-    ownerEmail,
-    email,
-    password,
-    name: options?.name ?? "Client",
-    lastName: options?.lastName ?? "Viewer",
-  });
+  const registerRes = await request(httpTarget)
+    .post("/api/v1/client-auth/register")
+    .send({
+      ownerEmail,
+      email,
+      password,
+      name: options?.name ?? "Client",
+      lastName: options?.lastName ?? "Viewer",
+    });
   if (registerRes.status !== 201) {
     throw new Error(`client register failed: ${registerRes.status} ${registerRes.text}`);
   }
   await approveClientRegistrationByToken(httpTarget, registerRes.body.approvalToken as string);
 
-  const loginRes = await request(httpTarget).post("/api/v1/client-auth/login").send({ email, password });
+  const loginRes = await request(httpTarget)
+    .post("/api/v1/client-auth/login")
+    .send({ email, password });
   if (loginRes.status !== 200) {
     throw new Error(`client login failed: ${loginRes.status} ${loginRes.text}`);
   }

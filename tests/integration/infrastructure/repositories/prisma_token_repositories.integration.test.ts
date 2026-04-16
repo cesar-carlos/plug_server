@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { Client, User } from "@prisma/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { ClientRefreshToken } from "../../../../src/domain/entities/client_refresh_token.entity";
@@ -20,7 +21,7 @@ describe("Prisma token repositories", () => {
 
   const uniqueSuffix = (): string => `${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-  const createUser = async () => {
+  const createUser = async (): Promise<User> => {
     const suffix = uniqueSuffix();
     const user = await prismaClient.user.create({
       data: {
@@ -34,7 +35,7 @@ describe("Prisma token repositories", () => {
     return user;
   };
 
-  const createClient = async (userId: string) => {
+  const createClient = async (userId: string): Promise<Client> => {
     const suffix = uniqueSuffix();
     const client = await prismaClient.client.create({
       data: {
@@ -308,9 +309,9 @@ describe("Prisma token repositories", () => {
 
     const now = new Date();
 
-    await expect(clientRefreshTokenRepository.consume("missing-token", client.id, now)).resolves.toBe(
-      "not_found",
-    );
+    await expect(
+      clientRefreshTokenRepository.consume("missing-token", client.id, now),
+    ).resolves.toBe("not_found");
     await expect(clientRefreshTokenRepository.consume(revokedId, client.id, now)).resolves.toBe(
       "revoked",
     );

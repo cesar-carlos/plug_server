@@ -203,9 +203,12 @@ export class Agent {
             patchAddress?.postalCode === null
               ? undefined
               : (patchAddress?.postalCode ?? currentAddress.postalCode),
-          city: patchAddress?.city === null ? undefined : (patchAddress?.city ?? currentAddress.city),
+          city:
+            patchAddress?.city === null ? undefined : (patchAddress?.city ?? currentAddress.city),
           state:
-            patchAddress?.state === null ? undefined : (patchAddress?.state ?? currentAddress.state),
+            patchAddress?.state === null
+              ? undefined
+              : (patchAddress?.state ?? currentAddress.state),
         };
 
     return new Agent({

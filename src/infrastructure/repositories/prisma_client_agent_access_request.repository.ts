@@ -16,7 +16,10 @@ export class PrismaClientAgentAccessRequestRepository implements IClientAgentAcc
     return row ? this.toDomain(row) : null;
   }
 
-  async findByClientAndAgent(clientId: string, agentId: string): Promise<ClientAgentAccessRequest | null> {
+  async findByClientAndAgent(
+    clientId: string,
+    agentId: string,
+  ): Promise<ClientAgentAccessRequest | null> {
     const row = await prismaClient.clientAgentAccessRequest.findUnique({
       where: {
         clientId_agentId: {
@@ -26,6 +29,20 @@ export class PrismaClientAgentAccessRequestRepository implements IClientAgentAcc
       },
     });
     return row ? this.toDomain(row) : null;
+  }
+
+  async findByClientAndAgents(
+    clientId: string,
+    agentIds: readonly string[],
+  ): Promise<Map<string, ClientAgentAccessRequest>> {
+    const unique = [...new Set(agentIds)];
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const rows = await prismaClient.clientAgentAccessRequest.findMany({
+      where: { clientId, agentId: { in: unique } },
+    });
+    return new Map(rows.map((row) => [row.agentId, this.toDomain(row)] as const));
   }
 
   async listByClientId(clientId: string): Promise<ClientAgentAccessRequest[]> {

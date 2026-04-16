@@ -15,6 +15,21 @@ export class PrismaClientAgentAccessRepository implements IClientAgentAccessRepo
     return row !== null;
   }
 
+  async listAccessAgentIdsForClientIn(
+    clientId: string,
+    agentIds: readonly string[],
+  ): Promise<string[]> {
+    if (agentIds.length === 0) {
+      return [];
+    }
+    const unique = [...new Set(agentIds)];
+    const rows = await prismaClient.clientAgentAccess.findMany({
+      where: { clientId, agentId: { in: unique } },
+      select: { agentId: true },
+    });
+    return rows.map((r) => r.agentId);
+  }
+
   async listAgentIdsByClientId(clientId: string): Promise<string[]> {
     const rows = await prismaClient.clientAgentAccess.findMany({
       where: { clientId },

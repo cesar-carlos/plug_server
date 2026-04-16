@@ -24,7 +24,7 @@ export const clientListAgentsQuerySchema = z.object({
 export type ClientListAgentsQuery = z.infer<typeof clientListAgentsQuerySchema>;
 
 export const clientListAgentAccessRequestsQuerySchema = z.object({
-  status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
+  status: z.enum(["pending", "approved", "rejected", "expired", "revoked"]).optional(),
   search: z.string().max(120).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),

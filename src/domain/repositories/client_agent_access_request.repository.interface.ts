@@ -6,6 +6,10 @@ import type {
 export interface IClientAgentAccessRequestRepository {
   findById(id: string): Promise<ClientAgentAccessRequest | null>;
   findByClientAndAgent(clientId: string, agentId: string): Promise<ClientAgentAccessRequest | null>;
+  findByClientAndAgents(
+    clientId: string,
+    agentIds: readonly string[],
+  ): Promise<Map<string, ClientAgentAccessRequest>>;
   listByClientId(clientId: string): Promise<ClientAgentAccessRequest[]>;
   listByOwnerUserId(ownerUserId: string): Promise<ClientAgentAccessRequest[]>;
   save(request: ClientAgentAccessRequest): Promise<void>;

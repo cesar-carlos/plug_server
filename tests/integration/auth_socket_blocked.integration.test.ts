@@ -26,11 +26,15 @@ describe("Socket.IO blocked account", () => {
       password: "Admin1234",
     });
     const email = `sock-block-${Date.now()}@test.com`;
-    const reg = await request(baseUrl).post("/api/v1/auth/register").send({ email, password: "User1234" });
+    const reg = await request(baseUrl)
+      .post("/api/v1/auth/register")
+      .send({ email, password: "User1234" });
     expect(reg.status).toBe(201);
     await approveRegistrationByToken(baseUrl, reg.body.approvalToken as string);
     const userId = reg.body.user.id as string;
-    const login = await request(baseUrl).post("/api/v1/auth/login").send({ email, password: "User1234" });
+    const login = await request(baseUrl)
+      .post("/api/v1/auth/login")
+      .send({ email, password: "User1234" });
     expect(login.status).toBe(200);
     const accessToken = login.body.accessToken as string;
 
@@ -58,7 +62,9 @@ describe("Socket.IO blocked account", () => {
         clearTimeout(timer);
         socket.disconnect();
         const msg = err.message.toLowerCase();
-        expect(msg.includes("forbidden") || msg.includes("blocked") || msg.includes("403")).toBe(true);
+        expect(msg.includes("forbidden") || msg.includes("blocked") || msg.includes("403")).toBe(
+          true,
+        );
         resolve();
       });
     });

@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createRpcBridgeAgentInboundHandlers } from "../../../../../src/presentation/socket/hub/rpc_bridge_agent_inbound";
-import { getActiveStreamRouteByRequestId, resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/active_stream_registry";
+import {
+  getActiveStreamRouteByRequestId,
+  resetActiveStreamRegistry,
+} from "../../../../../src/presentation/socket/hub/active_stream_registry";
 import {
   getRestPendingRequestByCorrelationId,
   registerRestPendingRequest,

@@ -23,9 +23,7 @@ import {
   clientPasswordRecoveryRequestRateLimit,
   clientThumbnailRateLimit,
 } from "../middlewares/rate_limit.middleware";
-import {
-  requireClientAuthAndActiveAccount,
-} from "../middlewares/auth.middleware";
+import { requireClientAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   clientRegistrationApproveBodySchema,
@@ -193,7 +191,11 @@ clientAuthRouter.post(
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-clientAuthRouter.post("/login", validateRequest({ body: clientLoginBodySchema }), asyncHandler(loginClient));
+clientAuthRouter.post(
+  "/login",
+  validateRequest({ body: clientLoginBodySchema }),
+  asyncHandler(loginClient),
+);
 
 /**
  * @openapi
@@ -217,7 +219,11 @@ clientAuthRouter.post("/login", validateRequest({ body: clientLoginBodySchema })
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-clientAuthRouter.post("/refresh", validateRequest({ body: clientRefreshBodySchema }), asyncHandler(refreshClient));
+clientAuthRouter.post(
+  "/refresh",
+  validateRequest({ body: clientRefreshBodySchema }),
+  asyncHandler(refreshClient),
+);
 
 /**
  * @openapi
@@ -237,7 +243,11 @@ clientAuthRouter.post("/refresh", validateRequest({ body: clientRefreshBodySchem
  *       204:
  *         description: Logged out
  */
-clientAuthRouter.post("/logout", validateRequest({ body: clientLogoutBodySchema }), asyncHandler(logoutClient));
+clientAuthRouter.post(
+  "/logout",
+  validateRequest({ body: clientLogoutBodySchema }),
+  asyncHandler(logoutClient),
+);
 
 /**
  * @openapi

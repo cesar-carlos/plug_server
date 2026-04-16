@@ -156,7 +156,9 @@ const emitAgentProfileResponse = (
           ...(options?.updatedAt === null
             ? {}
             : { updated_at: options?.updatedAt ?? new Date().toISOString() }),
-          ...(options?.profileVersion !== undefined ? { profile_version: options.profileVersion } : {}),
+          ...(options?.profileVersion !== undefined
+            ? { profile_version: options.profileVersion }
+            : {}),
           profile,
         },
       }),

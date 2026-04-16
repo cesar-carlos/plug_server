@@ -5,7 +5,7 @@ import { InMemoryAgentRepository } from "../../../../src/infrastructure/reposito
 import { AgentProfileSyncService } from "../../../../src/application/services/agent_profile_sync.service";
 import { AgentSelfProfileService } from "../../../../src/application/services/agent_self_profile.service";
 import type { AgentCommandDispatcher } from "../../../../src/application/agent_commands/execute_agent_command";
-import { AppError } from "../../../../src/shared/errors/app_error";
+import type { AppError } from "../../../../src/shared/errors/app_error";
 
 describe("AgentProfileSyncService", () => {
   const agentId = "1f94921e-8f9d-43f7-8fae-ab18ec981901";

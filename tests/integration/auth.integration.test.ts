@@ -74,12 +74,20 @@ describe("Auth API", () => {
       const phone = "11987654321";
       const first = await request(app)
         .post("/api/v1/auth/register")
-        .send({ email: `dup-phone-a-${Date.now()}@test.com`, password: "Password1", celular: phone });
+        .send({
+          email: `dup-phone-a-${Date.now()}@test.com`,
+          password: "Password1",
+          celular: phone,
+        });
       expect(first.status).toBe(201);
 
       const second = await request(app)
         .post("/api/v1/auth/register")
-        .send({ email: `dup-phone-b-${Date.now()}@test.com`, password: "Password1", celular: phone });
+        .send({
+          email: `dup-phone-b-${Date.now()}@test.com`,
+          password: "Password1",
+          celular: phone,
+        });
 
       expect(second.status).toBe(409);
       expect(second.body.code).toBe("CONFLICT");
@@ -211,7 +219,10 @@ describe("Auth API", () => {
     });
 
     it("should return 403 when account was blocked after approval", async () => {
-      const blockedCredentials = { email: `blocked-login-${Date.now()}@test.com`, password: "Blocked1A" };
+      const blockedCredentials = {
+        email: `blocked-login-${Date.now()}@test.com`,
+        password: "Blocked1A",
+      };
       const reg = await request(app).post("/api/v1/auth/register").send(blockedCredentials);
       expect(reg.status).toBe(201);
       await approveRegistrationByToken(app, reg.body.approvalToken as string);

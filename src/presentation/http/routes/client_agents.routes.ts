@@ -8,10 +8,12 @@ import {
   listMyClientAgentAccessRequests,
   listMyClientAgents,
   rejectClientAccess,
+  removeMyClientAgentByParam,
   removeMyClientAgents,
   requestMyClientAgents,
 } from "../controllers/client_agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
+import { clientMeAgentsPostRateLimit } from "../middlewares/rate_limit.middleware";
 import { requireClientAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
@@ -136,10 +138,40 @@ clientAgentsRouter.get(
 );
 /**
  * @openapi
+ * /client/me/agents/{agentId}:
+ *   delete:
+ *     summary: Remove approved client access for one agent (path variant)
+ *     description: Same effect as `DELETE /client/me/agents` with a single id in `agentIds`. Marks prior `approved` request rows as `revoked` when applicable.
+ *     tags: [Client Agent Access]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: agentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Access removed (idempotent)
+ */
+clientAgentsRouter.delete(
+  "/client/me/agents/:agentId",
+  ...requireClientAuthAndActiveAccount,
+  validateRequest({ params: clientAgentIdParamSchema }),
+  asyncHandler(removeMyClientAgentByParam),
+);
+/**
+ * @openapi
  * /client/me/agents:
  *   post:
  *     summary: Request access to one or more agents
- *     description: Validates each `agentId`, creates/refreshes pending approval requests, and emails agent owners.
+ *     description: >
+ *       Validates each `agentId`. If approved access already exists (`ClientAgentAccess`), returns that id in
+ *       `alreadyApproved` and does not email the owner. Otherwise creates or refreshes a `pending`
+ *       `ClientAgentAccessRequest` (including after the client removed access with `DELETE /client/me/agents`
+ *       while the prior request row was still `approved`), issues a new approval token, and emails the agent owner.
  *     tags: [Client Agent Access]
  *     security:
  *       - bearerAuth: []
@@ -158,12 +190,39 @@ clientAgentsRouter.get(
  *     responses:
  *       200:
  *         description: Access request processing result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [requested, alreadyApproved, newRequests, reopened, debounced]
+ *               properties:
+ *                 requested:
+ *                   type: array
+ *                   description: Agent IDs for which a pending request was saved and the owner was emailed in this call
+ *                   items: { type: string, format: uuid }
+ *                 alreadyApproved:
+ *                   type: array
+ *                   description: Agent IDs that already had `ClientAgentAccess` for this client
+ *                   items: { type: string, format: uuid }
+ *                 newRequests:
+ *                   type: array
+ *                   description: Subset of `requested` with no prior `ClientAgentAccessRequest` row
+ *                   items: { type: string, format: uuid }
+ *                 reopened:
+ *                   type: array
+ *                   description: Subset of `requested` that reopened an existing request row
+ *                   items: { type: string, format: uuid }
+ *                 debounced:
+ *                   type: array
+ *                   description: Agent IDs skipped because a pending request was refreshed within the debounce window (no new email)
+ *                   items: { type: string, format: uuid }
  *       404:
  *         description: One or more agents not found
  */
 clientAgentsRouter.post(
   "/client/me/agents",
   ...requireClientAuthAndActiveAccount,
+  clientMeAgentsPostRateLimit,
   validateRequest({ body: clientAgentIdsBodySchema }),
   asyncHandler(requestMyClientAgents),
 );
@@ -171,7 +230,8 @@ clientAgentsRouter.post(
  * @openapi
  * /client/me/agents:
  *   delete:
- *     summary: Remove approved client access to one or more agents
+ *     summary: Remove approved client access to one or more agents (JSON body)
+ *     description: Removes `ClientAgentAccess` rows. If the paired request was `approved`, it is marked `revoked` with reason `client_revoked_access`.
  *     tags: [Client Agent Access]
  *     security:
  *       - bearerAuth: []
@@ -210,7 +270,7 @@ clientAgentsRouter.delete(
  *         name: status
  *         schema:
  *           type: string
- *           enum: [pending, approved, rejected, expired]
+ *           enum: [pending, approved, rejected, expired, revoked]
  *       - in: query
  *         name: search
  *         schema:

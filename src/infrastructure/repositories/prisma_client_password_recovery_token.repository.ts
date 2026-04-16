@@ -7,9 +7,7 @@ import type {
 import { hashRegistrationToken } from "../../shared/utils/registration_token_hash";
 import { prismaClient } from "../database/prisma/client";
 
-export class PrismaClientPasswordRecoveryTokenRepository
-  implements IClientPasswordRecoveryTokenRepository
-{
+export class PrismaClientPasswordRecoveryTokenRepository implements IClientPasswordRecoveryTokenRepository {
   async save(token: ClientPasswordRecoveryToken): Promise<void> {
     const hashedId = hashRegistrationToken(token.id);
     await prismaClient.clientPasswordRecoveryToken.upsert({

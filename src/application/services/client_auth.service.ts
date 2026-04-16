@@ -88,7 +88,9 @@ export class ClientAuthService {
     private readonly fileStorage: IFileStorage,
   ) {}
 
-  async register(input: RegisterClientServiceInput): Promise<Result<ClientRegistrationRequestResponseDto>> {
+  async register(
+    input: RegisterClientServiceInput,
+  ): Promise<Result<ClientRegistrationRequestResponseDto>> {
     const owner = await this.userRepository.findByEmail(input.ownerEmail);
     if (!owner || owner.status !== "active") {
       return err(badRequest("Owner email is not eligible to approve client registration"));
@@ -172,7 +174,10 @@ export class ClientAuthService {
     });
   }
 
-  async findManagedClient(ownerUserId: string, clientId: string): Promise<Result<ClientAuthUserDto>> {
+  async findManagedClient(
+    ownerUserId: string,
+    clientId: string,
+  ): Promise<Result<ClientAuthUserDto>> {
     const owner = await this.userRepository.findById(ownerUserId);
     if (!owner) {
       return err(notFound("Owner user"));
@@ -212,7 +217,9 @@ export class ClientAuthService {
 
     if (client.status === "pending") {
       return err(
-        conflict("Pending client registrations must be approved or rejected via the registration flow"),
+        conflict(
+          "Pending client registrations must be approved or rejected via the registration flow",
+        ),
       );
     }
 
@@ -297,7 +304,8 @@ export class ClientAuthService {
     preloaded?: Client,
     accessTokenCredentialsVersion?: number,
   ): Promise<Result<Client>> {
-    const client = preloaded?.id === clientId ? preloaded : await this.clientRepository.findById(clientId);
+    const client =
+      preloaded?.id === clientId ? preloaded : await this.clientRepository.findById(clientId);
     if (!client) {
       return err(notFound("Client"));
     }
@@ -354,7 +362,9 @@ export class ClientAuthService {
       input.thumbnailUrl === null &&
       current.thumbnailUrl?.startsWith(`${env.uploadsPublicBaseUrl}/`)
     ) {
-      await this.fileStorage.delete(current.thumbnailUrl.slice(`${env.uploadsPublicBaseUrl}/`.length));
+      await this.fileStorage.delete(
+        current.thumbnailUrl.slice(`${env.uploadsPublicBaseUrl}/`.length),
+      );
     }
     return ok(this.toClientDto(updated));
   }
@@ -412,7 +422,10 @@ export class ClientAuthService {
       return active;
     }
 
-    const isMatch = await this.passwordHasher.compare(input.currentPassword, active.value.passwordHash);
+    const isMatch = await this.passwordHasher.compare(
+      input.currentPassword,
+      active.value.passwordHash,
+    );
     if (!isMatch) {
       return err(unauthorized("Invalid credentials"));
     }
@@ -470,7 +483,10 @@ export class ClientAuthService {
     return ok({ clientEmail: approved.email });
   }
 
-  async rejectRegistration(tokenId: string, reason?: string): Promise<Result<{ clientEmail: string }>> {
+  async rejectRegistration(
+    tokenId: string,
+    reason?: string,
+  ): Promise<Result<{ clientEmail: string }>> {
     const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
     if (!token) {
       return err(notFound("Rejection link is invalid or has expired"));
@@ -554,7 +570,9 @@ export class ClientAuthService {
     return ok(undefined);
   }
 
-  async getPasswordRecoveryStatus(tokenId: string): Promise<Result<{ status: "pending" | "expired" }>> {
+  async getPasswordRecoveryStatus(
+    tokenId: string,
+  ): Promise<Result<{ status: "pending" | "expired" }>> {
     const token = await this.clientPasswordRecoveryTokenRepository.findById(tokenId);
     if (!token) {
       return err(notFound("Password recovery token"));

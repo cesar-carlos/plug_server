@@ -3,9 +3,7 @@ import type {
   IClientRegistrationApprovalTokenRepository,
 } from "../../domain/repositories/client_registration_approval_token.repository.interface";
 
-export class InMemoryClientRegistrationApprovalTokenRepository
-  implements IClientRegistrationApprovalTokenRepository
-{
+export class InMemoryClientRegistrationApprovalTokenRepository implements IClientRegistrationApprovalTokenRepository {
   private readonly store = new Map<string, ClientRegistrationApprovalToken>();
   private readonly tokenIdByClientId = new Map<string, string>();
 

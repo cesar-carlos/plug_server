@@ -7,9 +7,7 @@ import type {
 import { hashRegistrationToken } from "../../shared/utils/registration_token_hash";
 import { prismaClient } from "../database/prisma/client";
 
-export class PrismaClientRegistrationApprovalTokenRepository
-  implements IClientRegistrationApprovalTokenRepository
-{
+export class PrismaClientRegistrationApprovalTokenRepository implements IClientRegistrationApprovalTokenRepository {
   async save(token: ClientRegistrationApprovalToken): Promise<void> {
     const hashedId = hashRegistrationToken(token.id);
     await prismaClient.clientRegistrationApprovalToken.upsert({

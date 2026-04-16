@@ -7,6 +7,26 @@ export class InMemoryClientAgentAccessRepository implements IClientAgentAccessRe
     return this.accessByClient.get(clientId)?.has(agentId) ?? false;
   }
 
+  async listAccessAgentIdsForClientIn(
+    clientId: string,
+    agentIds: readonly string[],
+  ): Promise<string[]> {
+    if (agentIds.length === 0) {
+      return [];
+    }
+    const set = this.accessByClient.get(clientId);
+    if (!set) {
+      return [];
+    }
+    const out: string[] = [];
+    for (const agentId of new Set(agentIds)) {
+      if (set.has(agentId)) {
+        out.push(agentId);
+      }
+    }
+    return out;
+  }
+
   async listAgentIdsByClientId(clientId: string): Promise<string[]> {
     return [...(this.accessByClient.get(clientId) ?? new Set<string>())];
   }

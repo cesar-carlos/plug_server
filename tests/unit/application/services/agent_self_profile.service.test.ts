@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Agent } from "../../../../src/domain/entities/agent.entity";
-import { AppError } from "../../../../src/shared/errors/app_error";
+import type { AppError } from "../../../../src/shared/errors/app_error";
 import { AgentSelfProfileService } from "../../../../src/application/services/agent_self_profile.service";
 import { resetAgentProfileReliabilityMetricsForTests } from "../../../../src/application/services/agent_profile_reliability_metrics.service";
 import { InMemoryAgentRepository } from "../../../../src/infrastructure/repositories/in_memory_agent.repository";

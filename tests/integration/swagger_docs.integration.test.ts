@@ -56,22 +56,30 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/client/me/agents/{agentId}"]?.get?.tags).toContain(
       "Client Agent Access",
     );
+    expect(response.body.paths?.["/client/me/agents/{agentId}"]?.delete).toBeDefined();
     expect(response.body.paths?.["/me/clients"]?.get).toBeDefined();
     expect(response.body.paths?.["/me/clients/{clientId}"]?.get).toBeDefined();
     expect(response.body.paths?.["/me/clients/{clientId}/status"]?.patch).toBeDefined();
     expect(response.body.paths?.["/me/client-access-requests"]?.get).toBeDefined();
-    expect(response.body.paths?.["/me/client-access-requests/{requestId}/approve"]?.post).toBeDefined();
-    expect(response.body.paths?.["/me/client-access-requests/{requestId}/reject"]?.post).toBeDefined();
+    expect(
+      response.body.paths?.["/me/client-access-requests/{requestId}/approve"]?.post,
+    ).toBeDefined();
+    expect(
+      response.body.paths?.["/me/client-access-requests/{requestId}/reject"]?.post,
+    ).toBeDefined();
     expect(response.body.paths?.["/me/agents/{agentId}/clients"]?.get).toBeDefined();
     expect(response.body.paths?.["/me/agents/{agentId}/clients/{clientId}"]?.delete).toBeDefined();
     expect(response.body.paths?.["/client-auth/register"]?.post?.security).toBeUndefined();
     const clientRegisterBody =
-      response.body.paths?.["/client-auth/register"]?.post?.requestBody?.content?.["application/json"]?.schema
-        ?.properties;
+      response.body.paths?.["/client-auth/register"]?.post?.requestBody?.content?.[
+        "application/json"
+      ]?.schema?.properties;
     expect(clientRegisterBody?.ownerEmail).toBeDefined();
     expect(clientRegisterBody?.userId).toBeUndefined();
     expect(response.body.paths?.["/client-auth/register"]?.post?.responses?.["400"]).toBeDefined();
-    expect(response.body.paths?.["/client-auth/register"]?.post?.responses?.["404"]).toBeUndefined();
+    expect(
+      response.body.paths?.["/client-auth/register"]?.post?.responses?.["404"],
+    ).toBeUndefined();
     expect(response.body.paths?.["/client-auth/registration/review"]?.get).toBeDefined();
     expect(response.body.paths?.["/client-auth/registration/status"]?.get).toBeDefined();
     expect(response.body.paths?.["/client-auth/registration/approve"]?.post).toBeDefined();
@@ -87,17 +95,17 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/auth/agent-login"]?.post?.responses?.["404"]).toBeUndefined();
     const agentsProfilePatch = response.body.paths?.["/agents/{agentId}/profile"]?.patch;
     expect(agentsProfilePatch?.tags).toContain("Agents");
-    expect(agentsProfilePatch?.responses?.["409"]?.content?.["application/json"]?.schema?.$ref).toBe(
-      "#/components/schemas/ErrorResponse",
-    );
+    expect(
+      agentsProfilePatch?.responses?.["409"]?.content?.["application/json"]?.schema?.$ref,
+    ).toBe("#/components/schemas/ErrorResponse");
     expect(
       agentsProfilePatch?.parameters?.some(
         (p: { name?: string; in?: string }) => p.name === "Idempotency-Key" && p.in === "header",
       ),
     ).toBe(true);
-    expect(
-      agentsProfilePatch?.requestBody?.content?.["application/json"]?.schema?.$ref,
-    ).toBe("#/components/schemas/AgentSelfProfilePatchRequest");
+    expect(agentsProfilePatch?.requestBody?.content?.["application/json"]?.schema?.$ref).toBe(
+      "#/components/schemas/AgentSelfProfilePatchRequest",
+    );
     expect(schemas?.AgentCatalogRecord?.properties).toHaveProperty("cnpjCpf");
     expect(schemas?.AgentSelfProfilePatchRequest?.properties).toHaveProperty("tradeName");
     expect(schemas?.AgentSelfProfilePatchRequest?.properties).toHaveProperty("address");

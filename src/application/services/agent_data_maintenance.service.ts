@@ -62,7 +62,8 @@ const toErrorMessage = (error: unknown): string =>
 
 const isMissingTableError = (error: unknown, tableNames: readonly string[]): boolean => {
   const message = toErrorMessage(error).toLowerCase();
-  const mentionsMissingTable = message.includes("does not exist") || message.includes("undefined table");
+  const mentionsMissingTable =
+    message.includes("does not exist") || message.includes("undefined table");
   return mentionsMissingTable && tableNames.some((tableName) => message.includes(tableName));
 };
 
@@ -287,7 +288,9 @@ export const sweepExpiredClientAgentAccessData = async (options?: {
 
         while (true) {
           const batch = await prismaClient.$transaction(async (tx) => {
-            const rows = await tx.$queryRaw<Array<{ expired: number | bigint; deleted: number | bigint }>>`
+            const rows = await tx.$queryRaw<
+              Array<{ expired: number | bigint; deleted: number | bigint }>
+            >`
               WITH candidate AS (
                 SELECT request.id AS request_id, token.id AS token_id
                 FROM client_agent_access_requests request
@@ -397,8 +400,7 @@ export const startAgentProfileMaintenanceScheduler = (options?: {
     return;
   }
 
-  const intervalMs =
-    options?.intervalMs ?? env.agentProfileMaintenanceIntervalMinutes * 60 * 1000;
+  const intervalMs = options?.intervalMs ?? env.agentProfileMaintenanceIntervalMinutes * 60 * 1000;
   const batchSize = options?.batchSize ?? env.agentProfileMaintenancePruneBatchSize;
 
   const run = (): void => {

@@ -149,9 +149,11 @@ Regras:
 - o `Client` envia uma lista de `agentIds`
 - cada `agentId` deve existir no catalogo
 - para cada `agentId`, o servidor resolve o owner via `AgentIdentity`
-- se acesso ja existe em `ClientAgentAccess`, marca como `alreadyApproved`
-- se nao existe, cria/atualiza pedido `ClientAgentAccessRequest` com status `pending`
-- gera token de aprovacao e envia email para o owner do agente
+- se acesso ja existe em `ClientAgentAccess`, marca como `alreadyApproved` (nao envia email)
+- se nao existe linha em `ClientAgentAccess`, cria ou reabre pedido `ClientAgentAccessRequest` com status `pending` (inclui `approved` sem linha de acesso, `rejected`, `expired`, `revoked`, etc.)
+- gera token de aprovacao e envia email para o owner do agente quando o fluxo entra em `pending` (gravacao em transacao na persistencia Prisma)
+- resposta JSON inclui `requested`, `alreadyApproved`, `newRequests`, `reopened`, `debounced` (este ultimo quando um segundo `POST` chega ainda `pending` dentro da janela `CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS` — sem novo email)
+- rate limit por cliente em `POST /api/v1/client/me/agents` (`REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_*`)
 - depois de aprovado, o `Client` pode consultar os dados gerais e de perfil desses agentes pela propria area `/client/me/agents`
 - introspecao da politica de autorizacao do `client_token` no plug_agente (sem executar SQL): RPC `client_token.getPolicy` via `POST /api/v1/agents/commands` ou Socket, quando o agente expuser o metodo; contrato e limites em `docs/api_rest_bridge.md`
 
@@ -177,11 +179,14 @@ Regras:
 
 Endpoint:
 
-- `DELETE /api/v1/client/me/agents`
+- `DELETE /api/v1/client/me/agents` (corpo JSON `agentIds`)
+- `DELETE /api/v1/client/me/agents/{agentId}` (alternativa sem corpo)
 
 Regras:
 
 - remove vinculos existentes em `ClientAgentAccess` para os `agentIds` informados
+- se existir `ClientAgentAccessRequest` com status `approved` para o mesmo par cliente+agente, o pedido passa a `revoked` com motivo `client_revoked_access` (alinhado com o estado real de acesso)
+- para voltar a ter o agente na lista, o cliente usa `POST /api/v1/client/me/agents` de novo, o que reabre `pending` e reenvia email ao owner ate nova aprovacao
 - nao altera ownership do agente
 - operacao idempotente para itens ja removidos
 
@@ -233,7 +238,7 @@ Regras:
 - `PATCH /api/v1/me/clients/{clientId}/status` nao processa `Client` em `pending`; nesse estado a decisao deve passar pelo fluxo oficial de aprovacao/rejeicao do cadastro
 - o owner possui inbox autenticada para listar pedidos de acesso aos seus agentes e decidir por `requestId`
 - o owner pode listar quais `Clients` estao aprovados para um agente especifico seu
-- o owner pode revogar um acesso aprovado `clientId + agentId` sem alterar ownership do agente
+- o owner pode revogar um acesso aprovado `clientId + agentId` sem alterar ownership do agente; se o pedido estava `approved`, passa a `revoked` com motivo `owner_revoked_access`
 - o fluxo por token/email continua valido como canal alternativo para approve/reject
 
 ## 4) Regras de autorizacao por principal

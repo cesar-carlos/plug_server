@@ -1,12 +1,8 @@
-import {
-  ClientAgentAccessRequest,
-} from "../../domain/entities/client_agent_access_request.entity";
+import { ClientAgentAccessRequest } from "../../domain/entities/client_agent_access_request.entity";
 import type { ClientAgentAccessRequestStatus } from "../../domain/entities/client_agent_access_request.entity";
 import type { IClientAgentAccessRequestRepository } from "../../domain/repositories/client_agent_access_request.repository.interface";
 
-export class InMemoryClientAgentAccessRequestRepository
-  implements IClientAgentAccessRequestRepository
-{
+export class InMemoryClientAgentAccessRequestRepository implements IClientAgentAccessRequestRepository {
   private readonly store = new Map<string, ClientAgentAccessRequest>();
 
   async findById(id: string): Promise<ClientAgentAccessRequest | null> {
@@ -25,6 +21,20 @@ export class InMemoryClientAgentAccessRequestRepository
     return null;
   }
 
+  async findByClientAndAgents(
+    clientId: string,
+    agentIds: readonly string[],
+  ): Promise<Map<string, ClientAgentAccessRequest>> {
+    const want = new Set(agentIds);
+    const map = new Map<string, ClientAgentAccessRequest>();
+    for (const request of this.store.values()) {
+      if (request.clientId === clientId && want.has(request.agentId)) {
+        map.set(request.agentId, request);
+      }
+    }
+    return map;
+  }
+
   async listByClientId(clientId: string): Promise<ClientAgentAccessRequest[]> {
     return [...this.store.values()]
       .filter((request) => request.clientId === clientId)
@@ -33,8 +43,9 @@ export class InMemoryClientAgentAccessRequestRepository
 
   async listByOwnerUserId(ownerUserId: string): Promise<ClientAgentAccessRequest[]> {
     void ownerUserId;
-    return [...this.store.values()]
-      .sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
+    return [...this.store.values()].sort(
+      (a, b) => b.requestedAt.getTime() - a.requestedAt.getTime(),
+    );
   }
 
   async save(request: ClientAgentAccessRequest): Promise<void> {
@@ -53,11 +64,11 @@ export class InMemoryClientAgentAccessRequestRepository
     this.store.set(
       requestId,
       new ClientAgentAccessRequest({
-      ...existing,
-      status,
-      decidedAt: options?.decidedAt ?? new Date(),
-      ...(options?.reason !== undefined ? { decisionReason: options.reason } : {}),
-      updatedAt: new Date(),
+        ...existing,
+        status,
+        decidedAt: options?.decidedAt ?? new Date(),
+        ...(options?.reason !== undefined ? { decisionReason: options.reason } : {}),
+        updatedAt: new Date(),
       }),
     );
   }

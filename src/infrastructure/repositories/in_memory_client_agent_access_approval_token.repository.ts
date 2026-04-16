@@ -3,9 +3,7 @@ import type {
   IClientAgentAccessApprovalTokenRepository,
 } from "../../domain/repositories/client_agent_access_approval_token.repository.interface";
 
-export class InMemoryClientAgentAccessApprovalTokenRepository
-  implements IClientAgentAccessApprovalTokenRepository
-{
+export class InMemoryClientAgentAccessApprovalTokenRepository implements IClientAgentAccessApprovalTokenRepository {
   private readonly store = new Map<string, ClientAgentAccessApprovalToken>();
 
   async save(token: ClientAgentAccessApprovalToken): Promise<void> {

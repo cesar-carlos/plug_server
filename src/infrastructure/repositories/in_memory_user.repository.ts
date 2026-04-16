@@ -8,6 +8,17 @@ export class InMemoryUserRepository implements IUserRepository {
     return this.store.get(id) ?? null;
   }
 
+  async findByIds(ids: readonly string[]): Promise<User[]> {
+    const out: User[] = [];
+    for (const id of new Set(ids)) {
+      const user = this.store.get(id);
+      if (user) {
+        out.push(user);
+      }
+    }
+    return out;
+  }
+
   async findByEmail(email: string): Promise<User | null> {
     for (const user of this.store.values()) {
       if (user.email === email) return user;

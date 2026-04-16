@@ -33,7 +33,10 @@ const waitForSocketEvent = <T>(
     socket.on(eventName, onEvent);
   });
 
-const connectAgentSocket = (baseUrl: string, agentAccessToken: string): Promise<ReturnType<typeof ioClient>> =>
+const connectAgentSocket = (
+  baseUrl: string,
+  agentAccessToken: string,
+): Promise<ReturnType<typeof ioClient>> =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
     const socket = ioClient(`${baseUrl}/agents`, {
       auth: { token: agentAccessToken },

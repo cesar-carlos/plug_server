@@ -33,22 +33,46 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default("*"),
   REQUEST_BODY_LIMIT: z.string().default("1mb"),
   UPLOADS_DIR: z.string().default("uploads"),
-  UPLOADS_PUBLIC_BASE_URL: z.preprocess(
-    (val) => {
-      if (val !== undefined && String(val).trim() !== "") {
-        return String(val).trim();
-      }
-      return `${process.env.APP_BASE_URL ?? "http://localhost:3000"}/uploads`;
-    },
-    z.string().url(),
-  ),
-  CLIENT_THUMBNAIL_MAX_BYTES: z.coerce.number().int().positive().max(10 * 1024 * 1024).default(2 * 1024 * 1024),
+  UPLOADS_PUBLIC_BASE_URL: z.preprocess((val) => {
+    if (val !== undefined && String(val).trim() !== "") {
+      return String(val).trim();
+    }
+    return `${process.env.APP_BASE_URL ?? "http://localhost:3000"}/uploads`;
+  }, z.string().url()),
+  CLIENT_THUMBNAIL_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 * 1024)
+    .default(2 * 1024 * 1024),
   CLIENT_THUMBNAIL_WIDTH: z.coerce.number().int().positive().max(4096).default(256),
   CLIENT_THUMBNAIL_HEIGHT: z.coerce.number().int().positive().max(4096).default(256),
   CLIENT_THUMBNAIL_WEBP_QUALITY: z.coerce.number().int().min(1).max(100).default(82),
   REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
-  REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(300_000),
+  /** Per client JWT `sub` on `POST /api/v1/client/me/agents`. */
+  REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(900_000),
+  REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  /**
+   * When > 0, a second `POST /client/me/agents` for the same agent while the request is still `pending`
+   * and `requestedAt` is within this many ms does not re-email the owner (returns `debounced`).
+   * `0` disables debouncing.
+   */
+  CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(86_400_000)
+    .default(0),
+  REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(300_000),
   REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   DATABASE_URL: z.string().min(1),
   JWT_ACCESS_SECRET: z.string().min(16).default("change-me-access-development"),
@@ -444,11 +468,7 @@ const envSchema = z.object({
   AGENT_PROFILE_IDEMPOTENCY_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   AGENT_PROFILE_MAINTENANCE_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
   AGENT_PROFILE_MAINTENANCE_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
-  CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_INTERVAL_MINUTES: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(60),
+  CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60),
   CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_BATCH_SIZE: z.coerce.number().int().positive().default(1_000),
 });
 
@@ -493,6 +513,10 @@ export const env = {
   clientThumbnailWebpQuality: parsedEnv.CLIENT_THUMBNAIL_WEBP_QUALITY,
   restClientThumbnailRateLimitWindowMs: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS,
   restClientThumbnailRateLimitMax: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX,
+  restClientMeAgentsPostRateLimitWindowMs:
+    parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS,
+  restClientMeAgentsPostRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX,
+  clientAgentAccessRequestEmailDebounceMs: parsedEnv.CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS,
   restClientPasswordRecoveryRateLimitWindowMs:
     parsedEnv.REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS,
   restClientPasswordRecoveryRateLimitMax: parsedEnv.REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX,

@@ -1,4 +1,8 @@
-import { Agent, type AgentAddressPatch, type AgentDocumentType } from "../../domain/entities/agent.entity";
+import {
+  Agent,
+  type AgentAddressPatch,
+  type AgentDocumentType,
+} from "../../domain/entities/agent.entity";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
 import {
   agentDocumentConflict,
@@ -134,8 +138,12 @@ export class AgentSelfProfileService {
               payload.address === null
                 ? null
                 : {
-                    ...(payload.address.street !== undefined ? { street: payload.address.street } : {}),
-                    ...(payload.address.number !== undefined ? { number: payload.address.number } : {}),
+                    ...(payload.address.street !== undefined
+                      ? { street: payload.address.street }
+                      : {}),
+                    ...(payload.address.number !== undefined
+                      ? { number: payload.address.number }
+                      : {}),
                     ...(payload.address.district !== undefined
                       ? { district: payload.address.district }
                       : {}),
@@ -143,7 +151,9 @@ export class AgentSelfProfileService {
                       ? { postalCode: payload.address.postalCode }
                       : {}),
                     ...(payload.address.city !== undefined ? { city: payload.address.city } : {}),
-                    ...(payload.address.state !== undefined ? { state: payload.address.state } : {}),
+                    ...(payload.address.state !== undefined
+                      ? { state: payload.address.state }
+                      : {}),
                   },
           }
         : {}),
@@ -166,8 +176,12 @@ export class AgentSelfProfileService {
               payload.address === null
                 ? null
                 : {
-                    ...(payload.address.street !== undefined ? { street: payload.address.street } : {}),
-                    ...(payload.address.number !== undefined ? { number: payload.address.number } : {}),
+                    ...(payload.address.street !== undefined
+                      ? { street: payload.address.street }
+                      : {}),
+                    ...(payload.address.number !== undefined
+                      ? { number: payload.address.number }
+                      : {}),
                     ...(payload.address.district !== undefined
                       ? { district: payload.address.district }
                       : {}),
@@ -175,7 +189,9 @@ export class AgentSelfProfileService {
                       ? { postalCode: payload.address.postal_code }
                       : {}),
                     ...(payload.address.city !== undefined ? { city: payload.address.city } : {}),
-                    ...(payload.address.state !== undefined ? { state: payload.address.state } : {}),
+                    ...(payload.address.state !== undefined
+                      ? { state: payload.address.state }
+                      : {}),
                   },
           }
         : {}),
@@ -197,7 +213,9 @@ export class AgentSelfProfileService {
             address: {
               ...(payload.address.street !== undefined ? { street: payload.address.street } : {}),
               ...(payload.address.number !== undefined ? { number: payload.address.number } : {}),
-              ...(payload.address.district !== undefined ? { district: payload.address.district } : {}),
+              ...(payload.address.district !== undefined
+                ? { district: payload.address.district }
+                : {}),
               ...(payload.address.postal_code !== undefined
                 ? { postalCode: payload.address.postal_code }
                 : {}),
@@ -231,7 +249,11 @@ export class AgentSelfProfileService {
       }
     }
 
-    if (input.source === "pull_sync" && input.remoteProfileVersion !== undefined && existing !== null) {
+    if (
+      input.source === "pull_sync" &&
+      input.remoteProfileVersion !== undefined &&
+      existing !== null
+    ) {
       if (input.remoteProfileVersion < existing.profileVersion) {
         agentProfileReliabilityMetrics.profileWritesSkippedStaleRemoteVersionTotal += 1;
         logger.warn("agent_profile_update_skipped_stale_remote_version", {
@@ -245,7 +267,9 @@ export class AgentSelfProfileService {
         const candidate = this.agentWithStoredDocumentNormalized(
           existing.update({
             ...input.patch,
-            ...(existing.profileUpdatedAt !== undefined ? { profileUpdatedAt: existing.profileUpdatedAt } : {}),
+            ...(existing.profileUpdatedAt !== undefined
+              ? { profileUpdatedAt: existing.profileUpdatedAt }
+              : {}),
             profileVersion: existing.profileVersion,
           }),
         );
@@ -481,11 +505,15 @@ export class AgentSelfProfileService {
       ...(input.patch.documentType !== undefined && input.patch.documentType !== null
         ? { documentType: input.patch.documentType }
         : {}),
-      ...(input.patch.phone !== undefined && input.patch.phone !== null ? { phone: input.patch.phone } : {}),
+      ...(input.patch.phone !== undefined && input.patch.phone !== null
+        ? { phone: input.patch.phone }
+        : {}),
       ...(input.patch.mobile !== undefined && input.patch.mobile !== null
         ? { mobile: input.patch.mobile }
         : {}),
-      ...(input.patch.email !== undefined && input.patch.email !== null ? { email: input.patch.email } : {}),
+      ...(input.patch.email !== undefined && input.patch.email !== null
+        ? { email: input.patch.email }
+        : {}),
       ...(input.patch.address !== undefined && input.patch.address !== null
         ? {
             address: {
@@ -495,7 +523,8 @@ export class AgentSelfProfileService {
               ...(input.patch.address.number !== undefined && input.patch.address.number !== null
                 ? { number: input.patch.address.number }
                 : {}),
-              ...(input.patch.address.district !== undefined && input.patch.address.district !== null
+              ...(input.patch.address.district !== undefined &&
+              input.patch.address.district !== null
                 ? { district: input.patch.address.district }
                 : {}),
               ...(input.patch.address.postalCode !== undefined &&
@@ -511,7 +540,9 @@ export class AgentSelfProfileService {
             },
           }
         : {}),
-      ...(input.patch.notes !== undefined && input.patch.notes !== null ? { notes: input.patch.notes } : {}),
+      ...(input.patch.notes !== undefined && input.patch.notes !== null
+        ? { notes: input.patch.notes }
+        : {}),
       profileUpdatedAt,
       ...(input.lastLoginUserId !== undefined ? { lastLoginUserId: input.lastLoginUserId } : {}),
     });

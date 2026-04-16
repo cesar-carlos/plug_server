@@ -119,9 +119,11 @@ describe("Agent login ownership", () => {
       .set("Authorization", `Bearer ${agentLogin.body.accessToken as string}`);
     expect(oldAgentAccess.status).toBe(401);
 
-    const oldAgentRefresh = await request(app).post("/api/v1/auth/refresh").send({
-      refreshToken: agentLogin.body.refreshToken as string,
-    });
+    const oldAgentRefresh = await request(app)
+      .post("/api/v1/auth/refresh")
+      .send({
+        refreshToken: agentLogin.body.refreshToken as string,
+      });
     expect(oldAgentRefresh.status).toBe(401);
 
     const newAgentLogin = await request(app).post("/api/v1/auth/agent-login").send({

@@ -6,6 +6,7 @@ import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
+import { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/metrics/client_agent_access_request.metrics";
 import { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
@@ -39,6 +40,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const registrationFlow = getRegistrationFlowMetricsSnapshot();
   const authAccount = getAuthAccountMetricsSnapshot();
   const clientMeAgents = getClientMeAgentsMetricsSnapshot();
+  const clientAccessRequestPost = getClientAgentAccessRequestPostMetricsSnapshot();
 
   const lines: string[] = [];
 
@@ -72,6 +74,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_rest_http_rate_limit_admin_user_status_rejected_total",
       restHttpRl.adminUserStatusRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_client_me_agents_post_rejected_total",
+      restHttpRl.clientMeAgentsPostRejectedTotal,
     ),
   );
 
@@ -217,6 +225,36 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_client_me_agents_detail_hub_connected_true_total",
       clientMeAgents.detailHubConnectedTrueTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_client_agent_access_request_post_requested_total",
+      clientAccessRequestPost.postRequestedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_client_agent_access_request_post_new_total",
+      clientAccessRequestPost.postNewRequestsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_client_agent_access_request_post_reopened_total",
+      clientAccessRequestPost.postReopenedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_client_agent_access_request_post_debounced_total",
+      clientAccessRequestPost.postDebouncedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_client_agent_access_request_post_already_approved_total",
+      clientAccessRequestPost.postAlreadyApprovedTotal,
     ),
   );
   lines.push(

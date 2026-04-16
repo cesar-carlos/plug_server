@@ -38,7 +38,9 @@ describe("validateAgentDocumentChecksumForSubmittedValue", () => {
   });
 
   it("rejects invalid checksum", () => {
-    expect(() => validateAgentDocumentChecksumForSubmittedValue("11222333000182")).toThrow("Invalid CNPJ");
+    expect(() => validateAgentDocumentChecksumForSubmittedValue("11222333000182")).toThrow(
+      "Invalid CNPJ",
+    );
   });
 });
 

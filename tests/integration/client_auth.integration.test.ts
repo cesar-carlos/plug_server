@@ -9,10 +9,7 @@ import { createApp } from "../../src/app";
 import { User } from "../../src/domain/entities/user.entity";
 import { env } from "../../src/shared/config/env";
 import { getTestNoopEmailSender, getTestRepositoryAccess } from "../../src/shared/di/container";
-import {
-  registerOwnerSession,
-  registerOwnerAndClientSession,
-} from "./helpers/client_sessions";
+import { registerOwnerSession, registerOwnerAndClientSession } from "./helpers/client_sessions";
 
 const app = createApp();
 const repositories = getTestRepositoryAccess();
@@ -20,14 +17,19 @@ const noopEmailSender = getTestNoopEmailSender();
 
 describe("Client auth registration approval flow", () => {
   it("creates pending client registration for a valid owner email", async () => {
-    const owner = await registerOwnerSession(app, { suffix: `${Date.now()}-a`, emailPrefix: "client-owner" });
-    const response = await request(app).post("/api/v1/client-auth/register").send({
-      ownerEmail: owner.email,
-      email: `pending-client-${Date.now()}@test.com`,
-      password: "ClientRegPwd1",
-      name: "Pending",
-      lastName: "Client",
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-a`,
+      emailPrefix: "client-owner",
     });
+    const response = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail: owner.email,
+        email: `pending-client-${Date.now()}@test.com`,
+        password: "ClientRegPwd1",
+        name: "Pending",
+        lastName: "Client",
+      });
 
     expect(response.status).toBe(201);
     expect(response.body.message).toBe("Client registration pending owner approval");
@@ -39,7 +41,10 @@ describe("Client auth registration approval flow", () => {
   });
 
   it("denies login while client registration is pending", async () => {
-    const owner = await registerOwnerSession(app, { suffix: `${Date.now()}-b`, emailPrefix: "client-owner" });
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-b`,
+      emailPrefix: "client-owner",
+    });
     const email = `pending-login-${Date.now()}@test.com`;
     const password = "ClientRegPwd1";
 
@@ -58,7 +63,10 @@ describe("Client auth registration approval flow", () => {
   });
 
   it("activates pending client after approval token and allows login", async () => {
-    const owner = await registerOwnerSession(app, { suffix: `${Date.now()}-c`, emailPrefix: "client-owner" });
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-c`,
+      emailPrefix: "client-owner",
+    });
     const email = `approved-client-${Date.now()}@test.com`;
     const password = "ClientRegPwd1";
 
@@ -82,20 +90,25 @@ describe("Client auth registration approval flow", () => {
   });
 
   it("returns 400 when owner email is not eligible", async () => {
-    const response = await request(app).post("/api/v1/client-auth/register").send({
-      ownerEmail: `missing-owner-${Date.now()}@test.com`,
-      email: `missing-owner-client-${Date.now()}@test.com`,
-      password: "ClientRegPwd1",
-      name: "Missing",
-      lastName: "Owner",
-    });
+    const response = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail: `missing-owner-${Date.now()}@test.com`,
+        email: `missing-owner-client-${Date.now()}@test.com`,
+        password: "ClientRegPwd1",
+        name: "Missing",
+        lastName: "Owner",
+      });
 
     expect(response.status).toBe(400);
     expect(response.body.code).toBe("BAD_REQUEST");
   });
 
   it("returns same public validation response when owner user is not active", async () => {
-    const owner = await registerOwnerSession(app, { suffix: `${Date.now()}-d`, emailPrefix: "client-owner" });
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-d`,
+      emailPrefix: "client-owner",
+    });
     const currentOwner = await repositories.user.findById(owner.userId);
     expect(currentOwner).not.toBeNull();
     await repositories.user.save(
@@ -110,19 +123,24 @@ describe("Client auth registration approval flow", () => {
       }),
     );
 
-    const response = await request(app).post("/api/v1/client-auth/register").send({
-      ownerEmail: owner.email,
-      email: `blocked-owner-client-${Date.now()}@test.com`,
-      password: "ClientRegPwd1",
-      name: "Blocked",
-      lastName: "Owner",
-    });
+    const response = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail: owner.email,
+        email: `blocked-owner-client-${Date.now()}@test.com`,
+        password: "ClientRegPwd1",
+        name: "Blocked",
+        lastName: "Owner",
+      });
     expect(response.status).toBe(400);
     expect(response.body.code).toBe("BAD_REQUEST");
   });
 
   it("keeps client blocked after rejection and token cannot be reused", async () => {
-    const owner = await registerOwnerSession(app, { suffix: `${Date.now()}-e`, emailPrefix: "client-owner" });
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-e`,
+      emailPrefix: "client-owner",
+    });
     const email = `rejected-client-${Date.now()}@test.com`;
     const password = "ClientRegPwd1";
 
@@ -144,12 +162,17 @@ describe("Client auth registration approval flow", () => {
     const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
     expect(loginRes.status).toBe(403);
 
-    const secondApprove = await request(app).post("/api/v1/client-auth/registration/approve").send({ token });
+    const secondApprove = await request(app)
+      .post("/api/v1/client-auth/registration/approve")
+      .send({ token });
     expect(secondApprove.status).toBe(404);
   });
 
   it("returns expired status and blocks approve when registration token is expired", async () => {
-    const owner = await registerOwnerSession(app, { suffix: `${Date.now()}-f`, emailPrefix: "client-owner" });
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-f`,
+      emailPrefix: "client-owner",
+    });
     const email = `expired-token-client-${Date.now()}@test.com`;
     const registerRes = await request(app).post("/api/v1/client-auth/register").send({
       ownerEmail: owner.email,
@@ -503,6 +526,8 @@ const responseClearsCookie = (setCookieHeader: string[] | string | undefined): b
 const resolveUploadPathFromUrl = (url: string): string => {
   const publicBase = new URL(env.uploadsPublicBaseUrl);
   const fileUrl = new URL(url);
-  const relativePath = fileUrl.pathname.replace(publicBase.pathname.replace(/\/+$/, ""), "").replace(/^\/+/, "");
+  const relativePath = fileUrl.pathname
+    .replace(publicBase.pathname.replace(/\/+$/, ""), "")
+    .replace(/^\/+/, "");
   return path.resolve(env.uploadsDir, relativePath);
 };

@@ -12,9 +12,16 @@ import { InMemoryClientAgentAccessRepository } from "../../../../src/infrastruct
 import { InMemoryClientAgentAccessRequestRepository } from "../../../../src/infrastructure/repositories/in_memory_client_agent_access_request.repository";
 import { InMemoryClientRepository } from "../../../../src/infrastructure/repositories/in_memory_client.repository";
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
+import { clientAgentAccessRevokedByClientDecisionReason } from "../../../../src/application/services/client_agent_access_decision_reasons";
+import { SequentialPendingClientAgentAccessWriter } from "../../../../src/infrastructure/persistence/sequential_pending_client_agent_access.writer";
 
 class FakeEmailSender implements IEmailSender {
-  ownerAccessRequests: Array<{ ownerEmail: string; clientEmail: string; agentId: string; token: string }> = [];
+  ownerAccessRequests: Array<{
+    ownerEmail: string;
+    clientEmail: string;
+    agentId: string;
+    token: string;
+  }> = [];
   clientApproved: Array<{ clientEmail: string; agentId: string }> = [];
   clientRejected: Array<{ clientEmail: string; agentId: string; reason?: string }> = [];
 
@@ -53,6 +60,11 @@ class FakeEmailSender implements IEmailSender {
   }): Promise<void> {
     this.clientRejected.push(params);
   }
+
+  async sendClientRegistrationRequestToOwner(): Promise<void> {}
+  async sendClientRegistrationApproved(): Promise<void> {}
+  async sendClientRegistrationRejected(): Promise<void> {}
+  async sendClientPasswordRecovery(): Promise<void> {}
 }
 
 describe("ClientAgentAccessService", () => {
@@ -80,6 +92,10 @@ describe("ClientAgentAccessService", () => {
     tokenRepository = new InMemoryClientAgentAccessApprovalTokenRepository();
     emailSender = new FakeEmailSender();
 
+    const pendingWriter = new SequentialPendingClientAgentAccessWriter(
+      requestRepository,
+      tokenRepository,
+    );
     service = new ClientAgentAccessService(
       agentRepository,
       identityRepository,
@@ -89,6 +105,7 @@ describe("ClientAgentAccessService", () => {
       requestRepository,
       tokenRepository,
       emailSender,
+      pendingWriter,
     );
 
     await userRepository.save(
@@ -136,6 +153,9 @@ describe("ClientAgentAccessService", () => {
     if (result.ok) {
       expect(result.value.requested).toEqual([agentId]);
       expect(result.value.alreadyApproved).toEqual([]);
+      expect(result.value.newRequests).toEqual([agentId]);
+      expect(result.value.reopened).toEqual([]);
+      expect(result.value.debounced).toEqual([]);
     }
     expect(emailSender.ownerAccessRequests).toHaveLength(1);
     expect(emailSender.ownerAccessRequests[0]?.ownerEmail).toBe("owner@example.com");
@@ -156,6 +176,52 @@ describe("ClientAgentAccessService", () => {
     expect(hasAccess).toBe(true);
   });
 
+  it("reopens pending when access row was removed after a prior approval", async () => {
+    const requestResult = await service.requestAccess(clientId, [agentId]);
+    expect(requestResult.ok).toBe(true);
+    const token = emailSender.ownerAccessRequests[0]?.token;
+    expect(token).toBeTruthy();
+
+    const approved = await service.approveByToken(token!);
+    expect(approved.ok).toBe(true);
+    expect(await accessRepository.hasAccess(clientId, agentId)).toBe(true);
+
+    await accessRepository.removeAccess(clientId, agentId);
+    expect(await accessRepository.hasAccess(clientId, agentId)).toBe(false);
+
+    emailSender.ownerAccessRequests = [];
+
+    const again = await service.requestAccess(clientId, [agentId]);
+    expect(again.ok).toBe(true);
+    if (!again.ok) {
+      return;
+    }
+    expect(again.value.requested).toEqual([agentId]);
+    expect(again.value.alreadyApproved).toEqual([]);
+    expect(again.value.newRequests).toEqual([]);
+    expect(again.value.reopened).toEqual([agentId]);
+    expect(again.value.debounced).toEqual([]);
+    expect(emailSender.ownerAccessRequests).toHaveLength(1);
+
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored?.status).toBe("pending");
+  });
+
+  it("marks access request revoked when client removes approved access", async () => {
+    const requestResult = await service.requestAccess(clientId, [agentId]);
+    expect(requestResult.ok).toBe(true);
+    const token = emailSender.ownerAccessRequests[0]?.token;
+    expect(token).toBeTruthy();
+    const approved = await service.approveByToken(token!);
+    expect(approved.ok).toBe(true);
+
+    const remove = await service.removeApprovedAccess(clientId, [agentId]);
+    expect(remove.ok).toBe(true);
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored?.status).toBe("revoked");
+    expect(stored?.decisionReason).toBe(clientAgentAccessRevokedByClientDecisionReason);
+  });
+
   it("should reset decision metadata when reopening a processed request", async () => {
     const initialRequest = await service.requestAccess(clientId, [agentId]);
     expect(initialRequest.ok).toBe(true);
@@ -171,6 +237,8 @@ describe("ClientAgentAccessService", () => {
     if (!reopened.ok) {
       return;
     }
+    expect(reopened.value.reopened).toEqual([agentId]);
+    expect(reopened.value.newRequests).toEqual([]);
 
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
@@ -188,6 +256,10 @@ describe("ClientAgentAccessService", () => {
       document: "11222333000181",
     });
     const refreshAgentProfile = vi.fn(async () => refreshed);
+    const pendingWriter = new SequentialPendingClientAgentAccessWriter(
+      requestRepository,
+      tokenRepository,
+    );
     service = new ClientAgentAccessService(
       agentRepository,
       identityRepository,
@@ -197,6 +269,7 @@ describe("ClientAgentAccessService", () => {
       requestRepository,
       tokenRepository,
       emailSender,
+      pendingWriter,
       {
         isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
         refreshAgentProfile,
@@ -219,6 +292,10 @@ describe("ClientAgentAccessService", () => {
     const refreshAgentProfile = vi.fn(async () => {
       throw new Error("agent.getProfile failed");
     });
+    const pendingWriter = new SequentialPendingClientAgentAccessWriter(
+      requestRepository,
+      tokenRepository,
+    );
     service = new ClientAgentAccessService(
       agentRepository,
       identityRepository,
@@ -228,6 +305,7 @@ describe("ClientAgentAccessService", () => {
       requestRepository,
       tokenRepository,
       emailSender,
+      pendingWriter,
       {
         isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
         refreshAgentProfile,

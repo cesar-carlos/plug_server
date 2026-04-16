@@ -49,7 +49,10 @@ export class Client {
   }
 
   static create(
-    props: Omit<ClientProps, "id" | "status" | "createdAt" | "updatedAt" | "credentialsUpdatedAt"> & {
+    props: Omit<
+      ClientProps,
+      "id" | "status" | "createdAt" | "updatedAt" | "credentialsUpdatedAt"
+    > & {
       id?: string;
       status?: ClientStatus;
       createdAt?: Date;

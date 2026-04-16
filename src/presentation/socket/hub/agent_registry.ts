@@ -132,7 +132,9 @@ const resolveDispatchPolicy = (
   ]);
 
   const maxRows =
-    advertisedMaxRows !== null ? Math.max(1, Math.min(HUB_MAX_ROWS, advertisedMaxRows)) : HUB_MAX_ROWS;
+    advertisedMaxRows !== null
+      ? Math.max(1, Math.min(HUB_MAX_ROWS, advertisedMaxRows))
+      : HUB_MAX_ROWS;
   const maxBatchSize =
     advertisedMaxBatch !== null
       ? Math.max(1, Math.min(HUB_MAX_BATCH_SIZE, advertisedMaxBatch))

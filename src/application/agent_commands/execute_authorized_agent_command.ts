@@ -31,7 +31,10 @@ export const executeAuthorizedAgentCommand = async (
   dispatch: AgentCommandDispatcher,
   normalize: RpcResponseNormalizer,
 ): Promise<ExecuteAgentCommandResult> => {
-  const accessResult = await agentAccessService.assertPrincipalAccess(input.principal, input.agentId);
+  const accessResult = await agentAccessService.assertPrincipalAccess(
+    input.principal,
+    input.agentId,
+  );
   if (!accessResult.ok) {
     throw accessResult.error;
   }

@@ -38,8 +38,9 @@ export const conflict = (message: string): AppError =>
   new AppError(message, { statusCode: 409, code: "CONFLICT" });
 
 /** Another agent already owns this tax document (CPF/CNPJ) in the catalog. */
-export const agentDocumentConflict = (message = AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE): AppError =>
-  new AppError(message, { statusCode: 409, code: "AGENT_DOCUMENT_CONFLICT" });
+export const agentDocumentConflict = (
+  message = AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+): AppError => new AppError(message, { statusCode: 409, code: "AGENT_DOCUMENT_CONFLICT" });
 
 export const agentAlreadyLinked = (agentId: string): AppError =>
   new AppError(`Agent ${agentId} is already linked to another user`, {
@@ -62,10 +63,7 @@ export const agentAccessDenied = (agentId: string): AppError =>
 export type AgentNotOnlineReason = "offline" | "different_account";
 
 /** Agent is not usable for self-bind: offline, or online under another user (details.reason). */
-export const agentNotOnlineForUser = (
-  agentId: string,
-  reason: AgentNotOnlineReason,
-): AppError => {
+export const agentNotOnlineForUser = (agentId: string, reason: AgentNotOnlineReason): AppError => {
   const message =
     reason === "offline"
       ? `Agent ${agentId} is not connected right now`

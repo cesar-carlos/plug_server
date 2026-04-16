@@ -45,7 +45,9 @@ export class AdminSetUserStatusUseCase {
 
     if (user.status !== "blocked") {
       return err(
-        badRequest("Only blocked accounts can be reactivated via this endpoint; use registration approval for pending users"),
+        badRequest(
+          "Only blocked accounts can be reactivated via this endpoint; use registration approval for pending users",
+        ),
       );
     }
 

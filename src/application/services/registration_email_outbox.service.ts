@@ -243,7 +243,10 @@ export const enqueueClientRegistrationApprovalEmail = async (input: {
 };
 
 const claimOutboxBatch = async (): Promise<RegistrationOutboxRow[]> => {
-  const lockTimeoutSeconds = Math.max(1, Math.floor(env.registrationEmailOutboxLockTimeoutMs / 1000));
+  const lockTimeoutSeconds = Math.max(
+    1,
+    Math.floor(env.registrationEmailOutboxLockTimeoutMs / 1000),
+  );
 
   const rows = await prismaClient.$queryRaw<
     Array<{ id: string; kind: string; payload_json: Prisma.JsonValue; attempts: number }>

@@ -28,7 +28,11 @@ export const requireAuth = (request: Request, response: Response, next: NextFunc
   next();
 };
 
-export const requireClientAuth = (request: Request, response: Response, next: NextFunction): void => {
+export const requireClientAuth = (
+  request: Request,
+  response: Response,
+  next: NextFunction,
+): void => {
   const authorization = request.headers.authorization;
 
   if (!authorization?.startsWith("Bearer ")) {

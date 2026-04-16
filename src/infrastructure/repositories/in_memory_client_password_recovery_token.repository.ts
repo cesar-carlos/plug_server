@@ -3,9 +3,7 @@ import type {
   IClientPasswordRecoveryTokenRepository,
 } from "../../domain/repositories/client_password_recovery_token.repository.interface";
 
-export class InMemoryClientPasswordRecoveryTokenRepository
-  implements IClientPasswordRecoveryTokenRepository
-{
+export class InMemoryClientPasswordRecoveryTokenRepository implements IClientPasswordRecoveryTokenRepository {
   private readonly store = new Map<string, ClientPasswordRecoveryToken>();
   private readonly tokenIdByClientId = new Map<string, string>();
 

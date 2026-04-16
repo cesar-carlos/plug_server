@@ -21,7 +21,9 @@ const createAdminAccessToken = async (baseUrl: string): Promise<string> => {
   const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const email = `agents-http-admin-${unique}@test.com`;
   const password = "AgentsHttpAdmin1";
-  const registerRes = await request(baseUrl).post("/api/v1/auth/register").send({ email, password });
+  const registerRes = await request(baseUrl)
+    .post("/api/v1/auth/register")
+    .send({ email, password });
   expect(registerRes.status).toBe(201);
   await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
   const userId = registerRes.body.user.id as string;
@@ -1486,16 +1488,19 @@ describe("Agents HTTP bridge", () => {
         return;
       }
 
-      setTimeout(() => {
-        agentSocket?.emit(
-          "rpc:response",
-          encodePayloadFrame({
-            jsonrpc: "2.0",
-            id: requestId,
-            result: { ok: true },
-          }),
-        );
-      }, Math.max(env.socketRestAgentQueueWaitMs + 150, 350));
+      setTimeout(
+        () => {
+          agentSocket?.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: { ok: true },
+            }),
+          );
+        },
+        Math.max(env.socketRestAgentQueueWaitMs + 150, 350),
+      );
     };
     agentSocket.on("rpc:request", onRpcRequest);
 

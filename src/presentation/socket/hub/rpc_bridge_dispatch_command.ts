@@ -133,7 +133,9 @@ export const createDispatchRpcCommandToAgent = (
     const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(input.agentId);
     const compressionPreference = input.payloadFrameCompression;
     if (!effectivePolicy.allowsNoneCompression && !effectivePolicy.allowsGzip) {
-      throw serviceUnavailable("Agent transport capabilities are incompatible with hub compression");
+      throw serviceUnavailable(
+        "Agent transport capabilities are incompatible with hub compression",
+      );
     }
     if (compressionPreference === "always" && !effectivePolicy.allowsGzip) {
       throw badRequest("Agent capabilities do not allow gzip compression for PayloadFrame");

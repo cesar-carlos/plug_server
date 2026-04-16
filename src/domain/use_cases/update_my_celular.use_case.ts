@@ -21,8 +21,7 @@ export class UpdateMyCelularUseCase {
       return err(forbidden("Account is blocked"));
     }
 
-    const nextCelular: string | undefined =
-      input.celular === null ? undefined : input.celular;
+    const nextCelular: string | undefined = input.celular === null ? undefined : input.celular;
 
     const current = user.celular;
     if (current === nextCelular) {

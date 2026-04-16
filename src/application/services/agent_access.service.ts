@@ -39,7 +39,10 @@ export class AgentAccessService {
    * 2. The agent status is "active".
    * 3. The principal has explicit access to the agent.
    */
-  async assertPrincipalAccess(principal: AgentAccessPrincipal, agentId: string): Promise<Result<Agent>> {
+  async assertPrincipalAccess(
+    principal: AgentAccessPrincipal,
+    agentId: string,
+  ): Promise<Result<Agent>> {
     const agent = await this.agentRepository.findById(agentId);
     if (!agent) {
       return err(agentNotFound(agentId));
@@ -108,7 +111,10 @@ export class AgentAccessService {
     return ok(agent);
   }
 
-  private async ensureCatalogAgentExistsForIdentity(agentId: string, userId: string): Promise<void> {
+  private async ensureCatalogAgentExistsForIdentity(
+    agentId: string,
+    userId: string,
+  ): Promise<void> {
     const existing = await this.agentRepository.findById(agentId);
     if (existing) {
       return;

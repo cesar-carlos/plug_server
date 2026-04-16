@@ -6,9 +6,7 @@ import type {
 } from "../../domain/repositories/client_agent_access_approval_token.repository.interface";
 import { prismaClient } from "../database/prisma/client";
 
-export class PrismaClientAgentAccessApprovalTokenRepository
-  implements IClientAgentAccessApprovalTokenRepository
-{
+export class PrismaClientAgentAccessApprovalTokenRepository implements IClientAgentAccessApprovalTokenRepository {
   async save(token: ClientAgentAccessApprovalToken): Promise<void> {
     await prismaClient.clientAgentAccessApprovalToken.upsert({
       where: { requestId: token.requestId },

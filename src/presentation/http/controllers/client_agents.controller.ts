@@ -46,14 +46,18 @@ export const listMyClientAgents = async (
   try {
     const authClient = getAuthClient(response);
     const query = getValidated<ClientListAgentsQuery>(response, "query");
-    const pageResult = await container.clientAgentAccessService.listApprovedAgentsPage(authClient.sub, {
-      ...(query.status !== undefined ? { status: query.status } : {}),
-      ...(query.search !== undefined ? { search: query.search } : {}),
-      ...(query.page !== undefined ? { page: query.page } : {}),
-      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-    }, {
-      refreshOnline: query.refresh === true,
-    });
+    const pageResult = await container.clientAgentAccessService.listApprovedAgentsPage(
+      authClient.sub,
+      {
+        ...(query.status !== undefined ? { status: query.status } : {}),
+        ...(query.search !== undefined ? { search: query.search } : {}),
+        ...(query.page !== undefined ? { page: query.page } : {}),
+        ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+      },
+      {
+        refreshOnline: query.refresh === true,
+      },
+    );
     const agents = pageResult.items.map((agent) =>
       toClientAgentDto(agent, container.isAgentConnectedToHub(agent.agentId)),
     );
@@ -80,7 +84,10 @@ export const getMyClientAgent = async (
   try {
     const authClient = getAuthClient(response);
     const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
-    const result = await container.clientAgentAccessService.findApprovedAgent(authClient.sub, agentId);
+    const result = await container.clientAgentAccessService.findApprovedAgent(
+      authClient.sub,
+      agentId,
+    );
     if (!result.ok) {
       next(result.error);
       return;
@@ -104,7 +111,10 @@ export const requestMyClientAgents = async (
   try {
     const authClient = getAuthClient(response);
     const body = getValidated<ClientAgentIdsBody>(response, "body");
-    const result = await container.clientAgentAccessService.requestAccess(authClient.sub, body.agentIds);
+    const result = await container.clientAgentAccessService.requestAccess(
+      authClient.sub,
+      body.agentIds,
+    );
     if (!result.ok) {
       next(result.error);
       return;
@@ -127,6 +137,27 @@ export const removeMyClientAgents = async (
       authClient.sub,
       body.agentIds,
     );
+    if (!result.ok) {
+      next(result.error);
+      return;
+    }
+    response.status(200).json({ message: "Client agent accesses removed successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const removeMyClientAgentByParam = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authClient = getAuthClient(response);
+    const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
+    const result = await container.clientAgentAccessService.removeApprovedAccess(authClient.sub, [
+      agentId,
+    ]);
     if (!result.ok) {
       next(result.error);
       return;
@@ -258,23 +289,21 @@ const maybeSetHubInstanceIdHeader = (response: Response): void => {
   }
 };
 
-const toClientAgentAccessRequestDto = (
-  request: {
-    id: string;
-    clientId: string;
-    agentId: string;
-    agentName?: string;
-    status: "pending" | "approved" | "rejected" | "expired";
-    requestedAt: Date;
-    decidedAt?: Date;
-    decisionReason?: string;
-  },
-): {
+const toClientAgentAccessRequestDto = (request: {
+  id: string;
+  clientId: string;
+  agentId: string;
+  agentName?: string;
+  status: "pending" | "approved" | "rejected" | "expired" | "revoked";
+  requestedAt: Date;
+  decidedAt?: Date;
+  decisionReason?: string;
+}): {
   id: string;
   clientId: string;
   agentId: string;
   agentName: string | null;
-  status: "pending" | "approved" | "rejected" | "expired";
+  status: "pending" | "approved" | "rejected" | "expired" | "revoked";
   requestedAt: string;
   decidedAt: string | null;
   decisionReason: string | null;

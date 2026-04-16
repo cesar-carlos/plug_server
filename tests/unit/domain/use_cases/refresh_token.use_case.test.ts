@@ -7,6 +7,7 @@ import { RefreshTokenUseCase } from "../../../../src/domain/use_cases/refresh_to
 
 const makeUserRepo = (): IUserRepository => ({
   findById: vi.fn(),
+  findByIds: vi.fn(),
   findByEmail: vi.fn(),
   findByCelular: vi.fn(),
   save: vi.fn(),

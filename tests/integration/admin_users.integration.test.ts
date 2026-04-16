@@ -20,10 +20,14 @@ describe("Admin user status API", () => {
     adminToken = admin.accessToken;
 
     const email = `blocked-user-${Date.now()}@test.com`;
-    const reg = await request(app).post("/api/v1/auth/register").send({ email, password: "User1234" });
+    const reg = await request(app)
+      .post("/api/v1/auth/register")
+      .send({ email, password: "User1234" });
     await approveRegistrationByToken(app, reg.body.approvalToken as string);
     userId = reg.body.user.id as string;
-    const login = await request(app).post("/api/v1/auth/login").send({ email, password: "User1234" });
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email, password: "User1234" });
     userToken = login.body.accessToken as string;
   });
 

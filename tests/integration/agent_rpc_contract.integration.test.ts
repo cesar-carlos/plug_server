@@ -91,6 +91,7 @@ describe("RPC contract alignment", () => {
   it("should keep validator and swagger methods aligned with plug_agente OpenRPC", async () => {
     const openRpcPath = resolveOpenRpcPath();
     if (!openRpcPath) {
+      // eslint-disable-next-line no-console -- intentional diagnostic when OpenRPC fixture is absent
       console.warn(
         [
           "[agent_rpc_contract.integration] Skipped:",

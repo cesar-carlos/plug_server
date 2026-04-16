@@ -7,6 +7,7 @@ import { generateOpaqueRegistrationToken } from "../../../../src/shared/utils/re
 
 const makeUserRepo = (): IUserRepository => ({
   findById: vi.fn(),
+  findByIds: vi.fn(),
   findByEmail: vi.fn(),
   findByCelular: vi.fn(),
   save: vi.fn(),

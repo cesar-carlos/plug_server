@@ -14,6 +14,18 @@ export class PrismaAgentIdentityRepository implements IAgentIdentityRepository {
     return identity?.userId ?? null;
   }
 
+  async findOwnerUserIdsByAgentIds(agentIds: readonly string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(agentIds)];
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const rows = await prismaClient.agentIdentity.findMany({
+      where: { agentId: { in: unique } },
+      select: { agentId: true, userId: true },
+    });
+    return new Map(rows.map((r) => [r.agentId, r.userId] as const));
+  }
+
   async bindIfUnbound(agentId: string, userId: string): Promise<BindAgentIdentityStatus> {
     const createResult = await prismaClient.agentIdentity.createMany({
       data: [{ agentId, userId }],

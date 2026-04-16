@@ -23,9 +23,7 @@ class FakePasswordHasher {
   }
 }
 
-class TestClientRegistrationApprovalTokenRepository
-  implements IClientRegistrationApprovalTokenRepository
-{
+class TestClientRegistrationApprovalTokenRepository implements IClientRegistrationApprovalTokenRepository {
   private readonly store = new Map<string, ClientRegistrationApprovalToken>();
   private readonly tokenIdByClientId = new Map<string, string>();
 

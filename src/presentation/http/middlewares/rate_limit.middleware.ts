@@ -5,6 +5,7 @@ import {
   incrementRestHttpAdminUserStatusRateLimitRejected,
   incrementRestHttpAgentsCommandsIpRateLimitRejected,
   incrementRestHttpAgentsCommandsUserRateLimitRejected,
+  incrementRestHttpClientMeAgentsPostRateLimitRejected,
   incrementRestHttpGlobalRateLimitRejected,
 } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { env } from "../../../shared/config/env";
@@ -77,6 +78,13 @@ export const adminUserStatusRateLimitKey = (res: Response): string => {
   const authUser = res.locals.authUser as JwtAccessPayload | undefined;
   const sub = authUser?.sub?.trim();
   return sub ? `admin_user_status:${sub}` : "admin_user_status:anonymous";
+};
+
+/** Rate-limit store key for `POST /client/me/agents` keyed by client JWT `sub` (after `requireClientAuthAndActiveAccount`). */
+export const clientMeAgentsPostRateLimitKey = (res: Response): string => {
+  const authClient = res.locals.authClient as JwtAccessPayload | undefined;
+  const sub = authClient?.sub?.trim();
+  return sub ? `client_me_agents_post:${sub}` : "client_me_agents_post:anonymous";
 };
 
 /** Rate-limit store key for `PATCH /agents/:agentId/profile` keyed by authenticated user and bound agent claim. */
@@ -172,6 +180,28 @@ export const adminUserStatusRateLimit = rateLimit({
   },
 });
 
+const clientMeAgentsPostTooManyMessage = {
+  message: "Too many client agent access requests, please try again later.",
+  code: "TOO_MANY_REQUESTS",
+};
+
+/**
+ * Per authenticated client (`JWT sub`) on `POST /client/me/agents`.
+ * Runs after client auth + active-account middleware so `response.locals.authClient` is set.
+ */
+export const clientMeAgentsPostRateLimit = rateLimit({
+  windowMs: env.restClientMeAgentsPostRateLimitWindowMs,
+  limit: env.restClientMeAgentsPostRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: clientMeAgentsPostTooManyMessage,
+  keyGenerator: (_req: Request, res: Response) => clientMeAgentsPostRateLimitKey(res),
+  handler: async (request, response, _next, optionsUsed) => {
+    incrementRestHttpClientMeAgentsPostRateLimitRejected();
+    await sendRateLimitResponse(request, response, optionsUsed);
+  },
+});
+
 export const clientThumbnailRateLimit = rateLimit({
   windowMs: env.restClientThumbnailRateLimitWindowMs,
   limit: env.restClientThumbnailRateLimitMax,
@@ -193,4 +223,3 @@ export const clientPasswordRecoveryRequestRateLimit = rateLimit({
     code: "TOO_MANY_REQUESTS",
   },
 });
-

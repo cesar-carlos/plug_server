@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { Agent, Client, User } from "@prisma/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { ClientAgentAccessRequest } from "../../../../src/domain/entities/client_agent_access_request.entity";
@@ -19,7 +20,7 @@ describe("Prisma identity and access request repositories", () => {
 
   const uniqueSuffix = (): string => `${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-  const createUser = async () => {
+  const createUser = async (): Promise<User> => {
     const suffix = uniqueSuffix();
     const user = await prismaClient.user.create({
       data: {
@@ -33,7 +34,7 @@ describe("Prisma identity and access request repositories", () => {
     return user;
   };
 
-  const createClient = async (userId: string) => {
+  const createClient = async (userId: string): Promise<Client> => {
     const suffix = uniqueSuffix();
     const client = await prismaClient.client.create({
       data: {
@@ -49,7 +50,7 @@ describe("Prisma identity and access request repositories", () => {
     return client;
   };
 
-  const createAgent = async (name = "Repo Agent") => {
+  const createAgent = async (name = "Repo Agent"): Promise<Agent> => {
     const agentId = randomUUID();
     const agent = await prismaClient.agent.create({
       data: {
@@ -121,24 +122,28 @@ describe("Prisma identity and access request repositories", () => {
     const earlierAgent = await createAgent("Earlier Agent");
     const laterAgent = await createAgent("Later Agent");
 
-    await expect(agentIdentityRepository.bindIfUnbound(earlierAgent.agentId, owner.id)).resolves.toBe(
-      "bound",
-    );
-    await expect(agentIdentityRepository.bindIfUnbound(earlierAgent.agentId, owner.id)).resolves.toBe(
-      "already_bound_to_user",
-    );
-    await expect(agentIdentityRepository.bindIfUnbound(earlierAgent.agentId, otherUser.id)).resolves.toBe(
-      "bound_to_other_user",
-    );
+    await expect(
+      agentIdentityRepository.bindIfUnbound(earlierAgent.agentId, owner.id),
+    ).resolves.toBe("bound");
+    await expect(
+      agentIdentityRepository.bindIfUnbound(earlierAgent.agentId, owner.id),
+    ).resolves.toBe("already_bound_to_user");
+    await expect(
+      agentIdentityRepository.bindIfUnbound(earlierAgent.agentId, otherUser.id),
+    ).resolves.toBe("bound_to_other_user");
     await expect(agentIdentityRepository.bindIfUnbound(laterAgent.agentId, owner.id)).resolves.toBe(
       "bound",
     );
 
-    await expect(agentIdentityRepository.findOwnerUserId(earlierAgent.agentId)).resolves.toBe(owner.id);
-    await expect(agentIdentityRepository.hasAccess(owner.id, earlierAgent.agentId)).resolves.toBe(true);
-    await expect(agentIdentityRepository.hasAccess(otherUser.id, earlierAgent.agentId)).resolves.toBe(
-      false,
+    await expect(agentIdentityRepository.findOwnerUserId(earlierAgent.agentId)).resolves.toBe(
+      owner.id,
     );
+    await expect(agentIdentityRepository.hasAccess(owner.id, earlierAgent.agentId)).resolves.toBe(
+      true,
+    );
+    await expect(
+      agentIdentityRepository.hasAccess(otherUser.id, earlierAgent.agentId),
+    ).resolves.toBe(false);
     await expect(agentIdentityRepository.listAgentIdsByUserId(owner.id)).resolves.toEqual([
       earlierAgent.agentId,
       laterAgent.agentId,
@@ -182,14 +187,18 @@ describe("Prisma identity and access request repositories", () => {
       }),
     );
 
-    await expect(accessRequestRepository.findByClientAndAgent(client.id, agent.agentId)).resolves.toMatchObject({
+    await expect(
+      accessRequestRepository.findByClientAndAgent(client.id, agent.agentId),
+    ).resolves.toMatchObject({
       id: requestId,
       status: "pending",
       decidedAt: undefined,
       decisionReason: undefined,
     });
 
-    const stored = await prismaClient.clientAgentAccessRequest.findUnique({ where: { id: requestId } });
+    const stored = await prismaClient.clientAgentAccessRequest.findUnique({
+      where: { id: requestId },
+    });
     expect(stored?.decidedAt).toBeNull();
     expect(stored?.decisionReason).toBeNull();
   });

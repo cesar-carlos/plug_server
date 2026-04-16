@@ -1,7 +1,9 @@
 import { ClientAgentAccessRequest } from "../../domain/entities/client_agent_access_request.entity";
 import type { Agent } from "../../domain/entities/agent.entity";
 import type { Client } from "../../domain/entities/client.entity";
+import type { User } from "../../domain/entities/user.entity";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
+import type { IPendingClientAgentAccessWriter } from "../../domain/ports/pending_client_agent_access_writer.port";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type {
   AgentListFilter,
@@ -27,21 +29,26 @@ import { type Result, err, ok } from "../../shared/errors/result";
 import { isExpired, parseExpiryToDate } from "../../shared/utils/date";
 import { generateOpaqueClientAccessToken } from "../../shared/utils/client_access_token";
 import { logger } from "../../shared/utils/logger";
-import { clientAgentAccessExpiredDecisionReason } from "./client_agent_access_decision_reasons";
+import {
+  clientAgentAccessExpiredDecisionReason,
+  clientAgentAccessRevokedByClientDecisionReason,
+  clientAgentAccessRevokedByOwnerDecisionReason,
+} from "./client_agent_access_decision_reasons";
+import { recordClientAgentAccessRequestPost } from "../../shared/metrics/client_agent_access_request.metrics";
 
 export interface ClientAgentAccessRequestRecord {
   readonly id: string;
   readonly clientId: string;
   readonly agentId: string;
   readonly agentName?: string;
-  readonly status: "pending" | "approved" | "rejected" | "expired";
+  readonly status: "pending" | "approved" | "rejected" | "expired" | "revoked";
   readonly requestedAt: Date;
   readonly decidedAt?: Date;
   readonly decisionReason?: string;
 }
 
 export interface ClientAgentAccessRequestListFilter {
-  readonly status?: "pending" | "approved" | "rejected" | "expired";
+  readonly status?: "pending" | "approved" | "rejected" | "expired" | "revoked";
   readonly search?: string;
   readonly page?: number;
   readonly pageSize?: number;
@@ -76,8 +83,15 @@ export interface OwnerManagedAgentClientPage {
 }
 
 export interface ClientAgentAccessRequestResult {
+  /** Agent IDs for which a `pending` request was persisted and the owner was emailed in this call. */
   readonly requested: string[];
   readonly alreadyApproved: string[];
+  /** Subset of `requested` where a prior `ClientAgentAccessRequest` row existed (reopen). */
+  readonly reopened: string[];
+  /** Subset of `requested` where no prior row existed for this client+agent pair. */
+  readonly newRequests: string[];
+  /** Client+agent pairs skipped: still `pending` and last `requestedAt` is within the debounce window. */
+  readonly debounced: string[];
 }
 
 export interface ClientAgentLiveProfileDeps {
@@ -95,6 +109,7 @@ export class ClientAgentAccessService {
     private readonly clientAgentAccessRequestRepository: IClientAgentAccessRequestRepository,
     private readonly approvalTokenRepository: IClientAgentAccessApprovalTokenRepository,
     private readonly emailSender: IEmailSender,
+    private readonly pendingAccessWriter: IPendingClientAgentAccessWriter,
     private readonly liveProfileDeps?: ClientAgentLiveProfileDeps,
   ) {}
 
@@ -133,7 +148,9 @@ export class ClientAgentAccessService {
     return {
       ...pageResult,
       items: await Promise.all(
-        pageResult.items.map((agent) => this.resolvePreferredAgentSnapshot(clientId, agent.agentId, agent)),
+        pageResult.items.map((agent) =>
+          this.resolvePreferredAgentSnapshot(clientId, agent.agentId, agent),
+        ),
       ),
     };
   }
@@ -201,44 +218,97 @@ export class ClientAgentAccessService {
     };
   }
 
-  async requestAccess(clientId: string, agentIds: string[]): Promise<Result<ClientAgentAccessRequestResult>> {
+  async requestAccess(
+    clientId: string,
+    agentIds: string[],
+  ): Promise<Result<ClientAgentAccessRequestResult>> {
     const client = await this.clientRepository.findById(clientId);
     if (!client) {
       return err(notFound("Client"));
     }
 
     const uniqueAgentIds = [...new Set(agentIds)];
-    const requested: string[] = [];
-    const alreadyApproved: string[] = [];
+    const agents = await this.agentRepository.findByIds(uniqueAgentIds);
+    const agentById = new Map(agents.map((a) => [a.agentId, a] as const));
+    if (agents.length !== uniqueAgentIds.length) {
+      const missingAgentId = uniqueAgentIds.find((id) => !agentById.has(id));
+      return err(notFound(`Agent ${missingAgentId ?? ""}`.trim()));
+    }
 
-    for (const agentId of uniqueAgentIds) {
-      const agent = await this.agentRepository.findById(agentId);
-      if (!agent) {
-        return err(notFound(`Agent ${agentId}`));
-      }
+    const alreadyApproved = await this.clientAgentAccessRepository.listAccessAgentIdsForClientIn(
+      clientId,
+      uniqueAgentIds,
+    );
+    const workAgentIds = uniqueAgentIds.filter((id) => !alreadyApproved.includes(id));
 
-      const accessAlreadyGranted = await this.clientAgentAccessRepository.hasAccess(clientId, agentId);
-      if (accessAlreadyGranted) {
-        alreadyApproved.push(agentId);
-        continue;
-      }
+    if (workAgentIds.length === 0) {
+      recordClientAgentAccessRequestPost({
+        requestedCount: 0,
+        newCount: 0,
+        reopenedCount: 0,
+        debouncedCount: 0,
+        alreadyApprovedCount: alreadyApproved.length,
+      });
+      return ok({
+        requested: [],
+        alreadyApproved,
+        newRequests: [],
+        reopened: [],
+        debounced: [],
+      });
+    }
 
-      const ownerUserId = await this.agentIdentityRepository.findOwnerUserId(agentId);
-      if (!ownerUserId) {
-        return err(conflict(`Agent ${agentId} has no responsible user`));
-      }
-      const owner = await this.userRepository.findById(ownerUserId);
+    const ownersByAgent =
+      await this.agentIdentityRepository.findOwnerUserIdsByAgentIds(workAgentIds);
+    const missingOwnerAgentId = workAgentIds.find((id) => !ownersByAgent.has(id));
+    if (missingOwnerAgentId !== undefined) {
+      return err(conflict(`Agent ${missingOwnerAgentId} has no responsible user`));
+    }
+
+    const uniqueOwnerIds = [...new Set(workAgentIds.map((id) => ownersByAgent.get(id)!))];
+    const owners = await this.userRepository.findByIds(uniqueOwnerIds);
+    const ownerById = new Map(owners.map((u) => [u.id, u] as const));
+    if (owners.length !== uniqueOwnerIds.length) {
+      return err(notFound("Owner user"));
+    }
+
+    const requestsByAgent = await this.clientAgentAccessRequestRepository.findByClientAndAgents(
+      clientId,
+      workAgentIds,
+    );
+
+    const debounced: string[] = [];
+    const newRequestIds: string[] = [];
+    const reopenedIds: string[] = [];
+    const debounceMs = env.clientAgentAccessRequestEmailDebounceMs;
+
+    type PendingRow = {
+      readonly request: ClientAgentAccessRequest;
+      readonly token: ClientAgentAccessApprovalToken;
+      readonly owner: User;
+      readonly agentId: string;
+    };
+    const pendingRows: PendingRow[] = [];
+
+    for (const agentId of workAgentIds) {
+      const ownerUserId = ownersByAgent.get(agentId)!;
+      const owner = ownerById.get(ownerUserId);
       if (!owner) {
         return err(notFound("Owner user"));
       }
 
-      const existing = await this.clientAgentAccessRequestRepository.findByClientAndAgent(clientId, agentId);
-      let request: ClientAgentAccessRequest;
-      if (existing) {
-        if (existing.status === "approved") {
-          alreadyApproved.push(agentId);
+      const existing = requestsByAgent.get(agentId);
+      if (existing?.status === "pending" && debounceMs > 0) {
+        const elapsed = Date.now() - existing.requestedAt.getTime();
+        if (elapsed >= 0 && elapsed < debounceMs) {
+          debounced.push(agentId);
           continue;
         }
+      }
+
+      let request: ClientAgentAccessRequest;
+      if (existing) {
+        reopenedIds.push(agentId);
         const { decidedAt: _decidedAt, decisionReason: _decisionReason, ...baseRequest } = existing;
         request = new ClientAgentAccessRequest({
           ...baseRequest,
@@ -247,33 +317,99 @@ export class ClientAgentAccessService {
           updatedAt: new Date(),
         });
       } else {
+        newRequestIds.push(agentId);
         request = ClientAgentAccessRequest.create({
           clientId,
           agentId,
         });
       }
-      await this.clientAgentAccessRequestRepository.save(request);
 
-      const approvalToken = this.newApprovalToken(request.id);
-      await this.approvalTokenRepository.save(approvalToken);
+      const token = this.newApprovalToken(request.id);
+      pendingRows.push({ request, token, owner, agentId });
+    }
+
+    if (pendingRows.length === 0) {
+      recordClientAgentAccessRequestPost({
+        requestedCount: 0,
+        newCount: 0,
+        reopenedCount: 0,
+        debouncedCount: debounced.length,
+        alreadyApprovedCount: alreadyApproved.length,
+      });
+      logger.info("client_agent_access_request_post", {
+        clientId,
+        requestedCount: 0,
+        debouncedCount: debounced.length,
+        alreadyApprovedCount: alreadyApproved.length,
+      });
+      return ok({
+        requested: [],
+        alreadyApproved,
+        newRequests: [],
+        reopened: [],
+        debounced,
+      });
+    }
+
+    await this.pendingAccessWriter.writePendingRequests(
+      pendingRows.map((row) => ({ request: row.request, token: row.token })),
+    );
+
+    for (const row of pendingRows) {
       await this.emailSender.sendClientAccessRequestToOwner({
-        ownerEmail: owner.email,
+        ownerEmail: row.owner.email,
         clientEmail: client.email,
         clientName: client.name,
         clientLastName: client.lastName,
-        agentId,
-        approvalToken: approvalToken.id,
+        agentId: row.agentId,
+        approvalToken: row.token.id,
       });
-
-      requested.push(agentId);
     }
 
-    return ok({ requested, alreadyApproved });
+    const requested = pendingRows.map((row) => row.agentId);
+    const newRequests = newRequestIds.filter((id) => requested.includes(id));
+    const reopened = reopenedIds.filter((id) => requested.includes(id));
+
+    recordClientAgentAccessRequestPost({
+      requestedCount: requested.length,
+      newCount: newRequests.length,
+      reopenedCount: reopened.length,
+      debouncedCount: debounced.length,
+      alreadyApprovedCount: alreadyApproved.length,
+    });
+
+    logger.info("client_agent_access_request_post", {
+      clientId,
+      requestedCount: requested.length,
+      newRequests: newRequests.length,
+      reopenedCount: reopened.length,
+      debouncedCount: debounced.length,
+      alreadyApprovedCount: alreadyApproved.length,
+    });
+
+    return ok({
+      requested,
+      alreadyApproved,
+      newRequests,
+      reopened,
+      debounced,
+    });
   }
 
   async removeApprovedAccess(clientId: string, agentIds: string[]): Promise<Result<void>> {
     const uniqueAgentIds = [...new Set(agentIds)];
     await this.clientAgentAccessRepository.removeAgentIds(clientId, uniqueAgentIds);
+    for (const agentId of uniqueAgentIds) {
+      const request = await this.clientAgentAccessRequestRepository.findByClientAndAgent(
+        clientId,
+        agentId,
+      );
+      if (request?.status === "approved") {
+        await this.clientAgentAccessRequestRepository.setStatus(request.id, "revoked", {
+          reason: clientAgentAccessRevokedByClientDecisionReason,
+        });
+      }
+    }
     return ok(undefined);
   }
 
@@ -314,7 +450,10 @@ export class ClientAgentAccessService {
     return ok({ clientEmail: client.email, agentId: request.agentId });
   }
 
-  async rejectByToken(tokenId: string, reason?: string): Promise<Result<{ clientEmail: string; agentId: string }>> {
+  async rejectByToken(
+    tokenId: string,
+    reason?: string,
+  ): Promise<Result<{ clientEmail: string; agentId: string }>> {
     const token = await this.approvalTokenRepository.findById(tokenId);
     if (!token) {
       return err(notFound("Rejection link is invalid or has expired"));
@@ -398,7 +537,9 @@ export class ClientAgentAccessService {
         ? { clientEmail: clientsById.get(request.clientId)!.email }
         : {}),
       ...(clientsById.get(request.clientId) !== undefined
-        ? { clientName: `${clientsById.get(request.clientId)!.name} ${clientsById.get(request.clientId)!.lastName}` }
+        ? {
+            clientName: `${clientsById.get(request.clientId)!.name} ${clientsById.get(request.clientId)!.lastName}`,
+          }
         : {}),
     }));
 
@@ -564,7 +705,11 @@ export class ClientAgentAccessService {
     });
   }
 
-  async revokeAccessByOwner(ownerUserId: string, agentId: string, clientId: string): Promise<Result<void>> {
+  async revokeAccessByOwner(
+    ownerUserId: string,
+    agentId: string,
+    clientId: string,
+  ): Promise<Result<void>> {
     const ownerResult = await this.assertAgentOwnership(ownerUserId, agentId);
     if (!ownerResult.ok) {
       return ownerResult;
@@ -574,6 +719,15 @@ export class ClientAgentAccessService {
       return err(notFound("Client"));
     }
     await this.clientAgentAccessRepository.removeAccess(clientId, agentId);
+    const request = await this.clientAgentAccessRequestRepository.findByClientAndAgent(
+      clientId,
+      agentId,
+    );
+    if (request?.status === "approved") {
+      await this.clientAgentAccessRequestRepository.setStatus(request.id, "revoked", {
+        reason: clientAgentAccessRevokedByOwnerDecisionReason,
+      });
+    }
     return ok(undefined);
   }
 
@@ -618,7 +772,9 @@ export class ClientAgentAccessService {
 
   private async loadClientsById(clientIds: readonly string[]): Promise<Map<string, Client>> {
     const uniqueClientIds = [...new Set(clientIds)];
-    const clients = await Promise.all(uniqueClientIds.map((clientId) => this.clientRepository.findById(clientId)));
+    const clients = await Promise.all(
+      uniqueClientIds.map((clientId) => this.clientRepository.findById(clientId)),
+    );
     const map = new Map<string, Client>();
     for (const client of clients) {
       if (client) {
@@ -643,12 +799,8 @@ export class ClientAgentAccessService {
     ownerUserId: string,
     requests: readonly ClientAgentAccessRequest[],
   ): Promise<ClientAgentAccessRequest[]> {
-    const ownerChecks = await Promise.all(
-      requests.map(async (request) => {
-        const owner = await this.agentIdentityRepository.findOwnerUserId(request.agentId);
-        return owner === ownerUserId;
-      }),
-    );
-    return requests.filter((_, index) => ownerChecks[index] === true);
+    const agentIds = [...new Set(requests.map((r) => r.agentId))];
+    const ownersByAgent = await this.agentIdentityRepository.findOwnerUserIdsByAgentIds(agentIds);
+    return requests.filter((request) => ownersByAgent.get(request.agentId) === ownerUserId);
   }
 }

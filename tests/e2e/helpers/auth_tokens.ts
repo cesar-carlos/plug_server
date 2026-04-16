@@ -77,7 +77,9 @@ export const registerHubClient = async (
     lastName: "Client",
   });
   if (registerRes.status !== 201) {
-    throw new Error(`client register failed: ${registerRes.status} ${JSON.stringify(registerRes.body)}`);
+    throw new Error(
+      `client register failed: ${registerRes.status} ${JSON.stringify(registerRes.body)}`,
+    );
   }
   const approvalToken = registerRes.body.approvalToken as string | undefined;
   if (!approvalToken) {
@@ -88,7 +90,9 @@ export const registerHubClient = async (
 
   await approveClientRegistrationByToken(baseUrl, approvalToken);
 
-  const loginRes = await request(baseUrl).post("/api/v1/client-auth/login").send({ email, password });
+  const loginRes = await request(baseUrl)
+    .post("/api/v1/client-auth/login")
+    .send({ email, password });
   if (loginRes.status !== 200) {
     throw new Error(`client login failed: ${loginRes.status} ${JSON.stringify(loginRes.body)}`);
   }

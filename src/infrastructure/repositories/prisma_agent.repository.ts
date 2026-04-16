@@ -147,7 +147,9 @@ export class PrismaAgentRepository implements IAgentRepository {
     });
   }
 
-  async commitAgentProfileChange(input: AgentProfileCommitInput): Promise<AgentProfileCommitResult> {
+  async commitAgentProfileChange(
+    input: AgentProfileCommitInput,
+  ): Promise<AgentProfileCommitResult> {
     return prismaClient.$transaction(async (tx) => {
       const agentId = input.nextAgent.agentId;
 
@@ -177,7 +179,11 @@ export class PrismaAgentRepository implements IAgentRepository {
 
       if (input.mode === "create") {
         if (
-          await PrismaAgentRepository.anotherAgentOwnsDocument(tx, agentId, input.nextAgent.document)
+          await PrismaAgentRepository.anotherAgentOwnsDocument(
+            tx,
+            agentId,
+            input.nextAgent.document,
+          )
         ) {
           return {
             status: "conflict",

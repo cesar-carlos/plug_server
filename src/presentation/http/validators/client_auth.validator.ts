@@ -89,13 +89,17 @@ export const clientPasswordRecoveryRequestBodySchema = z.object({
   email: emailSchema,
 });
 
-export type ClientPasswordRecoveryRequestBody = z.infer<typeof clientPasswordRecoveryRequestBodySchema>;
+export type ClientPasswordRecoveryRequestBody = z.infer<
+  typeof clientPasswordRecoveryRequestBodySchema
+>;
 
 export const clientPasswordRecoveryTokenQuerySchema = z.object({
   token: registrationOpaqueTokenSchema,
 });
 
-export type ClientPasswordRecoveryTokenQuery = z.infer<typeof clientPasswordRecoveryTokenQuerySchema>;
+export type ClientPasswordRecoveryTokenQuery = z.infer<
+  typeof clientPasswordRecoveryTokenQuerySchema
+>;
 
 export const clientPasswordRecoveryResetBodySchema = z.object({
   token: registrationOpaqueTokenSchema,

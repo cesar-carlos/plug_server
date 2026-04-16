@@ -194,7 +194,8 @@ const swaggerSpec = swaggerJSDoc({
             },
             thumbnailUrl: {
               type: "null",
-              description: "Remove current thumbnail. Use `/client-auth/thumbnail` to upload a new one.",
+              description:
+                "Remove current thumbnail. Use `/client-auth/thumbnail` to upload a new one.",
             },
           },
           additionalProperties: false,

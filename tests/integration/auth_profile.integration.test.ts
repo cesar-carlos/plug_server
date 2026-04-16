@@ -17,7 +17,9 @@ describe("PATCH /api/v1/auth/me (celular)", () => {
     });
     expect(reg.status).toBe(201);
     await approveRegistrationByToken(app, reg.body.approvalToken as string);
-    const login = await request(app).post("/api/v1/auth/login").send({ email, password: "User1234" });
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email, password: "User1234" });
     expect(login.status).toBe(200);
     token = login.body.accessToken as string;
   });

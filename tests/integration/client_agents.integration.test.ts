@@ -31,7 +31,10 @@ const registerOwnerAndClient = async (): Promise<{
 describe("Client agent access API", () => {
   it("POST /api/v1/client/me/agents requests access by agentId", async () => {
     const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const agent = await seedAgent({ name: "Approval Target", cnpjCpf: `client-request-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Approval Target",
+      cnpjCpf: `client-request-${Date.now()}`,
+    });
     await seedAgentBinding(ownerUserId, agent.agentId);
 
     const response = await request(app)
@@ -42,11 +45,17 @@ describe("Client agent access API", () => {
     expect(response.status).toBe(200);
     expect(response.body.requested).toEqual([agent.agentId]);
     expect(response.body.alreadyApproved).toEqual([]);
+    expect(response.body.newRequests).toEqual([agent.agentId]);
+    expect(response.body.reopened).toEqual([]);
+    expect(response.body.debounced).toEqual([]);
   });
 
   it("POST /api/v1/client/me/agents reports alreadyApproved when access already exists", async () => {
     const { clientId, ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const agent = await seedAgent({ name: "Already Approved Agent", cnpjCpf: `client-already-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Already Approved Agent",
+      cnpjCpf: `client-already-${Date.now()}`,
+    });
     await seedAgentBinding(ownerUserId, agent.agentId);
     await repositories.clientAgentAccess.addAccess(clientId, agent.agentId);
 
@@ -58,6 +67,9 @@ describe("Client agent access API", () => {
     expect(response.status).toBe(200);
     expect(response.body.requested).toEqual([]);
     expect(response.body.alreadyApproved).toEqual([agent.agentId]);
+    expect(response.body.newRequests).toEqual([]);
+    expect(response.body.reopened).toEqual([]);
+    expect(response.body.debounced).toEqual([]);
   });
 
   it("enforces principal isolation between client and user HTTP areas", async () => {
@@ -118,7 +130,10 @@ describe("Client agent access API", () => {
       cnpjCpf: `client-inactive-${Date.now()}`,
       status: "inactive",
     });
-    const unapproved = await seedAgent({ name: "Unapproved Agent", cnpjCpf: `client-unapproved-${Date.now()}` });
+    const unapproved = await seedAgent({
+      name: "Unapproved Agent",
+      cnpjCpf: `client-unapproved-${Date.now()}`,
+    });
 
     await repositories.clientAgentAccess.addAccess(clientId, approved.agentId);
     await repositories.clientAgentAccess.addAccess(clientId, inactive.agentId);
@@ -136,9 +151,13 @@ describe("Client agent access API", () => {
     expect(ids).toContain(inactive.agentId);
     expect(ids).not.toContain(unapproved.agentId);
 
-    const approvedDto = (response.body.agents as Array<{ agentId: string; tradeName: string | null; email: string | null }>).find(
-      (agent) => agent.agentId === approved.agentId,
-    );
+    const approvedDto = (
+      response.body.agents as Array<{
+        agentId: string;
+        tradeName: string | null;
+        email: string | null;
+      }>
+    ).find((agent) => agent.agentId === approved.agentId);
     expect(approvedDto?.tradeName).toBe("Approved Trade");
     expect(approvedDto?.email).toBe("approved@test.com");
     for (const agent of response.body.agents as Array<{ isHubConnected: boolean }>) {
@@ -191,7 +210,10 @@ describe("Client agent access API", () => {
       cnpjCpf: `client-single-${Date.now()}`,
       status: "inactive",
     });
-    const unapproved = await seedAgent({ name: "Forbidden Agent", cnpjCpf: `client-forbidden-${Date.now()}` });
+    const unapproved = await seedAgent({
+      name: "Forbidden Agent",
+      cnpjCpf: `client-forbidden-${Date.now()}`,
+    });
 
     await repositories.clientAgentAccess.addAccess(clientId, approved.agentId);
 
@@ -218,9 +240,18 @@ describe("Client agent access API", () => {
 
   it("GET /api/v1/client/me/agent-access-requests supports status, search and pagination", async () => {
     const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const alpha = await seedAgent({ name: "Alpha Request Agent", cnpjCpf: `request-alpha-${Date.now()}` });
-    const beta = await seedAgent({ name: "Beta Request Agent", cnpjCpf: `request-beta-${Date.now()}` });
-    const gamma = await seedAgent({ name: "Gamma Request Agent", cnpjCpf: `request-gamma-${Date.now()}` });
+    const alpha = await seedAgent({
+      name: "Alpha Request Agent",
+      cnpjCpf: `request-alpha-${Date.now()}`,
+    });
+    const beta = await seedAgent({
+      name: "Beta Request Agent",
+      cnpjCpf: `request-beta-${Date.now()}`,
+    });
+    const gamma = await seedAgent({
+      name: "Gamma Request Agent",
+      cnpjCpf: `request-gamma-${Date.now()}`,
+    });
     await seedAgentBinding(ownerUserId, alpha.agentId);
     await seedAgentBinding(ownerUserId, beta.agentId);
     await seedAgentBinding(ownerUserId, gamma.agentId);
@@ -266,7 +297,10 @@ describe("Client agent access API", () => {
 
   it("GET /api/v1/client-access/review and /status expose the pending approval token flow", async () => {
     const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const agent = await seedAgent({ name: "Token Review Agent", cnpjCpf: `token-review-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Token Review Agent",
+      cnpjCpf: `token-review-${Date.now()}`,
+    });
     await seedAgentBinding(ownerUserId, agent.agentId);
 
     const sentBefore = emailSender.clientAccessRequestsToOwner.length;
@@ -281,24 +315,23 @@ describe("Client agent access API", () => {
     const token = email?.approvalToken;
     expect(typeof token).toBe("string");
 
-    const reviewResponse = await request(app)
-      .get("/api/v1/client-access/review")
-      .query({ token });
+    const reviewResponse = await request(app).get("/api/v1/client-access/review").query({ token });
     expect(reviewResponse.status).toBe(200);
     expect(reviewResponse.headers["content-type"]).toContain("text/html");
     expect(reviewResponse.text).toContain("Review client access");
     expect(reviewResponse.text).toContain(String(token));
 
-    const statusResponse = await request(app)
-      .get("/api/v1/client-access/status")
-      .query({ token });
+    const statusResponse = await request(app).get("/api/v1/client-access/status").query({ token });
     expect(statusResponse.status).toBe(200);
     expect(statusResponse.body).toEqual({ status: "pending" });
   });
 
   it("POST /api/v1/client-access/approve grants access via public token flow", async () => {
     const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const agent = await seedAgent({ name: "Token Approve Agent", cnpjCpf: `token-approve-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Token Approve Agent",
+      cnpjCpf: `token-approve-${Date.now()}`,
+    });
     await seedAgentBinding(ownerUserId, agent.agentId);
 
     const sentBefore = emailSender.clientAccessRequestsToOwner.length;
@@ -328,7 +361,10 @@ describe("Client agent access API", () => {
 
   it("marks public approval tokens as expired and rejects expired decisions", async () => {
     const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const agent = await seedAgent({ name: "Token Expired Agent", cnpjCpf: `token-expired-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Token Expired Agent",
+      cnpjCpf: `token-expired-${Date.now()}`,
+    });
     await seedAgentBinding(ownerUserId, agent.agentId);
 
     const sentBefore = emailSender.clientAccessRequestsToOwner.length;
@@ -348,9 +384,7 @@ describe("Client agent access API", () => {
       expiresAt: new Date(Date.now() - 60_000),
     });
 
-    const statusResponse = await request(app)
-      .get("/api/v1/client-access/status")
-      .query({ token });
+    const statusResponse = await request(app).get("/api/v1/client-access/status").query({ token });
     expect(statusResponse.status).toBe(200);
     expect(statusResponse.body).toEqual({ status: "expired" });
 
@@ -372,7 +406,10 @@ describe("Client agent access API", () => {
 
   it("POST /api/v1/client-access/reject rejects access via public token flow", async () => {
     const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const agent = await seedAgent({ name: "Token Reject Agent", cnpjCpf: `token-reject-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Token Reject Agent",
+      cnpjCpf: `token-reject-${Date.now()}`,
+    });
     await seedAgentBinding(ownerUserId, agent.agentId);
 
     const sentBefore = emailSender.clientAccessRequestsToOwner.length;
@@ -412,7 +449,10 @@ describe("Client agent access API", () => {
 
   it("invalidates public approval tokens after they are used", async () => {
     const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const agent = await seedAgent({ name: "Token Single Use Agent", cnpjCpf: `token-single-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Token Single Use Agent",
+      cnpjCpf: `token-single-${Date.now()}`,
+    });
     await seedAgentBinding(ownerUserId, agent.agentId);
 
     const sentBefore = emailSender.clientAccessRequestsToOwner.length;
@@ -425,27 +465,24 @@ describe("Client agent access API", () => {
     const token = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
     expect(typeof token).toBe("string");
 
-    const firstApprove = await request(app)
-      .post("/api/v1/client-access/approve")
-      .send({ token });
+    const firstApprove = await request(app).post("/api/v1/client-access/approve").send({ token });
     expect(firstApprove.status).toBe(200);
 
-    const secondApprove = await request(app)
-      .post("/api/v1/client-access/approve")
-      .send({ token });
+    const secondApprove = await request(app).post("/api/v1/client-access/approve").send({ token });
     expect(secondApprove.status).toBe(404);
     expect(secondApprove.body.code).toBe("NOT_FOUND");
 
-    const statusResponse = await request(app)
-      .get("/api/v1/client-access/status")
-      .query({ token });
+    const statusResponse = await request(app).get("/api/v1/client-access/status").query({ token });
     expect(statusResponse.status).toBe(404);
     expect(statusResponse.body.code).toBe("NOT_FOUND");
   });
 
   it("DELETE /api/v1/client/me/agents removes approved accesses idempotently", async () => {
     const { clientId, clientAccessToken } = await registerOwnerAndClient();
-    const alpha = await seedAgent({ name: "Delete Alpha", cnpjCpf: `client-delete-a-${Date.now()}` });
+    const alpha = await seedAgent({
+      name: "Delete Alpha",
+      cnpjCpf: `client-delete-a-${Date.now()}`,
+    });
     const beta = await seedAgent({ name: "Delete Beta", cnpjCpf: `client-delete-b-${Date.now()}` });
 
     await repositories.clientAgentAccess.addAccess(clientId, alpha.agentId);
@@ -470,5 +507,26 @@ describe("Client agent access API", () => {
       .send({ agentIds: [alpha.agentId, beta.agentId] });
     expect(secondDelete.status).toBe(200);
     expect(secondDelete.body.message).toBe("Client agent accesses removed successfully");
+  });
+
+  it("DELETE /api/v1/client/me/agents/:agentId removes access without JSON body", async () => {
+    const { clientId, clientAccessToken } = await registerOwnerAndClient();
+    const agent = await seedAgent({
+      name: "Path Delete Agent",
+      cnpjCpf: `client-path-del-${Date.now()}`,
+    });
+    await repositories.clientAgentAccess.addAccess(clientId, agent.agentId);
+
+    const del = await request(app)
+      .delete(`/api/v1/client/me/agents/${agent.agentId}`)
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(del.status).toBe(200);
+    expect(del.body.message).toBe("Client agent accesses removed successfully");
+
+    const list = await request(app)
+      .get("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(list.status).toBe(200);
+    expect(list.body.agentIds).not.toContain(agent.agentId);
   });
 });

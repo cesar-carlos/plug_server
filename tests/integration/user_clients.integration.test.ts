@@ -28,10 +28,12 @@ describe("User client governance API", () => {
       });
     expect(registerClient.status).toBe(201);
     await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
-    const loginClient = await request(app).post("/api/v1/client-auth/login").send({
-      email: registerClient.body.client.email as string,
-      password: "ClientPwd1",
-    });
+    const loginClient = await request(app)
+      .post("/api/v1/client-auth/login")
+      .send({
+        email: registerClient.body.client.email as string,
+        password: "ClientPwd1",
+      });
     expect(loginClient.status).toBe(200);
     expect(registerClient.body.client.userId).toBe(owner.userId);
 
@@ -126,14 +128,19 @@ describe("User client governance API", () => {
       });
     expect(registerClient.status).toBe(201);
     await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
-    const clientLogin = await request(app).post("/api/v1/client-auth/login").send({
-      email: registerClient.body.client.email as string,
-      password: "ClientPwd1",
-    });
+    const clientLogin = await request(app)
+      .post("/api/v1/client-auth/login")
+      .send({
+        email: registerClient.body.client.email as string,
+        password: "ClientPwd1",
+      });
     expect(clientLogin.status).toBe(200);
     const clientAccessToken = clientLogin.body.accessToken as string;
 
-    const agent = await seedAgent({ name: "Owner Managed Agent", cnpjCpf: `owner-managed-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Owner Managed Agent",
+      cnpjCpf: `owner-managed-${Date.now()}`,
+    });
     await seedAgentBinding(owner.userId, agent.agentId);
 
     const requestAccess = await request(app)
@@ -186,10 +193,12 @@ describe("User client governance API", () => {
     expect(registerClient.status).toBe(201);
     await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
 
-    const clientLogin = await request(app).post("/api/v1/client-auth/login").send({
-      email: registerClient.body.client.email as string,
-      password: "ClientPwd1",
-    });
+    const clientLogin = await request(app)
+      .post("/api/v1/client-auth/login")
+      .send({
+        email: registerClient.body.client.email as string,
+        password: "ClientPwd1",
+      });
     expect(clientLogin.status).toBe(200);
     const refreshToken = clientLogin.body.refreshToken as string;
     expect(typeof refreshToken).toBe("string");
@@ -225,15 +234,20 @@ describe("User client governance API", () => {
       });
     expect(registerClient.status).toBe(201);
     await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
-    const clientLogin = await request(app).post("/api/v1/client-auth/login").send({
-      email: registerClient.body.client.email as string,
-      password: "ClientPwd1",
-    });
+    const clientLogin = await request(app)
+      .post("/api/v1/client-auth/login")
+      .send({
+        email: registerClient.body.client.email as string,
+        password: "ClientPwd1",
+      });
     expect(clientLogin.status).toBe(200);
     const clientId = registerClient.body.client.id as string;
     const clientAccessToken = clientLogin.body.accessToken as string;
 
-    const agent = await seedAgent({ name: "Revocation Agent", cnpjCpf: `revoke-agent-${Date.now()}` });
+    const agent = await seedAgent({
+      name: "Revocation Agent",
+      cnpjCpf: `revoke-agent-${Date.now()}`,
+    });
     await seedAgentBinding(owner.userId, agent.agentId);
 
     await request(app)
@@ -255,7 +269,9 @@ describe("User client governance API", () => {
       .set("Authorization", `Bearer ${owner.accessToken}`);
     expect(listAgentClients.status).toBe(200);
     expect(
-      (listAgentClients.body.clients as Array<{ clientId: string }>).some((item) => item.clientId === clientId),
+      (listAgentClients.body.clients as Array<{ clientId: string }>).some(
+        (item) => item.clientId === clientId,
+      ),
     ).toBe(true);
 
     const revoke = await request(app)

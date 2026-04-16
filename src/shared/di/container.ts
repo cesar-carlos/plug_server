@@ -12,6 +12,7 @@ import type { IClientAgentAccessRequestRepository } from "../../domain/repositor
 import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
 import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
+import type { IPendingClientAgentAccessWriter } from "../../domain/ports/pending_client_agent_access_writer.port";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
@@ -55,6 +56,8 @@ import { PrismaClientRepository } from "../../infrastructure/repositories/prisma
 import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/prisma_refresh_token.repository";
 import { PrismaRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_registration_approval_token.repository";
 import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_user.repository";
+import { PrismaPendingClientAgentAccessWriter } from "../../infrastructure/persistence/prisma_pending_client_agent_access.writer";
+import { SequentialPendingClientAgentAccessWriter } from "../../infrastructure/persistence/sequential_pending_client_agent_access.writer";
 import { isAgentConnectedToHub } from "../../presentation/socket/hub/agent_hub_connection";
 import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/rpc_bridge";
 import { env } from "../config/env";
@@ -103,6 +106,13 @@ const clientAgentAccessApprovalTokenRepository: IClientAgentAccessApprovalTokenR
     ? new InMemoryClientAgentAccessApprovalTokenRepository()
     : new PrismaClientAgentAccessApprovalTokenRepository();
 
+const pendingClientAgentAccessWriter: IPendingClientAgentAccessWriter = shouldUseInMemoryPersistence
+  ? new SequentialPendingClientAgentAccessWriter(
+      clientAgentAccessRequestRepository,
+      clientAgentAccessApprovalTokenRepository,
+    )
+  : new PrismaPendingClientAgentAccessWriter();
+
 const emailSender = shouldUseInMemoryPersistence
   ? new NoopEmailSender()
   : new NodemailerEmailSender({
@@ -139,7 +149,10 @@ const loginUseCase = new LoginUseCase(userRepository, passwordHasher);
 const changePasswordUseCase = new ChangePasswordUseCase(userRepository, passwordHasher);
 const refreshTokenUseCase = new RefreshTokenUseCase(userRepository, refreshTokenRepository);
 const logoutUseCase = new LogoutUseCase(refreshTokenRepository);
-const adminSetUserStatusUseCase = new AdminSetUserStatusUseCase(userRepository, refreshTokenRepository);
+const adminSetUserStatusUseCase = new AdminSetUserStatusUseCase(
+  userRepository,
+  refreshTokenRepository,
+);
 const updateMyCelularUseCase = new UpdateMyCelularUseCase(userRepository);
 
 const agentAccessService = new AgentAccessService(
@@ -170,6 +183,7 @@ const clientAgentAccessService = new ClientAgentAccessService(
   clientAgentAccessRequestRepository,
   clientAgentAccessApprovalTokenRepository,
   emailSender,
+  pendingClientAgentAccessWriter,
   {
     isAgentOnline: isAgentConnectedToHub,
     refreshAgentProfile: (agentId) =>
@@ -240,7 +254,9 @@ export const getTestRepositoryAccess = (): {
 
 export const getTestNoopEmailSender = (): NoopEmailSender => {
   if (env.nodeEnv !== "test" || !(emailSender instanceof NoopEmailSender)) {
-    throw new Error("getTestNoopEmailSender is only available with NoopEmailSender in test environment");
+    throw new Error(
+      "getTestNoopEmailSender is only available with NoopEmailSender in test environment",
+    );
   }
 
   return emailSender;

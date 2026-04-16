@@ -7,6 +7,7 @@ import { LoginUseCase } from "../../../../src/domain/use_cases/login.use_case";
 
 const makeRepo = (): IUserRepository => ({
   findById: vi.fn(),
+  findByIds: vi.fn(),
   findByEmail: vi.fn(),
   findByCelular: vi.fn(),
   save: vi.fn(),

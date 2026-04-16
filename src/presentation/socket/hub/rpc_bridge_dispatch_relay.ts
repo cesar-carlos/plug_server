@@ -345,7 +345,9 @@ export const createRpcBridgeRelayDispatch = (
       streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
     });
 
-    const relayPayloadFrameOpts = payloadFrameEncodeOptionsFromPreference(relayCompressionPreference);
+    const relayPayloadFrameOpts = payloadFrameEncodeOptionsFromPreference(
+      relayCompressionPreference,
+    );
 
     trace?.addPhaseMs("relay_preflight_ms", performance.now() - relayPreflightStart);
 

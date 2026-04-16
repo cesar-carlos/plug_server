@@ -9,10 +9,7 @@ import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { allowRelayStreamPull } from "../hub/consumer_relay_rate_limiter";
 import { conversationRegistry } from "../hub/conversation_registry";
-import {
-  assertConsumerSocketAgentAccess,
-  resolveSocketActorRole,
-} from "./consumer_socket_guard";
+import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 
 const relayStreamPullEnvelopeSchema = z.object({
   conversationId: nonEmptyStringSchema,
@@ -68,7 +65,9 @@ export const handleRelayRpcStreamPull = (
 
   void (async () => {
     try {
-      const conversation = conversationRegistry.findInternalByConversationId(parsed.data.conversationId);
+      const conversation = conversationRegistry.findInternalByConversationId(
+        parsed.data.conversationId,
+      );
       if (!conversation || conversation.consumerSocketId !== socket.id) {
         throw new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 });
       }

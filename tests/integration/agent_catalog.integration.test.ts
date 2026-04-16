@@ -134,7 +134,10 @@ describe("Agent catalog API", () => {
       cnpjCpf: `inactive-filter-admin-${Date.now()}`,
       status: "inactive",
     });
-    await seedAgent({ name: "Active Filtered Admin", cnpjCpf: `active-filter-admin-${Date.now()}` });
+    await seedAgent({
+      name: "Active Filtered Admin",
+      cnpjCpf: `active-filter-admin-${Date.now()}`,
+    });
 
     const res = await request(app)
       .get("/api/v1/agents/catalog")

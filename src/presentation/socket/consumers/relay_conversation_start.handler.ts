@@ -10,10 +10,7 @@ import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import { agentRegistry } from "../hub/agent_registry";
 import { conversationRegistry } from "../hub/conversation_registry";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
-import {
-  assertConsumerSocketAgentAccess,
-  resolveSocketActorRole,
-} from "./consumer_socket_guard";
+import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 
 const conversationStartPayloadSchema = z.object({
   agentId: nonEmptyStringSchema,
