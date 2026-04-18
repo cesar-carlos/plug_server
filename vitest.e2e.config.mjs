@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 /**
  * End-to-end tests: full HTTP server + Socket.IO (see tests/helpers/test_server.ts).
  * Invoked via `npm run test:e2e` only when `E2E_TESTS_ENABLED=true` in `.env` (scripts/run-e2e.cjs).
+ * Uses `.mjs` so Vitest can load the config without TS/ESM interop issues under Node.
  */
 export default defineConfig({
   test: {
@@ -17,6 +18,8 @@ export default defineConfig({
     fileParallelism: false,
     env: {
       E2E_SILENCE_LOGS: "true",
+      /** Registration omits `approvalToken` when NODE_ENV is production; e2e needs it. */
+      NODE_ENV: "test",
     },
   },
 });

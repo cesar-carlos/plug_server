@@ -19,7 +19,7 @@ if (process.env.E2E_TESTS_ENABLED !== "true") {
 }
 
 const vitestCli = path.join(root, "node_modules", "vitest", "vitest.mjs");
-const result = spawnSync(process.execPath, [vitestCli, "run", "-c", "vitest.e2e.config.ts"], {
+const result = spawnSync(process.execPath, [vitestCli, "run", "-c", "vitest.e2e.config.mjs"], {
   cwd: root,
   stdio: "inherit",
   env: process.env,

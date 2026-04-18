@@ -18,7 +18,7 @@ const serializeValue = (value: unknown): unknown => {
   return value;
 };
 
-/** Set by `vitest.e2e.config.ts` to avoid flooding e2e runs with INFO lines (connections, rpc, etc.). */
+/** Set by `vitest.e2e.config.mjs` to avoid flooding e2e runs with INFO lines (connections, rpc, etc.). */
 const silenceE2eInfoLogs = (): boolean =>
   process.env.NODE_ENV === "test" && process.env.E2E_SILENCE_LOGS === "true";
 
