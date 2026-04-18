@@ -77,13 +77,15 @@ import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metri
 import { env } from "./shared/config/env";
 import { AppError } from "./shared/errors/app_error";
 import { badRequest, forbidden, tooManyRequests } from "./shared/errors/http_errors";
-import { HUB_SERVER_CAPABILITIES } from "./shared/constants/agent_transport_contract";
+import { buildHubServerCapabilities } from "./shared/constants/agent_transport_contract";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { container } from "./shared/di/container";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
 import { decodePayloadFrame, encodePayloadFrame } from "./shared/utils/payload_frame";
 import { agentSelfProfileSocketSchema } from "./presentation/http/validators/agent_self_profile.validator";
+import { agentRegisterPayloadSchema } from "./shared/validators/agent_register";
+import { emitAgentRegisterError } from "./presentation/socket/hub/agent_register_error";
 import { toAgentCatalogDto } from "./presentation/http/controllers/agent_catalog.controller";
 
 type SocketData = {
@@ -420,20 +422,24 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     socket.on(socketEvents.agentRegister, async (rawPayload: unknown) => {
       const decoded = decodePayloadFrame(rawPayload);
       if (!decoded.ok) {
-        emitAppError(socket, decoded.error.message);
+        emitAgentRegisterError(socket, "invalid_payload", decoded.error.message);
         return;
       }
 
-      if (!isRecord(decoded.value.data)) {
-        emitAppError(socket, "agent:register payload must be an object");
+      const parsed = agentRegisterPayloadSchema.safeParse(decoded.value.data);
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        const path = issue?.path.join(".");
+        const detail = issue ? `${path ? `${path}: ` : ""}${issue.message}` : "validation failed";
+        emitAgentRegisterError(
+          socket,
+          "invalid_request",
+          `agent:register payload is invalid (${detail})`,
+        );
         return;
       }
 
-      const { agentId, capabilities } = decoded.value.data;
-      if (typeof agentId !== "string" || agentId.trim() === "" || !isRecord(capabilities)) {
-        emitAppError(socket, "agent:register payload is missing required fields");
-        return;
-      }
+      const { agentId, capabilities } = parsed.data;
 
       const tokenAgentId = socket.data.user?.agent_id;
       if (
@@ -441,13 +447,23 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         tokenAgentId.trim() !== "" &&
         tokenAgentId !== agentId
       ) {
-        emitAppError(socket, "agent:register agentId does not match token claim");
+        emitAgentRegisterError(
+          socket,
+          "authentication_failed",
+          "agent:register agentId does not match token claim",
+          { agentId, tokenAgentId },
+        );
         return;
       }
 
       const userId = getUserId(socket);
       if (!userId) {
-        emitAppError(socket, "agent:register requires authenticated user context");
+        emitAgentRegisterError(
+          socket,
+          "authentication_failed",
+          "agent:register requires authenticated user context",
+          { agentId },
+        );
         return;
       }
 
@@ -456,7 +472,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         agentId,
       );
       if (!bindResult.ok) {
-        emitAppError(socket, bindResult.error.message);
+        emitAgentRegisterError(socket, "unauthorized", bindResult.error.message, {
+          agentId,
+          userId,
+        });
         return;
       }
 
@@ -470,7 +489,12 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         capabilities,
       });
       if (!registration.ok) {
-        emitAppError(socket, "agent:register denied because this agentId belongs to another user");
+        emitAgentRegisterError(
+          socket,
+          "unauthorized",
+          "agent:register denied because this agentId belongs to another user",
+          { agentId, userId },
+        );
         return;
       }
 
@@ -484,7 +508,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         socketEvents.agentCapabilities,
         encodePayloadFrame(
           {
-            capabilities: HUB_SERVER_CAPABILITIES,
+            capabilities: buildHubServerCapabilities({
+              recommendedStreamPullWindowSize: env.socketRestStreamPullWindowSize,
+              maxStreamPullWindowSize: env.socketRestStreamPullWindowSize,
+            }),
           },
           { ...withOptionalRequestId(decoded.value.frame.requestId), omitTraceId: true },
         ),

@@ -11,6 +11,13 @@ hub. Regras de negocio e semantica de autorizacao ficam em
 - `GET /metrics` — texto Prometheus (alias util fora do prefixo `/api/v1`).
 - `GET /api/v1/metrics` — mesmo payload.
 
+> **Nota — `Retry-After` derivado do agente.** Erros JSON-RPC `-32013` com
+> `error.data.retry_after_ms` ou `error.data.reset_at` (notavelmente
+> `client_token.getPolicy` no perfil 2.8) sao propagados pelo `POST /api/v1/agents/commands`
+> como header HTTP `Retry-After`. Nao gera contador Prometheus dedicado; o
+> sinal de volume continua em `plug_socket_relay_rate_limit_*` e nas series
+> de erros do agente. Detalhes: `docs/api_rest_bridge.md`.
+
 ## Comeco rapido
 
 Se fores olhar so o minimo:
@@ -294,6 +301,10 @@ rate(plug_bridge_latency_trace_writes_failed_total[5m]) > 0.1
 
 # Bridge latency traces: discrepancia total_ms vs soma das fases (definir limiar com PHASES_MISMATCH_WARN_MS)
 rate(plug_bridge_latency_trace_phases_mismatch_total[5m]) > 0
+
+# `agent:register_error` emitidos: pico pode indicar rotacao de credencial, conflito de ownership ou cliente desalinhado
+# (o evento e logado como `agent_register_error_emitted` em STDERR; nao ha contador Prometheus dedicado — usar grep/log shipper
+#  por `reason` / `code` para identificar o motivo predominante).
 ```
 
 ## Dashboards operacionais sugeridos

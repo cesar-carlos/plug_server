@@ -91,19 +91,20 @@ Detalhes normativos:
 
 ### Socket em `/agents`
 
-O agente usa o protocolo do `plug_agente` no namespace `/agents`, incluindo:
+O agente usa o protocolo do `plug_agente` (perfil `plug-jsonrpc-profile/2.8`) no
+namespace `/agents`, incluindo:
 
-- `agent:register`
-- `agent:capabilities`
-- `agent:ready`
-- `agent:heartbeat`
-- `rpc:request`
-- `rpc:response`
-- `rpc:request_ack`
-- `rpc:batch_ack`
-- `rpc:chunk`
-- `rpc:complete`
-- `rpc:stream.pull`
+| Evento | Direcao | Notas |
+| ------ | ------- | ----- |
+| `agent:register` | agente -> hub | `PayloadFrame` com `agentId`, `timestamp`, `capabilities` (e `profile` opcional) |
+| `agent:register_error` | hub -> agente | **JSON puro** (NAO `PayloadFrame`) com `{ code, reason, message }`. `reason` `transient_failure`/`rate_limited` orienta o agente a reagendar `agent:register`; outros valores indicam reconexao. Ver `docs/migracao_plug_agente_namespaces.md` |
+| `agent:capabilities` | hub -> agente | Inclui `extensions.recommendedStreamPullWindowSize` / `maxStreamPullWindowSize` para calibrar pulls |
+| `agent:ready` | agente -> hub | Opcional, quando o agente anuncia `extensions.protocolReadyAck` |
+| `agent:heartbeat` | agente -> hub | Periodico; `hub:heartbeat_ack` confirma |
+| `rpc:request` / `rpc:response` | bidirecional | Comando JSON-RPC 2.0 em `PayloadFrame` |
+| `rpc:request_ack` / `rpc:batch_ack` | agente -> hub | Confirmacao de recebimento |
+| `rpc:chunk` / `rpc:complete` | agente -> hub | Streaming de resultado (`terminal_status: aborted`/`error` em encerramento anormal) |
+| `rpc:stream.pull` | hub -> agente | Backpressure (window_size baseado em hints de capabilities) |
 
 ## Fluxo resumido
 
@@ -145,12 +146,20 @@ O projeto ja contem:
 - `POST /api/v1/auth/agent-login` para agentes
 - ownership automatica de agente no fluxo `agent-login` + `agent:register`
 - registry de agentes e negociacao de capabilities
+  (`HUB_TRANSPORT_EXTENSIONS.plugProfile = "plug-jsonrpc-profile/2.8"`)
+- validacao zod do payload `agent:register` alinhada ao schema do agente, com
+  resposta de rejeicao em `agent:register_error` (JSON puro)
 - readiness explicito com `agent:ready` e fallback por grace window
-- bridge REST `POST /api/v1/agents/commands`
+- bridge REST `POST /api/v1/agents/commands` com propagacao automatica de
+  `Retry-After` quando o agente devolve `-32013` com `retry_after_ms`/`reset_at`
+  (ex.: `client_token.getPolicy` na v2.8)
 - bridge Socket legado `agents:*`
 - relay Socket `relay:*` com isolamento por `conversationId`
 - streaming, backpressure e `rpc:stream.pull`
-- `PayloadFrame` com gzip e assinatura opcional
+  (hints `recommendedStreamPullWindowSize` / `maxStreamPullWindowSize`
+  publicados em `agent:capabilities`)
+- `PayloadFrame` com gzip e assinatura HMAC-SHA256 opcional, com enforcement de
+  `signature.key_id` quando `PAYLOAD_SIGNING_KEY_ID` esta configurado
 - auditoria Socket e metricas Prometheus
 
 ## Persistencia

@@ -2,6 +2,15 @@ export const socketEvents = {
   connectionReady: "connection:ready",
   appError: "app:error",
   agentRegister: "agent:register",
+  /**
+   * Hub → agent rejection of `agent:register`. Emitted as **plain JSON**
+   * (NOT a `PayloadFrame`) per `socket_communication_standard.md` "Mapa rapido
+   * de eventos": `{ code, reason, message }`. The agent uses `reason` to decide
+   * between rescheduling registration (`transient_failure`, `rate_limited`) or
+   * forcing a reconnect (anything else, e.g. `authentication_failed`,
+   * `invalid_request`).
+   */
+  agentRegisterError: "agent:register_error",
   agentCapabilities: "agent:capabilities",
   agentReady: "agent:ready",
   agentHeartbeat: "agent:heartbeat",

@@ -40,22 +40,33 @@ tema e `docs/client_agent_business_rules.md`.
 
 Historico detalhado de mudancas: `CHANGELOG.md`.
 
+## Versao do profile
+
+O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.8"` em
+`agent:capabilities` (`HUB_TRANSPORT_EXTENSIONS` em
+`src/shared/constants/agent_transport_contract.ts`). A versao acompanha o
+OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
+
 ## Alinhamento atual
 
 | Area | Estado no hub | Fonte principal |
 | ---- | ------------- | --------------- |
 | Namespace do agente em `/agents` | alinhado | `docs/migracao_plug_agente_namespaces.md` |
-| Handshake autenticado e `agent:register` | alinhado | `docs/PROJECT_OVERVIEW.md`, `docs/api_rest_bridge.md` |
-| Negociacao de capabilities | alinhado | `docs/socket_relay_protocol.md` |
+| Handshake autenticado e `agent:register` (zod schema) | alinhado | `docs/api_rest_bridge.md`, `src/shared/validators/agent_register.ts` |
+| Rejeicao de `agent:register` via `agent:register_error` (JSON puro, `{ code, reason, message }`) | alinhado | `docs/migracao_plug_agente_namespaces.md`, `src/presentation/socket/hub/agent_register_error.ts` |
+| Negociacao de capabilities (com hints de stream pull) | alinhado | `docs/socket_relay_protocol.md` |
 | Readiness explicito com `agent:ready` | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `PayloadFrame` com gzip, assinatura opcional e payload base64 | alinhado | `docs/socket_relay_protocol.md` |
+| Enforcement de `signature.key_id` quando `PAYLOAD_SIGNING_KEY_ID` configurado | alinhado | `docs/configuration.md`, `src/shared/utils/payload_frame.ts` |
 | `rpc:response` invalido com fail-fast | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `rpc:chunk` / `rpc:complete` invalidos com fail-fast | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `rpc:complete.terminal_status` no REST materializado | alinhado | `docs/api_rest_bridge.md` |
 | Backpressure relay com encerramento explicito | alinhado | `docs/socket_relay_protocol.md` |
-| Pull capability-aware (`recommendedStreamPullWindowSize`, `maxStreamPullWindowSize`) | alinhado | `docs/socket_relay_protocol.md`, `docs/api_rest_bridge.md` |
+| Pull capability-aware (`recommendedStreamPullWindowSize`, `maxStreamPullWindowSize`) | publicado pelo hub e clampado por agente | `docs/socket_relay_protocol.md`, `docs/api_rest_bridge.md` |
 | `execution_mode`, `preserve_sql`, `effective_max_rows` | alinhado | `docs/api_rest_bridge.md` |
 | `id` omitido vs `id: null` no bridge | alinhado | `docs/api_rest_bridge.md`, `docs/socket_client_sdk.md` |
+| `client_token.getPolicy` (introspecao de policy, perfil 2.7+) com **`Retry-After`** automatico em `-32013` | alinhado | `docs/api_rest_bridge.md` |
+| `meta.outbound_compression` aceito no schema (no-op no runtime atual, alinhado a v2.8) | tolerancia | `src/shared/validators/agent_command.ts` |
 | Teste de contrato contra OpenRPC/schemas do agente | alinhado | `docs/observability.md` |
 | `profile_version` no resultado de `agent.getProfile` | hub usa para *pull sync* / consistencia | `docs/client_agent_business_rules.md`, `docs/configuration.md`; o JSON Schema publicado em `plug_agente` pode ainda omitir o campo — o hub tolera extensao |
 | `agent:profile.update` para self-service do cadastro | alinhado no hub | `docs/client_agent_business_rules.md`; patch parcial por socket em `/agents`, com `snake_case` e ack `agent:profile.updated` |
@@ -69,6 +80,16 @@ Estas diferencas nao sao gaps acidentais; fazem parte do desenho atual do hub:
 - Parte do estado do bridge e do relay continua em memoria por processo.
 - O hub pode preencher `id` omitido no bridge REST e em `agents:command` para
   simplificar integracao do consumer.
+- O hub aceita `agent:register` sem `timestamp` por compat com agentes mais
+  antigos (o schema publicado marca como obrigatorio); idem para `extensions`
+  e `limits` (defaultam a `{}` quando ausentes).
+- O bloco `signature.key_id` e marcado como required no
+  `payload-frame.schema.json`, mas o hub aceita sem `key_id` quando o
+  deployment nao tem `PAYLOAD_SIGNING_KEY_ID` configurado (single-key).
+- `meta.outbound_compression` e aceito no schema do hub apenas como
+  forward-compat: o runtime atual do agente declara explicitamente que **nao
+  suporta override por request** (ver `socket_communication_standard.md` ->
+  "Nota operacional"); o campo nao tem efeito no fio.
 
 Detalhes:
 

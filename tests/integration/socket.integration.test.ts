@@ -2305,10 +2305,15 @@ describe("Socket namespaces", () => {
 
       const agentSocket = await connectAgent(baseUrl, loginRes.body.accessToken as string);
       try {
-        const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
-          agentSocket,
-          "app:error",
-        );
+        // Aligned with `socket_communication_standard.md` (Mapa rapido de eventos):
+        // ownership rejections are surfaced through the dedicated
+        // `agent:register_error` event (plain JSON, NOT a PayloadFrame) with
+        // `reason: "unauthorized"` so the agent reconnects instead of retrying.
+        const registerErrorPromise = waitForEvent<{
+          code?: number;
+          reason?: string;
+          message?: string;
+        }>(agentSocket, "agent:register_error");
 
         agentSocket.emit(
           "agent:register",
@@ -2323,9 +2328,10 @@ describe("Socket namespaces", () => {
           }),
         );
 
-        const appError = await appErrorPromise;
-        expect(appError.code).toBe("SOCKET_PROTOCOL_ERROR");
-        expect(String(appError.message)).toContain("already linked");
+        const registerError = await registerErrorPromise;
+        expect(registerError.code).toBe(-32002);
+        expect(registerError.reason).toBe("unauthorized");
+        expect(String(registerError.message)).toContain("already linked");
         await expect(repositories.agentIdentity.findOwnerUserId(racedAgentId)).resolves.toBe(
           otherUser.userId,
         );

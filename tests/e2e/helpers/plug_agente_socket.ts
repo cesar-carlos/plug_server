@@ -48,7 +48,13 @@ const handleInitialAgentProfileSync = async (
   );
 };
 
-/** Default capabilities aligned with plug_agente negotiation (binary PayloadFrame). */
+/**
+ * Default capabilities aligned with plug_agente negotiation (binary PayloadFrame).
+ * Mirrors the shape required by `agent.register.schema.json`: `protocols`,
+ * `encodings`, `compressions`, `extensions`, `limits` are all present even
+ * when empty, so the e2e helper exercises the same surface a real
+ * plug_agente client would send.
+ */
 export const defaultPlugAgenteCapabilities = {
   protocols: ["jsonrpc-v2"],
   encodings: ["json"],
@@ -57,6 +63,7 @@ export const defaultPlugAgenteCapabilities = {
     binaryPayload: true,
     protocolReadyAck: true,
   },
+  limits: {},
 } as const;
 
 export const waitForSocketEvent = <T>(

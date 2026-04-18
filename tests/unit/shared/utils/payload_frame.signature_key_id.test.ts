@@ -1,0 +1,181 @@
+import { createHmac } from "node:crypto";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as PayloadFrameModule from "../../../../src/shared/utils/payload_frame";
+
+const SIGNING_KEY = "test-shared-key-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+const SIGNING_KEY_ID = "hub-key-2026";
+
+const baseEnv = {
+  payloadSigningKey: undefined as string | undefined,
+  payloadSigningKeyId: undefined as string | undefined,
+  payloadSignOutbound: false,
+  payloadFrameMaxGzipInputBytes: 1_048_576,
+  payloadFrameGzipLevel: undefined as number | undefined,
+  payloadFrameAutoGzipMinSavingsBytes: 64,
+  payloadFrameAsyncGzipMinUtf8Bytes: 0,
+  payloadFrameAsyncGunzipMinCompressedBytes: 0,
+};
+
+const buildSignatureValue = (
+  metadata: {
+    schemaVersion: string;
+    enc: string;
+    cmp: string;
+    contentType: string;
+    originalSize: number;
+    compressedSize: number;
+    traceId: string | null;
+    requestId: string | null;
+  },
+  binaryPayload: Buffer,
+  key: string,
+): string => {
+  const meta = JSON.stringify(metadata);
+  const input = Buffer.concat([Buffer.from(meta, "utf8"), Buffer.from([0]), binaryPayload]);
+  return createHmac("sha256", key).update(input).digest("base64");
+};
+
+describe("validateFrameSignature key_id enforcement (PAYLOAD_SIGNING_KEY_ID)", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../../../../src/shared/config/env");
+  });
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  const loadModuleWithEnv = async (
+    overrides: Partial<typeof baseEnv>,
+  ): Promise<typeof PayloadFrameModule> => {
+    vi.doMock("../../../../src/shared/config/env", () => ({
+      env: { ...baseEnv, ...overrides },
+    }));
+    return import("../../../../src/shared/utils/payload_frame");
+  };
+
+  it("accepts a frame without key_id when PAYLOAD_SIGNING_KEY_ID is unset (single-key deployment)", async () => {
+    const mod = await loadModuleWithEnv({ payloadSigningKey: SIGNING_KEY });
+    const frameWithoutSig = mod.encodePayloadFrame({ ok: true }, { omitTraceId: true });
+    const binaryPayload = Buffer.from(frameWithoutSig.payload as Buffer);
+    const value = buildSignatureValue(
+      {
+        schemaVersion: frameWithoutSig.schemaVersion,
+        enc: frameWithoutSig.enc,
+        cmp: frameWithoutSig.cmp,
+        contentType: frameWithoutSig.contentType,
+        originalSize: frameWithoutSig.originalSize,
+        compressedSize: frameWithoutSig.compressedSize,
+        traceId: null,
+        requestId: null,
+      },
+      binaryPayload,
+      SIGNING_KEY,
+    );
+
+    const signedFrame = {
+      ...frameWithoutSig,
+      signature: { alg: "hmac-sha256" as const, value },
+    };
+    const decoded = mod.decodePayloadFrame(signedFrame);
+    expect(decoded.ok).toBe(true);
+  });
+
+  it("REJECTS a frame missing key_id when PAYLOAD_SIGNING_KEY_ID is configured", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SIGNING_KEY,
+      payloadSigningKeyId: SIGNING_KEY_ID,
+    });
+    const frameWithoutSig = mod.encodePayloadFrame({ ok: true }, { omitTraceId: true });
+    const binaryPayload = Buffer.from(frameWithoutSig.payload as Buffer);
+    const value = buildSignatureValue(
+      {
+        schemaVersion: frameWithoutSig.schemaVersion,
+        enc: frameWithoutSig.enc,
+        cmp: frameWithoutSig.cmp,
+        contentType: frameWithoutSig.contentType,
+        originalSize: frameWithoutSig.originalSize,
+        compressedSize: frameWithoutSig.compressedSize,
+        traceId: null,
+        requestId: null,
+      },
+      binaryPayload,
+      SIGNING_KEY,
+    );
+
+    const signedFrame = {
+      ...frameWithoutSig,
+      signature: { alg: "hmac-sha256" as const, value },
+    };
+    const decoded = mod.decodePayloadFrame(signedFrame);
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.message).toMatch(/missing key_id/i);
+    }
+  });
+
+  it("REJECTS a frame whose key_id does not match the configured PAYLOAD_SIGNING_KEY_ID", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SIGNING_KEY,
+      payloadSigningKeyId: SIGNING_KEY_ID,
+    });
+    const frameWithoutSig = mod.encodePayloadFrame({ ok: true }, { omitTraceId: true });
+    const binaryPayload = Buffer.from(frameWithoutSig.payload as Buffer);
+    const value = buildSignatureValue(
+      {
+        schemaVersion: frameWithoutSig.schemaVersion,
+        enc: frameWithoutSig.enc,
+        cmp: frameWithoutSig.cmp,
+        contentType: frameWithoutSig.contentType,
+        originalSize: frameWithoutSig.originalSize,
+        compressedSize: frameWithoutSig.compressedSize,
+        traceId: null,
+        requestId: null,
+      },
+      binaryPayload,
+      SIGNING_KEY,
+    );
+
+    const signedFrame = {
+      ...frameWithoutSig,
+      signature: { alg: "hmac-sha256" as const, value, key_id: "wrong-key-id" },
+    };
+    const decoded = mod.decodePayloadFrame(signedFrame);
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.message).toMatch(/key_id mismatch/i);
+    }
+  });
+
+  it("ACCEPTS a frame with the matching key_id", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SIGNING_KEY,
+      payloadSigningKeyId: SIGNING_KEY_ID,
+    });
+    const frameWithoutSig = mod.encodePayloadFrame({ ok: true }, { omitTraceId: true });
+    const binaryPayload = Buffer.from(frameWithoutSig.payload as Buffer);
+    const value = buildSignatureValue(
+      {
+        schemaVersion: frameWithoutSig.schemaVersion,
+        enc: frameWithoutSig.enc,
+        cmp: frameWithoutSig.cmp,
+        contentType: frameWithoutSig.contentType,
+        originalSize: frameWithoutSig.originalSize,
+        compressedSize: frameWithoutSig.compressedSize,
+        traceId: null,
+        requestId: null,
+      },
+      binaryPayload,
+      SIGNING_KEY,
+    );
+
+    const signedFrame = {
+      ...frameWithoutSig,
+      signature: { alg: "hmac-sha256" as const, value, key_id: SIGNING_KEY_ID },
+    };
+    const decoded = mod.decodePayloadFrame(signedFrame);
+    expect(decoded.ok).toBe(true);
+  });
+});

@@ -143,7 +143,12 @@ Regras atuais no servidor:
 - limite de payload decodificado: `10 MB`
 - limite de inflacao gzip: `20x`
 - se `signature` vier no frame, o servidor valida com `PAYLOAD_SIGNING_KEY`
-  (quando nao configurada e houver assinatura, a validacao falha)
+  (quando nao configurada e houver assinatura, a validacao falha). Quando
+  `PAYLOAD_SIGNING_KEY_ID` esta configurado, `signature.key_id` passa a ser
+  **obrigatorio** e validado: ausente ou divergente -> falha com `-32001`
+  (`invalid_signature`). Sem `PAYLOAD_SIGNING_KEY_ID`, deployments single-key
+  continuam aceitando assinaturas sem `key_id`. Ver
+  `payload-frame.schema.json` no `plug_agente`.
 - se `rpc:response` chegar com frame invalido mas com `requestId` identificavel no
   envelope, o hub encerra a request relay correlacionada com erro JSON-RPC framed
   em vez de esperar apenas por timeout
@@ -206,10 +211,13 @@ correspondente ao `requestId` original.
   de memoria para evitar explosao de uso; se o agente exceder esse buffer, o hub
   fecha o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`)
   em vez de descartar chunks silenciosamente.
-- Pull capability-aware: quando o agente anuncia janela recomendada/maxima
-  (`recommendedStreamPullWindowSize` / `maxStreamPullWindowSize`, em `extensions`
-  ou `limits`), o hub aplica esse clamp tanto no pull interno quanto nas requests
-  do consumer.
+- Pull capability-aware: o hub **publica** os hints
+  `recommendedStreamPullWindowSize` e `maxStreamPullWindowSize` (derivados de
+  `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`) em `agent:capabilities.extensions`
+  para o agente calibrar `rpc:stream.pull` sem heuristica propria; quando o
+  agente anuncia esses mesmos campos em `extensions` ou `limits`, o hub aplica
+  o clamp tanto no pull interno quanto nas requests do consumer
+  (`agent_registry.resolveStreamPullWindow`).
 - Quotas de protecao: limites para conversas, pending requests por conversa e
   por consumer.
 - Limpeza por inatividade: conversas inativas expiram automaticamente por TTL.

@@ -19,39 +19,10 @@ real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 
 ## Eventos e formato
 
-- **Handshake**: `connection:ready` (PayloadFrame desde versão mais recente)
+- **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket_relay_protocol.md` -> *Handshake: `connection:ready`*)
 - Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`
 - Dados em `PayloadFrame`: `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
 - **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/client_agent_business_rules.md`.
-
-### Handshake: `connection:ready`
-
-Emitido imediatamente após autenticação bem-sucedida em ambos os namespaces (`/agents` e `/consumers`). **Desde versão mais recente, este evento é enviado como `PayloadFrame`** para consistência com outros eventos RPC.
-
-**Payload lógico após decode**:
-
-```json
-{
-  "id": "<socket.id>",
-  "message": "Socket connected successfully",
-  "user": { "sub": "<user_id>", "iat": 123, "exp": 456, "role": "..." }
-}
-```
-
-**Implementação no cliente**:
-
-```typescript
-socket.on("connection:ready", (rawPayload: unknown) => {
-  const decoded = decodePayloadFrame(rawPayload);
-  if (!decoded.ok) {
-    throw new Error(`Handshake decode failed: ${decoded.error.message}`);
-  }
-  // decoded.value = { id, message, user }
-  console.log("Connected:", decoded.value);
-});
-```
-
-**Nota de compatibilidade**: existe um shim transitório isolado por `SOCKET_CONNECTION_READY_COMPAT_MODE`, mas o contrato padrão e suportado é `PayloadFrame`. O modo legado `raw_json` tem remoção planejada após `2026-09-30`.
 
 ## Estrutura do PayloadFrame
 
@@ -75,10 +46,11 @@ Em alguns eventos de **alto debito** (`relay:rpc.chunk`, `relay:rpc.complete`, a
 ## Limites e comportamento do hub (resumo)
 
 - **Tamanho de frame**: até **10 MiB** comprimido/decodificado no contrato do hub (`payload_frame.ts`); validar no cliente antes de enviar SQL/parametros enormes.
-- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`) e `agents:command` no namespace `/consumers` têm tetos por janela; REST `POST /api/v1/agents/commands` por utilizador (e opcionalmente por IP). Respostas **429** quando excedido.
+- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`) e `agents:command` no namespace `/consumers` têm tetos por janela; REST `POST /api/v1/agents/commands` por utilizador (e opcionalmente por IP). Respostas **429** quando excedido. Erros RPC com `-32013` que carregam `error.data.retry_after_ms` (notavelmente `client_token.getPolicy` na v2.8) sao propagados pelo REST como header HTTP `Retry-After`.
 - **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`).
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
 - **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; várias instâncias sem afinidade partilhada degradam o comportamento — ver `docs/scaling_and_roadmap.md`.
+- **PayloadFrame signature**: quando o cliente assina frames com HMAC-SHA256, em deployments com `PAYLOAD_SIGNING_KEY_ID` configurado no hub o `signature.key_id` passa a ser **obrigatorio** e validado.
 
 ## Exemplo de encode/decode no cliente (Node.js)
 

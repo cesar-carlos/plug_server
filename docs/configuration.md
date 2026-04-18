@@ -38,7 +38,9 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES` | `65536` (64 KiB) | Hub **inbound** (`decodePayloadFrameAsync`): `cmp: gzip` com payload comprimido ≥ este tamanho usa **gunzip assíncrono**. `0` = sempre síncrono. |
 | `SOCKET_AGENT_KNOWN_IDS_MAX` | `0` | Teto do conjunto de `agentId` “conhecidos” (offline) para REST; acima disto remove-se IDs **desligados** até ficar abaixo do limite. `0` = sem limite. |
 | `SOCKET_AGENT_PROTOCOL_READY_GRACE_MS` | `100` | Fallback de estabilização após `agent:register` antes do primeiro `rpc:request`; o hub libera mais cedo com `agent:heartbeat` e também suporta `agent:ready` explícito quando o agente anuncia `extensions.protocolReadyAck`. Reduz corrida com `protocol_not_ready` do `plug_agente`. |
-| `PAYLOAD_SIGN_OUTBOUND` | `false` | Assina frames de saída com `PAYLOAD_SIGNING_KEY`. |
+| `PAYLOAD_SIGN_OUTBOUND` | `false` | Assina frames de saída com `PAYLOAD_SIGNING_KEY` (HMAC-SHA256 sobre metadados + payload). |
+| `PAYLOAD_SIGNING_KEY` | *(vazio)* | Chave compartilhada para assinar/verificar `PayloadFrame.signature`. Quando ausente e um frame chega assinado, a verificação **falha**. |
+| `PAYLOAD_SIGNING_KEY_ID` | *(vazio)* | Identificador da chave (ex.: `hub-2026-q2`). Quando definida, frames recebidos **devem** trazer `signature.key_id` igual ao configurado — ausente ou divergente → `-32001` (`invalid_signature`). Sem essa env, o hub aceita assinaturas sem `key_id` (modo single-key, mais permissivo que o `payload-frame.schema.json` do agente). Use sempre que houver rotação ou múltiplas chaves activas. |
 
 ## Client thumbnail e password recovery
 
@@ -132,6 +134,25 @@ dedicado se for usado em UI com edição contínua.
 | `SOCKET_IO_TRANSPORTS` | ver tabela *production*; senão `websocket,polling` | Produção sem variável: só `websocket` (menos CPU/handshake). |
 | `SOCKET_IO_PER_MESSAGE_DEFLATE` | `false` | Evita deflate WS duplicado com `PayloadFrame`. |
 | `SOCKET_IO_MAX_HTTP_BUFFER_BYTES` | `10485760` | Teto alinhado a frames de 10 MiB. |
+
+## Validacao de `agent:register` (zod)
+
+O hub valida o payload `agent:register` recebido contra o schema zod
+`agentRegisterPayloadSchema` (`src/shared/validators/agent_register.ts`),
+alinhado a `agent.register.schema.json` do `plug_agente`:
+
+- `agentId` obrigatorio, string nao vazia (trim aplicado)
+- `timestamp` opcional para back-compat com agentes antigos; quando enviado,
+  precisa ser ISO-8601 valido
+- `capabilities` obrigatorio com `protocols`, `encodings`, `compressions`
+  (arrays nao vazios); `extensions` e `limits` defaultam a `{}` quando
+  ausentes
+- `profile` opcional (objeto livre, validado em sync downstream)
+
+Toda rejeicao sai pelo evento dedicado **`agent:register_error`** em **JSON
+puro** (NAO `PayloadFrame`) com `{ code, reason, message }`. Tabela completa
+de `reason` em `docs/api_rest_bridge.md` -> *Falhas de `agent:register` ate o
+ownership ser criado* e `docs/migracao_plug_agente_namespaces.md`.
 
 ## Ownership de agentes
 

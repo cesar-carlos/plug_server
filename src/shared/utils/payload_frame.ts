@@ -72,6 +72,13 @@ const PAYLOAD_FRAME_SIGNATURE_KEYS = new Set(["alg", "value", "key_id"]);
 const isNonNegativeInteger = (n: unknown): n is number =>
   typeof n === "number" && Number.isInteger(n) && Number.isFinite(n) && n >= 0;
 
+/**
+ * Structural shape check for the signature block. `key_id` is required by the
+ * upstream `payload-frame.schema.json`, but the hub also accepts signatures
+ * without `key_id` for legacy compatibility (see comment on
+ * `isPayloadFrameEnvelope`). Cryptographic enforcement of `key_id` happens in
+ * `validateFrameSignature` once the configured signing key id is known.
+ */
 const isValidPayloadFrameSignatureBlock = (sig: unknown): boolean => {
   if (typeof sig !== "object" || sig === null) {
     return false;
@@ -245,13 +252,22 @@ const validateFrameSignature = (
     );
   }
 
-  if (
-    env.payloadSigningKeyId &&
-    signature.key_id &&
-    signature.key_id.trim() !== "" &&
-    signature.key_id !== env.payloadSigningKeyId
-  ) {
-    return err(badRequest("PayloadFrame signature key_id mismatch"));
+  // When the hub is configured with a signing key id, peers MUST identify the
+  // key they used. This matches `payload-frame.schema.json` (key_id required)
+  // and protects against silent ambiguity during key rotation. We still accept
+  // missing key_id when the hub itself runs without `PAYLOAD_SIGNING_KEY_ID`,
+  // for backwards compatibility with single-key deployments.
+  if (env.payloadSigningKeyId && env.payloadSigningKeyId.trim() !== "") {
+    if (!signature.key_id || signature.key_id.trim() === "") {
+      return err(
+        badRequest(
+          "PayloadFrame signature is missing key_id but PAYLOAD_SIGNING_KEY_ID is configured",
+        ),
+      );
+    }
+    if (signature.key_id !== env.payloadSigningKeyId) {
+      return err(badRequest("PayloadFrame signature key_id mismatch"));
+    }
   }
 
   const expectedSignature = createHmac("sha256", env.payloadSigningKey)

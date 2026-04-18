@@ -83,6 +83,28 @@ No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
 - o sync de cadastro via `agent.getProfile` segue o estado de prontidao do protocolo
 - `lastLoginUserId` e apenas atributo operacional e nao substitui `AgentIdentity`
 
+### Falhas de `agent:register` ate o ownership ser criado
+
+Toda rejeicao do `agent:register` no hub sai pelo evento dedicado
+`agent:register_error` em **JSON puro** (NAO `PayloadFrame`), com o shape
+`{ code, reason, message }`. O agente usa `reason` para decidir entre
+**reagendar** o registo (`transient_failure`, `rate_limited`) ou **forcar
+reconexao** (demais valores).
+
+| `reason` | Codigo | Causa tipica |
+| -------- | ------ | ------------ |
+| `invalid_payload` | `-32009` | `PayloadFrame` nao decodifica (encoding, signature, tamanho) |
+| `invalid_request` | `-32600` | Schema zod do `agent:register` falhou (capabilities incompleto, etc.) |
+| `authentication_failed` | `-32001` | Token sem `agent_id` ou divergente do `agentId` enviado |
+| `unauthorized` | `-32002` | `agentId` ja pertence a outro `User` (`AGENT_ALREADY_LINKED`) ou outro bloqueio de ownership |
+| `rate_limited` | `-32013` | Reservado para futuras rejeicoes por taxa do `agent:register` |
+| `transient_failure` | `-32603` | Falha temporaria do hub que justifica retry |
+| `internal_error` | `-32603` | Erro inesperado nao categorizado |
+
+Implementacao: `src/presentation/socket/hub/agent_register_error.ts`. Cada
+emissao e logada como `agent_register_error_emitted` com `socketId`, `code`,
+`reason`, `message` e contexto (sem PII).
+
 As regras completas de ownership, `ClientAgentAccess`, aprovacao por owner,
 revogacao e autorizacao entre REST e Socket vivem em
 `docs/client_agent_business_rules.md`.
@@ -351,10 +373,13 @@ inclui identificadores, flags (`all_tables`, `all_views`, `all_permissions`),
 regras por recurso, estado de revogacao e `payload` com metadados (valores
 sensiveis podem ser redigidos no agente).
 
-Requer plug_agente com o metodo implementado (perfil **2.7+**). Com auth
-desativada no agente ou introspecao desativada (`enableClientTokenPolicyIntrospection`),
-o agente pode responder com erro `-32602` e `reason` especifico; rate limit do
-agente pode devolver `-32013` (`client_token_get_policy_rate_limited`). Ver
+Requer plug_agente com o metodo implementado (perfil **2.7+**, profile completo
+em **2.8**). Com auth desativada no agente ou introspecao desativada
+(`enableClientTokenPolicyIntrospection`), o agente pode responder com erro
+`-32602` e `reason` especifico; rate limit do agente pode devolver `-32013`
+(`client_token_get_policy_rate_limited`) com `error.data.retry_after_ms` e
+`reset_at` — o hub propaga automaticamente esses hints para o header HTTP
+`Retry-After` (ver secao *`Retry-After` derivado de erros RPC* acima). Ver
 `plug_agente/docs/communication/socket_communication_standard.md` e os JSON
 Schemas `rpc.params.client-token-get-policy.schema.json` /
 `rpc.result.client-token-get-policy.schema.json`.
@@ -966,6 +991,25 @@ o servidor inclui:
 - Header `Retry-After` (segundos)
 - `details.retry_after_ms` no body (ambiente nao-producao)
 
+### `Retry-After` derivado de erros RPC do agente (`-32013`)
+
+Mesmo em respostas HTTP `200` (proxy bem-sucedido + erro JSON-RPC no payload),
+o hub adiciona o header HTTP padrao `Retry-After` quando a resposta do agente
+inclui `error.code: -32013` (`rate_limited`) com:
+
+- `error.data.retry_after_ms` (milissegundos ate poder retentar), **ou**
+- `error.data.reset_at` (ISO-8601 do fim da janela)
+
+O valor e arredondado **para cima** em segundos (minimo `1`). Em batch
+JSON-RPC com varios `-32013`, o hub usa o **maior** valor para nao sugerir
+retry mais cedo do que o limite mais restrito.
+
+Esse caminho e especialmente util para o metodo `client_token.getPolicy` (perfil
+2.8 do `plug_agente`), que tem rate limit dedicado por `agent_id` + hash do
+credential. O cliente HTTP pode usar diretamente `Retry-After` para backoff
+sem precisar parsear o envelope JSON-RPC. Implementacao:
+`src/presentation/http/serializers/agent_rpc_retry_after.ts`.
+
 ### Controles de overload REST por agente
 
 | Variavel                              | Default | Descricao |
@@ -979,7 +1023,10 @@ o servidor inclui:
 | `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS` | `1000000` | Teto de linhas agregadas (resposta inicial + chunks) na materialização REST; `0` desativa (não recomendado em produção) |
 | `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `100000` | Teto de frames `rpc:chunk` na materialização; `0` = ilimitado |
 | `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES` | `268435456` | Teto agregado de bytes UTF-8 materializados (resposta inicial + chunks); protege contra linhas muito largas / JSONB grandes |
-| `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub |
+| `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub (HMAC-SHA256). |
+| `PAYLOAD_SIGNING_KEY_ID`              | *(vazio)* | Identificador da chave usada para assinar/verificar `PayloadFrame.signature.key_id`. Quando definida, frames recebidos **devem** trazer `signature.key_id` igual ao configurado; ausente ou divergente → `-32001` (`invalid_signature`). Sem essa env, o hub aceita assinaturas single-key sem `key_id`. |
+| `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame. |
+
 ### Headers de rate limit
 
 As rotas REST que usam `express-rate-limit` publicam `standardHeaders: true`,
@@ -1079,8 +1126,6 @@ Mudanças aplicadas no `app.ts` / middlewares para produção:
 - **`GET /api/v1/agents`** retorna apenas `{ agentId, userId, capabilities,
   connectedAt, lastSeenAt }` por agente; o `socketId` interno do Engine.IO
   deixou de ser exposto.
-
-| `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame |
 
 ---
 
@@ -1241,7 +1286,7 @@ deste arquivo e em `docs/socket_relay_protocol.md`.
 | `client_token.getPolicy`                   | implementado  | exposto         | -                                        |
 | PayloadFrame encode/decode                 | implementado  | transparente    | -                                        |
 | Compressao GZIP (modo **auto** por defeito; `payloadFrameCompression`) | implementado  | transparente    | cliente escolhe `default` / `none` / `always` no body REST ou envelope relay |
-| Assinatura de payload (HMAC-SHA256)        | implementado  | opcional saida  | verificacao de frames **do** agente quando assinados; assinatura **de saida** do hub com `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY` |
+| Assinatura de payload (HMAC-SHA256)        | implementado  | opcional saida  | verificacao de frames **do** agente quando assinados; assinatura **de saida** do hub com `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY`. Com `PAYLOAD_SIGNING_KEY_ID` configurado, `signature.key_id` passa a ser **obrigatorio** e validado (alinhado a `payload-frame.schema.json`) |
 | Token carrier (client_token/clientToken/auth) | implementado | validado     | -                                        |
 | Paginacao (page/page_size)                 | implementado  | exposto         | -                                        |
 | Paginacao (cursor keyset)                  | implementado  | exposto         | -                                        |
@@ -1252,9 +1297,9 @@ deste arquivo e em `docs/socket_relay_protocol.md`.
 | `options.execution_mode` (managed/preserve) | implementado  | validado        | -                                        |
 | `options.preserve_sql` (alias legado)       | implementado  | validado        | -                                        |
 | `options.transaction` (batch)               | implementado  | validado        | -                                        |
-| `api_version` no request                   | implementado  | exposto         | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.5"`; merge de `meta` |
+| `api_version` no request                   | implementado  | exposto         | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.5"` como fallback (o profile efetivo anunciado pelo hub e `plug-jsonrpc-profile/2.8`); merge de `meta` |
 | `meta` no request (trace_id, traceparent)  | implementado  | exposto         | hub faz merge preservando traceparent/tracestate; injeta request_id, agent_id, timestamp, trace_id |
-| `meta.outbound_compression` (`none` / `gzip` / `auto`) | implementado  | validado + OpenAPI | alinhado a `plug_agente` `rpc.request.schema.json`; influencia compressao agente→hub no `PayloadFrame` da resposta (e stream); em batch JSON-RPC todos os itens que definirem o campo devem usar o mesmo valor (regra do agente) |
+| `meta.outbound_compression` (`none` / `gzip` / `auto`) | **no-op** no runtime atual  | aceito + OpenAPI | aceito por forward-compat alinhado a `plug_agente` `rpc.request.schema.json`; o `socket_communication_standard.md` (v2.8, *Nota operacional*) declara explicitamente que o agente **nao** suporta override de compressao por request — o campo nao tem efeito no fio. Em batch JSON-RPC, se enviado, todos os itens devem usar o mesmo valor (regra futura do agente) |
 | `api_version` na response                  | implementado  | exposto         | serializer preserva `api_version` e `meta` do agente |
 | `meta` na response (agent_id, timestamp)   | implementado  | exposto         | serializer preserva `meta` do agente     |
 | Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 400    |

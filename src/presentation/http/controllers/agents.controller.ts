@@ -14,6 +14,7 @@ import { agentRegistry } from "../../socket/hub/agent_registry";
 import { agentsNamespace } from "../../../socket";
 import { dispatchRpcCommandToAgent } from "../../socket/hub/rpc_bridge";
 import { normalizeAgentRpcResponse } from "../serializers/agent_rpc_response.serializer";
+import { resolveAgentRpcRetryAfterSeconds } from "../serializers/agent_rpc_retry_after";
 import {
   toPublicConnectedAgents,
   type PublicConnectedAgent,
@@ -239,6 +240,14 @@ export const proxyCommandToAgent = async (
     incrementRestBridgeRequestSuccess();
     observeRestBridgeLatency(Date.now() - startMs);
     const tWriteOk = performance.now();
+    // Surface agent-side `-32013 / rate_limited` hints (notably from
+    // `client_token.getPolicy` per `socket_communication_standard.md` v2.8) as
+    // a standard HTTP `Retry-After` header so REST clients can back off
+    // without parsing the JSON-RPC error envelope.
+    const retryAfterSeconds = resolveAgentRpcRetryAfterSeconds(result.response);
+    if (retryAfterSeconds !== null) {
+      response.setHeader("Retry-After", String(retryAfterSeconds));
+    }
     response.status(200).json({
       mode: "bridge",
       agentId: body.agentId,
