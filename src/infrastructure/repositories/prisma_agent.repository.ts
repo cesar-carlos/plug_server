@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import { Prisma } from "@prisma/client";
 
-import { Agent } from "../../domain/entities/agent.entity";
+import { Agent, type AgentStatus } from "../../domain/entities/agent.entity";
 import type {
+  AgentAccessSnapshot,
   AgentListFilter,
   IAgentRepository,
   PaginatedAgentList,
@@ -29,6 +30,19 @@ export class PrismaAgentRepository implements IAgentRepository {
   async findById(agentId: string): Promise<Agent | null> {
     const record = await prismaClient.agent.findUnique({ where: { agentId } });
     return record ? this.toEntity(record) : null;
+  }
+
+  /**
+   * Hot-path projection: only `agentId` + `status`. Avoids fetching the wide
+   * profile/address columns on every access check.
+   */
+  async findAccessSnapshotById(agentId: string): Promise<AgentAccessSnapshot | null> {
+    const row = await prismaClient.agent.findUnique({
+      where: { agentId },
+      select: { agentId: true, status: true },
+    });
+    if (!row) return null;
+    return { agentId: row.agentId, status: row.status as AgentStatus };
   }
 
   async findByDocument(document: string): Promise<Agent | null> {

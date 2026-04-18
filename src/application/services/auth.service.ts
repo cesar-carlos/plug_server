@@ -6,7 +6,10 @@ import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import type { AdminSetUserStatusInput } from "../../domain/use_cases/admin_set_user_status.use_case";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
-import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
+import type {
+  IUserRepository,
+  UserActiveSnapshot,
+} from "../../domain/repositories/user.repository.interface";
 import type { AdminSetUserStatusUseCase } from "../../domain/use_cases/admin_set_user_status.use_case";
 import type { ApproveRegistrationUseCase } from "../../domain/use_cases/approve_registration.use_case";
 import type { ChangePasswordUseCase } from "../../domain/use_cases/change_password.use_case";
@@ -134,6 +137,32 @@ export class AuthService {
       return result;
     }
     return ok(undefined);
+  }
+
+  /**
+   * Hot-path equivalent of `getActiveAccountUser` that fetches only the columns
+   * needed to validate `status` and `credentials_version`. Used by socket auth
+   * (handshake + per-event guard) to avoid loading `password_hash` etc. on every
+   * relay/command. Same `forbidden`/`notFound`/`invalidToken` semantics.
+   */
+  async getActiveAccountUserSnapshot(
+    userId: string,
+    accessTokenCredentialsVersion?: number,
+  ): Promise<Result<UserActiveSnapshot>> {
+    const snapshot = await this.userRepository.findActiveSnapshotById(userId);
+    if (!snapshot) {
+      return err(notFound("User"));
+    }
+    if (snapshot.status === "blocked") {
+      return err(forbidden("Account is blocked"));
+    }
+    if (
+      typeof accessTokenCredentialsVersion === "number" &&
+      snapshot.credentialsUpdatedAt.getTime() > accessTokenCredentialsVersion
+    ) {
+      return err(invalidToken("Invalid or expired access token"));
+    }
+    return ok(snapshot);
   }
 
   async adminSetUserStatus(input: AdminSetUserStatusInput): Promise<Result<User>> {

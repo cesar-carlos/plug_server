@@ -20,6 +20,14 @@ export interface PendingRequest {
   readonly streamHandlers?: StreamEventHandlers;
   /** When true (REST bridge, single `sql.execute`), defer HTTP resolve until stream is merged via pull+chunks+complete. */
   readonly restStreamAggregate?: boolean;
+  /**
+   * Invoked exactly once when the agent's first `rpc:response` arrives carrying
+   * a `stream_id` and the request has been promoted to a streaming materialization.
+   * Lets the dispatcher release its per-agent inflight slot early so other REST
+   * commands to the same agent are not blocked by a long-running stream. The
+   * stream itself is then bounded by `SOCKET_RELAY_MAX_ACTIVE_STREAMS` etc.
+   */
+  readonly onStreamMaterializeStarted?: () => void;
   readonly latencyTrace?: BridgeLatencyTraceSession;
   acked: boolean;
 }

@@ -5,7 +5,10 @@ import {
 } from "@prisma/client";
 
 import { User, type UserStatus } from "../../domain/entities/user.entity";
-import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
+import type {
+  IUserRepository,
+  UserActiveSnapshot,
+} from "../../domain/repositories/user.repository.interface";
 import { conflict } from "../../shared/errors/http_errors";
 import { prismaClient } from "../database/prisma/client";
 
@@ -20,6 +23,34 @@ export class PrismaUserRepository implements IUserRepository {
     }
 
     return this.toDomain(user);
+  }
+
+  /**
+   * Hot-path projection: only the columns the active-account check needs.
+   * Avoids fetching `password_hash`, `email`, `celular`, etc. for every socket
+   * event.
+   */
+  async findActiveSnapshotById(id: string): Promise<UserActiveSnapshot | null> {
+    const row = await prismaClient.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        credentialsUpdatedAt: true,
+        role: true,
+      },
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      status: row.status as UserStatus,
+      credentialsUpdatedAt: row.credentialsUpdatedAt,
+      role: row.role,
+    };
   }
 
   async findByIds(ids: readonly string[]): Promise<User[]> {

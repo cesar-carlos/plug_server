@@ -38,7 +38,13 @@ describe("AuthService registration email retry", () => {
         sendUserApproved,
         sendUserRejected,
       } as never,
-      { findById: vi.fn(), findByEmail: vi.fn(), findByCelular: vi.fn(), save: vi.fn() } as never,
+      {
+        findById: vi.fn(),
+        findByEmail: vi.fn(),
+        findByCelular: vi.fn(),
+        findActiveSnapshotById: vi.fn(),
+        save: vi.fn(),
+      } as never,
     );
 
   beforeEach(() => {

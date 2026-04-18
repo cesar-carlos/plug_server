@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/presentation/socket/hub/rpc_bridge", () => ({
-  requestRelayStreamPull: vi.fn(),
+  prepareRelayStreamPull: vi.fn(),
 }));
 
 vi.mock("../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => ({
@@ -27,7 +27,7 @@ import {
   buildConnectionReadyPayloadForWire,
   CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER,
 } from "../../src/presentation/socket/hub/connection_ready_handshake";
-import { requestRelayStreamPull } from "../../src/presentation/socket/hub/rpc_bridge";
+import { prepareRelayStreamPull } from "../../src/presentation/socket/hub/rpc_bridge";
 import { allowRelayStreamPull } from "../../src/presentation/socket/hub/consumer_relay_rate_limiter";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { decodePayloadFrame, isPayloadFrameEnvelope } from "../../src/shared/utils/payload_frame";
@@ -54,11 +54,13 @@ describe("socket relay public contract", () => {
     }
   });
 
-  it("returns RATE_LIMITED stream pull responses with remaining credit metadata", async () => {
-    vi.mocked(requestRelayStreamPull).mockReturnValue({
+  it("returns RATE_LIMITED stream pull responses with remaining credit metadata without executing the pull", async () => {
+    const execute = vi.fn();
+    vi.mocked(prepareRelayStreamPull).mockResolvedValue({
       requestId: "req-1",
       streamId: "stream-1",
       windowSize: 64,
+      execute,
     });
     vi.mocked(allowRelayStreamPull).mockReturnValue({
       allowed: false,
@@ -100,5 +102,6 @@ describe("socket relay public contract", () => {
         scope: "user",
       },
     });
+    expect(execute).not.toHaveBeenCalled();
   });
 });

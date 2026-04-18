@@ -47,6 +47,7 @@ export const relayMetrics = {
   restSqlStreamMaterializeRowsMerged: 0,
   restMaterializeRowLimitExceeded: 0,
   restMaterializeChunkLimitExceeded: 0,
+  restMaterializeByteLimitExceeded: 0,
   requestTimeouts: 0,
   circuitOpenRejects: 0,
   /** `SOCKET_REST_MAX_PENDING_REQUESTS` cap before dispatch. */
@@ -206,6 +207,7 @@ export type RelayHubMetricsSnapshot = {
     readonly restSqlStreamMaterializeRowsMerged: number;
     readonly restMaterializeRowLimitExceeded: number;
     readonly restMaterializeChunkLimitExceeded: number;
+    readonly restMaterializeByteLimitExceeded: number;
     readonly requestTimeouts: number;
     readonly circuitOpenRejects: number;
     readonly restGlobalPendingCapRejected: number;
@@ -333,6 +335,7 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.restSqlStreamMaterializeRowsMerged = 0;
   relayMetrics.restMaterializeRowLimitExceeded = 0;
   relayMetrics.restMaterializeChunkLimitExceeded = 0;
+  relayMetrics.restMaterializeByteLimitExceeded = 0;
   relayMetrics.requestTimeouts = 0;
   relayMetrics.circuitOpenRejects = 0;
   relayMetrics.restGlobalPendingCapRejected = 0;

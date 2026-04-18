@@ -61,9 +61,21 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
 | `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `256` | Janela interna ao materializar `sql.execute` em stream no REST (menos round-trips com valores maiores). |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES` | `268435456` | Teto agregado de bytes UTF-8 materializados no REST (resposta inicial + chunks). Complementa o limite por linhas para proteger contra payloads JSONB muito largos. |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `100000` | Teto de `rpc:chunk` aceites na materialização REST. `0` continua a significar ilimitado, mas deixou de ser o default. |
 | `SOCKET_AUDIT_BATCH_MAX` | `48` | Eventos por transação na auditoria Socket (1 = um INSERT por evento). |
 | `SOCKET_AUDIT_BATCH_FLUSH_MS` | `200` | Intervalo máximo antes de flush do lote de auditoria. |
+| `SOCKET_AUDIT_MAX_QUEUE` | `50000` | Cap de eventos em memória antes de começar a descartar os mais antigos. Evita crescimento sem limite quando a BD atrasa. |
 | `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT` | ver tabela *production*; senão `100` | Percentagem de eventos de auditoria em `relay:rpc.chunk` persistidos. |
+
+## Guards e limites do consumer socket
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS` | `30000` | TTL do snapshot em `socket.data` usado para evitar round-trip à BD em cada evento do consumer. `0` desativa o cache. |
+| `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET` | `32` | Teto de operações assíncronas simultâneas por socket consumer (`agents:command`, `relay:rpc.request`, `agents:stream_pull`, `relay:rpc.stream.pull`). |
+| `SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION` | `1024` | Cap FIFO por conversa para o mapa de idempotência relay. |
+| `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES` | `100000` | Cap FIFO global para o mapa de idempotência relay. `0` desativa o teto global. |
 
 ## Manutencao de dados Agent
 

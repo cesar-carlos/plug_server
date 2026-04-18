@@ -4,6 +4,10 @@ import type { Prisma } from "@prisma/client";
 
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import { prismaClient } from "../../infrastructure/database/prisma/client";
+import {
+  MAINTENANCE_LOCK_IDS,
+  runWithAdvisoryLock,
+} from "../../infrastructure/database/advisory_lock";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
@@ -442,6 +446,118 @@ export const stopRegistrationEmailOutboxWorker = (): void => {
   clearInterval(outboxWorkerTimer);
   outboxWorkerTimer = null;
 };
+
+let outboxDeadLetterPruneTimer: NodeJS.Timeout | null = null;
+
+const outboxPruneMetrics = {
+  pruneRuns: 0,
+  pruneDeleted: 0,
+  pruneFailed: 0,
+};
+
+/**
+ * Permanently deletes outbox rows that hit `MAX_ATTEMPTS` (dead-lettered) and
+ * have been sitting that way for at least `retentionDays` days. Without this
+ * cleanup, dead rows accumulate forever — they're excluded from the claim CTE
+ * by the `attempts < MAX_ATTEMPTS` filter but still occupy disk and bloat
+ * indexes.
+ */
+export const pruneRegistrationOutboxDeadLetters = async (
+  retentionDays: number = env.registrationEmailOutboxDeadLetterRetentionDays,
+): Promise<number> => {
+  if (retentionDays <= 0) {
+    return 0;
+  }
+
+  outboxPruneMetrics.pruneRuns += 1;
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const maxAttempts = env.registrationEmailOutboxMaxAttempts;
+
+  return trackPendingOutboxOp(
+    (async () => {
+      try {
+        const result = await prismaClient.$executeRaw`
+          DELETE FROM registration_email_outbox
+          WHERE attempts >= ${maxAttempts}
+            AND updated_at < ${cutoff}
+        `;
+        const deleted = typeof result === "number" ? result : 0;
+        outboxPruneMetrics.pruneDeleted += deleted;
+        if (deleted > 0) {
+          logger.info("registration_email_outbox_dead_letters_pruned", {
+            deleted,
+            retentionDays,
+            maxAttempts,
+          });
+        }
+        return deleted;
+      } catch (error: unknown) {
+        if (isOutboxTableMissing(error)) {
+          outboxTableState = "missing";
+          if (!outboxTableMissingLogged) {
+            logger.warn("registration_email_outbox_table_missing", {
+              message: toErrorMessage(error),
+            });
+            outboxTableMissingLogged = true;
+          }
+          return 0;
+        }
+        outboxPruneMetrics.pruneFailed += 1;
+        logger.warn("registration_email_outbox_dead_letter_prune_failed", {
+          message: toErrorMessage(error),
+        });
+        return 0;
+      }
+    })(),
+  );
+};
+
+export const startRegistrationEmailOutboxDeadLetterScheduler = (): void => {
+  if (outboxDeadLetterPruneTimer) {
+    return;
+  }
+  if (env.registrationEmailOutboxDeadLetterRetentionDays <= 0) {
+    return;
+  }
+  if (env.nodeEnv === "test") {
+    return;
+  }
+
+  const intervalMs =
+    env.registrationEmailOutboxDeadLetterPruneIntervalMinutes * 60 * 1000;
+
+  // Multi-replica safe: the advisory lock ensures only one replica runs the
+  // DELETE per interval, even if all replicas tick concurrently.
+  const run = (): void => {
+    void runWithAdvisoryLock(
+      MAINTENANCE_LOCK_IDS.registrationOutboxDeadLetterPrune,
+      "registration_outbox_dead_letter_prune",
+      () => pruneRegistrationOutboxDeadLetters(),
+    );
+  };
+
+  run();
+  outboxDeadLetterPruneTimer = setInterval(run, intervalMs);
+  outboxDeadLetterPruneTimer.unref?.();
+};
+
+export const stopRegistrationEmailOutboxDeadLetterScheduler = (): void => {
+  if (!outboxDeadLetterPruneTimer) {
+    return;
+  }
+  clearInterval(outboxDeadLetterPruneTimer);
+  outboxDeadLetterPruneTimer = null;
+};
+
+export const getRegistrationEmailOutboxPruneMetricsSnapshot = (): {
+  readonly pruneRuns: number;
+  readonly pruneDeleted: number;
+  readonly pruneFailed: number;
+} => ({
+  pruneRuns: outboxPruneMetrics.pruneRuns,
+  pruneDeleted: outboxPruneMetrics.pruneDeleted,
+  pruneFailed: outboxPruneMetrics.pruneFailed,
+});
 
 export const waitForRegistrationEmailOutboxDrain = async (
   timeoutMs = 2_000,

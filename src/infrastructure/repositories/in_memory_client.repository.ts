@@ -1,11 +1,24 @@
 import type { Client } from "../../domain/entities/client.entity";
-import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
+import type {
+  ClientActiveSnapshot,
+  IClientRepository,
+} from "../../domain/repositories/client.repository.interface";
 
 export class InMemoryClientRepository implements IClientRepository {
   private readonly store = new Map<string, Client>();
 
   async findById(id: string): Promise<Client | null> {
     return this.store.get(id) ?? null;
+  }
+
+  async findActiveSnapshotById(id: string): Promise<ClientActiveSnapshot | null> {
+    const client = this.store.get(id);
+    if (!client) return null;
+    return {
+      id: client.id,
+      status: client.status,
+      credentialsUpdatedAt: client.credentialsUpdatedAt,
+    };
   }
 
   async findByEmail(email: string): Promise<Client | null> {

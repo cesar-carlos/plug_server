@@ -421,7 +421,7 @@ export class ClientAgentAccessService {
     const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
     if (!request) {
       await this.approvalTokenRepository.deleteById(tokenId);
-      return err(notFound("Access request not found"));
+      return err(notFound("Access request"));
     }
     if (isExpired(token.expiresAt)) {
       await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {
@@ -461,7 +461,7 @@ export class ClientAgentAccessService {
     const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
     if (!request) {
       await this.approvalTokenRepository.deleteById(tokenId);
-      return err(notFound("Access request not found"));
+      return err(notFound("Access request"));
     }
     if (isExpired(token.expiresAt)) {
       await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {

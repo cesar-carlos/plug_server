@@ -46,7 +46,10 @@ import {
   findRestPendingRequestByIds,
   getRestPendingRequestByCorrelationId,
 } from "./rest_pending_requests";
-import { getOrCreateRelayIdempotencyMap } from "./relay_idempotency_store";
+import {
+  getOrCreateRelayIdempotencyMap,
+  setRelayIdempotencyEntry,
+} from "./relay_idempotency_store";
 import { setRelayStreamFlowCredits, getRelayStreamForwardedRows } from "./relay_stream_flow_state";
 import {
   findRelayRequestRouteForAgentSocket,
@@ -382,8 +385,17 @@ export const createRpcBridgeAgentInboundHandlers = (
             );
             const materializeMaxRows = env.socketRestSqlStreamMaterializeMaxRows;
             const materializeMaxChunks = env.socketRestSqlStreamMaterializeMaxChunks;
+            const materializeMaxBytes = env.socketRestSqlStreamMaterializeMaxBytes;
             let aggregatedRowCount = countSqlExecuteResultRowsInEnvelope(initialJson);
+            let aggregatedByteCount = 0;
             let chunkFramesSeen = 0;
+            if (materializeMaxBytes > 0) {
+              try {
+                aggregatedByteCount = Buffer.byteLength(JSON.stringify(initialJson), "utf8");
+              } catch {
+                aggregatedByteCount = 0;
+              }
+            }
 
             if (materializeMaxRows > 0 && aggregatedRowCount > materializeMaxRows) {
               relayMetrics.restMaterializeRowLimitExceeded += 1;
@@ -441,6 +453,30 @@ export const createRpcBridgeAgentInboundHandlers = (
                   return;
                 }
 
+                if (materializeMaxBytes > 0) {
+                  let chunkBytes = 0;
+                  try {
+                    chunkBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
+                  } catch {
+                    chunkBytes = 0;
+                  }
+                  if (aggregatedByteCount + chunkBytes > materializeMaxBytes) {
+                    relayMetrics.restMaterializeByteLimitExceeded += 1;
+                    registerAgentFailure(pendingRequest.agentId);
+                    const route = getActiveStreamRouteByRequestId(primaryRequestId);
+                    if (route) {
+                      removeActiveStreamRoute(route, { restMaterialize: "detach" });
+                    }
+                    rejectOnce(
+                      serviceUnavailable(
+                        "REST SQL stream materialization exceeded configured byte limit (use Socket bridge for large streams)",
+                      ),
+                    );
+                    return;
+                  }
+                  aggregatedByteCount += chunkBytes;
+                }
+
                 aggregatedRowCount += chunkRows;
                 appendSqlStreamChunkRows(streamedRows, payload);
                 restSqlStreamMaterializeConsumeChunk(primaryRequestId, pullWindow, () => {
@@ -491,6 +527,11 @@ export const createRpcBridgeAgentInboundHandlers = (
             registerAgentSuccess(pendingRequest.agentId);
             observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
             clearRestPendingRequest(pendingRequest);
+            // The dispatcher has been holding a per-agent inflight slot since
+            // emit. Now that materialization is registered in the active stream
+            // registry (with its own caps), release the slot so other REST
+            // commands to the same agent are not blocked by long streams.
+            pendingRequest.onStreamMaterializeStarted?.();
 
             const route = getActiveStreamRouteByRequestId(primaryRequestId);
             if (route) {
@@ -575,11 +616,25 @@ export const createRpcBridgeAgentInboundHandlers = (
 
           if (relayRoute.clientRequestId) {
             const idempotencyMap = getOrCreateRelayIdempotencyMap(relayRoute.conversationId);
-            idempotencyMap.set(relayRoute.clientRequestId, {
+            const previousEntry = idempotencyMap.get(relayRoute.clientRequestId);
+            setRelayIdempotencyEntry(relayRoute.conversationId, relayRoute.clientRequestId, {
               requestId: relayRoute.requestId,
               expiresAtMs: Date.now() + relayIdempotencyTtlMs,
               responseFrame,
             });
+            // Drain any pending duplicate-request waiters that arrived while the
+            // original was in flight. Replay the response to each consumer.
+            const waiters = previousEntry?.pendingReplayConsumerSocketIds;
+            if (waiters && waiters.length > 0) {
+              for (const waiterSocketId of waiters) {
+                if (waiterSocketId === relayRoute.consumerSocketId) {
+                  // Original consumer already received the response above.
+                  continue;
+                }
+                emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, responseFrame);
+                relayMetrics.responsesForwarded += 1;
+              }
+            }
           }
 
           void recordSocketAuditEvent({

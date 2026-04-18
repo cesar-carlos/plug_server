@@ -5,7 +5,10 @@ import {
 } from "@prisma/client";
 
 import { Client, type ClientStatus } from "../../domain/entities/client.entity";
-import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
+import type {
+  ClientActiveSnapshot,
+  IClientRepository,
+} from "../../domain/repositories/client.repository.interface";
 import { conflict } from "../../shared/errors/http_errors";
 import { prismaClient } from "../database/prisma/client";
 
@@ -13,6 +16,32 @@ export class PrismaClientRepository implements IClientRepository {
   async findById(id: string): Promise<Client | null> {
     const client = await prismaClient.client.findUnique({ where: { id } });
     return client ? this.toDomain(client) : null;
+  }
+
+  /**
+   * Hot-path projection: only the columns the active-account check needs.
+   * Avoids fetching `password_hash`, profile/address blobs, and timestamps for
+   * every socket event.
+   */
+  async findActiveSnapshotById(id: string): Promise<ClientActiveSnapshot | null> {
+    const row = await prismaClient.client.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        credentialsUpdatedAt: true,
+      },
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      status: row.status as ClientStatus,
+      credentialsUpdatedAt: row.credentialsUpdatedAt,
+    };
   }
 
   async findByEmail(email: string): Promise<Client | null> {

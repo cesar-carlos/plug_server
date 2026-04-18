@@ -10,12 +10,17 @@ import { container } from "../../../shared/di/container";
 import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
 import { dispatchRpcCommandToAgent } from "../hub/rpc_bridge";
 import { normalizeAgentRpcResponse } from "../../http/serializers/agent_rpc_response.serializer";
+import { env } from "../../../shared/config/env";
 import { agentCommandBodySchema } from "../../../shared/validators/agent_command";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { allowAgentsCommandSocket } from "../hub/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
+import {
+  releaseSocketInflightSlot,
+  tryAcquireSocketInflightSlot,
+} from "./per_socket_inflight_gate";
 
 const emitCommandResponse = (
   socket: Socket,
@@ -67,6 +72,18 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   }
 
   const body = parsed.data;
+  if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
+    emitCommandResponse(socket, {
+      success: false,
+      error: {
+        code: "RATE_LIMITED",
+        message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
+    });
+    return;
+  }
+
   const latencyTrace = createBridgeLatencyTraceIfSampled({
     channel: "consumer_socket",
     userId: userSub,
@@ -83,7 +100,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
 
   void (async () => {
     try {
-      const principal = await assertConsumerSocketAgentAccess(socket.data.user, body.agentId);
+      const principal = await assertConsumerSocketAgentAccess(socket.data.user, body.agentId, socket);
 
       const result = await executeAuthorizedAgentCommand(
         {
@@ -165,6 +182,8 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
           ...(typeof statusCode === "number" ? { statusCode } : {}),
         },
       });
+    } finally {
+      releaseSocketInflightSlot(socket);
     }
   })();
 };

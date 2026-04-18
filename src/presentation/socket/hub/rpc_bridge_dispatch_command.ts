@@ -241,7 +241,19 @@ export const createDispatchRpcCommandToAgent = (
 
     input.latencyTrace?.addPhaseMs("dispatch_preflight_ms", performance.now() - dispatchWallStart);
     const tQueuePending = performance.now();
-    const releaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
+    const rawReleaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
+    // Idempotent release: callable both early (when the response is promoted to
+    // a streaming materialization, see PendingRequest.onStreamMaterializeStarted)
+    // and from the outer `finally`. Subsequent calls are no-ops, so we never
+    // over-decrement the per-agent inflight counter.
+    let agentSlotReleased = false;
+    const releaseAgentSlot = (): void => {
+      if (agentSlotReleased) {
+        return;
+      }
+      agentSlotReleased = true;
+      rawReleaseAgentSlot();
+    };
     input.latencyTrace?.addPhaseMs("queue_wait_ms", performance.now() - tQueuePending);
     try {
       let wireFrame: PayloadFrameEnvelope;
@@ -338,6 +350,7 @@ export const createDispatchRpcCommandToAgent = (
             ? { streamHandlers: input.streamHandlers }
             : {}),
           ...(restStreamAggregate ? { restStreamAggregate: true } : {}),
+          ...(restStreamAggregate ? { onStreamMaterializeStarted: releaseAgentSlot } : {}),
           ...(input.latencyTrace ? { latencyTrace: input.latencyTrace } : {}),
           acked: false,
         };

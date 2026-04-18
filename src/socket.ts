@@ -41,6 +41,7 @@ import {
   sweepRelayRateLimitState,
 } from "./presentation/socket/hub/consumer_relay_rate_limiter";
 import {
+  allowAgentsCommandSocket,
   clearAgentsCommandSocketRateLimitStateForSocketId,
   getAgentsCommandSocketRateLimitMetricsSnapshot,
   resetAgentsCommandSocketRateLimitState,
@@ -58,10 +59,19 @@ import {
   noteRelayOutboundQueueOverloadRejected,
   sweepRelayOutboundQueueState,
 } from "./presentation/socket/hub/relay_outbound_queue";
-import { handleRelayConversationStart } from "./presentation/socket/consumers/relay_conversation_start.handler";
+import {
+  handleRelayConversationStart,
+  parseRelayConversationStartEnvelope,
+} from "./presentation/socket/consumers/relay_conversation_start.handler";
 import { handleRelayConversationEnd } from "./presentation/socket/consumers/relay_conversation_end.handler";
-import { handleRelayRpcRequest } from "./presentation/socket/consumers/relay_rpc_request.handler";
-import { handleRelayRpcStreamPull } from "./presentation/socket/consumers/relay_rpc_stream_pull.handler";
+import {
+  handleRelayRpcRequest,
+  parseRelayRpcRequestEnvelope,
+} from "./presentation/socket/consumers/relay_rpc_request.handler";
+import {
+  handleRelayRpcStreamPull,
+  parseRelayRpcStreamPullEnvelope,
+} from "./presentation/socket/consumers/relay_rpc_stream_pull.handler";
 import { registerAgentProfileBroadcastHandler } from "./application/services/agent_profile_broadcast_sink";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { env } from "./shared/config/env";
@@ -776,6 +786,21 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.agentsStreamPull, (rawPayload: unknown) => {
+      // Legacy `agents:stream_pull` shares the consumer-facing budget of
+      // `agents:command` (same per-window quota) so an abusive client cannot
+      // bypass `agents:command` rate limits by issuing pulls instead.
+      const userSub = socket.data.user?.sub;
+      if (!allowAgentsCommandSocket(userSub, socket.id)) {
+        socket.emit(socketEvents.agentsStreamPullResponse, {
+          success: false,
+          error: {
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many agent stream pulls, please try again later.",
+            statusCode: 429,
+          },
+        });
+        return;
+      }
       handleAgentsStreamPull(socket, rawPayload);
     });
 
@@ -791,6 +816,17 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
             overload.retryAfterMs,
             overload.reason ?? "relay_outbound_queue",
           ),
+        });
+        return;
+      }
+
+      // Pre-validate envelope BEFORE consuming rate-limit budget; malformed
+      // payloads should not burn quota (self-DoS).
+      const envelope = parseRelayConversationStartEnvelope(rawPayload);
+      if (!envelope.success) {
+        socket.emit(socketEvents.relayConversationStarted, {
+          success: false,
+          error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
         });
         return;
       }
@@ -831,6 +867,16 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
+      // Pre-validate envelope BEFORE consuming rate-limit budget.
+      const envelope = parseRelayRpcRequestEnvelope(rawPayload);
+      if (!envelope.success) {
+        socket.emit(socketEvents.relayRpcAccepted, {
+          success: false,
+          error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
+        });
+        return;
+      }
+
       const userSub = socket.data.user?.sub;
       if (!allowRelayRpcRequest(userSub, socket.id)) {
         socket.emit(socketEvents.relayRpcAccepted, {
@@ -859,6 +905,18 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
             overload.retryAfterMs,
             overload.reason ?? "relay_outbound_queue",
           ),
+        });
+        return;
+      }
+
+      // Pre-validate envelope BEFORE entering the handler. Stream-pull credit
+      // rate limit lives inside the handler (after preparing the pull, before
+      // executing it), so envelope validation is the only pre-step here.
+      const envelope = parseRelayRpcStreamPullEnvelope(rawPayload);
+      if (!envelope.success) {
+        socket.emit(socketEvents.relayRpcStreamPullResponse, {
+          success: false,
+          error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
         });
         return;
       }

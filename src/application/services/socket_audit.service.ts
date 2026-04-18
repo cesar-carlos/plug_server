@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { prismaClient } from "../../infrastructure/database/prisma/client";
+import {
+  MAINTENANCE_LOCK_IDS,
+  runWithAdvisoryLock,
+} from "../../infrastructure/database/advisory_lock";
 import { socketEvents } from "../../shared/constants/socket_events";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
@@ -22,6 +26,7 @@ const auditMetrics = {
   writesFailed: 0,
   writesSkippedTableMissing: 0,
   writesSampleSkipped: 0,
+  writesDroppedOverflow: 0,
   pruneRuns: 0,
   pruneDeleted: 0,
   pruneFailed: 0,
@@ -137,6 +142,13 @@ const insertAuditEventRow = async (
   `;
 };
 
+/**
+ * Flushes a batch of queued audit events using a single multi-row INSERT
+ * (`prismaClient.auditEvent.createMany`). This replaces the previous loop of
+ * one INSERT per row inside a transaction (~Nx round-trips) with a single
+ * bulk write. createMany does not return generated columns, but the audit
+ * table is fire-and-forget so we don't need them.
+ */
 const performAuditFlush = async (): Promise<void> => {
   if (auditBatchDebounceTimer) {
     clearTimeout(auditBatchDebounceTimer);
@@ -155,10 +167,21 @@ const performAuditFlush = async (): Promise<void> => {
     await trackPendingAuditOperation(
       (async () => {
         try {
-          await prismaClient.$transaction(async (tx) => {
-            for (const row of batch) {
-              await insertAuditEventRow(tx, row);
-            }
+          await prismaClient.auditEvent.createMany({
+            data: batch.map((row) => ({
+              id: randomUUID(),
+              eventType: row.eventType,
+              actorSocketId: row.actorSocketId ?? null,
+              actorUserId: row.actorUserId ?? null,
+              actorRole: row.actorRole ?? null,
+              direction: row.direction ?? null,
+              conversationId: row.conversationId ?? null,
+              agentId: row.agentId ?? null,
+              requestId: row.requestId ?? null,
+              streamId: row.streamId ?? null,
+              traceId: row.traceId ?? null,
+              payloadJson: (row.payload ?? null) as Prisma.InputJsonValue,
+            })),
           });
           auditMetrics.writesSucceeded += batch.length;
         } catch (error: unknown) {
@@ -250,6 +273,14 @@ export const recordSocketAuditEvent = async (input: SocketAuditEventInput): Prom
     return;
   }
 
+  // Bounded queue: when the cap is hit, drop the OLDEST event (FIFO). This is
+  // preferable to dropping the new event because the older one was already
+  // overdue if we are this far behind.
+  const cap = env.socketAuditMaxQueue;
+  if (cap > 0 && auditEventQueue.length >= cap) {
+    auditEventQueue.shift();
+    auditMetrics.writesDroppedOverflow += 1;
+  }
   auditEventQueue.push(input);
   if (auditEventQueue.length >= env.socketAuditBatchMax) {
     queueAuditFlush();
@@ -362,8 +393,12 @@ export const startSocketAuditRetentionScheduler = (options?: {
   const intervalMs = options?.intervalMs ?? defaultRetentionIntervalMs;
   const batchSize = options?.batchSize ?? defaultPruneBatchSize;
 
+  // Each replica runs the same scheduler; the advisory lock ensures only one
+  // instance actually issues the DELETE batches. Others log at debug and skip.
   const run = (): void => {
-    void pruneSocketAuditOlderThanDays(retentionDays, { batchSize });
+    void runWithAdvisoryLock(MAINTENANCE_LOCK_IDS.socketAuditPrune, "socket_audit_prune", () =>
+      pruneSocketAuditOlderThanDays(retentionDays, { batchSize }),
+    );
   };
 
   run();
@@ -401,6 +436,7 @@ export const getSocketAuditMetricsSnapshot = (): {
   readonly writesFailed: number;
   readonly writesSkippedTableMissing: number;
   readonly writesSampleSkipped: number;
+  readonly writesDroppedOverflow: number;
   readonly pruneRuns: number;
   readonly pruneDeleted: number;
   readonly pruneFailed: number;
@@ -412,6 +448,7 @@ export const getSocketAuditMetricsSnapshot = (): {
   writesFailed: auditMetrics.writesFailed,
   writesSkippedTableMissing: auditMetrics.writesSkippedTableMissing,
   writesSampleSkipped: auditMetrics.writesSampleSkipped,
+  writesDroppedOverflow: auditMetrics.writesDroppedOverflow,
   pruneRuns: auditMetrics.pruneRuns,
   pruneDeleted: auditMetrics.pruneDeleted,
   pruneFailed: auditMetrics.pruneFailed,

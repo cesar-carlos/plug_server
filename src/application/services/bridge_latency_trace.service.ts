@@ -1,6 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
 import { prismaClient } from "../../infrastructure/database/prisma/client";
+import {
+  MAINTENANCE_LOCK_IDS,
+  runWithAdvisoryLock,
+} from "../../infrastructure/database/advisory_lock";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
@@ -133,13 +137,30 @@ const performFlush = async (): Promise<void> => {
     await trackPending(
       (async () => {
         try {
-          if (env.bridgeLatencyTraceBatchMax <= 1) {
+          if (batch.length === 1) {
             await insertRow(prismaClient, batch[0] as BridgeLatencyTraceRowInput);
           } else {
-            await prismaClient.$transaction(async (tx) => {
-              for (const row of batch) {
-                await insertRow(tx, row);
-              }
+            // Single multi-row INSERT replaces the previous loop of N
+            // individual `create()` calls inside a transaction. createMany
+            // does not return generated columns; we already provide `id`
+            // explicitly in the row builder.
+            await prismaClient.bridgeLatencyTrace.createMany({
+              data: batch.map((row) => ({
+                id: row.id,
+                channel: row.channel,
+                requestId: row.requestId,
+                traceId: row.traceId,
+                agentId: row.agentId,
+                userId: row.userId,
+                jsonRpcMethod: row.jsonRpcMethod,
+                totalMs: row.totalMs,
+                phasesSumMs: row.phasesSumMs,
+                phasesSchemaVersion: row.phasesSchemaVersion,
+                phasesMs: row.phasesMs as Prisma.InputJsonValue,
+                outcome: row.outcome,
+                httpStatus: row.httpStatus,
+                errorCode: row.errorCode,
+              })),
             });
           }
           traceMetrics.writesSucceeded += batch.length;
@@ -388,8 +409,14 @@ export const startBridgeLatencyTraceRetentionScheduler = (options?: {
     options?.intervalMs ?? env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000;
   const batchSize = options?.batchSize ?? env.bridgeLatencyTracePruneBatchSize;
 
+  // Multi-replica coordination: only the replica that wins the advisory lock
+  // actually issues DELETE batches; others log at debug and skip.
   const run = (): void => {
-    void pruneBridgeLatencyTracesOlderThanDays({ batchSize });
+    void runWithAdvisoryLock(
+      MAINTENANCE_LOCK_IDS.bridgeLatencyTracePrune,
+      "bridge_latency_trace_prune",
+      () => pruneBridgeLatencyTracesOlderThanDays({ batchSize }),
+    );
   };
 
   run();

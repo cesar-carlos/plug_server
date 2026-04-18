@@ -43,7 +43,10 @@ import {
 import { agentRegistry } from "./agent_registry";
 import { enqueueRelayOutbound } from "./relay_outbound_queue";
 import { conversationRegistry } from "./conversation_registry";
-import { getOrCreateRelayIdempotencyMap } from "./relay_idempotency_store";
+import {
+  getOrCreateRelayIdempotencyMap,
+  setRelayIdempotencyEntry,
+} from "./relay_idempotency_store";
 import { setRelayStreamFlowCredits, ensureRelayStreamFlowEntry } from "./relay_stream_flow_state";
 import type { RelayRequestRoute } from "./relay_request_registry";
 import {
@@ -65,6 +68,7 @@ import {
   type EmitToConsumerFn,
 } from "./rpc_bridge_relay_stream";
 import type {
+  PreparedAgentStreamPull,
   RequestAgentStreamPullInput,
   RequestAgentStreamPullResult,
 } from "./rpc_bridge_stream_pull";
@@ -95,6 +99,14 @@ export interface DispatchRelayRpcResult {
   readonly clientRequestId?: string;
   readonly deduplicated?: boolean;
   readonly replayed?: boolean;
+  /**
+   * `true` when this request was deduplicated against an earlier request with the
+   * same `client_request_id` whose response has not yet arrived. The hub will
+   * automatically forward the eventual `relay:rpc.response` to this consumer too,
+   * so clients should NOT retry — they should keep waiting on the original
+   * request id. `replayed` will be `false` when `inFlight` is `true`.
+   */
+  readonly inFlight?: boolean;
 }
 
 export interface RequestRelayStreamPullInput {
@@ -106,15 +118,29 @@ export interface RequestRelayStreamPullInput {
 export interface RpcBridgeRelayDispatchDeps {
   readonly getAgentsNamespace: () => Namespace | null;
   readonly emitToConsumer: EmitToConsumerFn;
-  readonly requestAgentStreamPull: (
-    input: RequestAgentStreamPullInput,
-  ) => RequestAgentStreamPullResult;
+  readonly prepareAgentStreamPull: (input: RequestAgentStreamPullInput) => PreparedAgentStreamPull;
+}
+
+/**
+ * Side-effect-free preview of a `relay:rpc.stream.pull` request.
+ * Decodes the consumer frame, resolves the relay route, and computes the effective
+ * `windowSize` so the caller can apply quotas / rate limits before invoking
+ * `execute()`, which actually emits the pull to the agent and grants flow credits.
+ */
+export interface PreparedRelayStreamPull {
+  readonly requestId: string;
+  readonly streamId: string;
+  readonly windowSize: number;
+  readonly execute: () => RequestAgentStreamPullResult;
 }
 
 export type RpcBridgeRelayDispatchHandlers = {
   readonly dispatchRelayRpcToAgent: (
     input: DispatchRelayRpcInput,
   ) => Promise<DispatchRelayRpcResult>;
+  readonly prepareRelayStreamPull: (
+    input: RequestRelayStreamPullInput,
+  ) => Promise<PreparedRelayStreamPull>;
   readonly requestRelayStreamPull: (
     input: RequestRelayStreamPullInput,
   ) => Promise<RequestAgentStreamPullResult>;
@@ -123,7 +149,7 @@ export type RpcBridgeRelayDispatchHandlers = {
 export const createRpcBridgeRelayDispatch = (
   deps: RpcBridgeRelayDispatchDeps,
 ): RpcBridgeRelayDispatchHandlers => {
-  const { getAgentsNamespace, emitToConsumer, requestAgentStreamPull } = deps;
+  const { getAgentsNamespace, emitToConsumer, prepareAgentStreamPull } = deps;
 
   const dispatchRelayRpcToAgent = async (
     input: DispatchRelayRpcInput,
@@ -178,7 +204,7 @@ export const createRpcBridgeRelayDispatch = (
 
     const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
     if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
-      throw notFound("Conversation not found");
+      throw notFound("Conversation");
     }
     const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(conversation.agentId);
     const clamped = clampCommandMaxRows(normalizedCommand, effectivePolicy.maxRows);
@@ -247,10 +273,20 @@ export const createRpcBridgeRelayDispatch = (
           };
         }
 
+        // Original request is still in flight. Register this consumer as a
+        // pending replay target so that when the response arrives, it is
+        // forwarded to this socket too. Avoid duplicates within the list.
+        const waiters =
+          existing.pendingReplayConsumerSocketIds ??
+          (existing.pendingReplayConsumerSocketIds = []);
+        if (!waiters.includes(conversation.consumerSocketId)) {
+          waiters.push(conversation.consumerSocketId);
+        }
         return {
           requestId: existing.requestId,
           clientRequestId,
           deduplicated: true,
+          inFlight: true,
         };
       }
     }
@@ -385,7 +421,7 @@ export const createRpcBridgeRelayDispatch = (
     }
 
     if (clientRequestId) {
-      idempotencyMap?.set(clientRequestId, {
+      setRelayIdempotencyEntry(conversation.conversationId, clientRequestId, {
         requestId,
         expiresAtMs: Date.now() + relayIdempotencyTtlMs,
       });
@@ -400,9 +436,9 @@ export const createRpcBridgeRelayDispatch = (
     };
   };
 
-  const requestRelayStreamPull = async (
+  const prepareRelayStreamPull = async (
     input: RequestRelayStreamPullInput,
-  ): Promise<RequestAgentStreamPullResult> => {
+  ): Promise<PreparedRelayStreamPull> => {
     const tDecode = performance.now();
     const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
     observeRelayFrameDecode(performance.now() - tDecode);
@@ -422,7 +458,7 @@ export const createRpcBridgeRelayDispatch = (
 
     const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
     if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
-      throw notFound("Conversation not found");
+      throw notFound("Conversation");
     }
 
     const requestId = toRequestId(payload.request_id);
@@ -436,7 +472,7 @@ export const createRpcBridgeRelayDispatch = (
       throw badRequest("relay:rpc.stream.pull window_size must be a positive number");
     }
 
-    const result = requestAgentStreamPull({
+    const prepared = prepareAgentStreamPull({
       consumerSocketId: input.consumerSocketId,
       conversationId: input.conversationId,
       ...(requestId ? { requestId } : {}),
@@ -446,12 +482,28 @@ export const createRpcBridgeRelayDispatch = (
         : {}),
     });
 
-    conversationRegistry.touchInternal(conversation.conversationId);
-    return result;
+    return {
+      requestId: prepared.requestId,
+      streamId: prepared.streamId,
+      windowSize: prepared.windowSize,
+      execute: () => {
+        const result = prepared.execute();
+        conversationRegistry.touchInternal(conversation.conversationId);
+        return result;
+      },
+    };
+  };
+
+  const requestRelayStreamPull = async (
+    input: RequestRelayStreamPullInput,
+  ): Promise<RequestAgentStreamPullResult> => {
+    const prepared = await prepareRelayStreamPull(input);
+    return prepared.execute();
   };
 
   return {
     dispatchRelayRpcToAgent,
+    prepareRelayStreamPull,
     requestRelayStreamPull,
   };
 };

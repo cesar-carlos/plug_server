@@ -2,19 +2,42 @@ import type { Socket } from "socket.io";
 import { z } from "zod";
 
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
-import { requestRelayStreamPull } from "../hub/rpc_bridge";
+import { prepareRelayStreamPull } from "../hub/rpc_bridge";
 import { AppError } from "../../../shared/errors/app_error";
+import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
+import { conversationIdSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { allowRelayStreamPull } from "../hub/consumer_relay_rate_limiter";
 import { conversationRegistry } from "../hub/conversation_registry";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
+import {
+  releaseSocketInflightSlot,
+  tryAcquireSocketInflightSlot,
+} from "./per_socket_inflight_gate";
 
-const relayStreamPullEnvelopeSchema = z.object({
-  conversationId: nonEmptyStringSchema,
+export const relayStreamPullEnvelopeSchema = z.object({
+  conversationId: conversationIdSchema,
   frame: z.unknown(),
 });
+
+export type RelayRpcStreamPullEnvelope = z.infer<typeof relayStreamPullEnvelopeSchema>;
+
+export const parseRelayRpcStreamPullEnvelope = (
+  rawPayload: unknown,
+):
+  | { success: true; data: RelayRpcStreamPullEnvelope }
+  | { success: false; errorMessage: string } => {
+  const parsed = relayStreamPullEnvelopeSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const message = firstIssue
+      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
+      : "Validation failed";
+    return { success: false, errorMessage: message };
+  }
+  return { success: true, data: parsed.data };
+};
 
 type RelayStreamPullResponsePayload =
   | {
@@ -50,15 +73,24 @@ export const handleRelayRpcStreamPull = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
 ): void => {
-  const parsed = relayStreamPullEnvelopeSchema.safeParse(rawPayload);
-  if (!parsed.success) {
-    const firstIssue = parsed.error.issues[0];
-    const message = firstIssue
-      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
-      : "Validation failed";
+  const envelope = parseRelayRpcStreamPullEnvelope(rawPayload);
+  if (!envelope.success) {
     emitRelayStreamPullResponse(socket, {
       success: false,
-      error: { code: "VALIDATION_ERROR", message },
+      error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
+    });
+    return;
+  }
+  const parsed = { success: true as const, data: envelope.data };
+
+  if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
+    emitRelayStreamPullResponse(socket, {
+      success: false,
+      error: {
+        code: "RATE_LIMITED",
+        message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
     });
     return;
   }
@@ -72,16 +104,16 @@ export const handleRelayRpcStreamPull = (
         throw new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 });
       }
 
-      await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId);
+      await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId, socket);
 
-      const result = await requestRelayStreamPull({
+      const prepared = await prepareRelayStreamPull({
         consumerSocketId: socket.id,
         conversationId: parsed.data.conversationId,
         rawFramePayload: parsed.data.frame,
       });
 
       const userSub = socket.data.user?.sub;
-      const allowance = allowRelayStreamPull(userSub, socket.id, result.windowSize);
+      const allowance = allowRelayStreamPull(userSub, socket.id, prepared.windowSize);
       if (!allowance.allowed) {
         emitRelayStreamPullResponse(socket, {
           success: false,
@@ -98,6 +130,8 @@ export const handleRelayRpcStreamPull = (
         });
         return;
       }
+
+      const result = prepared.execute();
 
       emitRelayStreamPullResponse(socket, {
         success: true,
@@ -139,6 +173,8 @@ export const handleRelayRpcStreamPull = (
           ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
         },
       });
+    } finally {
+      releaseSocketInflightSlot(socket);
     }
   })();
 };

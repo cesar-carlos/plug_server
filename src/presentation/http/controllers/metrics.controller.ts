@@ -330,6 +330,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
   lines.push(
+    metricLine(
+      "plug_rest_sql_stream_materialize_byte_limit_exceeded_total",
+      relay.counters.restMaterializeByteLimitExceeded,
+    ),
+  );
+  lines.push(
     metricLine("plug_socket_relay_request_timeouts_total", relay.counters.requestTimeouts),
   );
   lines.push(

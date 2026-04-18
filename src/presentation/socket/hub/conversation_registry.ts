@@ -106,6 +106,44 @@ class InMemoryConversationRegistry {
     return this.toPublic(conversation);
   }
 
+  /**
+   * Atomically check global + per-consumer caps and create a conversation.
+   * Replaces the racy `count + create` pattern in
+   * `relay_conversation_start.handler.ts`. Returns either the created
+   * conversation OR a typed reason explaining which cap was hit.
+   *
+   * Both the cap check and the insert run synchronously inside Node's
+   * event loop, so concurrent calls cannot exceed either cap.
+   */
+  tryReserveAndCreate(input: {
+    readonly consumerSocketId: string;
+    readonly agentSocketId: string;
+    readonly agentId: string;
+    readonly conversationId?: string;
+    readonly maxTotal: number;
+    readonly maxPerConsumer: number;
+  }):
+    | { readonly ok: true; readonly conversation: RelayConversation }
+    | { readonly ok: false; readonly reason: "global_cap_reached" | "consumer_cap_reached" } {
+    if (this.conversations.size >= input.maxTotal) {
+      return { ok: false, reason: "global_cap_reached" };
+    }
+    if (
+      (this.conversationsByConsumerSocket.get(input.consumerSocketId)?.size ?? 0) >=
+      input.maxPerConsumer
+    ) {
+      return { ok: false, reason: "consumer_cap_reached" };
+    }
+
+    const conversation = this.create({
+      consumerSocketId: input.consumerSocketId,
+      agentSocketId: input.agentSocketId,
+      agentId: input.agentId,
+      ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
+    });
+    return { ok: true, conversation };
+  }
+
   findByConversationId(conversationId: string): RelayConversation | null {
     const internal = this.conversations.get(conversationId);
     return internal ? this.toPublic(internal) : null;

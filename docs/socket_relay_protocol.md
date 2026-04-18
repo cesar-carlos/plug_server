@@ -86,7 +86,7 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 - `relay:conversation.started` -> `{ success, conversationId, agentId, createdAt }` ou erro
 - `relay:conversation.end` -> `{ conversationId }`
 - `relay:conversation.ended` -> `{ success, conversationId, reason }` ou erro
-- `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`)
+- `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`, `inFlight`)
 - `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`, `rateLimit`) ou erro
 
 ## Contrato RPC e metodos suportados
@@ -99,7 +99,7 @@ O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 **Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
 
-O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). Payloads
+O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). Essa validacao acontece **antes** de consumir o orçamento do rate limit por consumer, para que payloads malformados nao queimem quota. Payloads
 invalidos retornam erro `VALIDATION_ERROR` em `relay:rpc.accepted`. O relay **nao**
 suporta batch JSON-RPC (array); envie um unico request por `relay:rpc.request`.
 
@@ -160,6 +160,22 @@ Regras atuais no servidor:
 - Respostas `relay:rpc.response/chunk/complete` correlacionam pelo `requestId`
   interno da conversa.
 
+### Semantica de idempotencia (`relay:rpc.accepted`)
+
+Quando um `client_request_id` chega repetido **na mesma conversa** dentro do TTL:
+
+- se a resposta original ja foi persistida no mapa de idempotencia, o hub devolve
+  `deduplicated: true, replayed: true` e reenvia imediatamente o mesmo
+  `relay:rpc.response`;
+- se a request original **ainda esta em voo**, o hub devolve
+  `deduplicated: true, inFlight: true` (sem `replayed`) e **regista o socket
+  duplicado como waiter**; quando a resposta real chegar, o hub reenviara o
+  mesmo `relay:rpc.response` para todos os waiters dessa conversa.
+
+Em outras palavras: quando `inFlight: true`, o cliente **nao** deve repetir a
+request nem abrir nova conversa; deve apenas esperar o `relay:rpc.response`
+correspondente ao `requestId` original.
+
 ## Isolamento por conversa
 
 - Cada conversa possui `conversationId`.
@@ -176,13 +192,16 @@ Regras atuais no servidor:
 ## Confiabilidade e desempenho aplicados
 
 - Idempotencia por conversa: requests com mesmo `client_request_id` na mesma
-  conversa sao deduplicadas por TTL.
+  conversa sao deduplicadas por TTL. Duplicatas em voo recebem
+  `relay:rpc.accepted` com `inFlight: true` e sao replayadas quando a resposta
+  original chega.
 - Timeout de relay request: quando o agente nao responde no prazo, o servidor
   devolve erro JSON-RPC no `relay:rpc.response`.
 - Circuit breaker por agente: falhas consecutivas abrem circuito por janela
   curta, bloqueando novas requests temporariamente.
 - Backpressure reforcado: chunks no relay respeitam creditos de
-  `relay:rpc.stream.pull`.
+  `relay:rpc.stream.pull`, e o orçamento de creditos do consumer e validado
+  **antes** de o hub conceder novos credits/pulls ao agente.
 - Buffer com limites: chunks sao bufferizados por request e globalmente com cap
   de memoria para evitar explosao de uso; se o agente exceder esse buffer, o hub
   fecha o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`)
@@ -213,6 +232,8 @@ Variaveis principais do relay:
 - `SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST`
 - `SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS`
 - `SOCKET_RELAY_IDEMPOTENCY_TTL_MS`
+- `SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION`
+- `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES`
 - `SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD`
 - `SOCKET_RELAY_CIRCUIT_OPEN_MS`
 - `SOCKET_RELAY_METRICS_LOG_INTERVAL_MS`
@@ -243,6 +264,11 @@ Métricas Prometheus em `GET /metrics`: `plug_socket_relay_rate_limit_conversati
 ```
 
 Quando o orçamento estoura, o hub responde com `success: false`, `error.code = "RATE_LIMITED"` e preserva o bloco `rateLimit` com o saldo restante.
+
+Separadamente do orçamento de relay, handlers consumer (`agents:command`,
+`relay:rpc.request`, `agents:stream_pull`, `relay:rpc.stream.pull`) tambem
+respeitam `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`. Acima desse teto o hub
+responde `RATE_LIMITED` imediatamente, sem entrar na bridge.
 
 ### Shed load em `/consumers`
 

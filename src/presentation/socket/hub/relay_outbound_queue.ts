@@ -222,12 +222,29 @@ export const sweepRelayOutboundQueueState = (nowMs = Date.now()): number => {
   return swept;
 };
 
+/**
+ * Maximum age (ms) of `overloadStateCache.p95Ms` before
+ * `getRelayOutboundQueueOverloadState` triggers an on-demand refresh.
+ * Bounds shedding lag without re-computing percentiles on every event.
+ */
+const OVERLOAD_STATE_MAX_STALE_MS = 1_000;
+
 export const getRelayOutboundQueueOverloadState = (): {
   readonly overloaded: boolean;
   readonly reason: "backlog" | "p95_latency" | null;
   readonly retryAfterMs: number;
   readonly snapshot: RelayOutboundQueueMetricsSnapshot;
 } => {
+  // Lazy refresh: if the percentile cache is older than the staleness budget,
+  // recompute now. This keeps shedding-by-p95 reactive (within 1s) without
+  // requiring a percentile recomputation on every relay event.
+  const nowMs = Date.now();
+  if (
+    env.socketRelayOutboundOverloadP95Ms > 0 &&
+    nowMs - overloadStateCache.computedAtMs >= OVERLOAD_STATE_MAX_STALE_MS
+  ) {
+    refreshRelayOutboundQueueOverloadState(nowMs);
+  }
   const snapshot = getFastMetricsSnapshot();
   return {
     overloaded: overloadStateCache.overloaded,

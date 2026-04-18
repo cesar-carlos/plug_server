@@ -8,6 +8,13 @@ Este documento consolida melhorias sugeridas que **nao** estao implementadas de 
 
 O bridge REST e parte do relay mantem **correlacao e filas em memoria** por processo. Varias replicas sem afinidade de sessao ou store partilhado podem perder pedidos pendentes ou duplicar comportamento estranho. Num **unico** processo, afina primeiro throughput com os presets em `docs/performance_hub_agent.md` antes de investir em store partilhado.
 
+Importante: jobs de manutencao **ja** estao coordenados por advisory lock
+(prune de `audit_events`, prune de `bridge_latency_traces`, manutencao de
+perfil de agente, sweep de expiracao `client_agent_access` e prune de dead
+letters do outbox). Ou seja: multi-instancia continua delicado para estado em
+memoria do bridge/relay, mas **nao** duplica mais o trabalho dos schedulers de
+retencao/prune.
+
 **Caminhos possiveis:**
 
 1. **Uma instancia** ou **sticky sessions** ao mesmo processo que trata o Socket do agente.

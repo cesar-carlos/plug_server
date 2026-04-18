@@ -5,18 +5,25 @@ import { createBridgeLatencyTraceIfSampled } from "../../../application/services
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { dispatchRelayRpcToAgent } from "../hub/rpc_bridge";
 import { AppError } from "../../../shared/errors/app_error";
+import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
+import { conversationIdSchema } from "../../../shared/validators/schemas";
 import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { conversationRegistry } from "../hub/conversation_registry";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
+import {
+  releaseSocketInflightSlot,
+  tryAcquireSocketInflightSlot,
+} from "./per_socket_inflight_gate";
 
-const relayRpcEnvelopeSchema = z.object({
-  conversationId: nonEmptyStringSchema,
+export const relayRpcEnvelopeSchema = z.object({
+  conversationId: conversationIdSchema,
   frame: z.unknown(),
   payloadFrameCompression: payloadFrameCompressionSchema.optional(),
 });
+
+export type RelayRpcRequestEnvelope = z.infer<typeof relayRpcEnvelopeSchema>;
 
 type RelayRpcAcceptedPayload =
   | {
@@ -26,6 +33,7 @@ type RelayRpcAcceptedPayload =
       clientRequestId?: string;
       deduplicated?: boolean;
       replayed?: boolean;
+      inFlight?: boolean;
     }
   | { success: false; error: { code: string; message: string; statusCode?: number } };
 
@@ -33,19 +41,44 @@ const emitRelayRpcAccepted = (socket: Socket, payload: RelayRpcAcceptedPayload):
   socket.emit(socketEvents.relayRpcAccepted, payload);
 };
 
-export const handleRelayRpcRequest = (
-  socket: Socket & { data: { user?: JwtAccessPayload } },
+export const parseRelayRpcRequestEnvelope = (
   rawPayload: unknown,
-): void => {
+):
+  | { success: true; data: RelayRpcRequestEnvelope }
+  | { success: false; errorMessage: string } => {
   const parsed = relayRpcEnvelopeSchema.safeParse(rawPayload);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
     const message = firstIssue
       ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
       : "Validation failed";
+    return { success: false, errorMessage: message };
+  }
+  return { success: true, data: parsed.data };
+};
+
+export const handleRelayRpcRequest = (
+  socket: Socket & { data: { user?: JwtAccessPayload } },
+  rawPayload: unknown,
+): void => {
+  const envelope = parseRelayRpcRequestEnvelope(rawPayload);
+  if (!envelope.success) {
     emitRelayRpcAccepted(socket, {
       success: false,
-      error: { code: "VALIDATION_ERROR", message },
+      error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
+    });
+    return;
+  }
+  const parsed = { success: true as const, data: envelope.data };
+
+  if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
+    emitRelayRpcAccepted(socket, {
+      success: false,
+      error: {
+        code: "RATE_LIMITED",
+        message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
     });
     return;
   }
@@ -65,7 +98,7 @@ export const handleRelayRpcRequest = (
         throw new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 });
       }
 
-      await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId);
+      await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId, socket);
 
       const result = await dispatchRelayRpcToAgent({
         conversationId: parsed.data.conversationId,
@@ -84,6 +117,7 @@ export const handleRelayRpcRequest = (
         ...(result.clientRequestId ? { clientRequestId: result.clientRequestId } : {}),
         ...(result.deduplicated ? { deduplicated: true } : {}),
         ...(result.replayed ? { replayed: true } : {}),
+        ...(result.inFlight ? { inFlight: true } : {}),
       });
 
       const actorRole = resolveSocketActorRole(socket.data.user);
@@ -124,6 +158,8 @@ export const handleRelayRpcRequest = (
           ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
         },
       });
+    } finally {
+      releaseSocketInflightSlot(socket);
     }
   })();
 };

@@ -15,8 +15,14 @@ import {
   waitForBridgeLatencyTraceDrain,
 } from "./application/services/bridge_latency_trace.service";
 import {
+  startBridgeLatencyTraceRollupScheduler,
+  stopBridgeLatencyTraceRollupScheduler,
+} from "./application/services/bridge_latency_trace_rollup.service";
+import {
   flushRegistrationEmailOutbox,
+  startRegistrationEmailOutboxDeadLetterScheduler,
   startRegistrationEmailOutboxWorker,
+  stopRegistrationEmailOutboxDeadLetterScheduler,
   stopRegistrationEmailOutboxWorker,
   waitForRegistrationEmailOutboxDrain,
 } from "./application/services/registration_email_outbox.service";
@@ -46,6 +52,7 @@ startBridgeLatencyTraceRetentionScheduler({
   intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
   batchSize: env.bridgeLatencyTracePruneBatchSize,
 });
+startBridgeLatencyTraceRollupScheduler();
 startAgentProfileMaintenanceScheduler({
   intervalMs: env.agentProfileMaintenanceIntervalMinutes * 60 * 1000,
   batchSize: env.agentProfileMaintenancePruneBatchSize,
@@ -55,6 +62,7 @@ startClientAgentAccessExpiryScheduler({
   batchSize: env.clientAgentAccessExpirySweepBatchSize,
 });
 startRegistrationEmailOutboxWorker(container.emailSender);
+startRegistrationEmailOutboxDeadLetterScheduler();
 
 httpServer.listen(env.port, "0.0.0.0", () => {
   logger.info("HTTP server started", {
@@ -87,9 +95,11 @@ const shutdown = async (signal: string): Promise<void> => {
   try {
     stopSocketAuditRetentionScheduler();
     stopBridgeLatencyTraceRetentionScheduler();
+    stopBridgeLatencyTraceRollupScheduler();
     stopAgentProfileMaintenanceScheduler();
     stopClientAgentAccessExpiryScheduler();
     stopRegistrationEmailOutboxWorker();
+    stopRegistrationEmailOutboxDeadLetterScheduler();
     await flushPendingSocketAuditEvents();
     const auditDrain = await waitForSocketAuditDrain(2_500);
     if (!auditDrain.drained) {

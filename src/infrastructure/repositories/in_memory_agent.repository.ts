@@ -1,5 +1,6 @@
 import type { Agent } from "../../domain/entities/agent.entity";
 import type {
+  AgentAccessSnapshot,
   AgentListFilter,
   IAgentRepository,
   PaginatedAgentList,
@@ -19,6 +20,12 @@ export class InMemoryAgentRepository implements IAgentRepository {
 
   async findById(agentId: string): Promise<Agent | null> {
     return this.agentsById.get(agentId) ?? null;
+  }
+
+  async findAccessSnapshotById(agentId: string): Promise<AgentAccessSnapshot | null> {
+    const agent = this.agentsById.get(agentId);
+    if (!agent) return null;
+    return { agentId: agent.agentId, status: agent.status };
   }
 
   async findByDocument(document: string): Promise<Agent | null> {

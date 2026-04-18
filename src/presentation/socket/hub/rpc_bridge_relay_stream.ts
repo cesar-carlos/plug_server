@@ -9,7 +9,7 @@ import {
   relayMetrics,
 } from "./bridge_relay_health_metrics";
 import { getActiveStreamRouteByRequestId, removeActiveStreamRoute } from "./active_stream_registry";
-import { getRelayIdempotencyMap } from "./relay_idempotency_store";
+import { getRelayIdempotencyMap, setRelayIdempotencyEntry } from "./relay_idempotency_store";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import {
   getRelayStreamFlowCredits,
@@ -272,9 +272,18 @@ export const emitRelayTimeoutResponse = (
     if (idempotencyMap && route.clientRequestId) {
       const item = idempotencyMap.get(route.clientRequestId);
       if (item && item.requestId === route.requestId) {
+        const waiters = item.pendingReplayConsumerSocketIds;
         item.responseFrame = frame;
         item.expiresAtMs = Date.now() + relayIdempotencyTtlMs;
-        idempotencyMap.set(route.clientRequestId, item);
+        setRelayIdempotencyEntry(route.conversationId, route.clientRequestId, item);
+        if (waiters && waiters.length > 0) {
+          for (const waiterSocketId of waiters) {
+            if (waiterSocketId === route.consumerSocketId) {
+              continue;
+            }
+            emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, frame);
+          }
+        }
       }
     }
 

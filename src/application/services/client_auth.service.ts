@@ -7,7 +7,10 @@ import { Client, type ClientStatus } from "../../domain/entities/client.entity";
 import { ClientRefreshToken } from "../../domain/entities/client_refresh_token.entity";
 import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
 import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
-import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
+import type {
+  ClientActiveSnapshot,
+  IClientRepository,
+} from "../../domain/repositories/client.repository.interface";
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
 import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
 import type {
@@ -322,6 +325,36 @@ export class ClientAuthService {
       return err(invalidToken("Access token is no longer valid"));
     }
     return ok(client);
+  }
+
+  /**
+   * Hot-path equivalent of `getActiveClient` that fetches only the columns
+   * needed to validate `status` and `credentials_version`. Used by socket auth
+   * (handshake + per-event guard) to avoid loading `password_hash`, profile
+   * and address columns on every relay/command. Same `forbidden`/`notFound`/
+   * `invalidToken` semantics as `getActiveClient`.
+   */
+  async getActiveClientSnapshot(
+    clientId: string,
+    accessTokenCredentialsVersion?: number,
+  ): Promise<Result<ClientActiveSnapshot>> {
+    const snapshot = await this.clientRepository.findActiveSnapshotById(clientId);
+    if (!snapshot) {
+      return err(notFound("Client"));
+    }
+    if (snapshot.status === "blocked") {
+      return err(forbidden("Client account is blocked"));
+    }
+    if (snapshot.status !== "active") {
+      return err(forbidden("Client account is pending approval"));
+    }
+    if (
+      typeof accessTokenCredentialsVersion === "number" &&
+      snapshot.credentialsUpdatedAt.getTime() !== accessTokenCredentialsVersion
+    ) {
+      return err(invalidToken("Access token is no longer valid"));
+    }
+    return ok(snapshot);
   }
 
   async updateMyProfile(

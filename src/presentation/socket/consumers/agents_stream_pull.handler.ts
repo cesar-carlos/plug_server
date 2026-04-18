@@ -7,12 +7,17 @@ import {
   getActiveStreamRouteByStreamId,
 } from "../hub/active_stream_registry";
 import { agentRegistry } from "../hub/agent_registry";
+import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
+import {
+  releaseSocketInflightSlot,
+  tryAcquireSocketInflightSlot,
+} from "./per_socket_inflight_gate";
 
 const streamPullPayloadSchema = z
   .object({
@@ -83,6 +88,18 @@ export const handleAgentsStreamPull = (
     return;
   }
 
+  if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
+    emitStreamPullResponse(socket, {
+      success: false,
+      error: {
+        code: "RATE_LIMITED",
+        message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
+    });
+    return;
+  }
+
   void (async () => {
     try {
       const agentId = resolveStreamRouteAgentId({
@@ -93,7 +110,7 @@ export const handleAgentsStreamPull = (
         throw new AppError("Stream route not found", { code: "NOT_FOUND", statusCode: 404 });
       }
 
-      await assertConsumerSocketAgentAccess(socket.data.user, agentId);
+      await assertConsumerSocketAgentAccess(socket.data.user, agentId, socket);
 
       const result = requestAgentStreamPull({
         consumerSocketId: socket.id,
@@ -122,6 +139,8 @@ export const handleAgentsStreamPull = (
           ...(typeof statusCode === "number" ? { statusCode } : {}),
         },
       });
+    } finally {
+      releaseSocketInflightSlot(socket);
     }
   })();
 };

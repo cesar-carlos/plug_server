@@ -10,6 +10,7 @@ const makeRepo = (): IUserRepository => ({
   findByIds: vi.fn(),
   findByEmail: vi.fn(),
   findByCelular: vi.fn(),
+  findActiveSnapshotById: vi.fn(),
   save: vi.fn(),
 });
 

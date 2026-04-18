@@ -977,8 +977,24 @@ o servidor inclui:
 | `SOCKET_AGENT_PROTOCOL_READY_GRACE_MS` | `100`  | Fallback de estabilizacao apos `agent:register`; durante esse periodo o hub rejeita dispatch com `503`/`Retry-After`. `agent:heartbeat` libera antes e agentes com `extensions.protocolReadyAck` podem liberar explicitamente com `agent:ready` |
 | `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `256`   | Janela base por pull no REST materializado; o hub pode reduzir/clamp pelo que o agente anunciar como recomendado/maximo em capabilities |
 | `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS` | `1000000` | Teto de linhas agregadas (resposta inicial + chunks) na materialização REST; `0` desativa (não recomendado em produção) |
-| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `0` | Teto de frames `rpc:chunk` na materialização; `0` = ilimitado |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `100000` | Teto de frames `rpc:chunk` na materialização; `0` = ilimitado |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES` | `268435456` | Teto agregado de bytes UTF-8 materializados (resposta inicial + chunks); protege contra linhas muito largas / JSONB grandes |
 | `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub |
+### Headers de rate limit
+
+As rotas REST que usam `express-rate-limit` publicam `standardHeaders: true`,
+ou seja, além do status `429` devolvem headers no formato padrão:
+
+- `RateLimit-Limit`
+- `RateLimit-Remaining`
+- `RateLimit-Reset`
+
+Para erros de overload do bridge por agente (`503` por fila cheia / queue wait
+timeout), o servidor também pode devolver:
+
+- `Retry-After` (segundos)
+- `details.retry_after_ms` no body (ambiente não-produção)
+
 | `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame |
 
 ---

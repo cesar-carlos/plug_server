@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { User } from "../../../../../src/domain/entities/user.entity";
 import { authenticateSocket } from "../../../../../src/presentation/socket/auth/socket_auth.middleware";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { ok } from "../../../../../src/shared/errors/result";
@@ -19,7 +18,7 @@ vi.mock("../../../../../src/shared/config/env", () => ({
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
     authService: {
-      getActiveAccountUser: vi.fn(),
+      getActiveAccountUserSnapshot: vi.fn(),
     },
   },
 }));
@@ -27,23 +26,23 @@ vi.mock("../../../../../src/shared/di/container", () => ({
 import { container } from "../../../../../src/shared/di/container";
 
 const mockedVerifyAccessToken = vi.mocked(verifyAccessToken);
-const mockedGetActiveAccountUser = vi.mocked(container.authService.getActiveAccountUser);
+const mockedGetActiveAccountUserSnapshot = vi.mocked(container.authService.getActiveAccountUserSnapshot);
 
-const activeUser = (id: string): User =>
-  new User({
+const activeUserSnapshot = (id: string) =>
+  ({
     id,
-    email: "u@test.com",
-    passwordHash: "h",
+    status: "active" as const,
+    credentialsUpdatedAt: new Date(0),
     role: "user",
-    status: "active",
-    createdAt: new Date(),
-  });
+  }) as const;
 
 describe("authenticateSocket middleware", () => {
   beforeEach(() => {
     mockedVerifyAccessToken.mockReset();
-    mockedGetActiveAccountUser.mockReset();
-    mockedGetActiveAccountUser.mockImplementation(async (userId: string) => ok(activeUser(userId)));
+    mockedGetActiveAccountUserSnapshot.mockReset();
+    mockedGetActiveAccountUserSnapshot.mockImplementation(async (userId: string) =>
+      ok(activeUserSnapshot(userId)),
+    );
   });
 
   it("rejects connection without token when auth is required", async () => {
@@ -62,7 +61,7 @@ describe("authenticateSocket middleware", () => {
     const error = next.mock.calls[0]?.[0] as AppError;
     expect(error).toBeInstanceOf(AppError);
     expect(error.code).toBe("UNAUTHORIZED");
-    expect(mockedGetActiveAccountUser).not.toHaveBeenCalled();
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 
   it("rejects invalid token", async () => {
@@ -85,7 +84,7 @@ describe("authenticateSocket middleware", () => {
     expect(next).toHaveBeenCalledOnce();
     const error = next.mock.calls[0]?.[0] as AppError;
     expect(error.code).toBe("INVALID_TOKEN");
-    expect(mockedGetActiveAccountUser).not.toHaveBeenCalled();
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 
   it("stores authenticated user data for valid token", async () => {
@@ -111,7 +110,7 @@ describe("authenticateSocket middleware", () => {
     await authenticateSocket(socket as never, next);
 
     expect(next).toHaveBeenCalledWith();
-    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("user-1", undefined, undefined);
+    expect(mockedGetActiveAccountUserSnapshot).toHaveBeenCalledWith("user-1", undefined);
     expect(socket.data.user).toMatchObject({ sub: "user-1", tokenType: "access" });
   });
 });

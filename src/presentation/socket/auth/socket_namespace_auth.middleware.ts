@@ -12,9 +12,12 @@ import { verifyAccessToken } from "../../../shared/utils/jwt";
 
 import { ensureJwtUserAccountActive } from "./ensure_socket_active_account";
 
+import type { SocketAccountSnapshot } from "./ensure_socket_active_account";
+
 type AuthenticatedSocket = Socket & {
   data: {
     user?: JwtAccessPayload;
+    authSnapshot?: SocketAccountSnapshot;
   };
 };
 
@@ -74,7 +77,7 @@ export const authenticateAgentSocket = async (
     return;
   }
 
-  const okActive = await ensureJwtUserAccountActive(user, next);
+  const okActive = await ensureJwtUserAccountActive(user, next, socket);
   if (!okActive) {
     return;
   }
@@ -123,7 +126,7 @@ export const authenticateConsumerSocket = async (
     return;
   }
 
-  const okActive = await ensureJwtUserAccountActive(user, next);
+  const okActive = await ensureJwtUserAccountActive(user, next, socket);
   if (!okActive) {
     return;
   }

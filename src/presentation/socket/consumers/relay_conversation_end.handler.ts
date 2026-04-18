@@ -5,14 +5,32 @@ import { recordSocketAuditEvent } from "../../../application/services/socket_aud
 import { notFound } from "../../../shared/errors/http_errors";
 import { AppError } from "../../../shared/errors/app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
+import { conversationIdSchema } from "../../../shared/validators/schemas";
 import { conversationRegistry } from "../hub/conversation_registry";
 import { cleanupConversationStreamSubscriptions } from "../hub/rpc_bridge";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
-const conversationEndPayloadSchema = z.object({
-  conversationId: nonEmptyStringSchema,
+export const conversationEndPayloadSchema = z.object({
+  conversationId: conversationIdSchema,
 });
+
+export type RelayConversationEndEnvelope = z.infer<typeof conversationEndPayloadSchema>;
+
+export const parseRelayConversationEndEnvelope = (
+  rawPayload: unknown,
+):
+  | { success: true; data: RelayConversationEndEnvelope }
+  | { success: false; errorMessage: string } => {
+  const parsed = conversationEndPayloadSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const message = firstIssue
+      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
+      : "Validation failed";
+    return { success: false, errorMessage: message };
+  }
+  return { success: true, data: parsed.data };
+};
 
 const emitConversationEnded = (
   socket: Socket,
@@ -37,23 +55,20 @@ export const handleRelayConversationEnd = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
 ): void => {
-  const parsed = conversationEndPayloadSchema.safeParse(rawPayload);
-  if (!parsed.success) {
-    const firstIssue = parsed.error.issues[0];
-    const message = firstIssue
-      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
-      : "Validation failed";
+  const envelope = parseRelayConversationEndEnvelope(rawPayload);
+  if (!envelope.success) {
     emitConversationEnded(socket, {
       success: false,
-      error: { code: "VALIDATION_ERROR", message },
+      error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
     });
     return;
   }
+  const parsed = { success: true as const, data: envelope.data };
 
   try {
     const conversation = conversationRegistry.findByConversationId(parsed.data.conversationId);
     if (!conversation || conversation.consumerSocketId !== socket.id) {
-      throw notFound("Conversation not found");
+      throw notFound("Conversation");
     }
 
     conversationRegistry.removeByConversationId(conversation.conversationId);

@@ -145,6 +145,9 @@ model RegistrationEmailOutbox {
 
   @@index([availableAt])
   @@index([lockedAt])
+  /// Composite index that matches the ORDER BY of the claim CTE
+  /// (`available_at ASC, created_at ASC`). Avoids the extra sort step.
+  @@index([availableAt, createdAt], map: "registration_email_outbox_claim_idx")
   @@map("registration_email_outbox")
 }
 
@@ -262,6 +265,10 @@ model ClientAgentAccessRequest {
   @@index([status])
   @@index([clientId, requestedAt])
   @@index([clientId, status, requestedAt])
+  // NOTE: also has a partial index `client_agent_access_requests_pending_idx`
+  // on (client_id, requested_at) WHERE status = 'pending', defined via raw
+  // SQL migration `20260418170200_caar_pending_partial_idx`. Partial WHERE
+  // clauses are not expressible in Prisma's `@@index` without preview features.
   @@map("client_agent_access_requests")
 }
 

@@ -19,7 +19,10 @@ import { scheduleRelayIdempotencyCleanupTimer } from "./relay_idempotency_store"
 import { createRpcBridgeAgentInboundHandlers } from "./rpc_bridge_agent_inbound";
 import { createDispatchRpcCommandToAgent } from "./rpc_bridge_dispatch_command";
 import { createRpcBridgeRelayDispatch } from "./rpc_bridge_dispatch_relay";
-import { createRequestAgentStreamPull } from "./rpc_bridge_stream_pull";
+import {
+  createPrepareAgentStreamPull,
+  createRequestAgentStreamPull,
+} from "./rpc_bridge_stream_pull";
 import { resetRpcBridgeMutableStores } from "./rpc_bridge_lifecycle";
 
 export {
@@ -36,9 +39,11 @@ export type {
 export type {
   DispatchRelayRpcInput,
   DispatchRelayRpcResult,
+  PreparedRelayStreamPull,
   RequestRelayStreamPullInput,
 } from "./rpc_bridge_dispatch_relay";
 export type {
+  PreparedAgentStreamPull,
   RequestAgentStreamPullInput,
   RequestAgentStreamPullResult,
 } from "./rpc_bridge_stream_pull";
@@ -115,6 +120,11 @@ const emitToConsumer = (consumerSocketId: string, eventName: string, payload: un
 
 const getAgentsNamespace = (): Namespace | null => agentsNamespace;
 
+const prepareAgentStreamPull = createPrepareAgentStreamPull({
+  getAgentsNamespace,
+  emitToConsumer,
+});
+
 export const requestAgentStreamPull = createRequestAgentStreamPull({
   getAgentsNamespace,
   emitToConsumer,
@@ -123,10 +133,11 @@ export const requestAgentStreamPull = createRequestAgentStreamPull({
 const relayRpcHandlers = createRpcBridgeRelayDispatch({
   getAgentsNamespace,
   emitToConsumer,
-  requestAgentStreamPull,
+  prepareAgentStreamPull,
 });
 
 export const dispatchRelayRpcToAgent = relayRpcHandlers.dispatchRelayRpcToAgent;
+export const prepareRelayStreamPull = relayRpcHandlers.prepareRelayStreamPull;
 export const requestRelayStreamPull = relayRpcHandlers.requestRelayStreamPull;
 
 export const dispatchRpcCommandToAgent = createDispatchRpcCommandToAgent({

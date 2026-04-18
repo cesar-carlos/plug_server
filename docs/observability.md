@@ -172,7 +172,7 @@ degradacao funcional. Para presets de tuning e rollout, ver
 
 ## Tabela PostgreSQL `bridge_latency_traces` (latencia por fase)
 
-Com `BRIDGE_LATENCY_TRACE_ENABLED=true`, o hub regista tempos por comando para: `POST /api/v1/agents/commands`, `agents:command` em `/consumers`, e pedidos `relay:rpc.request` (canal `relay`). A escrita e assincrona em lote (`BRIDGE_LATENCY_TRACE_*`), com limite opcional de fila (`BRIDGE_LATENCY_TRACE_MAX_QUEUE`). Retencao: `BRIDGE_LATENCY_TRACE_RETENTION_*` + prune periodico (como auditoria). No shutdown, `flushPendingBridgeLatencyTraces()` drena a fila.
+Com `BRIDGE_LATENCY_TRACE_ENABLED=true`, o hub regista tempos por comando para: `POST /api/v1/agents/commands`, `agents:command` em `/consumers`, e pedidos `relay:rpc.request` (canal `relay`). A escrita e assincrona em lote (`BRIDGE_LATENCY_TRACE_*`), com limite de fila em memoria (`BRIDGE_LATENCY_TRACE_MAX_QUEUE`, defeito actual `50000`). Retencao: `BRIDGE_LATENCY_TRACE_RETENTION_*` + prune periodico (como auditoria). No shutdown, `flushPendingBridgeLatencyTraces()` drena a fila.
 
 **Amostragem:** `BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT` aplica-se a comandos **bem-sucedidos rapidos**; outcomes `error`, `timeout` e `abort` gravam sempre (quando a sessao de trace existe). `BRIDGE_LATENCY_TRACE_SLOW_TOTAL_MS` (> 0) forca persistencia se `total_ms` for igual ou superior.
 
@@ -188,9 +188,16 @@ Com `BRIDGE_LATENCY_TRACE_ENABLED=true`, o hub regista tempos por comando para: 
 
 **Retencao relay:** `BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS` (opcional) aplica-se apenas a linhas com `channel = 'relay'`; se vazio, usa o mesmo prazo que `BRIDGE_LATENCY_TRACE_RETENTION_DAYS`.
 
-### Vista SQL `bridge_latency_trace_hourly_rollups`
+### Materialized view `bridge_latency_trace_hourly_rollups`
 
-Migracao que cria vista (nao materializada) para dashboards SQL/Grafana — agregacao por hora UTC, `channel`, `outcome`, `json_rpc_method`, percentis de `total_ms` e p95 de `agent_to_hub_ms` quando existir em `phases_ms`:
+`bridge_latency_trace_hourly_rollups` agora e **materialized view** (nao mais
+VIEW normal). O objetivo e evitar re-agregar `bridge_latency_traces` inteira a
+cada SELECT de dashboard. O refresh corre via
+`REFRESH MATERIALIZED VIEW CONCURRENTLY`, coordenado por advisory lock entre
+replicas. Intervalo: `BRIDGE_LATENCY_TRACE_ROLLUP_REFRESH_INTERVAL_MINUTES`
+(defeito `10`; `0` desativa o scheduler).
+
+Consulta tipica:
 
 ```sql
 SELECT * FROM bridge_latency_trace_hourly_rollups
@@ -198,6 +205,12 @@ WHERE hour_utc > now() AT TIME ZONE 'UTC' - interval '24 hours'
 ORDER BY hour_utc DESC, request_count DESC
 LIMIT 50;
 ```
+
+Nota operacional:
+
+- a migracao cria indice unico na chave natural (`hour_utc`, `channel`, `outcome`, `json_rpc_method`) para suportar `CONCURRENTLY`;
+- se o refresh falhar, leitores continuam a ver o **snapshot anterior** da materialized view;
+- o refresh e seguro em multi-replica porque apenas uma replica vence o advisory lock por vez.
 
 Exemplo minimo de dashboard Grafana (Prometheus): `docs/grafana/bridge_latency_trace_minimal.json` — apos importar, associa um datasource Prometheus ao painel.
 

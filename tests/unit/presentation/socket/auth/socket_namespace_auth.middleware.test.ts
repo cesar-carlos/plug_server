@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { User } from "../../../../../src/domain/entities/user.entity";
 import {
   authenticateAgentSocket,
   authenticateConsumerSocket,
@@ -25,7 +24,7 @@ vi.mock("../../../../../src/shared/config/env", () => ({
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
     authService: {
-      getActiveAccountUser: vi.fn(),
+      getActiveAccountUserSnapshot: vi.fn(),
     },
   },
 }));
@@ -33,23 +32,25 @@ vi.mock("../../../../../src/shared/di/container", () => ({
 import { container } from "../../../../../src/shared/di/container";
 
 const mockedVerifyAccessToken = vi.mocked(verifyAccessToken);
-const mockedGetActiveAccountUser = vi.mocked(container.authService.getActiveAccountUser);
+const mockedGetActiveAccountUserSnapshot = vi.mocked(
+  container.authService.getActiveAccountUserSnapshot,
+);
 
-const activeUser = (id: string): User =>
-  new User({
+const activeUserSnapshot = (id: string, role: "user" | "agent" = "user") =>
+  ({
     id,
-    email: "a@b.com",
-    passwordHash: "h",
-    role: "user",
-    status: "active",
-    createdAt: new Date(),
-  });
+    status: "active" as const,
+    credentialsUpdatedAt: new Date(0),
+    role,
+  }) as const;
 
 describe("authenticateAgentSocket", () => {
   beforeEach(() => {
     mockedVerifyAccessToken.mockReset();
-    mockedGetActiveAccountUser.mockReset();
-    mockedGetActiveAccountUser.mockImplementation(async (userId: string) => ok(activeUser(userId)));
+    mockedGetActiveAccountUserSnapshot.mockReset();
+    mockedGetActiveAccountUserSnapshot.mockImplementation(async (userId: string) =>
+      ok(activeUserSnapshot(userId, userId === "agent-1" ? "agent" : "user")),
+    );
   });
 
   it("rejects connection without token", async () => {
@@ -65,7 +66,7 @@ describe("authenticateAgentSocket", () => {
     const error = next.mock.calls[0]?.[0] as AppError;
     expect(error).toBeInstanceOf(AppError);
     expect(error.code).toBe("UNAUTHORIZED");
-    expect(mockedGetActiveAccountUser).not.toHaveBeenCalled();
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 
   it("rejects role user for /agents", async () => {
@@ -90,7 +91,7 @@ describe("authenticateAgentSocket", () => {
     const error = next.mock.calls[0]?.[0] as AppError;
     expect(error.code).toBe("FORBIDDEN");
     expect(error.message).toContain("not allowed");
-    expect(mockedGetActiveAccountUser).not.toHaveBeenCalled();
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 
   it("accepts role agent for /agents", async () => {
@@ -112,7 +113,7 @@ describe("authenticateAgentSocket", () => {
     await authenticateAgentSocket(socket as never, next);
 
     expect(next).toHaveBeenCalledWith();
-    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("agent-1", undefined, undefined);
+    expect(mockedGetActiveAccountUserSnapshot).toHaveBeenCalledWith("agent-1", undefined);
     expect(socket.data.user).toMatchObject({ sub: "agent-1", role: "agent" });
   });
 
@@ -125,7 +126,7 @@ describe("authenticateAgentSocket", () => {
         tokenType: "access",
       },
     });
-    mockedGetActiveAccountUser.mockResolvedValueOnce(err(forbidden("Account is blocked")));
+    mockedGetActiveAccountUserSnapshot.mockResolvedValueOnce(err(forbidden("Account is blocked")));
 
     const socket = {
       handshake: { headers: {}, auth: { token: "valid" } },
@@ -146,8 +147,10 @@ describe("authenticateAgentSocket", () => {
 describe("authenticateConsumerSocket", () => {
   beforeEach(() => {
     mockedVerifyAccessToken.mockReset();
-    mockedGetActiveAccountUser.mockReset();
-    mockedGetActiveAccountUser.mockImplementation(async (userId: string) => ok(activeUser(userId)));
+    mockedGetActiveAccountUserSnapshot.mockReset();
+    mockedGetActiveAccountUserSnapshot.mockImplementation(async (userId: string) =>
+      ok(activeUserSnapshot(userId, "user")),
+    );
   });
 
   it("rejects connection without token", async () => {
@@ -162,7 +165,7 @@ describe("authenticateConsumerSocket", () => {
     expect(next).toHaveBeenCalledOnce();
     const error = next.mock.calls[0]?.[0] as AppError;
     expect(error.code).toBe("UNAUTHORIZED");
-    expect(mockedGetActiveAccountUser).not.toHaveBeenCalled();
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 
   it("rejects role agent for /consumers", async () => {
@@ -187,7 +190,7 @@ describe("authenticateConsumerSocket", () => {
     const error = next.mock.calls[0]?.[0] as AppError;
     expect(error.code).toBe("FORBIDDEN");
     expect(error.message).toContain("cannot connect");
-    expect(mockedGetActiveAccountUser).not.toHaveBeenCalled();
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 
   it("accepts role user for /consumers", async () => {
@@ -209,7 +212,7 @@ describe("authenticateConsumerSocket", () => {
     await authenticateConsumerSocket(socket as never, next);
 
     expect(next).toHaveBeenCalledWith();
-    expect(mockedGetActiveAccountUser).toHaveBeenCalledWith("user-1", undefined, undefined);
+    expect(mockedGetActiveAccountUserSnapshot).toHaveBeenCalledWith("user-1", undefined);
     expect(socket.data.user).toMatchObject({ sub: "user-1", role: "user" });
   });
 
@@ -222,7 +225,7 @@ describe("authenticateConsumerSocket", () => {
         tokenType: "access",
       },
     });
-    mockedGetActiveAccountUser.mockResolvedValueOnce(err(forbidden("Account is blocked")));
+    mockedGetActiveAccountUserSnapshot.mockResolvedValueOnce(err(forbidden("Account is blocked")));
 
     const socket = {
       handshake: { headers: {}, auth: { token: "valid" } },

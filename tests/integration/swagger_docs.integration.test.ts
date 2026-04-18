@@ -93,6 +93,18 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/users/{userId}/agents"]?.put).toBeUndefined();
     expect(response.body.paths?.["/auth/agent-login"]?.post?.responses?.["409"]).toBeDefined();
     expect(response.body.paths?.["/auth/agent-login"]?.post?.responses?.["404"]).toBeUndefined();
+    expect(response.body.paths?.["/auth/login"]?.post?.servers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ url: "/api/v1" }),
+        expect.objectContaining({ url: "/" }),
+      ]),
+    );
+    expect(response.body.paths?.["/metrics"]?.get?.servers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ url: "/api/v1" }),
+        expect.objectContaining({ url: "/" }),
+      ]),
+    );
     const agentsProfilePatch = response.body.paths?.["/agents/{agentId}/profile"]?.patch;
     expect(agentsProfilePatch?.tags).toContain("Agents");
     expect(
@@ -114,5 +126,6 @@ describe("Swagger docs", () => {
     expect(schemas?.CreateAgentCatalogRequest).toBeUndefined();
     expect(schemas?.UpdateAgentCatalogRequest).toBeUndefined();
     expect(schemas?.PaginatedAgentCatalogResponse?.required).toContain("total");
+    expect(response.body.paths?.["/agents/commands"]?.post?.servers).toBeUndefined();
   });
 });

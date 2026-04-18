@@ -44,6 +44,23 @@ export const positiveIntSchema = z
 export const nonEmptyStringSchema = z.string().min(1, { message: "Must not be empty" }).trim();
 
 /**
+ * Identifier accepted in socket envelopes (conversationId, agentId, clientRequestId, etc.).
+ * Caps length and restricts to URL/route-safe characters to prevent unbounded string growth
+ * in in-memory registries (idempotency, conversation, relay route maps).
+ */
+export const socketIdentifierSchema = z
+  .string()
+  .min(1, { message: "Must not be empty" })
+  .max(128, { message: "Must be at most 128 characters" })
+  .trim()
+  .regex(/^[A-Za-z0-9_\-:.]+$/, {
+    message: "Allowed characters: letters, digits, '_', '-', ':', '.'",
+  });
+
+export const conversationIdSchema = socketIdentifierSchema;
+export const agentIdSchema = socketIdentifierSchema;
+
+/**
  * Brazilian mobile (celular), normalized to E.164. Rejects landlines and invalid numbers.
  *
  * Rule (national significant number without country code `55`): length 11, digit at index 2 is `9`

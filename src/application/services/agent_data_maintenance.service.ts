@@ -1,4 +1,8 @@
 import { prismaClient } from "../../infrastructure/database/prisma/client";
+import {
+  MAINTENANCE_LOCK_IDS,
+  runWithAdvisoryLock,
+} from "../../infrastructure/database/advisory_lock";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 import { clientAgentAccessExpiredDecisionReason } from "./client_agent_access_decision_reasons";
@@ -403,8 +407,13 @@ export const startAgentProfileMaintenanceScheduler = (options?: {
   const intervalMs = options?.intervalMs ?? env.agentProfileMaintenanceIntervalMinutes * 60 * 1000;
   const batchSize = options?.batchSize ?? env.agentProfileMaintenancePruneBatchSize;
 
+  // Advisory-locked: only one replica actually prunes; others skip.
   const run = (): void => {
-    void pruneAgentProfileData({ batchSize });
+    void runWithAdvisoryLock(
+      MAINTENANCE_LOCK_IDS.agentProfileMaintenance,
+      "agent_profile_maintenance",
+      () => pruneAgentProfileData({ batchSize }),
+    );
   };
 
   run();
@@ -432,8 +441,13 @@ export const startClientAgentAccessExpiryScheduler = (options?: {
     options?.intervalMs ?? env.clientAgentAccessExpirySweepIntervalMinutes * 60 * 1000;
   const batchSize = options?.batchSize ?? env.clientAgentAccessExpirySweepBatchSize;
 
+  // Advisory-locked: only one replica actually sweeps; others skip.
   const run = (): void => {
-    void sweepExpiredClientAgentAccessData({ batchSize });
+    void runWithAdvisoryLock(
+      MAINTENANCE_LOCK_IDS.clientAgentAccessExpirySweep,
+      "client_agent_access_expiry_sweep",
+      () => sweepExpiredClientAgentAccessData({ batchSize }),
+    );
   };
 
   run();

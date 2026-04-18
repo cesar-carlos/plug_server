@@ -30,7 +30,7 @@ export class ApproveRegistrationUseCase {
     const user = await this.userRepository.findById(token.userId);
     if (!user) {
       await this.approvalTokenRepository.deleteById(tokenId);
-      return err(notFound("User not found"));
+      return err(notFound("User"));
     }
 
     if (user.status !== "pending") {

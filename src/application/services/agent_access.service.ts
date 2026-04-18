@@ -1,5 +1,8 @@
 import { Agent } from "../../domain/entities/agent.entity";
-import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
+import type {
+  AgentAccessSnapshot,
+  IAgentRepository,
+} from "../../domain/repositories/agent.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
 import {
@@ -27,9 +30,11 @@ export class AgentAccessService {
    * 2. The agent status is "active".
    * 3. The user has an explicit binding to the agent.
    *
-   * Returns the agent entity on success so callers do not need to re-fetch.
+   * Returns a lightweight snapshot ({ agentId, status }) on success. Callers
+   * that need the full `Agent` entity should call `agentRepository.findById`
+   * separately — most don't.
    */
-  async assertAccess(userId: string, agentId: string): Promise<Result<Agent>> {
+  async assertAccess(userId: string, agentId: string): Promise<Result<AgentAccessSnapshot>> {
     return this.assertPrincipalAccess({ type: "user", id: userId }, agentId);
   }
 
@@ -38,17 +43,20 @@ export class AgentAccessService {
    * 1. The agent exists in the catalog.
    * 2. The agent status is "active".
    * 3. The principal has explicit access to the agent.
+   *
+   * Uses a lightweight projection of the agent row (id + status) — the wide
+   * profile/address columns are not loaded.
    */
   async assertPrincipalAccess(
     principal: AgentAccessPrincipal,
     agentId: string,
-  ): Promise<Result<Agent>> {
-    const agent = await this.agentRepository.findById(agentId);
-    if (!agent) {
+  ): Promise<Result<AgentAccessSnapshot>> {
+    const snapshot = await this.agentRepository.findAccessSnapshotById(agentId);
+    if (!snapshot) {
       return err(agentNotFound(agentId));
     }
 
-    if (agent.status !== "active") {
+    if (snapshot.status !== "active") {
       return err(agentInactive(agentId));
     }
 
@@ -62,7 +70,7 @@ export class AgentAccessService {
       return err(agentAccessDenied(agentId));
     }
 
-    return ok(agent);
+    return ok(snapshot);
   }
 
   /**

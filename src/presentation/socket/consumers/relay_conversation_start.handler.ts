@@ -6,15 +6,33 @@ import { conflict, notFound, serviceUnavailable } from "../../../shared/errors/h
 import { AppError } from "../../../shared/errors/app_error";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
+import { agentIdSchema } from "../../../shared/validators/schemas";
 import { agentRegistry } from "../hub/agent_registry";
 import { conversationRegistry } from "../hub/conversation_registry";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 
-const conversationStartPayloadSchema = z.object({
-  agentId: nonEmptyStringSchema,
+export const conversationStartPayloadSchema = z.object({
+  agentId: agentIdSchema,
 });
+
+export type RelayConversationStartEnvelope = z.infer<typeof conversationStartPayloadSchema>;
+
+export const parseRelayConversationStartEnvelope = (
+  rawPayload: unknown,
+):
+  | { success: true; data: RelayConversationStartEnvelope }
+  | { success: false; errorMessage: string } => {
+  const parsed = conversationStartPayloadSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const message = firstIssue
+      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
+      : "Validation failed";
+    return { success: false, errorMessage: message };
+  }
+  return { success: true, data: parsed.data };
+};
 
 const emitConversationStarted = (
   socket: Socket,
@@ -33,38 +51,23 @@ const emitConversationStarted = (
   socket.emit(socketEvents.relayConversationStarted, payload);
 };
 
-const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_ERROR"): void => {
-  socket.emit(socketEvents.appError, { message, code });
-};
-
 export const handleRelayConversationStart = async (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
   agentsNamespace: Namespace,
 ): Promise<void> => {
-  const parsed = conversationStartPayloadSchema.safeParse(rawPayload);
-  if (!parsed.success) {
-    const firstIssue = parsed.error.issues[0];
-    const message = firstIssue
-      ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
-      : "Validation failed";
-    emitAppError(socket, message, "VALIDATION_ERROR");
+  const envelope = parseRelayConversationStartEnvelope(rawPayload);
+  if (!envelope.success) {
+    emitConversationStarted(socket, {
+      success: false,
+      error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
+    });
     return;
   }
+  const parsed = { success: true as const, data: envelope.data };
 
   try {
-    if (conversationRegistry.countAll() >= env.socketRelayMaxConversations) {
-      throw serviceUnavailable("Relay conversation capacity reached");
-    }
-
-    if (
-      conversationRegistry.countByConsumerSocketId(socket.id) >=
-      env.socketRelayMaxConversationsPerConsumer
-    ) {
-      throw conflict("Consumer reached max active relay conversations");
-    }
-
-    await assertConsumerSocketAgentAccess(socket.data.user, parsed.data.agentId);
+    await assertConsumerSocketAgentAccess(socket.data.user, parsed.data.agentId, socket);
 
     const registeredAgent = agentRegistry.findByAgentId(parsed.data.agentId);
     if (!registeredAgent) {
@@ -76,11 +79,21 @@ export const handleRelayConversationStart = async (
       throw serviceUnavailable("Agent socket is unavailable");
     }
 
-    const conversation = conversationRegistry.create({
+    // Atomic reserve+create: check global + per-consumer caps and insert in
+    // one synchronous step (no TOCTOU between counts and registry insert).
+    const reservation = conversationRegistry.tryReserveAndCreate({
       consumerSocketId: socket.id,
       agentSocketId: registeredAgent.socketId,
       agentId: parsed.data.agentId,
+      maxTotal: env.socketRelayMaxConversations,
+      maxPerConsumer: env.socketRelayMaxConversationsPerConsumer,
     });
+    if (!reservation.ok) {
+      throw reservation.reason === "global_cap_reached"
+        ? serviceUnavailable("Relay conversation capacity reached")
+        : conflict("Consumer reached max active relay conversations");
+    }
+    const conversation = reservation.conversation;
 
     emitConversationStarted(socket, {
       success: true,

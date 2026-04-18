@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { User } from "../../../../../src/domain/entities/user.entity";
 import { ensureJwtUserAccountActive } from "../../../../../src/presentation/socket/auth/ensure_socket_active_account";
 import { forbidden, notFound } from "../../../../../src/shared/errors/http_errors";
 import { err, ok } from "../../../../../src/shared/errors/result";
@@ -9,14 +8,22 @@ import * as authAccountMetrics from "../../../../../src/shared/metrics/auth_acco
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
     authService: {
-      getActiveAccountUser: vi.fn(),
+      getActiveAccountUserSnapshot: vi.fn(),
     },
   },
 }));
 
 import { container } from "../../../../../src/shared/di/container";
 
-const mockedGetActive = vi.mocked(container.authService.getActiveAccountUser);
+const mockedGetActive = vi.mocked(container.authService.getActiveAccountUserSnapshot);
+
+const activeUserSnapshot = (id: string) =>
+  ({
+    id,
+    status: "active" as const,
+    credentialsUpdatedAt: new Date(0),
+    role: "user",
+  }) as const;
 
 const userPayload = { sub: "u1", role: "user", tokenType: "access" as const };
 
@@ -28,18 +35,7 @@ describe("ensureJwtUserAccountActive", () => {
   });
 
   it("returns true and does not call next when account is active", async () => {
-    mockedGetActive.mockResolvedValue(
-      ok(
-        new User({
-          id: "u1",
-          email: "a@b.com",
-          passwordHash: "h",
-          role: "user",
-          status: "active",
-          createdAt: new Date(),
-        }),
-      ),
-    );
+    mockedGetActive.mockResolvedValue(ok(activeUserSnapshot("u1")));
     const next = vi.fn();
     const incrementSpy = vi.spyOn(authAccountMetrics, "incrementAuthSocketBlocked");
 

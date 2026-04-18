@@ -1,11 +1,25 @@
 import type { User } from "../../domain/entities/user.entity";
-import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
+import type {
+  IUserRepository,
+  UserActiveSnapshot,
+} from "../../domain/repositories/user.repository.interface";
 
 export class InMemoryUserRepository implements IUserRepository {
   private readonly store = new Map<string, User>();
 
   async findById(id: string): Promise<User | null> {
     return this.store.get(id) ?? null;
+  }
+
+  async findActiveSnapshotById(id: string): Promise<UserActiveSnapshot | null> {
+    const user = this.store.get(id);
+    if (!user) return null;
+    return {
+      id: user.id,
+      status: user.status,
+      credentialsUpdatedAt: user.credentialsUpdatedAt,
+      role: user.role,
+    };
   }
 
   async findByIds(ids: readonly string[]): Promise<User[]> {

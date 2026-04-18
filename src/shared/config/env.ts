@@ -144,6 +144,28 @@ const envSchema = z.object({
     .min(1_000)
     .max(3_600_000)
     .default(300_000),
+  /**
+   * Retention (days) for dead-letter rows in `registration_email_outbox`
+   * (rows where `attempts >= MAX_ATTEMPTS`, marked with `last_error` prefix
+   * `max_attempts_reached:`). After this many days they are permanently deleted.
+   * Set `0` to disable the cleanup (rows accumulate indefinitely).
+   */
+  REGISTRATION_EMAIL_OUTBOX_DEAD_LETTER_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3650)
+    .default(30),
+  /**
+   * Interval (minutes) of the dead-letter prune job. Coordinated across replicas
+   * by an advisory lock. Default 1440 = daily.
+   */
+  REGISTRATION_EMAIL_OUTBOX_DEAD_LETTER_PRUNE_INTERVAL_MINUTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10080)
+    .default(1440),
   PAYLOAD_SIGNING_KEY: z.string().optional(),
   PAYLOAD_SIGNING_KEY_ID: z.string().optional(),
   PAYLOAD_SIGN_OUTBOUND: z
@@ -217,6 +239,25 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
+  /**
+   * Legacy env: previously controlled a per-socket TTL cache for skipping DB checks.
+   * Account status is now revalidated on every guard call; this value is ignored
+   * but kept so existing deployments do not fail schema validation.
+   */
+  SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS: z.coerce.number().int().min(0).max(600_000).default(30_000),
+  /**
+   * Hard cap on async operations a single consumer socket may have in flight at once
+   * across all event handlers (`agents:command`, `relay:rpc.request`, `agents:stream_pull`,
+   * `relay:rpc.stream.pull`). Excess events are rejected immediately with `RATE_LIMITED`
+   * so a misbehaving client cannot accumulate unbounded async work in the bridge.
+   * Set `0` to disable the gate (legacy behaviour: unbounded inflight per socket).
+   */
+  SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000)
+    .default(32),
   SOCKET_AGENT_ROLES: z
     .string()
     .default("agent")
@@ -253,6 +294,28 @@ const envSchema = z.object({
   SOCKET_RELAY_IDEMPOTENCY_TTL_MS: z.coerce.number().int().positive().default(300_000),
   /** Background prune of relay idempotency maps; larger interval = less CPU, slower reclamation of empty maps. */
   SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
+  /**
+   * Per-conversation cap on relay idempotency entries (one entry per
+   * `client_request_id`). When exceeded, the oldest entry is evicted (FIFO) so a
+   * single noisy conversation cannot exhaust memory between cleanup ticks.
+   */
+  SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(1_024),
+  /**
+   * Global cap (across all conversations) on relay idempotency entries. `0`
+   * disables the global cap. When exceeded, the oldest entry across the entire
+   * store is evicted (FIFO).
+   */
+  SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(100_000),
   SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
   SOCKET_RELAY_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().default(30_000),
   SOCKET_RELAY_METRICS_LOG_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
@@ -293,14 +356,28 @@ const envSchema = z.object({
     .max(10_000_000)
     .default(1_000_000),
   /**
-   * Max `rpc:chunk` frames accepted during REST materialization. `0` = unlimited.
+   * Max `rpc:chunk` frames accepted during REST materialization. `0` = unlimited
+   * (legacy behaviour, only safe when `MAX_ROWS > 0` and agents are trusted).
+   * Default `100_000` provides a hard ceiling against runaway streams.
    */
   SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS: z.coerce
     .number()
     .int()
     .min(0)
     .max(10_000_000)
-    .default(0),
+    .default(100_000),
+  /**
+   * Hard cap on aggregated UTF-8 bytes (estimated via `JSON.stringify`) materialized
+   * for a single REST SQL stream. Complements `MAX_ROWS` for cases where individual
+   * rows are large (JSONB blobs). `0` disables the byte cap. Default 256 MiB matches
+   * Node default `--max-old-space-size` headroom.
+   */
+  SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(8 * 1024 * 1024 * 1024)
+    .default(256 * 1024 * 1024),
   /**
    * Max Engine.IO packet size (bytes). Must fit PayloadFrame compressed ceiling (10 MB).
    * Default 10 MiB matches `payload_frame` limits.
@@ -389,6 +466,11 @@ const envSchema = z.object({
   SOCKET_AUDIT_BATCH_MAX: z.coerce.number().int().positive().max(500).default(48),
   SOCKET_AUDIT_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(200),
   /**
+   * Max in-memory queued audit events before new events are dropped (oldest-wins).
+   * `0` disables the cap (legacy unlimited behaviour, OOM risk under DB stalls).
+   */
+  SOCKET_AUDIT_MAX_QUEUE: z.coerce.number().int().min(0).max(10_000_000).default(50_000),
+  /**
    * Percentage (0–100) of `relay:rpc.chunk` audit events persisted. If unset: 25 in production, 100 otherwise.
    */
   SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT: z.preprocess((val) => {
@@ -426,8 +508,12 @@ const envSchema = z.object({
   BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT: z.coerce.number().int().min(0).max(100).default(100),
   BRIDGE_LATENCY_TRACE_BATCH_MAX: z.coerce.number().int().positive().max(500).default(48),
   BRIDGE_LATENCY_TRACE_BATCH_FLUSH_MS: z.coerce.number().int().positive().max(30_000).default(200),
-  /** Max queued rows in memory before dropping new rows (0 = unlimited). */
-  BRIDGE_LATENCY_TRACE_MAX_QUEUE: z.coerce.number().int().min(0).max(10_000_000).default(0),
+  /**
+   * Max queued rows in memory before dropping new rows (oldest-wins). `0` disables the cap
+   * (legacy unlimited behaviour, OOM risk under DB stalls). Default 50_000 caps memory while
+   * still absorbing significant DB hiccups.
+   */
+  BRIDGE_LATENCY_TRACE_MAX_QUEUE: z.coerce.number().int().min(0).max(10_000_000).default(50_000),
   /**
    * Always persist rows when wall `total_ms` is at least this value (0 = disabled).
    * Works with `BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT` for successful fast requests.
@@ -436,6 +522,17 @@ const envSchema = z.object({
   BRIDGE_LATENCY_TRACE_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   BRIDGE_LATENCY_TRACE_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
   BRIDGE_LATENCY_TRACE_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
+  /**
+   * Interval (minutes) at which `bridge_latency_trace_hourly_rollups` is refreshed
+   * via `REFRESH MATERIALIZED VIEW CONCURRENTLY`. Coordinated across replicas
+   * by an advisory lock. Set `0` to disable the scheduler (refresh manually).
+   */
+  BRIDGE_LATENCY_TRACE_ROLLUP_REFRESH_INTERVAL_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(1440)
+    .default(10),
   /** When true, emit an OpenTelemetry span per bridge trace (requires tracer configured globally). */
   BRIDGE_LATENCY_TRACE_OTEL_ENABLED: z
     .enum(["true", "false"])
@@ -539,6 +636,8 @@ export const env = {
   socketAgentKnownIdsMax: parsedEnv.SOCKET_AGENT_KNOWN_IDS_MAX,
   socketAgentProtocolReadyGraceMs: parsedEnv.SOCKET_AGENT_PROTOCOL_READY_GRACE_MS,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
+  socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
+  socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES,
   socketRelayRequestTimeoutMs: parsedEnv.SOCKET_RELAY_REQUEST_TIMEOUT_MS,
@@ -556,6 +655,9 @@ export const env = {
   socketRelayMaxTotalBufferedChunks: parsedEnv.SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS,
   socketRelayIdempotencyTtlMs: parsedEnv.SOCKET_RELAY_IDEMPOTENCY_TTL_MS,
   socketRelayIdempotencyCleanupIntervalMs: parsedEnv.SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS,
+  socketRelayIdempotencyMaxEntriesPerConversation:
+    parsedEnv.SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION,
+  socketRelayIdempotencyMaxTotalEntries: parsedEnv.SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES,
   socketRelayCircuitFailureThreshold: parsedEnv.SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD,
   socketRelayCircuitOpenMs: parsedEnv.SOCKET_RELAY_CIRCUIT_OPEN_MS,
   socketRelayMetricsLogIntervalMs: parsedEnv.SOCKET_RELAY_METRICS_LOG_INTERVAL_MS,
@@ -579,6 +681,7 @@ export const env = {
   socketRestStreamPullWindowSize: parsedEnv.SOCKET_REST_STREAM_PULL_WINDOW_SIZE,
   socketRestSqlStreamMaterializeMaxRows: parsedEnv.SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS,
   socketRestSqlStreamMaterializeMaxChunks: parsedEnv.SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS,
+  socketRestSqlStreamMaterializeMaxBytes: parsedEnv.SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES,
   socketIoMaxHttpBufferBytes: parsedEnv.SOCKET_IO_MAX_HTTP_BUFFER_BYTES,
   socketIoPerMessageDeflate: parsedEnv.SOCKET_IO_PER_MESSAGE_DEFLATE,
   socketIoTransports: parsedEnv.SOCKET_IO_TRANSPORTS as ("websocket" | "polling")[],
@@ -591,6 +694,7 @@ export const env = {
   socketAuditPruneBatchSize: parsedEnv.SOCKET_AUDIT_PRUNE_BATCH_SIZE,
   socketAuditBatchMax: parsedEnv.SOCKET_AUDIT_BATCH_MAX,
   socketAuditBatchFlushMs: parsedEnv.SOCKET_AUDIT_BATCH_FLUSH_MS,
+  socketAuditMaxQueue: parsedEnv.SOCKET_AUDIT_MAX_QUEUE,
   socketAuditHighVolumeSamplePercent: parsedEnv.SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT,
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
   restAgentsCommandsRateLimitWindowMs: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS,
@@ -609,6 +713,8 @@ export const env = {
   bridgeLatencyTraceRetentionIntervalMinutes:
     parsedEnv.BRIDGE_LATENCY_TRACE_RETENTION_INTERVAL_MINUTES,
   bridgeLatencyTracePruneBatchSize: parsedEnv.BRIDGE_LATENCY_TRACE_PRUNE_BATCH_SIZE,
+  bridgeLatencyTraceRollupRefreshIntervalMinutes:
+    parsedEnv.BRIDGE_LATENCY_TRACE_ROLLUP_REFRESH_INTERVAL_MINUTES,
   bridgeLatencyTraceOtelEnabled: parsedEnv.BRIDGE_LATENCY_TRACE_OTEL_ENABLED,
   bridgeLatencyTracePhasesMismatchWarnMs: parsedEnv.BRIDGE_LATENCY_TRACE_PHASES_MISMATCH_WARN_MS,
   bridgeLatencyTraceRedactUserId: parsedEnv.BRIDGE_LATENCY_TRACE_REDACT_USER_ID,
@@ -643,4 +749,8 @@ export const env = {
   registrationEmailOutboxMaxAttempts: parsedEnv.REGISTRATION_EMAIL_OUTBOX_MAX_ATTEMPTS,
   registrationEmailOutboxRetryBaseDelayMs: parsedEnv.REGISTRATION_EMAIL_OUTBOX_RETRY_BASE_DELAY_MS,
   registrationEmailOutboxLockTimeoutMs: parsedEnv.REGISTRATION_EMAIL_OUTBOX_LOCK_TIMEOUT_MS,
+  registrationEmailOutboxDeadLetterRetentionDays:
+    parsedEnv.REGISTRATION_EMAIL_OUTBOX_DEAD_LETTER_RETENTION_DAYS,
+  registrationEmailOutboxDeadLetterPruneIntervalMinutes:
+    parsedEnv.REGISTRATION_EMAIL_OUTBOX_DEAD_LETTER_PRUNE_INTERVAL_MINUTES,
 } as const;

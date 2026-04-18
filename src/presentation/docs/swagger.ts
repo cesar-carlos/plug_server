@@ -875,6 +875,41 @@ const swaggerSpec = swaggerJSDoc({
   apis: routeDocGlobs,
 });
 
+type OpenApiOperation = {
+  servers?: Array<{ url: string; description?: string }>;
+};
+
+type OpenApiPathItem = Partial<
+  Record<"get" | "post" | "put" | "patch" | "delete" | "options" | "head", OpenApiOperation>
+>;
+
+const compatAliasServers = [
+  { url: "/api/v1", description: "Primary API base" },
+  {
+    url: "/",
+    description: "Compatibility aliases (supported only for `/auth/*` and `/metrics`)",
+  },
+] as const;
+
+/**
+ * The app mounts `/auth/*` and `/metrics` both under `/api/v1` and at the root
+ * for backward compatibility. Document those aliases with operation-level
+ * servers, without implying that the whole API is available at `/`.
+ */
+for (const [pathKey, pathItem] of Object.entries(swaggerSpec.paths ?? {})) {
+  if (pathKey !== "/metrics" && !pathKey.startsWith("/auth/")) {
+    continue;
+  }
+  const item = pathItem as OpenApiPathItem;
+  for (const method of ["get", "post", "put", "patch", "delete", "options", "head"] as const) {
+    const operation = item[method];
+    if (!operation) {
+      continue;
+    }
+    operation.servers = [...compatAliasServers];
+  }
+}
+
 export const setupSwagger = (app: Express): void => {
   if (!env.swaggerEnabled) {
     return;
