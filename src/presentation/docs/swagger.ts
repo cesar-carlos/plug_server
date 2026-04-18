@@ -883,6 +883,15 @@ type OpenApiPathItem = Partial<
   Record<"get" | "post" | "put" | "patch" | "delete" | "options" | "head", OpenApiOperation>
 >;
 
+/**
+ * `swagger-jsdoc` types its return value as the loose `object`, which makes
+ * `swaggerSpec.paths` a TS error. The runtime shape is the OpenAPI document we
+ * authored above, so we narrow it to the fields we actually touch.
+ */
+interface OpenApiSpecRuntime {
+  paths?: Record<string, unknown>;
+}
+
 const compatAliasServers = [
   { url: "/api/v1", description: "Primary API base" },
   {
@@ -896,7 +905,9 @@ const compatAliasServers = [
  * for backward compatibility. Document those aliases with operation-level
  * servers, without implying that the whole API is available at `/`.
  */
-for (const [pathKey, pathItem] of Object.entries(swaggerSpec.paths ?? {})) {
+for (const [pathKey, pathItem] of Object.entries(
+  (swaggerSpec as OpenApiSpecRuntime).paths ?? {},
+)) {
   if (pathKey !== "/metrics" && !pathKey.startsWith("/auth/")) {
     continue;
   }
