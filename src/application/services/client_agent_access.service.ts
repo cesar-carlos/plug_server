@@ -35,6 +35,20 @@ import {
   clientAgentAccessRevokedByOwnerDecisionReason,
 } from "./client_agent_access_decision_reasons";
 import { recordClientAgentAccessRequestPost } from "../../shared/metrics/client_agent_access_request.metrics";
+import { recordSocketAuditEvent } from "./socket_audit.service";
+
+/**
+ * Audit event types for the per-(client, agent) bearer token storage.
+ * Stored in `audit_events.event_type`. The token value itself is **never**
+ * persisted — only metadata (length and whether a previous value existed).
+ */
+export const CLIENT_TOKEN_AUDIT_EVENT_TYPE_SET = "client_token.set";
+export const CLIENT_TOKEN_AUDIT_EVENT_TYPE_CLEARED = "client_token.cleared";
+
+interface ClientTokenAuditPayload {
+  readonly len: number;
+  readonly replacedExisting: boolean;
+}
 
 export interface ClientAgentAccessRequestRecord {
   readonly id: string;
@@ -749,6 +763,10 @@ export class ClientAgentAccessService {
    * - `clientToken: string` — replace stored token.
    * - `clientToken: null`  — clear the stored token.
    *
+   * Emits an `audit_events` row (`client_token.set` / `client_token.cleared`)
+   * with metadata only (length + whether a previous value existed). The token
+   * value itself is **never** persisted in the audit trail.
+   *
    * Returns the value the client should now see.
    */
   async setClientTokenForAgent(
@@ -756,15 +774,70 @@ export class ClientAgentAccessService {
     agentId: string,
     clientToken: string | null,
   ): Promise<Result<{ clientToken: string | null }>> {
+    const existing = await this.clientAgentAccessRepository.findByClientAndAgent(
+      clientId,
+      agentId,
+    );
+    if (!existing) {
+      return err(agentAccessDenied(agentId));
+    }
+
     const updated = await this.clientAgentAccessRepository.setClientToken(
       clientId,
       agentId,
       clientToken,
     );
     if (!updated) {
+      // Race: row deleted between the read and the write — treat as if access
+      // had never existed.
       return err(agentAccessDenied(agentId));
     }
+
+    const replacedExisting =
+      typeof existing.clientToken === "string" && existing.clientToken !== "";
+    void this.recordClientTokenAudit({
+      clientId,
+      agentId,
+      eventType:
+        clientToken === null
+          ? CLIENT_TOKEN_AUDIT_EVENT_TYPE_CLEARED
+          : CLIENT_TOKEN_AUDIT_EVENT_TYPE_SET,
+      payload: {
+        len: clientToken ? clientToken.length : 0,
+        replacedExisting,
+      },
+    });
+
     return ok({ clientToken });
+  }
+
+  private async recordClientTokenAudit(input: {
+    readonly clientId: string;
+    readonly agentId: string;
+    readonly eventType: string;
+    readonly payload: ClientTokenAuditPayload;
+  }): Promise<void> {
+    try {
+      await recordSocketAuditEvent({
+        eventType: input.eventType,
+        // `actor_user_id` is the principal column on `audit_events`; here it
+        // carries the client id (principal_type=client) so queries can join
+        // by `clients.id` when the actor was a client.
+        actorUserId: input.clientId,
+        actorRole: "client",
+        direction: "control",
+        agentId: input.agentId,
+        payload: input.payload,
+      });
+    } catch (error) {
+      // Audit failures must never break the user-facing operation.
+      logger.warn("client_token_audit_record_failed", {
+        clientId: input.clientId,
+        agentId: input.agentId,
+        eventType: input.eventType,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async revokeAccessByOwner(

@@ -1022,6 +1022,20 @@ disso expõem `hasClientToken: boolean` por agente. Isso evita que o token
 vaze por listagens paginadas. O token é apagado automaticamente quando a linha
 de acesso é removida (cascata por `client_id`/`agent_id`).
 
+**Auditoria.** Toda escrita do token (set ou clear) gera uma linha em
+`audit_events` com:
+
+- `event_type` — `client_token.set` ou `client_token.cleared`
+- `actor_user_id` — `clients.id` do cliente autenticado
+- `actor_role` — `"client"`
+- `direction` — `"control"`
+- `agent_id` — agente alvo
+- `payload_json` — `{ "len": <int>, "replacedExisting": <bool> }`
+
+O **valor** do token nunca é persistido em `audit_events` (só `len` e
+`replacedExisting`). Isso permite responder perguntas tipo "quem trocou o
+token às 14h32?" sem expor a credencial em logs/auditoria.
+
 O bridge REST continua aceitando `params.client_token` no body do comando
 (`POST /api/v1/agents/commands`); o storage adicionado aqui é apenas para o
 cliente persistir o valor entre sessões — o consumer pode ler com `GET` e
