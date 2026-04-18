@@ -995,6 +995,50 @@ timeout), o servidor também pode devolver:
 - `Retry-After` (segundos)
 - `details.retry_after_ms` no body (ambiente não-produção)
 
+> **Nota multi-réplica.** Os limitadores usam o store default em memória; em
+> multi-pod o teto efetivo se multiplica pelo número de réplicas. Veja
+> `docs/scaling_and_roadmap.md` (seção “Rate limits HTTP em memoria”) para a
+> recomendação de `Redis Store` quando justificar.
+
+### Endurecimento HTTP do hub
+
+Mudanças aplicadas no `app.ts` / middlewares para produção:
+
+- **CORS multi-origem**: `CORS_ORIGIN` aceita lista por vírgula
+  (`https://app.example.com,https://admin.example.com`); a origem é validada
+  via callback e o `Access-Control-Allow-Credentials` só é habilitado quando
+  há lista específica (não com `*`).
+- **`/metrics`** (root e `/api/v1/metrics`) exige role `admin` (anteriormente
+  qualquer usuário autenticado conseguia raspar).
+- **`x-request-id`** ecoado apenas se casar `^[A-Za-z0-9._-]{1,128}$`; caso
+  contrário, substituído por `crypto.randomUUID()` para mitigar log injection
+  e header splitting.
+- **`/health/ready`** faz probe `SELECT 1` no Postgres com timeout 1500 ms e
+  retorna `503` + `status:"degraded"` em falha. `/health/live` continua sempre
+  `200`. Em `NODE_ENV=test` o probe é omitido (in-memory repos).
+- **`/uploads`** servido com `etag`, `maxAge: 7d`, `immutable`, `dotfiles:
+  deny`, `fallthrough: false`, `index: false`.
+- **Cookies de refresh** (`refresh_token` user, `client_refresh_token` client)
+  agora têm `Max-Age` derivado de `JWT_REFRESH_EXPIRES_IN`. Logout, mudança de
+  senha (user + client) sempre limpam o cookie, mesmo quando a revogação no
+  servidor falha — evita cookie órfão no navegador.
+- **`credentialAuthRateLimit`** (25 req / 15 min) aplicado **apenas** nos
+  endpoints de credencial. Endpoints autenticados como `/auth/me`,
+  `/auth/password`, `/client-auth/me`, `/client-auth/password` deixaram de ser
+  blanket-rate-limited. Auto-bypass em test runner para não bloquear
+  integration tests.
+- **Upload de thumbnail** valida magic bytes via `sharp().metadata()` (não
+  confia no `Content-Type` do cliente). `MulterError` (size limit, etc.) vira
+  `400 BAD_REQUEST` em vez de `500`.
+- **`requireAuthAndActiveAccountSnapshot`** (lightweight) usado em rotas GET
+  read-only (`/agents`, `/agents/catalog`, `/agents/catalog/:agentId`,
+  `/me/agents`, `/users/:userId/agents`) — evita carregar `password_hash` e
+  outros campos pesados do `User` em paths que só precisam de
+  status/credentials_version. Mutações continuam usando o middleware completo.
+- **`GET /api/v1/agents`** retorna apenas `{ agentId, userId, capabilities,
+  connectedAt, lastSeenAt }` por agente; o `socketId` interno do Engine.IO
+  deixou de ser exposto.
+
 | `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame |
 
 ---

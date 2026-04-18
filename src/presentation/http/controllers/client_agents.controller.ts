@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import { getAuthClient } from "../middlewares/auth.middleware";
+import { escapeHtml, escapeHtmlAttr } from "../helpers/html_escape";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   ClientAccessApproveBody,
@@ -18,12 +19,6 @@ import {
   recordClientMeAgentsListResponse,
 } from "../../../shared/metrics/client_me_agents.metrics";
 import { toClientAgentDto } from "../mappers/client_agent.mapper";
-
-const escapeHtml = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-const escapeHtmlAttr = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 const decisionHtml = (title: string, bodyText: string): string => {
   const safeTitle = escapeHtml(title);
@@ -41,39 +36,34 @@ const decisionHtml = (title: string, bodyText: string): string => {
 export const listMyClientAgents = async (
   _request: Request,
   response: Response,
-  next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authClient = getAuthClient(response);
-    const query = getValidated<ClientListAgentsQuery>(response, "query");
-    const pageResult = await container.clientAgentAccessService.listApprovedAgentsPage(
-      authClient.sub,
-      {
-        ...(query.status !== undefined ? { status: query.status } : {}),
-        ...(query.search !== undefined ? { search: query.search } : {}),
-        ...(query.page !== undefined ? { page: query.page } : {}),
-        ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-      },
-      {
-        refreshOnline: query.refresh === true,
-      },
-    );
-    const agents = pageResult.items.map((agent) =>
-      toClientAgentDto(agent, container.isAgentConnectedToHub(agent.agentId)),
-    );
-    recordClientMeAgentsListResponse(agents.filter((a) => a.isHubConnected).length);
-    maybeSetHubInstanceIdHeader(response);
-    response.status(200).json({
-      agents,
-      agentIds: pageResult.items.map((agent) => agent.agentId),
-      count: pageResult.items.length,
-      total: pageResult.total,
-      page: pageResult.page,
-      pageSize: pageResult.pageSize,
-    });
-  } catch (error) {
-    next(error);
-  }
+  const authClient = getAuthClient(response);
+  const query = getValidated<ClientListAgentsQuery>(response, "query");
+  const pageResult = await container.clientAgentAccessService.listApprovedAgentsPage(
+    authClient.sub,
+    {
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.search !== undefined ? { search: query.search } : {}),
+      ...(query.page !== undefined ? { page: query.page } : {}),
+      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+    },
+    {
+      refreshOnline: query.refresh === true,
+    },
+  );
+  const agents = pageResult.items.map((agent) =>
+    toClientAgentDto(agent, container.isAgentConnectedToHub(agent.agentId)),
+  );
+  recordClientMeAgentsListResponse(agents.filter((a) => a.isHubConnected).length);
+  maybeSetHubInstanceIdHeader(response);
+  response.status(200).json({
+    agents,
+    agentIds: pageResult.items.map((agent) => agent.agentId),
+    count: pageResult.items.length,
+    total: pageResult.total,
+    page: pageResult.page,
+    pageSize: pageResult.pageSize,
+  });
 };
 
 export const getMyClientAgent = async (
@@ -81,26 +71,22 @@ export const getMyClientAgent = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authClient = getAuthClient(response);
-    const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
-    const result = await container.clientAgentAccessService.findApprovedAgent(
-      authClient.sub,
-      agentId,
-    );
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    const isHubConnected = container.isAgentConnectedToHub(agentId);
-    recordClientMeAgentsDetailResponse(isHubConnected);
-    maybeSetHubInstanceIdHeader(response);
-    response.status(200).json({
-      agent: toClientAgentDto(result.value, isHubConnected),
-    });
-  } catch (error) {
-    next(error);
+  const authClient = getAuthClient(response);
+  const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
+  const result = await container.clientAgentAccessService.findApprovedAgent(
+    authClient.sub,
+    agentId,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  const isHubConnected = container.isAgentConnectedToHub(agentId);
+  recordClientMeAgentsDetailResponse(isHubConnected);
+  maybeSetHubInstanceIdHeader(response);
+  response.status(200).json({
+    agent: toClientAgentDto(result.value, isHubConnected),
+  });
 };
 
 export const requestMyClientAgents = async (
@@ -108,21 +94,17 @@ export const requestMyClientAgents = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authClient = getAuthClient(response);
-    const body = getValidated<ClientAgentIdsBody>(response, "body");
-    const result = await container.clientAgentAccessService.requestAccess(
-      authClient.sub,
-      body.agentIds,
-    );
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json(result.value);
-  } catch (error) {
-    next(error);
+  const authClient = getAuthClient(response);
+  const body = getValidated<ClientAgentIdsBody>(response, "body");
+  const result = await container.clientAgentAccessService.requestAccess(
+    authClient.sub,
+    body.agentIds,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json(result.value);
 };
 
 export const removeMyClientAgents = async (
@@ -130,21 +112,17 @@ export const removeMyClientAgents = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authClient = getAuthClient(response);
-    const body = getValidated<ClientAgentIdsBody>(response, "body");
-    const result = await container.clientAgentAccessService.removeApprovedAccess(
-      authClient.sub,
-      body.agentIds,
-    );
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({ message: "Client agent accesses removed successfully" });
-  } catch (error) {
-    next(error);
+  const authClient = getAuthClient(response);
+  const body = getValidated<ClientAgentIdsBody>(response, "body");
+  const result = await container.clientAgentAccessService.removeApprovedAccess(
+    authClient.sub,
+    body.agentIds,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({ message: "Client agent accesses removed successfully" });
 };
 
 export const removeMyClientAgentByParam = async (
@@ -152,46 +130,37 @@ export const removeMyClientAgentByParam = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authClient = getAuthClient(response);
-    const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
-    const result = await container.clientAgentAccessService.removeApprovedAccess(authClient.sub, [
-      agentId,
-    ]);
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({ message: "Client agent accesses removed successfully" });
-  } catch (error) {
-    next(error);
+  const authClient = getAuthClient(response);
+  const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
+  const result = await container.clientAgentAccessService.removeApprovedAccess(authClient.sub, [
+    agentId,
+  ]);
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({ message: "Client agent accesses removed successfully" });
 };
 
 export const listMyClientAgentAccessRequests = async (
   _request: Request,
   response: Response,
-  next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authClient = getAuthClient(response);
-    const query = getValidated<ClientListAgentAccessRequestsQuery>(response, "query");
-    const pageResult = await container.clientAgentAccessService.listRequestsPage(authClient.sub, {
-      ...(query.status !== undefined ? { status: query.status } : {}),
-      ...(query.search !== undefined ? { search: query.search } : {}),
-      ...(query.page !== undefined ? { page: query.page } : {}),
-      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-    });
-    response.status(200).json({
-      requests: pageResult.items.map(toClientAgentAccessRequestDto),
-      count: pageResult.items.length,
-      total: pageResult.total,
-      page: pageResult.page,
-      pageSize: pageResult.pageSize,
-    });
-  } catch (error) {
-    next(error);
-  }
+  const authClient = getAuthClient(response);
+  const query = getValidated<ClientListAgentAccessRequestsQuery>(response, "query");
+  const pageResult = await container.clientAgentAccessService.listRequestsPage(authClient.sub, {
+    ...(query.status !== undefined ? { status: query.status } : {}),
+    ...(query.search !== undefined ? { search: query.search } : {}),
+    ...(query.page !== undefined ? { page: query.page } : {}),
+    ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+  });
+  response.status(200).json({
+    requests: pageResult.items.map(toClientAgentAccessRequestDto),
+    count: pageResult.items.length,
+    total: pageResult.total,
+    page: pageResult.page,
+    pageSize: pageResult.pageSize,
+  });
 };
 
 /** GET: read-only page with POST forms (no mutating GET). */

@@ -14,6 +14,10 @@ import { agentRegistry } from "../../socket/hub/agent_registry";
 import { agentsNamespace } from "../../../socket";
 import { dispatchRpcCommandToAgent } from "../../socket/hub/rpc_bridge";
 import { normalizeAgentRpcResponse } from "../serializers/agent_rpc_response.serializer";
+import {
+  toPublicConnectedAgents,
+  type PublicConnectedAgent,
+} from "../serializers/agent_registry.serializer";
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
 import type { AgentCommandBody } from "../validators/agents.validator";
@@ -43,39 +47,36 @@ const resolveAgentAccessPrincipal = (
 export const listConnectedAgents = async (
   _request: Request,
   response: Response,
-  next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    let agents = agentRegistry.listAll();
+  const authUser = getAuthUser(response);
+  let agents = agentRegistry.listAll();
 
-    const visibleAgentIds = await resolveVisibleAgentIds(authUser, (userId) =>
-      container.userAgentService.listAgentIdsByUserId(userId),
-    );
-    if (visibleAgentIds !== undefined) {
-      const allowed = new Set(visibleAgentIds);
-      agents = agents.filter((a) => allowed.has(a.agentId));
-    }
-
-    const payload: {
-      agents: ReturnType<typeof agentRegistry.listAll>;
-      count: number;
-      _diagnostic?: { socketConnectionsInAgentsNamespace: number };
-    } = {
-      agents,
-      count: agents.length,
-    };
-
-    if (isJwtAdmin(authUser) && env.nodeEnv !== "production" && agentsNamespace) {
-      payload._diagnostic = {
-        socketConnectionsInAgentsNamespace: agentsNamespace.sockets.size,
-      };
-    }
-
-    response.status(200).json(payload);
-  } catch (e) {
-    next(e);
+  const visibleAgentIds = await resolveVisibleAgentIds(authUser, (userId) =>
+    container.userAgentService.listAgentIdsByUserId(userId),
+  );
+  if (visibleAgentIds !== undefined) {
+    const allowed = new Set(visibleAgentIds);
+    agents = agents.filter((a) => allowed.has(a.agentId));
   }
+
+  const publicAgents: PublicConnectedAgent[] = toPublicConnectedAgents(agents);
+
+  const payload: {
+    agents: PublicConnectedAgent[];
+    count: number;
+    _diagnostic?: { socketConnectionsInAgentsNamespace: number };
+  } = {
+    agents: publicAgents,
+    count: publicAgents.length,
+  };
+
+  if (isJwtAdmin(authUser) && env.nodeEnv !== "production" && agentsNamespace) {
+    payload._diagnostic = {
+      socketConnectionsInAgentsNamespace: agentsNamespace.sockets.size,
+    };
+  }
+
+  response.status(200).json(payload);
 };
 
 export const patchMyAgentProfile = async (
@@ -174,8 +175,12 @@ export const proxyCommandToAgent = async (
 
   incrementRestBridgeRequest();
 
-  const registeredAgent = agentRegistry.findByAgentId(body.agentId);
-  if (!registeredAgent) {
+  // Fast-fail when the agent is clearly absent before doing rate-limit/queue
+  // accounting inside the bridge. We do NOT cache the registry entry across
+  // the await boundary because the agent could disconnect between this check
+  // and `dispatchRpcCommandToAgent` — the dispatch path re-checks under its
+  // own lock and is the source of truth for delivery.
+  if (!agentRegistry.findByAgentId(body.agentId)) {
     incrementRestBridgeRequestFailed();
     if (agentRegistry.hasKnownAgentId(body.agentId)) {
       throw serviceUnavailable(`Agent ${body.agentId} is disconnected`);

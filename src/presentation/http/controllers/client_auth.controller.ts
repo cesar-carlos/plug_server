@@ -1,10 +1,13 @@
 import type { NextFunction, Request, Response } from "express";
-import multer from "multer";
+import multer, { MulterError } from "multer";
+import type { NextFunction as ExpressNextFunction, RequestHandler } from "express";
 
 import { badRequest } from "../../../shared/errors/http_errors";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import { getAuthClient } from "../middlewares/auth.middleware";
+import { clearRefreshCookie, setRefreshCookie } from "../helpers/refresh_cookie";
+import { escapeHtml, escapeHtmlAttr } from "../helpers/html_escape";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   ClientRegistrationApproveBody,
@@ -22,13 +25,56 @@ import type {
 } from "../validators/client_auth.validator";
 
 const refreshTokenCookieName = "client_refresh_token";
-const clientThumbnailUpload = multer({
+
+/**
+ * Memory-storage multer for the single-image thumbnail upload. Exposed so the
+ * route file can mount it as middleware (declarative pipeline) instead of
+ * invoking it imperatively from the controller.
+ */
+export const clientThumbnailUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: env.clientThumbnailMaxBytes,
     files: 1,
   },
 });
+
+/**
+ * Allow-list of image MIME types accepted for client thumbnail uploads.
+ * The `mimetype` field reported by multer is client-provided, so the controller
+ * additionally validates that the buffer matches the declared format via
+ * `sharp().metadata()` before persisting.
+ */
+const ALLOWED_THUMBNAIL_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/gif",
+]);
+
+const ALLOWED_THUMBNAIL_FORMATS = new Set(["png", "jpeg", "jpg", "webp", "gif"]);
+
+/**
+ * Wraps a multer middleware so file-validation errors (size limit, too many files,
+ * unexpected field) become 400 `AppError`s with a stable code, instead of a raw
+ * `MulterError` that the global error middleware would surface as a 500.
+ */
+export const wrapMulterErrors = (handler: RequestHandler): RequestHandler => {
+  return (request, response, next) => {
+    handler(request, response, (error: unknown) => {
+      if (!error) {
+        next();
+        return;
+      }
+      if (error instanceof MulterError) {
+        next(badRequest(`thumbnail upload rejected: ${error.code}`));
+        return;
+      }
+      next(error as Parameters<ExpressNextFunction>[0]);
+    });
+  };
+};
 
 const getRefreshTokenFromRequest = (
   request: Request,
@@ -46,28 +92,12 @@ const getRefreshTokenFromRequest = (
 };
 
 const setRefreshTokenCookie = (response: Response, token: string): void => {
-  response.cookie(refreshTokenCookieName, token, {
-    httpOnly: true,
-    secure: env.nodeEnv === "production",
-    sameSite: "strict",
-    path: "/",
-  });
+  setRefreshCookie(response, refreshTokenCookieName, token);
 };
 
 const clearRefreshTokenCookie = (response: Response): void => {
-  response.clearCookie(refreshTokenCookieName, {
-    httpOnly: true,
-    secure: env.nodeEnv === "production",
-    sameSite: "strict",
-    path: "/",
-  });
+  clearRefreshCookie(response, refreshTokenCookieName);
 };
-
-const escapeHtml = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-const escapeHtmlAttr = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 const registrationDecisionHtml = (title: string, bodyText: string): string => {
   const safeTitle = escapeHtml(title);
@@ -245,8 +275,10 @@ export const logoutClient = async (
 ): Promise<void> => {
   const body = getValidated<ClientLogoutBody>(response, "body");
   const refreshToken = getRefreshTokenFromRequest(request, body);
+  // Clear cookie up-front so the browser stops resending a stale token even
+  // when the revoke call fails (e.g. token already revoked / unknown).
+  clearRefreshTokenCookie(response);
   if (!refreshToken) {
-    clearRefreshTokenCookie(response);
     response.status(204).send();
     return;
   }
@@ -256,7 +288,6 @@ export const logoutClient = async (
     next(result.error);
     return;
   }
-  clearRefreshTokenCookie(response);
   response.status(204).send();
 };
 
@@ -324,24 +355,36 @@ export const uploadClientThumbnail = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  const parseResult = await new Promise<Error | null>((resolve) => {
-    clientThumbnailUpload.single("thumbnail")(request, response, (error) => {
-      resolve(error ?? null);
-    });
-  });
-  if (parseResult) {
-    next(badRequest(parseResult.message));
-    return;
-  }
-
   const authClient = getAuthClient(response);
   const file = request.file;
   if (!file) {
     next(badRequest("thumbnail file is required"));
     return;
   }
-  if (!file.mimetype.startsWith("image/")) {
-    next(badRequest("thumbnail file must be an image"));
+  const declaredType = file.mimetype.toLowerCase();
+  if (!ALLOWED_THUMBNAIL_MIME_TYPES.has(declaredType)) {
+    next(badRequest("thumbnail file must be PNG, JPEG, WebP or GIF"));
+    return;
+  }
+
+  // Magic-bytes validation: trust the bytes, not the client-supplied header.
+  const sharpModule = (await import("sharp")).default;
+  let detectedFormat: string | undefined;
+  try {
+    const metadata = await sharpModule(file.buffer).metadata();
+    detectedFormat = metadata.format;
+  } catch (error) {
+    next(
+      badRequest(
+        `thumbnail file is not a valid image (${
+          error instanceof Error ? error.message : "decode_failed"
+        })`,
+      ),
+    );
+    return;
+  }
+  if (!detectedFormat || !ALLOWED_THUMBNAIL_FORMATS.has(detectedFormat)) {
+    next(badRequest("thumbnail file format is not supported"));
     return;
   }
 
@@ -349,7 +392,7 @@ export const uploadClientThumbnail = async (
     authClient.sub,
     {
       buffer: file.buffer,
-      mimeType: file.mimetype,
+      mimeType: declaredType,
     },
     response.locals.activeAccountClient,
   );

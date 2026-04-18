@@ -2,7 +2,11 @@ import { Router } from "express";
 
 import { listMyAgents, listUserAgents } from "../controllers/user_agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
-import { requireAuthAndActiveAccount, requireRole } from "../middlewares/auth.middleware";
+import {
+  requireAuthAndActiveAccount,
+  requireAuthAndActiveAccountSnapshot,
+  requireRole,
+} from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { userIdParamSchema } from "../validators/user_agents.validator";
 
@@ -35,7 +39,11 @@ export const userAgentsRouter = Router();
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-userAgentsRouter.get("/me/agents", ...requireAuthAndActiveAccount, asyncHandler(listMyAgents));
+userAgentsRouter.get(
+  "/me/agents",
+  ...requireAuthAndActiveAccountSnapshot,
+  asyncHandler(listMyAgents),
+);
 
 /**
  * @openapi
@@ -74,7 +82,7 @@ userAgentsRouter.get("/me/agents", ...requireAuthAndActiveAccount, asyncHandler(
  */
 userAgentsRouter.get(
   "/users/:userId/agents",
-  ...requireAuthAndActiveAccount,
+  ...requireAuthAndActiveAccountSnapshot,
   requireRole("admin"),
   validateRequest({ params: userIdParamSchema }),
   asyncHandler(listUserAgents),

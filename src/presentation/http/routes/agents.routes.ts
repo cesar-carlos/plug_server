@@ -8,6 +8,7 @@ import {
 import { asyncHandler } from "../middlewares/async_handler";
 import {
   requireAuthAndActiveAccount,
+  requireAuthAndActiveAccountSnapshot,
   requirePrincipalAuthAndActiveAccount,
 } from "../middlewares/auth.middleware";
 import {
@@ -78,7 +79,11 @@ export const agentsRouter = Router();
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-agentsRouter.get("/", ...requireAuthAndActiveAccount, asyncHandler(listConnectedAgents));
+agentsRouter.get(
+  "/",
+  ...requireAuthAndActiveAccountSnapshot,
+  asyncHandler(listConnectedAgents),
+);
 
 /**
  * @openapi

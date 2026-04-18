@@ -2,7 +2,8 @@ import { Router } from "express";
 
 import { getHealth, getHealthLive, getHealthReady } from "../controllers/health.controller";
 import { getMetrics } from "../controllers/metrics.controller";
-import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
+import { asyncHandler } from "../middlewares/async_handler";
+import { requireAuthAndActiveAccount, requireRole } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { healthQuerySchema } from "../validators/health.validator";
 import { agentsRouter } from "./agents.routes";
@@ -70,7 +71,7 @@ httpRouter.get("/ping", (_request, response) => {
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-httpRouter.get("/metrics", ...requireAuthAndActiveAccount, getMetrics);
+httpRouter.get("/metrics", ...requireAuthAndActiveAccount, requireRole("admin"), getMetrics);
 
 /**
  * @openapi
@@ -96,7 +97,7 @@ httpRouter.get("/health/live", getHealthLive);
  *       200:
  *         description: Application is ready to receive traffic
  */
-httpRouter.get("/health/ready", getHealthReady);
+httpRouter.get("/health/ready", asyncHandler(getHealthReady));
 
 /**
  * @openapi
@@ -138,5 +139,5 @@ httpRouter.get(
   validateRequest({
     query: healthQuerySchema,
   }),
-  getHealth,
+  asyncHandler(getHealth),
 );

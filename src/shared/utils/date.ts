@@ -125,3 +125,36 @@ export const parseExpiryToDate = (expiry: string): Date => {
 
   return moment().utc().add(amount, unitMap[unitKey]).toDate();
 };
+
+/**
+ * Parses a shorthand expiry string (e.g. "7d", "15m") into a duration expressed in
+ * milliseconds. Same supported units as {@link parseExpiryToDate}.
+ *
+ * Used to compute cookie `maxAge` from the same env var that drives JWT expiration,
+ * so the browser cookie lifetime is aligned with the server-side token lifetime.
+ *
+ * @example parseExpiryToMs("7d") → 604_800_000
+ */
+export const parseExpiryToMs = (expiry: string): number => {
+  const match = /^(\d+)([smhdw])$/.exec(expiry);
+  if (!match) {
+    throw new Error(`Invalid expiry format: "${expiry}". Use formats like "7d", "1h", "30m".`);
+  }
+
+  const amount = parseInt(match[1] as string, 10);
+  const unitKey = match[2] as string;
+
+  const unitMillis: Record<string, number> = {
+    s: 1_000,
+    m: 60_000,
+    h: 3_600_000,
+    d: 86_400_000,
+    w: 604_800_000,
+  };
+
+  const factor = unitMillis[unitKey];
+  if (factor === undefined) {
+    throw new Error(`Unsupported expiry unit: "${unitKey}".`);
+  }
+  return amount * factor;
+};

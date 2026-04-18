@@ -9,6 +9,7 @@ import {
   clientPasswordRecoveryRequest,
   clientPasswordRecoveryReset,
   clientRegistrationStatus,
+  clientThumbnailUpload,
   getClientMe,
   loginClient,
   logoutClient,
@@ -17,11 +18,13 @@ import {
   refreshClient,
   rejectClientRegistration,
   registerClient,
+  wrapMulterErrors,
 } from "../controllers/client_auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import {
   clientPasswordRecoveryRequestRateLimit,
   clientThumbnailRateLimit,
+  credentialAuthRateLimit,
 } from "../middlewares/rate_limit.middleware";
 import { requireClientAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
@@ -72,6 +75,7 @@ export const clientAuthRouter = Router();
  */
 clientAuthRouter.post(
   "/register",
+  credentialAuthRateLimit,
   validateRequest({ body: clientRegisterBodySchema }),
   asyncHandler(registerClient),
 );
@@ -93,6 +97,7 @@ clientAuthRouter.post(
  */
 clientAuthRouter.get(
   "/registration/review",
+  credentialAuthRateLimit,
   validateRequest({ query: clientRegistrationTokenQuerySchema }),
   asyncHandler(clientRegistrationReviewPage),
 );
@@ -114,6 +119,7 @@ clientAuthRouter.get(
  */
 clientAuthRouter.get(
   "/registration/status",
+  credentialAuthRateLimit,
   validateRequest({ query: clientRegistrationTokenQuerySchema }),
   asyncHandler(clientRegistrationStatus),
 );
@@ -139,6 +145,7 @@ clientAuthRouter.get(
  */
 clientAuthRouter.post(
   "/registration/approve",
+  credentialAuthRateLimit,
   validateRequest({ body: clientRegistrationApproveBodySchema }),
   asyncHandler(approveClientRegistration),
 );
@@ -165,6 +172,7 @@ clientAuthRouter.post(
  */
 clientAuthRouter.post(
   "/registration/reject",
+  credentialAuthRateLimit,
   validateRequest({ body: clientRegistrationRejectBodySchema }),
   asyncHandler(rejectClientRegistration),
 );
@@ -193,6 +201,7 @@ clientAuthRouter.post(
  */
 clientAuthRouter.post(
   "/login",
+  credentialAuthRateLimit,
   validateRequest({ body: clientLoginBodySchema }),
   asyncHandler(loginClient),
 );
@@ -221,6 +230,7 @@ clientAuthRouter.post(
  */
 clientAuthRouter.post(
   "/refresh",
+  credentialAuthRateLimit,
   validateRequest({ body: clientRefreshBodySchema }),
   asyncHandler(refreshClient),
 );
@@ -245,6 +255,7 @@ clientAuthRouter.post(
  */
 clientAuthRouter.post(
   "/logout",
+  credentialAuthRateLimit,
   validateRequest({ body: clientLogoutBodySchema }),
   asyncHandler(logoutClient),
 );
@@ -387,6 +398,7 @@ clientAuthRouter.post(
   "/thumbnail",
   ...requireClientAuthAndActiveAccount,
   clientThumbnailRateLimit,
+  wrapMulterErrors(clientThumbnailUpload.single("thumbnail")),
   asyncHandler(uploadClientThumbnail),
 );
 
@@ -501,6 +513,7 @@ clientAuthRouter.get(
  */
 clientAuthRouter.post(
   "/password-recovery/reset",
+  credentialAuthRateLimit,
   validateRequest({ body: clientPasswordRecoveryResetBodySchema }),
   asyncHandler(clientPasswordRecoveryReset),
 );

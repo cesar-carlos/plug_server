@@ -20,29 +20,25 @@ export const listMyClients = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    const query = getValidated<UserListClientsQuery>(response, "query");
-    const result = await container.clientAuthService.listManagedClientsPage(authUser.sub, {
-      ...(query.status !== undefined ? { status: query.status } : {}),
-      ...(query.search !== undefined ? { search: query.search } : {}),
-      ...(query.page !== undefined ? { page: query.page } : {}),
-      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-    });
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({
-      clients: result.value.items,
-      count: result.value.items.length,
-      total: result.value.total,
-      page: result.value.page,
-      pageSize: result.value.pageSize,
-    });
-  } catch (error) {
-    next(error);
+  const authUser = getAuthUser(response);
+  const query = getValidated<UserListClientsQuery>(response, "query");
+  const result = await container.clientAuthService.listManagedClientsPage(authUser.sub, {
+    ...(query.status !== undefined ? { status: query.status } : {}),
+    ...(query.search !== undefined ? { search: query.search } : {}),
+    ...(query.page !== undefined ? { page: query.page } : {}),
+    ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+  });
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({
+    clients: result.value.items,
+    count: result.value.items.length,
+    total: result.value.total,
+    page: result.value.page,
+    pageSize: result.value.pageSize,
+  });
 };
 
 export const getMyClient = async (
@@ -50,18 +46,14 @@ export const getMyClient = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    const { clientId } = getValidated<UserClientIdParam>(response, "params");
-    const result = await container.clientAuthService.findManagedClient(authUser.sub, clientId);
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({ client: result.value });
-  } catch (error) {
-    next(error);
+  const authUser = getAuthUser(response);
+  const { clientId } = getValidated<UserClientIdParam>(response, "params");
+  const result = await container.clientAuthService.findManagedClient(authUser.sub, clientId);
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({ client: result.value });
 };
 
 export const setMyClientStatus = async (
@@ -69,23 +61,19 @@ export const setMyClientStatus = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    const { clientId } = getValidated<UserClientIdParam>(response, "params");
-    const body = getValidated<UserSetClientStatusBody>(response, "body");
-    const result = await container.clientAuthService.setManagedClientStatus(
-      authUser.sub,
-      clientId,
-      body.status,
-    );
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({ client: result.value });
-  } catch (error) {
-    next(error);
+  const authUser = getAuthUser(response);
+  const { clientId } = getValidated<UserClientIdParam>(response, "params");
+  const body = getValidated<UserSetClientStatusBody>(response, "body");
+  const result = await container.clientAuthService.setManagedClientStatus(
+    authUser.sub,
+    clientId,
+    body.status,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({ client: result.value });
 };
 
 export const listMyClientAccessRequests = async (
@@ -93,31 +81,27 @@ export const listMyClientAccessRequests = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    const query = getValidated<UserListClientAccessRequestsQuery>(response, "query");
-    const result = await container.clientAgentAccessService.listRequestsByOwnerPage(authUser.sub, {
-      ...(query.status !== undefined ? { status: query.status } : {}),
-      ...(query.search !== undefined ? { search: query.search } : {}),
-      ...(query.agentId !== undefined ? { agentId: query.agentId } : {}),
-      ...(query.clientId !== undefined ? { clientId: query.clientId } : {}),
-      ...(query.page !== undefined ? { page: query.page } : {}),
-      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-    });
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({
-      requests: result.value.items,
-      count: result.value.items.length,
-      total: result.value.total,
-      page: result.value.page,
-      pageSize: result.value.pageSize,
-    });
-  } catch (error) {
-    next(error);
+  const authUser = getAuthUser(response);
+  const query = getValidated<UserListClientAccessRequestsQuery>(response, "query");
+  const result = await container.clientAgentAccessService.listRequestsByOwnerPage(authUser.sub, {
+    ...(query.status !== undefined ? { status: query.status } : {}),
+    ...(query.search !== undefined ? { search: query.search } : {}),
+    ...(query.agentId !== undefined ? { agentId: query.agentId } : {}),
+    ...(query.clientId !== undefined ? { clientId: query.clientId } : {}),
+    ...(query.page !== undefined ? { page: query.page } : {}),
+    ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+  });
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({
+    requests: result.value.items,
+    count: result.value.items.length,
+    total: result.value.total,
+    page: result.value.page,
+    pageSize: result.value.pageSize,
+  });
 };
 
 export const approveMyClientAccessRequest = async (
@@ -125,22 +109,18 @@ export const approveMyClientAccessRequest = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    const { requestId } = getValidated<UserClientAccessRequestIdParam>(response, "params");
-    const result = await container.clientAgentAccessService.approveByOwner(authUser.sub, requestId);
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({
-      approved: true,
-      agentId: result.value.agentId,
-      clientEmail: result.value.clientEmail,
-    });
-  } catch (error) {
-    next(error);
+  const authUser = getAuthUser(response);
+  const { requestId } = getValidated<UserClientAccessRequestIdParam>(response, "params");
+  const result = await container.clientAgentAccessService.approveByOwner(authUser.sub, requestId);
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({
+    approved: true,
+    agentId: result.value.agentId,
+    clientEmail: result.value.clientEmail,
+  });
 };
 
 export const rejectMyClientAccessRequest = async (
@@ -148,27 +128,23 @@ export const rejectMyClientAccessRequest = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    const { requestId } = getValidated<UserClientAccessRequestIdParam>(response, "params");
-    const body = getValidated<UserRejectClientAccessRequestBody>(response, "body");
-    const result = await container.clientAgentAccessService.rejectByOwner(
-      authUser.sub,
-      requestId,
-      body.reason,
-    );
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({
-      rejected: true,
-      agentId: result.value.agentId,
-      clientEmail: result.value.clientEmail,
-    });
-  } catch (error) {
-    next(error);
+  const authUser = getAuthUser(response);
+  const { requestId } = getValidated<UserClientAccessRequestIdParam>(response, "params");
+  const body = getValidated<UserRejectClientAccessRequestBody>(response, "body");
+  const result = await container.clientAgentAccessService.rejectByOwner(
+    authUser.sub,
+    requestId,
+    body.reason,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({
+    rejected: true,
+    agentId: result.value.agentId,
+    clientEmail: result.value.clientEmail,
+  });
 };
 
 export const listMyAgentClients = async (
@@ -176,37 +152,33 @@ export const listMyAgentClients = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    const { agentId } = getValidated<UserAgentIdParam>(response, "params");
-    const query = getValidated<UserListAgentClientsQuery>(response, "query");
-    const result = await container.clientAgentAccessService.listAgentClientsByOwnerPage(
-      authUser.sub,
-      agentId,
-      {
-        ...(query.status !== undefined ? { status: query.status } : {}),
-        ...(query.search !== undefined ? { search: query.search } : {}),
-        ...(query.page !== undefined ? { page: query.page } : {}),
-        ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-      },
-    );
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({
-      clients: result.value.items.map((item) => ({
-        ...item,
-        approvedAt: item.approvedAt.toISOString(),
-      })),
-      count: result.value.items.length,
-      total: result.value.total,
-      page: result.value.page,
-      pageSize: result.value.pageSize,
-    });
-  } catch (error) {
-    next(error);
+  const authUser = getAuthUser(response);
+  const { agentId } = getValidated<UserAgentIdParam>(response, "params");
+  const query = getValidated<UserListAgentClientsQuery>(response, "query");
+  const result = await container.clientAgentAccessService.listAgentClientsByOwnerPage(
+    authUser.sub,
+    agentId,
+    {
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.search !== undefined ? { search: query.search } : {}),
+      ...(query.page !== undefined ? { page: query.page } : {}),
+      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+    },
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({
+    clients: result.value.items.map((item) => ({
+      ...item,
+      approvedAt: item.approvedAt.toISOString(),
+    })),
+    count: result.value.items.length,
+    total: result.value.total,
+    page: result.value.page,
+    pageSize: result.value.pageSize,
+  });
 };
 
 export const revokeMyAgentClientAccess = async (
@@ -214,24 +186,20 @@ export const revokeMyAgentClientAccess = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
-  try {
-    const authUser = getAuthUser(response);
-    const { agentId, clientId } = getValidated<UserAgentClientParam>(response, "params");
-    const result = await container.clientAgentAccessService.revokeAccessByOwner(
-      authUser.sub,
-      agentId,
-      clientId,
-    );
-    if (!result.ok) {
-      next(result.error);
-      return;
-    }
-    response.status(200).json({
-      revoked: true,
-      agentId,
-      clientId,
-    });
-  } catch (error) {
-    next(error);
+  const authUser = getAuthUser(response);
+  const { agentId, clientId } = getValidated<UserAgentClientParam>(response, "params");
+  const result = await container.clientAgentAccessService.revokeAccessByOwner(
+    authUser.sub,
+    agentId,
+    clientId,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
   }
+  response.status(200).json({
+    revoked: true,
+    agentId,
+    clientId,
+  });
 };

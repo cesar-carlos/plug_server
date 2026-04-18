@@ -72,10 +72,25 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
-| `SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS` | `30000` | TTL do snapshot em `socket.data` usado para evitar round-trip à BD em cada evento do consumer. `0` desativa o cache. |
+| `SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS` | `30000` | **Legacy / ignorado.** Antes controlava um cache TTL de status; o guard agora revalida sempre na BD (lightweight snapshot) para tornar `block`/`unblock` instantâneo. Mantido no schema para não quebrar `.env` existentes. |
 | `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET` | `32` | Teto de operações assíncronas simultâneas por socket consumer (`agents:command`, `relay:rpc.request`, `agents:stream_pull`, `relay:rpc.stream.pull`). |
 | `SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION` | `1024` | Cap FIFO por conversa para o mapa de idempotência relay. |
 | `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES` | `100000` | Cap FIFO global para o mapa de idempotência relay. `0` desativa o teto global. |
+
+## REST: CORS, request id, rate limits
+
+| Variável / Comportamento | Defeito | Notas |
+| ------------------------ | ------- | ----- |
+| `CORS_ORIGIN` | `*` em dev; **rejeitado** em produção | Aceita uma origem única **ou** lista separada por vírgula (`https://a,https://b`). Quando há lista (≥ 1 origem específica), `cors` valida o `Origin` contra o conjunto e habilita `Access-Control-Allow-Credentials`. `*` desativa credentials. |
+| `HTTP_TRUST_PROXY` | `true` em produção | `1` hop. Necessário para `req.ip`/rate-limit corretos atrás de Nginx ou outro reverse proxy. |
+| Header `x-request-id` | **sanitizado** | Aceito apenas se casar `^[A-Za-z0-9._-]{1,128}$`; caso contrário é substituído por `crypto.randomUUID()` para evitar log injection / header splitting. Sempre exposto na resposta no header `x-request-id`. |
+| `credentialAuthRateLimit` | 25 / 15min | Aplicado **apenas** nos endpoints de credencial (`/auth/login`, `/auth/register`, `/auth/refresh`, `/auth/logout`, `/auth/agent-login`, `/auth/registration/{review,status,approve,reject}`, `/client-auth/{register,login,refresh,logout,registration/*}`, `/client-auth/password-recovery/reset`). **Não** afeta `/auth/me`, `/auth/password`, `/client-auth/me`, `/client-auth/password`. Auto-bypass em test runner. |
+| Cookie `refresh_token` / `client_refresh_token` | `HttpOnly`, `Secure` em prod, `SameSite=Strict`, `Path=/`, `Max-Age` = `JWT_REFRESH_EXPIRES_IN` (resp. client) | `Max-Age` calculado do mesmo env do JWT para evitar cookie órfão após revogação. Logout sempre limpa o cookie (mesmo com refresh inválido); change-password (user e client) também limpa para refletir invalidação de sessões. |
+| `/metrics` (root e `/api/v1/metrics`) | exige `requireAuthAndActiveAccount` + role `admin` | Antes qualquer usuário autenticado conseguia raspar; agora restrito a admin. Use `HUB_INSTANCE_ID` para distinguir réplicas em scrape. |
+| `/health/ready` | probe `SELECT 1` no Postgres com timeout 1500 ms | Retorna `503` + `status:"degraded"` quando o probe falha; `200` caso contrário. Em `NODE_ENV=test` o probe é omitido. `/health/live` continua sempre `200` (independente da BD). |
+| `/uploads` (estático) | `etag: true`, `maxAge: 7d`, `immutable`, `dotfiles: deny`, `fallthrough: false`, `index: false` | Endurece o `express.static` para evitar listagem, dotfiles e relisten ao 404. |
+| `express.urlencoded` | `extended: false` | Usa o parser `querystring` nativo (sem `qs`); só os formulários HTML de aprovação dependem dele e carregam `{token, reason?}`. |
+| Upload de thumbnail | multer + validação magic-bytes via `sharp().metadata()` | Allowlist `image/png|jpeg|webp|gif`. `MulterError` (size limit, etc.) é convertido para `400 BAD_REQUEST` em vez de `500`. |
 
 ## Manutencao de dados Agent
 

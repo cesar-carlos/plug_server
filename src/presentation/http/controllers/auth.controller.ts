@@ -6,6 +6,8 @@ import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import type { User } from "../../../domain/entities/user.entity";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { clearRefreshCookie, setRefreshCookie } from "../helpers/refresh_cookie";
+import { escapeHtml, escapeHtmlAttr } from "../helpers/html_escape";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   AgentLoginBody,
@@ -45,21 +47,11 @@ const getRefreshTokenFromRequest = (
 };
 
 const setRefreshTokenCookie = (response: Response, token: string): void => {
-  response.cookie(refreshTokenCookieName, token, {
-    httpOnly: true,
-    secure: env.nodeEnv === "production",
-    sameSite: "strict",
-    path: "/",
-  });
+  setRefreshCookie(response, refreshTokenCookieName, token);
 };
 
 const clearRefreshTokenCookie = (response: Response): void => {
-  response.clearCookie(refreshTokenCookieName, {
-    httpOnly: true,
-    secure: env.nodeEnv === "production",
-    sameSite: "strict",
-    path: "/",
-  });
+  clearRefreshCookie(response, refreshTokenCookieName);
 };
 
 const toCompatibleAuthPayload = <T extends AuthTokensDto>(payload: T): CompatibleAuthPayload<T> => {
@@ -69,12 +61,6 @@ const toCompatibleAuthPayload = <T extends AuthTokensDto>(payload: T): Compatibl
     token: payload.accessToken,
   };
 };
-
-const escapeHtml = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-const escapeHtmlAttr = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 const registrationDecisionHtml = (title: string, bodyText: string): string => {
   const safeTitle = escapeHtml(title);
@@ -241,10 +227,9 @@ export const agentLogin = async (
     return;
   }
   setRefreshTokenCookie(response, result.value.refreshToken);
-  response.status(200).json({
-    ...toCompatibleAuthPayload(result.value),
-    user: result.value.user,
-  });
+  // `toCompatibleAuthPayload` already spreads the full `result.value`
+  // (including `user`); avoid duplicating the field in the response body.
+  response.status(200).json(toCompatibleAuthPayload(result.value));
 };
 
 export const refresh = async (
@@ -275,8 +260,10 @@ export const logout = async (
 ): Promise<void> => {
   const body = getValidated<LogoutBody>(response, "body");
   const refreshToken = getRefreshTokenFromRequest(request, body);
+  // Always clear the cookie up-front so the browser stops resending a stale
+  // token even when revocation fails (e.g. token already revoked / unknown).
+  clearRefreshTokenCookie(response);
   if (!refreshToken) {
-    clearRefreshTokenCookie(response);
     response.status(204).send();
     return;
   }
@@ -286,7 +273,6 @@ export const logout = async (
     next(result.error);
     return;
   }
-  clearRefreshTokenCookie(response);
   response.status(204).send();
 };
 
@@ -339,5 +325,8 @@ export const changePassword = async (
     return;
   }
 
+  // Sessions (including refresh tokens) are invalidated server-side; clear the
+  // browser cookie so the client does not loop on a stale refresh token.
+  clearRefreshTokenCookie(response);
   response.status(204).send();
 };

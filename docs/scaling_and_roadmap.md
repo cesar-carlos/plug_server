@@ -8,6 +8,21 @@ Este documento consolida melhorias sugeridas que **nao** estao implementadas de 
 
 O bridge REST e parte do relay mantem **correlacao e filas em memoria** por processo. Varias replicas sem afinidade de sessao ou store partilhado podem perder pedidos pendentes ou duplicar comportamento estranho. Num **unico** processo, afina primeiro throughput com os presets em `docs/performance_hub_agent.md` antes de investir em store partilhado.
 
+### Rate limits HTTP em memoria (`express-rate-limit`)
+
+Todos os limitadores HTTP (`globalRateLimit`, `credentialAuthRateLimit`, `agentsCommandsUserRateLimit`, `agentsCommandsIpRateLimit`, `adminUserStatusRateLimit`, `clientMeAgentsPostRateLimit`, `clientThumbnailRateLimit`, `clientPasswordRecoveryRequestRateLimit`, `agentsSelfProfileRateLimit`) usam o **store default em memoria** do `express-rate-limit`. Em multi-replica:
+
+- cada pod tem o seu balde, logo o **limite efetivo** se multiplica pelo numero de replicas;
+- nao ha coordenacao para detetar abuso distribuido por trás de balanceador;
+- recoveries / restarts zeram a janela para todas as IPs.
+
+**Mitigacoes ja em produção:**
+- `HTTP_TRUST_PROXY=true` faz `req.ip` refletir o cliente real atras de Nginx;
+- chaves dos limitadores autenticados usam `JWT sub`, nao IP, o que continua funcional cross-replica para o **mesmo usuario** (o teto e por usuario, mas multiplicado pelo numero de pods que o usuario alcanca);
+- `Retry-After` e `RateLimit-*` headers continuam corretos por replica.
+
+**Caminho de evolucao:** quando justificar, adotar um `Store` Redis (`rate-limit-redis`) compartilhado. Manter fail-open quando o Redis cair (politica conservadora: se store indisponivel, deixar passar e logar) para evitar transformar uma falha de cache num corte total de API. Ate la, o desenho assume **sticky sessions** ou um numero de replicas baixo o suficiente para que a multiplicacao do teto seja aceitavel.
+
 Importante: jobs de manutencao **ja** estao coordenados por advisory lock
 (prune de `audit_events`, prune de `bridge_latency_traces`, manutencao de
 perfil de agente, sweep de expiracao `client_agent_access` e prune de dead

@@ -136,6 +136,48 @@ export const requireAuthAndActiveAccount: RequestHandler[] = [
   asyncHandler(requireActiveAccount),
 ];
 
+/**
+ * Lightweight variant of {@link requireActiveAccount} that loads only the columns
+ * needed to validate `status` and `credentials_version` (`UserActiveSnapshot`),
+ * skipping `password_hash`, `email`, `celular`, etc. Use on read-mostly routes
+ * that already have everything they need from `response.locals.authUser` (the
+ * JWT payload) and only need to re-confirm the user is still active.
+ *
+ * Stores the snapshot in `response.locals.activeAccountUserSnapshot` for
+ * downstream handlers that may need `status`/`credentialsUpdatedAt`/`role`.
+ */
+export const requireActiveAccountSnapshot = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authUser = response.locals.authUser as JwtAccessPayload | undefined;
+  if (!authUser?.sub) {
+    next(unauthorized("Authentication required"));
+    return;
+  }
+  if (authUser.principal_type === "client") {
+    next(forbidden("User token required"));
+    return;
+  }
+  const result = await container.authService.getActiveAccountUserSnapshot(
+    authUser.sub,
+    authUser.credentials_version,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.locals.activeAccountUserSnapshot = result.value;
+  next();
+};
+
+/** `requireAuth` plus the lightweight snapshot DB check (no `User` entity load). */
+export const requireAuthAndActiveAccountSnapshot: RequestHandler[] = [
+  requireAuth,
+  asyncHandler(requireActiveAccountSnapshot),
+];
+
 const requirePrincipalActiveAccount = async (
   _request: Request,
   response: Response,

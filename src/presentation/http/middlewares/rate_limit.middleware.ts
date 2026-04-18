@@ -52,6 +52,28 @@ export const authRateLimit = rateLimit({
   },
 });
 
+const isTestEnv = (): boolean =>
+  env.nodeEnv === "test" ||
+  process.env.VITEST === "true" ||
+  process.env.VITEST_WORKER_ID !== undefined;
+
+const passthrough: RequestHandler = (_req, _res, next) => {
+  next();
+};
+
+/**
+ * Per-route limiter for **credential-handling** auth endpoints
+ * (`/login`, `/register`, `/refresh`, `/agent-login`, `/registration/*`,
+ * `/password-recovery/*`). Same budget as the legacy `authRateLimit` but
+ * applied per-route so that authenticated routes such as `/auth/me`,
+ * `/auth/password`, `/client-auth/me`, `/client-auth/password` are NOT
+ * blanketed by it.
+ *
+ * Auto-bypasses inside the test runner so existing integration tests do not
+ * have to wait/reset windows between test cases.
+ */
+export const credentialAuthRateLimit: RequestHandler = isTestEnv() ? passthrough : authRateLimit;
+
 const agentsCommandsTooManyMessage = {
   message: "Too many agent commands, please try again later.",
   code: "TOO_MANY_REQUESTS",

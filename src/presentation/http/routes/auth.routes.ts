@@ -16,6 +16,7 @@ import {
 } from "../controllers/auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
+import { credentialAuthRateLimit } from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   agentLoginBodySchema,
@@ -98,7 +99,12 @@ export const authRouter = Router();
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  */
-authRouter.post("/register", validateRequest({ body: registerBodySchema }), asyncHandler(register));
+authRouter.post(
+  "/register",
+  credentialAuthRateLimit,
+  validateRequest({ body: registerBodySchema }),
+  asyncHandler(register),
+);
 
 /**
  * @openapi
@@ -128,6 +134,7 @@ authRouter.post("/register", validateRequest({ body: registerBodySchema }), asyn
  */
 authRouter.get(
   "/registration/review",
+  credentialAuthRateLimit,
   validateRequest({ query: registrationTokenQuerySchema }),
   asyncHandler(registrationReviewPage),
 );
@@ -166,6 +173,7 @@ authRouter.get(
  */
 authRouter.get(
   "/registration/status",
+  credentialAuthRateLimit,
   validateRequest({ query: registrationTokenQuerySchema }),
   asyncHandler(registrationStatus),
 );
@@ -214,6 +222,7 @@ authRouter.get(
  */
 authRouter.post(
   "/registration/approve",
+  credentialAuthRateLimit,
   validateRequest({ body: registrationApproveBodySchema }),
   asyncHandler(approveRegistration),
 );
@@ -269,6 +278,7 @@ authRouter.post(
  */
 authRouter.post(
   "/registration/reject",
+  credentialAuthRateLimit,
   validateRequest({ body: registrationRejectBodySchema }),
   asyncHandler(rejectRegistration),
 );
@@ -302,7 +312,12 @@ authRouter.post(
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandler(login));
+authRouter.post(
+  "/login",
+  credentialAuthRateLimit,
+  validateRequest({ body: loginBodySchema }),
+  asyncHandler(login),
+);
 
 /**
  * @openapi
@@ -362,6 +377,7 @@ authRouter.post("/login", validateRequest({ body: loginBodySchema }), asyncHandl
  */
 authRouter.post(
   "/agent-login",
+  credentialAuthRateLimit,
   validateRequest({ body: agentLoginBodySchema }),
   asyncHandler(agentLogin),
 );
@@ -391,7 +407,12 @@ authRouter.post(
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-authRouter.post("/refresh", validateRequest({ body: refreshBodySchema }), asyncHandler(refresh));
+authRouter.post(
+  "/refresh",
+  credentialAuthRateLimit,
+  validateRequest({ body: refreshBodySchema }),
+  asyncHandler(refresh),
+);
 
 /**
  * @openapi
@@ -412,7 +433,12 @@ authRouter.post("/refresh", validateRequest({ body: refreshBodySchema }), asyncH
  *       204:
  *         description: Logged out successfully
  */
-authRouter.post("/logout", validateRequest({ body: logoutBodySchema }), asyncHandler(logout));
+authRouter.post(
+  "/logout",
+  credentialAuthRateLimit,
+  validateRequest({ body: logoutBodySchema }),
+  asyncHandler(logout),
+);
 
 /**
  * @openapi

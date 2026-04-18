@@ -2,9 +2,12 @@ import request from "supertest";
 import { describe, it, expect } from "vitest";
 
 import { createApp } from "../../src/app";
+import { User } from "../../src/domain/entities/user.entity";
+import { getTestRepositoryAccess } from "../../src/shared/di/container";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 
 const app = createApp();
+const repositories = getTestRepositoryAccess();
 
 describe("GET /api/v1/health", () => {
   it("should return 200 for liveness endpoint", async () => {
@@ -26,7 +29,7 @@ describe("GET /api/v1/health", () => {
       mode: "ready",
       checks: {
         envLoaded: true,
-        memoryStoreReady: true,
+        database: true,
       },
     });
   });
@@ -41,6 +44,10 @@ describe("GET /api/v1/health", () => {
       environment: expect.any(String),
       timestamp: expect.any(String),
       uptimeInSeconds: expect.any(Number),
+      checks: {
+        envLoaded: true,
+        database: true,
+      },
     });
   });
 
@@ -75,6 +82,29 @@ describe("GET /api/v1/health", () => {
     expect(response.status).toBe(401);
   });
 
+  it("should reject /metrics for non-admin authenticated user", async () => {
+    const userEmail = `metrics-user-${Date.now()}@test.com`;
+    const registerResponse = await request(app).post("/api/v1/auth/register").send({
+      email: userEmail,
+      password: "MetricsUser1",
+    });
+    expect(registerResponse.status).toBe(201);
+    await approveRegistrationByToken(app, registerResponse.body.approvalToken as string);
+    const loginResponse = await request(app).post("/api/v1/auth/login").send({
+      email: userEmail,
+      password: "MetricsUser1",
+    });
+    expect(loginResponse.status).toBe(200);
+    const userToken = loginResponse.body.accessToken as string;
+
+    const response = await request(app)
+      .get("/metrics")
+      .set("Authorization", `Bearer ${userToken}`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe("FORBIDDEN");
+  });
+
   it("should expose metrics in prometheus text format", async () => {
     const metricsEmail = `metrics-${Date.now()}@test.com`;
     const registerResponse = await request(app).post("/api/v1/auth/register").send({
@@ -83,6 +113,22 @@ describe("GET /api/v1/health", () => {
     });
     expect(registerResponse.status).toBe(201);
     await approveRegistrationByToken(app, registerResponse.body.approvalToken as string);
+
+    // Promote to admin so the role guard on `/metrics` allows the scrape.
+    const userId = registerResponse.body.user.id as string;
+    const currentUser = await repositories.user.findById(userId);
+    expect(currentUser).not.toBeNull();
+    await repositories.user.save(
+      User.create({
+        id: userId,
+        email: metricsEmail,
+        passwordHash: currentUser!.passwordHash,
+        role: "admin",
+        status: "active",
+        createdAt: currentUser!.createdAt,
+      }),
+    );
+
     const loginResponse = await request(app).post("/api/v1/auth/login").send({
       email: metricsEmail,
       password: "MetricsTest1",

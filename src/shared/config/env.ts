@@ -30,6 +30,12 @@ const envSchema = z.object({
     z.enum(["true", "false"]).transform((v) => v === "true"),
   ),
   PORT: z.coerce.number().int().positive().default(3000),
+  /**
+   * Allowed CORS origins. Use `*` to allow any origin (cookies disabled in this case).
+   * Otherwise pass a single origin or comma-separated list (e.g.
+   * `https://app.example.com,https://admin.example.com`).
+   * In production, `*` is rejected at boot.
+   */
   CORS_ORIGIN: z.string().default("*"),
   REQUEST_BODY_LIMIT: z.string().default("1mb"),
   UPLOADS_DIR: z.string().default("uploads"),
@@ -601,6 +607,12 @@ export const env = {
   httpTrustProxy: parsedEnv.HTTP_TRUST_PROXY,
   port: parsedEnv.PORT,
   corsOrigin: parsedEnv.CORS_ORIGIN,
+  corsOrigins:
+    parsedEnv.CORS_ORIGIN === "*"
+      ? ("*" as const)
+      : parsedEnv.CORS_ORIGIN.split(",")
+          .map((s) => s.trim())
+          .filter((s) => s !== ""),
   requestBodyLimit: parsedEnv.REQUEST_BODY_LIMIT,
   uploadsDir: parsedEnv.UPLOADS_DIR,
   uploadsPublicBaseUrl: parsedEnv.UPLOADS_PUBLIC_BASE_URL.replace(/\/+$/, ""),

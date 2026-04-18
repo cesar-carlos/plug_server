@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { asyncHandler } from "../middlewares/async_handler";
-import { requireAuthAndActiveAccount, requireRole } from "../middlewares/auth.middleware";
+import {
+  requireAuthAndActiveAccount,
+  requireAuthAndActiveAccountSnapshot,
+  requireRole,
+} from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { agentIdParamSchema, listAgentsQuerySchema } from "../validators/agent_catalog.validator";
 import { listAgents, getAgent, deactivateAgent } from "../controllers/agent_catalog.controller";
@@ -52,7 +56,7 @@ export const agentCatalogRouter = Router();
  */
 agentCatalogRouter.get(
   "/",
-  ...requireAuthAndActiveAccount,
+  ...requireAuthAndActiveAccountSnapshot,
   validateRequest({ query: listAgentsQuerySchema }),
   asyncHandler(listAgents),
 );
@@ -95,7 +99,7 @@ agentCatalogRouter.get(
  */
 agentCatalogRouter.get(
   "/:agentId",
-  ...requireAuthAndActiveAccount,
+  ...requireAuthAndActiveAccountSnapshot,
   validateRequest({ params: agentIdParamSchema }),
   asyncHandler(getAgent),
 );
