@@ -77,6 +77,25 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION` | `1024` | Cap FIFO por conversa para o mapa de idempotência relay. |
 | `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES` | `100000` | Cap FIFO global para o mapa de idempotência relay. `0` desativa o teto global. |
 
+## Client → Agent: bearer token armazenado por par
+
+Tabela `client_agent_accesses` ganhou a coluna opcional
+`client_token VARCHAR(512)` (migration
+`20260418190000_client_agent_access_client_token`). É o token que o cliente
+final usa em `sql.execute params.client_token` no agente; armazenamos por par
+`(client, agent)` para que cada cliente possa ter um token diferente em cada
+agente, ou nenhum token (`NULL`).
+
+| Endpoint | Comportamento |
+| -------- | ------------- |
+| `GET /api/v1/client/me/agents/{agentId}/client-token` | Retorna o token (ou `null`). 403 sem acesso aprovado. |
+| `PUT /api/v1/client/me/agents/{agentId}/client-token` | Body `{ clientToken: string \| null }`. String vazia vira `null`. Tamanho ≤ 512. Não cria a linha de acesso. |
+| `GET /api/v1/client/me/agents` e `GET /client/me/agents/{agentId}` | Cada agente carrega `hasClientToken: boolean` (sem expor o valor). |
+
+Não há limite de rate específico para `PUT client-token` além do
+`globalRateLimit` (`/api/v1` 300 req / 15 min) — pondere subir um limiter
+dedicado se for usado em UI com edição contínua.
+
 ## REST: CORS, request id, rate limits
 
 | Variável / Comportamento | Defeito | Notas |

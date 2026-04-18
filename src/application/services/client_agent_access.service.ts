@@ -169,6 +169,24 @@ export class ClientAgentAccessService {
     return ok(await this.resolvePreferredAgentSnapshot(clientId, agentId, persistedAgent));
   }
 
+  /**
+   * Bulk presence map: for each `agentId` in `agentIds`, returns whether the
+   * client has stored a non-empty `client_token`. Used by the listing endpoint
+   * to expose `hasClientToken` without leaking the actual token value.
+   */
+  async getClientTokenPresenceForAgents(
+    clientId: string,
+    agentIds: readonly string[],
+  ): Promise<Map<string, boolean>> {
+    return this.clientAgentAccessRepository.listClientTokenPresenceForClientIn(clientId, agentIds);
+  }
+
+  /** Convenience for single-agent detail endpoints (`findApprovedAgent` companion). */
+  async hasClientTokenForAgent(clientId: string, agentId: string): Promise<boolean> {
+    const access = await this.clientAgentAccessRepository.findByClientAndAgent(clientId, agentId);
+    return access !== null && typeof access.clientToken === "string" && access.clientToken !== "";
+  }
+
   async listRequests(clientId: string): Promise<ClientAgentAccessRequestRecord[]> {
     const requests = await this.clientAgentAccessRequestRepository.listByClientId(clientId);
     const agentsById = await this.loadAgentsById(requests.map((request) => request.agentId));
@@ -703,6 +721,50 @@ export class ClientAgentAccessService {
       page,
       pageSize,
     });
+  }
+
+  /**
+   * Reads the per-(client, agent) bearer token stored at access-approval time
+   * (or set later via {@link setClientTokenForAgent}). Only returns a value
+   * when the client currently has approved access to the agent.
+   *
+   * Returns `null` when access exists but no token is stored yet.
+   */
+  async getClientTokenForAgent(
+    clientId: string,
+    agentId: string,
+  ): Promise<Result<{ clientToken: string | null }>> {
+    const access = await this.clientAgentAccessRepository.findByClientAndAgent(clientId, agentId);
+    if (!access) {
+      return err(agentAccessDenied(agentId));
+    }
+    return ok({ clientToken: access.clientToken });
+  }
+
+  /**
+   * Stores (or clears) the per-(client, agent) bearer token. The client must
+   * already have approved access to the agent — this method does NOT create
+   * the access row.
+   *
+   * - `clientToken: string` — replace stored token.
+   * - `clientToken: null`  — clear the stored token.
+   *
+   * Returns the value the client should now see.
+   */
+  async setClientTokenForAgent(
+    clientId: string,
+    agentId: string,
+    clientToken: string | null,
+  ): Promise<Result<{ clientToken: string | null }>> {
+    const updated = await this.clientAgentAccessRepository.setClientToken(
+      clientId,
+      agentId,
+      clientToken,
+    );
+    if (!updated) {
+      return err(agentAccessDenied(agentId));
+    }
+    return ok({ clientToken });
   }
 
   async revokeAccessByOwner(

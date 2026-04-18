@@ -2,6 +2,11 @@ import type { Agent } from "../../../domain/entities/agent.entity";
 
 /**
  * JSON shape for `ClientAccessibleAgent` in `GET /api/v1/client/me/agents` and `.../{agentId}`.
+ *
+ * `hasClientToken` reflects whether the per-(client, agent) bearer token used
+ * by the SQL bridge is currently stored on the server. The token value itself
+ * is **never** returned by the listing/detail endpoints — fetch it explicitly
+ * via `GET /api/v1/client/me/agents/{agentId}/client-token`.
  */
 export type ClientAccessibleAgentDto = {
   agentId: string;
@@ -29,11 +34,13 @@ export type ClientAccessibleAgentDto = {
   createdAt: string;
   updatedAt: string;
   isHubConnected: boolean;
+  hasClientToken: boolean;
 };
 
 export const toClientAgentDto = (
   agent: Agent,
   isHubConnected: boolean,
+  hasClientToken = false,
 ): ClientAccessibleAgentDto => ({
   agentId: agent.agentId,
   name: agent.name,
@@ -60,4 +67,5 @@ export const toClientAgentDto = (
   createdAt: agent.createdAt.toISOString(),
   updatedAt: agent.updatedAt.toISOString(),
   isHubConnected,
+  hasClientToken,
 });

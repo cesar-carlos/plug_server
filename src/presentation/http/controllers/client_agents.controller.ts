@@ -11,6 +11,7 @@ import type {
   ClientAccessRejectBody,
   ClientAccessReviewTokenQuery,
   ClientAgentIdsBody,
+  ClientAgentTokenBody,
   ClientListAgentAccessRequestsQuery,
   ClientListAgentsQuery,
 } from "../validators/client_agents.validator";
@@ -51,8 +52,17 @@ export const listMyClientAgents = async (
       refreshOnline: query.refresh === true,
     },
   );
+  const tokenPresenceByAgent =
+    await container.clientAgentAccessService.getClientTokenPresenceForAgents(
+      authClient.sub,
+      pageResult.items.map((agent) => agent.agentId),
+    );
   const agents = pageResult.items.map((agent) =>
-    toClientAgentDto(agent, container.isAgentConnectedToHub(agent.agentId)),
+    toClientAgentDto(
+      agent,
+      container.isAgentConnectedToHub(agent.agentId),
+      tokenPresenceByAgent.get(agent.agentId) === true,
+    ),
   );
   recordClientMeAgentsListResponse(agents.filter((a) => a.isHubConnected).length);
   maybeSetHubInstanceIdHeader(response);
@@ -82,10 +92,58 @@ export const getMyClientAgent = async (
     return;
   }
   const isHubConnected = container.isAgentConnectedToHub(agentId);
+  const hasClientToken = await container.clientAgentAccessService.hasClientTokenForAgent(
+    authClient.sub,
+    agentId,
+  );
   recordClientMeAgentsDetailResponse(isHubConnected);
   maybeSetHubInstanceIdHeader(response);
   response.status(200).json({
-    agent: toClientAgentDto(result.value, isHubConnected),
+    agent: toClientAgentDto(result.value, isHubConnected, hasClientToken),
+  });
+};
+
+export const getMyClientAgentToken = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authClient = getAuthClient(response);
+  const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
+  const result = await container.clientAgentAccessService.getClientTokenForAgent(
+    authClient.sub,
+    agentId,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.status(200).json({
+    agentId,
+    clientToken: result.value.clientToken,
+  });
+};
+
+export const setMyClientAgentToken = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authClient = getAuthClient(response);
+  const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
+  const body = getValidated<ClientAgentTokenBody>(response, "body");
+  const result = await container.clientAgentAccessService.setClientTokenForAgent(
+    authClient.sub,
+    agentId,
+    body.clientToken,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.status(200).json({
+    agentId,
+    clientToken: result.value.clientToken,
   });
 };
 

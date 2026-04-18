@@ -55,3 +55,28 @@ export const clientAccessRejectBodySchema = z.object({
 });
 
 export type ClientAccessRejectBody = z.infer<typeof clientAccessRejectBodySchema>;
+
+/**
+ * Body for `PUT /api/v1/client/me/agents/{agentId}/client-token`.
+ *
+ * - `clientToken: string` — store/replace the per-(client, agent) bearer
+ *   token. 1..512 chars to mirror the SQL bridge token validator and the DB
+ *   column width (`client_agent_accesses.client_token VARCHAR(512)`).
+ * - `clientToken: null` — explicitly clear the stored token.
+ *
+ * Empty strings are normalized to `null` so the client can post an emptied
+ * input field from a form without a 400.
+ */
+export const clientAgentTokenBodySchema = z.object({
+  clientToken: z.preprocess(
+    (value) => {
+      if (typeof value === "string" && value.trim() === "") {
+        return null;
+      }
+      return value;
+    },
+    z.union([z.null(), z.string().min(1).max(512)]),
+  ),
+});
+
+export type ClientAgentTokenBody = z.infer<typeof clientAgentTokenBodySchema>;

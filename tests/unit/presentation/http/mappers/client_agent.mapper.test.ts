@@ -33,7 +33,7 @@ describe("toClientAgentDto", () => {
   });
 
   it("maps domain Agent and isHubConnected into the client JSON contract", () => {
-    const dto = toClientAgentDto(baseAgent, true);
+    const dto = toClientAgentDto(baseAgent, true, true);
     expect(dto).toEqual({
       agentId: "71f895be-1234-5678-9abc-def012345678",
       name: "Loja Centro",
@@ -60,6 +60,7 @@ describe("toClientAgentDto", () => {
       createdAt: "2025-01-10T12:00:00.000Z",
       updatedAt: "2026-04-15T08:30:00.000Z",
       isHubConnected: true,
+      hasClientToken: true,
     });
   });
 
@@ -67,5 +68,15 @@ describe("toClientAgentDto", () => {
     const dto = toClientAgentDto(baseAgent, false);
     expect(dto.isHubConnected).toBe(false);
     expect(dto.agentId).toBe(baseAgent.agentId);
+  });
+
+  it("defaults hasClientToken to false when the third argument is omitted", () => {
+    const dto = toClientAgentDto(baseAgent, true);
+    expect(dto.hasClientToken).toBe(false);
+  });
+
+  it("reflects hasClientToken when explicitly passed", () => {
+    const dto = toClientAgentDto(baseAgent, false, true);
+    expect(dto.hasClientToken).toBe(true);
   });
 });

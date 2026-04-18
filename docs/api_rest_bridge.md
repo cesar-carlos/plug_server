@@ -1000,6 +1000,33 @@ timeout), o servidor também pode devolver:
 > `docs/scaling_and_roadmap.md` (seção “Rate limits HTTP em memoria”) para a
 > recomendação de `Redis Store` quando justificar.
 
+### Per-(client, agent) client_token storage
+
+Cada par `(client, agent)` em `client_agent_accesses` agora tem uma coluna
+opcional `client_token VARCHAR(512)` que guarda o **bearer token do cliente
+final** usado pelo agente para autorizar SQL (`sql.execute params.client_token`
+e aliases `clientToken` / `auth`). O cliente gerencia esse token via dois
+endpoints REST dedicados:
+
+- `GET  /api/v1/client/me/agents/{agentId}/client-token` — retorna
+  `{ agentId, clientToken: string | null }`. `null` quando não há token
+  armazenado. Requer acesso aprovado ao agente; senão `403 AGENT_ACCESS_DENIED`.
+- `PUT  /api/v1/client/me/agents/{agentId}/client-token` — body
+  `{ clientToken: string | null }`. String vazia é normalizada para `null`.
+  Tamanho máximo do token: **512 chars** (mesmo cap da coluna). Não cria a
+  linha de acesso — o cliente precisa primeiro ter o agente aprovado.
+
+Os endpoints de listagem/detalhe (`GET /client/me/agents` e
+`GET /client/me/agents/{agentId}`) **não** retornam o valor do token; em vez
+disso expõem `hasClientToken: boolean` por agente. Isso evita que o token
+vaze por listagens paginadas. O token é apagado automaticamente quando a linha
+de acesso é removida (cascata por `client_id`/`agent_id`).
+
+O bridge REST continua aceitando `params.client_token` no body do comando
+(`POST /api/v1/agents/commands`); o storage adicionado aqui é apenas para o
+cliente persistir o valor entre sessões — o consumer pode ler com `GET` e
+incluir manualmente em cada `sql.execute`, ou um SDK pode automatizar.
+
 ### Endurecimento HTTP do hub
 
 Mudanças aplicadas no `app.ts` / middlewares para produção:

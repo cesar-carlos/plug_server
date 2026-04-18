@@ -234,12 +234,17 @@ model AgentProfileWriteIdempotency {
 }
 
 model ClientAgentAccess {
-  clientId   String   @map("client_id")
-  agentId    String   @map("agent_id")
-  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  agent      Agent    @relation(fields: [agentId], references: [agentId], onDelete: Restrict, onUpdate: Cascade)
-  createdAt  DateTime @default(now()) @map("created_at")
-  approvedAt DateTime @default(now()) @map("approved_at")
+  clientId    String   @map("client_id")
+  agentId     String   @map("agent_id")
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agent       Agent    @relation(fields: [agentId], references: [agentId], onDelete: Restrict, onUpdate: Cascade)
+  createdAt   DateTime @default(now()) @map("created_at")
+  approvedAt  DateTime @default(now()) @map("approved_at")
+  /// Per-(client, agent) bearer token forwarded to the agent as
+  /// `sql.execute params.client_token` (and aliases). Optional: clients may
+  /// run methods that don't require the agent-side authorization token.
+  /// Length capped at 512 chars to match the validator on the SQL bridge.
+  clientToken String?  @map("client_token") @db.VarChar(512)
 
   @@id([clientId, agentId])
   @@index([agentId])

@@ -769,6 +769,7 @@ const swaggerSpec = swaggerJSDoc({
             "createdAt",
             "updatedAt",
             "isHubConnected",
+            "hasClientToken",
           ],
           properties: {
             agentId: { type: "string", format: "uuid" },
@@ -807,6 +808,44 @@ const swaggerSpec = swaggerJSDoc({
               type: "boolean",
               description:
                 "Snapshot at response time: whether this hub process currently has this agent registered on the /agents Socket.IO namespace after agent:register. May change between polls; with refresh=true the value reflects the registry after any live profile work for that request. Per-process: false if the agent is connected only to another replica or not registered on this instance. Not the same as catalog status (active/inactive). When `HUB_INSTANCE_ID` is set, responses may include header `X-Hub-Instance-Id` for replica correlation.",
+            },
+            hasClientToken: {
+              type: "boolean",
+              description:
+                "Whether the authenticated client has stored a per-(client, agent) bearer token (used as `sql.execute params.client_token`). The actual value is **not** returned by listing/detail endpoints — fetch it via `GET /client/me/agents/{agentId}/client-token`.",
+            },
+          },
+        },
+        ClientAgentTokenRequest: {
+          type: "object",
+          required: ["clientToken"],
+          properties: {
+            clientToken: {
+              description:
+                "Bearer token used by the SQL bridge to authorize this client on the agent. Pass `null` (or an empty string, normalized to `null`) to clear the stored token.",
+              oneOf: [
+                {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 512,
+                  description: "Replace the stored token.",
+                },
+                { type: "null", description: "Clear the stored token." },
+              ],
+            },
+          },
+        },
+        ClientAgentTokenResponse: {
+          type: "object",
+          required: ["agentId", "clientToken"],
+          properties: {
+            agentId: { type: "string", format: "uuid" },
+            clientToken: {
+              description: "Currently stored token. `null` when no token is configured.",
+              oneOf: [
+                { type: "string", minLength: 1, maxLength: 512 },
+                { type: "null" },
+              ],
             },
           },
         },

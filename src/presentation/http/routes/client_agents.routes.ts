@@ -5,12 +5,14 @@ import {
   clientAccessReviewPage,
   clientAccessStatus,
   getMyClientAgent,
+  getMyClientAgentToken,
   listMyClientAgentAccessRequests,
   listMyClientAgents,
   rejectClientAccess,
   removeMyClientAgentByParam,
   removeMyClientAgents,
   requestMyClientAgents,
+  setMyClientAgentToken,
 } from "../controllers/client_agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { clientMeAgentsPostRateLimit } from "../middlewares/rate_limit.middleware";
@@ -22,6 +24,7 @@ import {
   clientAgentIdParamSchema,
   clientAccessReviewTokenQuerySchema,
   clientAgentIdsBodySchema,
+  clientAgentTokenBodySchema,
   clientListAgentAccessRequestsQuerySchema,
   clientListAgentsQuerySchema,
 } from "../validators/client_agents.validator";
@@ -296,6 +299,111 @@ clientAgentsRouter.get(
   ...requireClientAuthAndActiveAccount,
   validateRequest({ query: clientListAgentAccessRequestsQuerySchema }),
   asyncHandler(listMyClientAgentAccessRequests),
+);
+
+/**
+ * @openapi
+ * /client/me/agents/{agentId}/client-token:
+ *   get:
+ *     summary: Read the per-(client, agent) bearer token stored on the server
+ *     description: >
+ *       Returns the bearer token the authenticated client has stored for use
+ *       with this agent. The token is forwarded to the agent as
+ *       `sql.execute params.client_token` (and aliases `clientToken`/`auth`)
+ *       on the SQL bridge. Returns `null` when no token is stored yet.
+ *
+ *       The value is **only** returned by this dedicated endpoint — list and
+ *       detail endpoints expose `hasClientToken: boolean` instead, so the
+ *       token never leaks through paginated browsing.
+ *     tags: [Client Agent Access]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: agentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Stored token (or null when not configured)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ClientAgentTokenResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Client does not have approved access to this agent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+clientAgentsRouter.get(
+  "/client/me/agents/:agentId/client-token",
+  ...requireClientAuthAndActiveAccount,
+  validateRequest({ params: clientAgentIdParamSchema }),
+  asyncHandler(getMyClientAgentToken),
+);
+
+/**
+ * @openapi
+ * /client/me/agents/{agentId}/client-token:
+ *   put:
+ *     summary: Store or clear the per-(client, agent) bearer token
+ *     description: >
+ *       Replaces the stored bearer token for this client+agent pair.
+ *       Send `clientToken: null` (or an empty string) to clear it.
+ *
+ *       Token length is capped at 512 chars (DB column `client_agent_accesses.client_token`).
+ *       The client must already have approved access to the agent — this route
+ *       does **not** create the access row.
+ *     tags: [Client Agent Access]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: agentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ClientAgentTokenRequest'
+ *     responses:
+ *       200:
+ *         description: Updated token state
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ClientAgentTokenResponse'
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Client does not have approved access to this agent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+clientAgentsRouter.put(
+  "/client/me/agents/:agentId/client-token",
+  ...requireClientAuthAndActiveAccount,
+  validateRequest({
+    params: clientAgentIdParamSchema,
+    body: clientAgentTokenBodySchema,
+  }),
+  asyncHandler(setMyClientAgentToken),
 );
 
 /**
