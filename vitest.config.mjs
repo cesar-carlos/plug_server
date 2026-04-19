@@ -2,7 +2,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    setupFiles: ["tests/setup/vitest.socket_consumer_roles.ts"],
+    setupFiles: [
+      "tests/setup/vitest.socket_consumer_roles.ts",
+      "tests/setup/vitest.uploads_dir.ts",
+    ],
     globals: true,
     environment: "node",
     root: ".",
