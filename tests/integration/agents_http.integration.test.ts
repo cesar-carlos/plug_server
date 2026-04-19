@@ -254,6 +254,66 @@ describe("Agents HTTP bridge", () => {
     expect(forbiddenResponse.body.code).toBe("AGENT_ACCESS_DENIED");
   });
 
+  it("should return HTTP 200 with JSON-RPC agent_offline when hub has no live /agents socket", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    agentSocket.disconnect();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const rpcId = `offline-bridge-${Date.now()}`;
+    const res = await request(baseUrl)
+      .post("/api/v1/agents/commands")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        agentId: testAgentId,
+        command: {
+          jsonrpc: "2.0",
+          method: "rpc.discover",
+          id: rpcId,
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.mode).toBe("bridge");
+    expect(res.body.agentId).toBe(testAgentId);
+    expect(res.body.requestId).toBe(rpcId);
+    expect(res.body.response?.type).toBe("single");
+    expect(res.body.response?.success).toBe(false);
+    expect(res.body.response?.item?.error?.code).toBe(-32_000);
+    expect(res.body.response?.item?.error?.message).toBe("agent_offline");
+    expect(res.body.response?.item?.error?.data?.reason).toBe("agent_not_connected");
+    expect(res.body.response?.item?.error?.data?.agent_id).toBe(testAgentId);
+
+    agentSocket = ioClient(`${baseUrl}/agents`, {
+      auth: { token: agentAccessToken },
+      transports: ["websocket"],
+    });
+    await waitForEvent<unknown>(agentSocket, "connection:ready").then((rawPayload) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        throw new Error(`Failed to decode connection:ready: ${decoded.error.message}`);
+      }
+    });
+    const capabilitiesPromise = waitForEvent<unknown>(agentSocket, "agent:capabilities");
+    agentSocket.emit(
+      "agent:register",
+      encodePayloadFrame({
+        agentId: testAgentId,
+        capabilities: {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        },
+      }),
+    );
+    await capabilitiesPromise;
+    if (env.socketAgentProtocolReadyGraceMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs));
+    }
+  });
+
   it("should list connected agents for authenticated users", async () => {
     const response = await request(baseUrl)
       .get("/api/v1/agents")

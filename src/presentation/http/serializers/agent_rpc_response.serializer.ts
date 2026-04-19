@@ -6,7 +6,7 @@ interface NormalizedRpcError {
   readonly data?: unknown;
 }
 
-interface NormalizedRpcItem {
+export interface NormalizedRpcItem {
   readonly id: JsonRpcId;
   readonly success: boolean;
   readonly result?: unknown;

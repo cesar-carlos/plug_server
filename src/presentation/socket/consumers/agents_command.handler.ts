@@ -9,11 +9,13 @@ import { executeAuthorizedAgentCommand } from "../../../application/agent_comman
 import { container } from "../../../shared/di/container";
 import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
 import { dispatchRpcCommandToAgent } from "../hub/rpc_bridge";
+import { buildAgentOfflineNormalizedResponse } from "../../http/serializers/agent_offline_bridge_response";
 import { normalizeAgentRpcResponse } from "../../http/serializers/agent_rpc_response.serializer";
 import { env } from "../../../shared/config/env";
 import { agentCommandBodySchema } from "../../../shared/validators/agent_command";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
+import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../shared/errors/app_error";
 import { allowAgentsCommandSocket } from "../hub/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
@@ -21,6 +23,7 @@ import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,
 } from "./per_socket_inflight_gate";
+import { toCorrelationIds } from "../hub/rpc_bridge_command_helpers";
 
 const emitCommandResponse = (
   socket: Socket,
@@ -161,6 +164,41 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWrite);
       latencyTrace?.finalizeOnce({ outcome: "success" });
     } catch (err: unknown) {
+      if (err instanceof AgentDisconnectedBeforeDispatchError) {
+        if (toCorrelationIds(err.command).length === 0) {
+          if (latencyTrace && !latencyTrace.isFinalized()) {
+            latencyTrace.finalizeOnce({
+              outcome: "error",
+              httpStatus: 503,
+              errorCode: "SERVICE_UNAVAILABLE",
+            });
+          }
+          emitCommandResponse(socket, {
+            success: false,
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: `Agent ${err.agentId} is disconnected`,
+              statusCode: 503,
+            },
+          });
+          return;
+        }
+
+        const { requestId, response: offlineRpcEnvelope } = buildAgentOfflineNormalizedResponse(
+          err.agentId,
+          err.command,
+        );
+        const tWriteOffline = performance.now();
+        emitCommandResponse(socket, {
+          success: true,
+          requestId,
+          response: offlineRpcEnvelope,
+        });
+        latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWriteOffline);
+        latencyTrace?.finalizeOnce({ outcome: "success", httpStatus: 200 });
+        return;
+      }
+
       const appError = err instanceof AppError ? err : undefined;
       const code = appError?.code ?? "COMMAND_FAILED";
       const message = err instanceof Error ? err.message : "Command execution failed";

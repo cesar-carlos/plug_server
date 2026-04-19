@@ -372,7 +372,11 @@ agentsRouter.patch(
  *                       sql: "SELECT 2"
  *     responses:
  *       200:
- *         description: Command proxied and normalized JSON-RPC response returned
+ *         description: >
+ *           Command proxied and normalized JSON-RPC response returned (success or agent-side error).
+ *           When the agent exists in the catalog but has no live `/agents` socket, correlatable
+ *           requests return HTTP 200 with a normalized JSON-RPC error (`code: -32000`, `message: agent_offline`)
+ *           instead of HTTP 503; pure-notification batches remain 503 in that offline case.
  *         content:
  *           application/json:
  *             schema:
@@ -392,7 +396,10 @@ agentsRouter.patch(
  *       404:
  *         description: Agent not found or not in catalog
  *       503:
- *         description: Agent offline, timed out, or payload signature/limits rejected
+ *         description: >
+ *           Hub/agent transport failure: timeouts, overload, protocol-not-ready, mid-flight disconnect
+ *           of pending requests, or offline catalog agent for pure-notification commands.
+ *           Correlatable new requests against a catalog-offline agent use 200 + normalized `agent_offline`.
  */
 agentsRouter.post(
   "/commands",

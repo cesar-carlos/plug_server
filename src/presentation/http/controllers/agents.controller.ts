@@ -8,11 +8,13 @@ import {
   incrementRestBridgeRequestSuccess,
   observeRestBridgeLatency,
 } from "../../../application/services/rest_bridge_metrics.service";
+import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../shared/errors/app_error";
-import { forbidden, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
+import { forbidden, serviceUnavailable } from "../../../shared/errors/http_errors";
 import { agentRegistry } from "../../socket/hub/agent_registry";
 import { agentsNamespace } from "../../../socket";
 import { dispatchRpcCommandToAgent } from "../../socket/hub/rpc_bridge";
+import { buildAgentOfflineNormalizedResponse } from "../serializers/agent_offline_bridge_response";
 import { normalizeAgentRpcResponse } from "../serializers/agent_rpc_response.serializer";
 import { resolveAgentRpcRetryAfterSeconds } from "../serializers/agent_rpc_retry_after";
 import {
@@ -21,6 +23,7 @@ import {
 } from "../serializers/agent_registry.serializer";
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
+import { toCorrelationIds } from "../../socket/hub/rpc_bridge_command_helpers";
 import type { AgentCommandBody } from "../validators/agents.validator";
 import type {
   AgentSelfProfileHttpBody,
@@ -176,19 +179,6 @@ export const proxyCommandToAgent = async (
 
   incrementRestBridgeRequest();
 
-  // Fast-fail when the agent is clearly absent before doing rate-limit/queue
-  // accounting inside the bridge. We do NOT cache the registry entry across
-  // the await boundary because the agent could disconnect between this check
-  // and `dispatchRpcCommandToAgent` — the dispatch path re-checks under its
-  // own lock and is the source of truth for delivery.
-  if (!agentRegistry.findByAgentId(body.agentId)) {
-    incrementRestBridgeRequestFailed();
-    if (agentRegistry.hasKnownAgentId(body.agentId)) {
-      throw serviceUnavailable(`Agent ${body.agentId} is disconnected`);
-    }
-    throw notFound(`Agent ${body.agentId}`);
-  }
-
   const latencyTrace = createBridgeLatencyTraceIfSampled({
     channel: "rest",
     userId: authUser.sub,
@@ -257,6 +247,39 @@ export const proxyCommandToAgent = async (
     latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWriteOk);
     latencyTrace?.finalizeOnce({ outcome: "success", httpStatus: 200 });
   } catch (error: unknown) {
+    if (error instanceof AgentDisconnectedBeforeDispatchError) {
+      if (toCorrelationIds(error.command).length === 0) {
+        incrementRestBridgeRequestFailed();
+        observeRestBridgeLatency(Date.now() - startMs);
+        if (latencyTrace && !latencyTrace.isFinalized()) {
+          latencyTrace.finalizeOnce({
+            outcome: "error",
+            httpStatus: 503,
+            errorCode: "SERVICE_UNAVAILABLE",
+          });
+        }
+        next(serviceUnavailable(`Agent ${error.agentId} is disconnected`));
+        return;
+      }
+
+      incrementRestBridgeRequestSuccess();
+      observeRestBridgeLatency(Date.now() - startMs);
+      const { requestId, response: offlineRpcEnvelope } = buildAgentOfflineNormalizedResponse(
+        error.agentId,
+        error.command,
+      );
+      const tWriteOffline = performance.now();
+      response.status(200).json({
+        mode: "bridge",
+        agentId: error.agentId,
+        requestId,
+        response: offlineRpcEnvelope,
+      });
+      latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWriteOffline);
+      latencyTrace?.finalizeOnce({ outcome: "success", httpStatus: 200 });
+      return;
+    }
+
     incrementRestBridgeRequestFailed();
     observeRestBridgeLatency(Date.now() - startMs);
     if (latencyTrace && !latencyTrace.isFinalized()) {

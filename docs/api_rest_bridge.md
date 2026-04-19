@@ -74,7 +74,7 @@ No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
 **Compatibilidade com plug_agente:** O agente deve conectar ao namespace `/agents`
 (por exemplo, `io("/agents")`). Conexoes no namespace padrao `/` sao rejeitadas com
 `app:error` (code `NAMESPACE_DEPRECATED`) e desconectadas. O token deve ter `role` em `SOCKET_AGENT_ROLES`
-(default: `agent`). Consumers usam `role` em `SOCKET_CONSUMER_ROLES` (default: `user`, `admin`).
+(default: `agent`). Consumers usam `role` em `SOCKET_CONSUMER_ROLES` (default: `user`, `admin`, `client`).
 
 ### Ownership automatica do agente
 
@@ -983,7 +983,8 @@ O HTTP retorna 200 porque o proxy funcionou. O erro e indicado dentro de
 | 400    | Body invalido / validacao Zod             | `validateRequest` com `agentCommandBodySchema`; detalhe do schema na resposta |
 | 401    | Token ausente ou invalido                 | `requireAuth` rejeitou a autenticacao      |
 | 404    | Agente nunca registrado                   | `agentId` desconhecido                     |
-| 503    | Agente desconectado / timeout / overload  | Agente offline, nao respondeu a tempo ou fila do agente saturada |
+| 200    | Corpo `response` com erro JSON-RPC normalizado | Inclui `error.code: -32000` / `agent_offline` quando o `agentId` e **conhecido pelo hub em memoria** (tipicamente apos pelo menos um `agent:register` neste processo) mas **nao** ha socket ativo em `/agents`, e o pedido tem pelo menos um JSON-RPC `id` correlacionavel (REST alinhado ao Socket `agents:command`). `agentId` apenas no catalogo PostgreSQL sem registo previo no processo continua **404** |
+| 503    | Timeout / overload / hub ou agente indisponivel (nao catalogado como offline correlacionavel) | Inclui pedidos **notification-only** (`id: null` em todos os itens) contra agente catalogado offline; tambem desconexao no meio de request pendente, fila saturada, etc. |
 
 Quando o `503` for causado por overload (fila cheia ou espera em fila expirada),
 o servidor inclui:
@@ -1309,7 +1310,7 @@ deste arquivo e em `docs/socket_relay_protocol.md`.
 | Delivery guarantee (`rpc:request_ack`)     | implementado  | exposto         | hub registra ack e marca `acked` no pending request |
 | Batch ack (`rpc:batch_ack`)                | implementado  | exposto         | hub registra acks para cada request_id do batch |
 | Notification JSON-RPC (`id: null`)       | implementado  | exposto         | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202 |
-| Falha rapida em disconnect do agente       | implementado  | exposto         | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout |
+| Falha rapida em disconnect do agente       | implementado  | exposto         | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout; **novo** pedido REST com `id` correlacionavel contra agente catalogado sem socket devolve **200** + envelope normalizado `agent_offline` (`-32000`) |
 | Heartbeat (`agent:heartbeat`)              | implementado  | transparente    | -                                        |
 | Capabilities negotiation                   | implementado  | transparente    | -                                        |
 
@@ -1332,6 +1333,7 @@ isolamento por conversa ou menor latencia por stream, usa `/consumers` com
 - batch JSON-RPC continua limitado a 32 itens
 - `id: null` continua sendo notification; `id` omitido recebe UUID e aguarda resposta
 - overload por agente responde com `503` e `Retry-After`
+- agente catalogado offline (sem `/agents`) com pedido correlacionavel: `200` + `response.item.error` / batch items com `code: -32000`, `message: agent_offline`
 - abort do cliente HTTP limpa a pending request sem deixar correlacao pendurada
 - frame invalido do agente falha a request correlacionada imediatamente, sem esperar timeout
 

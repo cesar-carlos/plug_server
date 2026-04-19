@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentDisconnectedBeforeDispatchError } from "../../../../../src/shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
@@ -178,6 +179,38 @@ describe("handleAgentsCommand", () => {
           },
         },
         streamId: "stream-1",
+      });
+    });
+  });
+
+  it("emits normalized agent_offline when execution throws AgentDisconnectedBeforeDispatchError", async () => {
+    const socket = buildSocket();
+    mockedExecuteAuthorizedAgentCommand.mockRejectedValue(
+      new AgentDisconnectedBeforeDispatchError("agent-1", validPayload.command),
+    );
+
+    handleAgentsCommand(socket as never, validPayload);
+
+    await vi.waitFor(() => {
+      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+        success: true,
+        requestId: "req-1",
+        response: {
+          type: "single",
+          success: false,
+          item: {
+            id: "req-1",
+            success: false,
+            error: {
+              code: -32_000,
+              message: "agent_offline",
+              data: {
+                reason: "agent_not_connected",
+                agent_id: "agent-1",
+              },
+            },
+          },
+        },
       });
     });
   });

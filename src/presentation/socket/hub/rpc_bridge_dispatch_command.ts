@@ -7,6 +7,7 @@ import {
   type BridgeLatencyTraceSession,
 } from "../../../application/services/bridge_latency_trace_builder";
 import { env } from "../../../shared/config/env";
+import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../shared/errors/app_error";
 import {
   badRequest,
@@ -107,7 +108,7 @@ export const createDispatchRpcCommandToAgent = (
     const registeredAgent = agentRegistry.findByAgentId(input.agentId);
     if (!registeredAgent) {
       if (agentRegistry.hasKnownAgentId(input.agentId)) {
-        throw serviceUnavailable(`Agent ${input.agentId} is disconnected`);
+        throw new AgentDisconnectedBeforeDispatchError(input.agentId, input.command);
       }
 
       throw notFound(`Agent ${input.agentId}`);
@@ -115,7 +116,7 @@ export const createDispatchRpcCommandToAgent = (
 
     const agentSocket = nsp.sockets.get(registeredAgent.socketId);
     if (!agentSocket) {
-      throw serviceUnavailable("Agent socket is unavailable");
+      throw new AgentDisconnectedBeforeDispatchError(input.agentId, input.command);
     }
     const readiness = agentRegistry.getProtocolReadiness(input.agentId);
     if (!readiness.ready) {
