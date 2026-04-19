@@ -65,7 +65,6 @@ export const listMyClientAgents = async (
     ),
   );
   recordClientMeAgentsListResponse(agents.filter((a) => a.isHubConnected).length);
-  maybeSetHubInstanceIdHeader(response);
   response.status(200).json({
     agents,
     agentIds: pageResult.items.map((agent) => agent.agentId),
@@ -97,7 +96,6 @@ export const getMyClientAgent = async (
     agentId,
   );
   recordClientMeAgentsDetailResponse(isHubConnected);
-  maybeSetHubInstanceIdHeader(response);
   response.status(200).json({
     agent: toClientAgentDto(result.value, isHubConnected, hasClientToken),
   });
@@ -307,13 +305,6 @@ export const clientAccessStatus = async (
     return;
   }
   response.status(200).json(result.value);
-};
-
-const maybeSetHubInstanceIdHeader = (response: Response): void => {
-  const id = env.hubInstanceId.trim();
-  if (id !== "") {
-    response.setHeader("X-Hub-Instance-Id", id);
-  }
 };
 
 const toClientAgentAccessRequestDto = (request: {

@@ -14,6 +14,7 @@ import {
 } from "./presentation/http/middlewares/auth.middleware";
 import { credentialAuthRateLimit } from "./presentation/http/middlewares/rate_limit.middleware";
 import { globalRateLimit } from "./presentation/http/middlewares/rate_limit.middleware";
+import { hubInstanceIdMiddleware } from "./presentation/http/middlewares/hub_instance_id.middleware";
 import { requestIdMiddleware } from "./presentation/http/middlewares/request_id.middleware";
 import { authRouter } from "./presentation/http/routes/auth.routes";
 import { httpRouter } from "./presentation/http/routes";
@@ -57,6 +58,7 @@ export const createApp = (): Express => {
   });
 
   app.use(requestIdMiddleware);
+  app.use(hubInstanceIdMiddleware);
   app.use(helmet());
   app.use(cors(buildCorsOptions()));
   app.use(

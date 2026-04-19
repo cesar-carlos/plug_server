@@ -17,6 +17,20 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# --- /etc/nginx/conf.d/02-plug-upstream.conf (so necessario em multi-replica) ---
+# Sticky session obrigatoria para Socket.IO em multi-replica:
+# - Opcao A (built-in): descomente `ip_hash` e ajuste os `server` reais.
+# - Opcao B (cookie): requer `nginx-sticky-module-ng` ou nginx Plus.
+# Em deploy single-instance, mantenha so o `server 127.0.0.1:3000;` sem sticky.
+#
+# upstream plug_server_upstream {
+#     # ip_hash;                                              # Opcao A
+#     # sticky cookie hub_node expires=1h path=/;             # Opcao B
+#     server 127.0.0.1:3000;
+#     # server 10.0.0.12:3000;                                # adicione mais replicas aqui
+#     keepalive 64;
+# }
+
 # --- /etc/nginx/conf.d/01-plug-rate-limit.conf ---
 limit_req_zone $binary_remote_addr zone=plug_auth_strict:10m rate=30r/m;
 limit_req_zone $binary_remote_addr zone=plug_api:10m rate=30r/s;

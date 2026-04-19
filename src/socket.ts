@@ -963,25 +963,32 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
   });
 
-  registerAgentProfileBroadcastHandler(async (event) => {
-    const clientIds = await container.clientAgentAccessService.listApprovedClientIdsForAgent(
-      event.agentId,
-    );
-    const frame = encodePayloadFrame(
-      {
-        success: true,
-        agent_id: event.agentId,
-        profile_version: event.profileVersion,
-        profileUpdatedAt: event.profileUpdatedAt,
-        changed_fields: event.changedFields,
-        source: event.source,
-      },
-      { omitTraceId: true },
-    );
-    for (const clientId of clientIds) {
-      consumersNsp.to(`client:${clientId}`).emit(socketEvents.clientAgentProfileUpdated, frame);
-    }
-  });
+  if (env.socketClientAgentProfilePushEnabled) {
+    registerAgentProfileBroadcastHandler(async (event) => {
+      const clientIds = await container.clientAgentAccessService.listApprovedClientIdsForAgent(
+        event.agentId,
+      );
+      const frame = encodePayloadFrame(
+        {
+          success: true,
+          agent_id: event.agentId,
+          profile_version: event.profileVersion,
+          profileUpdatedAt: event.profileUpdatedAt,
+          changed_fields: event.changedFields,
+          source: event.source,
+        },
+        { omitTraceId: true },
+      );
+      for (const clientId of clientIds) {
+        consumersNsp.to(`client:${clientId}`).emit(socketEvents.clientAgentProfileUpdated, frame);
+      }
+    });
+  } else {
+    // Operational kill-switch: keeps the consumer namespace healthy while the
+    // client-agent profile push is disabled. `agent_profile_broadcast_sink`
+    // becomes a no-op until the next boot with the env enabled.
+    registerAgentProfileBroadcastHandler(undefined);
+  }
 
   return io;
 };

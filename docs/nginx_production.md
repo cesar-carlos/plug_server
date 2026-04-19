@@ -225,3 +225,65 @@ Ajuste as zonas (`rate`, `burst`) se houver falsos positivos ou trafego interno 
 - **`nginx.conf` (http):** endurecer `ssl_protocols` para **TLSv1.2 TLSv1.3**, `ssl_prefer_server_ciphers off`, e `server_tokens off` (afeta todos os virtual hosts no mesmo servidor).
 - **Logs:** em Ubuntu o pacote `nginx` costuma instalar rotacao em `/etc/logrotate.d/nginx`; confirmar espaco em disco e retencao.
 - **Multi-instancia / balanceador:** se houver varios processos Node, o storage em `UPLOADS_DIR` tem de ser **partilhado** (NFS, object storage) ou o Nginx tem de servir sempre o mesmo volume; caso contrario thumbnails podem falhar apos mudanca de instancia.
+
+## 12) Sticky session para Socket.IO (multi-replica)
+
+Quando ha mais de uma replica do `plug_server` por tras do mesmo upstream,
+**todas as conexoes Socket.IO de um cliente tem de cair na mesma replica**.
+O hub mantem estado em memoria por instancia (registro de agentes, conversacoes
+de relay, pending requests REST/socket); sem afinidade de sessao, fluxos como
+`relay:conversation.start` -> `relay:rpc.request` quebram de forma
+nao-deterministica (`protocol_not_ready` ou conversa perdida).
+
+**Se ha apenas 1 replica**, este passo e dispensavel. Confirme antes de pular
+(ver verificacao com `X-Hub-Instance-Id` mais adiante).
+
+### Opcao A — `ip_hash` (modulo built-in)
+
+Mais simples; funciona bem quando cada cliente tem IP publico estavel.
+Distribui mal sob NAT corporativo / mobile carrier-grade NAT.
+
+```nginx
+upstream plug_server_upstream {
+    ip_hash;
+    server 10.0.0.11:3000;
+    server 10.0.0.12:3000;
+    keepalive 64;
+}
+```
+
+### Opcao B — Cookie de afinidade (preferida para mobile)
+
+Requer `nginx-sticky-module-ng` ou nginx Plus (`sticky cookie ...`).
+
+```nginx
+upstream plug_server_upstream {
+    sticky cookie hub_node expires=1h domain=api.seudominio.com path=/;
+    server 10.0.0.11:3000;
+    server 10.0.0.12:3000;
+    keepalive 64;
+}
+```
+
+O cookie e fixado na primeira resposta e mantem o cliente preso a mesma
+replica enquanto ele existir.
+
+### Verificacao com `X-Hub-Instance-Id`
+
+Defina `HUB_INSTANCE_ID` em cada replica (ex.: hostname / pod name). A partir
+desse momento **toda resposta Express** carrega o header `X-Hub-Instance-Id`,
+emitido pelo middleware global `hubInstanceIdMiddleware` (REST, Swagger,
+`/metrics`, 404). Em chamadas consecutivas autenticadas:
+
+```bash
+for i in 1 2 3 4 5; do
+  curl -sI -H "Authorization: Bearer $TOKEN" \
+    https://api.seudominio.com/api/v1/client/me/agents \
+    | grep -i x-hub-instance-id
+done
+```
+
+- **1 replica:** mesmo valor sempre. Sticky N/A.
+- **Multi-replica + sticky funcionando:** mesmo valor para o mesmo cliente.
+- **Multi-replica sem sticky:** valores variando -> **NAO** habilitar Socket
+  ate corrigir o upstream.

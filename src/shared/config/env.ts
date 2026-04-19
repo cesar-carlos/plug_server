@@ -12,7 +12,10 @@ const envSchema = z.object({
   APP_NAME: z.string().default("plug_server"),
   /**
    * Optional stable identifier for this hub process (e.g. pod name, UUID).
-   * When non-empty, sent as `X-Hub-Instance-Id` on `GET /client/me/agents` responses for multi-replica debugging.
+   * When non-empty, every Express response carries `X-Hub-Instance-Id` for
+   * multi-replica correlation (sticky-session validation, log/Sentry triage).
+   * Header is set globally by the `hubInstanceIdMiddleware`, so it appears on
+   * REST, Swagger, `/metrics`, and 404 responses alike.
    */
   HUB_INSTANCE_ID: z.string().max(256).default(""),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -282,6 +285,17 @@ const envSchema = z.object({
         .map((s) => s.trim())
         .filter(Boolean),
     ),
+  /**
+   * Toggle for the `client:agent.profile.updated` push that notifies approved
+   * clients on the `/consumers` namespace whenever the agent catalog profile
+   * changes (HTTP, socket, or pull-sync paths). Default `true` matches the
+   * previously always-on behavior; set `false` as an operational kill-switch
+   * without disabling the rest of the consumer namespace.
+   */
+  SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   SOCKET_RELAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
@@ -652,6 +666,7 @@ export const env = {
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES,
+  socketClientAgentProfilePushEnabled: parsedEnv.SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED,
   socketRelayRequestTimeoutMs: parsedEnv.SOCKET_RELAY_REQUEST_TIMEOUT_MS,
   socketRelayConversationIdleTimeoutMs: parsedEnv.SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS,
   socketRelayConversationSweepIntervalMs: parsedEnv.SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS,

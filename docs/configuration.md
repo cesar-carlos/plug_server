@@ -13,7 +13,13 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
-| `HUB_INSTANCE_ID` | *(vazio)* | Quando definida (string não vazia), as respostas de `GET /api/v1/client/me/agents` e `GET /api/v1/client/me/agents/{agentId}` incluem o header HTTP `X-Hub-Instance-Id` com este valor, para correlacionar o cliente com a réplica do hub. O campo JSON `isHubConnected` continua a ser por processo. |
+| `HUB_INSTANCE_ID` | *(vazio)* | Quando definida (string não vazia), o middleware global `hubInstanceIdMiddleware` adiciona o header HTTP `X-Hub-Instance-Id` com este valor a **toda resposta Express** (REST sob `/api/v1`, `/auth`, Swagger, `/metrics`, 404). Permite ao cliente validar afinidade de sessão (sticky) em qualquer endpoint, e correlacionar logs/métricas com a réplica que processou cada request. O campo JSON `isHubConnected` continua a ser por processo. Receitas de sticky session em `docs/nginx_production.md` § 12. |
+
+### `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED` (opcional)
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED` | `true` | Gateia o registro do handler de broadcast `client:agent.profile.updated` no namespace `/consumers`. Default mantém o comportamento sempre-ativo (clientes aprovados recebem push em mudanças do catálogo do agente). Setar `false` é um kill-switch operacional: o resto do `/consumers` (relay, consultas, agents:command) segue funcionando, e os clientes caem em modo polling para ler `profileVersion`. Mudança requer restart (Zod parseia `process.env` no boot). |
 
 ### `NODE_ENV=production` sem variável definida
 
