@@ -24,7 +24,7 @@ describe("buildAgentOfflineNormalizedResponse", () => {
         error: {
           code: -32_000,
           message: "agent_offline",
-          data: { reason: "agent_not_connected", agent_id: agentId },
+          data: { reason: "agent_disconnected_at_dispatch", agent_id: agentId },
         },
       },
     });

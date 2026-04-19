@@ -4,6 +4,7 @@ import type { AgentCommandBody } from "../validators/agent_command";
  * Thrown by {@link dispatchRpcCommandToAgent} when the catalog agent exists
  * but has no live `/agents` socket (or the registry socket id is stale).
  * REST maps this to HTTP 200 + normalized JSON-RPC `agent_offline` (-32000);
+ * `error.data.reason` is `agent_disconnected_at_dispatch`.
  * Socket `agents:command` maps to `agents:command_response` with the same
  * normalized envelope (correlation ids only — pure notifications keep 503).
  */

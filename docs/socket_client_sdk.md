@@ -17,6 +17,13 @@ real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 
 **Catalogo de metodos RPC no bridge** (`sql.execute`, `client_token.getPolicy`, `rpc.discover`, etc.), limites UTF-8 e exemplos: `docs/api_rest_bridge.md` (fonte normativa partilhada com o REST).
 
+### Producao — alinhamento Colmeia (smoke)
+
+- **`SOCKET_CONSUMER_ROLES`**: deve incluir `client` (ou omitir a env para usar o default `user,admin,client` em `env.ts`). Sem `client`, o handshake `/consumers` falha para JWT `role=client`.
+- **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou omitido; `false` remove o push `client:agent.profile.updated`.
+- **REST offline**: `POST /api/v1/agents/commands` com `id` correlacionável e agente conhecido em memória mas sem socket → **HTTP 200** e `response.item.error` com `code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (não confundir com **503** de overload / notification-only / disconnect a meio de request).
+- **Multi-réplica**: validar sticky + `X-Hub-Instance-Id` — `docs/nginx_production.md` § 12 e checklist em `docs/configuration.md` (*Checklist produção*).
+
 ## Eventos e formato
 
 - **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket_relay_protocol.md` -> *Handshake: `connection:ready`*)

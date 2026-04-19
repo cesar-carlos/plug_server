@@ -21,6 +21,19 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 | -------- | ------- | ----- |
 | `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED` | `true` | Gateia o registro do handler de broadcast `client:agent.profile.updated` no namespace `/consumers`. Default mantém o comportamento sempre-ativo (clientes aprovados recebem push em mudanças do catálogo do agente). Setar `false` é um kill-switch operacional: o resto do `/consumers` (relay, consultas, agents:command) segue funcionando, e os clientes caem em modo polling para ler `profileVersion`. Mudança requer restart (Zod parseia `process.env` no boot). |
 
+### `SOCKET_CONSUMER_ROLES` (opcional)
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `SOCKET_CONSUMER_ROLES` | `user,admin,client` | Lista separada por vírgulas de `role` JWT permitidas no handshake do namespace Socket.IO **`/consumers`**. O literal **`client`** é necessário para apps Colmeia (principal `Client`). Se a variável estiver definida **sem** `client` (ex.: só `user,admin`), o hub rejeita com `Role 'client' is not allowed to connect to /consumers`. No arranque, o processo regista `WARN` `socket_consumer_roles_missing_client_role` quando `client` falta — ver `src/shared/config/log_socket_consumer_bootstrap_hints.ts`. |
+
+### Checklist produção (smoke socket / Colmeia)
+
+1. **`SOCKET_CONSUMER_ROLES`**: no PID (`printenv` / `pm2 env` / `docker exec`), confirmar que a lista inclui `client` ou que a variável está **ausente** (herda o default do schema).
+2. **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou ausente; `false` desliga push de catálogo (polling no app).
+3. **`POST /api/v1/agents/commands`** com agente offline mas **já** registado nesse worker: resposta **200** com `response.item.error.code === -32000` e `data.reason === agent_disconnected_at_dispatch` quando o JSON-RPC tem `id` correlacionável (ver tabela *Erros HTTP* em `docs/api_rest_bridge.md`).
+4. **Multi-réplica**: `HUB_INSTANCE_ID` + header `X-Hub-Instance-Id` estável entre pedidos do mesmo cliente; sticky no nginx — `docs/nginx_production.md` § 12.
+
 ### `NODE_ENV=production` sem variável definida
 
 Se a variável **não** estiver no ambiente, alguns defaults diferem em produção (desempenho):

@@ -283,7 +283,7 @@ describe("Agents HTTP bridge", () => {
     expect(res.body.response?.success).toBe(false);
     expect(res.body.response?.item?.error?.code).toBe(-32_000);
     expect(res.body.response?.item?.error?.message).toBe("agent_offline");
-    expect(res.body.response?.item?.error?.data?.reason).toBe("agent_not_connected");
+    expect(res.body.response?.item?.error?.data?.reason).toBe("agent_disconnected_at_dispatch");
     expect(res.body.response?.item?.error?.data?.agent_id).toBe(testAgentId);
 
     agentSocket = ioClient(`${baseUrl}/agents`, {

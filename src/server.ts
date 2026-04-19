@@ -36,11 +36,13 @@ import { prismaClient } from "./infrastructure/database/prisma/client";
 import { closeSocketServer, createSocketServer } from "./socket";
 import { container } from "./shared/di/container";
 import { env } from "./shared/config/env";
+import { logSocketConsumerBootstrapHints } from "./shared/config/log_socket_consumer_bootstrap_hints";
 import { logger } from "./shared/utils/logger";
 
 const app = createApp();
 const httpServer = createServer(app);
 const io = createSocketServer(httpServer);
+logSocketConsumerBootstrapHints();
 
 startSocketAuditRetentionScheduler({
   retentionDays: env.socketAuditRetentionDays,

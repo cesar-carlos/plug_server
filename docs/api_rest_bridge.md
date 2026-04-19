@@ -1333,7 +1333,7 @@ isolamento por conversa ou menor latencia por stream, usa `/consumers` com
 - batch JSON-RPC continua limitado a 32 itens
 - `id: null` continua sendo notification; `id` omitido recebe UUID e aguarda resposta
 - overload por agente responde com `503` e `Retry-After`
-- agente catalogado offline (sem `/agents`) com pedido correlacionavel: `200` + `response.item.error` / batch items com `code: -32000`, `message: agent_offline`
+- agente catalogado offline (sem `/agents`) com pedido correlacionavel: `200` + `response.item.error` / batch items com `code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch`
 - abort do cliente HTTP limpa a pending request sem deixar correlacao pendurada
 - frame invalido do agente falha a request correlacionada imediatamente, sem esperar timeout
 

@@ -205,7 +205,7 @@ describe("handleAgentsCommand", () => {
               code: -32_000,
               message: "agent_offline",
               data: {
-                reason: "agent_not_connected",
+                reason: "agent_disconnected_at_dispatch",
                 agent_id: "agent-1",
               },
             },
