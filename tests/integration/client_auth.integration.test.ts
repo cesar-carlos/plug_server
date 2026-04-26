@@ -89,6 +89,33 @@ describe("Client auth registration approval flow", () => {
     expect(loginRes.body.accessToken).toBeDefined();
   });
 
+  it("renders the client registration review page with summary details without changing state", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-review`,
+      emailPrefix: "client-owner",
+    });
+    const email = `client-review-${Date.now()}@test.com`;
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password: "ClientRegPwd1",
+      name: "Review",
+      lastName: "Client",
+    });
+    expect(registerRes.status).toBe(201);
+
+    const token = registerRes.body.approvalToken as string;
+    const page = await request(app).get("/api/v1/client-auth/registration/review").query({ token });
+    expect(page.status).toBe(200);
+    expect(page.text).toContain(owner.email);
+    expect(page.text).toContain(email);
+    expect(page.text).toContain("Review Client");
+
+    const status = await request(app).get("/api/v1/client-auth/registration/status").query({ token });
+    expect(status.status).toBe(200);
+    expect(status.body.status).toBe("pending");
+  });
+
   it("returns 400 when owner email is not eligible", async () => {
     const response = await request(app)
       .post("/api/v1/client-auth/register")
@@ -166,6 +193,100 @@ describe("Client auth registration approval flow", () => {
       .post("/api/v1/client-auth/registration/approve")
       .send({ token });
     expect(secondApprove.status).toBe(404);
+  });
+
+  it("retries rejected client registration and allows approval", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-retry`,
+      emailPrefix: "client-owner",
+    });
+    const email = `retry-client-${Date.now()}@test.com`;
+    const password = "ClientRegPwd1";
+
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+      name: "Retry",
+      lastName: "Client",
+    });
+    expect(registerRes.status).toBe(201);
+    const rejectRes = await request(app)
+      .post("/api/v1/client-auth/registration/reject")
+      .send({ token: registerRes.body.approvalToken });
+    expect(rejectRes.status).toBe(200);
+
+    const beforeCount = noopEmailSender.clientRegistrationRequestsToOwner.length;
+    const retryRes = await request(app).post("/api/v1/client-auth/registration/retry").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+    });
+    expect(retryRes.status).toBe(202);
+    expect(retryRes.body.message).toBe("If eligible, a new approval request will be sent.");
+    expect(noopEmailSender.clientRegistrationRequestsToOwner.length).toBe(beforeCount + 1);
+
+    const retryToken = noopEmailSender.clientRegistrationRequestsToOwner.at(-1)?.approvalToken;
+    expect(typeof retryToken).toBe("string");
+    const approveRes = await request(app)
+      .post("/api/v1/client-auth/registration/approve")
+      .send({ token: retryToken });
+    expect(approveRes.status).toBe(200);
+
+    const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
+    expect(loginRes.status).toBe(200);
+  });
+
+  it("returns generic 202 when client registration retry is not eligible", async () => {
+    const retryRes = await request(app).post("/api/v1/client-auth/registration/retry").send({
+      ownerEmail: `missing-owner-${Date.now()}@test.com`,
+      email: `missing-client-${Date.now()}@test.com`,
+      password: "ClientRegPwd1",
+    });
+    expect(retryRes.status).toBe(202);
+    expect(retryRes.body.message).toBe("If eligible, a new approval request will be sent.");
+  });
+
+  it("returns generic 202 when client registration retry has wrong password or wrong owner", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-retry-generic`,
+      emailPrefix: "client-owner",
+    });
+    const otherOwner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-retry-generic-other`,
+      emailPrefix: "client-owner",
+    });
+    const email = `retry-client-generic-${Date.now()}@test.com`;
+    const password = "ClientRegPwd1";
+
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+      name: "Retry",
+      lastName: "Generic",
+    });
+    expect(registerRes.status).toBe(201);
+    const rejectRes = await request(app)
+      .post("/api/v1/client-auth/registration/reject")
+      .send({ token: registerRes.body.approvalToken });
+    expect(rejectRes.status).toBe(200);
+
+    const wrongPasswordRetry = await request(app).post("/api/v1/client-auth/registration/retry").send({
+      ownerEmail: owner.email,
+      email,
+      password: "WrongPassword1",
+    });
+    expect(wrongPasswordRetry.status).toBe(202);
+    expect(wrongPasswordRetry.body.message).toBe("If eligible, a new approval request will be sent.");
+
+    const wrongOwnerRetry = await request(app).post("/api/v1/client-auth/registration/retry").send({
+      ownerEmail: otherOwner.email,
+      email,
+      password,
+    });
+    expect(wrongOwnerRetry.status).toBe(202);
+    expect(wrongOwnerRetry.body.message).toBe("If eligible, a new approval request will be sent.");
   });
 
   it("returns expired status and blocks approve when registration token is expired", async () => {

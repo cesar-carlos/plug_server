@@ -2,6 +2,23 @@ import type { IEmailSender } from "../../domain/ports/email_sender.port";
 
 /** Used in tests (and optionally when SMTP is not configured) — does not send mail. */
 export class NoopEmailSender implements IEmailSender {
+  readonly adminApprovalRequests: Array<{
+    userEmail: string;
+    reviewToken: string;
+  }> = [];
+
+  readonly userPendingRegistrations: Array<{
+    email: string;
+  }> = [];
+
+  readonly clientRegistrationRequestsToOwner: Array<{
+    ownerEmail: string;
+    clientEmail: string;
+    clientName: string;
+    clientLastName: string;
+    approvalToken: string;
+  }> = [];
+
   readonly clientAccessRequestsToOwner: Array<{
     ownerEmail: string;
     clientEmail: string;
@@ -27,9 +44,19 @@ export class NoopEmailSender implements IEmailSender {
     recoveryToken: string;
   }> = [];
 
-  async sendAdminApprovalRequest(): Promise<void> {}
+  async sendAdminApprovalRequest(params: {
+    readonly userEmail: string;
+    readonly reviewToken: string;
+  }): Promise<void> {
+    this.adminApprovalRequests.push({
+      userEmail: params.userEmail,
+      reviewToken: params.reviewToken,
+    });
+  }
 
-  async sendUserPendingRegistration(): Promise<void> {}
+  async sendUserPendingRegistration(params: { readonly email: string }): Promise<void> {
+    this.userPendingRegistrations.push({ email: params.email });
+  }
 
   async sendUserApproved(): Promise<void> {}
 
@@ -71,7 +98,21 @@ export class NoopEmailSender implements IEmailSender {
     this.clientAccessRejected.push(params);
   }
 
-  async sendClientRegistrationRequestToOwner(): Promise<void> {}
+  async sendClientRegistrationRequestToOwner(params: {
+    readonly ownerEmail: string;
+    readonly clientEmail: string;
+    readonly clientName: string;
+    readonly clientLastName: string;
+    readonly approvalToken: string;
+  }): Promise<void> {
+    this.clientRegistrationRequestsToOwner.push({
+      ownerEmail: params.ownerEmail,
+      clientEmail: params.clientEmail,
+      clientName: params.clientName,
+      clientLastName: params.clientLastName,
+      approvalToken: params.approvalToken,
+    });
+  }
 
   async sendClientRegistrationApproved(): Promise<void> {}
 

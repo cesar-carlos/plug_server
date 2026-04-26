@@ -28,7 +28,7 @@ import { enqueueRegistrationApprovalEmails } from "./registration_email_outbox.s
 import { env } from "../../shared/config/env";
 import { forbidden, invalidToken, notFound } from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
-import { parseExpiryToDate } from "../../shared/utils/date";
+import { isExpired, parseExpiryToDate } from "../../shared/utils/date";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
 import type { JwtAccessPayload } from "../../shared/utils/jwt";
 import { logger } from "../../shared/utils/logger";
@@ -83,6 +83,12 @@ export interface RetryRegistrationServiceInput {
 
 export interface RetryRegistrationServiceResult {
   readonly retried: boolean;
+}
+
+export interface RegistrationReviewSummary {
+  readonly email: string;
+  readonly status: "pending" | "active" | "rejected" | "blocked";
+  readonly tokenStatus: "pending" | "expired";
 }
 
 export class AuthService {
@@ -347,9 +353,21 @@ export class AuthService {
       ...(user.celular !== undefined ? { celular: user.celular } : {}),
     });
 
-    await this.approvalTokenRepository.deleteByUserId(user.id);
-    await this.userRepository.save(pendingUser);
-    await this.approvalTokenRepository.save(approvalToken);
+    try {
+      await this.approvalTokenRepository.deleteByUserId(user.id);
+      await this.approvalTokenRepository.save(approvalToken);
+      await this.userRepository.save(pendingUser);
+    } catch (error: unknown) {
+      await this.approvalTokenRepository.deleteByUserId(user.id);
+      await this.userRepository.save(user);
+      logger.error("registration_retry_persist_failed", {
+        requestId: options?.requestId,
+        userId: user.id,
+        emailRedacted: redactEmail(user.email),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return ok({ retried: false });
+    }
 
     try {
       if (
@@ -378,6 +396,24 @@ export class AuthService {
       });
       return ok({ retried: false });
     }
+  }
+
+  async getRegistrationReviewSummary(tokenId: string): Promise<RegistrationReviewSummary | null> {
+    const token = await this.approvalTokenRepository.findById(tokenId);
+    if (!token) {
+      return null;
+    }
+
+    const user = await this.userRepository.findById(token.userId);
+    if (!user) {
+      return null;
+    }
+
+    return {
+      email: user.email,
+      status: user.status,
+      tokenStatus: isExpired(token.expiresAt) ? "expired" : "pending",
+    };
   }
 
   async approveRegistration(

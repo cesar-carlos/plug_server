@@ -3,6 +3,11 @@
 Este e o ponto de entrada da documentacao. Para navegar por escopo, ver
 `docs/README.md`.
 
+Para rotas HTTP, use `/api/v1` como prefixo canonico. O servico ainda mantem os
+aliases de compatibilidade `/auth/*` e `/metrics`, mas a navegacao e os exemplos
+abaixo priorizam os caminhos sob o prefixo da API. Para schemas detalhados de
+request/response, consulte o OpenAPI em `GET /docs` e `GET /docs.json`.
+
 ## Objetivo
 
 O `plug_server` e o hub central do ecossistema Plug. Ele conecta `consumers` e

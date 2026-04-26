@@ -2,34 +2,33 @@
 
 ## Como navegar
 
-Este diretorio foi organizado para separar:
+Use os documentos nesta ordem:
 
-- **visao geral** do produto e da arquitetura
-- **regras de negocio** de `User` / `Agent` / `Client`
-- **contratos de transporte** REST e Socket
-- **operacao** (configuracao, observabilidade, performance e roadmap)
+1. `docs/PROJECT_OVERVIEW.md` para entender papeis, canais e limites do hub.
+2. `docs/client_agent_business_rules.md` para ownership, aprovacao, autorizacao e revogacao.
+3. `docs/api_rest_bridge.md` para o contrato HTTP e o bridge legado `agents:*`.
+4. `docs/socket_relay_protocol.md` para o contrato relay `relay:*` em `/consumers`.
+5. `docs/configuration.md` e `src/shared/config/env.ts` para defaults, parsing e variaveis.
 
-Quando dois documentos tocarem no mesmo tema, use esta precedencia:
-
-1. `docs/client_agent_business_rules.md` para ownership, aprovacao, autorizacao e revogacao
-2. `docs/api_rest_bridge.md` para contrato REST e canal legado `agents:*`
-3. `docs/socket_relay_protocol.md` para contrato relay `relay:*`
-4. `docs/configuration.md` e `src/shared/config/env.ts` para defaults e variaveis
+Para rotas HTTP, a referencia viva e o OpenAPI exposto em `GET /docs` e `GET /docs.json`.
+Os caminhos canonicos usam prefixo `/api/v1`, com excecao dos aliases de compatibilidade
+`/auth/*` e `/metrics`.
 
 ## Inicio rapido
 
-- `docs/PROJECT_OVERVIEW.md`: ponto de entrada para entender o hub, os papeis e os canais (eventos do `/agents`, profile `plug-jsonrpc-profile/2.8`)
-- `docs/client_agent_business_rules.md`: regra oficial de negocio do modelo `User` / `Agent` / `Client`
-- `docs/api_rest_bridge.md`: uso de `POST /api/v1/agents/commands` e `agents:*`, incluindo `agent:register_error`, `Retry-After` automatico para `-32013` e enforcement de `signature.key_id`
-- OpenAPI em `GET /docs` e `GET /docs.json` (inclui `PATCH /api/v1/agents/{agentId}/profile`, catalogo com `profileVersion`, etc.)
-- `docs/socket_relay_protocol.md`: contrato relay no namespace `/consumers`
-- `docs/socket_client_sdk.md`: guia minimo para implementar um cliente Socket relay
-- `CHANGELOG.md` (raiz): historico detalhado por mudanca, incluindo o alinhamento com `plug_agente` v2.8
+- `docs/PROJECT_OVERVIEW.md`: mapa do produto, dos namespaces Socket e dos canais REST.
+- `docs/client_agent_business_rules.md`: regra oficial do modelo `User` / `Agent` / `Client`.
+- `docs/api_rest_bridge.md`: `POST /api/v1/agents/commands`, respostas normalizadas, `Retry-After` e offline bridge.
+- `docs/socket_relay_protocol.md`: contrato relay em `/consumers`.
+- `docs/socket_client_sdk.md`: guia pratico para consumidor Socket.
+- `docs/configuration.md`: checklist de ambiente, defaults e links para `env.ts` / `.env.example`.
+- `CHANGELOG.md`: historico de mudancas que afetam contrato e operacao.
 
 ## Por assunto
 
-### Modelo de negocio
+### Produto e regras
 
+- `docs/PROJECT_OVERVIEW.md`
 - `docs/client_agent_business_rules.md`
 - `docs/user_status.md`
 
@@ -41,27 +40,28 @@ Quando dois documentos tocarem no mesmo tema, use esta precedencia:
 - `docs/migracao_plug_agente_namespaces.md`
 - `docs/communication_sync_plug_agente.md`
 
-### Operacao e tuning
+### Operacao
 
 - `docs/configuration.md`
 - `docs/nginx_production.md`
 - `docs/performance_hub_agent.md`
 - `docs/observability.md`
 - `docs/load_testing.md`
-- `docs/scaling_and_roadmap.md`
-
-### Estudos e material complementar
-
 - `docs/e2e_benchmark_hub_agent.md`
+
+### Roadmap e estudos
+
+- `docs/scaling_and_roadmap.md`
 - `docs/relay_fastpath_study.md`
+- `docs/db_partitioning_study.md`
 
-## Intencao de cada documento
+## Papel de cada documento
 
-- `PROJECT_OVERVIEW.md`: resumo executivo e mapa conceitual
-- `client_agent_business_rules.md`: fonte canonica de regra de negocio
-- `api_rest_bridge.md`: contrato detalhado do bridge REST e do legado `agents:*`
-- `socket_relay_protocol.md`: contrato detalhado do relay
-- `socket_client_sdk.md`: guia pragmatico do consumidor Socket
-- `communication_sync_plug_agente.md`: resumo de alinhamento com o repositório `plug_agente`
-- `nginx_production.md`: ajuste de proxy reverso para producao (API, Socket.IO, uploads, `/docs`, `/metrics`); exemplo completo em `deploy/nginx/plug_server.conf.example`
-- `scaling_and_roadmap.md`: backlog e limites conhecidos, nao contrato atual
+- `PROJECT_OVERVIEW.md`: visao executiva e mapa conceitual.
+- `client_agent_business_rules.md`: fonte canonica das regras de negocio.
+- `api_rest_bridge.md`: contrato REST e `agents:command`.
+- `socket_relay_protocol.md`: contrato relay e PayloadFrame no consumidor.
+- `socket_client_sdk.md`: guia de implementacao, sem repetir o contrato completo.
+- `configuration.md`: fonte narrativa de configuracao; defaults formais vivem em `env.ts`.
+- `observability.md`, `performance_hub_agent.md`, `nginx_production.md`: operacao.
+- `scaling_and_roadmap.md`, `relay_fastpath_study.md`, `db_partitioning_study.md`: material nao normativo.

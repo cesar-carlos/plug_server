@@ -14,6 +14,7 @@ import { InMemoryClientRepository } from "../../../../src/infrastructure/reposit
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
 import { clientAgentAccessRevokedByClientDecisionReason } from "../../../../src/application/services/client_agent_access_decision_reasons";
 import { SequentialPendingClientAgentAccessWriter } from "../../../../src/infrastructure/persistence/sequential_pending_client_agent_access.writer";
+import { env } from "../../../../src/shared/config/env";
 
 class FakeEmailSender implements IEmailSender {
   ownerAccessRequests: Array<{
@@ -70,6 +71,7 @@ class FakeEmailSender implements IEmailSender {
 describe("ClientAgentAccessService", () => {
   const ownerUserId = "35fdbf4a-8f33-45b6-a53b-a2cfd7a52d3f";
   const clientId = "f61cbcc5-f036-43b8-b1da-f5f8579580a4";
+  const otherClientId = "8f4ed539-4da6-4862-bfcf-d4a5dbf9e8aa";
   const agentId = "8cb4f6a0-b04f-4c1c-ba34-383ec25003ce";
 
   let userRepository: InMemoryUserRepository;
@@ -83,6 +85,9 @@ describe("ClientAgentAccessService", () => {
   let service: ClientAgentAccessService;
 
   beforeEach(async () => {
+    (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
+      60_000;
+
     userRepository = new InMemoryUserRepository();
     clientRepository = new InMemoryClientRepository();
     agentRepository = new InMemoryAgentRepository();
@@ -126,6 +131,17 @@ describe("ClientAgentAccessService", () => {
         passwordHash: "hash",
         name: "Client",
         lastName: "One",
+        status: "active",
+      }),
+    );
+    await clientRepository.save(
+      Client.create({
+        id: otherClientId,
+        userId: ownerUserId,
+        email: "other-client@example.com",
+        passwordHash: "hash",
+        name: "Other",
+        lastName: "Client",
         status: "active",
       }),
     );
@@ -245,6 +261,94 @@ describe("ClientAgentAccessService", () => {
     expect(stored?.status).toBe("pending");
     expect(stored?.decidedAt).toBeUndefined();
     expect(stored?.decisionReason).toBeUndefined();
+  });
+
+  it("returns 404 when another client tries to retry the request", async () => {
+    const created = await service.requestAccess(clientId, [agentId]);
+    expect(created.ok).toBe(true);
+
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored).not.toBeNull();
+
+    const retried = await service.retryRequestByClient(otherClientId, stored!.id);
+    expect(retried.ok).toBe(false);
+    if (!retried.ok) {
+      expect(retried.error.code).toBe("NOT_FOUND");
+    }
+  });
+
+  it("debounces retry while the request is still pending", async () => {
+    const created = await service.requestAccess(clientId, [agentId]);
+    expect(created.ok).toBe(true);
+    emailSender.ownerAccessRequests = [];
+
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored).not.toBeNull();
+
+    const retried = await service.retryRequestByClient(clientId, stored!.id);
+    expect(retried.ok).toBe(true);
+    if (!retried.ok) {
+      return;
+    }
+    expect(retried.value.requested).toEqual([]);
+    expect(retried.value.debounced).toEqual([agentId]);
+    expect(emailSender.ownerAccessRequests).toHaveLength(0);
+  });
+
+  it("returns alreadyApproved when retrying an approved request with active access", async () => {
+    const created = await service.requestAccess(clientId, [agentId]);
+    expect(created.ok).toBe(true);
+    const token = emailSender.ownerAccessRequests[0]?.token;
+    expect(token).toBeTruthy();
+
+    const approved = await service.approveByToken(token!);
+    expect(approved.ok).toBe(true);
+    emailSender.ownerAccessRequests = [];
+
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored?.status).toBe("approved");
+
+    const retried = await service.retryRequestByClient(clientId, stored!.id);
+    expect(retried.ok).toBe(true);
+    if (!retried.ok) {
+      return;
+    }
+    expect(retried.value).toEqual({
+      requested: [],
+      alreadyApproved: [agentId],
+      newRequests: [],
+      reopened: [],
+      debounced: [],
+    });
+    expect(emailSender.ownerAccessRequests).toHaveLength(0);
+  });
+
+  it("removes the public approval token when the owner approves by inbox route", async () => {
+    const created = await service.requestAccess(clientId, [agentId]);
+    expect(created.ok).toBe(true);
+    const token = emailSender.ownerAccessRequests[0]?.token;
+    expect(token).toBeTruthy();
+
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored).not.toBeNull();
+
+    const approved = await service.approveByOwner(ownerUserId, stored!.id);
+    expect(approved.ok).toBe(true);
+    await expect(tokenRepository.findById(token!)).resolves.toBeNull();
+  });
+
+  it("removes the public approval token when the owner rejects by inbox route", async () => {
+    const created = await service.requestAccess(clientId, [agentId]);
+    expect(created.ok).toBe(true);
+    const token = emailSender.ownerAccessRequests[0]?.token;
+    expect(token).toBeTruthy();
+
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored).not.toBeNull();
+
+    const rejected = await service.rejectByOwner(ownerUserId, stored!.id, "No access");
+    expect(rejected.ok).toBe(true);
+    await expect(tokenRepository.findById(token!)).resolves.toBeNull();
   });
 
   it("should prefer live profile refresh for approved online agents", async () => {

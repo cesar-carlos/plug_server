@@ -129,11 +129,15 @@ export const registerClient = async (
 };
 
 /** GET: read-only page with POST forms (no mutating GET). */
-export const clientRegistrationReviewPage = (_request: Request, response: Response): void => {
+export const clientRegistrationReviewPage = async (
+  _request: Request,
+  response: Response,
+): Promise<void> => {
   const { token } = getValidated<ClientRegistrationTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
   const approveAction = `${base}/api/v1/client-auth/registration/approve`;
   const rejectAction = `${base}/api/v1/client-auth/registration/reject`;
+  const summary = await container.clientAuthService.getRegistrationReviewSummary(token);
   const html = renderApprovalReviewPage({
     title: "Review client registration",
     eyebrow: "Client approval",
@@ -145,6 +149,17 @@ export const clientRegistrationReviewPage = (_request: Request, response: Respon
     approveLabel: "Approve client registration",
     rejectLabel: "Reject client registration",
     reasonLabel: "Optional note to the client (max 500 characters)",
+    ...(summary === null
+      ? {}
+      : {
+          summaryItems: [
+            { label: "Owner email", value: summary.ownerEmail },
+            { label: "Client", value: summary.clientName },
+            { label: "Client email", value: summary.clientEmail },
+            { label: "Account status", value: summary.clientStatus },
+            { label: "Link status", value: summary.tokenStatus },
+          ],
+        }),
   });
 
   response.status(200).type("html").send(html);

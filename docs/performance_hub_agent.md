@@ -42,7 +42,7 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 | Variável | Efeito |
 | -------- | ------ |
 | `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | Janela no materializador REST (defeito **256**): maior = menos round-trips, mais RAM por stream. |
-| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS` / `MAX_CHUNKS` | Tetos na agregação REST de `sql.execute` com `stream_id` (defeito **1_000_000** linhas; chunks **0** = sem limite). Exceder → **503** fail-fast; streams muito grandes devem usar Socket. |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS` / `MAX_CHUNKS` | Tetos na agregação REST de `sql.execute` com `stream_id` (defeito **1_000_000** linhas; **100_000** frames `rpc:chunk`). `0` continua a significar ilimitado, mas deixou de ser o default. Exceder → **503** fail-fast; streams muito grandes devem usar Socket. |
 | `SOCKET_REST_AGENT_MAX_INFLIGHT` / `MAX_QUEUE` / `QUEUE_WAIT_MS` | Paralelismo e fila por agente no bridge REST (defeitos **32** / **64** / **200** ms). Observar `plug_socket_relay_rest_dispatch_*` em `GET /metrics` para profundidade agregada; subir `INFLIGHT`/`MAX_QUEUE` se bursts forem saudáveis e o agente aguentar; `QUEUE_WAIT_MS` baixo falha cedo com `Retry-After`. |
 | `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` / `..._CONVERSATION_STARTS` | Teto de pedidos relay por janela; subir em workloads intensos (com cuidado). |
 | `SOCKET_RELAY_MAX_BUFFERED_CHUNKS_*` | Backpressure relay (defeitos **256** por pedido, **25600** global); mais buffer = mais throughput até ao limite de memória. |

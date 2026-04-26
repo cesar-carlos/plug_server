@@ -29,6 +29,10 @@ Use este arquivo para:
 - exemplos de payload, respostas e erros HTTP/JSON-RPC
 - limites e escolhas especificas do bridge REST
 
+Para a descricao viva de schemas HTTP, exemplos adicionais e rotas vizinhas
+(`GET /api/v1/agents`, `PATCH /api/v1/agents/{agentId}/profile`, catalogo e afins),
+consulte tambem o OpenAPI em `GET /docs` e `GET /docs.json`.
+
 Use outros docs para:
 
 - `docs/client_agent_business_rules.md`: ownership, aprovacao, revogacao e autorizacao

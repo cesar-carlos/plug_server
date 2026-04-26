@@ -2,11 +2,13 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { getTestNoopEmailSender } from "../../src/shared/di/container";
 import { registerOwnerSession } from "./helpers/client_sessions";
 import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
 const app = createApp();
+const emailSender = getTestNoopEmailSender();
 
 describe("User client governance API", () => {
   it("registers client under authenticated owner and lists owner clients", async () => {
@@ -143,12 +145,15 @@ describe("User client governance API", () => {
     });
     await seedAgentBinding(owner.userId, agent.agentId);
 
+    const sentBefore = emailSender.clientAccessRequestsToOwner.length;
     const requestAccess = await request(app)
       .post("/api/v1/client/me/agents")
       .set("Authorization", `Bearer ${clientAccessToken}`)
       .send({ agentIds: [agent.agentId] });
     expect(requestAccess.status).toBe(200);
     expect(requestAccess.body.requested).toEqual([agent.agentId]);
+    const publicToken = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
+    expect(typeof publicToken).toBe("string");
 
     const ownerRequests = await request(app)
       .get("/api/v1/me/client-access-requests")
@@ -165,6 +170,11 @@ describe("User client governance API", () => {
       .send({});
     expect(approve.status).toBe(200);
     expect(approve.body.approved).toBe(true);
+
+    const statusByPublicToken = await request(app)
+      .get("/api/v1/client-access/status")
+      .query({ token: publicToken });
+    expect(statusByPublicToken.status).toBe(404);
 
     const approvedAgents = await request(app)
       .get("/api/v1/client/me/agents")

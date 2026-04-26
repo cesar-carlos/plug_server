@@ -12,6 +12,11 @@ Esta e a fonte canonica para:
 - autorizacao por principal em HTTP e Socket
 - efeitos de bloqueio e revogacao sobre operacao
 
+Para rotas HTTP, considere `/api/v1` como prefixo canonico. O projeto ainda expõe
+aliases de compatibilidade em `/auth/*` e `/metrics`, mas as rotas listadas aqui
+devem ser lidas sob o prefixo da API. Para payloads e schemas de request/response,
+use o OpenAPI em `GET /docs` e `GET /docs.json`.
+
 Para contratos de transporte e exemplos de payload, ver:
 
 - `docs/api_rest_bridge.md`
@@ -165,6 +170,7 @@ Endpoints:
 - `POST /api/v1/client-access/reject`
 - `GET /api/v1/client-access/status`
 - `GET /api/v1/client-access/review` (pagina HTML de revisao)
+- `POST /api/v1/client/me/agent-access-requests/{requestId}/retry` (cliente autenticado)
 
 Regras:
 
@@ -174,6 +180,25 @@ Regras:
 - rejeicao nao cria vinculo
 - ao aprovar/rejeitar, pedido sai de `pending` para status final
 - ao aprovar ou rejeitar, `Client` recebe notificacao por email
+- se o owner decidir por rota autenticada (`/api/v1/me/client-access-requests/{requestId}/approve|reject`), qualquer token publico pendente daquele pedido e invalidado
+- se a rejeicao tiver sido feita por engano, o proprio `Client` pode chamar a rota de retry autenticada; o pedido volta a `pending`, recebe novo token e o owner do agente recebe novo email
+- rotas publicas baseadas em token devem ser limitadas por rate limit; a pagina HTML de revisao e sempre read-only em `GET`, com mutacao somente pelos formularios `POST`
+
+### 3.2.1 Retentativas de aprovacoes por email
+
+Endpoints:
+
+- `POST /api/v1/auth/registration/retry`
+- `POST /api/v1/client-auth/registration/retry`
+- `POST /api/v1/client/me/agent-access-requests/{requestId}/retry`
+
+Regras:
+
+- retry reabre apenas pedidos com status `rejected`, `expired` ou `revoked`; `pending` permanece idempotente/debounced e `approved` so retorna `alreadyApproved` enquanto o acesso real existir
+- cadastros publicos (`User` e `Client`) respondem genericamente com `202` para contas inexistentes, senha incorreta ou status nao elegivel
+- retry de `Client` exige `ownerEmail`, email/senha do client e owner ativo; como `blocked` tambem representa bloqueio administrativo, a rota nao deve reabrir clients bloqueados que nao passem por essas verificacoes
+- retry de acesso `Client -> Agent` exige JWT de `Client` ativo e ownership do pedido pelo client autenticado
+- pedidos ja `pending` devem permanecer idempotentes/debounced para evitar spam de emails
 
 ### 3.3 Revogar acesso
 
@@ -251,11 +276,11 @@ Regras:
 - o owner pode revogar um acesso aprovado `clientId + agentId` sem alterar ownership do agente; se o pedido estava `approved`, passa a `revoked` com motivo `owner_revoked_access`
 - o fluxo por token/email continua valido como canal alternativo para approve/reject
 
-## 4) Regras de autorizacao por principal
+## 5) Regras de autorizacao por principal
 
 O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client`.
 
-### 4.1 HTTP
+### 5.1 HTTP
 
 - rotas de `client` usam `requireClientAuth` e `requireClientActiveAccount`
 - token de `client` nao deve acessar fluxo exclusivo de `user` e vice-versa
@@ -266,7 +291,7 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 - em leitura HTTP de agentes aprovados do `Client`, a autorizacao tambem e por `ClientAgentAccess`
 - endpoints legados de vinculacao manual de `Agent` deixam de fazer parte da regra de negocio
 
-### 4.2 Socket
+### 5.2 Socket
 
 - namespace `/consumers` aceita roles configuradas em `SOCKET_CONSUMER_ROLES`
 - principal autenticado e resolvido pelo JWT
@@ -279,7 +304,7 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 - apos revogacao de `ClientAgentAccess`, novas chamadas `relay:rpc.request` na conversa existente voltam a validar acesso e devem falhar com `AGENT_ACCESS_DENIED`; a conversa pode permanecer aberta ate encerramento explicito/timeout
 - apos revogacao de `ClientAgentAccess`, novas chamadas `agents:stream_pull` e `relay:rpc.stream.pull` tambem devem falhar com `AGENT_ACCESS_DENIED`
 
-## 5) Regras de validacao e estado
+## 6) Regras de validacao e estado
 
 - `agentId` precisa existir para pedido de acesso
 - cadastro de `Client` exige `ownerEmail` valido de um `User` ativo
@@ -290,7 +315,7 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 - pedido pode estar em: `pending`, `approved`, `rejected`, `expired`
 - acesso efetivo para executar comando existe apenas com registro em `ClientAgentAccess`
 
-## 6) Matriz resumida
+## 7) Matriz resumida
 
 - ownership de agente: `AgentIdentity` (1 owner por agente)
 - nascimento do ownership do agente: `agent-login` + `agent:register`, com bind oficial no `agent:register`
@@ -300,7 +325,7 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 - decisao por token: `ClientAgentAccessApprovalToken`
 - notificacao por email: owner no pedido, client na decisao
 
-## 7) Rotas relacionadas
+## 8) Rotas relacionadas
 
 Autenticacao de client:
 

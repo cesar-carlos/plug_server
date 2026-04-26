@@ -58,6 +58,14 @@ export interface RetryClientRegistrationServiceResult {
   readonly retried: boolean;
 }
 
+export interface ClientRegistrationReviewSummary {
+  readonly ownerEmail: string;
+  readonly clientEmail: string;
+  readonly clientName: string;
+  readonly clientStatus: ClientStatus;
+  readonly tokenStatus: "pending" | "expired";
+}
+
 export interface LoginClientServiceInput {
   readonly email: string;
   readonly password: string;
@@ -173,8 +181,19 @@ export class ClientAuthService {
     });
     const approvalToken = this.newRegistrationApprovalToken(client.id);
 
-    await this.clientRepository.save(pendingClient);
-    await this.clientRegistrationApprovalTokenRepository.save(approvalToken);
+    try {
+      await this.clientRegistrationApprovalTokenRepository.save(approvalToken);
+      await this.clientRepository.save(pendingClient);
+    } catch (error: unknown) {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(approvalToken.id);
+      await this.clientRepository.save(client);
+      logger.error("client_registration_retry_persist_failed", {
+        clientId: client.id,
+        clientEmailRedacted: redactEmail(client.email),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return ok({ retried: false });
+    }
 
     try {
       await this.dispatchRegistrationRequestEmail({
@@ -195,6 +214,31 @@ export class ClientAuthService {
       });
       return ok({ retried: false });
     }
+  }
+
+  async getRegistrationReviewSummary(tokenId: string): Promise<ClientRegistrationReviewSummary | null> {
+    const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
+    if (!token) {
+      return null;
+    }
+
+    const client = await this.clientRepository.findById(token.clientId);
+    if (!client) {
+      return null;
+    }
+
+    const owner = await this.userRepository.findById(client.userId);
+    if (!owner) {
+      return null;
+    }
+
+    return {
+      ownerEmail: owner.email,
+      clientEmail: client.email,
+      clientName: `${client.name} ${client.lastName}`.trim(),
+      clientStatus: client.status,
+      tokenStatus: isExpired(token.expiresAt) ? "expired" : "pending",
+    };
   }
 
   async listManagedClientsPage(

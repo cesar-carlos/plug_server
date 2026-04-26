@@ -11,6 +11,7 @@ Este documento cobre o contrato relay `relay:*` no namespace `/consumers`.
 Regras de negocio de ownership, aprovacao de `Client`, revogacao, conta ativa
 e autorizacao por principal vivem em `docs/client_agent_business_rules.md`.
 Para o mapa geral da documentacao, ver `docs/README.md`.
+Para um guia de implementacao lado cliente, ver `docs/socket_client_sdk.md`.
 
 Fluxo:
 

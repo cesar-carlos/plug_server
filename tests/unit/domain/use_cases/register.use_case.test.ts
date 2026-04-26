@@ -18,6 +18,7 @@ const makeTokenRepo = (): IRegistrationApprovalTokenRepository => ({
   save: vi.fn(),
   findById: vi.fn(),
   deleteById: vi.fn(),
+  deleteByUserId: vi.fn(),
 });
 
 const expiresAt = new Date(Date.now() + 86_400_000);

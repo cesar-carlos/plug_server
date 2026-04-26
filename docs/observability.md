@@ -108,7 +108,7 @@ rate(plug_auth_login_blocked_total[5m])
 rate(plug_auth_refresh_blocked_total[5m])
 rate(plug_auth_socket_blocked_total[5m])
 
-# Alteracoes de estado por admin (bloquear/desbloquear via PATCH /admin/users/:id/status)
+# Alteracoes de estado por admin (bloquear/desbloquear via PATCH /api/v1/admin/users/:id/status)
 rate(plug_admin_user_status_set_total[5m])
 
 # Rate limit no PATCH de estado (por admin)

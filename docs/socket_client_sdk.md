@@ -10,6 +10,11 @@ ownership de `Agent`, aprovacao de acesso de `Client` e consulta de agentes
 aprovados vivem em `docs/client_agent_business_rules.md`.
 Mapa geral da documentacao: `docs/README.md`.
 
+Este arquivo e pragmatico: mostra como consumir o relay e o bridge Socket na
+pratica. O contrato normativo continua em `docs/socket_relay_protocol.md`; para
+rotas HTTP e payloads compartilhados com o bridge REST, use o OpenAPI em
+`GET /docs` e `GET /docs.json`.
+
 **Canal alternativo (REST):** os mesmos comandos JSON-RPC podem ser enviados por
 `POST /api/v1/agents/commands` sem Socket no consumer; o REST **nao** expoe
 streaming progressivo (resultado agregado num unico JSON). Para chunks em tempo

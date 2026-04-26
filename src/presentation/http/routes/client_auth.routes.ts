@@ -18,6 +18,7 @@ import {
   refreshClient,
   rejectClientRegistration,
   registerClient,
+  retryClientRegistration,
   wrapMulterErrors,
 } from "../controllers/client_auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
@@ -31,6 +32,7 @@ import { validateRequest } from "../middlewares/validate.middleware";
 import {
   clientRegistrationApproveBodySchema,
   clientRegistrationRejectBodySchema,
+  clientRegistrationRetryBodySchema,
   clientRegistrationTokenQuerySchema,
   clientLoginBodySchema,
   clientLogoutBodySchema,
@@ -122,6 +124,54 @@ clientAuthRouter.get(
   credentialAuthRateLimit,
   validateRequest({ query: clientRegistrationTokenQuerySchema }),
   asyncHandler(clientRegistrationStatus),
+);
+
+/**
+ * @openapi
+ * /client-auth/registration/retry:
+ *   post:
+ *     summary: Retry a rejected client registration approval request
+ *     description: Always returns a generic 202 response; when eligible, reopens the client registration and emails a new owner approval link.
+ *     tags: [Client Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [ownerEmail, email, password]
+ *             properties:
+ *               ownerEmail:
+ *                 type: string
+ *                 format: email
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               password:
+ *                 type: string
+ *                 minLength: 1
+ *     responses:
+ *       202:
+ *         description: Retry accepted generically
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [message]
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: If eligible, a new approval request will be sent.
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ */
+clientAuthRouter.post(
+  "/registration/retry",
+  credentialAuthRateLimit,
+  validateRequest({ body: clientRegistrationRetryBodySchema }),
+  asyncHandler(retryClientRegistration),
 );
 
 /**

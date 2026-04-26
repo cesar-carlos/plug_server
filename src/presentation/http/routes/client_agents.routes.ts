@@ -12,15 +12,20 @@ import {
   removeMyClientAgentByParam,
   removeMyClientAgents,
   requestMyClientAgents,
+  retryMyClientAgentAccessRequest,
   setMyClientAgentToken,
 } from "../controllers/client_agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
-import { clientMeAgentsPostRateLimit } from "../middlewares/rate_limit.middleware";
+import {
+  clientMeAgentsPostRateLimit,
+  credentialAuthRateLimit,
+} from "../middlewares/rate_limit.middleware";
 import { requireClientAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   clientAccessApproveBodySchema,
   clientAccessRejectBodySchema,
+  clientAgentAccessRequestIdParamSchema,
   clientAgentIdParamSchema,
   clientAccessReviewTokenQuerySchema,
   clientAgentIdsBodySchema,
@@ -303,6 +308,65 @@ clientAgentsRouter.get(
 
 /**
  * @openapi
+ * /client/me/agent-access-requests/{requestId}/retry:
+ *   post:
+ *     summary: Retry a client-to-agent access request
+ *     description: Reopens an eligible access request for the authenticated client and emails a new approval link to the agent owner. `pending` requests are idempotent and may return `debounced` instead of sending a new email.
+ *     tags: [Client Agent Access]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Retry processing result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [requested, alreadyApproved, newRequests, reopened, debounced]
+ *               properties:
+ *                 requested:
+ *                   type: array
+ *                   items: { type: string, format: uuid }
+ *                 alreadyApproved:
+ *                   type: array
+ *                   items: { type: string, format: uuid }
+ *                 newRequests:
+ *                   type: array
+ *                   items: { type: string, format: uuid }
+ *                 reopened:
+ *                   type: array
+ *                   items: { type: string, format: uuid }
+ *                 debounced:
+ *                   type: array
+ *                   items: { type: string, format: uuid }
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         $ref: '#/components/responses/Conflict'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ */
+clientAgentsRouter.post(
+  "/client/me/agent-access-requests/:requestId/retry",
+  ...requireClientAuthAndActiveAccount,
+  clientMeAgentsPostRateLimit,
+  validateRequest({ params: clientAgentAccessRequestIdParamSchema }),
+  asyncHandler(retryMyClientAgentAccessRequest),
+);
+
+/**
+ * @openapi
  * /client/me/agents/{agentId}/client-token:
  *   get:
  *     summary: Read the per-(client, agent) bearer token stored on the server
@@ -423,6 +487,7 @@ clientAgentsRouter.put(
  */
 clientAccessReviewRouter.get(
   "/review",
+  credentialAuthRateLimit,
   validateRequest({ query: clientAccessReviewTokenQuerySchema }),
   asyncHandler(clientAccessReviewPage),
 );
@@ -443,6 +508,7 @@ clientAccessReviewRouter.get(
  */
 clientAccessReviewRouter.get(
   "/status",
+  credentialAuthRateLimit,
   validateRequest({ query: clientAccessReviewTokenQuerySchema }),
   asyncHandler(clientAccessStatus),
 );
@@ -467,6 +533,7 @@ clientAccessReviewRouter.get(
  */
 clientAccessReviewRouter.post(
   "/approve",
+  credentialAuthRateLimit,
   validateRequest({ body: clientAccessApproveBodySchema }),
   asyncHandler(approveClientAccess),
 );
@@ -492,6 +559,7 @@ clientAccessReviewRouter.post(
  */
 clientAccessReviewRouter.post(
   "/reject",
+  credentialAuthRateLimit,
   validateRequest({ body: clientAccessRejectBodySchema }),
   asyncHandler(rejectClientAccess),
 );

@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
 import { User } from "../../src/domain/entities/user.entity";
-import { getTestRepositoryAccess } from "../../src/shared/di/container";
+import { getTestNoopEmailSender, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
@@ -14,6 +14,7 @@ const testUser = {
   password: "Integration1",
 };
 const repositories = getTestRepositoryAccess();
+const emailSender = getTestNoopEmailSender();
 
 let accessToken = "";
 let refreshToken = "";
@@ -109,9 +110,10 @@ describe("Auth API", () => {
     });
 
     it("GET /api/v1/auth/registration/review returns HTML with POST forms only", async () => {
+      const email = `review-page-${Date.now()}@test.com`;
       const reg = await request(app)
         .post("/api/v1/auth/register")
-        .send({ email: `review-page-${Date.now()}@test.com`, password: "ReviewPage1" });
+        .send({ email, password: "ReviewPage1" });
       expect(reg.status).toBe(201);
       const token = reg.body.approvalToken as string;
 
@@ -120,6 +122,11 @@ describe("Auth API", () => {
       expect(page.text).toContain('method="post"');
       expect(page.text).toContain("/api/v1/auth/registration/approve");
       expect(page.text).toContain("/api/v1/auth/registration/reject");
+      expect(page.text).toContain(email);
+
+      const status = await request(app).get("/api/v1/auth/registration/status").query({ token });
+      expect(status.status).toBe(200);
+      expect(status.body.status).toBe("pending");
     });
 
     it("second POST /registration/approve with same token returns 404", async () => {
@@ -152,6 +159,69 @@ describe("Auth API", () => {
       expect(login.status).toBe(403);
       expect(login.body.code).toBe("FORBIDDEN");
       expect(String(login.body.message)).toContain("rejected");
+    });
+
+    it("POST /api/v1/auth/registration/retry reopens rejected registrations generically", async () => {
+      const rejectedUser = { email: `retry-rejected-${Date.now()}@test.com`, password: "RetryReg1" };
+      const reg = await request(app).post("/api/v1/auth/register").send(rejectedUser);
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const reject = await request(app).post("/api/v1/auth/registration/reject").send({ token });
+      expect(reject.status).toBe(200);
+      const beforeCount = emailSender.adminApprovalRequests.length;
+
+      const retry = await request(app)
+        .post("/api/v1/auth/registration/retry")
+        .send(rejectedUser);
+      expect(retry.status).toBe(202);
+      expect(retry.body.message).toBe("If eligible, a new approval request will be sent.");
+      expect(emailSender.adminApprovalRequests.length).toBe(beforeCount + 1);
+
+      const retryToken = emailSender.adminApprovalRequests.at(-1)?.reviewToken;
+      expect(typeof retryToken).toBe("string");
+      const approve = await request(app)
+        .post("/api/v1/auth/registration/approve")
+        .send({ token: retryToken });
+      expect(approve.status).toBe(200);
+
+      const login = await request(app).post("/api/v1/auth/login").send(rejectedUser);
+      expect(login.status).toBe(200);
+    });
+
+    it("POST /api/v1/auth/registration/retry returns generic 202 for ineligible accounts", async () => {
+      const retry = await request(app)
+        .post("/api/v1/auth/registration/retry")
+        .send({ email: `missing-retry-${Date.now()}@test.com`, password: "RetryReg1" });
+      expect(retry.status).toBe(202);
+      expect(retry.body.message).toBe("If eligible, a new approval request will be sent.");
+    });
+
+    it("POST /api/v1/auth/registration/retry stays generic for wrong password and active accounts", async () => {
+      const rejectedUser = { email: `retry-wrong-${Date.now()}@test.com`, password: "RetryReg1" };
+      const reg = await request(app).post("/api/v1/auth/register").send(rejectedUser);
+      expect(reg.status).toBe(201);
+      const reject = await request(app)
+        .post("/api/v1/auth/registration/reject")
+        .send({ token: reg.body.approvalToken });
+      expect(reject.status).toBe(200);
+
+      const wrongPasswordRetry = await request(app)
+        .post("/api/v1/auth/registration/retry")
+        .send({ email: rejectedUser.email, password: "WrongPassword1" });
+      expect(wrongPasswordRetry.status).toBe(202);
+      expect(wrongPasswordRetry.body.message).toBe("If eligible, a new approval request will be sent.");
+
+      const activeUser = { email: `retry-active-${Date.now()}@test.com`, password: "RetryReg1" };
+      const activeReg = await request(app).post("/api/v1/auth/register").send(activeUser);
+      expect(activeReg.status).toBe(201);
+      await approveRegistrationByToken(app, activeReg.body.approvalToken as string);
+
+      const activeRetry = await request(app)
+        .post("/api/v1/auth/registration/retry")
+        .send(activeUser);
+      expect(activeRetry.status).toBe(202);
+      expect(activeRetry.body.message).toBe("If eligible, a new approval request will be sent.");
     });
 
     it("GET /api/v1/auth/registration/status returns expired and approve returns 410 for expired tokens", async () => {

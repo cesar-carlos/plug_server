@@ -84,6 +84,21 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/client-auth/registration/status"]?.get).toBeDefined();
     expect(response.body.paths?.["/client-auth/registration/approve"]?.post).toBeDefined();
     expect(response.body.paths?.["/client-auth/registration/reject"]?.post).toBeDefined();
+    expect(
+      response.body.paths?.["/auth/registration/retry"]?.post?.requestBody?.content?.[
+        "application/json"
+      ]?.schema?.required,
+    ).toEqual(["email", "password"]);
+    expect(
+      response.body.paths?.["/client-auth/registration/retry"]?.post?.requestBody?.content?.[
+        "application/json"
+      ]?.schema?.required,
+    ).toEqual(["ownerEmail", "email", "password"]);
+    expect(
+      response.body.paths?.["/client/me/agent-access-requests/{requestId}/retry"]?.post?.parameters,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "requestId", in: "path" })]),
+    );
     expect(response.body.paths?.["/me/agents"]?.get?.tags).toContain("User agents");
     expect(response.body.paths?.["/users/{userId}/agents"]?.get?.tags).toContain("User agents");
     expect(response.body.paths?.["/me/agents"]?.post).toBeUndefined();

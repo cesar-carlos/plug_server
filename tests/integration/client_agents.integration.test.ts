@@ -4,6 +4,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { env } from "../../src/shared/config/env";
 import { getTestNoopEmailSender, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { registerOwnerAndClientSession } from "./helpers/client_sessions";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
@@ -320,6 +321,8 @@ describe("Client agent access API", () => {
     expect(reviewResponse.headers["content-type"]).toContain("text/html");
     expect(reviewResponse.text).toContain("Review client access");
     expect(reviewResponse.text).toContain(String(token));
+    expect(reviewResponse.text).toContain(email?.clientEmail ?? "");
+    expect(reviewResponse.text).toContain(agent.name);
 
     const statusResponse = await request(app).get("/api/v1/client-access/status").query({ token });
     expect(statusResponse.status).toBe(200);
@@ -445,6 +448,95 @@ describe("Client agent access API", () => {
     expect(requestsResponse.body.requests[0]?.agentId).toBe(agent.agentId);
     expect(requestsResponse.body.requests[0]?.status).toBe("rejected");
     expect(requestsResponse.body.requests[0]?.decisionReason).toBe("Needs compliance review");
+  });
+
+  it("POST /api/v1/client/me/agent-access-requests/:requestId/retry reopens rejected access", async () => {
+    const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
+    const agent = await seedAgent({
+      name: "Retry Access Agent",
+      cnpjCpf: `retry-access-${Date.now()}`,
+    });
+    await seedAgentBinding(ownerUserId, agent.agentId);
+
+    const sentBefore = emailSender.clientAccessRequestsToOwner.length;
+    const requestAccess = await request(app)
+      .post("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({ agentIds: [agent.agentId] });
+    expect(requestAccess.status).toBe(200);
+    const token = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
+    expect(typeof token).toBe("string");
+
+    const rejectResponse = await request(app).post("/api/v1/client-access/reject").send({ token });
+    expect(rejectResponse.status).toBe(200);
+
+    const rejectedRequests = await request(app)
+      .get("/api/v1/client/me/agent-access-requests")
+      .query({ status: "rejected", search: agent.agentId })
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(rejectedRequests.status).toBe(200);
+    const requestId = rejectedRequests.body.requests[0]?.id as string;
+    expect(typeof requestId).toBe("string");
+
+    const retrySentBefore = emailSender.clientAccessRequestsToOwner.length;
+    const retry = await request(app)
+      .post(`/api/v1/client/me/agent-access-requests/${requestId}/retry`)
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({});
+    expect(retry.status).toBe(200);
+    expect(retry.body.requested).toEqual([agent.agentId]);
+    expect(retry.body.reopened).toEqual([agent.agentId]);
+    expect(emailSender.clientAccessRequestsToOwner.length).toBe(retrySentBefore + 1);
+
+    const retryToken = emailSender.clientAccessRequestsToOwner.at(-1)?.approvalToken;
+    expect(typeof retryToken).toBe("string");
+    const approve = await request(app).post("/api/v1/client-access/approve").send({
+      token: retryToken,
+    });
+    expect(approve.status).toBe(200);
+
+    const approvedAgents = await request(app)
+      .get("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(approvedAgents.status).toBe(200);
+    expect(approvedAgents.body.agentIds).toContain(agent.agentId);
+  });
+
+  it("POST /api/v1/client/me/agent-access-requests/:requestId/retry debounces pending requests", async () => {
+    const previousDebounceMs = env.clientAgentAccessRequestEmailDebounceMs;
+    (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
+      60_000;
+    const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
+    const agent = await seedAgent({
+      name: "Retry Debounce Agent",
+      cnpjCpf: `retry-debounce-${Date.now()}`,
+    });
+    await seedAgentBinding(ownerUserId, agent.agentId);
+
+    const requestAccess = await request(app)
+      .post("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({ agentIds: [agent.agentId] });
+    expect(requestAccess.status).toBe(200);
+
+    const pendingRequests = await request(app)
+      .get("/api/v1/client/me/agent-access-requests")
+      .query({ status: "pending", search: agent.agentId })
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(pendingRequests.status).toBe(200);
+    const requestId = pendingRequests.body.requests[0]?.id as string;
+    const sentBefore = emailSender.clientAccessRequestsToOwner.length;
+
+    const retry = await request(app)
+      .post(`/api/v1/client/me/agent-access-requests/${requestId}/retry`)
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({});
+    expect(retry.status).toBe(200);
+    expect(retry.body.requested).toEqual([]);
+    expect(retry.body.debounced).toEqual([agent.agentId]);
+    expect(emailSender.clientAccessRequestsToOwner.length).toBe(sentBefore);
+    (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
+      previousDebounceMs;
   });
 
   it("invalidates public approval tokens after they are used", async () => {

@@ -1,8 +1,15 @@
-# Load testing (notas)
+# Load testing
 
-Este repositório não inclui um runner de carga fixo; podes validar o hub com ferramentas externas.
+Este repositório não inclui um runner de carga fixo. Use ferramentas externas para
+validar o hub e combine este guia com `docs/performance_hub_agent.md`,
+`docs/observability.md` e `docs/e2e_benchmark_hub_agent.md`.
 
-**E2E + benchmark com BD e `multi_result`:** ver `docs/e2e_benchmark_hub_agent.md` — benchmark ODBC e `multi_result` correm no **`plug_agente`**; neste repositório, carga no hub = inflight/fila por agente no REST (`SOCKET_REST_AGENT_*`) e métricas em `/metrics`.
+## Escopo
+
+- **Hub (`plug_server`)**: mede inflight, fila por agente, relay, encode/decode de
+  `PayloadFrame`, auditoria e overload.
+- **Agente (`plug_agente`)**: benchmark ODBC, `multi_result` e carga SQL real vivem
+  no repositório do agente; ver `docs/e2e_benchmark_hub_agent.md`.
 
 ## HTTP (REST bridge)
 
@@ -16,14 +23,50 @@ autocannon -m POST -H "Authorization=Bearer YOUR_ACCESS_TOKEN" \
   http://localhost:3000/api/v1/agents/commands
 ```
 
-Observa `plug_rest_bridge_*` e `plug_socket_relay_*` em `GET /metrics` durante o teste.
+Durante o teste, acompanhe `plug_rest_bridge_*`,
+`plug_socket_relay_rest_dispatch_*` e `plug_rest_http_rate_limit_*` em
+`GET /metrics`.
 
 ## Socket.IO
 
-Cenários realistas precisam de **dois clientes** (agente em `/agents` + consumer em `/consumers`) e payloads `PayloadFrame`. Para smoke de latência, um único cliente pode stressar `agents:command` ou relay após login HTTP.
+Cenarios realistas precisam de **dois lados**:
 
-## O que monitorizar
+1. um agente ligado em `/agents`;
+2. consumidores ligados em `/consumers`.
 
-- CPU do processo Node (gzip/gunzip sync vs async conforme env).
-- `plug_socket_relay_chunks_dropped_total`, `plug_socket_relay_circuit_open_rejects_total`.
-- Memória se usares streams SQL muito grandes no REST materializado.
+Para smoke de latencia, um unico cliente pode stressar `agents:command` ou relay
+apos login HTTP. Para carga representativa, use:
+
+- 200 a 500 sockets em `/consumers`;
+- mistura aproximada de `60% client` e `40% user`;
+- 30% com conversa relay ativa;
+- bursts de `relay:conversation.start`;
+- `relay:rpc.request` com requests únicas e retries deduplicados;
+- streams com `relay:rpc.chunk` + `relay:rpc.stream.pull`;
+- rajadas de `client:agent.profile.updated` para o mesmo `agentId`.
+
+## O que medir
+
+- CPU do processo Node e event-loop lag.
+- RSS / heap durante streams SQL grandes no REST materializado.
+- `plug_rest_bridge_*` para throughput e falhas REST.
+- `plug_socket_relay_outbound_queue_*` para backlog e latencia da fila outbound.
+- `plug_socket_relay_chunks_dropped_total` e `plug_socket_relay_circuit_open_rejects_total`.
+- `plug_socket_consumers_guard_db_*`.
+- `plug_socket_consumers_profile_push_*`.
+- `plug_socket_consumers_commands_aborted_on_disconnect_total`.
+
+## Sinais de regressao
+
+- backlog da outbound queue sobe e nao recupera;
+- `commands_aborted_on_disconnect_total` cresce com pending preso;
+- `guard_db_max_ms` sobe muito durante bursts;
+- `profile_push_fanout_max` explode sem aumento proporcional de recipients;
+- `503 SERVICE_UNAVAILABLE` por overload fora de picos esperados.
+
+## Validacoes operacionais
+
+- bloquear um `User` e um `Client` durante o teste e confirmar desconexao ativa;
+- revogar um `ClientAgentAccess` durante stream ativo e confirmar corte da sessao;
+- repetir `relay:rpc.request` com o mesmo `client_request_id` e confirmar `deduplicated`;
+- comparar o comportamento com sticky sessions habilitado e desabilitado.

@@ -26,8 +26,12 @@ class FakePasswordHasher {
 class TestClientRegistrationApprovalTokenRepository implements IClientRegistrationApprovalTokenRepository {
   private readonly store = new Map<string, ClientRegistrationApprovalToken>();
   private readonly tokenIdByClientId = new Map<string, string>();
+  failOnSave = false;
 
   async save(token: ClientRegistrationApprovalToken): Promise<void> {
+    if (this.failOnSave) {
+      throw new Error("token persistence failed");
+    }
     const existingTokenId = this.tokenIdByClientId.get(token.clientId);
     if (existingTokenId) {
       this.store.delete(existingTokenId);
@@ -65,6 +69,9 @@ describe("ClientAuthService registration flow", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    sendClientRegistrationRequestToOwner.mockResolvedValue(undefined);
+    sendClientRegistrationApproved.mockResolvedValue(undefined);
+    sendClientRegistrationRejected.mockResolvedValue(undefined);
     userRepository = new InMemoryUserRepository();
     clientRepository = new InMemoryClientRepository();
     clientRegistrationApprovalTokenRepository = new TestClientRegistrationApprovalTokenRepository();
@@ -187,5 +194,91 @@ describe("ClientAuthService registration flow", () => {
       reason: "No fit",
     });
     expect((await clientRepository.findById(client.id))?.status).toBe("blocked");
+  });
+
+  it("reopens an eligible blocked client registration", async () => {
+    const client = Client.create({
+      id: "client-retry-id",
+      userId: "owner-user-id",
+      email: "retry-client@test.com",
+      passwordHash: "hashed:ClientPwd1",
+      name: "Retry",
+      lastName: "Client",
+      status: "blocked",
+    });
+    await clientRepository.save(client);
+
+    const result = await service.retryRejectedRegistration({
+      ownerEmail: "owner@test.com",
+      email: client.email,
+      password: "ClientPwd1",
+    });
+
+    expect(result).toEqual({ ok: true, value: { retried: true } });
+    expect(sendClientRegistrationRequestToOwner).toHaveBeenCalledTimes(1);
+    expect((await clientRepository.findById(client.id))?.status).toBe("pending");
+    expect(clientRegistrationApprovalTokenRepository.count()).toBe(1);
+  });
+
+  it("returns false when the owner is no longer active for retry", async () => {
+    const owner = await userRepository.findById("owner-user-id");
+    expect(owner).not.toBeNull();
+    await userRepository.save(
+      User.create({
+        id: owner!.id,
+        email: owner!.email,
+        passwordHash: owner!.passwordHash,
+        role: owner!.role,
+        status: "blocked",
+        createdAt: owner!.createdAt,
+        ...(owner!.celular !== undefined ? { celular: owner!.celular } : {}),
+      }),
+    );
+
+    const client = Client.create({
+      id: "client-owner-inactive-retry-id",
+      userId: "owner-user-id",
+      email: "retry-owner-inactive@test.com",
+      passwordHash: "hashed:ClientPwd1",
+      name: "Retry",
+      lastName: "OwnerInactive",
+      status: "blocked",
+    });
+    await clientRepository.save(client);
+
+    const result = await service.retryRejectedRegistration({
+      ownerEmail: "owner@test.com",
+      email: client.email,
+      password: "ClientPwd1",
+    });
+
+    expect(result).toEqual({ ok: true, value: { retried: false } });
+    expect(sendClientRegistrationRequestToOwner).not.toHaveBeenCalled();
+    expect((await clientRepository.findById(client.id))?.status).toBe("blocked");
+  });
+
+  it("rolls back retry when the new client approval token cannot be stored", async () => {
+    clientRegistrationApprovalTokenRepository.failOnSave = true;
+    const client = Client.create({
+      id: "client-retry-rollback-id",
+      userId: "owner-user-id",
+      email: "retry-rollback@test.com",
+      passwordHash: "hashed:ClientPwd1",
+      name: "Retry",
+      lastName: "Rollback",
+      status: "blocked",
+    });
+    await clientRepository.save(client);
+
+    const result = await service.retryRejectedRegistration({
+      ownerEmail: "owner@test.com",
+      email: client.email,
+      password: "ClientPwd1",
+    });
+
+    expect(result).toEqual({ ok: true, value: { retried: false } });
+    expect((await clientRepository.findById(client.id))?.status).toBe("blocked");
+    expect(clientRegistrationApprovalTokenRepository.count()).toBe(0);
+    expect(sendClientRegistrationRequestToOwner).not.toHaveBeenCalled();
   });
 });

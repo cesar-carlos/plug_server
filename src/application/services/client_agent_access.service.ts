@@ -1,4 +1,7 @@
-import { ClientAgentAccessRequest } from "../../domain/entities/client_agent_access_request.entity";
+import {
+  ClientAgentAccessRequest,
+  type ClientAgentAccessRequestStatus,
+} from "../../domain/entities/client_agent_access_request.entity";
 import type { Agent } from "../../domain/entities/agent.entity";
 import type { Client } from "../../domain/entities/client.entity";
 import type { User } from "../../domain/entities/user.entity";
@@ -108,6 +111,15 @@ export interface ClientAgentAccessRequestResult {
   readonly newRequests: string[];
   /** Client+agent pairs skipped: still `pending` and last `requestedAt` is within the debounce window. */
   readonly debounced: string[];
+}
+
+export interface ClientAgentAccessReviewSummary {
+  readonly clientEmail: string;
+  readonly clientName: string;
+  readonly agentId: string;
+  readonly agentName?: string;
+  readonly requestStatus: ClientAgentAccessRequestStatus;
+  readonly tokenStatus: "pending" | "expired";
 }
 
 export interface ClientAgentLiveProfileDeps {
@@ -452,7 +464,51 @@ export class ClientAgentAccessService {
       return err(notFound("Access request"));
     }
 
+    if (request.status === "approved") {
+      const hasAccess = await this.clientAgentAccessRepository.hasAccess(clientId, request.agentId);
+      if (hasAccess) {
+        return ok({
+          requested: [],
+          alreadyApproved: [request.agentId],
+          newRequests: [],
+          reopened: [],
+          debounced: [],
+        });
+      }
+    }
+
+    if (request.status !== "pending" && !this.isRetryEligibleStatus(request.status)) {
+      return err(conflict("Access request cannot be retried from its current status"));
+    }
+
     return this.requestAccess(clientId, [request.agentId]);
+  }
+
+  async getReviewSummaryByToken(tokenId: string): Promise<ClientAgentAccessReviewSummary | null> {
+    const token = await this.approvalTokenRepository.findById(tokenId);
+    if (!token) {
+      return null;
+    }
+
+    const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
+    if (!request) {
+      return null;
+    }
+
+    const client = await this.clientRepository.findById(request.clientId);
+    if (!client) {
+      return null;
+    }
+
+    const agent = await this.agentRepository.findById(request.agentId);
+    return {
+      clientEmail: client.email,
+      clientName: `${client.name} ${client.lastName}`.trim(),
+      agentId: request.agentId,
+      ...(agent?.name !== undefined ? { agentName: agent.name } : {}),
+      requestStatus: request.status,
+      tokenStatus: isExpired(token.expiresAt) ? "expired" : "pending",
+    };
   }
 
   async removeApprovedAccess(clientId: string, agentIds: string[]): Promise<Result<void>> {
@@ -942,6 +998,10 @@ export class ClientAgentAccessService {
       }
     }
     return map;
+  }
+
+  private isRetryEligibleStatus(status: ClientAgentAccessRequestStatus): boolean {
+    return status === "rejected" || status === "expired" || status === "revoked";
   }
 
   private async assertAgentOwnership(ownerUserId: string, agentId: string): Promise<Result<void>> {

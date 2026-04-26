@@ -3,6 +3,7 @@ import type { Transporter } from "nodemailer";
 
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import { logger } from "../../shared/utils/logger";
+import { redactEmail } from "../../shared/utils/pii_redaction";
 
 export interface NodemailerEmailSenderConfig {
   readonly appName: string;
@@ -19,6 +20,20 @@ const normalizeBaseUrl = (url: string): string => url.replace(/\/+$/, "");
 
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const buildActionEmailHtml = (params: {
+  readonly introHtml: string;
+  readonly actionLabel: string;
+  readonly actionUrl: string;
+}): string => `
+<!DOCTYPE html>
+<html><body style="font-family: sans-serif;">
+  ${params.introHtml}
+  <p>
+    <a href="${escapeHtml(params.actionUrl)}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">${escapeHtml(params.actionLabel)}</a>
+  </p>
+  <p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(params.actionUrl)}</p>
+</body></html>`;
 
 export class NodemailerEmailSender implements IEmailSender {
   private transporter: Transporter | null = null;
@@ -73,30 +88,32 @@ export class NodemailerEmailSender implements IEmailSender {
     return `${base}/api/v1/client-auth/password-recovery/review?token=${encodeURIComponent(recoveryToken)}`;
   }
 
+  private logSkippedEmail(message: string, emailLabel: string, email: string): void {
+    logger.warn(message, {
+      [emailLabel]: redactEmail(email),
+    });
+  }
+
   async sendAdminApprovalRequest(params: {
     readonly userEmail: string;
     readonly reviewToken: string;
   }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping admin approval email", {
-        userEmail: params.userEmail,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping admin approval email",
+        "userEmailRedacted",
+        params.userEmail,
+      );
       return;
     }
 
     const reviewUrl = this.reviewPageUrl(params.reviewToken);
     const safeEmail = escapeHtml(params.userEmail);
-
-    const html = `
-<!DOCTYPE html>
-<html><body style="font-family: sans-serif;">
-  <p>New registration request for <strong>${safeEmail}</strong>.</p>
-  <p>Open the review page to <strong>approve</strong> or <strong>reject</strong> (POST forms — safe to preview).</p>
-  <p>
-    <a href="${reviewUrl}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">Review registration</a>
-  </p>
-  <p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(reviewUrl)}</p>
-</body></html>`;
+    const html = buildActionEmailHtml({
+      introHtml: `<p>New registration request for <strong>${safeEmail}</strong>.</p><p>Open the review page to <strong>approve</strong> or <strong>reject</strong> (POST forms — safe to preview).</p>`,
+      actionLabel: "Review registration",
+      actionUrl: reviewUrl,
+    });
 
     await this.getTransport().sendMail({
       from: this.fromAddress(),
@@ -109,9 +126,11 @@ export class NodemailerEmailSender implements IEmailSender {
 
   async sendUserPendingRegistration(params: { readonly email: string }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping user pending registration email", {
-        email: params.email,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping user pending registration email",
+        "emailRedacted",
+        params.email,
+      );
       return;
     }
 
@@ -126,7 +145,11 @@ export class NodemailerEmailSender implements IEmailSender {
 
   async sendUserApproved(params: { readonly email: string }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping user approved email", { email: params.email });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping user approved email",
+        "emailRedacted",
+        params.email,
+      );
       return;
     }
 
@@ -144,7 +167,11 @@ export class NodemailerEmailSender implements IEmailSender {
     readonly reason?: string;
   }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping user rejected email", { email: params.email });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping user rejected email",
+        "emailRedacted",
+        params.email,
+      );
       return;
     }
 
@@ -174,19 +201,26 @@ export class NodemailerEmailSender implements IEmailSender {
     readonly approvalToken: string;
   }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping client access request email", {
-        ownerEmail: params.ownerEmail,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping client access request email",
+        "ownerEmailRedacted",
+        params.ownerEmail,
+      );
       return;
     }
 
     const reviewUrl = this.clientAccessReviewPageUrl(params.approvalToken);
+    const html = buildActionEmailHtml({
+      introHtml: `<p>Client <strong>${escapeHtml(params.clientName)} ${escapeHtml(params.clientLastName)}</strong> (${escapeHtml(params.clientEmail)}) requested access to agent <strong>${escapeHtml(params.agentId)}</strong>.</p>`,
+      actionLabel: "Review client access",
+      actionUrl: reviewUrl,
+    });
     await this.getTransport().sendMail({
       from: this.fromAddress(),
       to: params.ownerEmail,
       subject: `[${this.config.appName}] Client access request for agent ${params.agentId}`,
       text: `Client ${params.clientName} ${params.clientLastName} (${params.clientEmail}) requested access to agent ${params.agentId}. Review: ${reviewUrl}`,
-      html: `<p>Client <strong>${escapeHtml(params.clientName)} ${escapeHtml(params.clientLastName)}</strong> (${escapeHtml(params.clientEmail)}) requested access to agent <strong>${escapeHtml(params.agentId)}</strong>.</p><p><a href="${reviewUrl}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">Review client access</a></p><p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(reviewUrl)}</p>`,
+      html,
     });
   }
 
@@ -195,9 +229,11 @@ export class NodemailerEmailSender implements IEmailSender {
     readonly agentId: string;
   }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping client access approved email", {
-        email: params.clientEmail,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping client access approved email",
+        "emailRedacted",
+        params.clientEmail,
+      );
       return;
     }
 
@@ -216,9 +252,11 @@ export class NodemailerEmailSender implements IEmailSender {
     readonly reason?: string;
   }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping client access rejected email", {
-        email: params.clientEmail,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping client access rejected email",
+        "emailRedacted",
+        params.clientEmail,
+      );
       return;
     }
 
@@ -246,27 +284,36 @@ export class NodemailerEmailSender implements IEmailSender {
     readonly approvalToken: string;
   }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping client registration request email", {
-        ownerEmail: params.ownerEmail,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping client registration request email",
+        "ownerEmailRedacted",
+        params.ownerEmail,
+      );
       return;
     }
 
     const reviewUrl = this.clientRegistrationReviewPageUrl(params.approvalToken);
+    const html = buildActionEmailHtml({
+      introHtml: `<p>Client <strong>${escapeHtml(params.clientName)} ${escapeHtml(params.clientLastName)}</strong> (${escapeHtml(params.clientEmail)}) requested registration under your account.</p>`,
+      actionLabel: "Review client registration",
+      actionUrl: reviewUrl,
+    });
     await this.getTransport().sendMail({
       from: this.fromAddress(),
       to: params.ownerEmail,
       subject: `[${this.config.appName}] Client registration request`,
       text: `Client ${params.clientName} ${params.clientLastName} (${params.clientEmail}) requested registration under your account. Review: ${reviewUrl}`,
-      html: `<p>Client <strong>${escapeHtml(params.clientName)} ${escapeHtml(params.clientLastName)}</strong> (${escapeHtml(params.clientEmail)}) requested registration under your account.</p><p><a href="${reviewUrl}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">Review client registration</a></p><p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(reviewUrl)}</p>`,
+      html,
     });
   }
 
   async sendClientRegistrationApproved(params: { readonly clientEmail: string }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping client registration approved email", {
-        email: params.clientEmail,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping client registration approved email",
+        "emailRedacted",
+        params.clientEmail,
+      );
       return;
     }
 
@@ -284,9 +331,11 @@ export class NodemailerEmailSender implements IEmailSender {
     readonly reason?: string;
   }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping client registration rejected email", {
-        email: params.clientEmail,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping client registration rejected email",
+        "emailRedacted",
+        params.clientEmail,
+      );
       return;
     }
 
@@ -311,19 +360,26 @@ export class NodemailerEmailSender implements IEmailSender {
     readonly recoveryToken: string;
   }): Promise<void> {
     if (!this.isConfigured()) {
-      logger.warn("SMTP not configured; skipping client password recovery email", {
-        email: params.clientEmail,
-      });
+      this.logSkippedEmail(
+        "SMTP not configured; skipping client password recovery email",
+        "emailRedacted",
+        params.clientEmail,
+      );
       return;
     }
 
     const reviewUrl = this.clientPasswordRecoveryReviewPageUrl(params.recoveryToken);
+    const html = buildActionEmailHtml({
+      introHtml: "<p>A password reset was requested for your account.</p>",
+      actionLabel: "Reset password",
+      actionUrl: reviewUrl,
+    });
     await this.getTransport().sendMail({
       from: this.fromAddress(),
       to: params.clientEmail,
       subject: `[${this.config.appName}] Client password recovery`,
       text: `A password reset was requested for your account. Open this link to set a new password: ${reviewUrl}`,
-      html: `<p>A password reset was requested for your account.</p><p><a href="${reviewUrl}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">Reset password</a></p><p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(reviewUrl)}</p>`,
+      html,
     });
   }
 }

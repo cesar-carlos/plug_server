@@ -182,6 +182,51 @@ authRouter.get(
 
 /**
  * @openapi
+ * /auth/registration/retry:
+ *   post:
+ *     summary: Retry a rejected user registration approval request
+ *     description: Always returns a generic 202 response; when eligible, reopens the registration and emails a new approval link.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               password:
+ *                 type: string
+ *                 minLength: 1
+ *     responses:
+ *       202:
+ *         description: Retry accepted generically
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [message]
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: If eligible, a new approval request will be sent.
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ */
+authRouter.post(
+  "/registration/retry",
+  credentialAuthRateLimit,
+  validateRequest({ body: registrationRetryBodySchema }),
+  asyncHandler(retryRegistration),
+);
+
+/**
+ * @openapi
  * /auth/registration/approve:
  *   post:
  *     summary: Approve a pending registration (activates the user)

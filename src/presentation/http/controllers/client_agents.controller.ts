@@ -232,11 +232,15 @@ export const retryMyClientAgentAccessRequest = async (
 };
 
 /** GET: read-only page with POST forms (no mutating GET). */
-export const clientAccessReviewPage = (_request: Request, response: Response): void => {
+export const clientAccessReviewPage = async (
+  _request: Request,
+  response: Response,
+): Promise<void> => {
   const { token } = getValidated<ClientAccessReviewTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
   const approveAction = `${base}/api/v1/client-access/approve`;
   const rejectAction = `${base}/api/v1/client-access/reject`;
+  const summary = await container.clientAgentAccessService.getReviewSummaryByToken(token);
   const html = renderApprovalReviewPage({
     title: "Review client access",
     eyebrow: "Agent access approval",
@@ -248,6 +252,23 @@ export const clientAccessReviewPage = (_request: Request, response: Response): v
     approveLabel: "Approve access",
     rejectLabel: "Reject access",
     reasonLabel: "Optional note to the client (max 500 characters)",
+    ...(summary === null
+      ? {}
+      : {
+          summaryItems: [
+            { label: "Client", value: summary.clientName },
+            { label: "Client email", value: summary.clientEmail },
+            {
+              label: "Agent",
+              value:
+                summary.agentName !== undefined
+                  ? `${summary.agentName} (${summary.agentId})`
+                  : summary.agentId,
+            },
+            { label: "Request status", value: summary.requestStatus },
+            { label: "Link status", value: summary.tokenStatus },
+          ],
+        }),
   });
 
   response.status(200).type("html").send(html);

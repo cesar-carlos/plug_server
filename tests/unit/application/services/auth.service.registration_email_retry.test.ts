@@ -27,7 +27,7 @@ describe("AuthService registration email retry", () => {
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
+      { save: vi.fn(), findById: vi.fn(), deleteById: vi.fn(), deleteByUserId: vi.fn() } as never,
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
       { hash, compare } as never,

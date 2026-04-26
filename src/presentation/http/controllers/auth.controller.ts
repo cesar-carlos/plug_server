@@ -94,11 +94,15 @@ export const register = async (
 };
 
 /** GET: read-only page with POST forms (no mutating GET). */
-export const registrationReviewPage = (_request: Request, response: Response): void => {
+export const registrationReviewPage = async (
+  _request: Request,
+  response: Response,
+): Promise<void> => {
   const { token } = getValidated<RegistrationTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
   const approveAction = `${base}/api/v1/auth/registration/approve`;
   const rejectAction = `${base}/api/v1/auth/registration/reject`;
+  const summary = await container.authService.getRegistrationReviewSummary(token);
   const html = renderApprovalReviewPage({
     title: "Review registration",
     eyebrow: "User approval",
@@ -110,6 +114,15 @@ export const registrationReviewPage = (_request: Request, response: Response): v
     approveLabel: "Approve registration",
     rejectLabel: "Reject registration",
     reasonLabel: "Optional note to the user (max 500 characters)",
+    ...(summary === null
+      ? {}
+      : {
+          summaryItems: [
+            { label: "User email", value: summary.email },
+            { label: "Account status", value: summary.status },
+            { label: "Link status", value: summary.tokenStatus },
+          ],
+        }),
   });
 
   response.status(200).type("html").send(html);
