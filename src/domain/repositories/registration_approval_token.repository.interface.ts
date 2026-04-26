@@ -4,4 +4,5 @@ export interface IRegistrationApprovalTokenRepository {
   save(token: RegistrationApprovalToken): Promise<void>;
   findById(id: string): Promise<RegistrationApprovalToken | null>;
   deleteById(id: string): Promise<void>;
+  deleteByUserId(userId: string): Promise<void>;
 }

@@ -48,6 +48,16 @@ export interface RegisterClientServiceInput {
   readonly mobile?: string;
 }
 
+export interface RetryClientRegistrationServiceInput {
+  readonly ownerEmail: string;
+  readonly email: string;
+  readonly password: string;
+}
+
+export interface RetryClientRegistrationServiceResult {
+  readonly retried: boolean;
+}
+
 export interface LoginClientServiceInput {
   readonly email: string;
   readonly password: string;
@@ -136,6 +146,55 @@ export class ClientAuthService {
       client: this.toClientDto(client),
       ...(env.nodeEnv !== "production" ? { approvalToken: approvalToken.id } : {}),
     });
+  }
+
+  async retryRejectedRegistration(
+    input: RetryClientRegistrationServiceInput,
+  ): Promise<Result<RetryClientRegistrationServiceResult>> {
+    const client = await this.clientRepository.findByEmail(input.email);
+    if (!client || client.status !== "blocked") {
+      return ok({ retried: false });
+    }
+
+    const owner = await this.userRepository.findByEmail(input.ownerEmail);
+    if (!owner || owner.status !== "active" || owner.id !== client.userId) {
+      return ok({ retried: false });
+    }
+
+    const passwordMatch = await this.passwordHasher.compare(input.password, client.passwordHash);
+    if (!passwordMatch) {
+      return ok({ retried: false });
+    }
+
+    const pendingClient = new Client({
+      ...client,
+      status: "pending",
+      updatedAt: new Date(),
+    });
+    const approvalToken = this.newRegistrationApprovalToken(client.id);
+
+    await this.clientRepository.save(pendingClient);
+    await this.clientRegistrationApprovalTokenRepository.save(approvalToken);
+
+    try {
+      await this.dispatchRegistrationRequestEmail({
+        ownerEmail: owner.email,
+        clientEmail: client.email,
+        clientName: client.name,
+        clientLastName: client.lastName,
+        approvalToken: approvalToken.id,
+      });
+      return ok({ retried: true });
+    } catch (error: unknown) {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(approvalToken.id);
+      await this.clientRepository.save(client);
+      logger.error("client_registration_retry_email_failed", {
+        clientId: client.id,
+        clientEmailRedacted: redactEmail(client.email),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return ok({ retried: false });
+    }
   }
 
   async listManagedClientsPage(

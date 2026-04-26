@@ -49,6 +49,12 @@ export class PrismaRegistrationApprovalTokenRepository implements IRegistrationA
     });
   }
 
+  async deleteByUserId(userId: string): Promise<void> {
+    await prismaClient.registrationApprovalToken.deleteMany({
+      where: { userId },
+    });
+  }
+
   private toDomain(row: PrismaToken): RegistrationApprovalToken {
     return new RegistrationApprovalToken({
       id: row.id,

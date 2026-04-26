@@ -59,6 +59,14 @@ export const clientRegistrationRejectBodySchema = z.object({
 
 export type ClientRegistrationRejectBody = z.infer<typeof clientRegistrationRejectBodySchema>;
 
+export const clientRegistrationRetryBodySchema = z.object({
+  ownerEmail: emailSchema,
+  email: emailSchema,
+  password: nonEmptyStringSchema,
+});
+
+export type ClientRegistrationRetryBody = z.infer<typeof clientRegistrationRetryBodySchema>;
+
 /** Partial profile update for authenticated client. `null` clears optional fields. */
 export const clientPatchMeBodySchema = z
   .object({

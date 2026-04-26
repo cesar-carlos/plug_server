@@ -22,6 +22,7 @@ import { env } from "../../shared/config/env";
 import {
   agentAccessDenied,
   conflict,
+  forbidden,
   notFound,
   registrationTokenExpired,
 } from "../../shared/errors/http_errors";
@@ -269,6 +270,9 @@ export class ClientAgentAccessService {
     if (!client) {
       return err(notFound("Client"));
     }
+    if (client.status !== "active") {
+      return err(forbidden("Client account is not active"));
+    }
 
     const uniqueAgentIds = [...new Set(agentIds)];
     const agents = await this.agentRepository.findByIds(uniqueAgentIds);
@@ -439,6 +443,18 @@ export class ClientAgentAccessService {
     });
   }
 
+  async retryRequestByClient(
+    clientId: string,
+    requestId: string,
+  ): Promise<Result<ClientAgentAccessRequestResult>> {
+    const request = await this.clientAgentAccessRequestRepository.findById(requestId);
+    if (!request || request.clientId !== clientId) {
+      return err(notFound("Access request"));
+    }
+
+    return this.requestAccess(clientId, [request.agentId]);
+  }
+
   async removeApprovedAccess(clientId: string, agentIds: string[]): Promise<Result<void>> {
     const uniqueAgentIds = [...new Set(agentIds)];
     await this.clientAgentAccessRepository.removeAgentIds(clientId, uniqueAgentIds);
@@ -491,10 +507,7 @@ export class ClientAgentAccessService {
     if (!client) {
       return err(notFound("Client"));
     }
-    await this.emailSender.sendClientAccessApproved({
-      clientEmail: client.email,
-      agentId: request.agentId,
-    });
+    await this.notifyClientAccessApproved(client.email, request.agentId);
     return ok({ clientEmail: client.email, agentId: request.agentId });
   }
 
@@ -532,11 +545,7 @@ export class ClientAgentAccessService {
     if (!client) {
       return err(notFound("Client"));
     }
-    await this.emailSender.sendClientAccessRejected({
-      clientEmail: client.email,
-      agentId: request.agentId,
-      ...(reason ? { reason } : {}),
-    });
+    await this.notifyClientAccessRejected(client.email, request.agentId, reason);
     return ok({ clientEmail: client.email, agentId: request.agentId });
   }
 
@@ -649,15 +658,13 @@ export class ClientAgentAccessService {
 
     await this.clientAgentAccessRepository.addAccess(request.clientId, request.agentId, new Date());
     await this.clientAgentAccessRequestRepository.setStatus(request.id, "approved");
+    await this.approvalTokenRepository.deleteByRequestId(request.id);
 
     const client = await this.clientRepository.findById(request.clientId);
     if (!client) {
       return err(notFound("Client"));
     }
-    await this.emailSender.sendClientAccessApproved({
-      clientEmail: client.email,
-      agentId: request.agentId,
-    });
+    await this.notifyClientAccessApproved(client.email, request.agentId);
     return ok({ clientEmail: client.email, agentId: request.agentId });
   }
 
@@ -681,16 +688,13 @@ export class ClientAgentAccessService {
     await this.clientAgentAccessRequestRepository.setStatus(request.id, "rejected", {
       ...(reason !== undefined ? { reason } : {}),
     });
+    await this.approvalTokenRepository.deleteByRequestId(request.id);
 
     const client = await this.clientRepository.findById(request.clientId);
     if (!client) {
       return err(notFound("Client"));
     }
-    await this.emailSender.sendClientAccessRejected({
-      clientEmail: client.email,
-      agentId: request.agentId,
-      ...(reason ? { reason } : {}),
-    });
+    await this.notifyClientAccessRejected(client.email, request.agentId, reason);
     return ok({ clientEmail: client.email, agentId: request.agentId });
   }
 
@@ -949,6 +953,39 @@ export class ClientAgentAccessService {
       return err(agentAccessDenied(agentId));
     }
     return ok(undefined);
+  }
+
+  private async notifyClientAccessApproved(clientEmail: string, agentId: string): Promise<void> {
+    try {
+      await this.emailSender.sendClientAccessApproved({
+        clientEmail,
+        agentId,
+      });
+    } catch (error: unknown) {
+      logger.error("client_access_approved_email_failed", {
+        agentId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async notifyClientAccessRejected(
+    clientEmail: string,
+    agentId: string,
+    reason?: string,
+  ): Promise<void> {
+    try {
+      await this.emailSender.sendClientAccessRejected({
+        clientEmail,
+        agentId,
+        ...(reason ? { reason } : {}),
+      });
+    } catch (error: unknown) {
+      logger.error("client_access_rejected_email_failed", {
+        agentId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async filterRequestsByOwner(

@@ -6,8 +6,8 @@ import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import type { User } from "../../../domain/entities/user.entity";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { renderApprovalDecisionPage, renderApprovalReviewPage } from "../helpers/approval_pages";
 import { clearRefreshCookie, setRefreshCookie } from "../helpers/refresh_cookie";
-import { escapeHtml, escapeHtmlAttr } from "../helpers/html_escape";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   AgentLoginBody,
@@ -19,6 +19,7 @@ import type {
   RegisterBody,
   RegistrationApproveBody,
   RegistrationRejectBody,
+  RegistrationRetryBody,
   RegistrationTokenQuery,
 } from "../validators/auth.validator";
 
@@ -62,18 +63,11 @@ const toCompatibleAuthPayload = <T extends AuthTokensDto>(payload: T): Compatibl
   };
 };
 
-const registrationDecisionHtml = (title: string, bodyText: string): string => {
-  const safeTitle = escapeHtml(title);
-  const safeBody = escapeHtml(bodyText);
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"/><title>${safeTitle}</title></head>
-<body style="font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;">
-  <h1>${safeTitle}</h1>
-  <p>${safeBody}</p>
-</body>
-</html>`;
-};
+const registrationDecisionHtml = (
+  title: string,
+  bodyText: string,
+  tone: "success" | "danger" | "neutral",
+): string => renderApprovalDecisionPage({ title, bodyText, tone });
 
 export const register = async (
   _request: Request,
@@ -105,26 +99,18 @@ export const registrationReviewPage = (_request: Request, response: Response): v
   const base = env.appBaseUrl.replace(/\/+$/, "");
   const approveAction = `${base}/api/v1/auth/registration/approve`;
   const rejectAction = `${base}/api/v1/auth/registration/reject`;
-  const safeToken = escapeHtmlAttr(token);
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"/><title>Review registration</title></head>
-<body style="font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;">
-  <h1>Review registration</h1>
-  <p>Submitting a form below will approve or reject the account. GET requests do not change data.</p>
-  <form method="post" action="${approveAction}" style="margin-bottom:1.5rem;">
-    <input type="hidden" name="token" value="${safeToken}"/>
-    <button type="submit" style="padding:10px 16px;background:#0d6efd;color:#fff;border:none;border-radius:6px;cursor:pointer;">Approve registration</button>
-  </form>
-  <form method="post" action="${rejectAction}">
-    <input type="hidden" name="token" value="${safeToken}"/>
-    <label for="reason">Optional note to the user (max 500 characters)</label><br/>
-    <textarea id="reason" name="reason" rows="3" cols="50" maxlength="500" style="margin:0.5rem 0;"></textarea><br/>
-    <button type="submit" style="padding:10px 16px;background:#dc3545;color:#fff;border:none;border-radius:6px;cursor:pointer;">Reject registration</button>
-  </form>
-</body>
-</html>`;
+  const html = renderApprovalReviewPage({
+    title: "Review registration",
+    eyebrow: "User approval",
+    description:
+      "Approve the account only if this registration is expected. GET requests do not change data.",
+    approveAction,
+    rejectAction,
+    token,
+    approveLabel: "Approve registration",
+    rejectLabel: "Reject registration",
+    reasonLabel: "Optional note to the user (max 500 characters)",
+  });
 
   response.status(200).type("html").send(html);
 };
@@ -141,6 +127,31 @@ export const registrationStatus = async (
     return;
   }
   response.status(200).json(result.value);
+};
+
+export const retryRegistration = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const body = getValidated<RegistrationRetryBody>(response, "body");
+  const requestId = response.locals.requestId as string | undefined;
+  const result = await container.authService.retryRejectedRegistration(
+    {
+      email: body.email,
+      password: body.password,
+    },
+    {
+      ...(requestId !== undefined ? { requestId } : {}),
+    },
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.status(202).json({
+    message: "If eligible, a new approval request will be sent.",
+  });
 };
 
 export const approveRegistration = async (
@@ -164,6 +175,7 @@ export const approveRegistration = async (
       registrationDecisionHtml(
         "Registration approved",
         `The account ${result.value.email} can now sign in.`,
+        "success",
       ),
     );
 };
@@ -189,6 +201,7 @@ export const rejectRegistration = async (
       registrationDecisionHtml(
         "Registration rejected",
         `The registration for ${result.value.email} was not approved.`,
+        "danger",
       ),
     );
 };

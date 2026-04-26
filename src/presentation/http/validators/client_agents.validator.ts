@@ -13,6 +13,14 @@ export const clientAgentIdParamSchema = z.object({
 
 export type ClientAgentIdParam = z.infer<typeof clientAgentIdParamSchema>;
 
+export const clientAgentAccessRequestIdParamSchema = z.object({
+  requestId: uuidSchema,
+});
+
+export type ClientAgentAccessRequestIdParam = z.infer<
+  typeof clientAgentAccessRequestIdParamSchema
+>;
+
 export const clientListAgentsQuerySchema = z.object({
   status: z.enum(["active", "inactive"]).optional(),
   search: z.string().max(120).optional(),

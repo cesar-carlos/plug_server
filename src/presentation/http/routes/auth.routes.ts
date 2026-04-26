@@ -13,6 +13,7 @@ import {
   registrationReviewPage,
   registrationStatus,
   rejectRegistration,
+  retryRegistration,
 } from "../controllers/auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
@@ -28,6 +29,7 @@ import {
   registerBodySchema,
   registrationApproveBodySchema,
   registrationRejectBodySchema,
+  registrationRetryBodySchema,
   registrationTokenQuerySchema,
 } from "../validators/auth.validator";
 

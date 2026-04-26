@@ -36,6 +36,12 @@ export class PrismaClientAgentAccessApprovalTokenRepository implements IClientAg
     });
   }
 
+  async deleteByRequestId(requestId: string): Promise<void> {
+    await prismaClient.clientAgentAccessApprovalToken.deleteMany({
+      where: { requestId },
+    });
+  }
+
   private toDomain(row: PrismaToken): ClientAgentAccessApprovalToken {
     return {
       id: row.id,

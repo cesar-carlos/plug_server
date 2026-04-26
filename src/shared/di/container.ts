@@ -205,6 +205,7 @@ export const container = {
     approveRegistrationUseCase,
     rejectRegistrationUseCase,
     getRegistrationStatusUseCase,
+    registrationApprovalTokenRepository,
     adminSetUserStatusUseCase,
     updateMyCelularUseCase,
     passwordHasher,

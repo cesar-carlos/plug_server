@@ -18,6 +18,14 @@ export class InMemoryRegistrationApprovalTokenRepository implements IRegistratio
     this.byId.delete(id);
   }
 
+  async deleteByUserId(userId: string): Promise<void> {
+    for (const [id, token] of this.byId.entries()) {
+      if (token.userId === userId) {
+        this.byId.delete(id);
+      }
+    }
+  }
+
   clear(): void {
     this.byId.clear();
   }

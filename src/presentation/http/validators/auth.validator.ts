@@ -39,6 +39,13 @@ export const registrationRejectBodySchema = z.object({
 
 export type RegistrationRejectBody = z.infer<typeof registrationRejectBodySchema>;
 
+export const registrationRetryBodySchema = z.object({
+  email: emailSchema,
+  password: nonEmptyStringSchema,
+});
+
+export type RegistrationRetryBody = z.infer<typeof registrationRetryBodySchema>;
+
 export const loginBodySchema = z
   .object({
     email: emailSchema.optional(),

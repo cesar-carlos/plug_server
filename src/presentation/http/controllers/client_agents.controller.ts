@@ -3,10 +3,11 @@ import type { NextFunction, Request, Response } from "express";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import { getAuthClient } from "../middlewares/auth.middleware";
-import { escapeHtml, escapeHtmlAttr } from "../helpers/html_escape";
+import { renderApprovalDecisionPage, renderApprovalReviewPage } from "../helpers/approval_pages";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   ClientAccessApproveBody,
+  ClientAgentAccessRequestIdParam,
   ClientAgentIdParam,
   ClientAccessRejectBody,
   ClientAccessReviewTokenQuery,
@@ -21,18 +22,11 @@ import {
 } from "../../../shared/metrics/client_me_agents.metrics";
 import { toClientAgentDto } from "../mappers/client_agent.mapper";
 
-const decisionHtml = (title: string, bodyText: string): string => {
-  const safeTitle = escapeHtml(title);
-  const safeBody = escapeHtml(bodyText);
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"/><title>${safeTitle}</title></head>
-<body style="font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;">
-  <h1>${safeTitle}</h1>
-  <p>${safeBody}</p>
-</body>
-</html>`;
-};
+const decisionHtml = (
+  title: string,
+  bodyText: string,
+  tone: "success" | "danger" | "neutral",
+): string => renderApprovalDecisionPage({ title, bodyText, tone });
 
 export const listMyClientAgents = async (
   _request: Request,
@@ -219,32 +213,42 @@ export const listMyClientAgentAccessRequests = async (
   });
 };
 
+export const retryMyClientAgentAccessRequest = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authClient = getAuthClient(response);
+  const { requestId } = getValidated<ClientAgentAccessRequestIdParam>(response, "params");
+  const result = await container.clientAgentAccessService.retryRequestByClient(
+    authClient.sub,
+    requestId,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.status(200).json(result.value);
+};
+
 /** GET: read-only page with POST forms (no mutating GET). */
 export const clientAccessReviewPage = (_request: Request, response: Response): void => {
   const { token } = getValidated<ClientAccessReviewTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
   const approveAction = `${base}/api/v1/client-access/approve`;
   const rejectAction = `${base}/api/v1/client-access/reject`;
-  const safeToken = escapeHtmlAttr(token);
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"/><title>Review client access</title></head>
-<body style="font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;">
-  <h1>Review client access</h1>
-  <p>Submitting a form below will approve or reject client access. GET requests do not change data.</p>
-  <form method="post" action="${approveAction}" style="margin-bottom:1.5rem;">
-    <input type="hidden" name="token" value="${safeToken}"/>
-    <button type="submit" style="padding:10px 16px;background:#0d6efd;color:#fff;border:none;border-radius:6px;cursor:pointer;">Approve access</button>
-  </form>
-  <form method="post" action="${rejectAction}">
-    <input type="hidden" name="token" value="${safeToken}"/>
-    <label for="reason">Optional note to the client (max 500 characters)</label><br/>
-    <textarea id="reason" name="reason" rows="3" cols="50" maxlength="500" style="margin:0.5rem 0;"></textarea><br/>
-    <button type="submit" style="padding:10px 16px;background:#dc3545;color:#fff;border:none;border-radius:6px;cursor:pointer;">Reject access</button>
-  </form>
-</body>
-</html>`;
+  const html = renderApprovalReviewPage({
+    title: "Review client access",
+    eyebrow: "Agent access approval",
+    description:
+      "Approve this request only if the client should access this agent. GET requests do not change data.",
+    approveAction,
+    rejectAction,
+    token,
+    approveLabel: "Approve access",
+    rejectLabel: "Reject access",
+    reasonLabel: "Optional note to the client (max 500 characters)",
+  });
 
   response.status(200).type("html").send(html);
 };
@@ -267,6 +271,7 @@ export const approveClientAccess = async (
       decisionHtml(
         "Client access approved",
         `The client now has access to agent ${result.value.agentId}.`,
+        "success",
       ),
     );
 };
@@ -289,6 +294,7 @@ export const rejectClientAccess = async (
       decisionHtml(
         "Client access rejected",
         `The access request for agent ${result.value.agentId} was rejected.`,
+        "danger",
       ),
     );
 };

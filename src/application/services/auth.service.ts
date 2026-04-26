@@ -1,11 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
 
+import { RegistrationApprovalToken } from "../../domain/entities/registration_approval_token.entity";
 import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import { User } from "../../domain/entities/user.entity";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import type { AdminSetUserStatusInput } from "../../domain/use_cases/admin_set_user_status.use_case";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
+import type { IRegistrationApprovalTokenRepository } from "../../domain/repositories/registration_approval_token.repository.interface";
 import type {
   IUserRepository,
   UserActiveSnapshot,
@@ -74,6 +76,15 @@ export interface AgentLoginServiceInput {
   readonly agentId: string;
 }
 
+export interface RetryRegistrationServiceInput {
+  readonly email: string;
+  readonly password: string;
+}
+
+export interface RetryRegistrationServiceResult {
+  readonly retried: boolean;
+}
+
 export class AuthService {
   constructor(
     private readonly registerUseCase: RegisterUseCase,
@@ -84,6 +95,7 @@ export class AuthService {
     private readonly approveRegistrationUseCase: ApproveRegistrationUseCase,
     private readonly rejectRegistrationUseCase: RejectRegistrationUseCase,
     private readonly getRegistrationStatusUseCase: GetRegistrationStatusUseCase,
+    private readonly approvalTokenRepository: IRegistrationApprovalTokenRepository,
     private readonly adminSetUserStatusUseCase: AdminSetUserStatusUseCase,
     private readonly updateMyCelularUseCase: UpdateMyCelularUseCase,
     private readonly passwordHasher: IPasswordHasher,
@@ -244,18 +256,6 @@ export class AuthService {
     const requestId = options?.requestId;
     const tokenPrefix = approvalToken.id.slice(0, 8);
 
-    const dispatchEmails = async (): Promise<void> => {
-      await this.sendWithRetry("sendAdminApprovalRequest", async () =>
-        this.emailSender.sendAdminApprovalRequest({
-          userEmail: user.email,
-          reviewToken: approvalToken.id,
-        }),
-      );
-      await this.sendWithRetry("sendUserPendingRegistration", async () =>
-        this.emailSender.sendUserPendingRegistration({ email: user.email }),
-      );
-    };
-
     if (env.registrationEmailAsync) {
       const queued = await enqueueRegistrationApprovalEmails({
         userEmail: user.email,
@@ -263,7 +263,10 @@ export class AuthService {
       });
 
       if (!queued) {
-        void dispatchEmails().catch((error: unknown) => {
+        void this.dispatchRegistrationApprovalEmails({
+          userEmail: user.email,
+          reviewToken: approvalToken.id,
+        }).catch((error: unknown) => {
           logger.error("registration_email_dispatch_failed", {
             requestId,
             tokenPrefix,
@@ -274,7 +277,10 @@ export class AuthService {
       }
     } else {
       try {
-        await dispatchEmails();
+        await this.dispatchRegistrationApprovalEmails({
+          userEmail: user.email,
+          reviewToken: approvalToken.id,
+        });
       } catch (error: unknown) {
         logger.error("registration_email_dispatch_failed", {
           requestId,
@@ -309,6 +315,69 @@ export class AuthService {
     }
 
     return ok(dto);
+  }
+
+  async retryRejectedRegistration(
+    input: RetryRegistrationServiceInput,
+    options?: RegisterServiceOptions,
+  ): Promise<Result<RetryRegistrationServiceResult>> {
+    const user = await this.userRepository.findByEmail(input.email);
+    if (!user || user.status !== "rejected") {
+      return ok({ retried: false });
+    }
+
+    const passwordMatch = await this.passwordHasher.compare(input.password, user.passwordHash);
+    if (!passwordMatch) {
+      return ok({ retried: false });
+    }
+
+    const approvalToken = RegistrationApprovalToken.create({
+      id: generateOpaqueRegistrationToken(),
+      userId: user.id,
+      expiresAt: parseExpiryToDate(env.approvalTokenExpiresIn),
+    });
+    const pendingUser = new User({
+      id: user.id,
+      email: user.email,
+      passwordHash: user.passwordHash,
+      credentialsUpdatedAt: user.credentialsUpdatedAt,
+      role: user.role,
+      status: "pending",
+      createdAt: user.createdAt,
+      ...(user.celular !== undefined ? { celular: user.celular } : {}),
+    });
+
+    await this.approvalTokenRepository.deleteByUserId(user.id);
+    await this.userRepository.save(pendingUser);
+    await this.approvalTokenRepository.save(approvalToken);
+
+    try {
+      if (
+        env.registrationEmailAsync &&
+        (await enqueueRegistrationApprovalEmails({
+          userEmail: user.email,
+          reviewToken: approvalToken.id,
+        }))
+      ) {
+        return ok({ retried: true });
+      }
+
+      await this.dispatchRegistrationApprovalEmails({
+        userEmail: user.email,
+        reviewToken: approvalToken.id,
+      });
+      return ok({ retried: true });
+    } catch (error: unknown) {
+      await this.approvalTokenRepository.deleteByUserId(user.id);
+      await this.userRepository.save(user);
+      logger.error("registration_retry_email_dispatch_failed", {
+        requestId: options?.requestId,
+        tokenPrefix: approvalToken.id.slice(0, 8),
+        userId: user.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return ok({ retried: false });
+    }
   }
 
   async approveRegistration(
@@ -468,6 +537,21 @@ export class AuthService {
     }
 
     return this.logoutUseCase.execute(verifyResult.value.jti);
+  }
+
+  private async dispatchRegistrationApprovalEmails(input: {
+    readonly userEmail: string;
+    readonly reviewToken: string;
+  }): Promise<void> {
+    await this.sendWithRetry("sendAdminApprovalRequest", async () =>
+      this.emailSender.sendAdminApprovalRequest({
+        userEmail: input.userEmail,
+        reviewToken: input.reviewToken,
+      }),
+    );
+    await this.sendWithRetry("sendUserPendingRegistration", async () =>
+      this.emailSender.sendUserPendingRegistration({ email: input.userEmail }),
+    );
   }
 
   private async issueTokens(user: User): Promise<AuthTokensDto> {
