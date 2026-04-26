@@ -14,8 +14,12 @@ afterEach(() => {
   resetRelayOutboundQueueState();
 });
 
+const flush = async (): Promise<void> => {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+};
+
 describe("relay_outbound_queue", () => {
-  it("sweeps stale unresolved tails as orphaned", () => {
+  it("does not sweep a request chain while a job is still running", () => {
     enqueueRelayOutbound("req-zombie", async () => {
       await new Promise<void>(() => undefined);
     });
@@ -24,47 +28,15 @@ describe("relay_outbound_queue", () => {
       .spyOn(Date, "now")
       .mockReturnValue(Date.now() + env.socketRelayOutboundTailStaleMs + 1);
 
-    expect(sweepRelayOutboundQueueState()).toBe(1);
+    expect(sweepRelayOutboundQueueState()).toBe(0);
 
     const snapshot = getRelayOutboundQueueMetricsSnapshot();
-    expect(snapshot.orphanedTailsSweptTotal).toBe(1);
-    expect(snapshot.inflightRequestIds).toBe(0);
+    expect(snapshot.orphanedTailsSweptTotal).toBe(0);
+    expect(snapshot.inflightRequestIds).toBe(1);
 
     nowSpy.mockRestore();
   });
 
-  it("reports overload when backlog crosses threshold", () => {
-    for (let index = 0; index < env.socketRelayOutboundOverloadBacklog + 1; index += 1) {
-      enqueueRelayOutbound(`req-${index}`, async () => {
-        await new Promise<void>(() => undefined);
-      });
-    }
-
-    const overload = getRelayOutboundQueueOverloadState();
-    expect(overload.overloaded).toBe(true);
-    expect(overload.reason).toBe("backlog");
-    expect(overload.snapshot.backlog).toBeGreaterThanOrEqual(
-      env.socketRelayOutboundOverloadBacklog,
-    );
-  });
-});
-import { afterEach, describe, expect, it } from "vitest";
-
-import {
-  enqueueRelayOutbound,
-  getRelayOutboundQueueMetricsSnapshot,
-  resetRelayOutboundQueueState,
-} from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
-
-afterEach(() => {
-  resetRelayOutboundQueueState();
-});
-
-const flush = async (): Promise<void> => {
-  await new Promise<void>((resolve) => setImmediate(resolve));
-};
-
-describe("relay_outbound_queue", () => {
   it("runs jobs for the same requestId in enqueue order", async () => {
     const order: number[] = [];
     enqueueRelayOutbound("r1", async () => {
@@ -78,6 +50,41 @@ describe("relay_outbound_queue", () => {
     });
     await flush();
     expect(order).toEqual([1, 2, 3]);
+  });
+
+  it("keeps ordering after a stale sweep attempt", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const order: number[] = [];
+
+    enqueueRelayOutbound("r1", async () => {
+      order.push(1);
+      await firstGate;
+      order.push(2);
+    });
+    enqueueRelayOutbound("r1", async () => {
+      order.push(3);
+    });
+
+    await flush();
+    const nowSpy = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.now() + env.socketRelayOutboundTailStaleMs + 1);
+
+    expect(sweepRelayOutboundQueueState()).toBe(0);
+
+    enqueueRelayOutbound("r1", async () => {
+      order.push(4);
+    });
+
+    releaseFirst();
+    await flush();
+    await flush();
+
+    expect(order).toEqual([1, 2, 3, 4]);
+    nowSpy.mockRestore();
   });
 
   it("allows concurrent chains for different requestIds", async () => {
@@ -110,9 +117,9 @@ describe("relay_outbound_queue", () => {
     });
     await flush();
     expect(order).toEqual([1, 2, 3]);
-    const m = getRelayOutboundQueueMetricsSnapshot();
-    expect(m.jobsFailedTotal).toBe(1);
-    expect(m.jobsFinishedTotal).toBe(3);
+    const metrics = getRelayOutboundQueueMetricsSnapshot();
+    expect(metrics.jobsFailedTotal).toBe(1);
+    expect(metrics.jobsFinishedTotal).toBe(3);
   });
 
   it("records duration metrics for completed jobs", async () => {
@@ -120,12 +127,12 @@ describe("relay_outbound_queue", () => {
       await new Promise<void>((r) => setTimeout(r, 15));
     });
     await new Promise<void>((r) => setTimeout(r, 40));
-    const m = getRelayOutboundQueueMetricsSnapshot();
-    expect(m.jobsFinishedTotal).toBe(1);
-    expect(m.jobsFailedTotal).toBe(0);
-    expect(m.jobDurationSumMs).toBeGreaterThanOrEqual(1);
-    expect(m.jobDurationMaxMs).toBeGreaterThanOrEqual(1);
-    expect(m.jobDurationAvgMs).toBeGreaterThan(0);
+    const metrics = getRelayOutboundQueueMetricsSnapshot();
+    expect(metrics.jobsFinishedTotal).toBe(1);
+    expect(metrics.jobsFailedTotal).toBe(0);
+    expect(metrics.jobDurationSumMs).toBeGreaterThanOrEqual(1);
+    expect(metrics.jobDurationMaxMs).toBeGreaterThanOrEqual(1);
+    expect(metrics.jobDurationAvgMs).toBeGreaterThan(0);
   });
 
   it("exposes inflightRequestIds while work is pending", async () => {
@@ -147,5 +154,20 @@ describe("relay_outbound_queue", () => {
     continueSecond();
     await flush();
     expect(getRelayOutboundQueueMetricsSnapshot().inflightRequestIds).toBe(0);
+  });
+
+  it("reports overload when backlog crosses threshold", () => {
+    for (let index = 0; index < env.socketRelayOutboundOverloadBacklog + 1; index += 1) {
+      enqueueRelayOutbound(`req-${index}`, async () => {
+        await new Promise<void>(() => undefined);
+      });
+    }
+
+    const overload = getRelayOutboundQueueOverloadState();
+    expect(overload.overloaded).toBe(true);
+    expect(overload.reason).toBe("backlog");
+    expect(overload.snapshot.backlog).toBeGreaterThanOrEqual(
+      env.socketRelayOutboundOverloadBacklog,
+    );
   });
 });

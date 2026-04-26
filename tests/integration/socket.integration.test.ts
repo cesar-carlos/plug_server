@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { io as ioClient } from "socket.io-client";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestServer } from "../helpers/test_server";
 import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
@@ -11,6 +11,7 @@ import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/p
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
 import { getTestRepositoryAccess } from "../../src/shared/di/container";
+import { hasRestPendingCorrelationId } from "../../src/presentation/socket/hub/rest_pending_requests";
 import { Client } from "../../src/domain/entities/client.entity";
 import { User } from "../../src/domain/entities/user.entity";
 
@@ -595,6 +596,152 @@ describe("Socket namespaces", () => {
       }
     });
 
+    it("should disconnect a user consumer socket when the account is blocked by admin", async () => {
+      const user = await createUserAccessToken(baseUrl);
+      const adminAccessToken = await createAdminAccessToken(baseUrl);
+      const socket = await connectConsumer(baseUrl, user.accessToken);
+
+      try {
+        const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
+          socket,
+          "app:error",
+          8_000,
+        );
+        const disconnectPromise = waitForEvent<string>(socket, "disconnect", 8_000);
+
+        const response = await request(baseUrl)
+          .patch(`/api/v1/admin/users/${user.userId}/status`)
+          .set("Authorization", `Bearer ${adminAccessToken}`)
+          .send({ status: "blocked" });
+
+        expect(response.status).toBe(200);
+
+        const [appError, disconnectReason] = await Promise.all([
+          appErrorPromise,
+          disconnectPromise,
+        ]);
+        expect(appError.code).toBe("ACCOUNT_BLOCKED");
+        expect(disconnectReason).toBe("io server disconnect");
+      } finally {
+        if (socket.connected) {
+          socket.disconnect();
+        }
+      }
+    });
+
+    it("should disconnect a client consumer socket when the owner blocks the client account", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+
+      const client = await createClientAccessToken(baseUrl, ownerEmail);
+      const socket = await connectConsumer(baseUrl, client.accessToken);
+
+      try {
+        const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
+          socket,
+          "app:error",
+          8_000,
+        );
+        const disconnectPromise = waitForEvent<string>(socket, "disconnect", 8_000);
+
+        const response = await request(baseUrl)
+          .patch(`/api/v1/me/clients/${client.clientId}/status`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ status: "blocked" });
+
+        expect(response.status).toBe(200);
+
+        const [appError, disconnectReason] = await Promise.all([
+          appErrorPromise,
+          disconnectPromise,
+        ]);
+        expect(appError.code).toBe("ACCOUNT_BLOCKED");
+        expect(disconnectReason).toBe("io server disconnect");
+      } finally {
+        if (socket.connected) {
+          socket.disconnect();
+        }
+      }
+    });
+
+    it("should disconnect a client consumer socket when owner revokes approved agent access", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+
+      const client = await createClientAccessToken(baseUrl, ownerEmail);
+      await repositories.clientAgentAccess.addAccess(client.clientId, testAgentId, new Date());
+      const socket = await connectConsumer(baseUrl, client.accessToken);
+
+      try {
+        const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
+          socket,
+          "app:error",
+          8_000,
+        );
+        const disconnectPromise = waitForEvent<string>(socket, "disconnect", 8_000);
+
+        const response = await request(baseUrl)
+          .delete(`/api/v1/me/agents/${testAgentId}/clients/${client.clientId}`)
+          .set("Authorization", `Bearer ${accessToken}`);
+
+        expect(response.status).toBe(200);
+
+        const [appError, disconnectReason] = await Promise.all([
+          appErrorPromise,
+          disconnectPromise,
+        ]);
+        expect(appError.code).toBe("AGENT_ACCESS_REVOKED");
+        expect(disconnectReason).toBe("io server disconnect");
+      } finally {
+        if (socket.connected) {
+          socket.disconnect();
+        }
+      }
+    });
+
+    it("should clear pending agents:command work when the consumer disconnects before agent response", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
+
+        const firstRpcRequestPromise = waitForEvent<unknown>(agentSocket, "rpc:request", 8_000);
+        consumerSocket.emit("agents:command", {
+          agentId: testAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: "disconnect-cleanup-1",
+            params: { sql: "SELECT 1" },
+          },
+        });
+
+        const firstRawPayload = await firstRpcRequestPromise;
+        const firstDecoded = decodePayloadFrame(firstRawPayload);
+        expect(firstDecoded.ok).toBe(true);
+        expect(hasRestPendingCorrelationId("disconnect-cleanup-1")).toBe(true);
+
+        consumerSocket.disconnect();
+        await vi.waitFor(() => {
+          expect(hasRestPendingCorrelationId("disconnect-cleanup-1")).toBe(false);
+        });
+      } finally {
+        if (agentSocket.connected) {
+          agentSocket.disconnect();
+        }
+        if (consumerSocket.connected) {
+          consumerSocket.disconnect();
+        }
+      }
+    });
+
     it("should deny agents:stream_pull after client access is revoked", async () => {
       if (!env.socketConsumerRoles.includes("client")) {
         return;
@@ -1148,9 +1295,16 @@ describe("Socket namespaces", () => {
             return;
           }
 
-          const meta = isRecord(decoded.value.data.meta) ? decoded.value.data.meta : null;
-          const conversationId = toRequestId(meta?.conversation_id);
-          if (!conversationId) {
+          const params = isRecord(decoded.value.data.params) ? decoded.value.data.params : null;
+          const clientToken =
+            typeof params?.client_token === "string" ? params.client_token : undefined;
+          const conversationId =
+            clientToken === "token-a"
+              ? conversationA.conversationId
+              : clientToken === "token-b"
+                ? conversationB.conversationId
+                : null;
+          if (conversationId === null) {
             return;
           }
 

@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from "node:http";
 
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
-import { Server, type Socket } from "socket.io";
+import { Server, type Namespace, type Socket } from "socket.io";
 
 import {
   authenticateAgentSocket,
@@ -10,8 +10,11 @@ import {
 import { agentRegistry } from "./presentation/socket/hub/agent_registry";
 import { handleAgentsCommand } from "./presentation/socket/consumers/agents_command.handler";
 import { handleAgentsStreamPull } from "./presentation/socket/consumers/agents_stream_pull.handler";
+import { abortPendingConsumerCommands } from "./presentation/socket/consumers/consumer_command_abort_registry";
+import { resetConsumerCommandAbortRegistry } from "./presentation/socket/consumers/consumer_command_abort_registry";
 import {
   cleanupAgentStreamSubscriptions,
+  cleanupAgentInboundSocketState,
   cleanupConversationStreamSubscriptions,
   cleanupConsumerStreamSubscriptions,
   cleanupPendingRequestsForAgentSocket,
@@ -41,7 +44,6 @@ import {
   sweepRelayRateLimitState,
 } from "./presentation/socket/hub/consumer_relay_rate_limiter";
 import {
-  allowAgentsCommandSocket,
   clearAgentsCommandSocketRateLimitStateForSocketId,
   getAgentsCommandSocketRateLimitMetricsSnapshot,
   resetAgentsCommandSocketRateLimitState,
@@ -72,17 +74,31 @@ import {
   handleRelayRpcStreamPull,
   parseRelayRpcStreamPullEnvelope,
 } from "./presentation/socket/consumers/relay_rpc_stream_pull.handler";
-import { registerAgentProfileBroadcastHandler } from "./application/services/agent_profile_broadcast_sink";
+import {
+  type AgentProfileBroadcastEvent,
+  registerAgentProfileBroadcastHandler,
+} from "./application/services/agent_profile_broadcast_sink";
+import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
+import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
 import { AppError } from "./shared/errors/app_error";
 import { badRequest, forbidden, tooManyRequests } from "./shared/errors/http_errors";
 import { buildHubServerCapabilities } from "./shared/constants/agent_transport_contract";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { container } from "./shared/di/container";
+import {
+  getSocketConsumerMetricsSnapshot,
+  noteConsumerPendingCommandsAborted,
+  noteConsumerProfilePushBatch,
+  noteConsumerProfilePushCoalesced,
+  noteConsumerSocketConnected,
+  noteConsumerSocketDisconnected,
+  resetSocketConsumerMetrics,
+} from "./shared/metrics/socket_consumer.metrics";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
-import { decodePayloadFrame, encodePayloadFrame } from "./shared/utils/payload_frame";
+import { decodePayloadFrameAsync, encodePayloadFrame } from "./shared/utils/payload_frame";
 import { agentSelfProfileSocketSchema } from "./presentation/http/validators/agent_self_profile.validator";
 import { agentRegisterPayloadSchema } from "./shared/validators/agent_register";
 import { emitAgentRegisterError } from "./presentation/socket/hub/agent_register_error";
@@ -95,6 +111,21 @@ type SocketData = {
 };
 
 type HubSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
+
+type CachedClientProfileRecipients = {
+  readonly clientIds: readonly string[];
+  readonly expiresAtMs: number;
+};
+
+type PendingAgentProfilePush = {
+  event: AgentProfileBroadcastEvent;
+  timeoutHandle: NodeJS.Timeout;
+};
+
+const clientProfileRecipientsCacheByAgentId = new Map<string, CachedClientProfileRecipients>();
+const pendingAgentProfilePushByAgentId = new Map<string, PendingAgentProfilePush>();
+const clientAgentProfilePushDebounceMs = 25;
+const clientAgentProfileRecipientsCacheTtlMs = 1_000;
 
 const emitAppError = (socket: HubSocket, message: string): void => {
   socket.emit(socketEvents.appError, {
@@ -117,12 +148,135 @@ const getUserId = (socket: HubSocket): string | null => {
   return typeof socket.data.user?.sub === "string" ? socket.data.user.sub : null;
 };
 
+const buildConsumerPrincipalRoom = (user: JwtAccessPayload | undefined): string | null => {
+  if (typeof user?.sub !== "string" || user.sub.trim() === "") {
+    return null;
+  }
+  const principalType = user.principal_type === "client" ? "client" : "user";
+  return `consumer:principal:${principalType}:${user.sub}`;
+};
+
+const buildConsumerClientRoom = (user: JwtAccessPayload | undefined): string | null => {
+  return user?.principal_type === "client" &&
+    typeof user.sub === "string" &&
+    user.sub.trim() !== ""
+    ? `client:${user.sub}`
+    : null;
+};
+
+const joinConsumerIdentityRooms = async (socket: HubSocket): Promise<void> => {
+  const rooms = [
+    buildConsumerPrincipalRoom(socket.data.user),
+    buildConsumerClientRoom(socket.data.user),
+  ].filter((room): room is string => room !== null);
+  if (rooms.length === 0) {
+    return;
+  }
+  await socket.join(rooms);
+};
+
+const disconnectConsumerSocketsInRoom = async (
+  namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
+  room: string,
+  payload: { code: string; message: string },
+  logContext: Record<string, unknown>,
+): Promise<number> => {
+  const sockets = await namespace.in(room).fetchSockets();
+  for (const socket of sockets) {
+    socket.emit(socketEvents.appError, payload);
+    socket.disconnect(true);
+  }
+  if (sockets.length > 0) {
+    logger.info("consumer_socket_sessions_disconnected", {
+      room,
+      disconnectedCount: sockets.length,
+      ...logContext,
+    });
+  }
+  return sockets.length;
+};
+
+const clearConsumerProfilePushState = (): void => {
+  for (const pending of pendingAgentProfilePushByAgentId.values()) {
+    clearTimeout(pending.timeoutHandle);
+  }
+  pendingAgentProfilePushByAgentId.clear();
+  clientProfileRecipientsCacheByAgentId.clear();
+};
+
 const logSocketLifecycleInfo = (event: string, payload: Record<string, unknown>): void => {
   if (env.nodeEnv === "production") {
     logger.debug(event, payload);
     return;
   }
   logger.info(event, payload);
+};
+
+const getCachedProfilePushRecipients = async (agentId: string): Promise<readonly string[]> => {
+  const cached = clientProfileRecipientsCacheByAgentId.get(agentId);
+  if (cached && cached.expiresAtMs > Date.now()) {
+    return cached.clientIds;
+  }
+
+  const clientIds = await container.clientAgentAccessService.listActiveApprovedClientIdsForAgent(agentId);
+  clientProfileRecipientsCacheByAgentId.set(agentId, {
+    clientIds,
+    expiresAtMs: Date.now() + clientAgentProfileRecipientsCacheTtlMs,
+  });
+  return clientIds;
+};
+
+const flushAgentProfilePush = async (
+  consumersNamespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
+  agentId: string,
+): Promise<void> => {
+  const pending = pendingAgentProfilePushByAgentId.get(agentId);
+  if (!pending) {
+    return;
+  }
+  pendingAgentProfilePushByAgentId.delete(agentId);
+
+  const clientIds = await getCachedProfilePushRecipients(agentId);
+  if (clientIds.length === 0) {
+    return;
+  }
+  noteConsumerProfilePushBatch(clientIds.length);
+
+  const frame = encodePayloadFrame(
+    {
+      success: true,
+      agent_id: pending.event.agentId,
+      profile_version: pending.event.profileVersion,
+      profileUpdatedAt: pending.event.profileUpdatedAt,
+      changed_fields: pending.event.changedFields,
+      source: pending.event.source,
+    },
+    { omitTraceId: true },
+  );
+  for (const clientId of clientIds) {
+    consumersNamespace.to(`client:${clientId}`).emit(socketEvents.clientAgentProfileUpdated, frame);
+  }
+};
+
+const scheduleAgentProfilePush = (
+  consumersNamespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
+  event: AgentProfileBroadcastEvent,
+): void => {
+  const existing = pendingAgentProfilePushByAgentId.get(event.agentId);
+  if (existing) {
+    existing.event = event;
+    noteConsumerProfilePushCoalesced();
+    return;
+  }
+
+  const timeoutHandle = setTimeout(() => {
+    void flushAgentProfilePush(consumersNamespace, event.agentId);
+  }, clientAgentProfilePushDebounceMs);
+  timeoutHandle.unref?.();
+  pendingAgentProfilePushByAgentId.set(event.agentId, {
+    event,
+    timeoutHandle,
+  });
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -175,6 +329,28 @@ const emitAgentProfileUpdateError = (
       statusCode: input.error.statusCode,
     },
   });
+};
+
+const resolveCanonicalRegisteredAgentId = (
+  socket: HubSocket,
+  eventName: string,
+  payloadAgentId: unknown,
+): string | null => {
+  const registeredAgentId = socket.data.agentId;
+  if (!registeredAgentId) {
+    emitAppError(socket, `${eventName} received before agent registration`);
+    return null;
+  }
+  if (typeof payloadAgentId === "string" && payloadAgentId !== registeredAgentId) {
+    emitAppError(socket, `${eventName} agent_id does not match registered socket agent`);
+    return null;
+  }
+  const registeredAgent = agentRegistry.findByAgentId(registeredAgentId);
+  if (!registeredAgent || registeredAgent.socketId !== socket.id) {
+    emitAppError(socket, `${eventName} received from non-canonical agent socket`);
+    return null;
+  }
+  return registeredAgentId;
 };
 
 const clearAgentProfileSyncState = (agentId: string): void => {
@@ -290,6 +466,7 @@ export const getSocketMetricsSnapshot = (): {
   readonly agentsCommandSocketRateLimit: ReturnType<
     typeof getAgentsCommandSocketRateLimitMetricsSnapshot
   >;
+  readonly consumerRuntime: ReturnType<typeof getSocketConsumerMetricsSnapshot>;
 } => {
   const io = activeSocketServer;
   return {
@@ -300,6 +477,7 @@ export const getSocketMetricsSnapshot = (): {
     relay: getRelayMetricsSnapshot(),
     relayRateLimit: getRelayRateLimitMetricsSnapshot(),
     agentsCommandSocketRateLimit: getAgentsCommandSocketRateLimitMetricsSnapshot(),
+    consumerRuntime: getSocketConsumerMetricsSnapshot(),
   };
 };
 
@@ -315,6 +493,9 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   resetRelayRateLimiterState();
   resetAgentsCommandSocketRateLimitState();
   resetAgentProfileSocketRateLimitState();
+  resetConsumerCommandAbortRegistry();
+  clearConsumerProfilePushState();
+  resetSocketConsumerMetrics();
   resetSocketBridgeState();
   resetRestBridgeMetrics();
   conversationRegistry.clear();
@@ -341,9 +522,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     env.socketIoTransports.length === 1 && env.socketIoTransports[0] === "websocket";
 
   const io = new Server(httpServer, {
-    cors: {
-      origin: env.corsOrigin,
-    },
+    cors: buildCorsOptions(env.corsOrigins),
     maxHttpBufferSize: env.socketIoMaxHttpBufferBytes,
     perMessageDeflate: env.socketIoPerMessageDeflate,
     transports: env.socketIoTransports,
@@ -420,7 +599,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.agentRegister, async (rawPayload: unknown) => {
-      const decoded = decodePayloadFrame(rawPayload);
+      const decoded = await decodePayloadFrameAsync(rawPayload);
       if (!decoded.ok) {
         emitAgentRegisterError(socket, "invalid_payload", decoded.error.message);
         return;
@@ -510,7 +689,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           {
             capabilities: buildHubServerCapabilities({
               recommendedStreamPullWindowSize: env.socketRestStreamPullWindowSize,
-              maxStreamPullWindowSize: env.socketRestStreamPullWindowSize,
+              maxStreamPullWindowSize: env.socketRestStreamPullMaxWindowSize,
             }),
           },
           { ...withOptionalRequestId(decoded.value.frame.requestId), omitTraceId: true },
@@ -525,25 +704,24 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       }
     });
 
-    socket.on(socketEvents.agentHeartbeat, (rawPayload: unknown) => {
-      const decoded = decodePayloadFrame(rawPayload);
+    socket.on(socketEvents.agentHeartbeat, async (rawPayload: unknown) => {
+      const decoded = await decodePayloadFrameAsync(rawPayload);
       if (!decoded.ok) {
         emitAppError(socket, decoded.error.message);
         return;
       }
 
-      const currentAgentId =
-        socket.data.agentId ??
-        (isRecord(decoded.value.data) && typeof decoded.value.data.agent_id === "string"
-          ? decoded.value.data.agent_id
-          : undefined);
-
+      const payloadAgentId = isRecord(decoded.value.data) ? decoded.value.data.agent_id : undefined;
+      const currentAgentId = resolveCanonicalRegisteredAgentId(
+        socket,
+        socketEvents.agentHeartbeat,
+        payloadAgentId,
+      );
       if (!currentAgentId) {
-        emitAppError(socket, "agent:heartbeat received before agent registration");
         return;
       }
 
-      agentRegistry.touch(currentAgentId, { markProtocolReady: true });
+      agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
 
       socket.emit(
         socketEvents.hubHeartbeatAck,
@@ -558,25 +736,24 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       );
     });
 
-    socket.on(socketEvents.agentReady, (rawPayload: unknown) => {
-      const decoded = decodePayloadFrame(rawPayload);
+    socket.on(socketEvents.agentReady, async (rawPayload: unknown) => {
+      const decoded = await decodePayloadFrameAsync(rawPayload);
       if (!decoded.ok) {
         emitAppError(socket, decoded.error.message);
         return;
       }
 
-      const currentAgentId =
-        socket.data.agentId ??
-        (isRecord(decoded.value.data) && typeof decoded.value.data.agent_id === "string"
-          ? decoded.value.data.agent_id
-          : undefined);
-
+      const payloadAgentId = isRecord(decoded.value.data) ? decoded.value.data.agent_id : undefined;
+      const currentAgentId = resolveCanonicalRegisteredAgentId(
+        socket,
+        socketEvents.agentReady,
+        payloadAgentId,
+      );
       if (!currentAgentId) {
-        emitAppError(socket, "agent:ready received before agent registration");
         return;
       }
 
-      agentRegistry.touch(currentAgentId, { markProtocolReady: true });
+      agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
 
       const capabilities = isRecord(socket.data.capabilities) ? socket.data.capabilities : null;
       if (capabilities && resolveRequiresExplicitProtocolReadyAck(capabilities)) {
@@ -588,7 +765,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.agentProfileUpdate, async (rawPayload: unknown) => {
-      const decoded = decodePayloadFrame(rawPayload);
+      const decoded = await decodePayloadFrameAsync(rawPayload);
       if (!decoded.ok) {
         emitAgentProfileUpdateError(socket, {
           requestId: undefined,
@@ -760,6 +937,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
     socket.on("disconnect", () => {
       const cleanedPendingRequests = cleanupPendingRequestsForAgentSocket(socket.id);
+      cleanupAgentInboundSocketState(socket.id);
       cleanupAgentStreamSubscriptions(socket.id);
       clearAgentProfileSocketRateLimitStateForSocketId(socket.id);
       const endedConversations = conversationRegistry.removeByAgentSocketId(socket.id);
@@ -787,11 +965,14 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
   });
 
-  consumersNsp.on("connection", (socket: HubSocket) => {
+  consumersNsp.on("connection", async (socket: HubSocket) => {
     logSocketLifecycleInfo("Consumer socket connected", {
       socketId: socket.id,
       userId: getUserId(socket),
     });
+    noteConsumerSocketConnected(socket.data.user?.principal_type ?? null);
+
+    await joinConsumerIdentityRooms(socket);
 
     emitConnectionReady(socket, {
       id: socket.id,
@@ -799,35 +980,11 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       user: socket.data.user ?? null,
     });
 
-    const consumerUser = socket.data.user;
-    if (
-      consumerUser?.principal_type === "client" &&
-      typeof consumerUser.sub === "string" &&
-      consumerUser.sub.trim() !== ""
-    ) {
-      void socket.join(`client:${consumerUser.sub}`);
-    }
-
     socket.on(socketEvents.agentsCommand, (rawPayload: unknown) => {
       handleAgentsCommand(socket, rawPayload);
     });
 
     socket.on(socketEvents.agentsStreamPull, (rawPayload: unknown) => {
-      // Legacy `agents:stream_pull` shares the consumer-facing budget of
-      // `agents:command` (same per-window quota) so an abusive client cannot
-      // bypass `agents:command` rate limits by issuing pulls instead.
-      const userSub = socket.data.user?.sub;
-      if (!allowAgentsCommandSocket(userSub, socket.id)) {
-        socket.emit(socketEvents.agentsStreamPullResponse, {
-          success: false,
-          error: {
-            code: "TOO_MANY_REQUESTS",
-            message: "Too many agent stream pulls, please try again later.",
-            statusCode: 429,
-          },
-        });
-        return;
-      }
       handleAgentsStreamPull(socket, rawPayload);
     });
 
@@ -952,6 +1109,8 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on("disconnect", () => {
+      const abortedCommands = abortPendingConsumerCommands(socket.id);
+      noteConsumerSocketDisconnected(socket.data.user?.principal_type ?? null);
       cleanupConsumerStreamSubscriptions(socket.id);
       clearRelayRateLimitStateByConsumerSocket(socket.id);
       clearAgentsCommandSocketRateLimitStateForSocketId(socket.id);
@@ -960,28 +1119,19 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       for (const conversation of endedConversations) {
         cleanupConversationStreamSubscriptions(conversation.conversationId);
       }
+      if (abortedCommands > 0) {
+        noteConsumerPendingCommandsAborted(abortedCommands);
+        logger.info("consumer_socket_pending_commands_aborted", {
+          socketId: socket.id,
+          abortedCommands,
+        });
+      }
     });
   });
 
   if (env.socketClientAgentProfilePushEnabled) {
     registerAgentProfileBroadcastHandler(async (event) => {
-      const clientIds = await container.clientAgentAccessService.listApprovedClientIdsForAgent(
-        event.agentId,
-      );
-      const frame = encodePayloadFrame(
-        {
-          success: true,
-          agent_id: event.agentId,
-          profile_version: event.profileVersion,
-          profileUpdatedAt: event.profileUpdatedAt,
-          changed_fields: event.changedFields,
-          source: event.source,
-        },
-        { omitTraceId: true },
-      );
-      for (const clientId of clientIds) {
-        consumersNsp.to(`client:${clientId}`).emit(socketEvents.clientAgentProfileUpdated, frame);
-      }
+      scheduleAgentProfilePush(consumersNsp, event);
     });
   } else {
     // Operational kill-switch: keeps the consumer namespace healthy while the
@@ -989,6 +1139,42 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     // becomes a no-op until the next boot with the env enabled.
     registerAgentProfileBroadcastHandler(undefined);
   }
+
+  registerConsumerSocketControlHandler({
+    disconnectPrincipal: async (event) => {
+      const room = `consumer:principal:${event.principalType}:${event.principalId}`;
+      await disconnectConsumerSocketsInRoom(
+        consumersNsp,
+        room,
+        {
+          code: "ACCOUNT_BLOCKED",
+          message:
+            event.principalType === "client" ? "Client account is blocked" : "Account is blocked",
+        },
+        {
+          principalType: event.principalType,
+          principalId: event.principalId,
+          reason: event.reason,
+        },
+      );
+    },
+    revokeClientAccess: async (event) => {
+      clientProfileRecipientsCacheByAgentId.delete(event.agentId);
+      await disconnectConsumerSocketsInRoom(
+        consumersNsp,
+        `consumer:principal:client:${event.clientId}`,
+        {
+          code: "AGENT_ACCESS_REVOKED",
+          message: `Client access to agent ${event.agentId} was revoked`,
+        },
+        {
+          clientId: event.clientId,
+          agentId: event.agentId,
+          reason: event.reason,
+        },
+      );
+    },
+  });
 
   return io;
 };

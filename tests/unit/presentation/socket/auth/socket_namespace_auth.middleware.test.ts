@@ -4,6 +4,7 @@ import {
   authenticateAgentSocket,
   authenticateConsumerSocket,
 } from "../../../../../src/presentation/socket/auth/socket_namespace_auth.middleware";
+import { env } from "../../../../../src/shared/config/env";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { forbidden } from "../../../../../src/shared/errors/http_errors";
 import { err, ok } from "../../../../../src/shared/errors/result";
@@ -66,6 +67,24 @@ describe("authenticateAgentSocket", () => {
     const error = next.mock.calls[0]?.[0] as AppError;
     expect(error).toBeInstanceOf(AppError);
     expect(error.code).toBe("UNAUTHORIZED");
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("allows /agents without token when auth fallback is disabled", async () => {
+    env.socketAuthRequired = false;
+    const socket = {
+      handshake: { headers: {}, auth: {} },
+      data: {},
+    };
+    const next = vi.fn();
+
+    try {
+      await authenticateAgentSocket(socket as never, next);
+    } finally {
+      env.socketAuthRequired = true;
+    }
+
+    expect(next).toHaveBeenCalledWith();
     expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 
@@ -161,6 +180,26 @@ describe("authenticateConsumerSocket", () => {
     const next = vi.fn();
 
     await authenticateConsumerSocket(socket as never, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const error = next.mock.calls[0]?.[0] as AppError;
+    expect(error.code).toBe("UNAUTHORIZED");
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("still rejects /consumers without token when auth fallback is disabled", async () => {
+    env.socketAuthRequired = false;
+    const socket = {
+      handshake: { headers: {}, auth: {} },
+      data: {},
+    };
+    const next = vi.fn();
+
+    try {
+      await authenticateConsumerSocket(socket as never, next);
+    } finally {
+      env.socketAuthRequired = true;
+    }
 
     expect(next).toHaveBeenCalledOnce();
     const error = next.mock.calls[0]?.[0] as AppError;

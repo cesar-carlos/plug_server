@@ -3,6 +3,10 @@ import type { Socket } from "socket.io";
 import { container } from "../../../shared/di/container";
 import { unauthorized } from "../../../shared/errors/http_errors";
 import { incrementAuthSocketBlocked } from "../../../shared/metrics/auth_account.metrics";
+import {
+  noteConsumerSocketAuthRejected,
+  observeConsumerGuardDbValidation,
+} from "../../../shared/metrics/socket_consumer.metrics";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
 /**
@@ -42,6 +46,7 @@ const buildSnapshot = (user: JwtAccessPayload): SocketAccountSnapshot => ({
 const validateActiveAccountAgainstDb = async (
   user: JwtAccessPayload,
 ): Promise<JwtAccessPayload> => {
+  const startedAt = performance.now();
   const result =
     user.principal_type === "client"
       ? await container.clientAuthService.getActiveClientSnapshot(user.sub)
@@ -49,9 +54,11 @@ const validateActiveAccountAgainstDb = async (
           user.sub,
           user.credentials_version,
         );
+  observeConsumerGuardDbValidation(performance.now() - startedAt);
   if (!result.ok) {
     if (result.error.code === "FORBIDDEN" && result.error.message === "Account is blocked") {
       incrementAuthSocketBlocked();
+      noteConsumerSocketAuthRejected("blocked_account");
     }
     throw result.error;
   }

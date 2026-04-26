@@ -13,7 +13,7 @@ import { getRelayIdempotencyMap, setRelayIdempotencyEntry } from "./relay_idempo
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import {
   getRelayStreamFlowCredits,
-  getRelayStreamBufferedChunks,
+  getRelayStreamBufferedChunkCount,
   addRelayStreamBufferedChunk,
   getRelayStreamPendingComplete,
   setRelayStreamPendingComplete,
@@ -41,12 +41,17 @@ export const createRelayStreamHandlers = (
   emitToConsumer: EmitToConsumerFn,
 ): StreamEventHandlers => {
   let drainScheduled = false;
+  let terminalEmitted = false;
 
   const emitRelayTerminalComplete = (
     terminalStatus: "aborted" | "error",
     reason: string,
     payload?: Record<string, unknown>,
   ): void => {
+    if (terminalEmitted) {
+      return;
+    }
+    terminalEmitted = true;
     relayMetrics.streamTerminalCompletions += 1;
     const streamId =
       toRequestId(payload?.stream_id) ?? getActiveStreamRouteByRequestId(route.requestId)?.streamId;
@@ -72,6 +77,12 @@ export const createRelayStreamHandlers = (
         terminalStatus === "aborted" ? "RELAY_STREAM_ABORTED" : "RELAY_STREAM_FRAME_INVALID",
     });
 
+    removeRelayRequestRoute(route.requestId);
+    const activeRoute = getActiveStreamRouteByRequestId(route.requestId);
+    if (activeRoute) {
+      removeActiveStreamRoute(activeRoute);
+    }
+
     enqueueRelayOutbound(route.requestId, async () => {
       const frame = await encodeRelayOutboundFrame(terminalPayload, route.requestId);
       emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame);
@@ -85,12 +96,6 @@ export const createRelayStreamHandlers = (
         requestId: route.requestId,
         ...(streamId ? { streamId } : {}),
       });
-
-      removeRelayRequestRoute(route.requestId);
-      const existingStream = getActiveStreamRouteByRequestId(route.requestId);
-      if (existingStream) {
-        removeActiveStreamRoute(existingStream);
-      }
     });
   };
 
@@ -99,10 +104,10 @@ export const createRelayStreamHandlers = (
       return;
     }
     const creditsSnapshot = getRelayStreamFlowCredits(route.requestId);
-    const bufferedSnapshot = getRelayStreamBufferedChunks(route.requestId);
-    if (creditsSnapshot <= 0 || bufferedSnapshot.length === 0) {
+    const bufferedChunkCount = getRelayStreamBufferedChunkCount(route.requestId);
+    if (creditsSnapshot <= 0 || bufferedChunkCount === 0) {
       const pendingComplete = getRelayStreamPendingComplete(route.requestId);
-      if (bufferedSnapshot.length === 0 && pendingComplete) {
+      if (bufferedChunkCount === 0 && pendingComplete) {
         drainScheduled = true;
         enqueueRelayOutbound(route.requestId, async () => {
           const tDrain = performance.now();
@@ -149,7 +154,7 @@ export const createRelayStreamHandlers = (
             observeRelayBufferDrain(performance.now() - tDrain);
             drainScheduled = false;
             const pendingComplete = getRelayStreamPendingComplete(route.requestId);
-            const hasBuffered = getRelayStreamBufferedChunks(route.requestId).length > 0;
+            const hasBuffered = getRelayStreamBufferedChunkCount(route.requestId) > 0;
             const hasCredits = getRelayStreamFlowCredits(route.requestId) > 0;
             if ((hasBuffered && hasCredits) || (pendingComplete && !hasBuffered)) {
               scheduleDrainAndFlush();
@@ -206,7 +211,7 @@ export const createRelayStreamHandlers = (
         observeRelayBufferDrain(performance.now() - tDrain);
         drainScheduled = false;
         const pendingComplete = getRelayStreamPendingComplete(route.requestId);
-        const hasBuffered = getRelayStreamBufferedChunks(route.requestId).length > 0;
+        const hasBuffered = getRelayStreamBufferedChunkCount(route.requestId) > 0;
         const hasCredits = getRelayStreamFlowCredits(route.requestId) > 0;
         if ((hasBuffered && hasCredits) || (pendingComplete && !hasBuffered)) {
           scheduleDrainAndFlush();
@@ -221,10 +226,8 @@ export const createRelayStreamHandlers = (
     mode: "relay",
     onChunk: (payload) => {
       const available = getRelayStreamFlowCredits(route.requestId);
-
-      const buffered = getRelayStreamBufferedChunks(route.requestId);
       if (
-        buffered.length >= relayMaxBufferedChunksPerRequest ||
+        getRelayStreamBufferedChunkCount(route.requestId) >= relayMaxBufferedChunksPerRequest ||
         getRelayStreamTotalBufferedChunks() >= relayMaxTotalBufferedChunks
       ) {
         relayMetrics.chunksDropped += 1;

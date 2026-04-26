@@ -232,6 +232,14 @@ class InMemoryAgentRegistry {
   }): { ok: true; agent: RegisteredAgent } | { ok: false; reason: "OWNED_BY_ANOTHER_USER" } {
     const nowMs = Date.now();
     const existing = this.agents.get(input.agentId);
+    if (
+      existing &&
+      existing.userId !== null &&
+      input.userId !== null &&
+      existing.userId !== input.userId
+    ) {
+      return { ok: false, reason: "OWNED_BY_ANOTHER_USER" };
+    }
     if (existing && existing.socketId !== input.socketId) {
       this.agentIdBySocketId.delete(existing.socketId);
     }
@@ -255,10 +263,13 @@ class InMemoryAgentRegistry {
 
   touch(
     agentId: string,
-    options?: { readonly markProtocolReady?: boolean },
+    options?: { readonly markProtocolReady?: boolean; readonly socketId?: string },
   ): RegisteredAgent | null {
     const existing = this.agents.get(agentId);
     if (!existing) {
+      return null;
+    }
+    if (options?.socketId !== undefined && existing.socketId !== options.socketId) {
       return null;
     }
 

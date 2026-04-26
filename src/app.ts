@@ -1,5 +1,5 @@
 import cookieParser from "cookie-parser";
-import cors, { type CorsOptions } from "cors";
+import cors from "cors";
 import express, { type Express } from "express";
 import helmet from "helmet";
 import morgan from "morgan";
@@ -18,29 +18,8 @@ import { hubInstanceIdMiddleware } from "./presentation/http/middlewares/hub_ins
 import { requestIdMiddleware } from "./presentation/http/middlewares/request_id.middleware";
 import { authRouter } from "./presentation/http/routes/auth.routes";
 import { httpRouter } from "./presentation/http/routes";
+import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
-
-const buildCorsOptions = (): CorsOptions => {
-  if (env.corsOrigins === "*") {
-    return { origin: "*", credentials: false };
-  }
-  const allowed = new Set(env.corsOrigins);
-  return {
-    origin: (origin, callback) => {
-      // Same-origin / non-browser requests have no Origin header.
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-      if (allowed.has(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error(`Origin ${origin} is not allowed by CORS policy`));
-    },
-    credentials: true,
-  };
-};
 
 export const createApp = (): Express => {
   const app = express();
@@ -60,7 +39,7 @@ export const createApp = (): Express => {
   app.use(requestIdMiddleware);
   app.use(hubInstanceIdMiddleware);
   app.use(helmet());
-  app.use(cors(buildCorsOptions()));
+  app.use(cors(buildCorsOptions(env.corsOrigins)));
   app.use(
     morgan(
       env.nodeEnv === "production"

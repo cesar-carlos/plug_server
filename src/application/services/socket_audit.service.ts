@@ -103,9 +103,40 @@ export interface SocketAuditEventInput {
 }
 
 const auditEventQueue: SocketAuditEventInput[] = [];
+let auditEventQueueHead = 0;
 let auditBatchDebounceTimer: NodeJS.Timeout | null = null;
 /** Chains flush work so concurrent producers do not drop batches. */
 let auditFlushChain: Promise<void> = Promise.resolve();
+
+const getAuditEventQueueLength = (): number => Math.max(0, auditEventQueue.length - auditEventQueueHead);
+
+const compactAuditEventQueue = (): void => {
+  if (auditEventQueueHead === 0) {
+    return;
+  }
+  if (auditEventQueueHead >= auditEventQueue.length) {
+    auditEventQueue.length = 0;
+    auditEventQueueHead = 0;
+    return;
+  }
+  if (auditEventQueueHead >= 64 && auditEventQueueHead * 2 >= auditEventQueue.length) {
+    auditEventQueue.splice(0, auditEventQueueHead);
+    auditEventQueueHead = 0;
+  }
+};
+
+const dequeueAuditBatch = (maxItems: number): SocketAuditEventInput[] => {
+  const available = getAuditEventQueueLength();
+  if (available <= 0) {
+    return [];
+  }
+  const safeMaxItems = Math.max(1, Math.floor(maxItems));
+  const end = Math.min(auditEventQueue.length, auditEventQueueHead + safeMaxItems);
+  const batch = auditEventQueue.slice(auditEventQueueHead, end);
+  auditEventQueueHead = end;
+  compactAuditEventQueue();
+  return batch;
+};
 
 const insertAuditEventRow = async (
   client: Pick<Prisma.TransactionClient, "$executeRaw">,
@@ -155,15 +186,16 @@ const performAuditFlush = async (): Promise<void> => {
     auditBatchDebounceTimer = null;
   }
 
-  while (auditEventQueue.length > 0) {
+  while (getAuditEventQueueLength() > 0) {
     if (!(await canUseAuditTable())) {
-      const dropped = auditEventQueue.length;
+      const dropped = getAuditEventQueueLength();
       auditMetrics.writesSkippedTableMissing += dropped;
       auditEventQueue.length = 0;
+      auditEventQueueHead = 0;
       return;
     }
 
-    const batch = auditEventQueue.splice(0, env.socketAuditBatchMax);
+    const batch = dequeueAuditBatch(env.socketAuditBatchMax);
     await trackPendingAuditOperation(
       (async () => {
         try {
@@ -277,12 +309,13 @@ export const recordSocketAuditEvent = async (input: SocketAuditEventInput): Prom
   // preferable to dropping the new event because the older one was already
   // overdue if we are this far behind.
   const cap = env.socketAuditMaxQueue;
-  if (cap > 0 && auditEventQueue.length >= cap) {
-    auditEventQueue.shift();
+  if (cap > 0 && getAuditEventQueueLength() >= cap) {
+    auditEventQueueHead = Math.min(auditEventQueue.length, auditEventQueueHead + 1);
+    compactAuditEventQueue();
     auditMetrics.writesDroppedOverflow += 1;
   }
   auditEventQueue.push(input);
-  if (auditEventQueue.length >= env.socketAuditBatchMax) {
+  if (getAuditEventQueueLength() >= env.socketAuditBatchMax) {
     queueAuditFlush();
   } else {
     scheduleDebouncedAuditFlush();
@@ -453,5 +486,5 @@ export const getSocketAuditMetricsSnapshot = (): {
   pruneDeleted: auditMetrics.pruneDeleted,
   pruneFailed: auditMetrics.pruneFailed,
   pendingOperations: pendingAuditOperations.size,
-  queuedEvents: auditEventQueue.length,
+  queuedEvents: getAuditEventQueueLength(),
 });

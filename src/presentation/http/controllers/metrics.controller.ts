@@ -27,12 +27,29 @@ const metricLine = (name: string, value: number, labels?: Record<string, string>
   return `${name}{${renderedLabels}} ${value}`;
 };
 
+const metricsResponseCacheTtlMs = 500;
+let metricsResponseCache:
+  | {
+      body: string;
+      expiresAtMs: number;
+    }
+  | null = null;
+
 export const getMetrics = (_request: Request, response: Response): void => {
+  const nowMs = Date.now();
+  const cached = metricsResponseCache;
+  if (cached && cached.expiresAtMs > nowMs) {
+    response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    response.status(200).send(cached.body);
+    return;
+  }
+
   const socket = getSocketMetricsSnapshot();
   const restBridge = getRestBridgeMetricsSnapshot();
   const relay = socket.relay;
   const rateLimit = socket.relayRateLimit;
   const agentsCommandRl = socket.agentsCommandSocketRateLimit;
+  const consumerRuntime = socket.consumerRuntime;
   const audit = getSocketAuditMetricsSnapshot();
   const bridgeLatency = getBridgeLatencyTraceMetricsSnapshot();
   const agentDataMaintenance = getAgentDataMaintenanceMetricsSnapshot();
@@ -274,6 +291,94 @@ export const getMetrics = (_request: Request, response: Response): void => {
       namespace: "consumers",
     }),
   );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_active_connections",
+      consumerRuntime.activeConnections.user,
+      { principal_type: "user" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_active_connections",
+      consumerRuntime.activeConnections.client,
+      { principal_type: "client" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_active_connections",
+      consumerRuntime.activeConnections.unknown,
+      { principal_type: "unknown" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_auth_rejected_total",
+      consumerRuntime.authRejects.missing_token,
+      { reason: "missing_token" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_auth_rejected_total",
+      consumerRuntime.authRejects.invalid_token,
+      { reason: "invalid_token" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_auth_rejected_total",
+      consumerRuntime.authRejects.role_denied,
+      { reason: "role_denied" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_auth_rejected_total",
+      consumerRuntime.authRejects.blocked_account,
+      { reason: "blocked_account" },
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_consumers_guard_db_count", consumerRuntime.guardDb.count),
+  );
+  lines.push(
+    metricLine("plug_socket_consumers_guard_db_avg_ms", consumerRuntime.guardDb.avgMs),
+  );
+  lines.push(
+    metricLine("plug_socket_consumers_guard_db_max_ms", consumerRuntime.guardDb.maxMs),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_commands_aborted_on_disconnect_total",
+      consumerRuntime.commandAbort.abortedCommandsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_profile_push_batches_total",
+      consumerRuntime.profilePush.batchesTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_profile_push_coalesced_total",
+      consumerRuntime.profilePush.coalescedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_profile_push_fanout_avg",
+      consumerRuntime.profilePush.fanoutAvg,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_profile_push_fanout_max",
+      consumerRuntime.profilePush.fanoutMax,
+    ),
+  );
 
   lines.push(
     metricLine("plug_socket_relay_requests_accepted_total", relay.counters.requestsAccepted),
@@ -333,6 +438,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_rest_sql_stream_materialize_byte_limit_exceeded_total",
       relay.counters.restMaterializeByteLimitExceeded,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_sql_stream_materialize_active_stream_limit_exceeded_total",
+      relay.counters.restMaterializeActiveStreamLimitExceeded,
     ),
   );
   lines.push(
@@ -754,6 +865,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(
     metricLine("plug_socket_audit_writes_sample_skipped_total", audit.writesSampleSkipped),
   );
+  lines.push(
+    metricLine("plug_socket_audit_writes_dropped_overflow_total", audit.writesDroppedOverflow),
+  );
   lines.push(metricLine("plug_socket_audit_prune_runs_total", audit.pruneRuns));
   lines.push(metricLine("plug_socket_audit_prune_deleted_total", audit.pruneDeleted));
   lines.push(metricLine("plug_socket_audit_prune_failed_total", audit.pruneFailed));
@@ -795,6 +909,11 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_bridge_latency_trace_prune_failed_total", bridgeLatency.pruneFailed));
   lines.push(metricLine("plug_bridge_latency_trace_queued_rows", bridgeLatency.queuedRows));
 
+  const body = `${lines.join("\n")}\n`;
+  metricsResponseCache = {
+    body,
+    expiresAtMs: nowMs + metricsResponseCacheTtlMs,
+  };
   response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-  response.status(200).send(`${lines.join("\n")}\n`);
+  response.status(200).send(body);
 };

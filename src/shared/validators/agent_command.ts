@@ -19,16 +19,12 @@ const rpcMetaSchema = z
     agent_id: nonEmptyStringSchema.optional(),
     timestamp: rpcTimestampSchema.optional(),
     /**
-     * Forwarded to the agent inside `meta`. **Currently a no-op at runtime**:
-     * `socket_communication_standard.md` (v2.8, "Nota operacional (largura de
-     * banda)" and "Limitacoes e observacoes do estado atual") states the
-     * agent does NOT support per-request compression overrides via `meta` —
-     * outbound `PayloadFrame` compression follows the negotiated session
-     * policy (`compressions`, `compressionThreshold`, agent-local
-     * `OutboundCompressionMode`). The schema accepts the field for
-     * forward compatibility and to avoid `invalid_request` rejections from
-     * clients that already populate it; behavior may change once the agent
-     * publishes a contract for per-request override.
+     * Accepted on bridge ingress for backward compatibility, but stripped before
+     * forwarding to the agent. `socket_communication_standard.md` (v2.8,
+     * "Nota operacional (largura de banda)" and "Limitacoes e observacoes do
+     * estado atual") states the agent does NOT support per-request compression
+     * overrides via `meta`; outbound `PayloadFrame` compression follows the
+     * negotiated session policy instead.
      */
     outbound_compression: z.enum(["none", "gzip", "auto"]).optional(),
   })
@@ -394,7 +390,7 @@ const bridgeBatchCommandSchema = z
         return;
       }
 
-      const normalizedId = String(id);
+      const normalizedId = `${typeof id}:${String(id)}`;
       if (seenIds.has(normalizedId)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

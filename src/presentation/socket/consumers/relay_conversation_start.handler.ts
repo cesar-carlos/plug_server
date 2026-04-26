@@ -8,6 +8,7 @@ import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { agentIdSchema } from "../../../shared/validators/schemas";
 import { agentRegistry } from "../hub/agent_registry";
+import { refundRelayConversationStart } from "../hub/consumer_relay_rate_limiter";
 import { conversationRegistry } from "../hub/conversation_registry";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
@@ -114,6 +115,7 @@ export const handleRelayConversationStart = async (
       payload: { createdAt: conversation.createdAt },
     });
   } catch (err: unknown) {
+    refundRelayConversationStart(socket.data.user?.sub, socket.id);
     const appError = err instanceof AppError ? err : undefined;
     emitConversationStarted(socket, {
       success: false,

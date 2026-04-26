@@ -9,6 +9,7 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { conversationIdSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { allowRelayStreamPull } from "../hub/consumer_relay_rate_limiter";
+import { refundRelayStreamPullCredits } from "../hub/consumer_relay_rate_limiter";
 import { conversationRegistry } from "../hub/conversation_registry";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 import {
@@ -73,6 +74,7 @@ export const handleRelayRpcStreamPull = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
 ): void => {
+  const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   const envelope = parseRelayRpcStreamPullEnvelope(rawPayload);
   if (!envelope.success) {
     emitRelayStreamPullResponse(socket, {
@@ -112,7 +114,6 @@ export const handleRelayRpcStreamPull = (
         rawFramePayload: parsed.data.frame,
       });
 
-      const userSub = socket.data.user?.sub;
       const allowance = allowRelayStreamPull(userSub, socket.id, prepared.windowSize);
       if (!allowance.allowed) {
         emitRelayStreamPullResponse(socket, {
@@ -131,7 +132,13 @@ export const handleRelayRpcStreamPull = (
         return;
       }
 
-      const result = prepared.execute();
+      let result;
+      try {
+        result = prepared.execute();
+      } catch (error) {
+        refundRelayStreamPullCredits(userSub, socket.id, allowance.grantedCredits);
+        throw error;
+      }
 
       emitRelayStreamPullResponse(socket, {
         success: true,

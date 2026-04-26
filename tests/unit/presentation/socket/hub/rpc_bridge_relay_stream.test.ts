@@ -91,4 +91,29 @@ describe("rpc_bridge_relay_stream", () => {
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcComplete);
   });
+
+  it("createRelayStreamHandlers emits only one terminal complete after overflow", async () => {
+    const emit = vi.fn();
+    const route = makeRoute({ requestId: "r-overflow-once" });
+    for (let i = 0; i < env.socketRelayMaxBufferedChunksPerRequest; i++) {
+      addRelayStreamBufferedChunk("r-overflow-once", { rows: [] });
+    }
+
+    const h = createRelayStreamHandlers(route, emit);
+    h.onChunk({
+      stream_id: "stream-overflow-once",
+      request_id: "r-overflow-once",
+      rows: [{ id: 1 }],
+    });
+    h.onChunk({
+      stream_id: "stream-overflow-once",
+      request_id: "r-overflow-once",
+      rows: [{ id: 2 }],
+    });
+
+    await flushRelayOutbound();
+    await flushRelayOutbound();
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcComplete);
+  });
 });

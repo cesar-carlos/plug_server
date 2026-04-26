@@ -102,7 +102,7 @@ namespace `/agents`, incluindo:
 | `agent:ready` | agente -> hub | Opcional, quando o agente anuncia `extensions.protocolReadyAck` |
 | `agent:heartbeat` | agente -> hub | Periodico; `hub:heartbeat_ack` confirma |
 | `rpc:request` / `rpc:response` | bidirecional | Comando JSON-RPC 2.0 em `PayloadFrame` |
-| `rpc:request_ack` / `rpc:batch_ack` | agente -> hub | Confirmacao de recebimento |
+| `rpc:request_ack` / `rpc:batch_ack` | agente -> hub | Confirmacao de recebimento; o hub observa/propaga esses acks, mas ainda nao reenvia `rpc:request` automaticamente quando faltam |
 | `rpc:chunk` / `rpc:complete` | agente -> hub | Streaming de resultado (`terminal_status: aborted`/`error` em encerramento anormal) |
 | `rpc:stream.pull` | hub -> agente | Backpressure (window_size baseado em hints de capabilities) |
 

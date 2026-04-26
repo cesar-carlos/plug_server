@@ -104,6 +104,19 @@ export const listStreamRequestIdsForConsumer = (consumerSocketId: string): strin
 export const listStreamRequestIdsForAgent = (agentSocketId: string): string[] =>
   Array.from(streamRequestIdsByAgent.get(agentSocketId) ?? []);
 
+export const countStreamRoutesForAgent = (agentSocketId: string): number =>
+  streamRequestIdsByAgent.get(agentSocketId)?.size ?? 0;
+
+export const countOpenStreamRoutesForAgent = (agentSocketId: string): number => {
+  let total = 0;
+  for (const route of activeStreamsByRequestId.values()) {
+    if (route.agentSocketId === agentSocketId && route.streamId) {
+      total += 1;
+    }
+  }
+  return total;
+};
+
 export const listActiveStreamRequestIdsForConversation = (conversationId: string): string[] =>
   Array.from(activeStreamRequestIdsByConversation.get(conversationId) ?? []);
 
@@ -167,6 +180,9 @@ export const upsertActiveStreamRoute = (input: {
 }): ActiveStreamRoute => {
   const existing = activeStreamsByRequestId.get(input.requestId);
   if (existing) {
+    if (existing.agentSocketId !== input.agentSocketId) {
+      throw new Error("Active stream route agent socket mismatch");
+    }
     if (input.streamId) {
       existing.streamId = input.streamId;
     }
@@ -212,6 +228,9 @@ export const resolveActiveStreamRoute = (
   const requestId = pickRequestIdFromStreamPayload(payload);
   const byStream = streamId ? activeStreamsByStreamId.get(streamId) : undefined;
   const byRequest = requestId ? activeStreamsByRequestId.get(requestId) : undefined;
+  if (byStream && byRequest && byStream !== byRequest) {
+    return null;
+  }
   const route = byStream ?? byRequest;
   if (!route || route.agentSocketId !== socketId) {
     return null;

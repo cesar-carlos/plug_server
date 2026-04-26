@@ -12,6 +12,13 @@ export type RelayIdempotencyEntry = {
   pendingReplayConsumerSocketIds?: string[];
 };
 
+export type SetRelayIdempotencyEntryResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: "per_conversation_cap_reached" | "global_cap_reached";
+    };
+
 interface RelayIdempotencyMetricsCounters {
   evictedPerConversationCap: number;
   evictedGlobalCap: number;
@@ -27,20 +34,32 @@ const relayIdempotencyMetrics: RelayIdempotencyMetricsCounters = {
   prunedExpired: 0,
 };
 
+const isCompletedIdempotencyEntry = (entry: RelayIdempotencyEntry): boolean =>
+  entry.responseFrame !== undefined;
+
 /**
  * Drops the FIFO-oldest entry across the entire store. Map preserves
  * insertion order so the first key in the first conversation map is the
  * globally oldest. Used to enforce `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES`.
  */
-const evictGlobalOldest = (): boolean => {
+const evictGlobalOldestCompleted = (): boolean => {
   for (const [conversationId, entries] of relayIdempotencyByConversation) {
-    const it = entries.keys().next();
-    if (it.done) {
-      relayIdempotencyByConversation.delete(conversationId);
+    let evicted = false;
+    for (const [clientRequestId, entry] of entries) {
+      if (!isCompletedIdempotencyEntry(entry)) {
+        continue;
+      }
+      entries.delete(clientRequestId);
+      totalEntries -= 1;
+      evicted = true;
+      break;
+    }
+    if (!evicted) {
+      if (entries.size === 0) {
+        relayIdempotencyByConversation.delete(conversationId);
+      }
       continue;
     }
-    entries.delete(it.value);
-    totalEntries -= 1;
     if (entries.size === 0) {
       relayIdempotencyByConversation.delete(conversationId);
     }
@@ -56,7 +75,7 @@ export const pruneExpiredRelayIdempotencyEntries = (): void => {
   for (const [conversationId, entries] of relayIdempotencyByConversation.entries()) {
     const expiredClientIds: string[] = [];
     for (const [clientRequestId, item] of entries.entries()) {
-      if (item.expiresAtMs <= nowMs) {
+      if (isCompletedIdempotencyEntry(item) && item.expiresAtMs <= nowMs) {
         expiredClientIds.push(clientRequestId);
       }
     }
@@ -117,34 +136,50 @@ export const getRelayIdempotencyMap = (
 /**
  * Stores or updates an idempotency entry while enforcing per-conversation and
  * global caps. New entries beyond `SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION`
- * cause the FIFO-oldest entry of the same conversation to be evicted; entries
- * beyond `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES` cause the FIFO-oldest
- * entry across the whole store to be evicted. Updates to existing keys do not
- * count against the caps.
+ * cause the FIFO-oldest completed entry of the same conversation to be evicted;
+ * entries beyond `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES` cause the FIFO-oldest
+ * completed entry across the whole store to be evicted. In-flight entries are
+ * pinned until completion/removal so deduplication cannot be lost mid-flight.
+ * Updates to existing keys do not count against the caps.
  */
 export const setRelayIdempotencyEntry = (
   conversationId: string,
   clientRequestId: string,
   entry: RelayIdempotencyEntry,
-): void => {
+): SetRelayIdempotencyEntryResult => {
   const conversationMap = getOrCreateRelayIdempotencyMap(conversationId);
   const isUpdate = conversationMap.has(clientRequestId);
 
   if (!isUpdate) {
     const perConvCap = env.socketRelayIdempotencyMaxEntriesPerConversation;
     while (conversationMap.size >= perConvCap) {
-      const oldest = conversationMap.keys().next();
-      if (oldest.done) break;
-      conversationMap.delete(oldest.value);
-      totalEntries -= 1;
+      let evicted = false;
+      for (const [existingClientRequestId, existingEntry] of conversationMap) {
+        if (!isCompletedIdempotencyEntry(existingEntry)) {
+          continue;
+        }
+        conversationMap.delete(existingClientRequestId);
+        totalEntries -= 1;
+        evicted = true;
+        break;
+      }
+      if (!evicted) {
+        break;
+      }
       relayIdempotencyMetrics.evictedPerConversationCap += 1;
+    }
+    if (conversationMap.size >= perConvCap) {
+      return { ok: false, reason: "per_conversation_cap_reached" };
     }
 
     const globalCap = env.socketRelayIdempotencyMaxTotalEntries;
     if (globalCap > 0) {
       while (totalEntries >= globalCap) {
-        if (!evictGlobalOldest()) break;
+        if (!evictGlobalOldestCompleted()) break;
         relayIdempotencyMetrics.evictedGlobalCap += 1;
+      }
+      if (totalEntries >= globalCap) {
+        return { ok: false, reason: "global_cap_reached" };
       }
     }
   }
@@ -152,6 +187,21 @@ export const setRelayIdempotencyEntry = (
   conversationMap.set(clientRequestId, entry);
   if (!isUpdate) {
     totalEntries += 1;
+  }
+  return { ok: true };
+};
+
+export const removeRelayIdempotencyEntry = (
+  conversationId: string,
+  clientRequestId: string,
+): void => {
+  const conversationMap = relayIdempotencyByConversation.get(conversationId);
+  if (!conversationMap || !conversationMap.delete(clientRequestId)) {
+    return;
+  }
+  totalEntries = Math.max(0, totalEntries - 1);
+  if (conversationMap.size === 0) {
+    relayIdempotencyByConversation.delete(conversationId);
   }
 };
 

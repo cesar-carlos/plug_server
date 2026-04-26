@@ -20,6 +20,8 @@ import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import type { ActiveStreamRoute } from "./active_stream_registry";
 import {
+  getActiveStreamRouteCount,
+  countOpenStreamRoutesForAgent,
   getActiveStreamRouteByRequestId,
   removeActiveStreamRoute,
   resolveActiveStreamRoute,
@@ -60,6 +62,7 @@ import { createRelayStreamHandlers, type EmitToConsumerFn } from "./rpc_bridge_r
 import { extractStreamIdFromRpcResponse, pickResponseIds } from "./rpc_bridge_command_helpers";
 
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
+const relayMaxActiveStreams = env.socketRelayMaxActiveStreams;
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
@@ -83,6 +86,8 @@ export type RpcBridgeAgentInboundHandlers = {
   readonly handleAgentRpcComplete: (socketId: string, rawPayload: unknown) => void;
   readonly handleAgentRpcAck: (socketId: string, rawPayload: unknown) => void;
   readonly handleAgentBatchAck: (socketId: string, rawPayload: unknown) => void;
+  readonly cleanupSocketInboundState: (socketId: string) => void;
+  readonly resetInboundState: () => void;
 };
 
 export const createRpcBridgeAgentInboundHandlers = (
@@ -110,6 +115,14 @@ export const createRpcBridgeAgentInboundHandlers = (
     });
   };
 
+  const cleanupSocketInboundState = (socketId: string): void => {
+    streamInboundTailBySocketId.delete(socketId);
+  };
+
+  const resetInboundState = (): void => {
+    streamInboundTailBySocketId.clear();
+  };
+
   const extractFrameRequestId = (rawPayload: unknown): string | null => {
     if (!isPayloadFrameEnvelope(rawPayload)) {
       return null;
@@ -135,6 +148,25 @@ export const createRpcBridgeAgentInboundHandlers = (
             category: "auth",
             retryable: false,
             user_message: "Nao foi possivel autenticar a resposta do agente.",
+            technical_message: reasonMessage,
+            correlation_id: `corr-${requestId}`,
+            timestamp,
+          },
+        },
+      };
+    }
+    if (normalized.includes("decompress payloadframe payload")) {
+      return {
+        jsonrpc: "2.0",
+        id: requestId,
+        error: {
+          code: -32011,
+          message: "Compression failed",
+          data: {
+            reason: "compression_failed",
+            category: "transport",
+            retryable: false,
+            user_message: "Nao foi possivel descomprimir a resposta do agente.",
             technical_message: reasonMessage,
             correlation_id: `corr-${requestId}`,
             timestamp,
@@ -178,6 +210,76 @@ export const createRpcBridgeAgentInboundHandlers = (
         },
       },
     };
+  };
+
+  const createRelayUnexpectedFailurePayload = (
+    requestId: string,
+    reasonMessage: string,
+  ): Record<string, unknown> => ({
+    jsonrpc: "2.0",
+    id: requestId,
+    error: {
+      code: -32000,
+      message: "Internal bridge error",
+      data: {
+        code: "BRIDGE_INBOUND_PROCESSING_FAILED",
+        retryable: true,
+        technical_message: reasonMessage,
+      },
+    },
+  });
+
+  const failFastUnexpectedAgentResponseError = (
+    socketId: string,
+    rawPayload: unknown,
+    error: unknown,
+  ): void => {
+    const reasonMessage =
+      error instanceof Error ? error.message : "Unexpected agent rpc:response processing failure";
+    logger.error("agent_rpc_response_processing_failed", {
+      socketId,
+      message: reasonMessage,
+    });
+
+    const requestId = extractFrameRequestId(rawPayload);
+    if (!requestId) {
+      return;
+    }
+
+    const pendingRequest = getRestPendingRequestByCorrelationId(requestId);
+    if (pendingRequest && pendingRequest.socketId === socketId) {
+      clearTimeout(pendingRequest.timeoutHandle);
+      clearRestPendingRequest(pendingRequest);
+      const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
+      if (existingStream && existingStream.agentSocketId === socketId) {
+        removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
+      }
+      registerAgentFailure(pendingRequest.agentId);
+      pendingRequest.reject(serviceUnavailable(reasonMessage));
+    }
+
+    const relayRoute = getRelayRequestRoute(requestId);
+    if (!relayRoute || relayRoute.agentSocketId !== socketId) {
+      return;
+    }
+
+    relayRoute.latencyTrace?.finalizeOnce({
+      outcome: "error",
+      httpStatus: 503,
+      errorCode: "BRIDGE_INBOUND_PROCESSING_FAILED",
+    });
+    enqueueRelayOutbound(requestId, async () => {
+      const frame = await encodeRelayOutboundFrame(
+        createRelayUnexpectedFailurePayload(requestId, reasonMessage),
+        requestId,
+      );
+      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+      const existingStream = getActiveStreamRouteByRequestId(requestId);
+      if (existingStream && existingStream.agentSocketId === socketId) {
+        removeActiveStreamRoute(existingStream);
+      }
+      removeRelayRequestRoute(requestId);
+    });
   };
 
   const failFastInvalidAgentResponseFrame = (
@@ -325,20 +427,22 @@ export const createRpcBridgeAgentInboundHandlers = (
   ): void => {
     const inboundSyncStart = performance.now();
     const decodeStart = performance.now();
-    void decodePayloadFrameAsync(rawPayload).then((result) => {
+    let ackInvoked = false;
+    const fireAck = (): void => {
+      if (ackInvoked || typeof ack !== "function") {
+        return;
+      }
+      ackInvoked = true;
+      try {
+        ack();
+      } catch {
+        /* ignore: consumer disconnected */
+      }
+    };
+
+    void (async () => {
+      const result = await decodePayloadFrameAsync(rawPayload);
       const decodeMs = performance.now() - decodeStart;
-      let ackInvoked = false;
-      const fireAck = (): void => {
-        if (ackInvoked || typeof ack !== "function") {
-          return;
-        }
-        ackInvoked = true;
-        try {
-          ack();
-        } catch {
-          /* ignore: consumer disconnected */
-        }
-      };
 
       if (!result.ok) {
         logRpcFrameDecodeFailure({
@@ -347,320 +451,380 @@ export const createRpcBridgeAgentInboundHandlers = (
           reason: result.error.message,
         });
         failFastInvalidAgentResponseFrame(socketId, rawPayload, result.error.message);
-        fireAck();
         return;
       }
 
-      try {
-        const decoded = result.value;
-        const frameRequestId = toRequestId(decoded.frame.requestId);
-        const responseIds = pickResponseIds(decoded.data);
-        const candidateIds = Array.from(
-          new Set([...responseIds, ...(frameRequestId ? [frameRequestId] : [])]),
-        );
+      const decoded = result.value;
+      const frameRequestId = toRequestId(decoded.frame.requestId);
+      const responseIds = pickResponseIds(decoded.data);
+      const candidateIds = Array.from(new Set([...responseIds, ...(frameRequestId ? [frameRequestId] : [])]));
 
-        if (candidateIds.length === 0) {
+      if (candidateIds.length === 0) {
+        return;
+      }
+
+      const streamId = extractStreamIdFromRpcResponse(decoded.data);
+      const pendingRequest = findRestPendingRequestByIds(socketId, candidateIds);
+      if (pendingRequest) {
+        pendingRequest.latencyTrace?.markInboundArrival(inboundSyncStart);
+        pendingRequest.latencyTrace?.recordInboundDecodeMs(decodeMs);
+        const pendingRequestId = pendingRequest.primaryRequestId;
+        const deferredRestStream = Boolean(streamId) && pendingRequest.restStreamAggregate === true;
+
+        if (deferredRestStream) {
+          const initialJson = decoded.data;
+          const timeoutHandle = pendingRequest.timeoutHandle;
+          const resolveOnce = pendingRequest.resolve;
+          const rejectOnce = pendingRequest.reject;
+          const primaryRequestId = pendingRequestId;
+          const streamedRows: unknown[] = [];
+          const pullWindow = agentRegistry.resolveStreamPullWindow(
+            pendingRequest.agentId,
+            env.socketRestStreamPullWindowSize,
+          );
+          const materializeMaxRows = env.socketRestSqlStreamMaterializeMaxRows;
+          const materializeMaxChunks = env.socketRestSqlStreamMaterializeMaxChunks;
+          const materializeMaxBytes = env.socketRestSqlStreamMaterializeMaxBytes;
+          const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(pendingRequest.agentId);
+          if (countOpenStreamRoutesForAgent(socketId) >= effectivePolicy.maxConcurrentStreams) {
+            relayMetrics.restMaterializeActiveStreamLimitExceeded += 1;
+            registerAgentFailure(pendingRequest.agentId);
+            clearTimeout(pendingRequest.timeoutHandle);
+            clearRestPendingRequest(pendingRequest);
+            pendingRequest.reject(
+              serviceUnavailable(
+                `Agent active stream capacity reached (${effectivePolicy.maxConcurrentStreams})`,
+              ),
+            );
+            return;
+          }
+          let aggregatedRowCount = countSqlExecuteResultRowsInEnvelope(initialJson);
+          let aggregatedByteCount = 0;
+          let chunkFramesSeen = 0;
+          if (materializeMaxBytes > 0) {
+            try {
+              aggregatedByteCount = Buffer.byteLength(JSON.stringify(initialJson), "utf8");
+            } catch {
+              aggregatedByteCount = 0;
+            }
+          }
+
+          if (materializeMaxRows > 0 && aggregatedRowCount > materializeMaxRows) {
+            relayMetrics.restMaterializeRowLimitExceeded += 1;
+            registerAgentFailure(pendingRequest.agentId);
+            clearTimeout(pendingRequest.timeoutHandle);
+            clearRestPendingRequest(pendingRequest);
+            pendingRequest.reject(
+              serviceUnavailable(
+                "REST SQL stream materialization would exceed configured row limit (use Socket bridge for large streams)",
+              ),
+            );
+            return;
+          }
+
+          const restMaterializeState = {
+            settled: false,
+            timeoutHandle,
+            reject: rejectOnce,
+            agentId: pendingRequest.agentId,
+          };
+
+          const streamHandlers: StreamEventHandlers = {
+            consumerSocketId: REST_STREAM_AGGREGATE_CONSUMER_ID,
+            mode: "legacy",
+            onChunk: (payload) => {
+              chunkFramesSeen += 1;
+              if (materializeMaxChunks > 0 && chunkFramesSeen > materializeMaxChunks) {
+                relayMetrics.restMaterializeChunkLimitExceeded += 1;
+                registerAgentFailure(pendingRequest.agentId);
+                const route = getActiveStreamRouteByRequestId(primaryRequestId);
+                if (route) {
+                  removeActiveStreamRoute(route, { restMaterialize: "detach" });
+                }
+                rejectOnce(
+                  serviceUnavailable(
+                    "REST SQL stream materialization exceeded configured chunk limit (use Socket bridge for large streams)",
+                  ),
+                );
+                return;
+              }
+
+              const chunkRows = countSqlStreamChunkRows(payload);
+              if (materializeMaxRows > 0 && aggregatedRowCount + chunkRows > materializeMaxRows) {
+                relayMetrics.restMaterializeRowLimitExceeded += 1;
+                registerAgentFailure(pendingRequest.agentId);
+                const route = getActiveStreamRouteByRequestId(primaryRequestId);
+                if (route) {
+                  removeActiveStreamRoute(route, { restMaterialize: "detach" });
+                }
+                rejectOnce(
+                  serviceUnavailable(
+                    "REST SQL stream materialization exceeded configured row limit (use Socket bridge for large streams)",
+                  ),
+                );
+                return;
+              }
+
+              if (materializeMaxBytes > 0) {
+                let chunkBytes = 0;
+                try {
+                  chunkBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
+                } catch {
+                  chunkBytes = 0;
+                }
+                if (aggregatedByteCount + chunkBytes > materializeMaxBytes) {
+                  relayMetrics.restMaterializeByteLimitExceeded += 1;
+                  registerAgentFailure(pendingRequest.agentId);
+                  const route = getActiveStreamRouteByRequestId(primaryRequestId);
+                  if (route) {
+                    removeActiveStreamRoute(route, { restMaterialize: "detach" });
+                  }
+                  rejectOnce(
+                    serviceUnavailable(
+                      "REST SQL stream materialization exceeded configured byte limit (use Socket bridge for large streams)",
+                    ),
+                  );
+                  return;
+                }
+                aggregatedByteCount += chunkBytes;
+              }
+
+              aggregatedRowCount += chunkRows;
+              appendSqlStreamChunkRows(streamedRows, payload);
+              restSqlStreamMaterializeConsumeChunk(primaryRequestId, pullWindow, () => {
+                const route = getActiveStreamRouteByRequestId(primaryRequestId);
+                if (route) {
+                  emitRpcStreamPullForRoute(route, pullWindow);
+                }
+              });
+            },
+            onComplete: (payload) => {
+              restMaterializeState.settled = true;
+              clearTimeout(timeoutHandle);
+              try {
+                const merged =
+                  streamedRows.length > 0
+                    ? mergeSqlStreamRpcResponseWithAppendedRows(initialJson, streamedRows, payload)
+                    : mergeSqlStreamRpcResponse(initialJson, [], payload);
+                relayMetrics.restSqlStreamMaterializeCompleted += 1;
+                relayMetrics.restSqlStreamMaterializeRowsMerged +=
+                  countSqlExecuteResultRowsInEnvelope(merged);
+                pendingRequest.latencyTrace?.recordPendingResolveEnd();
+                resolveOnce(merged);
+              } catch (err) {
+                const mergeError =
+                  err instanceof Error ? err : new Error("Failed to merge SQL stream");
+                if (
+                  mergeError.message.startsWith("Agent SQL stream ended with terminal_status=")
+                ) {
+                  rejectOnce(serviceUnavailable(mergeError.message));
+                  return;
+                }
+                rejectOnce(mergeError);
+              }
+            },
+          };
+
+          upsertActiveStreamRoute({
+            requestId: primaryRequestId,
+            agentSocketId: socketId,
+            streamHandlers,
+            streamId: streamId as string,
+            restMaterializeState,
+          });
+          registerAgentSuccess(pendingRequest.agentId);
+          observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
+          clearRestPendingRequest(pendingRequest);
+          pendingRequest.onStreamMaterializeStarted?.();
+
+          const route = getActiveStreamRouteByRequestId(primaryRequestId);
+          if (route) {
+            emitRpcStreamPullForRoute(route, pullWindow);
+            restSqlStreamMaterializeSeedCredits(primaryRequestId, pullWindow);
+          }
           return;
         }
 
-        const streamId = extractStreamIdFromRpcResponse(decoded.data);
-        const pendingRequest = findRestPendingRequestByIds(socketId, candidateIds);
-        if (pendingRequest) {
-          pendingRequest.latencyTrace?.markInboundArrival(inboundSyncStart);
-          pendingRequest.latencyTrace?.recordInboundDecodeMs(decodeMs);
-          const pendingRequestId = pendingRequest.primaryRequestId;
-          const deferredRestStream =
-            Boolean(streamId) && pendingRequest.restStreamAggregate === true;
-
-          if (deferredRestStream) {
-            const initialJson = decoded.data;
-            const timeoutHandle = pendingRequest.timeoutHandle;
-            const resolveOnce = pendingRequest.resolve;
-            const rejectOnce = pendingRequest.reject;
-            const primaryRequestId = pendingRequestId;
-            const streamedRows: unknown[] = [];
-            const pullWindow = agentRegistry.resolveStreamPullWindow(
+        if (pendingRequest.streamHandlers) {
+          if (streamId) {
+            const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(
               pendingRequest.agentId,
-              env.socketRestStreamPullWindowSize,
             );
-            const materializeMaxRows = env.socketRestSqlStreamMaterializeMaxRows;
-            const materializeMaxChunks = env.socketRestSqlStreamMaterializeMaxChunks;
-            const materializeMaxBytes = env.socketRestSqlStreamMaterializeMaxBytes;
-            let aggregatedRowCount = countSqlExecuteResultRowsInEnvelope(initialJson);
-            let aggregatedByteCount = 0;
-            let chunkFramesSeen = 0;
-            if (materializeMaxBytes > 0) {
-              try {
-                aggregatedByteCount = Buffer.byteLength(JSON.stringify(initialJson), "utf8");
-              } catch {
-                aggregatedByteCount = 0;
-              }
-            }
-
-            if (materializeMaxRows > 0 && aggregatedRowCount > materializeMaxRows) {
-              relayMetrics.restMaterializeRowLimitExceeded += 1;
+            if (countOpenStreamRoutesForAgent(socketId) >= effectivePolicy.maxConcurrentStreams) {
               registerAgentFailure(pendingRequest.agentId);
               clearTimeout(pendingRequest.timeoutHandle);
               clearRestPendingRequest(pendingRequest);
               pendingRequest.reject(
                 serviceUnavailable(
-                  "REST SQL stream materialization would exceed configured row limit (use Socket bridge for large streams)",
+                  `Agent active stream capacity reached (${effectivePolicy.maxConcurrentStreams})`,
                 ),
               );
               return;
             }
-
-            const restMaterializeState = {
-              settled: false,
-              timeoutHandle,
-              reject: rejectOnce,
-              agentId: pendingRequest.agentId,
-            };
-
-            const streamHandlers: StreamEventHandlers = {
-              consumerSocketId: REST_STREAM_AGGREGATE_CONSUMER_ID,
-              mode: "legacy",
-              onChunk: (payload) => {
-                chunkFramesSeen += 1;
-                if (materializeMaxChunks > 0 && chunkFramesSeen > materializeMaxChunks) {
-                  relayMetrics.restMaterializeChunkLimitExceeded += 1;
-                  registerAgentFailure(pendingRequest.agentId);
-                  const route = getActiveStreamRouteByRequestId(primaryRequestId);
-                  if (route) {
-                    removeActiveStreamRoute(route, { restMaterialize: "detach" });
-                  }
-                  rejectOnce(
-                    serviceUnavailable(
-                      "REST SQL stream materialization exceeded configured chunk limit (use Socket bridge for large streams)",
-                    ),
-                  );
-                  return;
-                }
-
-                const chunkRows = countSqlStreamChunkRows(payload);
-                if (materializeMaxRows > 0 && aggregatedRowCount + chunkRows > materializeMaxRows) {
-                  relayMetrics.restMaterializeRowLimitExceeded += 1;
-                  registerAgentFailure(pendingRequest.agentId);
-                  const route = getActiveStreamRouteByRequestId(primaryRequestId);
-                  if (route) {
-                    removeActiveStreamRoute(route, { restMaterialize: "detach" });
-                  }
-                  rejectOnce(
-                    serviceUnavailable(
-                      "REST SQL stream materialization exceeded configured row limit (use Socket bridge for large streams)",
-                    ),
-                  );
-                  return;
-                }
-
-                if (materializeMaxBytes > 0) {
-                  let chunkBytes = 0;
-                  try {
-                    chunkBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
-                  } catch {
-                    chunkBytes = 0;
-                  }
-                  if (aggregatedByteCount + chunkBytes > materializeMaxBytes) {
-                    relayMetrics.restMaterializeByteLimitExceeded += 1;
-                    registerAgentFailure(pendingRequest.agentId);
-                    const route = getActiveStreamRouteByRequestId(primaryRequestId);
-                    if (route) {
-                      removeActiveStreamRoute(route, { restMaterialize: "detach" });
-                    }
-                    rejectOnce(
-                      serviceUnavailable(
-                        "REST SQL stream materialization exceeded configured byte limit (use Socket bridge for large streams)",
-                      ),
-                    );
-                    return;
-                  }
-                  aggregatedByteCount += chunkBytes;
-                }
-
-                aggregatedRowCount += chunkRows;
-                appendSqlStreamChunkRows(streamedRows, payload);
-                restSqlStreamMaterializeConsumeChunk(primaryRequestId, pullWindow, () => {
-                  const route = getActiveStreamRouteByRequestId(primaryRequestId);
-                  if (route) {
-                    emitRpcStreamPullForRoute(route, pullWindow);
-                  }
-                });
-              },
-              onComplete: (payload) => {
-                restMaterializeState.settled = true;
-                clearTimeout(timeoutHandle);
-                try {
-                  const merged =
-                    streamedRows.length > 0
-                      ? mergeSqlStreamRpcResponseWithAppendedRows(
-                          initialJson,
-                          streamedRows,
-                          payload,
-                        )
-                      : mergeSqlStreamRpcResponse(initialJson, [], payload);
-                  relayMetrics.restSqlStreamMaterializeCompleted += 1;
-                  relayMetrics.restSqlStreamMaterializeRowsMerged +=
-                    countSqlExecuteResultRowsInEnvelope(merged);
-                  pendingRequest.latencyTrace?.recordPendingResolveEnd();
-                  resolveOnce(merged);
-                } catch (err) {
-                  const mergeError =
-                    err instanceof Error ? err : new Error("Failed to merge SQL stream");
-                  if (
-                    mergeError.message.startsWith("Agent SQL stream ended with terminal_status=")
-                  ) {
-                    rejectOnce(serviceUnavailable(mergeError.message));
-                    return;
-                  }
-                  rejectOnce(mergeError);
-                }
-              },
-            };
-
             upsertActiveStreamRoute({
-              requestId: primaryRequestId,
-              agentSocketId: socketId,
-              streamHandlers,
-              streamId: streamId as string,
-              restMaterializeState,
-            });
-            registerAgentSuccess(pendingRequest.agentId);
-            observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
-            clearRestPendingRequest(pendingRequest);
-            // The dispatcher has been holding a per-agent inflight slot since
-            // emit. Now that materialization is registered in the active stream
-            // registry (with its own caps), release the slot so other REST
-            // commands to the same agent are not blocked by long streams.
-            pendingRequest.onStreamMaterializeStarted?.();
-
-            const route = getActiveStreamRouteByRequestId(primaryRequestId);
-            if (route) {
-              emitRpcStreamPullForRoute(route, pullWindow);
-              restSqlStreamMaterializeSeedCredits(primaryRequestId, pullWindow);
-            }
-            return;
-          }
-
-          if (pendingRequest.streamHandlers) {
-            if (streamId) {
-              upsertActiveStreamRoute({
-                requestId: pendingRequestId,
-                agentSocketId: socketId,
-                streamHandlers: pendingRequest.streamHandlers,
-                streamId,
-              });
-              logger.debug("rpc_stream_registered", {
-                requestId: pendingRequestId,
-                streamId,
-                socketId,
-              });
-            } else {
-              const existingStream = getActiveStreamRouteByRequestId(pendingRequestId);
-              if (existingStream && existingStream.agentSocketId === socketId) {
-                removeActiveStreamRoute(existingStream);
-              }
-            }
-          }
-
-          if (!pendingRequest.acked) {
-            logger.info("rpc_response_received_without_ack", {
               requestId: pendingRequestId,
+              agentSocketId: socketId,
+              streamHandlers: pendingRequest.streamHandlers,
+              streamId,
+            });
+            logger.debug("rpc_stream_registered", {
+              requestId: pendingRequestId,
+              streamId,
               socketId,
             });
-          }
-
-          registerAgentSuccess(pendingRequest.agentId);
-          observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
-          clearTimeout(pendingRequest.timeoutHandle);
-          clearRestPendingRequest(pendingRequest);
-          pendingRequest.latencyTrace?.recordPendingResolveEnd();
-          pendingRequest.resolve(decoded.data);
-        }
-
-        const relayRoute = findRelayRequestRouteForAgentSocket(candidateIds, socketId);
-
-        if (!relayRoute) {
-          return;
-        }
-
-        relayRoute.latencyTrace?.markInboundArrival(inboundSyncStart);
-        relayRoute.latencyTrace?.recordInboundDecodeMs(decodeMs);
-
-        const responseId = relayRoute.requestId;
-
-        observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
-        registerAgentSuccess(relayRoute.agentId);
-        clearTimeout(relayRoute.timeoutHandle);
-        conversationRegistry.touchInternal(relayRoute.conversationId);
-
-        if (streamId) {
-          relayRoute.latencyTrace?.markRelayStreamOpenWall();
-          upsertActiveStreamRoute({
-            requestId: responseId,
-            agentSocketId: socketId,
-            streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
-            streamId,
-          });
-          setRelayStreamFlowCredits(responseId, 0);
-        }
-
-        enqueueRelayOutbound(responseId, async () => {
-          const responseFrame = await encodeRelayOutboundFrame(decoded.data, responseId);
-          const tRelayForward = performance.now();
-          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
-          relayRoute.latencyTrace?.addPhaseMs(
-            "relay_forward_to_consumer_ms",
-            performance.now() - tRelayForward,
-          );
-          relayMetrics.responsesForwarded += 1;
-
-          if (relayRoute.clientRequestId) {
-            const idempotencyMap = getOrCreateRelayIdempotencyMap(relayRoute.conversationId);
-            const previousEntry = idempotencyMap.get(relayRoute.clientRequestId);
-            setRelayIdempotencyEntry(relayRoute.conversationId, relayRoute.clientRequestId, {
-              requestId: relayRoute.requestId,
-              expiresAtMs: Date.now() + relayIdempotencyTtlMs,
-              responseFrame,
-            });
-            // Drain any pending duplicate-request waiters that arrived while the
-            // original was in flight. Replay the response to each consumer.
-            const waiters = previousEntry?.pendingReplayConsumerSocketIds;
-            if (waiters && waiters.length > 0) {
-              for (const waiterSocketId of waiters) {
-                if (waiterSocketId === relayRoute.consumerSocketId) {
-                  // Original consumer already received the response above.
-                  continue;
-                }
-                emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, responseFrame);
-                relayMetrics.responsesForwarded += 1;
-              }
+          } else {
+            const existingStream = getActiveStreamRouteByRequestId(pendingRequestId);
+            if (existingStream && existingStream.agentSocketId === socketId) {
+              removeActiveStreamRoute(existingStream);
             }
           }
+        }
 
-          void recordSocketAuditEvent({
-            eventType: socketEvents.relayRpcResponse,
-            actorSocketId: socketId,
-            direction: "agent_to_consumer",
-            conversationId: relayRoute.conversationId,
-            agentId: relayRoute.agentId,
-            requestId: responseId,
-            ...(streamId ? { streamId } : {}),
+        if (!pendingRequest.acked) {
+          logger.info("rpc_response_received_without_ack", {
+            requestId: pendingRequestId,
+            socketId,
           });
+        }
 
-          if (!streamId) {
-            relayRoute.latencyTrace?.recordPendingResolveEnd();
-            relayRoute.latencyTrace?.finalizeOnce({ outcome: "success" });
+        registerAgentSuccess(pendingRequest.agentId);
+        observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
+        clearTimeout(pendingRequest.timeoutHandle);
+        clearRestPendingRequest(pendingRequest);
+        pendingRequest.latencyTrace?.recordPendingResolveEnd();
+        pendingRequest.resolve(decoded.data);
+      }
+
+      const relayRoute = findRelayRequestRouteForAgentSocket(candidateIds, socketId);
+
+      if (!relayRoute) {
+        return;
+      }
+      if (relayRoute.timedOut === true) {
+        logger.debug("relay_late_response_ignored_after_timeout", {
+          requestId: relayRoute.requestId,
+          socketId,
+        });
+        return;
+      }
+
+      relayRoute.latencyTrace?.markInboundArrival(inboundSyncStart);
+      relayRoute.latencyTrace?.recordInboundDecodeMs(decodeMs);
+
+      const responseId = relayRoute.requestId;
+
+      observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
+      registerAgentSuccess(relayRoute.agentId);
+      clearTimeout(relayRoute.timeoutHandle);
+      conversationRegistry.touchInternal(relayRoute.conversationId);
+
+      if (streamId) {
+        const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(relayRoute.agentId);
+        const exceededAgentStreamLimit =
+          countOpenStreamRoutesForAgent(socketId) >= effectivePolicy.maxConcurrentStreams;
+        const exceededHubRelayStreamLimit = getActiveStreamRouteCount() >= relayMaxActiveStreams;
+        if (exceededAgentStreamLimit || exceededHubRelayStreamLimit) {
+          const limitMessage = exceededAgentStreamLimit
+            ? `Agent active stream capacity reached (${effectivePolicy.maxConcurrentStreams})`
+            : `Relay active stream capacity reached (${relayMaxActiveStreams})`;
+          const errorCode = exceededAgentStreamLimit
+            ? "AGENT_STREAM_CAPACITY_REACHED"
+            : "RELAY_STREAM_CAPACITY_REACHED";
+          const errorPayload = {
+            jsonrpc: "2.0",
+            id: responseId,
+            error: {
+              code: -32000,
+              message: limitMessage,
+              data: {
+                code: errorCode,
+                retryable: true,
+              },
+            },
+          };
+          relayRoute.latencyTrace?.finalizeOnce({
+            outcome: "error",
+            httpStatus: 503,
+            errorCode,
+          });
+          enqueueRelayOutbound(responseId, async () => {
+            const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
+            emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
             const existingStream = getActiveStreamRouteByRequestId(responseId);
             if (existingStream && existingStream.agentSocketId === socketId) {
               removeActiveStreamRoute(existingStream);
             }
             removeRelayRequestRoute(responseId);
-          }
+          });
+          return;
+        }
+        relayRoute.latencyTrace?.markRelayStreamOpenWall();
+        upsertActiveStreamRoute({
+          requestId: responseId,
+          agentSocketId: socketId,
+          streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
+          streamId,
         });
-      } finally {
-        fireAck();
+        setRelayStreamFlowCredits(responseId, 0);
       }
-    });
+
+      enqueueRelayOutbound(responseId, async () => {
+        const responseFrame = await encodeRelayOutboundFrame(decoded.data, responseId);
+        const tRelayForward = performance.now();
+        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
+        relayRoute.latencyTrace?.addPhaseMs(
+          "relay_forward_to_consumer_ms",
+          performance.now() - tRelayForward,
+        );
+        relayMetrics.responsesForwarded += 1;
+
+        if (relayRoute.clientRequestId) {
+          const idempotencyMap = getOrCreateRelayIdempotencyMap(relayRoute.conversationId);
+          const previousEntry = idempotencyMap.get(relayRoute.clientRequestId);
+          setRelayIdempotencyEntry(relayRoute.conversationId, relayRoute.clientRequestId, {
+            requestId: relayRoute.requestId,
+            expiresAtMs: Date.now() + relayIdempotencyTtlMs,
+            responseFrame,
+          });
+          const waiters = previousEntry?.pendingReplayConsumerSocketIds;
+          if (waiters && waiters.length > 0) {
+            for (const waiterSocketId of waiters) {
+              if (waiterSocketId === relayRoute.consumerSocketId) {
+                continue;
+              }
+              emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, responseFrame);
+              relayMetrics.responsesForwarded += 1;
+            }
+          }
+        }
+
+        void recordSocketAuditEvent({
+          eventType: socketEvents.relayRpcResponse,
+          actorSocketId: socketId,
+          direction: "agent_to_consumer",
+          conversationId: relayRoute.conversationId,
+          agentId: relayRoute.agentId,
+          requestId: responseId,
+          ...(streamId ? { streamId } : {}),
+        });
+
+        if (!streamId) {
+          relayRoute.latencyTrace?.recordPendingResolveEnd();
+          relayRoute.latencyTrace?.finalizeOnce({ outcome: "success" });
+          const existingStream = getActiveStreamRouteByRequestId(responseId);
+          if (existingStream && existingStream.agentSocketId === socketId) {
+            removeActiveStreamRoute(existingStream);
+          }
+          removeRelayRequestRoute(responseId);
+        }
+      });
+    })()
+      .catch((error: unknown) => {
+        failFastUnexpectedAgentResponseError(socketId, rawPayload, error);
+      })
+      .finally(() => {
+        fireAck();
+      });
   };
 
   const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void => {
@@ -810,9 +974,13 @@ export const createRpcBridgeAgentInboundHandlers = (
       }
 
       const requestIds = Array.isArray(data.request_ids)
-        ? (data.request_ids as unknown[])
-            .map((id) => toRequestId(id))
-            .filter((id): id is string => id !== null)
+        ? Array.from(
+            new Set(
+              (data.request_ids as unknown[])
+                .map((id) => toRequestId(id))
+                .filter((id): id is string => id !== null),
+            ),
+          )
         : [];
 
       const preencodedBatchAck = requestIds.length > 1 ? preencodePayloadFrameJson(data) : null;
@@ -852,5 +1020,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     handleAgentRpcComplete,
     handleAgentRpcAck,
     handleAgentBatchAck,
+    cleanupSocketInboundState,
+    resetInboundState,
   };
 };

@@ -9,6 +9,7 @@ import {
   agentCommandBodySchema,
   bridgeCommandSchema,
 } from "../../src/shared/validators/agent_command";
+import { withBridgeMeta } from "../../src/presentation/socket/hub/rpc_bridge_command_helpers";
 
 const SCHEMA_FILES = [
   "rpc.request.schema.json",
@@ -298,7 +299,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       jsonrpc: "2.0",
       method: "sql.execute",
       id: "rpc-meta",
-      api_version: "2.5",
+      api_version: "2.8",
       meta: {
         traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
       },
@@ -315,6 +316,35 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       },
     };
     assertZodAcceptsCommand(rpcReqWithOutboundCompression);
+
+    const hubForwardedRpcReq = withBridgeMeta(
+      {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "rpc-meta-forwarded",
+        params: { sql: "SELECT 1", client_token: "a1b2c3d4" },
+        meta: {
+          traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+          outbound_compression: "auto",
+          conversation_id: "conv-1",
+          client_request_id: "client-1",
+        },
+      },
+      {
+        requestId: "rpc-meta-forwarded",
+        agentId: "agent-contract",
+        traceId: "trace-contract",
+        timestamp: "2026-03-23T10:00:00.000Z",
+      },
+    );
+    expect(validateRpcRequest!(hubForwardedRpcReq)).toBe(true);
+    expect((hubForwardedRpcReq as { meta?: Record<string, unknown> }).meta).toEqual({
+      traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+      request_id: "rpc-meta-forwarded",
+      agent_id: "agent-contract",
+      timestamp: "2026-03-23T10:00:00.000Z",
+      trace_id: "trace-contract",
+    });
 
     const logicalJson = JSON.stringify({ ok: true });
     const payloadBytes = Array.from(Buffer.from(logicalJson, "utf8"));

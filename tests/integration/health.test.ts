@@ -145,9 +145,15 @@ describe("GET /api/v1/health", () => {
     expect(response.text).toContain("plug_socket_relay_requests_accepted_total");
     expect(response.text).toContain("plug_socket_relay_rest_pending_rejected_total");
     expect(response.text).toContain("plug_socket_relay_rpc_frame_decode_failed_total");
+    expect(response.text).toContain(
+      "plug_rest_sql_stream_materialize_active_stream_limit_exceeded_total",
+    );
     expect(response.text).toContain("plug_socket_relay_rest_pending_requests");
     expect(response.text).toContain("plug_socket_relay_rate_limit_request_rejected_total");
+    expect(response.text).toContain("plug_socket_consumers_guard_db_avg_ms");
+    expect(response.text).toContain("plug_socket_consumers_profile_push_batches_total");
     expect(response.text).toContain("plug_socket_audit_prune_runs_total");
+    expect(response.text).toContain("plug_socket_audit_writes_dropped_overflow_total");
     expect(response.text).toContain("plug_agent_profile_maintenance_prune_runs_total");
     expect(response.text).toContain("plug_client_agent_access_expiry_runs_total");
     expect(response.text).toContain("plug_client_me_agents_list_responses_total");

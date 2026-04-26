@@ -10,7 +10,10 @@ import {
 import { percentile } from "../../../shared/utils/percentile";
 import { getRestPendingRequestCount } from "./rest_pending_requests";
 import { getRestAgentDispatchQueueMetricsSnapshot } from "./rest_agent_dispatch_queue";
-import { getRelayOutboundQueueMetricsSnapshot } from "./relay_outbound_queue";
+import {
+  getRelayOutboundQueueFastMetricsSnapshot,
+  getRelayOutboundQueueMetricsSnapshot,
+} from "./relay_outbound_queue";
 import { getRelayRegisteredRouteCount } from "./relay_request_registry";
 import { relayStreamFlowState } from "./relay_stream_flow_state";
 
@@ -23,12 +26,22 @@ interface AgentLatencyStats {
   totalMs: number;
   maxMs: number;
   ring: LatencyRingBuffer;
+  lastTouchedAtMs: number;
 }
 
-const relayCircuitByAgentId = new Map<string, { failures: number; openUntilMs: number }>();
+type RelayCircuitState = {
+  failures: number;
+  openUntilMs: number;
+  lastTouchedAtMs: number;
+};
+
+const relayCircuitByAgentId = new Map<string, RelayCircuitState>();
 const latencyByAgentId = new Map<string, AgentLatencyStats>();
 let latencyByAgentCache: RelayHubMetricsSnapshot["latencyByAgent"] = [];
 let latencyByAgentCacheDirty = true;
+const maxTrackedAgentStates = 2_048;
+const staleCircuitRetentionMs = Math.max(relayCircuitOpenMs * 4, 5 * 60 * 1_000);
+const staleLatencyRetentionMs = 30 * 60 * 1_000;
 
 /** Mutable counters for relay + REST bridge paths (also wired from `rest_agent_dispatch_queue`). */
 export const relayMetrics = {
@@ -48,6 +61,7 @@ export const relayMetrics = {
   restMaterializeRowLimitExceeded: 0,
   restMaterializeChunkLimitExceeded: 0,
   restMaterializeByteLimitExceeded: 0,
+  restMaterializeActiveStreamLimitExceeded: 0,
   requestTimeouts: 0,
   circuitOpenRejects: 0,
   /** `SOCKET_REST_MAX_PENDING_REQUESTS` cap before dispatch. */
@@ -97,13 +111,72 @@ export const logRpcFrameDecodeFailure = (input: {
   }
 };
 
-const getCircuitState = (agentId: string): { failures: number; openUntilMs: number } => {
+const pruneRelayCircuitState = (nowMs: number): void => {
+  for (const [agentId, state] of relayCircuitByAgentId) {
+    if (state.openUntilMs > nowMs) {
+      continue;
+    }
+    if (nowMs - state.lastTouchedAtMs < staleCircuitRetentionMs) {
+      continue;
+    }
+    relayCircuitByAgentId.delete(agentId);
+  }
+
+  if (relayCircuitByAgentId.size <= maxTrackedAgentStates) {
+    return;
+  }
+
+  const removable = Array.from(relayCircuitByAgentId.entries())
+    .filter(([, state]) => state.openUntilMs <= nowMs)
+    .sort((a, b) => a[1].lastTouchedAtMs - b[1].lastTouchedAtMs);
+  for (const [agentId] of removable) {
+    relayCircuitByAgentId.delete(agentId);
+    if (relayCircuitByAgentId.size <= maxTrackedAgentStates) {
+      break;
+    }
+  }
+};
+
+const pruneLatencyState = (nowMs: number): void => {
+  for (const [agentId, stats] of latencyByAgentId) {
+    if (nowMs - stats.lastTouchedAtMs < staleLatencyRetentionMs) {
+      continue;
+    }
+    latencyByAgentId.delete(agentId);
+    latencyByAgentCacheDirty = true;
+  }
+
+  if (latencyByAgentId.size <= maxTrackedAgentStates) {
+    return;
+  }
+
+  const removable = Array.from(latencyByAgentId.entries()).sort(
+    (a, b) => a[1].lastTouchedAtMs - b[1].lastTouchedAtMs,
+  );
+  for (const [agentId] of removable) {
+    latencyByAgentId.delete(agentId);
+    latencyByAgentCacheDirty = true;
+    if (latencyByAgentId.size <= maxTrackedAgentStates) {
+      break;
+    }
+  }
+};
+
+const pruneAgentHealthMaps = (nowMs = Date.now()): void => {
+  pruneRelayCircuitState(nowMs);
+  pruneLatencyState(nowMs);
+};
+
+const getCircuitState = (agentId: string): RelayCircuitState => {
+  const nowMs = Date.now();
+  pruneRelayCircuitState(nowMs);
   const existing = relayCircuitByAgentId.get(agentId);
   if (existing) {
+    existing.lastTouchedAtMs = nowMs;
     return existing;
   }
 
-  const created = { failures: 0, openUntilMs: 0 };
+  const created = { failures: 0, openUntilMs: 0, lastTouchedAtMs: nowMs };
   relayCircuitByAgentId.set(agentId, created);
   return created;
 };
@@ -122,6 +195,7 @@ export const ensureAgentCircuitClosed = (agentId: string): void => {
 export const registerAgentFailure = (agentId: string): void => {
   const state = getCircuitState(agentId);
   state.failures += 1;
+  state.lastTouchedAtMs = Date.now();
   if (state.failures >= relayCircuitFailureThreshold) {
     state.openUntilMs = Date.now() + relayCircuitOpenMs;
     state.failures = 0;
@@ -134,17 +208,21 @@ export const registerAgentSuccess = (agentId: string): void => {
   if (state.failures !== 0 || state.openUntilMs !== 0) {
     state.failures = 0;
     state.openUntilMs = 0;
-    relayCircuitByAgentId.set(agentId, state);
   }
+  state.lastTouchedAtMs = Date.now();
+  relayCircuitByAgentId.set(agentId, state);
 };
 
 export const observeAgentLatency = (agentId: string, elapsedMs: number): void => {
+  const nowMs = Date.now();
+  pruneLatencyState(nowMs);
   const safeElapsedMs = Math.max(0, elapsedMs);
   const existing = latencyByAgentId.get(agentId);
   if (existing) {
     existing.count += 1;
     existing.totalMs += safeElapsedMs;
     existing.maxMs = Math.max(existing.maxMs, safeElapsedMs);
+    existing.lastTouchedAtMs = nowMs;
     pushLatencyRingBuffer(existing.ring, safeElapsedMs);
     latencyByAgentId.set(agentId, existing);
     latencyByAgentCacheDirty = true;
@@ -158,6 +236,7 @@ export const observeAgentLatency = (agentId: string, elapsedMs: number): void =>
     totalMs: safeElapsedMs,
     maxMs: safeElapsedMs,
     ring,
+    lastTouchedAtMs: nowMs,
   });
   latencyByAgentCacheDirty = true;
 };
@@ -208,6 +287,7 @@ export type RelayHubMetricsSnapshot = {
     readonly restMaterializeRowLimitExceeded: number;
     readonly restMaterializeChunkLimitExceeded: number;
     readonly restMaterializeByteLimitExceeded: number;
+    readonly restMaterializeActiveStreamLimitExceeded: number;
     readonly requestTimeouts: number;
     readonly circuitOpenRejects: number;
     readonly restGlobalPendingCapRejected: number;
@@ -252,9 +332,12 @@ export type RelayHubMetricsSnapshot = {
 export const buildRelayHubMetricsSnapshot = (input: {
   readonly activeStreams: number;
   readonly restMaterializeStreamsInFlight: number;
+  readonly useFastQueueSnapshot?: boolean;
 }): RelayHubMetricsSnapshot => {
+  const nowMs = Date.now();
+  pruneAgentHealthMaps(nowMs);
   const openCircuits = Array.from(relayCircuitByAgentId.values()).filter(
-    (state) => state.openUntilMs > Date.now(),
+    (state) => state.openUntilMs > nowMs,
   ).length;
 
   if (latencyByAgentCacheDirty) {
@@ -286,7 +369,10 @@ export const buildRelayHubMetricsSnapshot = (input: {
       openCircuits,
     },
     latencyByAgent: latencyByAgentCache,
-    relayOutboundQueue: getRelayOutboundQueueMetricsSnapshot(),
+    relayOutboundQueue:
+      input.useFastQueueSnapshot === true
+        ? getRelayOutboundQueueFastMetricsSnapshot()
+        : getRelayOutboundQueueMetricsSnapshot(),
     restAgentDispatchQueue: getRestAgentDispatchQueueMetricsSnapshot(),
   };
 };
@@ -336,6 +422,7 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.restMaterializeRowLimitExceeded = 0;
   relayMetrics.restMaterializeChunkLimitExceeded = 0;
   relayMetrics.restMaterializeByteLimitExceeded = 0;
+  relayMetrics.restMaterializeActiveStreamLimitExceeded = 0;
   relayMetrics.requestTimeouts = 0;
   relayMetrics.circuitOpenRejects = 0;
   relayMetrics.restGlobalPendingCapRejected = 0;

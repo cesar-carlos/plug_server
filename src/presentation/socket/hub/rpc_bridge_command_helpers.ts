@@ -1,4 +1,5 @@
 import type { BridgeBatchCommand, BridgeCommand } from "../../../shared/validators/agent_command";
+import { HUB_DEFAULT_API_VERSION } from "../../../shared/constants/agent_transport_contract";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
@@ -52,7 +53,39 @@ export const toCorrelationIds = (command: BridgeCommand): readonly string[] => {
 
 export const resolveOutboundApiVersion = (record: Record<string, unknown>): string => {
   const v = record.api_version;
-  return typeof v === "string" && v.trim() !== "" ? v.trim() : "2.5";
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : HUB_DEFAULT_API_VERSION;
+};
+
+const OUTBOUND_RPC_META_KEYS = [
+  "trace_id",
+  "traceparent",
+  "tracestate",
+  "request_id",
+  "agent_id",
+  "timestamp",
+] as const;
+
+/**
+ * Keep bridge-originated `meta` aligned with the published plug_agente schema.
+ * The hub may accept extra metadata from callers for compatibility, but it must
+ * not forward hub-only or undocumented fields to the agent.
+ */
+export const sanitizeOutboundRpcMeta = (
+  meta: Record<string, unknown> | null | undefined,
+): Record<string, unknown> => {
+  if (!meta) {
+    return {};
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const key of OUTBOUND_RPC_META_KEYS) {
+    const value = meta[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      sanitized[key] = value.trim();
+    }
+  }
+
+  return sanitized;
 };
 
 export const withBridgeMeta = (
@@ -67,7 +100,7 @@ export const withBridgeMeta = (
   if (isBatchCommand(command)) {
     return command.map((item) => {
       const itemRecord = item as unknown as Record<string, unknown>;
-      const existingMeta = toRecord(item.meta) ?? {};
+      const existingMeta = sanitizeOutboundRpcMeta(toRecord(item.meta));
       const itemRequestId = toRequestId(item.id) ?? input.requestId;
       return {
         ...item,
@@ -84,7 +117,7 @@ export const withBridgeMeta = (
   }
 
   const cmdRecord = command as unknown as Record<string, unknown>;
-  const existingMeta = toRecord(command.meta) ?? {};
+  const existingMeta = sanitizeOutboundRpcMeta(toRecord(command.meta));
   return {
     ...command,
     api_version: resolveOutboundApiVersion(cmdRecord),

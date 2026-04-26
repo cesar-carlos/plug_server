@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  countOpenStreamRoutesForAgent,
+  countStreamRoutesForAgent,
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteCount,
   removeActiveStreamRoute,
+  resolveActiveStreamRoute,
   resetActiveStreamRegistry,
   upsertActiveStreamRoute,
 } from "../../../../../src/presentation/socket/hub/active_stream_registry";
@@ -35,6 +38,45 @@ describe("active_stream_registry", () => {
     });
     const route = getActiveStreamRouteByRequestId("r1");
     expect(route?.streamId).toBe("s1");
+    expect(countStreamRoutesForAgent("a1")).toBe(1);
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(1);
+  });
+
+  it("rejects upsert collisions for the same request id from another agent socket", () => {
+    upsertActiveStreamRoute({
+      requestId: "r-collision",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+    });
+
+    expect(() =>
+      upsertActiveStreamRoute({
+        requestId: "r-collision",
+        agentSocketId: "a2",
+        streamHandlers: handlers,
+      }),
+    ).toThrow(/agent socket mismatch/i);
+  });
+
+  it("does not resolve ambiguous stream/request id pairs", () => {
+    upsertActiveStreamRoute({
+      requestId: "r-stream",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+      streamId: "s-shared",
+    });
+    upsertActiveStreamRoute({
+      requestId: "r-other",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+    });
+
+    expect(
+      resolveActiveStreamRoute("a1", {
+        stream_id: "s-shared",
+        request_id: "r-other",
+      }),
+    ).toBeNull();
   });
 
   it("removeActiveStreamRoute drops the route", () => {

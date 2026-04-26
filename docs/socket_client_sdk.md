@@ -21,12 +21,13 @@ real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 
 - **`SOCKET_CONSUMER_ROLES`**: deve incluir `client` (ou omitir a env para usar o default `user,admin,client` em `env.ts`). Sem `client`, o handshake `/consumers` falha para JWT `role=client`.
 - **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou omitido; `false` remove o push `client:agent.profile.updated`.
+- **Handshake `/consumers`**: exige JWT valido mesmo que `SOCKET_AUTH_REQUIRED=false` noutros canais; nao existe modo anonimo suportado para operacao real do namespace.
 - **REST offline**: `POST /api/v1/agents/commands` com `id` correlacionável e agente conhecido em memória mas sem socket → **HTTP 200** e `response.item.error` com `code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (não confundir com **503** de overload / notification-only / disconnect a meio de request).
 - **Multi-réplica**: validar sticky + `X-Hub-Instance-Id` — `docs/nginx_production.md` § 12 e checklist em `docs/configuration.md` (*Checklist produção*).
 
 ## Eventos e formato
 
-- **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket_relay_protocol.md` -> *Handshake: `connection:ready`*)
+- **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket_relay_protocol.md` -> *Handshake: `connection:ready`*). Quando esse evento chega para principal `client`, a room `client:<clientId>` ja foi associada e o push de perfil pode chegar imediatamente sem race adicional.
 - Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`
 - Dados em `PayloadFrame`: `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
 - **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/client_agent_business_rules.md`.
@@ -53,7 +54,7 @@ Em alguns eventos de **alto debito** (`relay:rpc.chunk`, `relay:rpc.complete`, a
 ## Limites e comportamento do hub (resumo)
 
 - **Tamanho de frame**: até **10 MiB** comprimido/decodificado no contrato do hub (`payload_frame.ts`); validar no cliente antes de enviar SQL/parametros enormes.
-- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`) e `agents:command` no namespace `/consumers` têm tetos por janela; REST `POST /api/v1/agents/commands` por utilizador (e opcionalmente por IP). Respostas **429** quando excedido. Erros RPC com `-32013` que carregam `error.data.retry_after_ms` (notavelmente `client_token.getPolicy` na v2.8) sao propagados pelo REST como header HTTP `Retry-After`.
+- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`) e `agents:command` no namespace `/consumers` têm tetos por janela; REST `POST /api/v1/agents/commands` por utilizador (e opcionalmente por IP). Respostas **429** quando excedido. No relay, dedupe (`deduplicated: true`) e falhas profundas de validacao `400` nao devem consumir quota final da janela; o hub faz rollback do contador. Erros RPC com `-32013` que carregam `error.data.retry_after_ms` (notavelmente `client_token.getPolicy` na v2.8) sao propagados pelo REST como header HTTP `Retry-After`.
 - **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`).
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
 - **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; várias instâncias sem afinidade partilhada degradam o comportamento — ver `docs/scaling_and_roadmap.md`.
@@ -142,10 +143,34 @@ Em overload do namespace `/consumers`, ou quando a janela de créditos estoura, 
 
 - O `id` JSON-RPC do cliente vira `client_request_id` para idempotencia.
 - O servidor gera `requestId` interno e devolve em `relay:rpc.accepted`.
+- O hub encaminha ao agente apenas os campos `meta` publicados pelo schema do
+  `plug_agente`; campos de compatibilidade aceitos na entrada (por exemplo
+  `outbound_compression`) sao stripados antes do `rpc:request`.
 - Em throughput alto, respeite backpressure com `relay:rpc.stream.pull`.
 - O servidor aplica rate-limit por consumer em:
   - `relay:conversation.start`
   - `relay:rpc.request`
+- `agents:command` e `agents:stream_pull` partilham o mesmo budget por janela no `/consumers`; o hub so consome esse budget depois da validacao estrutural e do inflight gate por socket
+
+## Desconexoes forçadas pelo servidor
+
+Sessões `/consumers` podem ser encerradas ativamente com `app:error` antes do
+disconnect:
+
+- `ACCOUNT_BLOCKED`: `User` ou `Client` foi bloqueado apos o socket conectar
+- `AGENT_ACCESS_REVOKED`: o acesso `Client -> Agent` foi revogado pelo owner ou pelo proprio client
+
+Recomendacao do SDK:
+
+1. tratar `app:error` como sinal para invalidar cache local do socket
+2. nao tentar reusar a mesma conexao apos `io server disconnect`
+3. reautenticar / refazer bootstrap REST antes de abrir novo `/consumers`
+
+## Push de perfil do agente
+
+`client:agent.profile.updated` so e enviado para clients **ativos** e com acesso
+efetivo no momento do fan-out. O hub ainda faz coalescing de bursts por `agentId`,
+entao uma rajada de updates pode chegar como um unico push com a versao mais nova.
 
 ## Bridge de comandos (`agents:command` no `/consumers`)
 
@@ -193,7 +218,7 @@ Espelha o mesmo objeto que enviarias no body do `POST /api/v1/agents/commands` (
     "jsonrpc": "2.0",
     "method": "sql.execute",
     "id": "req-socket-1",
-    "api_version": "2.5",
+    "api_version": "2.8",
     "meta": {
       "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
     },

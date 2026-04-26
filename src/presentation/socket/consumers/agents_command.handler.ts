@@ -19,6 +19,7 @@ import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/age
 import { AppError } from "../../../shared/errors/app_error";
 import { allowAgentsCommandSocket } from "../hub/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
+import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,
@@ -62,18 +63,6 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   }
 
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
-  if (!allowAgentsCommandSocket(userSub, socket.id)) {
-    emitCommandResponse(socket, {
-      success: false,
-      error: {
-        code: "TOO_MANY_REQUESTS",
-        message: "Too many agent commands, please try again later.",
-        statusCode: 429,
-      },
-    });
-    return;
-  }
-
   const body = parsed.data;
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
     emitCommandResponse(socket, {
@@ -87,10 +76,28 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     return;
   }
 
+  if (!allowAgentsCommandSocket(userSub, socket.id)) {
+    releaseSocketInflightSlot(socket);
+    emitCommandResponse(socket, {
+      success: false,
+      error: {
+        code: "TOO_MANY_REQUESTS",
+        message: "Too many agent commands, please try again later.",
+        statusCode: 429,
+      },
+    });
+    return;
+  }
+
   const latencyTrace = createBridgeLatencyTraceIfSampled({
     channel: "consumer_socket",
     userId: userSub,
   });
+  const abortController = new AbortController();
+  const unregisterAbortController = registerConsumerCommandAbortController(
+    socket.id,
+    abortController,
+  );
   const streamHandlers = {
     consumerSocketId: socket.id,
     onChunk: (payload: Record<string, unknown>): void => {
@@ -115,6 +122,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
           ...(body.payloadFrameCompression !== undefined
             ? { payloadFrameCompression: body.payloadFrameCompression }
             : {}),
+          signal: abortController.signal,
           ...(latencyTrace ? { latencyTrace } : {}),
         },
         container.agentAccessService,
@@ -221,6 +229,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
         },
       });
     } finally {
+      unregisterAbortController();
       releaseSocketInflightSlot(socket);
     }
   })();

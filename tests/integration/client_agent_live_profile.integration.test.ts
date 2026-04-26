@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { io as ioClient } from "socket.io-client";
 
 import { env } from "../../src/shared/config/env";
+import { Client } from "../../src/domain/entities/client.entity";
 import { getTestRepositoryAccess } from "../../src/shared/di/container";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { socketEvents } from "../../src/shared/constants/socket_events";
@@ -520,6 +521,61 @@ describe("Client agent live profile API", () => {
       expect(data.agent_id).toBe(agentId);
       expect(data.profile_version).toBe(1);
       expect(Array.isArray(data.changed_fields)).toBe(true);
+    } finally {
+      clientSocket.disconnect();
+    }
+  });
+
+  it("does not emit client:agent.profile.updated to a client blocked after socket connect", async () => {
+    const session = await registerOwnerAndClientSession(baseUrl);
+    const agentId = randomUUID();
+
+    await seedAgent({
+      agentId,
+      name: "Blocked Broadcast Seed",
+      tradeName: "Blocked Broadcast Trade",
+      cnpjCpf: `blocked-broadcast-${Date.now()}`,
+    });
+    await seedAgentBinding(session.owner.userId, agentId);
+    await repositories.clientAgentAccess.addAccess(session.client.clientId, agentId);
+
+    const agentLoginResponse = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+      email: session.owner.email,
+      password: session.owner.password,
+      agentId,
+    });
+    expect(agentLoginResponse.status).toBe(200);
+
+    const clientSocket = await connectConsumer(baseUrl, session.client.accessToken);
+    try {
+      const persistedClient = await repositories.client.findById(session.client.clientId);
+      expect(persistedClient).not.toBeNull();
+      await repositories.client.save(
+        new Client({
+          ...persistedClient!,
+          status: "blocked",
+          updatedAt: new Date(),
+        }),
+      );
+
+      const patchResponse = await request(baseUrl)
+        .patch(`/api/v1/agents/${agentId}/profile`)
+        .set("Authorization", `Bearer ${agentLoginResponse.body.accessToken as string}`)
+        .send({
+          tradeName: "Blocked Should Not Receive",
+          expectedProfileVersion: 0,
+        });
+
+      expect(patchResponse.status).toBe(200);
+
+      const receivedBroadcast = await waitForEvent<unknown>(
+        clientSocket,
+        socketEvents.clientAgentProfileUpdated,
+        1_500,
+      )
+        .then(() => true)
+        .catch(() => false);
+      expect(receivedBroadcast).toBe(false);
     } finally {
       clientSocket.disconnect();
     }

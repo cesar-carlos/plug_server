@@ -32,7 +32,6 @@ import {
   getActiveStreamRouteByRequestId,
   hasActiveStreamRouteForRequestId,
   removeActiveStreamRoute,
-  upsertActiveStreamRoute,
 } from "./active_stream_registry";
 import {
   ensureAgentCircuitClosed,
@@ -313,6 +312,10 @@ export const createDispatchRpcCommandToAgent = (
         };
 
         const timeoutHandle = setTimeout(() => {
+          // Current hub-side delivery guarantee is observational: we track
+          // `rpc:request_ack` / `rpc:batch_ack` and Socket.IO response acks for
+          // troubleshooting, but we do not automatically resend `rpc:request`
+          // when an ack is missing. Timeout remains the terminal safeguard.
           const hadAck = pendingRequest.acked;
           clearRestPendingRequest(pendingRequest);
           const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
@@ -375,14 +378,6 @@ export const createDispatchRpcCommandToAgent = (
         }
 
         registerRestPendingRequest(pendingRequest);
-
-        if (pendingRequest.streamHandlers) {
-          upsertActiveStreamRoute({
-            requestId,
-            agentSocketId: registeredAgent.socketId,
-            streamHandlers: pendingRequest.streamHandlers,
-          });
-        }
 
         try {
           const tEmitPending = performance.now();

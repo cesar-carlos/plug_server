@@ -261,12 +261,7 @@ const envSchema = z.object({
    * so a misbehaving client cannot accumulate unbounded async work in the bridge.
    * Set `0` to disable the gate (legacy behaviour: unbounded inflight per socket).
    */
-  SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(10_000)
-    .default(32),
+  SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET: z.coerce.number().int().min(0).max(10_000).default(32),
   SOCKET_AGENT_ROLES: z
     .string()
     .default("agent")
@@ -365,6 +360,13 @@ const envSchema = z.object({
   SOCKET_REST_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(200),
   /** Window size for automatic `rpc:stream.pull` when the REST bridge materializes a streaming `sql.execute` result. */
   SOCKET_REST_STREAM_PULL_WINDOW_SIZE: z.coerce.number().int().positive().max(10_000).default(256),
+  /** Upper bound advertised to agents for hub-initiated stream pull windows. */
+  SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10_000)
+    .default(256),
   /**
    * Max aggregated rows allowed when REST materializes a streaming `sql.execute` (`stream_id` + chunks).
    * `0` disables the limit (not recommended for large deployments).
@@ -706,6 +708,7 @@ export const env = {
   socketRestAgentMaxQueue: parsedEnv.SOCKET_REST_AGENT_MAX_QUEUE,
   socketRestAgentQueueWaitMs: parsedEnv.SOCKET_REST_AGENT_QUEUE_WAIT_MS,
   socketRestStreamPullWindowSize: parsedEnv.SOCKET_REST_STREAM_PULL_WINDOW_SIZE,
+  socketRestStreamPullMaxWindowSize: parsedEnv.SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE,
   socketRestSqlStreamMaterializeMaxRows: parsedEnv.SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS,
   socketRestSqlStreamMaterializeMaxChunks: parsedEnv.SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS,
   socketRestSqlStreamMaterializeMaxBytes: parsedEnv.SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES,

@@ -108,6 +108,18 @@ export const allowRelayConversationStart = (
   return true;
 };
 
+export const refundRelayConversationStart = (
+  userSub: string | undefined,
+  socketId: string,
+): void => {
+  const { key } = buildIdentityKey(userSub, socketId);
+  const state = statesByIdentityKey.get(key);
+  if (!state || state.conversationStarts <= 0) {
+    return;
+  }
+  state.conversationStarts -= 1;
+};
+
 export const allowRelayRpcRequest = (userSub: string | undefined, socketId: string): boolean => {
   const { key, scope } = buildIdentityKey(userSub, socketId);
   const state = ensureWindowState(key);
@@ -127,6 +139,15 @@ export const allowRelayRpcRequest = (userSub: string | undefined, socketId: stri
     relayRateLimitMetrics.relayRequestAllowedAnon += 1;
   }
   return true;
+};
+
+export const refundRelayRpcRequest = (userSub: string | undefined, socketId: string): void => {
+  const { key } = buildIdentityKey(userSub, socketId);
+  const state = statesByIdentityKey.get(key);
+  if (!state || state.relayRequests <= 0) {
+    return;
+  }
+  state.relayRequests -= 1;
 };
 
 export const allowRelayStreamPull = (
@@ -170,6 +191,22 @@ export const allowRelayStreamPull = (
     grantedCredits: safeCreditsRequested,
     remainingCredits: Math.max(0, limit - state.streamPullCreditsGranted),
   };
+};
+
+export const refundRelayStreamPullCredits = (
+  userSub: string | undefined,
+  socketId: string,
+  creditsToRefund: number,
+): void => {
+  const { key } = buildIdentityKey(userSub, socketId);
+  const state = statesByIdentityKey.get(key);
+  if (!state) {
+    return;
+  }
+  state.streamPullCreditsGranted = Math.max(
+    0,
+    state.streamPullCreditsGranted - Math.max(0, Math.floor(creditsToRefund)),
+  );
 };
 
 export const clearRelayRateLimitStateByConsumerSocket = (socketId: string): void => {

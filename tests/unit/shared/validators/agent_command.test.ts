@@ -141,6 +141,34 @@ describe("agentCommandBodySchema", () => {
     }
   });
 
+  it("should treat numeric and string JSON-RPC ids as distinct in a batch", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: [
+        {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: 1,
+          params: {
+            sql: "SELECT 1",
+            client_token: "token-value",
+          },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "1",
+          params: {
+            sql: "SELECT 2",
+            client_token: "token-value",
+          },
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
   it("should reject top-level pagination for batch commands", () => {
     const parsed = agentCommandBodySchema.safeParse({
       agentId: "agent-1",

@@ -27,9 +27,7 @@ import {
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import {
   getActiveStreamRouteByRequestId,
-  getActiveStreamRouteCount,
   removeActiveStreamRoute,
-  upsertActiveStreamRoute,
 } from "./active_stream_registry";
 import {
   ensureAgentCircuitClosed,
@@ -41,10 +39,12 @@ import {
   relayMetrics,
 } from "./bridge_relay_health_metrics";
 import { agentRegistry } from "./agent_registry";
-import { enqueueRelayOutbound } from "./relay_outbound_queue";
+import { encodeRelayOutboundFrame, enqueueRelayOutbound } from "./relay_outbound_queue";
 import { conversationRegistry } from "./conversation_registry";
 import {
+  getRelayIdempotencyMap,
   getOrCreateRelayIdempotencyMap,
+  removeRelayIdempotencyEntry,
   setRelayIdempotencyEntry,
 } from "./relay_idempotency_store";
 import { setRelayStreamFlowCredits, ensureRelayStreamFlowEntry } from "./relay_stream_flow_state";
@@ -61,9 +61,9 @@ import {
   clampCommandMaxRows,
   hasNotificationCommand,
   resolveOutboundApiVersion,
+  sanitizeOutboundRpcMeta,
 } from "./rpc_bridge_command_helpers";
 import {
-  createRelayStreamHandlers,
   emitRelayTimeoutResponse,
   type EmitToConsumerFn,
 } from "./rpc_bridge_relay_stream";
@@ -77,7 +77,6 @@ const relayRequestTimeoutMs = env.socketRelayRequestTimeoutMs;
 const relayMaxPendingRequests = env.socketRelayMaxPendingRequests;
 const relayMaxPendingRequestsPerConversation = env.socketRelayMaxPendingRequestsPerConversation;
 const relayMaxPendingRequestsPerConsumer = env.socketRelayMaxPendingRequestsPerConsumer;
-const relayMaxActiveStreams = env.socketRelayMaxActiveStreams;
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
@@ -277,8 +276,7 @@ export const createRpcBridgeRelayDispatch = (
         // pending replay target so that when the response arrives, it is
         // forwarded to this socket too. Avoid duplicates within the list.
         const waiters =
-          existing.pendingReplayConsumerSocketIds ??
-          (existing.pendingReplayConsumerSocketIds = []);
+          existing.pendingReplayConsumerSocketIds ?? (existing.pendingReplayConsumerSocketIds = []);
         if (!waiters.includes(conversation.consumerSocketId)) {
           waiters.push(conversation.consumerSocketId);
         }
@@ -291,23 +289,17 @@ export const createRpcBridgeRelayDispatch = (
       }
     }
 
-    if (getActiveStreamRouteCount() >= relayMaxActiveStreams) {
-      throw serviceUnavailable("Relay active stream capacity reached");
-    }
-
     const requestId = randomUUID();
 
     const traceId = toRequestId(decoded.value.frame.traceId) ?? randomUUID();
-    const existingMeta = toRecord(cmdRecord.meta) ?? {};
+    const existingMeta = sanitizeOutboundRpcMeta(toRecord(cmdRecord.meta));
     const commandPayload: Record<string, unknown> = {
       ...normalizedAndClamped,
       id: requestId,
       api_version: resolveOutboundApiVersion(cmdRecord),
       meta: {
         ...existingMeta,
-        conversation_id: conversation.conversationId,
         request_id: requestId,
-        ...(clientRequestId !== null ? { client_request_id: clientRequestId } : {}),
         agent_id: conversation.agentId,
         timestamp: new Date().toISOString(),
         trace_id: traceId,
@@ -342,6 +334,11 @@ export const createRpcBridgeRelayDispatch = (
       }
 
       route.timedOut = true;
+      removeRelayRequestRoute(requestId);
+      const existingStream = getActiveStreamRouteByRequestId(requestId);
+      if (existingStream) {
+        removeActiveStreamRoute(existingStream);
+      }
       relayMetrics.requestTimeouts += 1;
       registerAgentFailure(route.agentId);
       if (route.latencyTrace && !route.latencyTrace.isFinalized()) {
@@ -351,13 +348,7 @@ export const createRpcBridgeRelayDispatch = (
           errorCode: "RELAY_REQUEST_TIMEOUT",
         });
       }
-      emitRelayTimeoutResponse(route, emitToConsumer, () => {
-        removeRelayRequestRoute(requestId);
-        const existingStream = getActiveStreamRouteByRequestId(requestId);
-        if (existingStream) {
-          removeActiveStreamRoute(existingStream);
-        }
-      });
+      emitRelayTimeoutResponse(route, emitToConsumer);
     }, relayRequestTimeoutMs);
 
     const relayRoute: RelayRequestRoute = {
@@ -375,17 +366,26 @@ export const createRpcBridgeRelayDispatch = (
     registerRelayRequestRoute(relayRoute);
     ensureRelayStreamFlowEntry(requestId);
     setRelayStreamFlowCredits(requestId, 0);
-    upsertActiveStreamRoute({
-      requestId,
-      agentSocketId: conversation.agentSocketId,
-      streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
-    });
 
     const relayPayloadFrameOpts = payloadFrameEncodeOptionsFromPreference(
       relayCompressionPreference,
     );
 
     trace?.addPhaseMs("relay_preflight_ms", performance.now() - relayPreflightStart);
+
+    if (clientRequestId) {
+      const idempotencyResult = setRelayIdempotencyEntry(conversation.conversationId, clientRequestId, {
+        requestId,
+        expiresAtMs: Date.now() + relayIdempotencyTtlMs,
+      });
+      if (!idempotencyResult.ok) {
+        throw serviceUnavailable(
+          idempotencyResult.reason === "global_cap_reached"
+            ? "Relay idempotency capacity reached"
+            : "Relay idempotency capacity reached for conversation",
+        );
+      }
+    }
 
     try {
       const tEnc = performance.now();
@@ -409,22 +409,38 @@ export const createRpcBridgeRelayDispatch = (
       }
       registerAgentFailure(conversation.agentId);
       const err = error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
+      const appErr = err instanceof AppError ? err : null;
       if (trace && !trace.isFinalized()) {
-        const appErr = err instanceof AppError ? err : null;
         trace.finalizeOnce({
           outcome: "error",
           httpStatus: appErr?.statusCode ?? 503,
           errorCode: appErr?.code ?? "BRIDGE_ERROR",
         });
       }
+      if (clientRequestId) {
+        const idempotencyMap = getRelayIdempotencyMap(conversation.conversationId);
+        const entry = idempotencyMap?.get(clientRequestId);
+        const waiters = entry?.pendingReplayConsumerSocketIds;
+        if (waiters && waiters.length > 0) {
+          const errorPayload = {
+            jsonrpc: "2.0",
+            id: requestId,
+            error: {
+              code: -32000,
+              message: err.message,
+              data: { code: appErr?.code ?? "BRIDGE_ERROR" },
+            },
+          };
+          enqueueRelayOutbound(requestId, async () => {
+            const frame = await encodeRelayOutboundFrame(errorPayload, requestId);
+            for (const waiterSocketId of waiters) {
+              emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, frame);
+            }
+          });
+        }
+        removeRelayIdempotencyEntry(conversation.conversationId, clientRequestId);
+      }
       throw err;
-    }
-
-    if (clientRequestId) {
-      setRelayIdempotencyEntry(conversation.conversationId, clientRequestId, {
-        requestId,
-        expiresAtMs: Date.now() + relayIdempotencyTtlMs,
-      });
     }
 
     relayMetrics.requestsAccepted += 1;

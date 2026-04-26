@@ -6,6 +6,7 @@
 export interface RelayStreamFlowEntry {
   credits: number;
   bufferedChunks: Record<string, unknown>[];
+  bufferedChunkHead: number;
   pendingComplete?: Record<string, unknown>;
   forwardedRows: number;
 }
@@ -26,6 +27,7 @@ export const ensureRelayStreamFlowEntry = (requestId: string): RelayStreamFlowEn
   const created: RelayStreamFlowEntry = {
     credits: 0,
     bufferedChunks: [],
+    bufferedChunkHead: 0,
     forwardedRows: 0,
   };
   entriesByRequestId.set(requestId, created);
@@ -48,7 +50,21 @@ export const addRelayStreamFlowCredits = (requestId: string, delta: number): num
 };
 
 export const getRelayStreamBufferedChunks = (requestId: string): Record<string, unknown>[] => {
-  return entriesByRequestId.get(requestId)?.bufferedChunks ?? [];
+  const entry = entriesByRequestId.get(requestId);
+  if (!entry) {
+    return [];
+  }
+  return entry.bufferedChunkHead === 0
+    ? entry.bufferedChunks
+    : entry.bufferedChunks.slice(entry.bufferedChunkHead);
+};
+
+export const getRelayStreamBufferedChunkCount = (requestId: string): number => {
+  const entry = entriesByRequestId.get(requestId);
+  if (!entry) {
+    return 0;
+  }
+  return Math.max(0, entry.bufferedChunks.length - entry.bufferedChunkHead);
 };
 
 export const addRelayStreamBufferedChunk = (
@@ -58,6 +74,32 @@ export const addRelayStreamBufferedChunk = (
   const entry = ensureRelayStreamFlowEntry(requestId);
   entry.bufferedChunks.push(chunk);
   globalTotalBufferedChunks += 1;
+};
+
+export const popRelayStreamBufferedChunk = (
+  requestId: string,
+): Record<string, unknown> | undefined => {
+  const entry = entriesByRequestId.get(requestId);
+  if (!entry || entry.bufferedChunkHead >= entry.bufferedChunks.length) {
+    return undefined;
+  }
+
+  const chunk = entry.bufferedChunks[entry.bufferedChunkHead];
+  entry.bufferedChunkHead += 1;
+  globalTotalBufferedChunks = Math.max(0, globalTotalBufferedChunks - 1);
+
+  if (entry.bufferedChunkHead >= entry.bufferedChunks.length) {
+    entry.bufferedChunks = [];
+    entry.bufferedChunkHead = 0;
+  } else if (
+    entry.bufferedChunkHead >= 64 &&
+    entry.bufferedChunkHead * 2 >= entry.bufferedChunks.length
+  ) {
+    entry.bufferedChunks = entry.bufferedChunks.slice(entry.bufferedChunkHead);
+    entry.bufferedChunkHead = 0;
+  }
+
+  return chunk;
 };
 
 export const getRelayStreamPendingComplete = (
@@ -106,7 +148,12 @@ export const relayStreamFlowState = {
   get bufferedChunksByRequestId(): Map<string, Record<string, unknown>[]> {
     const map = new Map<string, Record<string, unknown>[]>();
     for (const [requestId, entry] of entriesByRequestId.entries()) {
-      map.set(requestId, entry.bufferedChunks);
+      map.set(
+        requestId,
+        entry.bufferedChunkHead === 0
+          ? entry.bufferedChunks
+          : entry.bufferedChunks.slice(entry.bufferedChunkHead),
+      );
     }
     return map;
   },
@@ -136,10 +183,10 @@ export const relayStreamFlowState = {
 
 export const clearRelayStreamFlowState = (requestId: string): void => {
   const entry = entriesByRequestId.get(requestId);
-  if (entry && entry.bufferedChunks.length > 0) {
+  if (entry && entry.bufferedChunks.length > entry.bufferedChunkHead) {
     globalTotalBufferedChunks = Math.max(
       0,
-      globalTotalBufferedChunks - entry.bufferedChunks.length,
+      globalTotalBufferedChunks - (entry.bufferedChunks.length - entry.bufferedChunkHead),
     );
   }
   entriesByRequestId.delete(requestId);
@@ -178,16 +225,14 @@ export const drainRelayStreamBuffer = async (
   let completeEmitted = false;
   const nextDrain = previousDrain.then(async () => {
     let credits = getRelayStreamFlowCredits(ctx.requestId);
-    const bufferedChunks = getRelayStreamBufferedChunks(ctx.requestId);
 
-    if (credits > 0 && bufferedChunks.length > 0) {
-      while (credits > 0 && bufferedChunks.length > 0) {
-        const chunk = bufferedChunks.shift();
+    if (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
+      while (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
+        const chunk = popRelayStreamBufferedChunk(ctx.requestId);
         if (!chunk) {
           break;
         }
 
-        globalTotalBufferedChunks = Math.max(0, globalTotalBufferedChunks - 1);
         addRelayStreamForwardedRows(ctx.requestId, countChunkRows(chunk));
 
         const frame = await ctx.encodeFrame(chunk);
@@ -204,7 +249,7 @@ export const drainRelayStreamBuffer = async (
     }
 
     const pendingComplete = getRelayStreamPendingComplete(ctx.requestId);
-    if (bufferedChunks.length === 0 && pendingComplete) {
+    if (getRelayStreamBufferedChunkCount(ctx.requestId) === 0 && pendingComplete) {
       const completeFrame = await ctx.encodeFrame(pendingComplete);
       ctx.emitComplete(completeFrame);
       completeEmitted = true;

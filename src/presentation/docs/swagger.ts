@@ -294,7 +294,7 @@ const swaggerSpec = swaggerJSDoc({
         RpcMeta: {
           type: "object",
           description:
-            "Aligned with plug_agente `rpc.request.schema.json`. `outbound_compression` hints agent→hub PayloadFrame compression for this JSON-RPC id (and rpc:chunk/rpc:complete).",
+            "Bridge input metadata. The hub forwards only the published plug_agente fields (`trace_id`, `traceparent`, `tracestate`, `request_id`, `agent_id`, `timestamp`) to the agent; compatibility-only fields like `outbound_compression` are accepted on input but stripped before forwarding.",
           properties: {
             trace_id: { type: "string" },
             traceparent: { type: "string" },
@@ -306,7 +306,7 @@ const swaggerSpec = swaggerJSDoc({
               type: "string",
               enum: ["none", "gzip", "auto"],
               description:
-                "Optional override for agent→hub frame compression (plug_agente). Ignored for notifications without a usable id. Batch: all items that set this must use the same value.",
+                "Compatibility-only input accepted by the hub for older clients. It is not forwarded to plug_agente because the published transport contract does not support per-request compression overrides.",
             },
           },
           additionalProperties: true,

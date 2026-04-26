@@ -6,15 +6,20 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../shared/utils/payload_frame";
 import { toRequestId } from "../../../shared/utils/rpc_types";
 import { agentRegistry } from "./agent_registry";
+import type { ActiveStreamRoute } from "./active_stream_registry";
 import {
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteByStreamId,
   removeActiveStreamRoute,
 } from "./active_stream_registry";
-import { relayMetrics } from "./bridge_relay_health_metrics";
+import { registerAgentFailure, relayMetrics } from "./bridge_relay_health_metrics";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import { getRelayRequestRoute, removeRelayRequestRoute } from "./relay_request_registry";
-import { addRelayStreamFlowCredits, drainRelayStreamBuffer } from "./relay_stream_flow_state";
+import {
+  addRelayStreamFlowCredits,
+  drainRelayStreamBuffer,
+  getRelayStreamForwardedRows,
+} from "./relay_stream_flow_state";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 
 const defaultStreamWindowSize = 1;
@@ -56,6 +61,37 @@ export const createPrepareAgentStreamPull = (
 ): ((input: RequestAgentStreamPullInput) => PreparedAgentStreamPull) => {
   const { getAgentsNamespace, emitToConsumer } = deps;
 
+  const cleanupMissingAgentSocketRoute = (route: ActiveStreamRoute): void => {
+    const relayRoute = getRelayRequestRoute(route.requestId);
+    const agentId =
+      relayRoute?.agentId ??
+      route.restMaterializeState?.agentId ??
+      agentRegistry.findBySocketId(route.agentSocketId)?.agentId;
+    if (agentId) {
+      registerAgentFailure(agentId);
+    }
+
+    if (route.mode === "relay") {
+      removeRelayRequestRoute(route.requestId);
+      removeActiveStreamRoute(route, { restMaterialize: "detach" });
+      enqueueRelayOutbound(route.requestId, async () => {
+        const frame = await encodeRelayOutboundFrame(
+          {
+            request_id: route.requestId,
+            total_rows: getRelayStreamForwardedRows(route.requestId),
+            terminal_status: "error",
+            ...(route.streamId ? { stream_id: route.streamId } : {}),
+          },
+          route.requestId,
+        );
+        emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame);
+      });
+      return;
+    }
+
+    removeActiveStreamRoute(route);
+  };
+
   return (input: RequestAgentStreamPullInput): PreparedAgentStreamPull => {
     const resolvedRequestId = input.requestId ? toRequestId(input.requestId) : null;
     const resolvedStreamId = input.streamId ? toRequestId(input.streamId) : null;
@@ -93,6 +129,7 @@ export const createPrepareAgentStreamPull = (
 
     const agentSocket = nsp.sockets.get(route.agentSocketId);
     if (!agentSocket) {
+      cleanupMissingAgentSocketRoute(route);
       throw serviceUnavailable("Agent socket is unavailable");
     }
 

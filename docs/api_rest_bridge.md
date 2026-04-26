@@ -45,12 +45,12 @@ Use outros docs para:
 
 #### Matriz de decisao de canal (operacao)
 
-| Cenario | Canal recomendado | Motivo |
-| ------- | ----------------- | ------ |
-| Consulta curta/ocasional, cliente sem Socket | REST `POST /agents/commands` | Integracao simples, custo operacional menor |
-| Resultado grande (`stream_id`) e baixa latencia | `relay:rpc.request` | Evita materializacao REST e reduz RAM no hub |
-| Necessidade de progresso em tempo real | `relay:*` ou `agents:*` | Chunks e `stream_pull` no consumer |
-| Carga alta e continua por consumer | `relay:*` | Melhor controle de backpressure e isolamento por conversa |
+| Cenario                                         | Canal recomendado            | Motivo                                                    |
+| ----------------------------------------------- | ---------------------------- | --------------------------------------------------------- |
+| Consulta curta/ocasional, cliente sem Socket    | REST `POST /agents/commands` | Integracao simples, custo operacional menor               |
+| Resultado grande (`stream_id`) e baixa latencia | `relay:rpc.request`          | Evita materializacao REST e reduz RAM no hub              |
+| Necessidade de progresso em tempo real          | `relay:*` ou `agents:*`      | Chunks e `stream_pull` no consumer                        |
+| Carga alta e continua por consumer              | `relay:*`                    | Melhor controle de backpressure e isolamento por conversa |
 
 Regra pratica: se o mesmo fluxo gera streams grandes repetidamente, migre para
 Socket/relay em vez de aumentar apenas limites de materializacao no REST.
@@ -71,10 +71,10 @@ No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
 
 > Escopo deste documento: ponte REST (`POST /api/v1/agents/commands`) e canal
 > Socket legado (`agents:*`). O modo relay (`relay:*`) e documentado a parte.
-**Compatibilidade com plug_agente:** O agente deve conectar ao namespace `/agents`
-(por exemplo, `io("/agents")`). Conexoes no namespace padrao `/` sao rejeitadas com
-`app:error` (code `NAMESPACE_DEPRECATED`) e desconectadas. O token deve ter `role` em `SOCKET_AGENT_ROLES`
-(default: `agent`). Consumers usam `role` em `SOCKET_CONSUMER_ROLES` (default: `user`, `admin`, `client`).
+> **Compatibilidade com plug_agente:** O agente deve conectar ao namespace `/agents`
+> (por exemplo, `io("/agents")`). Conexoes no namespace padrao `/` sao rejeitadas com
+> `app:error` (code `NAMESPACE_DEPRECATED`) e desconectadas. O token deve ter `role` em `SOCKET_AGENT_ROLES`
+> (default: `agent`). Consumers usam `role` em `SOCKET_CONSUMER_ROLES` (default: `user`, `admin`, `client`).
 
 ### Ownership automatica do agente
 
@@ -91,15 +91,15 @@ Toda rejeicao do `agent:register` no hub sai pelo evento dedicado
 **reagendar** o registo (`transient_failure`, `rate_limited`) ou **forcar
 reconexao** (demais valores).
 
-| `reason` | Codigo | Causa tipica |
-| -------- | ------ | ------------ |
-| `invalid_payload` | `-32009` | `PayloadFrame` nao decodifica (encoding, signature, tamanho) |
-| `invalid_request` | `-32600` | Schema zod do `agent:register` falhou (capabilities incompleto, etc.) |
-| `authentication_failed` | `-32001` | Token sem `agent_id` ou divergente do `agentId` enviado |
-| `unauthorized` | `-32002` | `agentId` ja pertence a outro `User` (`AGENT_ALREADY_LINKED`) ou outro bloqueio de ownership |
-| `rate_limited` | `-32013` | Reservado para futuras rejeicoes por taxa do `agent:register` |
-| `transient_failure` | `-32603` | Falha temporaria do hub que justifica retry |
-| `internal_error` | `-32603` | Erro inesperado nao categorizado |
+| `reason`                | Codigo   | Causa tipica                                                                                 |
+| ----------------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `invalid_payload`       | `-32009` | `PayloadFrame` nao decodifica (encoding, signature, tamanho)                                 |
+| `invalid_request`       | `-32600` | Schema zod do `agent:register` falhou (capabilities incompleto, etc.)                        |
+| `authentication_failed` | `-32001` | Token sem `agent_id` ou divergente do `agentId` enviado                                      |
+| `unauthorized`          | `-32002` | `agentId` ja pertence a outro `User` (`AGENT_ALREADY_LINKED`) ou outro bloqueio de ownership |
+| `rate_limited`          | `-32013` | Reservado para futuras rejeicoes por taxa do `agent:register`                                |
+| `transient_failure`     | `-32603` | Falha temporaria do hub que justifica retry                                                  |
+| `internal_error`        | `-32603` | Erro inesperado nao categorizado                                                             |
 
 Implementacao: `src/presentation/socket/hub/agent_register_error.ts`. Cada
 emissao e logada como `agent_register_error_emitted` com `socketId`, `code`,
@@ -191,13 +191,13 @@ Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o 
 
 ### Campos de primeiro nivel
 
-| Campo        | Tipo   | Obrigatorio | Restricoes         | Descricao                                      |
-| ------------ | ------ | ----------- | ------------------ | ---------------------------------------------- |
-| `agentId`    | string | sim         | nao vazio          | UUID do agente conectado                        |
-| `command`    | object \| array | sim | JSON-RPC 2.0       | Comando unico ou batch JSON-RPC (max 32)         |
-| `timeoutMs`  | number | nao         | 1..360000          | Espera do bridge (`computeBridgeWaitTimeoutMs`): `max` entre o valor do body (ou default **15000** ms) e, para `sql.execute` / `sql.executeBatch`, o maior `options.timeout_ms` do comando + **5000** ms; teto **360000** ms (`AGENT_TIMEOUT_MS_LIMIT` + **60000** ms; ver `command_transformers.ts`) |
-| `pagination` | object | nao         | regras combinadas  | Paginacao injetada em `command.params.options`   |
-| `payloadFrameCompression` | `"default"` \| `"none"` \| `"always"` | nao | — | Politica de gzip do **PayloadFrame** que o hub emite no `rpc:request` para o agente (alinhado a `socket_communication_standard.md` / `socketio_client_binary_transport.md` do plug_agente). `default`: limiar 1024 bytes, modo **automatico** — gzip so se o bloco comprimido for **menor** que o JSON UTF-8 bruto; caso contrario `cmp: none`. `none`: nunca gzip. `always`: modo **sempre GZIP** — gzip sempre que o payload couber no limite de entrada (mesmo se o gzip nao reduzir tamanho). Nao altera respostas do agente. |
+| Campo                     | Tipo                                  | Obrigatorio | Restricoes        | Descricao                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------- | ----------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentId`                 | string                                | sim         | nao vazio         | UUID do agente conectado                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `command`                 | object \| array                       | sim         | JSON-RPC 2.0      | Comando unico ou batch JSON-RPC (max 32)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `timeoutMs`               | number                                | nao         | 1..360000         | Espera do bridge (`computeBridgeWaitTimeoutMs`): `max` entre o valor do body (ou default **15000** ms) e, para `sql.execute` / `sql.executeBatch`, o maior `options.timeout_ms` do comando + **5000** ms; teto **360000** ms (`AGENT_TIMEOUT_MS_LIMIT` + **60000** ms; ver `command_transformers.ts`)                                                                                                                                                                                                                             |
+| `pagination`              | object                                | nao         | regras combinadas | Paginacao injetada em `command.params.options`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `payloadFrameCompression` | `"default"` \| `"none"` \| `"always"` | nao         | —                 | Politica de gzip do **PayloadFrame** que o hub emite no `rpc:request` para o agente (alinhado a `socket_communication_standard.md` / `socketio_client_binary_transport.md` do plug_agente). `default`: limiar 1024 bytes, modo **automatico** — gzip so se o bloco comprimido for **menor** que o JSON UTF-8 bruto; caso contrario `cmp: none`. `none`: nunca gzip. `always`: modo **sempre GZIP** — gzip sempre que o payload couber no limite de entrada (mesmo se o gzip nao reduzir tamanho). Nao altera respostas do agente. |
 
 ### `command` (discriminated union por `method`)
 
@@ -206,12 +206,12 @@ de `params`.
 
 #### Campos comuns a todos os metodos
 
-| Campo     | Tipo                    | Obrigatorio | Default | Descricao                          |
-| --------- | ----------------------- | ----------- | ------- | ---------------------------------- |
-| `jsonrpc` | `"2.0"`                 | nao         | `"2.0"` | Versao do protocolo                |
-| `method`  | string                  | sim         | -       | Metodo RPC (ver metodos abaixo)    |
-| `id`      | string \| number \| null | nao        | -       | Identificador do request           |
-| `meta`    | object                  | nao         | -       | Metadados de rastreabilidade       |
+| Campo     | Tipo                     | Obrigatorio | Default | Descricao                       |
+| --------- | ------------------------ | ----------- | ------- | ------------------------------- |
+| `jsonrpc` | `"2.0"`                  | nao         | `"2.0"` | Versao do protocolo             |
+| `method`  | string                   | sim         | -       | Metodo RPC (ver metodos abaixo) |
+| `id`      | string \| number \| null | nao         | -       | Identificador do request        |
+| `meta`    | object                   | nao         | -       | Metadados de rastreabilidade    |
 
 Comportamento do `id` nesta API:
 
@@ -233,10 +233,10 @@ No **padrao JSON-RPC 2.0 puro**, request **sem** `id` costuma ser tratado como *
 Neste **hub** (`POST /api/v1/agents/commands` e evento Socket `agents:command` no namespace
 `/consumers`), a semantica e **estendida** para UX do integrador:
 
-| Onde | `id` omitido | `id: null` |
-| ---- | ------------ | ---------- |
-| **Hub plug_server** | servidor gera UUID e aguarda resposta (`200` / `agents:command_response` com resultado) | notification (`202` ou resposta tipo notification no Socket) |
-| **Agente direto** (contrato do plug_agente) | notification (sem resposta JSON-RPC) | notification |
+| Onde                                        | `id` omitido                                                                            | `id: null`                                                   |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **Hub plug_server**                         | servidor gera UUID e aguarda resposta (`200` / `agents:command_response` com resultado) | notification (`202` ou resposta tipo notification no Socket) |
+| **Agente direto** (contrato do plug_agente) | notification (sem resposta JSON-RPC)                                                    | notification                                                 |
 
 O **relay** (`relay:rpc.request`) continua com modelo proprio: o frame usa `id` interno gerado
 pelo servidor; o `id` do cliente vira `meta.client_request_id` para idempotencia (ver
@@ -255,14 +255,14 @@ Executa um comando SQL no agente.
 
 #### `command.params`
 
-| Campo          | Tipo   | Obrigatorio | Descricao                                                               |
-| -------------- | ------ | ----------- | ----------------------------------------------------------------------- |
-| `sql`          | string | sim         | Comando SQL (SELECT, INSERT, UPDATE, DELETE, MERGE, WITH)               |
-| `params`       | object | nao         | Parametros nomeados para o SQL (ex: `{ "id": 1 }`)                     |
-| `client_token` | string | condicional | Token opaco ou JWT para autorizacao no agente                           |
-| `clientToken`  | string | condicional | Alias de `client_token`                                                 |
-| `auth`         | string | condicional | Alias de `client_token`                                                 |
-| `options`      | object | nao         | Opcoes de execucao (ver tabela abaixo)                                  |
+| Campo          | Tipo   | Obrigatorio | Descricao                                                 |
+| -------------- | ------ | ----------- | --------------------------------------------------------- |
+| `sql`          | string | sim         | Comando SQL (SELECT, INSERT, UPDATE, DELETE, MERGE, WITH) |
+| `params`       | object | nao         | Parametros nomeados para o SQL (ex: `{ "id": 1 }`)        |
+| `client_token` | string | condicional | Token opaco ou JWT para autorizacao no agente             |
+| `clientToken`  | string | condicional | Alias de `client_token`                                   |
+| `auth`         | string | condicional | Alias de `client_token`                                   |
+| `options`      | object | nao         | Opcoes de execucao (ver tabela abaixo)                    |
 
 Token de autorizacao: pelo menos um entre `client_token`, `clientToken` ou
 `auth` e obrigatorio quando `enableClientTokenAuthorization` estiver ativo no agente.
@@ -271,29 +271,30 @@ Token de autorizacao: pelo menos um entre `client_token`, `clientToken` ou
 
 Validacao no hub antes do `PayloadFrame` (constantes em `agent_command.ts`):
 
-| Campo | Teto |
-| ----- | ---- |
-| `sql` (`sql.execute` e cada item de `sql.executeBatch`) | **1 MiB** UTF-8 |
-| `params` nomeado (objeto serializado em JSON) | **2 MiB** UTF-8 |
+| Campo                                                                       | Teto             |
+| --------------------------------------------------------------------------- | ---------------- |
+| `sql` (`sql.execute` e cada item de `sql.executeBatch`)                     | **1 MiB** UTF-8  |
+| `params` nomeado (objeto serializado em JSON)                               | **2 MiB** UTF-8  |
 | `agent.getProfile` / `client_token.getPolicy` `params` (objeto serializado) | **64 KiB** UTF-8 |
-| `rpc.discover` `params` (objeto serializado) | **64 KiB** UTF-8 |
+| `rpc.discover` `params` (objeto serializado)                                | **64 KiB** UTF-8 |
 
 O limite HTTP total continua a ser `REQUEST_BODY_LIMIT`; estes tetos evitam cargas JSON enormes mesmo com body permitido maior.
 
 #### `command.params.options`
 
-| Campo             | Tipo    | Obrigatorio | Restricoes                               | Descricao                                                      |
-| ----------------- | ------- | ----------- | ---------------------------------------- | -------------------------------------------------------------- |
-| `timeout_ms`      | integer | nao         | 1..300000 (5 min)                        | Timeout de execucao SQL no agente (ms)                         |
-| `max_rows`        | integer | nao         | 1..1000000                               | Maximo de linhas retornadas; o limite efetivo pode ser reduzido pelo acordo hub/agente nas capabilities |
-| `page`            | integer | nao         | >= 1, requer `page_size`                 | Numero da pagina (1-based)                                     |
-| `page_size`      | integer | nao         | 1..50000, requer `page`                  | Linhas por pagina                                              |
-| `cursor`         | string  | nao         | exclusivo com `page`/`page_size`         | Token opaco de continuacao (keyset)                            |
-| `execution_mode` | string  | nao         | `managed` \| `preserve`                  | Modo de tratamento da SQL. `managed` (default) permite reescrita gerenciada para paginacao. `preserve` executa a SQL exatamente como enviada, sem reescrita. Nao pode ser combinado com `page`, `page_size` ou `cursor` |
-| `preserve_sql`   | boolean | nao         | exclusivo com paginacao                  | Alias legado para `execution_mode: "preserve"`. Nao pode ser combinado com `page`, `page_size` ou `cursor` |
-| `multi_result`   | boolean | nao         | exclusivo com paginacao e `params`       | Habilita retorno de multiplos result sets                      |
+| Campo            | Tipo    | Obrigatorio | Restricoes                         | Descricao                                                                                                                                                                                                               |
+| ---------------- | ------- | ----------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `timeout_ms`     | integer | nao         | 1..300000 (5 min)                  | Timeout de execucao SQL no agente (ms)                                                                                                                                                                                  |
+| `max_rows`       | integer | nao         | 1..1000000                         | Maximo de linhas retornadas; o limite efetivo pode ser reduzido pelo acordo hub/agente nas capabilities                                                                                                                 |
+| `page`           | integer | nao         | >= 1, requer `page_size`           | Numero da pagina (1-based)                                                                                                                                                                                              |
+| `page_size`      | integer | nao         | 1..50000, requer `page`            | Linhas por pagina                                                                                                                                                                                                       |
+| `cursor`         | string  | nao         | exclusivo com `page`/`page_size`   | Token opaco de continuacao (keyset)                                                                                                                                                                                     |
+| `execution_mode` | string  | nao         | `managed` \| `preserve`            | Modo de tratamento da SQL. `managed` (default) permite reescrita gerenciada para paginacao. `preserve` executa a SQL exatamente como enviada, sem reescrita. Nao pode ser combinado com `page`, `page_size` ou `cursor` |
+| `preserve_sql`   | boolean | nao         | exclusivo com paginacao            | Alias legado para `execution_mode: "preserve"`. Nao pode ser combinado com `page`, `page_size` ou `cursor`                                                                                                              |
+| `multi_result`   | boolean | nao         | exclusivo com paginacao e `params` | Habilita retorno de multiplos result sets                                                                                                                                                                               |
 
 Regras de combinacao:
+
 - `page` e `page_size` devem ser enviados juntos.
 - `cursor` nao pode ser combinado com `page`/`page_size`.
 - `execution_mode: "preserve"` e `preserve_sql: true` nao podem ser combinados com `page`, `page_size` ou `cursor`.
@@ -317,36 +318,36 @@ Executa multiplos comandos SQL em sequencia.
 
 #### `command.params`
 
-| Campo          | Tipo   | Obrigatorio | Descricao                                                    |
-| -------------- | ------ | ----------- | ------------------------------------------------------------ |
-| `commands`     | array  | sim         | Array de comandos SQL (min 1 item)                           |
-| `client_token` | string | condicional | Token opaco ou JWT (ou alias `clientToken` / `auth`)         |
-| `clientToken`  | string | condicional | Alias de `client_token`                                      |
-| `auth`         | string | condicional | Alias de `client_token`                                      |
-| `options`      | object | nao         | Opcoes de execucao (ver abaixo)                              |
+| Campo          | Tipo   | Obrigatorio | Descricao                                            |
+| -------------- | ------ | ----------- | ---------------------------------------------------- |
+| `commands`     | array  | sim         | Array de comandos SQL (min 1 item)                   |
+| `client_token` | string | condicional | Token opaco ou JWT (ou alias `clientToken` / `auth`) |
+| `clientToken`  | string | condicional | Alias de `client_token`                              |
+| `auth`         | string | condicional | Alias de `client_token`                              |
+| `options`      | object | nao         | Opcoes de execucao (ver abaixo)                      |
 
 #### `command.params.commands[]`
 
-| Campo    | Tipo   | Obrigatorio | Descricao                              |
-| -------- | ------ | ----------- | -------------------------------------- |
-| `sql`    | string | sim         | Comando SQL                            |
-| `params` | object | nao         | Parametros nomeados para o comando SQL |
-| `execution_order` | integer | nao | Ordem explicita de execucao (>= 0). Itens com `execution_order` executam antes dos itens sem ordem, em ordem crescente |
+| Campo             | Tipo    | Obrigatorio | Descricao                                                                                                              |
+| ----------------- | ------- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `sql`             | string  | sim         | Comando SQL                                                                                                            |
+| `params`          | object  | nao         | Parametros nomeados para o comando SQL                                                                                 |
+| `execution_order` | integer | nao         | Ordem explicita de execucao (>= 0). Itens com `execution_order` executam antes dos itens sem ordem, em ordem crescente |
 
 #### `command.params.options`
 
-| Campo         | Tipo    | Obrigatorio | Descricao                                     |
-| ------------- | ------- | ----------- | --------------------------------------------- |
-| `timeout_ms`  | integer | nao         | Timeout de execucao total do batch (ms)       |
-| `max_rows`    | integer | nao         | Maximo de linhas por comando                  |
-| `transaction` | boolean | nao         | Envolve os comandos em uma transacao unica    |
+| Campo         | Tipo    | Obrigatorio | Descricao                                  |
+| ------------- | ------- | ----------- | ------------------------------------------ |
+| `timeout_ms`  | integer | nao         | Timeout de execucao total do batch (ms)    |
+| `max_rows`    | integer | nao         | Maximo de linhas por comando               |
+| `transaction` | boolean | nao         | Envolve os comandos em uma transacao unica |
 
 #### Campos opcionais validados e encaminhados ao agente
 
-| Campo             | Tipo   | Obrigatorio | Descricao                        |
-| ----------------- | ------ | ----------- | -------------------------------- |
-| `idempotency_key` | string | nao         | Chave de deduplicacao            |
-| `database`        | string | nao         | Override de database/DSN alvo    |
+| Campo             | Tipo   | Obrigatorio | Descricao                     |
+| ----------------- | ------ | ----------- | ----------------------------- |
+| `idempotency_key` | string | nao         | Chave de deduplicacao         |
+| `database`        | string | nao         | Override de database/DSN alvo |
 
 ---
 
@@ -356,10 +357,10 @@ Cancela uma execucao em streaming ativa.
 
 #### `command.params`
 
-| Campo          | Tipo   | Obrigatorio | Descricao                                           |
-| -------------- | ------ | ----------- | --------------------------------------------------- |
-| `execution_id` | string | condicional | ID da execucao a cancelar (pelo menos um dos dois)  |
-| `request_id`   | string | condicional | ID do request a cancelar (pelo menos um dos dois)   |
+| Campo          | Tipo   | Obrigatorio | Descricao                                          |
+| -------------- | ------ | ----------- | -------------------------------------------------- |
+| `execution_id` | string | condicional | ID da execucao a cancelar (pelo menos um dos dois) |
+| `request_id`   | string | condicional | ID do request a cancelar (pelo menos um dos dois)  |
 
 Nao requer token de autorizacao.
 
@@ -379,16 +380,16 @@ em **2.8**). Com auth desativada no agente ou introspecao desativada
 `-32602` e `reason` especifico; rate limit do agente pode devolver `-32013`
 (`client_token_get_policy_rate_limited`) com `error.data.retry_after_ms` e
 `reset_at` — o hub propaga automaticamente esses hints para o header HTTP
-`Retry-After` (ver secao *`Retry-After` derivado de erros RPC* acima). Ver
+`Retry-After` (ver secao _`Retry-After` derivado de erros RPC_ acima). Ver
 `plug_agente/docs/communication/socket_communication_standard.md` e os JSON
 Schemas `rpc.params.client-token-get-policy.schema.json` /
 `rpc.result.client-token-get-policy.schema.json`.
 
 #### `command.params`
 
-| Campo          | Tipo   | Obrigatorio | Descricao                                                               |
-| -------------- | ------ | ----------- | ----------------------------------------------------------------------- |
-| `client_token` | string | condicional | Token opaco ou JWT (ou alias `clientToken` / `auth`)                    |
+| Campo          | Tipo   | Obrigatorio | Descricao                                            |
+| -------------- | ------ | ----------- | ---------------------------------------------------- |
+| `client_token` | string | condicional | Token opaco ou JWT (ou alias `clientToken` / `auth`) |
 
 Obrigatorio quando `enableClientTokenAuthorization` estiver ativo no agente (mesma regra que `sql.execute`).
 
@@ -400,8 +401,8 @@ Retorna o documento OpenRPC do agente com o catalogo de metodos suportados.
 
 #### `command.params`
 
-| Campo | Tipo   | Obrigatorio | Descricao                   |
-| ----- | ------ | ----------- | --------------------------- |
+| Campo | Tipo   | Obrigatorio | Descricao                    |
+| ----- | ------ | ----------- | ---------------------------- |
 | (any) | object | nao         | Parametros livres (opcional) |
 
 Nao requer token de autorizacao.
@@ -414,6 +415,7 @@ Alem do metodo `sql.executeBatch` (batch semantico do agente), a rota tambem
 aceita **batch JSON-RPC nativo** no campo `command` (array de requests).
 
 Regras:
+
 - min 1 item, max 32 itens.
 - IDs devem ser unicos entre itens que ja tem `id` definido (string/number); itens com `id: null`
   sao notifications e ficam de fora dessa checagem.
@@ -475,16 +477,17 @@ antes de enviar ao agente. Isso simplifica o uso pelo cliente HTTP.
 paginacao (page/page_size ou cursor), os valores de `body.pagination` tem
 precedencia e sobrescrevem os de `command.params.options`.
 
-| Campo      | Tipo    | Obrigatorio | Restricoes                          | Descricao                    |
-| ---------- | ------- | ----------- | ----------------------------------- | ---------------------------- |
-| `page`     | integer | condicional | >= 1, requer `pageSize`             | Numero da pagina (1-based)   |
-| `pageSize` | integer | condicional | 1..50000, requer `page`             | Linhas por pagina            |
-| `cursor`   | string  | condicional | exclusivo com `page`/`pageSize`     | Token de continuacao keyset  |
+| Campo      | Tipo    | Obrigatorio | Restricoes                      | Descricao                   |
+| ---------- | ------- | ----------- | ------------------------------- | --------------------------- |
+| `page`     | integer | condicional | >= 1, requer `pageSize`         | Numero da pagina (1-based)  |
+| `pageSize` | integer | condicional | 1..50000, requer `page`         | Linhas por pagina           |
+| `cursor`   | string  | condicional | exclusivo com `page`/`pageSize` | Token de continuacao keyset |
 
 Conversao automatica: `pageSize` (camelCase HTTP) -> `page_size` (snake_case
 agente).
 
 Regras:
+
 - `page` e `pageSize` devem ser enviados juntos.
 - `cursor` nao pode ser combinado com `page`/`pageSize`.
 - Quando `pagination` e informado, pelo menos uma das opcoes e obrigatoria.
@@ -978,13 +981,13 @@ O HTTP retorna 200 porque o proxy funcionou. O erro e indicado dentro de
 
 ### Erros HTTP (proxy)
 
-| Status | Causa                                     | Descricao                                  |
-| ------ | ----------------------------------------- | ------------------------------------------ |
-| 400    | Body invalido / validacao Zod             | `validateRequest` com `agentCommandBodySchema`; detalhe do schema na resposta |
-| 401    | Token ausente ou invalido                 | `requireAuth` rejeitou a autenticacao      |
-| 404    | Agente nunca registrado                   | `agentId` desconhecido                     |
-| 200    | Corpo `response` com erro JSON-RPC normalizado | Inclui `error.code: -32000` / `agent_offline` quando o `agentId` e **conhecido pelo hub em memoria** (tipicamente apos pelo menos um `agent:register` neste processo) mas **nao** ha socket ativo em `/agents`, e o pedido tem pelo menos um JSON-RPC `id` correlacionavel (REST alinhado ao Socket `agents:command`). `agentId` apenas no catalogo PostgreSQL sem registo previo no processo continua **404** |
-| 503    | Timeout / overload / hub ou agente indisponivel (nao catalogado como offline correlacionavel) | Inclui pedidos **notification-only** (`id: null` em todos os itens) contra agente catalogado offline; tambem desconexao no meio de request pendente, fila saturada, etc. |
+| Status | Causa                                                                                         | Descricao                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------ | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | Body invalido / validacao Zod                                                                 | `validateRequest` com `agentCommandBodySchema`; detalhe do schema na resposta                                                                                                                                                                                                                                                                                                                                  |
+| 401    | Token ausente ou invalido                                                                     | `requireAuth` rejeitou a autenticacao                                                                                                                                                                                                                                                                                                                                                                          |
+| 404    | Agente nunca registrado                                                                       | `agentId` desconhecido                                                                                                                                                                                                                                                                                                                                                                                         |
+| 200    | Corpo `response` com erro JSON-RPC normalizado                                                | Inclui `error.code: -32000` / `agent_offline` quando o `agentId` e **conhecido pelo hub em memoria** (tipicamente apos pelo menos um `agent:register` neste processo) mas **nao** ha socket ativo em `/agents`, e o pedido tem pelo menos um JSON-RPC `id` correlacionavel (REST alinhado ao Socket `agents:command`). `agentId` apenas no catalogo PostgreSQL sem registo previo no processo continua **404** |
+| 503    | Timeout / overload / hub ou agente indisponivel (nao catalogado como offline correlacionavel) | Inclui pedidos **notification-only** (`id: null` em todos os itens) contra agente catalogado offline; tambem desconexao no meio de request pendente, fila saturada, etc.                                                                                                                                                                                                                                       |
 
 Quando o `503` for causado por overload (fila cheia ou espera em fila expirada),
 o servidor inclui:
@@ -1013,20 +1016,21 @@ sem precisar parsear o envelope JSON-RPC. Implementacao:
 
 ### Controles de overload REST por agente
 
-| Variavel                              | Default | Descricao |
-| ------------------------------------- | ------- | --------- |
-| `SOCKET_REST_MAX_PENDING_REQUESTS`    | `10000` | Limite global de requests REST correlacionadas pendentes |
-| `SOCKET_REST_AGENT_MAX_INFLIGHT`      | `32`    | Quantas requests simultaneas por `agentId` podem ficar em voo |
-| `SOCKET_REST_AGENT_MAX_QUEUE`         | `64`    | Quantas requests adicionais por `agentId` podem esperar fila |
-| `SOCKET_REST_AGENT_QUEUE_WAIT_MS`     | `200`   | Tempo maximo de espera na fila por agente antes de rejeitar |
-| `SOCKET_AGENT_PROTOCOL_READY_GRACE_MS` | `100`  | Fallback de estabilizacao apos `agent:register`; durante esse periodo o hub rejeita dispatch com `503`/`Retry-After`. `agent:heartbeat` libera antes e agentes com `extensions.protocolReadyAck` podem liberar explicitamente com `agent:ready` |
-| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` | `256`   | Janela base por pull no REST materializado; o hub pode reduzir/clamp pelo que o agente anunciar como recomendado/maximo em capabilities |
-| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS` | `1000000` | Teto de linhas agregadas (resposta inicial + chunks) na materialização REST; `0` desativa (não recomendado em produção) |
-| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `100000` | Teto de frames `rpc:chunk` na materialização; `0` = ilimitado |
-| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES` | `268435456` | Teto agregado de bytes UTF-8 materializados (resposta inicial + chunks); protege contra linhas muito largas / JSONB grandes |
-| `PAYLOAD_SIGN_OUTBOUND`               | `false` | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub (HMAC-SHA256). |
-| `PAYLOAD_SIGNING_KEY_ID`              | *(vazio)* | Identificador da chave usada para assinar/verificar `PayloadFrame.signature.key_id`. Quando definida, frames recebidos **devem** trazer `signature.key_id` igual ao configurado; ausente ou divergente → `-32001` (`invalid_signature`). Sem essa env, o hub aceita assinaturas single-key sem `key_id`. |
-| `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`  | `524288` | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame. |
+| Variavel                                        | Default     | Descricao                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SOCKET_REST_MAX_PENDING_REQUESTS`              | `10000`     | Limite global de requests REST correlacionadas pendentes                                                                                                                                                                                                                                                 |
+| `SOCKET_REST_AGENT_MAX_INFLIGHT`                | `32`        | Quantas requests simultaneas por `agentId` podem ficar em voo                                                                                                                                                                                                                                            |
+| `SOCKET_REST_AGENT_MAX_QUEUE`                   | `64`        | Quantas requests adicionais por `agentId` podem esperar fila                                                                                                                                                                                                                                             |
+| `SOCKET_REST_AGENT_QUEUE_WAIT_MS`               | `200`       | Tempo maximo de espera na fila por agente antes de rejeitar                                                                                                                                                                                                                                              |
+| `SOCKET_AGENT_PROTOCOL_READY_GRACE_MS`          | `100`       | Fallback de estabilizacao apos `agent:register`; durante esse periodo o hub rejeita dispatch com `503`/`Retry-After`. `agent:heartbeat` libera antes e agentes com `extensions.protocolReadyAck` podem liberar explicitamente com `agent:ready`                                                          |
+| `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`           | `256`       | Janela base por pull no REST materializado; o hub pode reduzir/clamp pelo que o agente anunciar como recomendado/maximo em capabilities                                                                                                                                                                  |
+| `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE`       | `256`       | Teto anunciado pelo hub em `agent:capabilities.extensions.maxStreamPullWindowSize`; separa recomendação e limite quando necessário                                                                                                                                                                       |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_ROWS`   | `1000000`   | Teto de linhas agregadas (resposta inicial + chunks) na materialização REST; `0` desativa (não recomendado em produção)                                                                                                                                                                                  |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `100000`    | Teto de frames `rpc:chunk` na materialização; `0` = ilimitado                                                                                                                                                                                                                                            |
+| `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES`  | `268435456` | Teto agregado de bytes UTF-8 materializados (resposta inicial + chunks); protege contra linhas muito largas / JSONB grandes                                                                                                                                                                              |
+| `PAYLOAD_SIGN_OUTBOUND`                         | `false`     | Quando `true` e `PAYLOAD_SIGNING_KEY` definida, assina frames **emitidos** pelo hub (HMAC-SHA256).                                                                                                                                                                                                       |
+| `PAYLOAD_SIGNING_KEY_ID`                        | _(vazio)_   | Identificador da chave usada para assinar/verificar `PayloadFrame.signature.key_id`. Quando definida, frames recebidos **devem** trazer `signature.key_id` igual ao configurado; ausente ou divergente → `-32001` (`invalid_signature`). Sem essa env, o hub aceita assinaturas single-key sem `key_id`. Frames inbound **sem assinatura** continuam aceitos por defeito nesta fase. |
+| `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`            | `524288`    | JSON UTF-8 maior que este valor nao passa por tentativa de gzip no hub (`cmp: none`); ate **10 MiB** no frame.                                                                                                                                                                                           |
 
 ### Headers de rate limit
 
@@ -1106,7 +1110,7 @@ Mudanças aplicadas no `app.ts` / middlewares para produção:
   retorna `503` + `status:"degraded"` em falha. `/health/live` continua sempre
   `200`. Em `NODE_ENV=test` o probe é omitido (in-memory repos).
 - **`/uploads`** servido com `etag`, `maxAge: 7d`, `immutable`, `dotfiles:
-  deny`, `fallthrough: false`, `index: false`.
+deny`, `fallthrough: false`, `index: false`.
 - **Cookies de refresh** (`refresh_token` user, `client_refresh_token` client)
   agora têm `Max-Age` derivado de `JWT_REFRESH_EXPIRES_IN`. Logout, mudança de
   senha (user + client) sempre limpam o cookie, mesmo quando a revogação no
@@ -1125,7 +1129,7 @@ Mudanças aplicadas no `app.ts` / middlewares para produção:
   outros campos pesados do `User` em paths que só precisam de
   status/credentials_version. Mutações continuam usando o middleware completo.
 - **`GET /api/v1/agents`** retorna apenas `{ agentId, userId, capabilities,
-  connectedAt, lastSeenAt }` por agente; o `socketId` interno do Engine.IO
+connectedAt, lastSeenAt }` por agente; o `socketId` interno do Engine.IO
   deixou de ser exposto.
 
 ---
@@ -1134,89 +1138,89 @@ Mudanças aplicadas no `app.ts` / middlewares para produção:
 
 ### sql.execute result
 
-| Campo             | Tipo    | Sempre presente | Descricao                                     |
-| ----------------- | ------- | --------------- | --------------------------------------------- |
-| `execution_id`    | string  | sim             | ID unico da execucao                          |
-| `started_at`      | string  | sim             | Inicio da execucao (ISO-8601)                 |
-| `finished_at`     | string  | sim             | Fim da execucao (ISO-8601)                    |
-| `rows`            | array   | sim             | Linhas retornadas                             |
-| `row_count`       | integer | sim             | Total de linhas retornadas                    |
-| `returned_rows`   | integer | nao             | Linhas efetivamente retornadas (paginacao)    |
-| `affected_rows`   | integer | nao             | Linhas afetadas (INSERT/UPDATE/DELETE)        |
-| `truncated`       | boolean | nao             | True se resultado foi truncado por limite     |
-| `column_metadata` | array   | nao             | Metadados das colunas retornadas              |
-| `multi_result`    | boolean | nao             | True quando multi-result ativo                |
-| `result_set_count`| integer | nao             | Quantidade de result sets (multi-result)      |
-| `item_count`      | integer | nao             | Quantidade de items (multi-result)            |
-| `result_sets`     | array   | nao             | Array de result sets (multi-result)           |
-| `items`           | array   | nao             | Array unificado de result sets e row counts   |
-| `pagination`      | object  | nao             | Presente apenas em requests paginadas         |
-| `stream_id`       | string  | nao             | Presente quando streaming ativo               |
-| `sql_handling_mode` | string | nao           | Modo efetivo usado: `managed` ou `preserve` (v2.5+) |
-| `max_rows_handling` | string | nao           | Politica ativa para `max_rows` (ex.: `response_truncation`) (v2.5+) |
-| `effective_max_rows` | integer | nao        | Limite efetivo de linhas apos negociacao (min entre solicitado e limite do transporte); util para debug e suporte (schema `rpc.result.sql-execute` no plug_agente) |
+| Campo                | Tipo    | Sempre presente | Descricao                                                                                                                                                          |
+| -------------------- | ------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `execution_id`       | string  | sim             | ID unico da execucao                                                                                                                                               |
+| `started_at`         | string  | sim             | Inicio da execucao (ISO-8601)                                                                                                                                      |
+| `finished_at`        | string  | sim             | Fim da execucao (ISO-8601)                                                                                                                                         |
+| `rows`               | array   | sim             | Linhas retornadas                                                                                                                                                  |
+| `row_count`          | integer | sim             | Total de linhas retornadas                                                                                                                                         |
+| `returned_rows`      | integer | nao             | Linhas efetivamente retornadas (paginacao)                                                                                                                         |
+| `affected_rows`      | integer | nao             | Linhas afetadas (INSERT/UPDATE/DELETE)                                                                                                                             |
+| `truncated`          | boolean | nao             | True se resultado foi truncado por limite                                                                                                                          |
+| `column_metadata`    | array   | nao             | Metadados das colunas retornadas                                                                                                                                   |
+| `multi_result`       | boolean | nao             | True quando multi-result ativo                                                                                                                                     |
+| `result_set_count`   | integer | nao             | Quantidade de result sets (multi-result)                                                                                                                           |
+| `item_count`         | integer | nao             | Quantidade de items (multi-result)                                                                                                                                 |
+| `result_sets`        | array   | nao             | Array de result sets (multi-result)                                                                                                                                |
+| `items`              | array   | nao             | Array unificado de result sets e row counts                                                                                                                        |
+| `pagination`         | object  | nao             | Presente apenas em requests paginadas                                                                                                                              |
+| `stream_id`          | string  | nao             | Presente quando streaming ativo                                                                                                                                    |
+| `sql_handling_mode`  | string  | nao             | Modo efetivo usado: `managed` ou `preserve` (v2.5+)                                                                                                                |
+| `max_rows_handling`  | string  | nao             | Politica ativa para `max_rows` (ex.: `response_truncation`) (v2.5+)                                                                                                |
+| `effective_max_rows` | integer | nao             | Limite efetivo de linhas apos negociacao (min entre solicitado e limite do transporte); util para debug e suporte (schema `rpc.result.sql-execute` no plug_agente) |
 
 ### sql.execute pagination
 
 Objeto presente quando a requisicao inclui `page`+`page_size` ou `cursor`. A requisicao paginada deve usar SQL com **`ORDER BY` explicito** (ver regras em `command.params.options`).
 
-| Campo               | Tipo    | Descricao                           |
-| ------------------- | ------- | ----------------------------------- |
-| `page`              | integer | Pagina atual                        |
-| `page_size`         | integer | Tamanho da pagina                   |
-| `returned_rows`     | integer | Linhas retornadas nesta pagina      |
-| `has_next_page`     | boolean | Se existe proxima pagina            |
-| `has_previous_page` | boolean | Se existe pagina anterior           |
-| `current_cursor`    | string  | Cursor da pagina atual (opcional)   |
+| Campo               | Tipo    | Descricao                                        |
+| ------------------- | ------- | ------------------------------------------------ |
+| `page`              | integer | Pagina atual                                     |
+| `page_size`         | integer | Tamanho da pagina                                |
+| `returned_rows`     | integer | Linhas retornadas nesta pagina                   |
+| `has_next_page`     | boolean | Se existe proxima pagina                         |
+| `has_previous_page` | boolean | Se existe pagina anterior                        |
+| `current_cursor`    | string  | Cursor da pagina atual (opcional)                |
 | `next_cursor`       | string  | Cursor para proxima pagina (quando cursor ativo) |
 
 ### sql.executeBatch result
 
-| Campo                 | Tipo    | Sempre presente | Descricao                          |
-| --------------------- | ------- | --------------- | ---------------------------------- |
-| `execution_id`        | string  | sim             | ID unico do batch                  |
-| `started_at`          | string  | sim             | Inicio (ISO-8601)                  |
-| `finished_at`         | string  | sim             | Fim (ISO-8601)                     |
-| `items`               | array   | sim             | Resultado de cada comando          |
-| `total_commands`      | integer | sim             | Total de comandos no batch         |
-| `successful_commands` | integer | sim             | Comandos que tiveram sucesso       |
-| `failed_commands`     | integer | sim             | Comandos que falharam              |
+| Campo                 | Tipo    | Sempre presente | Descricao                    |
+| --------------------- | ------- | --------------- | ---------------------------- |
+| `execution_id`        | string  | sim             | ID unico do batch            |
+| `started_at`          | string  | sim             | Inicio (ISO-8601)            |
+| `finished_at`         | string  | sim             | Fim (ISO-8601)               |
+| `items`               | array   | sim             | Resultado de cada comando    |
+| `total_commands`      | integer | sim             | Total de comandos no batch   |
+| `successful_commands` | integer | sim             | Comandos que tiveram sucesso |
+| `failed_commands`     | integer | sim             | Comandos que falharam        |
 
 ### sql.executeBatch items[]
 
-| Campo             | Tipo    | Descricao                               |
-| ----------------- | ------- | --------------------------------------- |
-| `index`           | integer | Indice do comando no array original     |
-| `ok`              | boolean | Se o comando foi executado com sucesso  |
-| `rows`            | array   | Linhas retornadas                       |
-| `row_count`       | integer | Total de linhas                         |
-| `affected_rows`   | integer | Linhas afetadas                         |
-| `error`           | string  | Mensagem de erro quando `ok: false`     |
-| `column_metadata` | array   | Metadados das colunas                   |
+| Campo             | Tipo    | Descricao                              |
+| ----------------- | ------- | -------------------------------------- |
+| `index`           | integer | Indice do comando no array original    |
+| `ok`              | boolean | Se o comando foi executado com sucesso |
+| `rows`            | array   | Linhas retornadas                      |
+| `row_count`       | integer | Total de linhas                        |
+| `affected_rows`   | integer | Linhas afetadas                        |
+| `error`           | string  | Mensagem de erro quando `ok: false`    |
+| `column_metadata` | array   | Metadados das colunas                  |
 
 ### sql.cancel result
 
-| Campo          | Tipo    | Descricao                      |
-| -------------- | ------- | ------------------------------ |
-| `cancelled`    | boolean | Se o cancelamento foi aceito   |
-| `execution_id` | string  | ID da execucao cancelada       |
-| `request_id`   | string  | ID do request cancelado        |
+| Campo          | Tipo    | Descricao                    |
+| -------------- | ------- | ---------------------------- |
+| `cancelled`    | boolean | Se o cancelamento foi aceito |
+| `execution_id` | string  | ID da execucao cancelada     |
+| `request_id`   | string  | ID do request cancelado      |
 
 ### Formato de erro RPC
 
 Quando o agente retorna erro, `response.item.error` segue:
 
-| Campo                 | Tipo    | Obrigatorio | Descricao                                |
-| --------------------- | ------- | ----------- | ---------------------------------------- |
-| `code`                | integer | sim         | Codigo de erro JSON-RPC                  |
-| `message`             | string  | sim         | Mensagem do erro                         |
-| `data.reason`         | string  | sim         | Identificador estavel do motivo          |
-| `data.category`       | string  | sim         | Classe do erro para roteamento           |
-| `data.retryable`      | boolean | sim         | Se retry automatico faz sentido          |
-| `data.user_message`   | string  | sim         | Mensagem amigavel para UI                |
-| `data.technical_message` | string | sim      | Detalhe tecnico para logs                |
-| `data.correlation_id` | string  | sim         | ID para correlacao de logs               |
-| `data.timestamp`      | string  | sim         | Instante UTC (ISO-8601)                  |
+| Campo                    | Tipo    | Obrigatorio | Descricao                       |
+| ------------------------ | ------- | ----------- | ------------------------------- |
+| `code`                   | integer | sim         | Codigo de erro JSON-RPC         |
+| `message`                | string  | sim         | Mensagem do erro                |
+| `data.reason`            | string  | sim         | Identificador estavel do motivo |
+| `data.category`          | string  | sim         | Classe do erro para roteamento  |
+| `data.retryable`         | boolean | sim         | Se retry automatico faz sentido |
+| `data.user_message`      | string  | sim         | Mensagem amigavel para UI       |
+| `data.technical_message` | string  | sim         | Detalhe tecnico para logs       |
+| `data.correlation_id`    | string  | sim         | ID para correlacao de logs      |
+| `data.timestamp`         | string  | sim         | Instante UTC (ISO-8601)         |
 
 ---
 
@@ -1224,27 +1228,27 @@ Quando o agente retorna erro, `response.item.error` segue:
 
 ### JSON-RPC padrao
 
-| Codigo   | Descricao        | `reason`            |
-| -------- | ---------------- | ------------------- |
-| `-32700` | Parse error      | `json_parse_error`  |
-| `-32600` | Invalid request  | `invalid_request`   |
-| `-32601` | Method not found | `method_not_found`  |
-| `-32602` | Invalid params   | `invalid_params`    |
-| `-32603` | Internal error   | `internal_error`    |
+| Codigo   | Descricao        | `reason`           |
+| -------- | ---------------- | ------------------ |
+| `-32700` | Parse error      | `json_parse_error` |
+| `-32600` | Invalid request  | `invalid_request`  |
+| `-32601` | Method not found | `method_not_found` |
+| `-32602` | Invalid params   | `invalid_params`   |
+| `-32603` | Internal error   | `internal_error`   |
 
 ### Transporte
 
-| Codigo   | Descricao           | `reason`             | `retryable` |
-| -------- | ------------------- | -------------------- | ----------- |
-| `-32001` | Authentication      | `authentication_failed` / `missing_client_token` | false |
-| `-32002` | Unauthorized        | `unauthorized` / `token_revoked`                 | false |
-| `-32008` | Timeout             | `timeout`            | true        |
-| `-32009` | Invalid payload     | `invalid_payload`    | false       |
-| `-32010` | Decoding failed     | `decoding_failed`    | false       |
-| `-32011` | Compression failed  | `compression_failed` | false       |
-| `-32012` | Network error       | `network_error`      | true        |
-| `-32013` | Rate limit          | `rate_limited`       | false       |
-| `-32014` | Replay detected     | `replay_detected`    | false       |
+| Codigo   | Descricao          | `reason`                                         | `retryable` |
+| -------- | ------------------ | ------------------------------------------------ | ----------- |
+| `-32001` | Authentication     | `authentication_failed` / `missing_client_token` | false       |
+| `-32002` | Unauthorized       | `unauthorized` / `token_revoked`                 | false       |
+| `-32008` | Timeout            | `timeout`                                        | true        |
+| `-32009` | Invalid payload    | `invalid_payload`                                | false       |
+| `-32010` | Decoding failed    | `decoding_failed`                                | false       |
+| `-32011` | Compression failed | `compression_failed`                             | false       |
+| `-32012` | Network error      | `network_error`                                  | true        |
+| `-32013` | Rate limit         | `rate_limited`                                   | false       |
+| `-32014` | Replay detected    | `replay_detected`                                | false       |
 
 ### Dominio SQL
 
@@ -1278,47 +1282,49 @@ deste arquivo e em `docs/socket_relay_protocol.md`.
 
 ### Recursos disponiveis no agente vs cobertura REST
 
-| Recurso do agente                          | Socket status | REST status     | Gap                                      |
-| ------------------------------------------ | ------------- | --------------- | ---------------------------------------- |
-| `sql.execute`                              | implementado  | exposto         | -                                        |
-| `sql.executeBatch`                         | implementado  | exposto         | -                                        |
-| `sql.cancel`                               | implementado  | exposto         | -                                        |
-| `rpc.discover`                             | implementado  | exposto         | -                                        |
-| `client_token.getPolicy`                   | implementado  | exposto         | -                                        |
-| PayloadFrame encode/decode                 | implementado  | transparente    | -                                        |
-| Compressao GZIP (modo **auto** por defeito; `payloadFrameCompression`) | implementado  | transparente    | cliente escolhe `default` / `none` / `always` no body REST ou envelope relay |
-| Assinatura de payload (HMAC-SHA256)        | implementado  | opcional saida  | verificacao de frames **do** agente quando assinados; assinatura **de saida** do hub com `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY`. Com `PAYLOAD_SIGNING_KEY_ID` configurado, `signature.key_id` passa a ser **obrigatorio** e validado (alinhado a `payload-frame.schema.json`) |
-| Token carrier (client_token/clientToken/auth) | implementado | validado     | -                                        |
-| Paginacao (page/page_size)                 | implementado  | exposto         | -                                        |
-| Paginacao (cursor keyset)                  | implementado  | exposto         | -                                        |
-| `multi_result` (multiplos result sets)     | implementado  | validado        | -                                        |
-| `idempotency_key`                          | implementado  | validado        | -                                        |
-| `database` (override DSN)                  | implementado  | validado        | -                                        |
-| `options.timeout_ms` / `options.max_rows`  | implementado  | validado        | -                                        |
-| `options.execution_mode` (managed/preserve) | implementado  | validado        | -                                        |
-| `options.preserve_sql` (alias legado)       | implementado  | validado        | -                                        |
-| `options.transaction` (batch)               | implementado  | validado        | -                                        |
-| `api_version` no request                   | implementado  | exposto         | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.5"` como fallback (o profile efetivo anunciado pelo hub e `plug-jsonrpc-profile/2.8`); merge de `meta` |
-| `meta` no request (trace_id, traceparent)  | implementado  | exposto         | hub faz merge preservando traceparent/tracestate; injeta request_id, agent_id, timestamp, trace_id |
-| `meta.outbound_compression` (`none` / `gzip` / `auto`) | **no-op** no runtime atual  | aceito + OpenAPI | aceito por forward-compat alinhado a `plug_agente` `rpc.request.schema.json`; o `socket_communication_standard.md` (v2.8, *Nota operacional*) declara explicitamente que o agente **nao** suporta override de compressao por request — o campo nao tem efeito no fio. Em batch JSON-RPC, se enviado, todos os itens devem usar o mesmo valor (regra futura do agente) |
-| `api_version` na response                  | implementado  | exposto         | serializer preserva `api_version` e `meta` do agente |
-| `meta` na response (agent_id, timestamp)   | implementado  | exposto         | serializer preserva `meta` do agente     |
-| Batch max 32 itens                         | implementado  | validado        | servidor rejeita batches > 32 com 400    |
-| Capacidade de pendencias REST              | implementado  | validado        | limite global (`SOCKET_REST_MAX_PENDING_REQUESTS`) + limite/fila por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `SOCKET_REST_AGENT_MAX_QUEUE`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`) com `Retry-After` em overload |
-| Streaming chunked (`rpc:chunk`/`rpc:complete`) | implementado | **materializado** | REST (`sql.execute` unico): hub faz pull interno, agrega linhas e devolve **uma** resposta HTTP (sem streaming progressivo). Socket /consumers continua com eventos em tempo real |
-| Backpressure (`rpc:stream.pull`)           | implementado  | **interno**     | REST nao expoe pull ao cliente; o hub emite `rpc:stream.pull` com janela base em `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, ajustada por capabilities quando o agente anunciar recomendacao/limite. Controle fino permanece no Socket (`agents:stream_pull` / relay) |
-| Delivery guarantee (`rpc:request_ack`)     | implementado  | exposto         | hub registra ack e marca `acked` no pending request |
-| Batch ack (`rpc:batch_ack`)                | implementado  | exposto         | hub registra acks para cada request_id do batch |
-| Notification JSON-RPC (`id: null`)       | implementado  | exposto         | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202 |
-| Falha rapida em disconnect do agente       | implementado  | exposto         | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout; **novo** pedido REST com `id` correlacionavel contra agente catalogado sem socket devolve **200** + envelope normalizado `agent_offline` (`-32000`) |
-| Heartbeat (`agent:heartbeat`)              | implementado  | transparente    | -                                        |
-| Capabilities negotiation                   | implementado  | transparente    | -                                        |
+| Recurso do agente                                                      | Socket status              | REST status       | Gap                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------- | -------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sql.execute`                                                          | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
+| `sql.executeBatch`                                                     | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
+| `sql.cancel`                                                           | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
+| `rpc.discover`                                                         | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
+| `client_token.getPolicy`                                               | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
+| PayloadFrame encode/decode                                             | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                             |
+| Compressao GZIP (modo **auto** por defeito; `payloadFrameCompression`) | implementado               | transparente      | cliente escolhe `default` / `none` / `always` no body REST ou envelope relay                                                                                                                                                                                                                                  |
+| Assinatura de payload (HMAC-SHA256)                                    | implementado               | opcional saida    | verificacao de frames **do** agente quando assinados; assinatura **de saida** do hub com `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY`. Com `PAYLOAD_SIGNING_KEY_ID` configurado, `signature.key_id` passa a ser **obrigatorio** e validado (alinhado a `payload-frame.schema.json`)                   |
+| Token carrier (client_token/clientToken/auth)                          | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| Paginacao (page/page_size)                                             | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
+| Paginacao (cursor keyset)                                              | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
+| `multi_result` (multiplos result sets)                                 | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| `idempotency_key`                                                      | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| `database` (override DSN)                                              | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| `options.timeout_ms` / `options.max_rows`                              | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| `options.execution_mode` (managed/preserve)                            | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| `options.preserve_sql` (alias legado)                                  | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| `options.transaction` (batch)                                          | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| `api_version` no request                                               | implementado               | exposto           | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.8"` como fallback, alinhado ao profile anunciado em `agent:capabilities` (`plug-jsonrpc-profile/2.8`)                                                                                                                                |
+| `meta` no request (trace_id, traceparent)                              | implementado               | exposto           | hub preserva apenas os campos publicados pelo schema do `plug_agente` (`trace_id`, `traceparent`, `tracestate`, `request_id`, `agent_id`, `timestamp`); campos extras aceitos na entrada sao **stripados** antes do envio ao agente; o hub injeta/reescreve `request_id`, `agent_id`, `timestamp`, `trace_id` |
+| `meta.outbound_compression` (`none` / `gzip` / `auto`)                 | **no-op** no runtime atual | aceito + OpenAPI  | aceito por compatibilidade na entrada, mas **nao e encaminhado** ao agente; o `socket_communication_standard.md` (v2.8, _Nota operacional_) declara explicitamente que o agente **nao** suporta override de compressao por request                                                                            |
+| `api_version` na response                                              | implementado               | exposto           | serializer preserva `api_version` e `meta` do agente                                                                                                                                                                                                                                                          |
+| `meta` na response (agent_id, timestamp)                               | implementado               | exposto           | serializer preserva `meta` do agente                                                                                                                                                                                                                                                                          |
+| Batch max 32 itens                                                     | implementado               | validado          | servidor rejeita batches > 32 com 400                                                                                                                                                                                                                                                                         |
+| Capacidade de pendencias REST                                          | implementado               | validado          | limite global (`SOCKET_REST_MAX_PENDING_REQUESTS`) + limite/fila por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `SOCKET_REST_AGENT_MAX_QUEUE`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`) com `Retry-After` em overload                                                                                                |
+| Streaming chunked (`rpc:chunk`/`rpc:complete`)                         | implementado               | **materializado** | REST (`sql.execute` unico): hub faz pull interno, agrega linhas e devolve **uma** resposta HTTP (sem streaming progressivo). Socket /consumers continua com eventos em tempo real                                                                                                                             |
+| Backpressure (`rpc:stream.pull`)                                       | implementado               | **interno**       | REST nao expoe pull ao cliente; o hub emite `rpc:stream.pull` com janela base em `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, ajustada por capabilities quando o agente anunciar recomendacao/limite. Controle fino permanece no Socket (`agents:stream_pull` / relay)                                              |
+| Delivery guarantee (`rpc:request_ack`)                                 | implementado               | exposto           | hub registra ack e marca `acked` no pending request; **nao** reemite `rpc:request` automaticamente quando o ack nao chega                                                                                                                                                                                     |
+| Batch ack (`rpc:batch_ack`)                                            | implementado               | exposto           | hub registra acks para cada `request_id` do batch; **nao** ha resend automatico do batch por falta de ack                                                                                                                                                                                                     |
+| Notification JSON-RPC (`id: null`)                                     | implementado               | exposto           | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202                                                                                                                                                                                                                   |
+| Falha rapida em disconnect do agente                                   | implementado               | exposto           | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout; **novo** pedido REST com `id` correlacionavel contra agente catalogado sem socket devolve **200** + envelope normalizado `agent_offline` (`-32000`)                                                                 |
+| Heartbeat (`agent:heartbeat`)                                          | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                             |
+| Capabilities negotiation                                               | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                             |
 
 ### Limitacoes intencionais do canal REST
 
 - nao ha streaming progressivo por HTTP; `sql.execute` com `stream_id` e
   materializado no hub e devolvido como resposta final unica
 - o cliente HTTP nao controla `rpc:stream.pull`; esse fluxo e interno ao hub
+- `rpc:request_ack` / `rpc:batch_ack` sao observados para telemetria e troubleshooting,
+  mas o hub ainda nao faz retry automatico da request quando esses acks faltam
 - o estado de correlacao continua em memoria por processo; multi-instancia sem
   afinidade/shared state nao e o alvo atual
 
@@ -1370,11 +1376,11 @@ O valor deve ser menor ou igual ao limite do PayloadFrame (10MB).
 
 O endpoint `POST /api/v1/agents/commands` possui rate limit proprio, alem do global:
 
-| Variavel | Default | Descricao |
-| -------- | ------- | --------- |
-| `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` | 60000 | Janela em ms (1 min) |
-| `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` | 100 | Max requests por janela por **utilizador** (JWT `sub`) |
-| `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX` | `0` (desligado) | Opcional: max por **IP** na mesma janela. `> 0` ativa um segundo limitador (ex.: `300` em NAT). Atras de proxy, configurar `trust proxy` no Express para `req.ip` correto. |
+| Variavel                                    | Default         | Descricao                                                                                                                                                                  |
+| ------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` | 60000           | Janela em ms (1 min)                                                                                                                                                       |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX`       | 100             | Max requests por janela por **utilizador** (JWT `sub`)                                                                                                                     |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX`    | `0` (desligado) | Opcional: max por **IP** na mesma janela. `> 0` ativa um segundo limitador (ex.: `300` em NAT). Atras de proxy, configurar `trust proxy` no Express para `req.ip` correto. |
 
 Ajuste conforme capacidade dos agentes e padrao de uso.
 
@@ -1388,8 +1394,8 @@ Ver `docs/socket_client_sdk.md`.
 Quando o hub gera UUID para `id` omitido (`ensureJsonRpcIdsForBridge`), pode registrar um evento
 estruturado para suporte:
 
-| Variavel | Default | Descricao |
-| -------- | ------- | --------- |
+| Variavel                     | Default | Descricao                                                                                                         |
+| ---------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
 | `BRIDGE_LOG_JSONRPC_AUTO_ID` | `false` | Se `true`, emite **INFO** `bridge_jsonrpc_id_assigned` com `method`, `assigned_id` e opcionalmente `batch_index`. |
 
 Em `NODE_ENV=development`, o mesmo evento e emitido em nivel **DEBUG** (via `console.debug`) sem
@@ -1418,50 +1424,50 @@ relay pendentes e indices), `bridge_relay_health_metrics.ts` (circuit, latencia,
 O que resta em `rpc_bridge.ts` e sobretudo **wiring** (namespaces, `emitToConsumer`, factories) e **`resetSocketBridgeState`** (delega stores a `rpc_bridge_lifecycle.ts`); pode
 seguir o mesmo padrao. Acompanhamento:
 [CHANGELOG.md](../CHANGELOG.md)
-(secao *Roadmap tecnico*).
+(secao _Roadmap tecnico_).
 
 ## Mapa de arquivos relevantes
 
-| Arquivo                                                            | Papel                                  |
-| ------------------------------------------------------------------ | -------------------------------------- |
-| `src/presentation/http/routes/agents.routes.ts`                   | Definicao da rota e Swagger            |
-| `src/presentation/http/validators/agents.validator.ts`            | Reexporta schemas de `shared/validators/agent_command` |
-| `src/presentation/http/controllers/agents.controller.ts`          | Controller: chama executeAgentCommand  |
-| `src/presentation/http/serializers/agent_rpc_response.serializer.ts` | Normalizacao da resposta do agente  |
-| `src/presentation/socket/hub/rpc_bridge.ts`                      | Bridge: emit rpc:request no namespace /agents |
-| `src/presentation/socket/hub/rest_sql_stream_materialize.ts`     | Creditos + estado do stream REST materializado (`sql.execute`) |
-| `src/presentation/socket/hub/rest_agent_dispatch_queue.ts`       | Fila + inflight por `agentId` no bridge REST (`SOCKET_REST_AGENT_*`) |
-| `src/presentation/socket/hub/rest_pending_requests.ts`         | Mapa correlation id -> `PendingRequest`, capacidade `SOCKET_REST_MAX_PENDING_REQUESTS` |
-| `src/presentation/socket/hub/relay_idempotency_store.ts`       | Idempotencia relay (`client_request_id` por conversa), TTL e timer de limpeza |
-| `src/presentation/socket/hub/relay_stream_flow_state.ts`       | Estado de backpressure do stream relay (creditos, fila de chunks, complete pendente) |
-| `src/presentation/socket/hub/relay_request_registry.ts`        | Registo de `RelayRequestRoute`, limites `SOCKET_RELAY_MAX_PENDING_*`, cleanup por conversa/socket |
-| `src/presentation/socket/hub/bridge_relay_health_metrics.ts`   | Circuit por agente, latencia, `relayMetrics`, snapshot Prometheus (via `rpc_bridge.getRelayMetricsSnapshot`) |
-| `src/presentation/socket/hub/active_stream_registry.ts`        | Rotas `ActiveStreamRoute` (legacy + relay), limite `SOCKET_RELAY_MAX_ACTIVE_STREAMS` (gauge) |
-| `src/presentation/socket/hub/rpc_bridge_command_helpers.ts`  | Helpers puros: ids de resposta/correlation, `withBridgeMeta`, `api_version`, `stream_id` em resultados |
-| `src/presentation/socket/hub/rpc_bridge_relay_stream.ts`      | Stream relay: `createRelayStreamHandlers`, `emitRelayTimeoutResponse` (backpressure + idempotencia no timeout) |
-| `src/presentation/socket/hub/rpc_bridge_agent_inbound.ts`   | Handlers de entrada do agente: `createRpcBridgeAgentInboundHandlers` → `handleAgentRpc*` (reexportados em `rpc_bridge.ts`) |
-| `src/presentation/socket/hub/rpc_bridge_stream_pull.ts`    | `createRequestAgentStreamPull` — pull de stream (legacy + creditos relay apos emit ao agente) |
-| `src/presentation/socket/hub/rpc_bridge_dispatch_relay.ts` | `createRpcBridgeRelayDispatch` — `dispatchRelayRpcToAgent`, `requestRelayStreamPull` |
-| `src/presentation/socket/hub/rpc_bridge_dispatch_command.ts` | `createDispatchRpcCommandToAgent` — `dispatchRpcCommandToAgent` (HTTP + `agents:command`) |
-| `src/presentation/socket/hub/rpc_bridge_lifecycle.ts`       | Cleanup por socket/conversa, `resetRpcBridgeMutableStores` (reexport cleanup via `rpc_bridge.ts`) |
-| `src/application/agent_commands/merge_sql_stream_rpc_response.ts` | Junta `rpc:response` inicial + chunks + `rpc:complete` em uma resposta JSON-RPC |
-| `src/presentation/socket/hub/agent_registry.ts`                  | Registry de agentes conectados         |
-| `src/presentation/socket/consumers/agents_command.handler.ts`   | Handler Socket para agents:command no /consumers |
-| `src/presentation/socket/consumers/agents_stream_pull.handler.ts` | Handler Socket para agents:stream_pull no /consumers |
-| `src/presentation/socket/consumers/relay_conversation_start.handler.ts` | Handler Socket relay:conversation.start |
-| `src/presentation/socket/consumers/relay_conversation_end.handler.ts` | Handler Socket relay:conversation.end |
-| `src/presentation/socket/consumers/relay_rpc_request.handler.ts` | Handler Socket relay:rpc.request |
-| `src/presentation/socket/consumers/relay_rpc_stream_pull.handler.ts` | Handler Socket relay:rpc.stream.pull |
-| `src/presentation/socket/hub/conversation_registry.ts`           | Registry de conversas relay por socket/agent |
-| `src/presentation/socket/hub/consumer_relay_rate_limiter.ts`    | Rate-limit por consumer para relay |
-| `src/application/agent_commands/execute_agent_command.ts`        | Caso de uso compartilhado HTTP + Socket |
-| `src/application/agent_commands/command_transformers.ts`         | Paginacao, `preserve_sql`, `ensureJsonRpcIdsForBridge` |
-| `src/application/services/socket_audit.service.ts`               | Auditoria Socket (INSERT simples ou em lote), retencao, flush no shutdown |
-| `src/presentation/http/controllers/metrics.controller.ts`        | Endpoint `/metrics` (Prometheus text) |
-| `src/shared/validators/agent_command.ts`                         | Schemas transport-agnosticos          |
-| `src/shared/utils/payload_frame.ts`                               | Encode/decode PayloadFrame; preencode para batch ack |
-| `src/shared/utils/percentile.ts`                                  | Percentil quickselect (metricas)        |
-| `src/shared/utils/latency_ring_buffer.ts`                         | Buffer circular de amostras de latencia |
-| `src/shared/utils/rpc_types.ts`                                   | isRecord, toRequestId, toJsonRpcId      |
-| `src/shared/constants/socket_events.ts`                           | Nomes dos eventos e namespaces         |
-| `src/socket.ts`                                                    | Bootstrap: namespaces /agents e /consumers |
+| Arquivo                                                                 | Papel                                                                                                                      |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/presentation/http/routes/agents.routes.ts`                         | Definicao da rota e Swagger                                                                                                |
+| `src/presentation/http/validators/agents.validator.ts`                  | Reexporta schemas de `shared/validators/agent_command`                                                                     |
+| `src/presentation/http/controllers/agents.controller.ts`                | Controller: chama executeAgentCommand                                                                                      |
+| `src/presentation/http/serializers/agent_rpc_response.serializer.ts`    | Normalizacao da resposta do agente                                                                                         |
+| `src/presentation/socket/hub/rpc_bridge.ts`                             | Bridge: emit rpc:request no namespace /agents                                                                              |
+| `src/presentation/socket/hub/rest_sql_stream_materialize.ts`            | Creditos + estado do stream REST materializado (`sql.execute`)                                                             |
+| `src/presentation/socket/hub/rest_agent_dispatch_queue.ts`              | Fila + inflight por `agentId` no bridge REST (`SOCKET_REST_AGENT_*`)                                                       |
+| `src/presentation/socket/hub/rest_pending_requests.ts`                  | Mapa correlation id -> `PendingRequest`, capacidade `SOCKET_REST_MAX_PENDING_REQUESTS`                                     |
+| `src/presentation/socket/hub/relay_idempotency_store.ts`                | Idempotencia relay (`client_request_id` por conversa), TTL e timer de limpeza                                              |
+| `src/presentation/socket/hub/relay_stream_flow_state.ts`                | Estado de backpressure do stream relay (creditos, fila de chunks, complete pendente)                                       |
+| `src/presentation/socket/hub/relay_request_registry.ts`                 | Registo de `RelayRequestRoute`, limites `SOCKET_RELAY_MAX_PENDING_*`, cleanup por conversa/socket                          |
+| `src/presentation/socket/hub/bridge_relay_health_metrics.ts`            | Circuit por agente, latencia, `relayMetrics`, snapshot Prometheus (via `rpc_bridge.getRelayMetricsSnapshot`)               |
+| `src/presentation/socket/hub/active_stream_registry.ts`                 | Rotas `ActiveStreamRoute` (legacy + relay), limite `SOCKET_RELAY_MAX_ACTIVE_STREAMS` (gauge)                               |
+| `src/presentation/socket/hub/rpc_bridge_command_helpers.ts`             | Helpers puros: ids de resposta/correlation, `withBridgeMeta`, `api_version`, `stream_id` em resultados                     |
+| `src/presentation/socket/hub/rpc_bridge_relay_stream.ts`                | Stream relay: `createRelayStreamHandlers`, `emitRelayTimeoutResponse` (backpressure + idempotencia no timeout)             |
+| `src/presentation/socket/hub/rpc_bridge_agent_inbound.ts`               | Handlers de entrada do agente: `createRpcBridgeAgentInboundHandlers` → `handleAgentRpc*` (reexportados em `rpc_bridge.ts`) |
+| `src/presentation/socket/hub/rpc_bridge_stream_pull.ts`                 | `createRequestAgentStreamPull` — pull de stream (legacy + creditos relay apos emit ao agente)                              |
+| `src/presentation/socket/hub/rpc_bridge_dispatch_relay.ts`              | `createRpcBridgeRelayDispatch` — `dispatchRelayRpcToAgent`, `requestRelayStreamPull`                                       |
+| `src/presentation/socket/hub/rpc_bridge_dispatch_command.ts`            | `createDispatchRpcCommandToAgent` — `dispatchRpcCommandToAgent` (HTTP + `agents:command`)                                  |
+| `src/presentation/socket/hub/rpc_bridge_lifecycle.ts`                   | Cleanup por socket/conversa, `resetRpcBridgeMutableStores` (reexport cleanup via `rpc_bridge.ts`)                          |
+| `src/application/agent_commands/merge_sql_stream_rpc_response.ts`       | Junta `rpc:response` inicial + chunks + `rpc:complete` em uma resposta JSON-RPC                                            |
+| `src/presentation/socket/hub/agent_registry.ts`                         | Registry de agentes conectados                                                                                             |
+| `src/presentation/socket/consumers/agents_command.handler.ts`           | Handler Socket para agents:command no /consumers                                                                           |
+| `src/presentation/socket/consumers/agents_stream_pull.handler.ts`       | Handler Socket para agents:stream_pull no /consumers                                                                       |
+| `src/presentation/socket/consumers/relay_conversation_start.handler.ts` | Handler Socket relay:conversation.start                                                                                    |
+| `src/presentation/socket/consumers/relay_conversation_end.handler.ts`   | Handler Socket relay:conversation.end                                                                                      |
+| `src/presentation/socket/consumers/relay_rpc_request.handler.ts`        | Handler Socket relay:rpc.request                                                                                           |
+| `src/presentation/socket/consumers/relay_rpc_stream_pull.handler.ts`    | Handler Socket relay:rpc.stream.pull                                                                                       |
+| `src/presentation/socket/hub/conversation_registry.ts`                  | Registry de conversas relay por socket/agent                                                                               |
+| `src/presentation/socket/hub/consumer_relay_rate_limiter.ts`            | Rate-limit por consumer para relay                                                                                         |
+| `src/application/agent_commands/execute_agent_command.ts`               | Caso de uso compartilhado HTTP + Socket                                                                                    |
+| `src/application/agent_commands/command_transformers.ts`                | Paginacao, `preserve_sql`, `ensureJsonRpcIdsForBridge`                                                                     |
+| `src/application/services/socket_audit.service.ts`                      | Auditoria Socket (INSERT simples ou em lote), retencao, flush no shutdown                                                  |
+| `src/presentation/http/controllers/metrics.controller.ts`               | Endpoint `/metrics` (Prometheus text)                                                                                      |
+| `src/shared/validators/agent_command.ts`                                | Schemas transport-agnosticos                                                                                               |
+| `src/shared/utils/payload_frame.ts`                                     | Encode/decode PayloadFrame; preencode para batch ack                                                                       |
+| `src/shared/utils/percentile.ts`                                        | Percentil quickselect (metricas)                                                                                           |
+| `src/shared/utils/latency_ring_buffer.ts`                               | Buffer circular de amostras de latencia                                                                                    |
+| `src/shared/utils/rpc_types.ts`                                         | isRecord, toRequestId, toJsonRpcId                                                                                         |
+| `src/shared/constants/socket_events.ts`                                 | Nomes dos eventos e namespaces                                                                                             |
+| `src/socket.ts`                                                         | Bootstrap: namespaces /agents e /consumers                                                                                 |

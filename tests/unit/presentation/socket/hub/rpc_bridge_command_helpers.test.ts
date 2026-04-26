@@ -9,6 +9,7 @@ import {
   isBatchCommand,
   pickResponseIds,
   resolveOutboundApiVersion,
+  sanitizeOutboundRpcMeta,
   toCorrelationIds,
   withBridgeMeta,
 } from "../../../../../src/presentation/socket/hub/rpc_bridge_command_helpers";
@@ -32,10 +33,25 @@ describe("rpc_bridge_command_helpers", () => {
     expect(toCorrelationIds(batch)).toEqual(["b1", "b2"]);
   });
 
-  it("resolveOutboundApiVersion trims or defaults to 2.5", () => {
+  it("resolveOutboundApiVersion trims or defaults to 2.8", () => {
     expect(resolveOutboundApiVersion({ api_version: "  3.0  " })).toBe("3.0");
-    expect(resolveOutboundApiVersion({ api_version: "" })).toBe("2.5");
-    expect(resolveOutboundApiVersion({})).toBe("2.5");
+    expect(resolveOutboundApiVersion({ api_version: "" })).toBe("2.8");
+    expect(resolveOutboundApiVersion({})).toBe("2.8");
+  });
+
+  it("sanitizeOutboundRpcMeta strips hub-only and undocumented fields", () => {
+    expect(
+      sanitizeOutboundRpcMeta({
+        traceparent: "00-abc-def-01",
+        outbound_compression: "auto",
+        conversation_id: "conv-1",
+        client_request_id: "client-1",
+        request_id: "req-1",
+      }),
+    ).toEqual({
+      traceparent: "00-abc-def-01",
+      request_id: "req-1",
+    });
   });
 
   it("withBridgeMeta preserves per-item api_version in batch", () => {
@@ -61,17 +77,17 @@ describe("rpc_bridge_command_helpers", () => {
       trace_id: "trace-1",
       timestamp: "t0",
     });
-    expect(out[1].api_version).toBe("2.5");
+    expect(out[1].api_version).toBe("2.8");
     expect(out[1].meta?.request_id).toBe("i2");
   });
 
-  it("withBridgeMeta merges meta on single command", () => {
+  it("withBridgeMeta keeps only published meta fields on single command", () => {
     const cmd: BridgeCommand = {
       jsonrpc: "2.0",
       method: "rpc.discover",
       id: "rid",
-      api_version: "2.5",
-      meta: { existing: true },
+      api_version: "2.8",
+      meta: { traceparent: "00-parent", existing: true, outbound_compression: "auto" },
     };
     const out = withBridgeMeta(cmd, {
       requestId: "rid",
@@ -84,7 +100,7 @@ describe("rpc_bridge_command_helpers", () => {
       return;
     }
     expect(out.meta).toEqual({
-      existing: true,
+      traceparent: "00-parent",
       request_id: "rid",
       agent_id: "a",
       timestamp: "ts",

@@ -24,6 +24,7 @@ Fluxo:
 Autorizacao resumida do relay:
 
 - o handshake autentica o principal no namespace `/consumers`
+- o namespace `/consumers` e **fail-closed**: conexoes sem JWT valido sao rejeitadas mesmo que outros namespaces usem fallback mais permissivo em ambiente de teste
 - nas operacoes sensiveis, o servidor revalida conta ativa e acesso ao agente por evento
 - `user` autoriza por `AgentIdentity`
 - `client` autoriza por `ClientAgentAccess`
@@ -31,7 +32,10 @@ Autorizacao resumida do relay:
 
 ## Handshake: `connection:ready`
 
-Emitido imediatamente após autenticação bem-sucedida. **Desde versão mais recente, enviado como `PayloadFrame`** para consistência com outros eventos RPC.
+Emitido imediatamente após autenticacao bem-sucedida. **Desde versao mais recente, enviado como `PayloadFrame`** para consistencia com outros eventos RPC.
+No caso de principals `client`, o hub entra primeiro na room `client:<clientId>` e
+so depois emite `connection:ready`; ao receber esse evento, o cliente ja esta apto
+para receber `client:agent.profile.updated` sem race de room join.
 
 **Payload lógico após decode**:
 
@@ -89,6 +93,17 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 - `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`, `inFlight`)
 - `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`, `rateLimit`) ou erro
 
+### `relay:conversation.ended.reason`
+
+Valores publicos documentados:
+
+- `consumer_ended`: o proprio consumer encerrou a conversa com `relay:conversation.end`
+- `agent_disconnected`: o socket do agente caiu enquanto a conversa ainda existia
+- `expired`: a conversa foi removida pelo idle timeout
+
+`consumer_disconnected` pode existir como razao **interna** de cleanup do hub, mas
+nao deve ser tratado como contrato publico para SDKs.
+
 ## Contrato RPC e metodos suportados
 
 O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
@@ -99,9 +114,19 @@ O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 **Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
 
-O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). Essa validacao acontece **antes** de consumir o orçamento do rate limit por consumer, para que payloads malformados nao queimem quota. Payloads
-invalidos retornam erro `VALIDATION_ERROR` em `relay:rpc.accepted`. O relay **nao**
+O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
+
+- validacao barata de envelope JSON acontece antes do rate limit fixo
+- validacao profunda do `PayloadFrame` / JSON-RPC pode ocorrer depois do `allowRelayRpcRequest`
+- se essa validacao profunda falhar com erro `400`, ou se o pedido cair em dedupe (`deduplicated: true`), o hub **devolve a quota consumida** na janela do consumer
+
+Payloads invalidos retornam erro `VALIDATION_ERROR` em `relay:rpc.accepted`. O relay **nao**
 suporta batch JSON-RPC (array); envie um unico request por `relay:rpc.request`.
+
+Ao reenviar o comando para o agente, o hub encaminha apenas os campos `meta`
+publicados pelo schema do `plug_agente` e reescreve `request_id`, `agent_id`,
+`timestamp` e `trace_id`. Campos extras aceitos na entrada por compatibilidade
+nao seguem no `rpc:request` agent-side.
 
 **Notifications no relay:** `id: null` nao e aceito em `relay:rpc.request`. O relay exige request correlacionavel para timeout, idempotencia e roteamento de resposta/chunks.
 
@@ -142,6 +167,8 @@ Regras atuais no servidor:
 - limite de payload comprimido: `10 MB`
 - limite de payload decodificado: `10 MB`
 - limite de inflacao gzip: `20x`
+- frames inbound **sem** `signature` continuam aceitos por defeito; a verificacao e
+  aplicada apenas quando a assinatura vem presente no envelope
 - se `signature` vier no frame, o servidor valida com `PAYLOAD_SIGNING_KEY`
   (quando nao configurada e houver assinatura, a validacao falha). Quando
   `PAYLOAD_SIGNING_KEY_ID` esta configurado, `signature.key_id` passa a ser
@@ -181,6 +208,13 @@ Em outras palavras: quando `inFlight: true`, o cliente **nao** deve repetir a
 request nem abrir nova conversa; deve apenas esperar o `relay:rpc.response`
 correspondente ao `requestId` original.
 
+Capacidade operacional:
+
+- `SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION` e `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES` continuam a tentar eviccao FIFO de entradas **completadas**
+- entradas **in-flight** nao sao removidas so para abrir espaco
+- se o cap estiver cheio e so existirem entradas in-flight nao-evictables, o hub
+  rejeita a nova request com erro de capacidade (`503`) em vez de crescer sem limite
+
 ## Isolamento por conversa
 
 - Cada conversa possui `conversationId`.
@@ -200,21 +234,28 @@ correspondente ao `requestId` original.
   conversa sao deduplicadas por TTL. Duplicatas em voo recebem
   `relay:rpc.accepted` com `inFlight: true` e sao replayadas quando a resposta
   original chega.
+- Acks do agente (`rpc:request_ack` / `rpc:batch_ack`) sao observados e
+  reenviados ao consumer quando aplicavel, mas o hub ainda nao faz resend
+  automatico de `rpc:request` se esses acks faltarem.
 - Timeout de relay request: quando o agente nao responde no prazo, o servidor
   devolve erro JSON-RPC no `relay:rpc.response`.
 - Circuit breaker por agente: falhas consecutivas abrem circuito por janela
   curta, bloqueando novas requests temporariamente.
 - Backpressure reforcado: chunks no relay respeitam creditos de
   `relay:rpc.stream.pull`, e o orçamento de creditos do consumer e validado
-  **antes** de o hub conceder novos credits/pulls ao agente.
+  **antes** de o hub conceder novos credits/pulls ao agente. Se o pull for aceite
+  mas a execucao falhar antes de concluir, os creditos concedidos nessa tentativa
+  sao devolvidos para a janela do consumer.
 - Buffer com limites: chunks sao bufferizados por request e globalmente com cap
   de memoria para evitar explosao de uso; se o agente exceder esse buffer, o hub
   fecha o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`)
   em vez de descartar chunks silenciosamente.
 - Pull capability-aware: o hub **publica** os hints
   `recommendedStreamPullWindowSize` e `maxStreamPullWindowSize` (derivados de
-  `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`) em `agent:capabilities.extensions`
-  para o agente calibrar `rpc:stream.pull` sem heuristica propria; quando o
+  `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`) e limite maximo
+  (`SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE`) em `agent:capabilities.extensions`
+  para o agente calibrar `rpc:stream.pull` sem heuristica propria; o hub garante
+  `recommendedStreamPullWindowSize <= maxStreamPullWindowSize`; quando o
   agente anuncia esses mesmos campos em `extensions` ou `limits`, o hub aplica
   o clamp tanto no pull interno quanto nas requests do consumer
   (`agent_registry.resolveStreamPullWindow`).
@@ -251,7 +292,7 @@ Variaveis principais do relay:
 
 ### Rate limit por consumer (janela fixa)
 
-Os limites `SOCKET_RELAY_RATE_LIMIT_*` aplicam-se por identidade lógica (`relay:user:<sub>` quando autenticado; `relay:anon:<socketId>` como fallback) e usam **janela fixa**: quando decorre `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS` desde o inicio da janela, os contadores de `relay:conversation.start`, `relay:rpc.request` e do orçamento de créditos de `relay:rpc.stream.pull` **zeram** de uma vez. Nao e *sliding window*; o trafego pode concentrar-se nos limites de cada janela. Estados inativos sao removidos pelo sweep periodico (`SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` x duracao da janela) e ao disconnect apenas para chaves anónimas.
+Os limites `SOCKET_RELAY_RATE_LIMIT_*` aplicam-se por identidade lógica (`relay:user:<sub>` quando autenticado; `relay:anon:<socketId>` como fallback) e usam **janela fixa**: quando decorre `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS` desde o inicio da janela, os contadores de `relay:conversation.start`, `relay:rpc.request` e do orçamento de créditos de `relay:rpc.stream.pull` **zeram** de uma vez. Nao e _sliding window_; o trafego pode concentrar-se nos limites de cada janela. Estados inativos sao removidos pelo sweep periodico (`SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` x duracao da janela) e ao disconnect apenas para chaves anónimas.
 
 Métricas Prometheus em `GET /metrics`: `plug_socket_relay_rate_limit_conversation_start_allowed_total`, `..._rejected_total`, `plug_socket_relay_rate_limit_request_allowed_total`, `..._rejected_total`, etc.
 
@@ -337,7 +378,7 @@ O mesmo contrato de comando ao agente existe em **paralelo** via
 `POST /api/v1/agents/commands` (REST): o cliente pode usar **só REST**, **só Socket**
 ou **combinar** (ex.: auth HTTP + comandos Socket). O REST **nao** expoe streaming
 progressivo ao cliente (materializacao no hub); ver `docs/PROJECT_OVERVIEW.md`
-(*Dois canais para comandos ao agente*).
+(_Dois canais para comandos ao agente_).
 
 ## SDK cliente
 

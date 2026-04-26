@@ -7,6 +7,7 @@ import type { Socket } from "socket.io";
 
 import { forbidden, unauthorized } from "../../../shared/errors/http_errors";
 import { env } from "../../../shared/config/env";
+import { noteConsumerSocketAuthRejected } from "../../../shared/metrics/socket_consumer.metrics";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { verifyAccessToken } from "../../../shared/utils/jwt";
 
@@ -98,17 +99,15 @@ export const authenticateConsumerSocket = async (
   const token = getToken(socket);
 
   if (!token) {
-    if (env.socketAuthRequired) {
-      next(unauthorized("Socket authentication token is required for /consumers"));
-      return;
-    }
-    next();
+    noteConsumerSocketAuthRejected("missing_token");
+    next(unauthorized("Socket authentication token is required for /consumers"));
     return;
   }
 
   const result = verifyAccessToken(token);
 
   if (!result.ok) {
+    noteConsumerSocketAuthRejected("invalid_token");
     next(result.error);
     return;
   }
@@ -117,11 +116,13 @@ export const authenticateConsumerSocket = async (
   const role = resolveRole(user);
 
   if (env.socketAgentRoles.includes(role)) {
+    noteConsumerSocketAuthRejected("role_denied");
     next(forbidden(`Role '${role}' cannot connect to /consumers`));
     return;
   }
 
   if (!env.socketConsumerRoles.includes(role)) {
+    noteConsumerSocketAuthRejected("role_denied");
     next(forbidden(`Role '${role}' is not allowed to connect to /consumers`));
     return;
   }

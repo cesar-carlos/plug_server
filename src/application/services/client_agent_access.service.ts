@@ -36,6 +36,7 @@ import {
 } from "./client_agent_access_decision_reasons";
 import { recordClientAgentAccessRequestPost } from "../../shared/metrics/client_agent_access_request.metrics";
 import { recordSocketAuditEvent } from "./socket_audit.service";
+import { revokeConsumerClientAccessSockets } from "./consumer_socket_control_sink";
 
 /**
  * Audit event types for the per-(client, agent) bearer token storage.
@@ -135,6 +136,16 @@ export class ClientAgentAccessService {
   async listApprovedClientIdsForAgent(agentId: string): Promise<string[]> {
     const accesses = await this.clientAgentAccessRepository.listByAgentId(agentId);
     return accesses.map((access) => access.clientId);
+  }
+
+  /** Active client IDs with approved access to this agent (for realtime fan-out). */
+  async listActiveApprovedClientIdsForAgent(agentId: string): Promise<string[]> {
+    const accesses = await this.clientAgentAccessRepository.listByAgentId(agentId);
+    const clientsById = await this.loadClientsById(accesses.map((access) => access.clientId));
+    return accesses
+      .map((access) => clientsById.get(access.clientId))
+      .filter((client): client is Client => client !== undefined && client.status === "active")
+      .map((client) => client.id);
   }
 
   async listApprovedAgents(clientId: string): Promise<Agent[]> {
@@ -441,6 +452,11 @@ export class ClientAgentAccessService {
           reason: clientAgentAccessRevokedByClientDecisionReason,
         });
       }
+      await revokeConsumerClientAccessSockets({
+        clientId,
+        agentId,
+        reason: "client_access_revoked",
+      });
     }
     return ok(undefined);
   }
@@ -863,6 +879,11 @@ export class ClientAgentAccessService {
         reason: clientAgentAccessRevokedByOwnerDecisionReason,
       });
     }
+    await revokeConsumerClientAccessSockets({
+      clientId,
+      agentId,
+      reason: "client_access_revoked",
+    });
     return ok(undefined);
   }
 

@@ -13,6 +13,7 @@ import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { allowAgentsCommandSocket } from "../hub/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
 import {
   releaseSocketInflightSlot,
@@ -70,6 +71,7 @@ export const handleAgentsStreamPull = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
 ): void => {
+  const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   if (!isRecord(rawPayload)) {
     emitAppError(socket, "agents:stream_pull payload must be an object");
     return;
@@ -94,6 +96,19 @@ export const handleAgentsStreamPull = (
       error: {
         code: "RATE_LIMITED",
         message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
+    });
+    return;
+  }
+
+  if (!allowAgentsCommandSocket(userSub, socket.id)) {
+    releaseSocketInflightSlot(socket);
+    emitStreamPullResponse(socket, {
+      success: false,
+      error: {
+        code: "TOO_MANY_REQUESTS",
+        message: "Too many agent stream pulls, please try again later.",
         statusCode: 429,
       },
     });

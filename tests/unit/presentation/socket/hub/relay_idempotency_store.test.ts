@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { env } from "../../../../../src/shared/config/env";
 import {
   clearRelayIdempotencyForConversation,
   getOrCreateRelayIdempotencyMap,
   getRelayIdempotencyMap,
+  getRelayIdempotencyMetricsSnapshot,
   pruneExpiredRelayIdempotencyEntries,
+  removeRelayIdempotencyEntry,
   resetRelayIdempotencyStore,
+  setRelayIdempotencyEntry,
 } from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
 
 afterEach(() => {
@@ -24,7 +28,11 @@ describe("relay_idempotency_store", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     const map = getOrCreateRelayIdempotencyMap("c1");
-    map.set("client1", { requestId: "r1", expiresAtMs: Date.now() + 1000 });
+    map.set("client1", {
+      requestId: "r1",
+      expiresAtMs: Date.now() + 1000,
+      responseFrame: { ok: true },
+    });
 
     vi.setSystemTime(new Date("2026-01-01T00:00:02.000Z"));
     pruneExpiredRelayIdempotencyEntries();
@@ -36,8 +44,12 @@ describe("relay_idempotency_store", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     const map = getOrCreateRelayIdempotencyMap("c1");
-    map.set("old", { requestId: "r0", expiresAtMs: Date.now() + 500 });
-    map.set("fresh", { requestId: "r1", expiresAtMs: Date.now() + 60_000 });
+    map.set("old", { requestId: "r0", expiresAtMs: Date.now() + 500, responseFrame: { ok: true } });
+    map.set("fresh", {
+      requestId: "r1",
+      expiresAtMs: Date.now() + 60_000,
+      responseFrame: { ok: true },
+    });
 
     vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
     pruneExpiredRelayIdempotencyEntries();
@@ -55,5 +67,54 @@ describe("relay_idempotency_store", () => {
     });
     clearRelayIdempotencyForConversation("c1");
     expect(getRelayIdempotencyMap("c1")).toBeUndefined();
+  });
+
+  it("removeRelayIdempotencyEntry removes one client id and drops empty buckets", () => {
+    getOrCreateRelayIdempotencyMap("c1").set("x", {
+      requestId: "r",
+      expiresAtMs: Date.now() + 60_000,
+    });
+
+    removeRelayIdempotencyEntry("c1", "x");
+
+    expect(getRelayIdempotencyMap("c1")).toBeUndefined();
+  });
+
+  it("does not prune an expired entry while the original request is still in flight", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
+    setRelayIdempotencyEntry("c1", "in-flight", {
+      requestId: "r1",
+      expiresAtMs: Date.now() + 100,
+    });
+
+    vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
+    pruneExpiredRelayIdempotencyEntries();
+
+    expect(getRelayIdempotencyMap("c1")?.get("in-flight")?.requestId).toBe("r1");
+  });
+
+  it("does not evict in-flight entries to satisfy the per-conversation cap", () => {
+    const ttl = Date.now() + 60_000;
+    const limit = env.socketRelayIdempotencyMaxEntriesPerConversation;
+    for (let index = 0; index < limit; index += 1) {
+      setRelayIdempotencyEntry("c1", `pending-${index}`, {
+        requestId: `req-${index}`,
+        expiresAtMs: ttl,
+      });
+    }
+
+    const result = setRelayIdempotencyEntry("c1", "pending-overflow", {
+      requestId: "req-overflow",
+      expiresAtMs: ttl,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "per_conversation_cap_reached" });
+    const map = getRelayIdempotencyMap("c1");
+    expect(map?.size).toBe(limit);
+    expect(map?.has("pending-0")).toBe(true);
+    expect(map?.has("pending-overflow")).toBe(false);
+    expect(getRelayIdempotencyMetricsSnapshot().evictedPerConversationCap).toBe(0);
   });
 });

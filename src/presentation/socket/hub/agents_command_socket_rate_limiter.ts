@@ -62,6 +62,19 @@ export const allowAgentsCommandSocket = (
   return true;
 };
 
+export const refundAgentsCommandSocket = (
+  userSub: string | undefined,
+  socketId: string,
+): void => {
+  const trimmed = userSub?.trim();
+  const key = trimmed ? `agents_cmd:user:${trimmed}` : `agents_cmd:anon:${socketId}`;
+  const state = statesByKey.get(key);
+  if (!state || state.count <= 0) {
+    return;
+  }
+  state.count -= 1;
+};
+
 export const sweepAgentsCommandSocketRateLimitState = (): void => {
   const nowMs = Date.now();
   const staleMs = staleAfterMs();

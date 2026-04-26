@@ -19,6 +19,7 @@ import type {
   ClientAuthTokensDto,
   ClientAuthUserDto,
 } from "../dtos/client_auth.dto";
+import { disconnectConsumerPrincipalSockets } from "./consumer_socket_control_sink";
 import { enqueueClientRegistrationApprovalEmail } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
 import {
@@ -234,6 +235,11 @@ export class ClientAuthService {
     await this.clientRepository.save(updated);
     if (status === "blocked") {
       await this.clientRefreshTokenRepository.revokeAllForClient(client.id);
+      await disconnectConsumerPrincipalSockets({
+        principalType: "client",
+        principalId: client.id,
+        reason: "account_blocked",
+      });
     }
     return ok(this.toClientDto(updated));
   }

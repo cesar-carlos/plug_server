@@ -8,6 +8,19 @@ Este documento consolida melhorias sugeridas que **nao** estao implementadas de 
 
 O bridge REST e parte do relay mantem **correlacao e filas em memoria** por processo. Varias replicas sem afinidade de sessao ou store partilhado podem perder pedidos pendentes ou duplicar comportamento estranho. Num **unico** processo, afina primeiro throughput com os presets em `docs/performance_hub_agent.md` antes de investir em store partilhado.
 
+Estado explicitamente **por processo** hoje:
+
+- `conversationRegistry` (conversas relay e idle timeout)
+- pending requests REST/legacy socket
+- rooms Socket.IO (`client:<id>`, `consumer:principal:*`)
+- `agentRegistry` e readiness/circuit local
+- mapa de idempotencia relay
+- filas outbound hub -> consumer e buffers de stream
+
+Consequencia pratica: em producao, `/consumers` e `/agents` precisam de **sticky
+sessions** (ou topologia equivalente que garanta afinidade) para que o mesmo
+cliente/agent voltem ao processo que detem esse estado.
+
 ### Rate limits HTTP em memoria (`express-rate-limit`)
 
 Todos os limitadores HTTP (`globalRateLimit`, `credentialAuthRateLimit`, `agentsCommandsUserRateLimit`, `agentsCommandsIpRateLimit`, `adminUserStatusRateLimit`, `clientMeAgentsPostRateLimit`, `clientThumbnailRateLimit`, `clientPasswordRecoveryRequestRateLimit`, `agentsSelfProfileRateLimit`) usam o **store default em memoria** do `express-rate-limit`. Em multi-replica:

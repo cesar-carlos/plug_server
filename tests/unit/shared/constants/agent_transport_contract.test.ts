@@ -48,6 +48,16 @@ describe("agent_transport_contract", () => {
       expect(caps.extensions.maxStreamPullWindowSize).toBe(1);
     });
 
+    it("clamps recommendedStreamPullWindowSize to maxStreamPullWindowSize", () => {
+      const caps = buildHubServerCapabilities({
+        recommendedStreamPullWindowSize: 1024,
+        maxStreamPullWindowSize: 128,
+      });
+
+      expect(caps.extensions.recommendedStreamPullWindowSize).toBe(128);
+      expect(caps.extensions.maxStreamPullWindowSize).toBe(128);
+    });
+
     it("does not mutate the static HUB_TRANSPORT_EXTENSIONS object", () => {
       buildHubServerCapabilities({
         recommendedStreamPullWindowSize: 99,

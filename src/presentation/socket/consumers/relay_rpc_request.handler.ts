@@ -11,6 +11,7 @@ import { conversationIdSchema } from "../../../shared/validators/schemas";
 import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { conversationRegistry } from "../hub/conversation_registry";
+import { refundRelayRpcRequest } from "../hub/consumer_relay_rate_limiter";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 import {
   releaseSocketInflightSlot,
@@ -61,6 +62,7 @@ export const handleRelayRpcRequest = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
 ): void => {
+  const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   const envelope = parseRelayRpcRequestEnvelope(rawPayload);
   if (!envelope.success) {
     emitRelayRpcAccepted(socket, {
@@ -72,6 +74,7 @@ export const handleRelayRpcRequest = (
   const parsed = { success: true as const, data: envelope.data };
 
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
+    refundRelayRpcRequest(userSub, socket.id);
     emitRelayRpcAccepted(socket, {
       success: false,
       error: {
@@ -82,8 +85,6 @@ export const handleRelayRpcRequest = (
     });
     return;
   }
-
-  const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   const latencyTrace = createBridgeLatencyTraceIfSampled({
     channel: "relay",
     userId: userSub,
@@ -119,6 +120,9 @@ export const handleRelayRpcRequest = (
         ...(result.replayed ? { replayed: true } : {}),
         ...(result.inFlight ? { inFlight: true } : {}),
       });
+      if (result.deduplicated) {
+        refundRelayRpcRequest(userSub, socket.id);
+      }
 
       const actorRole = resolveSocketActorRole(socket.data.user);
       void recordSocketAuditEvent({
@@ -137,6 +141,9 @@ export const handleRelayRpcRequest = (
       });
     } catch (err: unknown) {
       const appError = err instanceof AppError ? err : undefined;
+      if (appError?.statusCode === 400) {
+        refundRelayRpcRequest(userSub, socket.id);
+      }
       if (latencyTrace && !latencyTrace.isFinalized()) {
         if (latencyTrace.hasDispatchMeta()) {
           latencyTrace.finalizeOnce({

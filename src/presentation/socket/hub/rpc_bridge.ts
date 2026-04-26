@@ -6,14 +6,20 @@ import type { ActiveStreamRoute } from "./active_stream_registry";
 import {
   countRestMaterializeStreamsInFlight,
   getActiveStreamRouteCount,
+  removeActiveStreamRoute,
 } from "./active_stream_registry";
 import {
   buildRelayHubMetricsSnapshot,
+  registerAgentFailure,
   relayMetrics,
   scheduleRelayHubMetricsLogger,
   stopRelayHubMetricsLogger,
   type RelayHubMetricsSnapshot,
 } from "./bridge_relay_health_metrics";
+import { agentRegistry } from "./agent_registry";
+import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
+import { getRelayRequestRoute, removeRelayRequestRoute } from "./relay_request_registry";
+import { getRelayStreamForwardedRows } from "./relay_stream_flow_state";
 import { wireRestAgentDispatchQueueMetrics } from "./rest_agent_dispatch_queue";
 import { scheduleRelayIdempotencyCleanupTimer } from "./relay_idempotency_store";
 import { createRpcBridgeAgentInboundHandlers } from "./rpc_bridge_agent_inbound";
@@ -75,6 +81,32 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
 
   const agentSocket = nsp.sockets.get(route.agentSocketId);
   if (!agentSocket) {
+    const relayRoute = getRelayRequestRoute(route.requestId);
+    const agentId =
+      relayRoute?.agentId ??
+      route.restMaterializeState?.agentId ??
+      agentRegistry.findBySocketId(route.agentSocketId)?.agentId;
+    if (agentId) {
+      registerAgentFailure(agentId);
+    }
+    if (route.mode === "relay") {
+      removeRelayRequestRoute(route.requestId);
+      removeActiveStreamRoute(route, { restMaterialize: "detach" });
+      enqueueRelayOutbound(route.requestId, async () => {
+        const frame = await encodeRelayOutboundFrame(
+          {
+            request_id: route.requestId,
+            total_rows: getRelayStreamForwardedRows(route.requestId),
+            terminal_status: "error",
+            ...(route.streamId ? { stream_id: route.streamId } : {}),
+          },
+          route.requestId,
+        );
+        emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame);
+      });
+    } else {
+      removeActiveStreamRoute(route);
+    }
     return;
   }
 
@@ -99,7 +131,13 @@ export const registerSocketBridgeServer = (namespace: Namespace): void => {
 
 export const registerConsumerBridgeServer = (namespace: Namespace): void => {
   consumersNamespace = namespace;
-  scheduleRelayHubMetricsLogger(() => getRelayMetricsSnapshot());
+  scheduleRelayHubMetricsLogger(() =>
+    buildRelayHubMetricsSnapshot({
+      activeStreams: getActiveStreamRouteCount(),
+      restMaterializeStreamsInFlight: countRestMaterializeStreamsInFlight(),
+      useFastQueueSnapshot: true,
+    }),
+  );
   scheduleRelayIdempotencyCleanupTimer();
 };
 
@@ -154,9 +192,11 @@ export const handleAgentRpcChunk = agentInboundHandlers.handleAgentRpcChunk;
 export const handleAgentRpcComplete = agentInboundHandlers.handleAgentRpcComplete;
 export const handleAgentRpcAck = agentInboundHandlers.handleAgentRpcAck;
 export const handleAgentBatchAck = agentInboundHandlers.handleAgentBatchAck;
+export const cleanupAgentInboundSocketState = agentInboundHandlers.cleanupSocketInboundState;
 
 export const resetSocketBridgeState = (): void => {
   resetRpcBridgeMutableStores();
+  agentInboundHandlers.resetInboundState();
   agentsNamespace = null;
   consumersNamespace = null;
 };

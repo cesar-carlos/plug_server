@@ -189,6 +189,7 @@ Regras:
 - para voltar a ter o agente na lista, o cliente usa `POST /api/v1/client/me/agents` de novo, o que reabre `pending` e reenvia email ao owner ate nova aprovacao
 - nao altera ownership do agente
 - operacao idempotente para itens ja removidos
+- quando a revogacao acontece e o `Client` tem socket ativo em `/consumers`, o hub encerra a sessao com `app:error.code = "AGENT_ACCESS_REVOKED"`; isto reduz a janela em que uma sessao antiga continuaria viva apenas confiando no guard por evento
 
 ### 3.4 Consultar agentes aprovados
 
@@ -205,6 +206,15 @@ Regras:
 - a listagem suporta filtros por `status`, busca por `search` e paginacao com `page` e `pageSize`
 - cada agente na resposta inclui `isHubConnected` (boolean): indica se **este processo do hub** tem o agente registado no namespace Socket `/agents` apos `agent:register` (mesma nocao que o hub usa para despacho de comandos). O valor e um **instantaneo** no momento da resposta HTTP (pode mudar entre pedidos; com `refresh=true` reflecte o estado apos o trabalho de perfil desse pedido). Com varias instancias do servidor, o valor pode ser `false` numa replica em que o agente nao esta ligado, mesmo estando ligado a outra; nao confundir com `status` active/inactive do catalogo na BD. Se a variavel de ambiente `HUB_INSTANCE_ID` estiver definida, a resposta pode incluir o header `X-Hub-Instance-Id` para correlacionar com a replica
 - em ambiente com load balancer na frente de varias replicas, integradores que precisem alinhar o resultado destes GET com o socket do agente devem usar **a mesma base URL** para REST e WebSocket ou **sticky sessions** de modo a bater na mesma instancia que mantem o socket do agente; caso contrario `isHubConnected` pode parecer `false` mesmo com o agente ligado a outra replica (ver tambem `docs/scaling_and_roadmap.md`). Isto evita depender de servicos ou pacotes adicionais no hub: o boolean continua derivado apenas do registo em memoria deste processo
+
+## 4) Bloqueio, revogacao e efeito em Socket
+
+Regras operacionais adicionais:
+
+- `User` bloqueado: novas operacoes HTTP/Socket passam a falhar e sockets ativos em `/consumers` do proprio user sao desconectados com `ACCOUNT_BLOCKED`
+- `Client` bloqueado: novas operacoes HTTP/Socket passam a falhar e sockets ativos em `/consumers` do client sao desconectados com `ACCOUNT_BLOCKED`
+- revogacao de `ClientAgentAccess`: o client deixa de receber `client:agent.profile.updated` para aquele agente e o hub encerra a sessao Socket atual para forcar novo bootstrap/autorizacao
+- `client:agent.profile.updated` considera apenas clients **ativos** e com acesso efetivo no momento do fan-out; client bloqueado ou acesso revogado nao deve continuar a receber push
 
 ### 3.5 Consultar pedidos de acesso
 

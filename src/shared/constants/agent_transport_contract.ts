@@ -61,6 +61,17 @@ export const HUB_TRANSPORT_EXTENSIONS = {
   transportFrame: "payload-frame/1.0",
 } as const;
 
+/**
+ * Default Plug RPC contract version injected by the hub when callers omit
+ * `api_version` in bridge requests. Keep this aligned with the advertised
+ * `plugProfile` minor version so hub-originated requests stay on the same
+ * published contract as `agent:capabilities`.
+ */
+export const HUB_DEFAULT_API_VERSION = HUB_TRANSPORT_EXTENSIONS.plugProfile.replace(
+  "plug-jsonrpc-profile/",
+  "",
+);
+
 export const HUB_TRANSPORT_LIMITS = {
   max_payload_bytes: HUB_MAX_PAYLOAD_BYTES,
   max_compressed_payload_bytes: HUB_MAX_COMPRESSED_PAYLOAD_BYTES,
@@ -104,11 +115,13 @@ export const buildHubServerCapabilities = (
 } => {
   const extensions: Record<string, unknown> = { ...HUB_TRANSPORT_EXTENSIONS };
   if (hints) {
-    extensions.recommendedStreamPullWindowSize = Math.max(
-      1,
-      Math.floor(hints.recommendedStreamPullWindowSize),
+    const maxStreamPullWindowSize = Math.max(1, Math.floor(hints.maxStreamPullWindowSize));
+    const recommendedStreamPullWindowSize = Math.min(
+      maxStreamPullWindowSize,
+      Math.max(1, Math.floor(hints.recommendedStreamPullWindowSize)),
     );
-    extensions.maxStreamPullWindowSize = Math.max(1, Math.floor(hints.maxStreamPullWindowSize));
+    extensions.recommendedStreamPullWindowSize = recommendedStreamPullWindowSize;
+    extensions.maxStreamPullWindowSize = maxStreamPullWindowSize;
   }
   return {
     protocols: HUB_TRANSPORT_PROTOCOLS,

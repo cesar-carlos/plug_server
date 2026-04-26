@@ -19,6 +19,7 @@ import { percentile } from "../../../shared/utils/percentile";
 type TailEntry = {
   tail: Promise<void>;
   pendingJobs: number;
+  activeJobs: number;
   lastActivityAtMs: number;
 };
 
@@ -85,7 +86,7 @@ const deriveBacklog = (): number =>
   );
 
 const isTailEntryOrphaned = (entry: TailEntry, nowMs: number): boolean =>
-  entry.pendingJobs > 0 && nowMs - entry.lastActivityAtMs >= env.socketRelayOutboundTailStaleMs;
+  entry.pendingJobs === 0 && nowMs - entry.lastActivityAtMs >= env.socketRelayOutboundTailStaleMs;
 
 const countOrphanedRequestIds = (nowMs: number): number => {
   let total = 0;
@@ -193,6 +194,9 @@ const getFastMetricsSnapshot = (): RelayOutboundQueueMetricsSnapshot => {
   };
 };
 
+export const getRelayOutboundQueueFastMetricsSnapshot = (): RelayOutboundQueueMetricsSnapshot =>
+  getFastMetricsSnapshot();
+
 /**
  * Heavy refresh (percentile + orphan scan), intended for periodic sweep/metrics paths.
  */
@@ -235,15 +239,18 @@ export const getRelayOutboundQueueOverloadState = (): {
   readonly retryAfterMs: number;
   readonly snapshot: RelayOutboundQueueMetricsSnapshot;
 } => {
-  // Lazy refresh: if the percentile cache is older than the staleness budget,
-  // recompute now. This keeps shedding-by-p95 reactive (within 1s) without
-  // requiring a percentile recomputation on every relay event.
   const nowMs = Date.now();
-  if (
-    env.socketRelayOutboundOverloadP95Ms > 0 &&
-    nowMs - overloadStateCache.computedAtMs >= OVERLOAD_STATE_MAX_STALE_MS
-  ) {
-    refreshRelayOutboundQueueOverloadState(nowMs);
+  updateBacklogOnlyOverloadStateCache(nowMs);
+  if (overloadStateCache.reason !== "backlog") {
+    // Lazy refresh: if the percentile cache is older than the staleness budget,
+    // recompute now. This keeps shedding-by-p95 reactive (within 1s) without
+    // requiring a percentile recomputation on every relay event.
+    if (
+      env.socketRelayOutboundOverloadP95Ms > 0 &&
+      nowMs - overloadStateCache.computedAtMs >= OVERLOAD_STATE_MAX_STALE_MS
+    ) {
+      refreshRelayOutboundQueueOverloadState(nowMs);
+    }
   }
   const snapshot = getFastMetricsSnapshot();
   return {
@@ -301,6 +308,7 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
   const entry = tailByRequestId.get(requestId) ?? {
     tail: Promise.resolve(),
     pendingJobs: 0,
+    activeJobs: 0,
     lastActivityAtMs: nowMs,
   };
   entry.pendingJobs += 1;
@@ -308,6 +316,8 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
   const prev = entry.tail;
   const next = prev.then(async () => {
     const t0 = performance.now();
+    entry.activeJobs += 1;
+    entry.lastActivityAtMs = Date.now();
     try {
       await work();
     } catch (err: unknown) {
@@ -323,6 +333,8 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
       metrics.jobDurationMaxMs = Math.max(metrics.jobDurationMaxMs, ms);
       pushLatencyRingBuffer(metrics.durationRing, ms);
       updateBacklogOnlyOverloadStateCache();
+      entry.activeJobs = Math.max(0, entry.activeJobs - 1);
+      entry.lastActivityAtMs = Date.now();
     }
   });
   entry.tail = next;

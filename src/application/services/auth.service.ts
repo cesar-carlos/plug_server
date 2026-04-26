@@ -21,6 +21,7 @@ import type { RegisterUseCase } from "../../domain/use_cases/register.use_case";
 import type { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registration.use_case";
 import type { UpdateMyCelularUseCase } from "../../domain/use_cases/update_my_celular.use_case";
 import type { AgentAccessService } from "./agent_access.service";
+import { disconnectConsumerPrincipalSockets } from "./consumer_socket_control_sink";
 import { enqueueRegistrationApprovalEmails } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
 import { forbidden, invalidToken, notFound } from "../../shared/errors/http_errors";
@@ -166,7 +167,15 @@ export class AuthService {
   }
 
   async adminSetUserStatus(input: AdminSetUserStatusInput): Promise<Result<User>> {
-    return this.adminSetUserStatusUseCase.execute(input);
+    const result = await this.adminSetUserStatusUseCase.execute(input);
+    if (result.ok && input.status === "blocked") {
+      await disconnectConsumerPrincipalSockets({
+        principalType: "user",
+        principalId: result.value.id,
+        reason: "account_blocked",
+      });
+    }
+    return result;
   }
 
   async updateMyCelular(

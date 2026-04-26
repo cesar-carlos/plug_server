@@ -45,4 +45,38 @@ describe("agent_registry dispatch policy negotiation", () => {
     expect(policy.allowsGzip).toBe(false);
     expect(policy.allowsNoneCompression).toBe(true);
   });
+
+  it("rejects replacing a connected agent owned by another user", () => {
+    const first = agentRegistry.upsert({
+      agentId: "agent-owned",
+      socketId: "socket-1",
+      userId: "user-1",
+      capabilities: {},
+    });
+    expect(first.ok).toBe(true);
+
+    const second = agentRegistry.upsert({
+      agentId: "agent-owned",
+      socketId: "socket-2",
+      userId: "user-2",
+      capabilities: {},
+    });
+
+    expect(second).toEqual({ ok: false, reason: "OWNED_BY_ANOTHER_USER" });
+    expect(agentRegistry.findByAgentId("agent-owned")?.socketId).toBe("socket-1");
+  });
+
+  it("only touches liveness when the caller socket is canonical", () => {
+    agentRegistry.upsert({
+      agentId: "agent-touch",
+      socketId: "socket-current",
+      userId: "user-1",
+      capabilities: {},
+    });
+
+    expect(agentRegistry.touch("agent-touch", { socketId: "socket-stale" })).toBeNull();
+    expect(agentRegistry.touch("agent-touch", { socketId: "socket-current" })?.agentId).toBe(
+      "agent-touch",
+    );
+  });
 });

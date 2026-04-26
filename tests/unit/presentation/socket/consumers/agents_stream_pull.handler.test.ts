@@ -24,6 +24,10 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
   releaseSocketInflightSlot: vi.fn(),
 }));
 
+vi.mock("../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter", () => ({
+  allowAgentsCommandSocket: vi.fn(() => true),
+}));
+
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { handleAgentsStreamPull } from "../../../../../src/presentation/socket/consumers/agents_stream_pull.handler";
 import { requestAgentStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge";
@@ -33,6 +37,7 @@ import {
 } from "../../../../../src/presentation/socket/hub/active_stream_registry";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
+import { allowAgentsCommandSocket } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
 import { tryAcquireSocketInflightSlot } from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
 
 const mockedRequestAgentStreamPull = vi.mocked(requestAgentStreamPull);
@@ -41,6 +46,7 @@ const mockedGetActiveStreamRouteByStreamId = vi.mocked(getActiveStreamRouteByStr
 const mockedFindBySocketId = vi.mocked(agentRegistry.findBySocketId);
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
+const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocket);
 
 const buildSocket = () =>
   ({
@@ -57,8 +63,10 @@ describe("handleAgentsStreamPull", () => {
     mockedFindBySocketId.mockReset();
     mockedAssertAccess.mockReset();
     mockedTryAcquire.mockReset();
+    mockedAllowAgentsCommandSocket.mockReset();
 
     mockedTryAcquire.mockReturnValue(true);
+    mockedAllowAgentsCommandSocket.mockReturnValue(true);
     mockedGetActiveStreamRouteByRequestId.mockReturnValue({
       agentSocketId: "agent-socket-1",
     } as never);
@@ -93,6 +101,22 @@ describe("handleAgentsStreamPull", () => {
       error: {
         code: "RATE_LIMITED",
         message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
+    });
+  });
+
+  it("returns TOO_MANY_REQUESTS when the shared agents:command budget is exhausted", () => {
+    const socket = buildSocket();
+    mockedAllowAgentsCommandSocket.mockReturnValue(false);
+
+    handleAgentsStreamPull(socket as never, { requestId: "req-1" });
+
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, {
+      success: false,
+      error: {
+        code: "TOO_MANY_REQUESTS",
+        message: "Too many agent stream pulls, please try again later.",
         statusCode: 429,
       },
     });
