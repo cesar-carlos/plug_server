@@ -30,6 +30,7 @@ describe("GET /api/v1/health", () => {
       checks: {
         envLoaded: true,
         database: true,
+        swaggerEnabled: expect.any(Boolean),
       },
     });
   });
@@ -47,6 +48,7 @@ describe("GET /api/v1/health", () => {
       checks: {
         envLoaded: true,
         database: true,
+        swaggerEnabled: expect.any(Boolean),
       },
     });
   });

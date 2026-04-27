@@ -216,6 +216,17 @@ No ambiente de producao atual, a configuracao pode estar dividida assim:
 
 O mapa completo comentado esta em [`deploy/nginx/plug_server.conf.example`](../deploy/nginx/plug_server.conf.example).
 
+### Diagnostico: Swagger em branco ou 503 (ex.: `favicon-16x16.png`, `swagger-ui-*.js`)
+
+1. **Isolar o Node (sem Nginx):** no servidor, `curl -I http://127.0.0.1:<PORT>/docs/swagger-ui-bundle.js` (usar a mesma `PORT` do `.env`). Deve ser **200**. Se for, a app est OK; o problema e **Nginx, balanceador, CDN (Cloudflare) ou WAF** na borda, nao o Express. Em paralelo, `GET /api/v1/health/ready` expoe `checks.swaggerEnabled` (espelha `SWAGGER_ENABLED`): se for `true` mas o dominio publico der 503 em `/docs/*`, confirma que o bloqueio e na borda.
+2. **Nginx ativo vs repositorio:** o ficheiro `deploy/nginx/plug_server.conf.example` nao aplica sozinho. Conferir o site real com `sudo nginx -T | grep -nE 'location .*docs|plug_docs|limit_req|proxy_pass'`. Nao use `limit_req` em `location /docs/`. Evite `^~ /docs/` se tiveres de combinar com `location` por regex.
+3. **Apos corrigir:** `sudo nginx -t && sudo systemctl reload nginx`. Testar com janela anonima (sem cache) e, no browser, aba *Rede* a ver se algum pedido a `/docs/*` devolve **503**.
+4. **CDN / Cloudflare:** regras de *rate limit*, *Bot protection* ou *cache* de HTML/JS podem fazer a primeira carga ir bem e o **F5** cor mal. No painel, ver logs por URI `/docs/*` e desativar cache ou limites para teste nessa rota.
+
+O teste de integracao `tests/integration/swagger_docs.integration.test.ts` confirma que `/docs/`, o bundle e o `favicon` (quando presente) respondem a nivel da aplicacao.
+
+Script operacional (no servidor, com `bash`): [`scripts/check_swagger_edge.sh`](../scripts/check_swagger_edge.sh) — define `PORT` e `PUBLIC_URL` para comparar HTTP codes no Node vs na borda.
+
 ## 10) Rate limit e timeouts na borda
 
 - **limit_req** em **/metrics**, rotas de **login/registo/refresh** (paths alinhados ao Express) e **API geral** — complementa o rate limit da aplicacao.

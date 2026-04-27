@@ -96,6 +96,29 @@ httpRouter.get("/health/live", getHealthLive);
  *     responses:
  *       200:
  *         description: Application is ready to receive traffic
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 mode:
+ *                   type: string
+ *                   example: ready
+ *                 checks:
+ *                   type: object
+ *                   properties:
+ *                     envLoaded:
+ *                       type: boolean
+ *                     swaggerEnabled:
+ *                       type: boolean
+ *                       description: Mirrors SWAGGER_ENABLED; if true but /docs returns 503 publicly, fix Nginx/CDN not the app
+ *                     database:
+ *                       type: boolean
+ *       503:
+ *         description: Not ready (e.g. database probe failed)
  */
 httpRouter.get("/health/ready", asyncHandler(getHealthReady));
 
@@ -133,6 +156,18 @@ httpRouter.get("/health/ready", asyncHandler(getHealthReady));
  *                 requestId:
  *                   type: string
  *                   example: 8d347a6c-6d9e-492f-a2a5-8bf9f0a48911
+ *                 mode:
+ *                   type: string
+ *                   example: ready
+ *                 checks:
+ *                   type: object
+ *                   properties:
+ *                     envLoaded:
+ *                       type: boolean
+ *                     swaggerEnabled:
+ *                       type: boolean
+ *                     database:
+ *                       type: boolean
  */
 httpRouter.get(
   "/health",

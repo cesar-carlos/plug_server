@@ -82,6 +82,8 @@ export const getHealthReady = async (_request: Request, response: Response): Pro
     mode: "ready",
     checks: {
       envLoaded: true,
+      /** Mirrors `SWAGGER_ENABLED` — if true but `/docs/*` 503s publicly, the edge proxy is misconfigured, not the app. */
+      swaggerEnabled: env.swaggerEnabled,
       database: ready,
       ...(dbProbe.ok ? {} : { databaseError: dbProbe.error }),
     },

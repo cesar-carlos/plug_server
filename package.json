@@ -32,7 +32,8 @@
     "test:contract": "vitest run tests/contract",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "node scripts/run-e2e.cjs"
+    "test:e2e": "node scripts/run-e2e.cjs",
+    "check:swagger-edge": "bash scripts/check_swagger_edge.sh"
   },
   "repository": {
     "type": "git",

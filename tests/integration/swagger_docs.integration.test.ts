@@ -6,6 +6,21 @@ import { createApp } from "../../src/app";
 const app = createApp();
 
 describe("Swagger docs", () => {
+  it("should serve /docs/ HTML and swagger-ui static assets (no 5xx at app layer)", async () => {
+    const page = await request(app).get("/docs/");
+    expect([200, 301, 302]).toContain(page.status);
+    if (page.status === 200) {
+      expect(page.headers["content-type"] ?? "").toMatch(/text\/html/i);
+    }
+
+    const bundle = await request(app).get("/docs/swagger-ui-bundle.js");
+    expect(bundle.status).toBe(200);
+    expect(bundle.headers["content-type"] ?? "").toMatch(/javascript/);
+
+    const favicon = await request(app).get("/docs/favicon-16x16.png");
+    expect([200, 404]).toContain(favicon.status);
+  });
+
   it("should expose /docs.json with method-specific REST bridge schemas", async () => {
     const response = await request(app).get("/docs.json");
 
