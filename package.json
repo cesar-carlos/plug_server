@@ -29,6 +29,7 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "lint:fix": "eslint --fix \"src/**/*.ts\" \"tests/**/*.ts\"",
     "test": "vitest run",
+    "test:access-flow": "vitest run tests/integration/client_auth.integration.test.ts tests/integration/user_clients.integration.test.ts tests/integration/client_agents.integration.test.ts tests/unit/application/services/client_agent_access.service.test.ts",
     "test:contract": "vitest run tests/contract",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
