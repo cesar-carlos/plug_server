@@ -3,6 +3,23 @@ import { z } from "zod";
 
 dotenv.config();
 
+/**
+ * Colmeia clients use JWT `role=client` on `/consumers`. If `SOCKET_CONSUMER_ROLES` lists
+ * only `user,admin` (common misconfiguration), append `client` and set `clientAppended`.
+ */
+export const parseSocketConsumerRolesValue = (
+  raw: string,
+): { readonly roles: readonly string[]; readonly clientAppended: boolean } => {
+  const roles = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (roles.includes("client")) {
+    return { roles, clientAppended: false };
+  }
+  return { roles: [...roles, "client"], clientAppended: true };
+};
+
 const nodeEnvForDefaults = process.env.NODE_ENV;
 
 /** When unset in environment, production uses performance-oriented Socket.IO defaults. */
@@ -274,12 +291,7 @@ const envSchema = z.object({
   SOCKET_CONSUMER_ROLES: z
     .string()
     .default("user,admin,client")
-    .transform((v) =>
-      v
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    ),
+    .transform(parseSocketConsumerRolesValue),
   /**
    * Toggle for the `client:agent.profile.updated` push that notifies approved
    * clients on the `/consumers` namespace whenever the agent catalog profile
@@ -667,7 +679,8 @@ export const env = {
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
-  socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES,
+  socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES.roles,
+  socketConsumerRolesClientAppended: parsedEnv.SOCKET_CONSUMER_ROLES.clientAppended,
   socketClientAgentProfilePushEnabled: parsedEnv.SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED,
   socketRelayRequestTimeoutMs: parsedEnv.SOCKET_RELAY_REQUEST_TIMEOUT_MS,
   socketRelayConversationIdleTimeoutMs: parsedEnv.SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS,

@@ -32,6 +32,9 @@ const refreshMetrics = {
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const isConcurrentRefreshIndexError = (message: string): boolean =>
+  message.includes("cannot refresh materialized view") && message.includes("concurrently");
+
 /**
  * Refreshes the materialized view. Returns the elapsed time in ms, or `null`
  * when the refresh failed or the advisory lock was not acquired.
@@ -54,8 +57,31 @@ export const refreshBridgeLatencyTraceRollups = async (): Promise<number | null>
         logger.debug("bridge_latency_rollup_refreshed", { elapsedMs: elapsed });
         return elapsed;
       } catch (error: unknown) {
+        const message = toErrorMessage(error);
+        if (isConcurrentRefreshIndexError(message)) {
+          try {
+            await prismaClient.$executeRawUnsafe(
+              "REFRESH MATERIALIZED VIEW bridge_latency_trace_hourly_rollups",
+            );
+            const elapsed = Date.now() - t0;
+            refreshMetrics.refreshSucceeded += 1;
+            refreshMetrics.lastRefreshDurationMs = elapsed;
+            logger.warn("bridge_latency_rollup_refreshed_non_concurrent", {
+              elapsedMs: elapsed,
+              message:
+                "CONCURRENTLY refresh failed (missing unique index?); used blocking refresh. Apply prisma/migrations/20260418170100_bridge_latency_hourly_rollups_matview and 20260426120000_ensure_bridge_latency_hourly_rollups_unique_index, then use CONCURRENTLY again.",
+            });
+            return elapsed;
+          } catch (fallbackError: unknown) {
+            refreshMetrics.refreshFailed += 1;
+            logger.warn("bridge_latency_rollup_refresh_failed", {
+              message: toErrorMessage(fallbackError),
+            });
+            return null;
+          }
+        }
         refreshMetrics.refreshFailed += 1;
-        logger.warn("bridge_latency_rollup_refresh_failed", { message: toErrorMessage(error) });
+        logger.warn("bridge_latency_rollup_refresh_failed", { message });
         return null;
       }
     },

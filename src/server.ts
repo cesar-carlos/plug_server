@@ -80,6 +80,11 @@ const closeHttpServer = (): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     httpServer.close((error) => {
       if (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ERR_SERVER_NOT_RUNNING" || error.message?.includes("not running")) {
+          resolve();
+          return;
+        }
         reject(error);
         return;
       }

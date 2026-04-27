@@ -34,7 +34,6 @@ map $http_upgrade $connection_upgrade {
 # --- /etc/nginx/conf.d/01-plug-rate-limit.conf ---
 limit_req_zone $binary_remote_addr zone=plug_auth_strict:10m rate=30r/m;
 limit_req_zone $binary_remote_addr zone=plug_api:10m rate=30r/s;
-limit_req_zone $binary_remote_addr zone=plug_docs:10m rate=30r/m;
 limit_req_zone $binary_remote_addr zone=plug_metrics:10m rate=120r/m;
 limit_conn_zone $binary_remote_addr zone=plug_conn:10m;
 
@@ -78,9 +77,11 @@ limit_conn_zone $binary_remote_addr zone=plug_conn:10m;
 #         proxy_connect_timeout 60s;
 #     }
 #
+#     # Swagger UI carrega varios assets em paralelo; nao aplique limit_req em /docs/
+#     # para evitar 503 em refresh (JS/CSS/favicon). Restrinja por IP/firewall se
+#     # nao quiser documentacao publica.
 #     location = /docs { return 301 https://$host/docs/; }
-#     location ^~ /docs/ {
-#         limit_req zone=plug_docs burst=5 nodelay;
+#     location /docs/ {
 #         include snippets/plug_server_proxy.conf;
 #     }
 #

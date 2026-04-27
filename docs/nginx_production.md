@@ -107,6 +107,10 @@ server {
         return 301 $scheme://$host/docs/;
     }
 
+    # Swagger UI carrega varios assets em paralelo (JS/CSS/favicon). Nao aplique
+    # `limit_req` em /docs/, pois refresh do navegador pode levantar 503 nos assets.
+    # Se a documentacao nao deve ser publica, prefira allowlist por IP/firewall.
+
     location /docs/ {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -214,7 +218,8 @@ O mapa completo comentado esta em [`deploy/nginx/plug_server.conf.example`](../d
 
 ## 10) Rate limit e timeouts na borda
 
-- **limit_req** em `/docs/`, **/metrics**, rotas de **login/registo/refresh** (paths alinhados ao Express) e **API geral** — complementa o rate limit da aplicacao.
+- **limit_req** em **/metrics**, rotas de **login/registo/refresh** (paths alinhados ao Express) e **API geral** — complementa o rate limit da aplicacao.
+- **Sem `limit_req` em `/docs/`** — Swagger UI carrega assets em paralelo; proteja a documentacao por IP/firewall se necessario.
 - **limit_conn** por IP no `server` — teto de conexoes simultaneas por cliente.
 - **Timeouts curtos** (15s/60s) por defeito; **Socket.IO** usa regex `^/socket\.io(/|$)` e timeouts longos (24h) so nesse bloco.
 

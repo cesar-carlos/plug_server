@@ -3,24 +3,27 @@ import { logger } from "../utils/logger";
 
 export type SocketConsumerBootstrapEnvSlice = {
   readonly socketConsumerRoles: readonly string[];
+  readonly socketConsumerRolesClientAppended: boolean;
   readonly socketClientAgentProfilePushEnabled: boolean;
 };
 
 /**
  * One-shot hints at process boot for Colmeia-style `/consumers` + profile push.
- * Does not alter parsed env — operators must fix `.env` + restart.
+ * `client` is appended at parse time when missing from `SOCKET_CONSUMER_ROLES` (see
+ * `parseSocketConsumerRolesValue` in `env.ts`).
  */
 export const logSocketConsumerBootstrapHints = (
   slice: SocketConsumerBootstrapEnvSlice = {
     socketConsumerRoles: env.socketConsumerRoles,
+    socketConsumerRolesClientAppended: env.socketConsumerRolesClientAppended,
     socketClientAgentProfilePushEnabled: env.socketClientAgentProfilePushEnabled,
   },
 ): void => {
-  if (!slice.socketConsumerRoles.includes("client")) {
-    logger.warn("socket_consumer_roles_missing_client_role", {
-      configuredRoles: slice.socketConsumerRoles,
-      remediation:
-        "Include literal role 'client' in SOCKET_CONSUMER_ROLES (e.g. user,admin,client) or remove the variable to inherit the schema default, then restart.",
+  if (slice.socketConsumerRolesClientAppended) {
+    logger.info("socket_consumer_roles_ensured_client", {
+      effectiveRoles: slice.socketConsumerRoles,
+      message:
+        "SOCKET_CONSUMER_ROLES omitted literal 'client'; it was appended so Colmeia JWTs (role=client) work on /consumers. Set user,admin,client explicitly in .env if you want the config to match the effective value.",
     });
   }
 

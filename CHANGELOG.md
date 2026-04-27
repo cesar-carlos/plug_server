@@ -9,7 +9,7 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 ### Changed
 
 - **REST / Socket `agents:command` — agente catalogado sem socket `/agents`**: pedidos com JSON-RPC `id` correlacionavel passam a responder com **HTTP 200** (REST) ou `agents:command_response` com `success: true` (Socket) e corpo normalizado `error.code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (antes **503** / `SERVICE_UNAVAILABLE`). Comandos **apenas notification** (`id: null` em todos os itens) mantêm **503** quando o agente está offline. Implementação: `AgentDisconnectedBeforeDispatchError`, `agent_offline_bridge_response.ts`, `rpc_bridge_dispatch_command.ts`, `agents.controller.ts`, `agents_command.handler.ts`. Documentação: `docs/api_rest_bridge.md`, OpenAPI em `agents.routes.ts`. Testes: `agent_offline_bridge_response.test.ts`, `agents_http.integration.test.ts`, `agents_command.handler.test.ts`.
-- **Arranque — hints Colmeia / socket**: `logSocketConsumerBootstrapHints()` em `src/shared/config/log_socket_consumer_bootstrap_hints.ts` (invocado em `server.ts` após `createSocketServer`) emite `WARN` se `SOCKET_CONSUMER_ROLES` não incluir `client` ou se `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED` estiver `false`, com texto de remediação.
+- **Arranque — hints Colmeia / socket**: `logSocketConsumerBootstrapHints()` (invocado após `createSocketServer`) emite `INFO` `socket_consumer_roles_ensured_client` quando o parse de `SOCKET_CONSUMER_ROLES` teve de acrescentar `client` (lista só `user,admin`); emite `WARN` se `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED` for `false`.
 
 ### Added
 

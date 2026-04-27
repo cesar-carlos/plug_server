@@ -8,32 +8,12 @@ describe("logSocketConsumerBootstrapHints", () => {
     vi.restoreAllMocks();
   });
 
-  it("warns when client role is missing from SOCKET_CONSUMER_ROLES", () => {
-    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
-
-    logSocketConsumerBootstrapHints({
-      socketConsumerRoles: ["user", "admin"],
-      socketClientAgentProfilePushEnabled: true,
-    });
-
-    expect(warn).toHaveBeenCalledWith(
-      "socket_consumer_roles_missing_client_role",
-      expect.objectContaining({
-        configuredRoles: ["user", "admin"],
-        remediation: expect.stringContaining("client"),
-      }),
-    );
-    expect(warn).not.toHaveBeenCalledWith(
-      "socket_client_agent_profile_push_disabled",
-      expect.anything(),
-    );
-  });
-
   it("warns when profile push is disabled", () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
 
     logSocketConsumerBootstrapHints({
       socketConsumerRoles: ["user", "admin", "client"],
+      socketConsumerRolesClientAppended: false,
       socketClientAgentProfilePushEnabled: false,
     });
 
@@ -45,14 +25,34 @@ describe("logSocketConsumerBootstrapHints", () => {
     );
   });
 
-  it("emits no warnings when roles include client and push is enabled", () => {
-    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+  it("logs when client role was appended to SOCKET_CONSUMER_ROLES", () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
 
     logSocketConsumerBootstrapHints({
       socketConsumerRoles: ["user", "admin", "client"],
+      socketConsumerRolesClientAppended: true,
+      socketClientAgentProfilePushEnabled: true,
+    });
+
+    expect(info).toHaveBeenCalledWith(
+      "socket_consumer_roles_ensured_client",
+      expect.objectContaining({
+        effectiveRoles: ["user", "admin", "client"],
+      }),
+    );
+  });
+
+  it("emits no warnings when roles include client and push is enabled", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+
+    logSocketConsumerBootstrapHints({
+      socketConsumerRoles: ["user", "admin", "client"],
+      socketConsumerRolesClientAppended: false,
       socketClientAgentProfilePushEnabled: true,
     });
 
     expect(warn).not.toHaveBeenCalled();
+    expect(info).not.toHaveBeenCalled();
   });
 });
