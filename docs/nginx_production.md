@@ -227,6 +227,15 @@ O teste de integracao `tests/integration/swagger_docs.integration.test.ts` confi
 
 Script operacional (no servidor, com `bash`): [`scripts/check_swagger_edge.sh`](../scripts/check_swagger_edge.sh) — define `PORT` e `PUBLIC_URL` para comparar HTTP codes no Node vs na borda.
 
+Para incidente intermitente (F5 as vezes carrega, as vezes 503), rode a amostragem repetida:
+
+```bash
+PORT=3000 PUBLIC_URL=https://api.seudominio.com npm run check:swagger-flaky
+```
+
+Saida esperada em ambiente estavel: apenas `200` na secao **Estabilidade em repeticao** e na secao **Simulacao de F5 (rajada de assets)**.
+Se aparecer `503` em qualquer asset de `/docs/*`, o bloqueio e de borda (Nginx/CDN/WAF/rate limit), nao da app Node.
+
 ## 10) Rate limit e timeouts na borda
 
 - **limit_req** em **/metrics**, rotas de **login/registo/refresh** (paths alinhados ao Express) e **API geral** — complementa o rate limit da aplicacao.
