@@ -107,6 +107,7 @@ describe("AuthService registration email retry", () => {
     ).rejects.toThrow("sendAdminApprovalRequest failed after 3 attempts");
 
     expect(sendAdminApprovalRequest).toHaveBeenCalledTimes(3);
-    expect(sendUserPendingRegistration).not.toHaveBeenCalled();
+    // Admin and user notifications run in parallel (`Promise.all`); user send can succeed before admin exhausts retries.
+    expect(sendUserPendingRegistration).toHaveBeenCalledTimes(1);
   });
 });

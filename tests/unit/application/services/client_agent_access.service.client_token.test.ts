@@ -105,7 +105,11 @@ describe("ClientAgentAccessService client_token audit", () => {
     identityRepository = new InMemoryAgentIdentityRepository();
     accessRepository = new InMemoryClientAgentAccessRepository();
     requestRepository = new InMemoryClientAgentAccessRequestRepository();
-    tokenRepository = new InMemoryClientAgentAccessApprovalTokenRepository();
+    tokenRepository = new InMemoryClientAgentAccessApprovalTokenRepository({
+      findRequestById: (id) => requestRepository.findById(id),
+      findClientById: (id) => clientRepository.findById(id),
+      findAgentById: (id) => agentRepository.findById(id),
+    });
     service = buildService();
     await seedApprovedAccess();
   });
