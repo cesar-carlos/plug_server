@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Client } from "../../../../src/domain/entities/client.entity";
 import { Agent } from "../../../../src/domain/entities/agent.entity";
@@ -14,6 +14,7 @@ import { InMemoryClientAgentAccessRequestRepository } from "../../../../src/infr
 import { InMemoryClientRepository } from "../../../../src/infrastructure/repositories/in_memory_client.repository";
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
 import { clientAgentAccessRevokedByClientDecisionReason } from "../../../../src/application/services/client_agent_access_decision_reasons";
+import { registerConsumerSocketControlHandler } from "../../../../src/application/services/consumer_socket_control_sink";
 import { SequentialPendingClientAgentAccessWriter } from "../../../../src/infrastructure/persistence/sequential_pending_client_agent_access.writer";
 import { env } from "../../../../src/shared/config/env";
 
@@ -160,6 +161,10 @@ describe("ClientAgentAccessService", () => {
     await identityRepository.bindIfUnbound(agentId, ownerUserId);
   });
 
+  afterEach(() => {
+    registerConsumerSocketControlHandler(undefined);
+  });
+
   it("should reject request when agent does not exist", async () => {
     const result = await service.requestAccess(clientId, ["f6f3f9f2-2533-4bb7-b595-b078f5b742cb"]);
     expect(result.ok).toBe(false);
@@ -241,6 +246,37 @@ describe("ClientAgentAccessService", () => {
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored?.status).toBe("revoked");
     expect(stored?.decisionReason).toBe(clientAgentAccessRevokedByClientDecisionReason);
+  });
+
+  it("notifies sockets only for accesses that existed before client removal", async () => {
+    const revokedEvents: Array<{ clientId: string; agentId: string }> = [];
+    registerConsumerSocketControlHandler({
+      disconnectPrincipal: vi.fn(),
+      revokeClientAccess: async (event) => {
+        revokedEvents.push({ clientId: event.clientId, agentId: event.agentId });
+      },
+    });
+
+    await accessRepository.addAccess(clientId, agentId);
+
+    const missingAgentId = "d74b7e1b-1b7d-4420-8751-b7a6d0df59bc";
+    const remove = await service.removeApprovedAccess(clientId, [agentId, missingAgentId]);
+
+    expect(remove.ok).toBe(true);
+    expect(revokedEvents).toEqual([{ clientId, agentId }]);
+  });
+
+  it("does not notify sockets when client removal is idempotent and no access exists", async () => {
+    const revokeClientAccess = vi.fn();
+    registerConsumerSocketControlHandler({
+      disconnectPrincipal: vi.fn(),
+      revokeClientAccess,
+    });
+
+    const remove = await service.removeApprovedAccess(clientId, [agentId]);
+
+    expect(remove.ok).toBe(true);
+    expect(revokeClientAccess).not.toHaveBeenCalled();
   });
 
   it("should reset decision metadata when reopening a processed request", async () => {

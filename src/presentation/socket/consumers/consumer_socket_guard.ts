@@ -8,6 +8,7 @@ import {
   assertJwtUserAccountActive,
   type SocketAccountSnapshot,
 } from "../auth/ensure_socket_active_account";
+import { joinConsumerClientAgentRoom } from "../hub/consumer_identity_rooms";
 
 type GuardSocket = Socket & {
   data: { user?: JwtAccessPayload; authSnapshot?: SocketAccountSnapshot };
@@ -48,6 +49,10 @@ export const assertConsumerSocketAgentAccess = async (
   const accessResult = await container.agentAccessService.assertPrincipalAccess(principal, agentId);
   if (!accessResult.ok) {
     throw accessResult.error;
+  }
+
+  if (principal.type === "client" && socket) {
+    await joinConsumerClientAgentRoom(socket, { clientId: principal.id, agentId });
   }
 
   return principal;

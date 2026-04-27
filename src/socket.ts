@@ -79,6 +79,11 @@ import {
   registerAgentProfileBroadcastHandler,
 } from "./application/services/agent_profile_broadcast_sink";
 import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
+import {
+  buildConsumerClientAgentRoom,
+  buildConsumerClientRoom as buildClientRoomName,
+  buildConsumerPrincipalRoom as buildPrincipalRoomName,
+} from "./presentation/socket/hub/consumer_identity_rooms";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
@@ -153,22 +158,34 @@ const buildConsumerPrincipalRoom = (user: JwtAccessPayload | undefined): string 
     return null;
   }
   const principalType = user.principal_type === "client" ? "client" : "user";
-  return `consumer:principal:${principalType}:${user.sub}`;
+  return buildPrincipalRoomName({ principalType, principalId: user.sub });
 };
 
 const buildConsumerClientRoom = (user: JwtAccessPayload | undefined): string | null => {
   return user?.principal_type === "client" &&
     typeof user.sub === "string" &&
     user.sub.trim() !== ""
-    ? `client:${user.sub}`
+    ? buildClientRoomName(user.sub)
     : null;
 };
 
 const joinConsumerIdentityRooms = async (socket: HubSocket): Promise<void> => {
+  const user = socket.data.user;
   const rooms = [
-    buildConsumerPrincipalRoom(socket.data.user),
-    buildConsumerClientRoom(socket.data.user),
+    buildConsumerPrincipalRoom(user),
+    buildConsumerClientRoom(user),
   ].filter((room): room is string => room !== null);
+  if (user?.principal_type === "client" && typeof user.sub === "string" && user.sub.trim() !== "") {
+    const agentIds = await container.clientAgentAccessService.listApprovedAgentIds(user.sub);
+    rooms.push(
+      ...agentIds.map((agentId) =>
+        buildConsumerClientAgentRoom({
+          clientId: user.sub,
+          agentId,
+        }),
+      ),
+    );
+  }
   if (rooms.length === 0) {
     return;
   }
@@ -1162,7 +1179,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       clientProfileRecipientsCacheByAgentId.delete(event.agentId);
       await disconnectConsumerSocketsInRoom(
         consumersNsp,
-        `consumer:principal:client:${event.clientId}`,
+        buildConsumerClientAgentRoom({
+          clientId: event.clientId,
+          agentId: event.agentId,
+        }),
         {
           code: "AGENT_ACCESS_REVOKED",
           message: `Client access to agent ${event.agentId} was revoked`,

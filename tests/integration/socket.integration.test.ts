@@ -214,6 +214,10 @@ const setClientStatus = async (clientId: string, status: "active" | "blocked"): 
       name: currentClient!.name,
       lastName: currentClient!.lastName,
       ...(currentClient!.mobile !== undefined ? { mobile: currentClient!.mobile } : {}),
+      ...(currentClient!.thumbnailUrl !== undefined
+        ? { thumbnailUrl: currentClient!.thumbnailUrl }
+        : {}),
+      credentialsUpdatedAt: currentClient!.credentialsUpdatedAt,
       status,
       createdAt: currentClient!.createdAt,
       updatedAt: new Date(),
@@ -685,6 +689,42 @@ describe("Socket namespaces", () => {
         const response = await request(baseUrl)
           .delete(`/api/v1/me/agents/${testAgentId}/clients/${client.clientId}`)
           .set("Authorization", `Bearer ${accessToken}`);
+
+        expect(response.status).toBe(200);
+
+        const [appError, disconnectReason] = await Promise.all([
+          appErrorPromise,
+          disconnectPromise,
+        ]);
+        expect(appError.code).toBe("AGENT_ACCESS_REVOKED");
+        expect(disconnectReason).toBe("io server disconnect");
+      } finally {
+        if (socket.connected) {
+          socket.disconnect();
+        }
+      }
+    });
+
+    it("should disconnect a client consumer socket when the client removes its approved agent access", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+
+      const client = await createClientAccessToken(baseUrl, ownerEmail);
+      await repositories.clientAgentAccess.addAccess(client.clientId, testAgentId, new Date());
+      const socket = await connectConsumer(baseUrl, client.accessToken);
+
+      try {
+        const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
+          socket,
+          "app:error",
+          8_000,
+        );
+        const disconnectPromise = waitForEvent<string>(socket, "disconnect", 8_000);
+
+        const response = await request(baseUrl)
+          .delete(`/api/v1/client/me/agents/${testAgentId}`)
+          .set("Authorization", `Bearer ${client.accessToken}`);
 
         expect(response.status).toBe(200);
 

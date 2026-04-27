@@ -520,6 +520,10 @@ export class ClientAgentAccessService {
 
   async removeApprovedAccess(clientId: string, agentIds: string[]): Promise<Result<void>> {
     const uniqueAgentIds = [...new Set(agentIds)];
+    const approvedAgentIds = await this.clientAgentAccessRepository.listAccessAgentIdsForClientIn(
+      clientId,
+      uniqueAgentIds,
+    );
     await this.clientAgentAccessRepository.removeAgentIds(clientId, uniqueAgentIds);
     for (const agentId of uniqueAgentIds) {
       const request = await this.clientAgentAccessRequestRepository.findByClientAndAgent(
@@ -530,6 +534,9 @@ export class ClientAgentAccessService {
         await this.clientAgentAccessRequestRepository.setStatus(request.id, "revoked", {
           reason: clientAgentAccessRevokedByClientDecisionReason,
         });
+      }
+      if (!approvedAgentIds.includes(agentId)) {
+        continue;
       }
       await revokeConsumerClientAccessSockets({
         clientId,
