@@ -4,6 +4,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { ClientAgentAccessRequest } from "../../src/domain/entities/client_agent_access_request.entity";
 import { env } from "../../src/shared/config/env";
 import { getTestNoopEmailSender, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { registerOwnerAndClientSession } from "./helpers/client_sessions";
@@ -680,5 +681,36 @@ describe("Client agent access API", () => {
       .set("Authorization", `Bearer ${clientAccessToken}`);
     expect(list.status).toBe(200);
     expect(list.body.agentIds).not.toContain(agent.agentId);
+  });
+
+  it("returns 409 when retry count reaches CLIENT_AGENT_ACCESS_MAX_RETRIES", async () => {
+    const { clientId, ownerUserId, clientAccessToken } = await registerOwnerAndClient();
+    const agent = await seedAgent({
+      name: "Max Retry Agent",
+      cnpjCpf: `max-retry-${Date.now()}`,
+    });
+    await seedAgentBinding(ownerUserId, agent.agentId);
+
+    const maxRetries = env.clientAgentAccessMaxRetries;
+    if (maxRetries <= 0) {
+      return; // limit disabled; skip
+    }
+
+    // Directly seed a request at the limit so we don't have to cycle through N real requests.
+    const existing = ClientAgentAccessRequest.create({
+      clientId,
+      agentId: agent.agentId,
+      status: "rejected",
+      retryCount: maxRetries,
+    });
+    await repositories.clientAgentAccessRequest.save(existing);
+
+    const attempt = await request(app)
+      .post("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({ agentIds: [agent.agentId] });
+
+    expect(attempt.status).toBe(409);
+    expect(attempt.body.code).toBe("CONFLICT");
   });
 });

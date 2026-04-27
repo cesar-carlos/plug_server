@@ -259,6 +259,7 @@ model ClientAgentAccessRequest {
   requestedAt DateTime                        @default(now()) @map("requested_at")
   decidedAt  DateTime?                        @map("decided_at")
   decisionReason String?                      @map("decision_reason") @db.VarChar(500)
+  retryCount Int                              @default(0) @map("retry_count")
   createdAt  DateTime                         @default(now()) @map("created_at")
   updatedAt  DateTime                         @updatedAt @map("updated_at")
   client     Client                           @relation(fields: [clientId], references: [id], onDelete: Cascade)

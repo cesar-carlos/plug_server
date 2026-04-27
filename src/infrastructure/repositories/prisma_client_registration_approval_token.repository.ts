@@ -28,10 +28,27 @@ export class PrismaClientRegistrationApprovalTokenRepository implements IClientR
   }
 
   async replaceForClientRetry(
-    _client: Client,
+    client: Client,
     token: ClientRegistrationApprovalToken,
   ): Promise<void> {
-    await this.save(token);
+    const hashedId = hashRegistrationToken(token.id);
+    await prismaClient.$transaction([
+      prismaClient.clientRegistrationApprovalToken.deleteMany({
+        where: { clientId: client.id },
+      }),
+      prismaClient.clientRegistrationApprovalToken.create({
+        data: {
+          id: hashedId,
+          clientId: token.clientId,
+          expiresAt: token.expiresAt,
+          createdAt: token.createdAt,
+        },
+      }),
+      prismaClient.client.update({
+        where: { id: client.id },
+        data: { status: client.status, updatedAt: client.updatedAt },
+      }),
+    ]);
   }
 
   async findById(id: string): Promise<ClientRegistrationApprovalToken | null> {

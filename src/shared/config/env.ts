@@ -94,6 +94,11 @@ const envSchema = z.object({
     .min(0)
     .max(86_400_000)
     .default(0),
+  /**
+   * Maximum number of times a client can retry an agent access request after rejection/expiry/revocation.
+   * `0` disables the limit (unlimited retries).
+   */
+  CLIENT_AGENT_ACCESS_MAX_RETRIES: z.coerce.number().int().min(0).default(5),
   REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS: z.coerce
     .number()
     .int()
@@ -654,6 +659,7 @@ export const env = {
     parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS,
   restClientMeAgentsPostRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX,
   clientAgentAccessRequestEmailDebounceMs: parsedEnv.CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS,
+  clientAgentAccessMaxRetries: parsedEnv.CLIENT_AGENT_ACCESS_MAX_RETRIES,
   restClientPasswordRecoveryRateLimitWindowMs:
     parsedEnv.REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS,
   restClientPasswordRecoveryRateLimitMax: parsedEnv.REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX,

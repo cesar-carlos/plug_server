@@ -125,6 +125,7 @@ export class InMemoryClientAgentAccessRequestRepository implements IClientAgentA
       new ClientAgentAccessRequest({
         ...existing,
         status,
+        retryCount: existing.retryCount,
         decidedAt: options?.decidedAt ?? new Date(),
         ...(options?.reason !== undefined ? { decisionReason: options.reason } : {}),
         updatedAt: new Date(),

@@ -13,6 +13,8 @@ export interface ClientAgentAccessRequestProps {
   readonly requestedAt: Date;
   readonly decidedAt?: Date;
   readonly decisionReason?: string;
+  /** Incremented each time the client retries after rejection/expiry/revocation. */
+  readonly retryCount?: number;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -25,6 +27,7 @@ export class ClientAgentAccessRequest {
   readonly requestedAt: Date;
   readonly decidedAt?: Date;
   readonly decisionReason?: string;
+  readonly retryCount: number;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 
@@ -40,6 +43,7 @@ export class ClientAgentAccessRequest {
     if (props.decisionReason !== undefined) {
       this.decisionReason = props.decisionReason;
     }
+    this.retryCount = props.retryCount ?? 0;
     this.createdAt = props.createdAt;
     this.updatedAt = props.updatedAt;
   }
@@ -49,6 +53,7 @@ export class ClientAgentAccessRequest {
     readonly clientId: string;
     readonly agentId: string;
     readonly status?: ClientAgentAccessRequestStatus;
+    readonly retryCount?: number;
     readonly requestedAt?: Date;
     readonly createdAt?: Date;
     readonly updatedAt?: Date;
@@ -59,6 +64,7 @@ export class ClientAgentAccessRequest {
       clientId: props.clientId,
       agentId: props.agentId,
       status: props.status ?? "pending",
+      retryCount: props.retryCount ?? 0,
       requestedAt: props.requestedAt ?? now,
       createdAt: props.createdAt ?? now,
       updatedAt: props.updatedAt ?? now,

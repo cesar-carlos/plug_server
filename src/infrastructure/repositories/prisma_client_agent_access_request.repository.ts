@@ -199,6 +199,7 @@ export class PrismaClientAgentAccessRequestRepository implements IClientAgentAcc
         requestedAt: request.requestedAt,
         ...(request.decidedAt ? { decidedAt: request.decidedAt } : {}),
         ...(request.decisionReason ? { decisionReason: request.decisionReason } : {}),
+        retryCount: request.retryCount,
         createdAt: request.createdAt,
         updatedAt: request.updatedAt,
       },
@@ -207,6 +208,7 @@ export class PrismaClientAgentAccessRequestRepository implements IClientAgentAcc
         requestedAt: request.requestedAt,
         decidedAt: request.decidedAt ?? null,
         decisionReason: request.decisionReason ?? null,
+        retryCount: request.retryCount,
         updatedAt: request.updatedAt,
       },
     });
@@ -236,6 +238,7 @@ export class PrismaClientAgentAccessRequestRepository implements IClientAgentAcc
       requestedAt: row.requestedAt,
       ...(row.decidedAt ? { decidedAt: row.decidedAt } : {}),
       ...(row.decisionReason ? { decisionReason: row.decisionReason } : {}),
+      retryCount: row.retryCount,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     });

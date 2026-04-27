@@ -644,7 +644,7 @@ describe("ClientAgentAccessService", () => {
     }
   });
 
-  it("returns conflict when retrying an approved request that no longer has an access row", async () => {
+  it("reopens request when status is approved but the access row was removed", async () => {
     const created = await service.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
@@ -656,9 +656,32 @@ describe("ClientAgentAccessService", () => {
     expect(stored?.status).toBe("approved");
 
     const retried = await service.retryRequestByClient(clientId, stored!.id);
-    expect(retried.ok).toBe(false);
-    if (!retried.ok) {
-      expect(retried.error.code).toBe("CONFLICT");
+    expect(retried.ok).toBe(true);
+    if (retried.ok) {
+      expect(retried.value.reopened).toEqual([agentId]);
+    }
+  });
+
+  it("returns conflict when retry count reaches CLIENT_AGENT_ACCESS_MAX_RETRIES", async () => {
+    const { env } = await import("../../../../src/shared/config/env");
+    const maxRetries = (env as { clientAgentAccessMaxRetries: number }).clientAgentAccessMaxRetries;
+    if (maxRetries <= 0) {
+      return; // limit disabled; skip
+    }
+
+    // Seed a request already at the limit (retryCount = maxRetries).
+    const existing = ClientAgentAccessRequest.create({
+      clientId,
+      agentId,
+      status: "rejected",
+      retryCount: maxRetries,
+    });
+    await requestRepository.save(existing);
+
+    const result = await service.requestAccess(clientId, [agentId]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("CONFLICT");
     }
   });
 

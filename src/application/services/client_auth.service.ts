@@ -38,6 +38,7 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../sha
 import { logger } from "../../shared/utils/logger";
 import { redactEmail } from "../../shared/utils/pii_redaction";
 import { generateOpaqueClientPasswordRecoveryToken } from "../../shared/utils/client_password_recovery_token";
+import { withRetry } from "../../shared/utils/retry";
 
 export interface RegisterClientServiceInput {
   readonly ownerEmail: string;
@@ -182,14 +183,15 @@ export class ClientAuthService {
     const approvalToken = this.newRegistrationApprovalToken(client.id);
 
     try {
+      // Prisma: atomic transaction rotates token + flips client.status in one DB round-trip.
+      // In-memory (test): replaceForClientRetry only saves the token; the explicit save below
+      // keeps the in-memory client store in sync and is a no-op in production.
       await this.clientRegistrationApprovalTokenRepository.replaceForClientRetry(
         pendingClient,
         approvalToken,
       );
       await this.clientRepository.save(pendingClient);
     } catch (error: unknown) {
-      await this.clientRegistrationApprovalTokenRepository.deleteById(approvalToken.id);
-      await this.clientRepository.save(client);
       logger.error("client_registration_retry_persist_failed", {
         clientId: client.id,
         clientEmailRedacted: redactEmail(client.email),
@@ -208,6 +210,7 @@ export class ClientAuthService {
       });
       return ok({ retried: true });
     } catch (error: unknown) {
+      // Best-effort rollback: restore original status.
       await this.clientRegistrationApprovalTokenRepository.deleteById(approvalToken.id);
       await this.clientRepository.save(client);
       logger.error("client_registration_retry_email_failed", {
@@ -874,28 +877,11 @@ export class ClientAuthService {
   }
 
   private async sendWithRetry(operation: string, action: () => Promise<void>): Promise<void> {
-    let lastError: unknown;
-    const maxAttempts = env.registrationEmailMaxRetries;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        await action();
-        return;
-      } catch (error: unknown) {
-        lastError = error;
-        if (attempt < maxAttempts && env.registrationEmailRetryDelayMs > 0) {
-          await this.delay(env.registrationEmailRetryDelayMs);
-        }
-      }
-    }
-
-    const message = lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(`${operation} failed after ${maxAttempts} attempts: ${message}`);
-  }
-
-  private async delay(ms: number): Promise<void> {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, ms);
+    return withRetry(operation, action, {
+      maxAttempts: env.registrationEmailMaxRetries,
+      delayMs: env.registrationEmailRetryDelayMs,
+      exponential: true,
+      maxDelayMs: 30_000,
     });
   }
 }

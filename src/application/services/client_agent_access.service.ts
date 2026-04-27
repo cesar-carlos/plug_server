@@ -358,6 +358,15 @@ export class ClientAgentAccessService {
         }
       }
 
+      const maxRetries = env.clientAgentAccessMaxRetries;
+      if (existing && maxRetries > 0 && existing.retryCount >= maxRetries) {
+        return err(
+          conflict(
+            `Maximum retry attempts (${maxRetries}) reached for agent ${agentId}. Contact the agent owner.`,
+          ),
+        );
+      }
+
       let request: ClientAgentAccessRequest;
       if (existing) {
         reopenedIds.push(agentId);
@@ -365,6 +374,7 @@ export class ClientAgentAccessService {
         request = new ClientAgentAccessRequest({
           ...baseRequest,
           status: "pending",
+          retryCount: existing.retryCount + 1,
           requestedAt: new Date(),
           updatedAt: new Date(),
         });
@@ -373,6 +383,7 @@ export class ClientAgentAccessService {
         request = ClientAgentAccessRequest.create({
           clientId,
           agentId,
+          retryCount: 0,
         });
       }
 
@@ -470,9 +481,15 @@ export class ClientAgentAccessService {
           debounced: [],
         });
       }
+      // Approved but the access row was removed (e.g. revoked by owner after status was set to
+      // "approved"). Treat as eligible so the client can re-request without a 409.
     }
 
-    if (request.status !== "pending" && !this.isRetryEligibleStatus(request.status)) {
+    if (
+      request.status !== "pending" &&
+      request.status !== "approved" &&
+      !this.isRetryEligibleStatus(request.status)
+    ) {
       return err(conflict("Access request cannot be retried from its current status"));
     }
 

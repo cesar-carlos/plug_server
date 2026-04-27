@@ -231,6 +231,7 @@ export const getTestRepositoryAccess = (): {
   readonly agent: IAgentRepository;
   readonly client: IClientRepository;
   readonly clientAgentAccess: IClientAgentAccessRepository;
+  readonly clientAgentAccessRequest: IClientAgentAccessRequestRepository;
   readonly clientAgentAccessApprovalToken: IClientAgentAccessApprovalTokenRepository;
   readonly registrationApprovalToken: typeof registrationApprovalTokenRepository;
   readonly clientRegistrationApprovalToken: IClientRegistrationApprovalTokenRepository;
@@ -246,6 +247,7 @@ export const getTestRepositoryAccess = (): {
     agent: agentRepository,
     client: clientRepository,
     clientAgentAccess: clientAgentAccessRepository,
+    clientAgentAccessRequest: clientAgentAccessRequestRepository,
     clientAgentAccessApprovalToken: clientAgentAccessApprovalTokenRepository,
     registrationApprovalToken: registrationApprovalTokenRepository,
     clientRegistrationApprovalToken: clientRegistrationApprovalTokenRepository,

@@ -34,6 +34,7 @@ import type { JwtAccessPayload } from "../../shared/utils/jwt";
 import { logger } from "../../shared/utils/logger";
 import { redactEmail } from "../../shared/utils/pii_redaction";
 import { generateOpaqueRegistrationToken } from "../../shared/utils/registration_token";
+import { withRetry } from "../../shared/utils/retry";
 import type {
   AgentAuthResponseDto,
   AuthResponseDto,
@@ -670,28 +671,11 @@ export class AuthService {
   }
 
   private async sendWithRetry(operation: string, action: () => Promise<void>): Promise<void> {
-    let lastError: unknown;
-    const maxAttempts = env.registrationEmailMaxRetries;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        await action();
-        return;
-      } catch (error: unknown) {
-        lastError = error;
-        if (attempt < maxAttempts && env.registrationEmailRetryDelayMs > 0) {
-          await this.delay(env.registrationEmailRetryDelayMs);
-        }
-      }
-    }
-
-    const message = lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(`${operation} failed after ${maxAttempts} attempts: ${message}`);
-  }
-
-  private async delay(ms: number): Promise<void> {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, ms);
+    return withRetry(operation, action, {
+      maxAttempts: env.registrationEmailMaxRetries,
+      delayMs: env.registrationEmailRetryDelayMs,
+      exponential: true,
+      maxDelayMs: 30_000,
     });
   }
 }
