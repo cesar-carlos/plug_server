@@ -40,8 +40,16 @@ class TestClientRegistrationApprovalTokenRepository implements IClientRegistrati
     this.tokenIdByClientId.set(token.clientId, token.id);
   }
 
+  async replaceForClientRetry(_client: Client, token: ClientRegistrationApprovalToken): Promise<void> {
+    await this.save(token);
+  }
+
   async findById(id: string): Promise<ClientRegistrationApprovalToken | null> {
     return this.store.get(id) ?? null;
+  }
+
+  async findReviewSummaryById(): Promise<null> {
+    return null;
   }
 
   async deleteById(id: string): Promise<void> {

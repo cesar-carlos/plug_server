@@ -69,6 +69,125 @@ export class PrismaClientAgentAccessRequestRepository implements IClientAgentAcc
     return rows.map((item) => this.toDomain(item));
   }
 
+  async listByClientPage(
+    clientId: string,
+    filter: {
+      readonly status?: ClientAgentAccessRequestStatus;
+      readonly search?: string;
+      readonly page: number;
+      readonly pageSize: number;
+    },
+  ): Promise<{
+    readonly items: Array<ClientAgentAccessRequest & { readonly agentName?: string }>;
+    readonly total: number;
+  }> {
+    const search = filter.search?.trim();
+    const where = {
+      clientId,
+      ...(filter.status !== undefined
+        ? { status: filter.status as PrismaClientAgentAccessRequestStatus }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { agentId: { contains: search } },
+              { agent: { name: { contains: search, mode: "insensitive" as const } } },
+            ],
+          }
+        : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      prismaClient.clientAgentAccessRequest.findMany({
+        where,
+        include: { agent: { select: { name: true } } },
+        orderBy: { requestedAt: "desc" },
+        skip: (filter.page - 1) * filter.pageSize,
+        take: filter.pageSize,
+      }),
+      prismaClient.clientAgentAccessRequest.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) => Object.assign(this.toDomain(row), { agentName: row.agent.name })),
+      total,
+    };
+  }
+
+  async listByOwnerPage(
+    ownerUserId: string,
+    filter: {
+      readonly status?: ClientAgentAccessRequestStatus;
+      readonly search?: string;
+      readonly agentId?: string;
+      readonly clientId?: string;
+      readonly page: number;
+      readonly pageSize: number;
+    },
+  ): Promise<{
+    readonly items: Array<
+      ClientAgentAccessRequest & {
+        readonly agentName?: string;
+        readonly clientEmail?: string;
+        readonly clientName?: string;
+      }
+    >;
+    readonly total: number;
+  }> {
+    const search = filter.search?.trim();
+    const where = {
+      agent: {
+        agentIdentities: {
+          some: {
+            userId: ownerUserId,
+          },
+        },
+      },
+      ...(filter.status !== undefined
+        ? { status: filter.status as PrismaClientAgentAccessRequestStatus }
+        : {}),
+      ...(filter.agentId !== undefined ? { agentId: filter.agentId } : {}),
+      ...(filter.clientId !== undefined ? { clientId: filter.clientId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { agentId: { contains: search } },
+              { agent: { name: { contains: search, mode: "insensitive" as const } } },
+              { clientId: { contains: search } },
+              { client: { email: { contains: search, mode: "insensitive" as const } } },
+              { client: { name: { contains: search, mode: "insensitive" as const } } },
+              { client: { lastName: { contains: search, mode: "insensitive" as const } } },
+            ],
+          }
+        : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      prismaClient.clientAgentAccessRequest.findMany({
+        where,
+        include: {
+          agent: { select: { name: true } },
+          client: { select: { email: true, name: true, lastName: true } },
+        },
+        orderBy: { requestedAt: "desc" },
+        skip: (filter.page - 1) * filter.pageSize,
+        take: filter.pageSize,
+      }),
+      prismaClient.clientAgentAccessRequest.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) =>
+        Object.assign(this.toDomain(row), {
+          agentName: row.agent.name,
+          clientEmail: row.client.email,
+          clientName: `${row.client.name} ${row.client.lastName}`.trim(),
+        }),
+      ),
+      total,
+    };
+  }
+
   async save(request: ClientAgentAccessRequest): Promise<void> {
     await prismaClient.clientAgentAccessRequest.upsert({
       where: { id: request.id },

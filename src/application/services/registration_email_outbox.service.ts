@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import { prismaClient } from "../../infrastructure/database/prisma/client";
@@ -14,7 +14,8 @@ import { logger } from "../../shared/utils/logger";
 type RegistrationOutboxKind =
   | "admin_approval_request"
   | "user_pending_registration"
-  | "client_registration_request_to_owner";
+  | "client_registration_request_to_owner"
+  | "client_access_request_to_owner";
 
 interface RegistrationOutboxRow {
   readonly id: string;
@@ -38,6 +39,10 @@ interface ClientRegistrationRequestToOwnerPayload {
   readonly clientName: string;
   readonly clientLastName: string;
   readonly approvalToken: string;
+}
+
+interface ClientAccessRequestToOwnerPayload extends ClientRegistrationRequestToOwnerPayload {
+  readonly agentId: string;
 }
 
 let outboxWorkerTimer: NodeJS.Timeout | null = null;
@@ -124,26 +129,39 @@ const assertClientRegistrationRequestToOwnerPayload = (
   );
 };
 
+const assertClientAccessRequestToOwnerPayload = (
+  payload: unknown,
+): payload is ClientAccessRequestToOwnerPayload => {
+  if (!assertClientRegistrationRequestToOwnerPayload(payload)) {
+    return false;
+  }
+  return typeof (payload as unknown as Record<string, unknown>).agentId === "string";
+};
+
 const enqueueRows = async (
   rows: Array<{ readonly kind: RegistrationOutboxKind; readonly payload: unknown }>,
 ): Promise<void> => {
-  await prismaClient.$transaction(async (tx) => {
-    for (const row of rows) {
-      await tx.$executeRaw`
-        INSERT INTO registration_email_outbox (
-          id, kind, payload_json, attempts, available_at, created_at, updated_at
-        ) VALUES (
-          ${randomUUID()},
-          ${row.kind},
-          ${JSON.stringify(row.payload)}::jsonb,
-          0,
-          NOW(),
-          NOW(),
-          NOW()
-        )
-      `;
-    }
-  });
+  if (rows.length === 0) {
+    return;
+  }
+
+  const values = rows.map(
+    (row) => Prisma.sql`(
+      ${randomUUID()},
+      ${row.kind},
+      ${JSON.stringify(row.payload)}::jsonb,
+      0,
+      NOW(),
+      NOW(),
+      NOW()
+    )`,
+  );
+
+  await prismaClient.$executeRaw`
+    INSERT INTO registration_email_outbox (
+      id, kind, payload_json, attempts, available_at, created_at, updated_at
+    ) VALUES ${Prisma.join(values)}
+  `;
 };
 
 export const enqueueRegistrationApprovalEmails = async (input: {
@@ -246,6 +264,60 @@ export const enqueueClientRegistrationApprovalEmail = async (input: {
   }
 };
 
+export const enqueueClientAccessApprovalEmails = async (
+  inputs: ReadonlyArray<{
+    readonly ownerEmail: string;
+    readonly clientEmail: string;
+    readonly clientName: string;
+    readonly clientLastName: string;
+    readonly agentId: string;
+    readonly approvalToken: string;
+  }>,
+): Promise<boolean> => {
+  if (!env.registrationEmailOutboxEnabled || env.nodeEnv === "test" || inputs.length === 0) {
+    return false;
+  }
+
+  if (!(await canUseOutboxTable())) {
+    return false;
+  }
+
+  try {
+    await trackPendingOutboxOp(
+      enqueueRows(
+        inputs.map((input) => ({
+          kind: "client_access_request_to_owner",
+          payload: {
+            ownerEmail: input.ownerEmail,
+            clientEmail: input.clientEmail,
+            clientName: input.clientName,
+            clientLastName: input.clientLastName,
+            agentId: input.agentId,
+            approvalToken: input.approvalToken,
+          } satisfies ClientAccessRequestToOwnerPayload,
+        })),
+      ),
+    );
+    return true;
+  } catch (error: unknown) {
+    if (isOutboxTableMissing(error)) {
+      outboxTableState = "missing";
+      if (!outboxTableMissingLogged) {
+        logger.warn("registration_email_outbox_table_missing", {
+          message: toErrorMessage(error),
+        });
+        outboxTableMissingLogged = true;
+      }
+      return false;
+    }
+
+    logger.warn("client_access_email_outbox_enqueue_failed", {
+      message: toErrorMessage(error),
+    });
+    return false;
+  }
+};
+
 const claimOutboxBatch = async (): Promise<RegistrationOutboxRow[]> => {
   const lockTimeoutSeconds = Math.max(
     1,
@@ -283,7 +355,8 @@ const claimOutboxBatch = async (): Promise<RegistrationOutboxRow[]> => {
       if (
         row.kind !== "admin_approval_request" &&
         row.kind !== "user_pending_registration" &&
-        row.kind !== "client_registration_request_to_owner"
+        row.kind !== "client_registration_request_to_owner" &&
+        row.kind !== "client_access_request_to_owner"
       ) {
         return null;
       }
@@ -362,6 +435,17 @@ const deliverRow = async (emailSender: IEmailSender, row: RegistrationOutboxRow)
     return;
   }
 
+  if (row.kind === "client_access_request_to_owner") {
+    if (!assertClientAccessRequestToOwnerPayload(row.payloadJson)) {
+      await markFailed(row, "invalid client_access_request_to_owner payload");
+      return;
+    }
+
+    await emailSender.sendClientAccessRequestToOwner(row.payloadJson);
+    await markDelivered(row.id);
+    return;
+  }
+
   if (!assertClientRegistrationRequestToOwnerPayload(row.payloadJson)) {
     await markFailed(row, "invalid client_registration_request_to_owner payload");
     return;
@@ -381,7 +465,7 @@ const processOutboxBatch = async (emailSender: IEmailSender): Promise<void> => {
     return;
   }
 
-  for (const row of rows) {
+  const processRow = async (row: RegistrationOutboxRow): Promise<void> => {
     try {
       await deliverRow(emailSender, row);
     } catch (error: unknown) {
@@ -394,7 +478,21 @@ const processOutboxBatch = async (emailSender: IEmailSender): Promise<void> => {
         message,
       });
     }
-  }
+  };
+
+  const concurrency = Math.max(1, Math.min(4, rows.length));
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (nextIndex < rows.length) {
+        const row = rows[nextIndex];
+        nextIndex += 1;
+        if (row) {
+          await processRow(row);
+        }
+      }
+    }),
+  );
 };
 
 export const flushRegistrationEmailOutbox = async (emailSender: IEmailSender): Promise<void> => {

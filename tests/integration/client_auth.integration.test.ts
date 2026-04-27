@@ -537,6 +537,86 @@ describe("Client auth authenticated session flow", () => {
   });
 });
 
+describe("Client auth HTTP email validation", () => {
+  it("returns 400 for invalid ownerEmail on register", async () => {
+    const response = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail: "not-an-email",
+        email: `valid-client-${Date.now()}@test.com`,
+        password: "ClientRegPwd1",
+        name: "A",
+        lastName: "B",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 for invalid client email on register", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-email-val`,
+      emailPrefix: "client-owner",
+    });
+    const response = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail: owner.email,
+        email: "also-not-email",
+        password: "ClientRegPwd1",
+        name: "A",
+        lastName: "B",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 for invalid email on login", async () => {
+    const response = await request(app)
+      .post("/api/v1/client-auth/login")
+      .send({ email: "invalid", password: "ClientRegPwd1" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when registration retry has invalid ownerEmail", async () => {
+    const response = await request(app).post("/api/v1/client-auth/registration/retry").send({
+      ownerEmail: "bad",
+      email: `some-${Date.now()}@test.com`,
+      password: "secret",
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when registration retry has invalid client email", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-retry-email`,
+      emailPrefix: "client-owner",
+    });
+    const response = await request(app).post("/api/v1/client-auth/registration/retry").send({
+      ownerEmail: owner.email,
+      email: "not-valid",
+      password: "secret",
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 for invalid email on password recovery request", async () => {
+    const response = await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: "nope" });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+});
+
 describe("Client auth password recovery flow", () => {
   it("returns generic response for unknown email", async () => {
     const beforeCount = noopEmailSender.clientPasswordRecovery.length;

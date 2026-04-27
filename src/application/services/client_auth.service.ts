@@ -164,8 +164,8 @@ export class ClientAuthService {
       return ok({ retried: false });
     }
 
-    const owner = await this.userRepository.findByEmail(input.ownerEmail);
-    if (!owner || owner.status !== "active" || owner.id !== client.userId) {
+    const owner = await this.userRepository.findById(client.userId);
+    if (!owner || owner.status !== "active" || owner.email !== input.ownerEmail) {
       return ok({ retried: false });
     }
 
@@ -182,7 +182,10 @@ export class ClientAuthService {
     const approvalToken = this.newRegistrationApprovalToken(client.id);
 
     try {
-      await this.clientRegistrationApprovalTokenRepository.save(approvalToken);
+      await this.clientRegistrationApprovalTokenRepository.replaceForClientRetry(
+        pendingClient,
+        approvalToken,
+      );
       await this.clientRepository.save(pendingClient);
     } catch (error: unknown) {
       await this.clientRegistrationApprovalTokenRepository.deleteById(approvalToken.id);
@@ -217,6 +220,17 @@ export class ClientAuthService {
   }
 
   async getRegistrationReviewSummary(tokenId: string): Promise<ClientRegistrationReviewSummary | null> {
+    const summary = await this.clientRegistrationApprovalTokenRepository.findReviewSummaryById(tokenId);
+    if (summary) {
+      return {
+        ownerEmail: summary.ownerEmail,
+        clientEmail: summary.clientEmail,
+        clientName: summary.clientName,
+        clientStatus: summary.clientStatus,
+        tokenStatus: isExpired(summary.expiresAt) ? "expired" : "pending",
+      };
+    }
+
     const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
     if (!token) {
       return null;

@@ -9,6 +9,7 @@ describe("AuthService retryRejectedRegistration", () => {
   const saveUser = vi.fn();
   const findUserByEmail = vi.fn();
   const saveApprovalToken = vi.fn();
+  const replaceForUserRetry = vi.fn();
   const deleteApprovalTokensByUserId = vi.fn();
   const sendAdminApprovalRequest = vi.fn();
   const sendUserPendingRegistration = vi.fn();
@@ -34,7 +35,9 @@ describe("AuthService retryRejectedRegistration", () => {
       { execute: vi.fn() } as never,
       {
         save: saveApprovalToken,
+        replaceForUserRetry,
         findById: vi.fn(),
+        findReviewSummaryById: vi.fn(),
         deleteById: vi.fn(),
         deleteByUserId: deleteApprovalTokensByUserId,
       } as never,
@@ -68,6 +71,10 @@ describe("AuthService retryRejectedRegistration", () => {
     findUserByEmail.mockResolvedValue(rejectedUser);
     saveUser.mockResolvedValue(undefined);
     saveApprovalToken.mockResolvedValue(undefined);
+    replaceForUserRetry.mockImplementation(async (_user: User, token: unknown) => {
+      await deleteApprovalTokensByUserId(rejectedUser.id);
+      await saveApprovalToken(token);
+    });
     deleteApprovalTokensByUserId.mockResolvedValue(undefined);
     sendAdminApprovalRequest.mockResolvedValue(undefined);
     sendUserPendingRegistration.mockResolvedValue(undefined);

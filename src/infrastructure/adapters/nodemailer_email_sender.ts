@@ -37,8 +37,11 @@ const buildActionEmailHtml = (params: {
 
 export class NodemailerEmailSender implements IEmailSender {
   private transporter: Transporter | null = null;
+  private readonly normalizedBaseUrl: string;
 
-  constructor(private readonly config: NodemailerEmailSenderConfig) {}
+  constructor(private readonly config: NodemailerEmailSenderConfig) {
+    this.normalizedBaseUrl = normalizeBaseUrl(config.appBaseUrl);
+  }
 
   private isConfigured(): boolean {
     return this.config.smtpUser.trim() !== "" && this.config.smtpPass.trim() !== "";
@@ -69,23 +72,19 @@ export class NodemailerEmailSender implements IEmailSender {
   }
 
   private reviewPageUrl(reviewToken: string): string {
-    const base = normalizeBaseUrl(this.config.appBaseUrl);
-    return `${base}/api/v1/auth/registration/review?token=${encodeURIComponent(reviewToken)}`;
+    return `${this.normalizedBaseUrl}/api/v1/auth/registration/review?token=${encodeURIComponent(reviewToken)}`;
   }
 
   private clientAccessReviewPageUrl(reviewToken: string): string {
-    const base = normalizeBaseUrl(this.config.appBaseUrl);
-    return `${base}/api/v1/client-access/review?token=${encodeURIComponent(reviewToken)}`;
+    return `${this.normalizedBaseUrl}/api/v1/client-access/review?token=${encodeURIComponent(reviewToken)}`;
   }
 
   private clientRegistrationReviewPageUrl(reviewToken: string): string {
-    const base = normalizeBaseUrl(this.config.appBaseUrl);
-    return `${base}/api/v1/client-auth/registration/review?token=${encodeURIComponent(reviewToken)}`;
+    return `${this.normalizedBaseUrl}/api/v1/client-auth/registration/review?token=${encodeURIComponent(reviewToken)}`;
   }
 
   private clientPasswordRecoveryReviewPageUrl(recoveryToken: string): string {
-    const base = normalizeBaseUrl(this.config.appBaseUrl);
-    return `${base}/api/v1/client-auth/password-recovery/review?token=${encodeURIComponent(recoveryToken)}`;
+    return `${this.normalizedBaseUrl}/api/v1/client-auth/password-recovery/review?token=${encodeURIComponent(recoveryToken)}`;
   }
 
   private logSkippedEmail(message: string, emailLabel: string, email: string): void {

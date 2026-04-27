@@ -20,6 +20,10 @@ export class InMemoryClientAgentAccessApprovalTokenRepository implements IClient
     return this.store.get(id) ?? null;
   }
 
+  async findReviewSummaryById(): Promise<null> {
+    return null;
+  }
+
   async deleteById(id: string): Promise<void> {
     const token = this.store.get(id);
     if (token) {

@@ -89,6 +89,18 @@ describe("Client agent access API", () => {
     expect(clientOnUserRoute.body.code).toBe("FORBIDDEN");
   });
 
+  it("returns 400 when agent access request retry path param is not a UUID", async () => {
+    const { clientAccessToken } = await registerOwnerAndClient();
+
+    const response = await request(app)
+      .post("/api/v1/client/me/agent-access-requests/not-a-uuid/retry")
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("VALIDATION_ERROR");
+  });
+
   it("denies client HTTP access immediately after owner blocks the client", async () => {
     const { ownerAccessToken, clientId, clientAccessToken } = await registerOwnerAndClient();
 
@@ -506,37 +518,40 @@ describe("Client agent access API", () => {
     const previousDebounceMs = env.clientAgentAccessRequestEmailDebounceMs;
     (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
       60_000;
-    const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
-    const agent = await seedAgent({
-      name: "Retry Debounce Agent",
-      cnpjCpf: `retry-debounce-${Date.now()}`,
-    });
-    await seedAgentBinding(ownerUserId, agent.agentId);
+    try {
+      const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
+      const agent = await seedAgent({
+        name: "Retry Debounce Agent",
+        cnpjCpf: `retry-debounce-${Date.now()}`,
+      });
+      await seedAgentBinding(ownerUserId, agent.agentId);
 
-    const requestAccess = await request(app)
-      .post("/api/v1/client/me/agents")
-      .set("Authorization", `Bearer ${clientAccessToken}`)
-      .send({ agentIds: [agent.agentId] });
-    expect(requestAccess.status).toBe(200);
+      const requestAccess = await request(app)
+        .post("/api/v1/client/me/agents")
+        .set("Authorization", `Bearer ${clientAccessToken}`)
+        .send({ agentIds: [agent.agentId] });
+      expect(requestAccess.status).toBe(200);
 
-    const pendingRequests = await request(app)
-      .get("/api/v1/client/me/agent-access-requests")
-      .query({ status: "pending", search: agent.agentId })
-      .set("Authorization", `Bearer ${clientAccessToken}`);
-    expect(pendingRequests.status).toBe(200);
-    const requestId = pendingRequests.body.requests[0]?.id as string;
-    const sentBefore = emailSender.clientAccessRequestsToOwner.length;
+      const pendingRequests = await request(app)
+        .get("/api/v1/client/me/agent-access-requests")
+        .query({ status: "pending", search: agent.agentId })
+        .set("Authorization", `Bearer ${clientAccessToken}`);
+      expect(pendingRequests.status).toBe(200);
+      const requestId = pendingRequests.body.requests[0]?.id as string;
+      const sentBefore = emailSender.clientAccessRequestsToOwner.length;
 
-    const retry = await request(app)
-      .post(`/api/v1/client/me/agent-access-requests/${requestId}/retry`)
-      .set("Authorization", `Bearer ${clientAccessToken}`)
-      .send({});
-    expect(retry.status).toBe(200);
-    expect(retry.body.requested).toEqual([]);
-    expect(retry.body.debounced).toEqual([agent.agentId]);
-    expect(emailSender.clientAccessRequestsToOwner.length).toBe(sentBefore);
-    (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
-      previousDebounceMs;
+      const retry = await request(app)
+        .post(`/api/v1/client/me/agent-access-requests/${requestId}/retry`)
+        .set("Authorization", `Bearer ${clientAccessToken}`)
+        .send({});
+      expect(retry.status).toBe(200);
+      expect(retry.body.requested).toEqual([]);
+      expect(retry.body.debounced).toEqual([agent.agentId]);
+      expect(emailSender.clientAccessRequestsToOwner.length).toBe(sentBefore);
+    } finally {
+      (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
+        previousDebounceMs;
+    }
   });
 
   it("invalidates public approval tokens after they are used", async () => {

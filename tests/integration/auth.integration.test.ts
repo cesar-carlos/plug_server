@@ -96,6 +96,17 @@ describe("Auth API", () => {
     });
   });
 
+  describe("HTTP email validation (registration retry and login)", () => {
+    it("returns 400 for invalid email on registration retry", async () => {
+      const response = await request(app)
+        .post("/api/v1/auth/registration/retry")
+        .send({ email: "not-an-email", password: "RetryReg1" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe("VALIDATION_ERROR");
+    });
+  });
+
   describe("Registration approval (POST + review page)", () => {
     it("GET /api/v1/auth/registration/status returns pending for a valid token", async () => {
       const reg = await request(app)
@@ -288,6 +299,15 @@ describe("Auth API", () => {
       expect(response.status).toBe(401);
     });
 
+    it("should return 400 when email field is not a valid address", async () => {
+      const response = await request(app)
+        .post("/api/v1/auth/login")
+        .send({ email: "not-an-email", password: "Password1" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe("VALIDATION_ERROR");
+    });
+
     it("should return 403 when account was blocked after approval", async () => {
       const blockedCredentials = {
         email: `blocked-login-${Date.now()}@test.com`,
@@ -380,6 +400,17 @@ describe("Auth API", () => {
         email: testUser.email,
         password: testUser.password,
         agentId: "not-a-uuid",
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("should return 400 for invalid email", async () => {
+      const response = await request(app).post("/api/v1/auth/agent-login").send({
+        email: "bad-email",
+        password: testUser.password,
+        agentId,
       });
 
       expect(response.status).toBe(400);

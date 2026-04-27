@@ -156,8 +156,9 @@ Regras:
 - para cada `agentId`, o servidor resolve o owner via `AgentIdentity`
 - se acesso ja existe em `ClientAgentAccess`, marca como `alreadyApproved` (nao envia email)
 - se nao existe linha em `ClientAgentAccess`, cria ou reabre pedido `ClientAgentAccessRequest` com status `pending` (inclui `approved` sem linha de acesso, `rejected`, `expired`, `revoked`, etc.)
-- gera token de aprovacao e envia email para o owner do agente quando o fluxo entra em `pending` (gravacao em transacao na persistencia Prisma)
+- gera token de aprovacao e notifica o owner do agente quando o fluxo entra em `pending`; em producao, quando o outbox de email esta habilitado, as notificacoes sao enfileiradas para evitar bloquear o request HTTP com N envios SMTP
 - resposta JSON inclui `requested`, `alreadyApproved`, `newRequests`, `reopened`, `debounced` (este ultimo quando um segundo `POST` chega ainda `pending` dentro da janela `CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS` — sem novo email)
+- listagens de pedidos usam paginação/filtros no repositório para evitar carregar todo o histórico em memória antes de paginar
 - rate limit por cliente em `POST /api/v1/client/me/agents` (`REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_*`)
 - depois de aprovado, o `Client` pode consultar os dados gerais e de perfil desses agentes pela propria area `/client/me/agents`
 - introspecao da politica de autorizacao do `client_token` no plug_agente (sem executar SQL): RPC `client_token.getPolicy` via `POST /api/v1/agents/commands` ou Socket, quando o agente expuser o metodo; contrato e limites em `docs/api_rest_bridge.md`

@@ -2,8 +2,10 @@ import type { ClientAgentAccessApprovalToken as PrismaToken } from "@prisma/clie
 
 import type {
   ClientAgentAccessApprovalToken,
+  ClientAgentAccessApprovalReviewSummaryRecord,
   IClientAgentAccessApprovalTokenRepository,
 } from "../../domain/repositories/client_agent_access_approval_token.repository.interface";
+import type { ClientAgentAccessRequestStatus } from "../../domain/entities/client_agent_access_request.entity";
 import { prismaClient } from "../database/prisma/client";
 
 export class PrismaClientAgentAccessApprovalTokenRepository implements IClientAgentAccessApprovalTokenRepository {
@@ -28,6 +30,48 @@ export class PrismaClientAgentAccessApprovalTokenRepository implements IClientAg
       where: { id },
     });
     return row ? this.toDomain(row) : null;
+  }
+
+  async findReviewSummaryById(
+    id: string,
+  ): Promise<ClientAgentAccessApprovalReviewSummaryRecord | null> {
+    const row = await prismaClient.clientAgentAccessApprovalToken.findUnique({
+      where: { id },
+      select: {
+        expiresAt: true,
+        request: {
+          select: {
+            agentId: true,
+            status: true,
+            client: {
+              select: {
+                email: true,
+                name: true,
+                lastName: true,
+              },
+            },
+            agent: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      clientEmail: row.request.client.email,
+      clientName: `${row.request.client.name} ${row.request.client.lastName}`.trim(),
+      agentId: row.request.agentId,
+      agentName: row.request.agent.name,
+      requestStatus: row.request.status as ClientAgentAccessRequestStatus,
+      expiresAt: row.expiresAt,
+    };
   }
 
   async deleteById(id: string): Promise<void> {

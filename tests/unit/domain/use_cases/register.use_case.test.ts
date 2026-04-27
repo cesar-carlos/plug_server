@@ -16,7 +16,9 @@ const makeUserRepo = (): IUserRepository => ({
 
 const makeTokenRepo = (): IRegistrationApprovalTokenRepository => ({
   save: vi.fn(),
+  replaceForUserRetry: vi.fn(),
   findById: vi.fn(),
+  findReviewSummaryById: vi.fn(),
   deleteById: vi.fn(),
   deleteByUserId: vi.fn(),
 });

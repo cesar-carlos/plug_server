@@ -354,8 +354,7 @@ export class AuthService {
     });
 
     try {
-      await this.approvalTokenRepository.deleteByUserId(user.id);
-      await this.approvalTokenRepository.save(approvalToken);
+      await this.approvalTokenRepository.replaceForUserRetry(pendingUser, approvalToken);
       await this.userRepository.save(pendingUser);
     } catch (error: unknown) {
       await this.approvalTokenRepository.deleteByUserId(user.id);
@@ -370,13 +369,24 @@ export class AuthService {
     }
 
     try {
-      if (
-        env.registrationEmailAsync &&
-        (await enqueueRegistrationApprovalEmails({
+      if (env.registrationEmailAsync) {
+        const queued = await enqueueRegistrationApprovalEmails({
           userEmail: user.email,
           reviewToken: approvalToken.id,
-        }))
-      ) {
+        });
+        if (!queued) {
+          void this.dispatchRegistrationApprovalEmails({
+            userEmail: user.email,
+            reviewToken: approvalToken.id,
+          }).catch((error: unknown) => {
+            logger.error("registration_retry_email_dispatch_failed", {
+              requestId: options?.requestId,
+              tokenPrefix: approvalToken.id.slice(0, 8),
+              userId: user.id,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }
         return ok({ retried: true });
       }
 
@@ -399,6 +409,15 @@ export class AuthService {
   }
 
   async getRegistrationReviewSummary(tokenId: string): Promise<RegistrationReviewSummary | null> {
+    const summary = await this.approvalTokenRepository.findReviewSummaryById(tokenId);
+    if (summary) {
+      return {
+        email: summary.email,
+        status: summary.status,
+        tokenStatus: isExpired(summary.expiresAt) ? "expired" : "pending",
+      };
+    }
+
     const token = await this.approvalTokenRepository.findById(tokenId);
     if (!token) {
       return null;
@@ -579,15 +598,17 @@ export class AuthService {
     readonly userEmail: string;
     readonly reviewToken: string;
   }): Promise<void> {
-    await this.sendWithRetry("sendAdminApprovalRequest", async () =>
-      this.emailSender.sendAdminApprovalRequest({
-        userEmail: input.userEmail,
-        reviewToken: input.reviewToken,
-      }),
-    );
-    await this.sendWithRetry("sendUserPendingRegistration", async () =>
-      this.emailSender.sendUserPendingRegistration({ email: input.userEmail }),
-    );
+    await Promise.all([
+      this.sendWithRetry("sendAdminApprovalRequest", async () =>
+        this.emailSender.sendAdminApprovalRequest({
+          userEmail: input.userEmail,
+          reviewToken: input.reviewToken,
+        }),
+      ),
+      this.sendWithRetry("sendUserPendingRegistration", async () =>
+        this.emailSender.sendUserPendingRegistration({ email: input.userEmail }),
+      ),
+    ]);
   }
 
   private async issueTokens(user: User): Promise<AuthTokensDto> {

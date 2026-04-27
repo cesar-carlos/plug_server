@@ -133,6 +133,14 @@ dedicado se for usado em UI com edição contínua.
 | `express.urlencoded`                            | `extended: false`                                                                                               | Usa o parser `querystring` nativo; só os formulários HTML de aprovação dependem dele e carregam `{ token, reason? }`.                                                                                                                                                                                                                                                                      |
 | Upload de thumbnail                             | multer + validação magic-bytes via `sharp().metadata()`                                                         | Allowlist: `image/png`, `image/jpeg`, `image/webp`, `image/gif`. `MulterError` (size limit e afins) é convertido para `400 BAD_REQUEST`, não `500`.                                                                                                                                                                                                                                      |
 
+## Email outbox
+
+Quando `REGISTRATION_EMAIL_OUTBOX_ENABLED=true` e a tabela
+`registration_email_outbox` existe, os emails de aprovação de cadastro e de
+acesso `Client -> Agent` são enfileirados e processados pelo worker. Isso evita
+que requests em lote fiquem presos em múltiplos envios SMTP; em ambiente de
+teste ou quando a tabela não existe, o código cai para envio direto.
+
 ## Manutencao de dados Agent
 
 | Variável                                            | Defeito | Notas                                                                                      |

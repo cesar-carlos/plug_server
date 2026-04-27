@@ -1,4 +1,5 @@
 import type { RegistrationApprovalToken } from "../../domain/entities/registration_approval_token.entity";
+import type { User } from "../../domain/entities/user.entity";
 import type { IRegistrationApprovalTokenRepository } from "../../domain/repositories/registration_approval_token.repository.interface";
 import { hashRegistrationToken } from "../../shared/utils/registration_token_hash";
 
@@ -9,8 +10,17 @@ export class InMemoryRegistrationApprovalTokenRepository implements IRegistratio
     this.byId.set(hashRegistrationToken(token.id), token);
   }
 
+  async replaceForUserRetry(_user: User, token: RegistrationApprovalToken): Promise<void> {
+    await this.deleteByUserId(token.userId);
+    await this.save(token);
+  }
+
   async findById(id: string): Promise<RegistrationApprovalToken | null> {
     return this.byId.get(hashRegistrationToken(id)) ?? this.byId.get(id) ?? null;
+  }
+
+  async findReviewSummaryById(): Promise<null> {
+    return null;
   }
 
   async deleteById(id: string): Promise<void> {

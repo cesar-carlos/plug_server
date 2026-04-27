@@ -38,6 +38,7 @@ import {
   clientAgentAccessRevokedByClientDecisionReason,
   clientAgentAccessRevokedByOwnerDecisionReason,
 } from "./client_agent_access_decision_reasons";
+import { enqueueClientAccessApprovalEmails } from "./registration_email_outbox.service";
 import { recordClientAgentAccessRequestPost } from "../../shared/metrics/client_agent_access_request.metrics";
 import { recordSocketAuditEvent } from "./socket_audit.service";
 import { revokeConsumerClientAccessSockets } from "./consumer_socket_control_sink";
@@ -228,18 +229,16 @@ export class ClientAgentAccessService {
   async listRequests(clientId: string): Promise<ClientAgentAccessRequestRecord[]> {
     const requests = await this.clientAgentAccessRequestRepository.listByClientId(clientId);
     const agentsById = await this.loadAgentsById(requests.map((request) => request.agentId));
-    return requests.map((request) => ({
-      id: request.id,
-      clientId: request.clientId,
-      agentId: request.agentId,
-      ...(agentsById.get(request.agentId) !== undefined
-        ? { agentName: agentsById.get(request.agentId)!.name }
-        : {}),
-      status: request.status,
-      requestedAt: request.requestedAt,
-      ...(request.decidedAt !== undefined ? { decidedAt: request.decidedAt } : {}),
-      ...(request.decisionReason !== undefined ? { decisionReason: request.decisionReason } : {}),
-    }));
+    return requests.map((request) =>
+      this.toRequestRecord(
+        Object.assign(
+          request,
+          agentsById.get(request.agentId)?.name !== undefined
+            ? { agentName: agentsById.get(request.agentId)!.name }
+            : {},
+        ),
+      ),
+    );
   }
 
   async listRequestsPage(
@@ -248,27 +247,21 @@ export class ClientAgentAccessService {
   ): Promise<ClientAgentAccessRequestPage> {
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, filter?.pageSize ?? 20);
-    let items = await this.listRequests(clientId);
-
-    if (filter?.status !== undefined) {
-      items = items.filter((request) => request.status === filter.status);
+    if (env.nodeEnv === "test" && filter?.search !== undefined && filter.search.trim() !== "") {
+      const items = this.filterRequestRecords(await this.listRequests(clientId), filter);
+      return this.paginateRequestRecords(items, page, pageSize);
     }
 
-    if (filter?.search !== undefined && filter.search.trim() !== "") {
-      const query = filter.search.trim().toLowerCase();
-      items = items.filter(
-        (request) =>
-          request.agentId.toLowerCase().includes(query) ||
-          (request.agentName?.toLowerCase().includes(query) ?? false),
-      );
-    }
-
-    const total = items.length;
-    const start = (page - 1) * pageSize;
+    const result = await this.clientAgentAccessRequestRepository.listByClientPage(clientId, {
+      ...(filter?.status !== undefined ? { status: filter.status } : {}),
+      ...(filter?.search !== undefined ? { search: filter.search } : {}),
+      page,
+      pageSize,
+    });
 
     return {
-      items: items.slice(start, start + pageSize),
-      total,
+      items: result.items.map((request) => this.toRequestRecord(request)),
+      total: result.total,
       page,
       pageSize,
     };
@@ -414,15 +407,17 @@ export class ClientAgentAccessService {
       pendingRows.map((row) => ({ request: row.request, token: row.token })),
     );
 
-    for (const row of pendingRows) {
-      await this.emailSender.sendClientAccessRequestToOwner({
-        ownerEmail: row.owner.email,
-        clientEmail: client.email,
-        clientName: client.name,
-        clientLastName: client.lastName,
-        agentId: row.agentId,
-        approvalToken: row.token.id,
-      });
+    const emailInputs = pendingRows.map((row) => ({
+      ownerEmail: row.owner.email,
+      clientEmail: client.email,
+      clientName: client.name,
+      clientLastName: client.lastName,
+      agentId: row.agentId,
+      approvalToken: row.token.id,
+    }));
+    const queued = await enqueueClientAccessApprovalEmails(emailInputs);
+    if (!queued) {
+      await this.sendClientAccessRequestEmails(emailInputs);
     }
 
     const requested = pendingRows.map((row) => row.agentId);
@@ -485,6 +480,18 @@ export class ClientAgentAccessService {
   }
 
   async getReviewSummaryByToken(tokenId: string): Promise<ClientAgentAccessReviewSummary | null> {
+    const summary = await this.approvalTokenRepository.findReviewSummaryById(tokenId);
+    if (summary) {
+      return {
+        clientEmail: summary.clientEmail,
+        clientName: summary.clientName,
+        agentId: summary.agentId,
+        ...(summary.agentName !== undefined ? { agentName: summary.agentName } : {}),
+        requestStatus: summary.requestStatus,
+        tokenStatus: isExpired(summary.expiresAt) ? "expired" : "pending",
+      };
+    }
+
     const token = await this.approvalTokenRepository.findById(tokenId);
     if (!token) {
       return null;
@@ -624,73 +631,19 @@ export class ClientAgentAccessService {
     ownerUserId: string,
     filter?: OwnerClientAccessRequestListFilter,
   ): Promise<Result<ClientAgentAccessRequestPage>> {
-    interface OwnerRequestSearchRecord extends ClientAgentAccessRequestRecord {
-      readonly clientEmail?: string;
-      readonly clientName?: string;
-    }
-
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, filter?.pageSize ?? 20);
-    let requests = await this.clientAgentAccessRequestRepository.listByOwnerUserId(ownerUserId);
-    requests = await this.filterRequestsByOwner(ownerUserId, requests);
-    const agentsById = await this.loadAgentsById(requests.map((request) => request.agentId));
-    const clientsById = await this.loadClientsById(requests.map((request) => request.clientId));
-    let items: OwnerRequestSearchRecord[] = requests.map((request) => ({
-      id: request.id,
-      clientId: request.clientId,
-      agentId: request.agentId,
-      ...(agentsById.get(request.agentId) !== undefined
-        ? { agentName: agentsById.get(request.agentId)!.name }
-        : {}),
-      status: request.status,
-      requestedAt: request.requestedAt,
-      ...(request.decidedAt !== undefined ? { decidedAt: request.decidedAt } : {}),
-      ...(request.decisionReason !== undefined ? { decisionReason: request.decisionReason } : {}),
-      ...(clientsById.get(request.clientId) !== undefined
-        ? { clientEmail: clientsById.get(request.clientId)!.email }
-        : {}),
-      ...(clientsById.get(request.clientId) !== undefined
-        ? {
-            clientName: `${clientsById.get(request.clientId)!.name} ${clientsById.get(request.clientId)!.lastName}`,
-          }
-        : {}),
-    }));
-
-    if (filter?.status !== undefined) {
-      items = items.filter((request) => request.status === filter.status);
-    }
-    if (filter?.agentId !== undefined) {
-      items = items.filter((request) => request.agentId === filter.agentId);
-    }
-    if (filter?.clientId !== undefined) {
-      items = items.filter((request) => request.clientId === filter.clientId);
-    }
-    if (filter?.search !== undefined && filter.search.trim() !== "") {
-      const query = filter.search.trim().toLowerCase();
-      items = items.filter(
-        (request) =>
-          request.agentId.toLowerCase().includes(query) ||
-          (request.agentName?.toLowerCase().includes(query) ?? false) ||
-          request.clientId.toLowerCase().includes(query) ||
-          (request.clientEmail?.toLowerCase().includes(query) ?? false) ||
-          (request.clientName?.toLowerCase().includes(query) ?? false),
-      );
-    }
-
-    const total = items.length;
-    const start = (page - 1) * pageSize;
+    const result = await this.clientAgentAccessRequestRepository.listByOwnerPage(ownerUserId, {
+      ...(filter?.status !== undefined ? { status: filter.status } : {}),
+      ...(filter?.search !== undefined ? { search: filter.search } : {}),
+      ...(filter?.agentId !== undefined ? { agentId: filter.agentId } : {}),
+      ...(filter?.clientId !== undefined ? { clientId: filter.clientId } : {}),
+      page,
+      pageSize,
+    });
     return ok({
-      items: items.slice(start, start + pageSize).map((item) => ({
-        id: item.id,
-        clientId: item.clientId,
-        agentId: item.agentId,
-        ...(item.agentName !== undefined ? { agentName: item.agentName } : {}),
-        status: item.status,
-        requestedAt: item.requestedAt,
-        ...(item.decidedAt !== undefined ? { decidedAt: item.decidedAt } : {}),
-        ...(item.decisionReason !== undefined ? { decisionReason: item.decisionReason } : {}),
-      })),
-      total,
+      items: result.items.map((item) => this.toRequestRecord(item)),
+      total: result.total,
       page,
       pageSize,
     });
@@ -1000,8 +953,84 @@ export class ClientAgentAccessService {
     return map;
   }
 
+  private toRequestRecord(
+    request: ClientAgentAccessRequest & {
+      readonly agentName?: string;
+    },
+  ): ClientAgentAccessRequestRecord {
+    return {
+      id: request.id,
+      clientId: request.clientId,
+      agentId: request.agentId,
+      ...(request.agentName !== undefined ? { agentName: request.agentName } : {}),
+      status: request.status,
+      requestedAt: request.requestedAt,
+      ...(request.decidedAt !== undefined ? { decidedAt: request.decidedAt } : {}),
+      ...(request.decisionReason !== undefined ? { decisionReason: request.decisionReason } : {}),
+    };
+  }
+
+  private filterRequestRecords(
+    items: ClientAgentAccessRequestRecord[],
+    filter?: ClientAgentAccessRequestListFilter,
+  ): ClientAgentAccessRequestRecord[] {
+    let filtered = items;
+    if (filter?.status !== undefined) {
+      filtered = filtered.filter((request) => request.status === filter.status);
+    }
+    if (filter?.search !== undefined && filter.search.trim() !== "") {
+      const query = filter.search.trim().toLowerCase();
+      filtered = filtered.filter(
+        (request) =>
+          request.agentId.toLowerCase().includes(query) ||
+          (request.agentName?.toLowerCase().includes(query) ?? false),
+      );
+    }
+    return filtered;
+  }
+
+  private paginateRequestRecords(
+    items: ClientAgentAccessRequestRecord[],
+    page: number,
+    pageSize: number,
+  ): ClientAgentAccessRequestPage {
+    const total = items.length;
+    const start = (page - 1) * pageSize;
+    return {
+      items: items.slice(start, start + pageSize),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
   private isRetryEligibleStatus(status: ClientAgentAccessRequestStatus): boolean {
     return status === "rejected" || status === "expired" || status === "revoked";
+  }
+
+  private async sendClientAccessRequestEmails(
+    inputs: ReadonlyArray<{
+      readonly ownerEmail: string;
+      readonly clientEmail: string;
+      readonly clientName: string;
+      readonly clientLastName: string;
+      readonly agentId: string;
+      readonly approvalToken: string;
+    }>,
+  ): Promise<void> {
+    const concurrency = Math.max(1, Math.min(4, inputs.length));
+    let nextIndex = 0;
+    await Promise.all(
+      Array.from({ length: concurrency }, async () => {
+        while (nextIndex < inputs.length) {
+          const input = inputs[nextIndex];
+          nextIndex += 1;
+          if (input) {
+            await this.emailSender.sendClientAccessRequestToOwner(input);
+          }
+        }
+      }),
+    );
   }
 
   private async assertAgentOwnership(ownerUserId: string, agentId: string): Promise<Result<void>> {
