@@ -907,6 +907,15 @@ const swaggerSpec = swaggerJSDoc({
             },
           },
         },
+        TooManyRequests: {
+          description:
+            "Rate limit exceeded (HTTP 429). Response body follows `ErrorResponse`; the server may include a `Retry-After` header.",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ErrorResponse" },
+            },
+          },
+        },
       },
     },
     security: [],
