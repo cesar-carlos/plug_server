@@ -3,6 +3,7 @@ import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 import path from "node:path";
 
+import pkg from "../../../package.json";
 import { env } from "../../shared/config/env";
 import {
   AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES,
@@ -24,7 +25,7 @@ const swaggerSpec = swaggerJSDoc({
     openapi: "3.0.0",
     info: {
       title: "Plug Server API",
-      version: "1.0.0",
+      version: pkg.version,
       description:
         "REST API documentation for the Plug Server backend. The HTTP API fronts a dual-namespace Socket.IO architecture: agents connect to /agents, consumers to /consumers. The default namespace (/) is deprecated and rejects connections with app:error (code NAMESPACE_DEPRECATED). Compatibility aliases /auth/* and /metrics are also mounted at the root.",
     },
@@ -33,6 +34,17 @@ const swaggerSpec = swaggerJSDoc({
         url: "/api/v1",
         description: "Current environment",
       },
+    ],
+    tags: [
+      { name: "Health", description: "Liveness, readiness and Prometheus metrics" },
+      { name: "Auth", description: "User authentication and registration approval" },
+      { name: "Client Auth", description: "Colmeia client authentication and registration" },
+      { name: "Agents", description: "Agent commands and HTTP-to-Socket bridge" },
+      { name: "Agent catalog", description: "Agent catalog read and filter" },
+      { name: "User agents", description: "User-to-agent binding management" },
+      { name: "Client Agent Access", description: "Client-to-agent access requests and approvals" },
+      { name: "User clients", description: "Owner management of managed clients" },
+      { name: "Admin", description: "Admin-only operations (user status, blocking)" },
     ],
     components: {
       securitySchemes: {
@@ -652,6 +664,18 @@ const swaggerSpec = swaggerJSDoc({
             acceptedCommands: { type: "integer", minimum: 1, example: 1 },
           },
         },
+        AgentAddress: {
+          type: "object",
+          required: ["street", "number", "district", "postalCode", "city", "state"],
+          properties: {
+            street: { type: "string", nullable: true, maxLength: 120 },
+            number: { type: "string", nullable: true, maxLength: 20 },
+            district: { type: "string", nullable: true, maxLength: 120 },
+            postalCode: { type: "string", nullable: true, maxLength: 20 },
+            city: { type: "string", nullable: true, maxLength: 120 },
+            state: { type: "string", nullable: true, maxLength: 2 },
+          },
+        },
         AgentCatalogRecord: {
           type: "object",
           required: ["agentId", "name", "status", "profileVersion", "createdAt", "updatedAt"],
@@ -673,18 +697,7 @@ const swaggerSpec = swaggerJSDoc({
             phone: { type: "string", nullable: true, maxLength: 20 },
             mobile: { type: "string", nullable: true, maxLength: 20 },
             email: { type: "string", nullable: true, format: "email" },
-            address: {
-              type: "object",
-              properties: {
-                street: { type: "string", nullable: true, maxLength: 120 },
-                number: { type: "string", nullable: true, maxLength: 20 },
-                district: { type: "string", nullable: true, maxLength: 120 },
-                postalCode: { type: "string", nullable: true, maxLength: 20 },
-                city: { type: "string", nullable: true, maxLength: 120 },
-                state: { type: "string", nullable: true, maxLength: 2 },
-              },
-              required: ["street", "number", "district", "postalCode", "city", "state"],
-            },
+            address: { $ref: "#/components/schemas/AgentAddress" },
             notes: { type: "string", nullable: true, maxLength: 2000 },
             observation: { type: "string", nullable: true, maxLength: 2000 },
             lastLoginUserId: { type: "string", format: "uuid", nullable: true },
@@ -718,16 +731,8 @@ const swaggerSpec = swaggerJSDoc({
             mobile: { type: "string", nullable: true, maxLength: 20 },
             email: { type: "string", nullable: true, format: "email", maxLength: 255 },
             address: {
-              type: "object",
               nullable: true,
-              properties: {
-                street: { type: "string", nullable: true, maxLength: 120 },
-                number: { type: "string", nullable: true, maxLength: 20 },
-                district: { type: "string", nullable: true, maxLength: 120 },
-                postalCode: { type: "string", nullable: true, maxLength: 20 },
-                city: { type: "string", nullable: true, maxLength: 120 },
-                state: { type: "string", nullable: true, maxLength: 2 },
-              },
+              allOf: [{ $ref: "#/components/schemas/AgentAddress" }],
             },
             notes: { type: "string", nullable: true, maxLength: 2000 },
             expectedProfileVersion: {
@@ -781,18 +786,7 @@ const swaggerSpec = swaggerJSDoc({
             phone: { type: "string", nullable: true },
             mobile: { type: "string", nullable: true },
             email: { type: "string", nullable: true, format: "email" },
-            address: {
-              type: "object",
-              required: ["street", "number", "district", "postalCode", "city", "state"],
-              properties: {
-                street: { type: "string", nullable: true },
-                number: { type: "string", nullable: true },
-                district: { type: "string", nullable: true },
-                postalCode: { type: "string", nullable: true },
-                city: { type: "string", nullable: true },
-                state: { type: "string", nullable: true },
-              },
-            },
+            address: { $ref: "#/components/schemas/AgentAddress" },
             notes: { type: "string", nullable: true },
             observation: { type: "string", nullable: true },
             profileUpdatedAt: { type: "string", format: "date-time", nullable: true },
@@ -847,6 +841,32 @@ const swaggerSpec = swaggerJSDoc({
                 { type: "null" },
               ],
             },
+          },
+        },
+        ClientAgentAccessRequestRecord: {
+          type: "object",
+          required: ["id", "clientId", "agentId", "status", "retryCount", "requestedAt", "createdAt", "updatedAt"],
+          description: "A client-to-agent access request with its current status and retry counter.",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            clientId: { type: "string", format: "uuid" },
+            agentId: { type: "string", format: "uuid" },
+            status: {
+              type: "string",
+              enum: ["pending", "approved", "rejected", "expired", "revoked"],
+            },
+            retryCount: {
+              type: "integer",
+              minimum: 0,
+              description:
+                "Number of times the client has retried this request after rejection/expiry/revocation. Blocked at CLIENT_AGENT_ACCESS_MAX_RETRIES (default 5; 0 = unlimited).",
+            },
+            decidedAt: { type: "string", format: "date-time", nullable: true },
+            decisionReason: { type: "string", nullable: true },
+            requestedAt: { type: "string", format: "date-time" },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+            agentName: { type: "string", nullable: true, description: "Agent name (when enriched by repository)." },
           },
         },
         PaginatedAgentCatalogResponse: {
@@ -916,6 +936,15 @@ const swaggerSpec = swaggerJSDoc({
             },
           },
         },
+        ServiceUnavailable: {
+          description:
+            "Service unavailable (HTTP 503). Returned when the agent is offline for pure-notification commands, the hub-to-agent transport timed out, or the server is overloaded. May include a `Retry-After` header with the suggested retry delay in seconds.",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ErrorResponse" },
+            },
+          },
+        },
       },
     },
     security: [],
@@ -974,9 +1003,22 @@ export const setupSwagger = (app: Express): void => {
     return;
   }
 
-  app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.use(
+    "/docs",
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        displayRequestDuration: true,
+        tryItOutEnabled: false,
+      },
+      customSiteTitle: `${env.appName} API Docs`,
+    }),
+  );
+
   app.get("/docs.json", (_request, response) => {
     response.setHeader("Content-Type", "application/json");
+    response.setHeader("Cache-Control", "public, max-age=300");
     response.send(swaggerSpec);
   });
 };

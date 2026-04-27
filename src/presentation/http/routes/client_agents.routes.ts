@@ -224,8 +224,21 @@ clientAgentsRouter.delete(
  *                   type: array
  *                   description: Agent IDs skipped because a pending request was refreshed within the debounce window (no new email)
  *                   items: { type: string, format: uuid }
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
  *         description: One or more agents not found
+ *       409:
+ *         description: >
+ *           Maximum retry attempts reached for one of the requested agents
+ *           (`CLIENT_AGENT_ACCESS_MAX_RETRIES`, default 5). The `retryCount` on
+ *           `ClientAgentAccessRequestRecord` shows how many times this client already retried.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 clientAgentsRouter.post(
   "/client/me/agents",
@@ -297,7 +310,27 @@ clientAgentsRouter.delete(
  *           maximum: 100
  *     responses:
  *       200:
- *         description: Request list for authenticated client
+ *         description: Paginated list of agent access requests for the authenticated client
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [items, total, page, pageSize]
+ *               properties:
+ *                 items:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/ClientAgentAccessRequestRecord'
+ *                 total:
+ *                   type: integer
+ *                 page:
+ *                   type: integer
+ *                 pageSize:
+ *                   type: integer
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
  */
 clientAgentsRouter.get(
   "/client/me/agent-access-requests",

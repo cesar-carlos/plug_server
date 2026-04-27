@@ -396,10 +396,7 @@ agentsRouter.patch(
  *       404:
  *         description: Agent not found or not in catalog
  *       503:
- *         description: >
- *           Hub/agent transport failure: timeouts, overload, protocol-not-ready, mid-flight disconnect
- *           of pending requests, or offline catalog agent for pure-notification commands.
- *           Correlatable new requests against a catalog-offline agent use 200 + normalized `agent_offline`.
+ *         $ref: '#/components/responses/ServiceUnavailable'
  */
 agentsRouter.post(
   "/commands",
