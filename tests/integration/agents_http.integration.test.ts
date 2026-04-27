@@ -1162,42 +1162,37 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        8_000,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+      const fail = (error: Error): void => {
+        clearTimeout(timeout);
+        agentSocket?.off("rpc:request", onRpcRequest);
+        reject(error);
+      };
+      const finish = (): void => {
+        clearTimeout(timeout);
+        agentSocket?.off("rpc:request", onRpcRequest);
+        resolve();
+      };
+      const onRpcRequest = (rawPayload: unknown): void => {
         const decoded = decodePayloadFrame(rawPayload);
         if (!decoded.ok || !Array.isArray(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Batch payload was not forwarded as array"));
           return;
         }
 
         const forwardedItems = decoded.value.data.filter((item): item is Record<string, unknown> =>
           isRecord(item),
         );
-        if (forwardedItems.length !== 3) {
-          clearTimeout(timeout);
-          reject(new Error("Expected three forwarded batch items"));
-          return;
-        }
-
         const ids = forwardedItems
           .map((item) => toRequestId(item.id))
           .filter((id): id is string => id !== null);
-        if (ids.length !== 2) {
-          clearTimeout(timeout);
-          reject(new Error("Expected exactly two correlated ids in mixed batch"));
+        if (!ids.includes("mix-q1") || !ids.includes("mix-q2")) {
           return;
         }
-
-        const firstId = ids.at(0);
-        const secondId = ids.at(1);
-        if (!firstId || !secondId) {
-          clearTimeout(timeout);
-          reject(new Error("Missing batch correlation ids"));
+        if (forwardedItems.length !== 3) {
+          fail(new Error("Expected three forwarded batch items"));
+          return;
+        }
+        if (ids.length !== 2) {
+          fail(new Error("Expected exactly two correlated ids in mixed batch"));
           return;
         }
 
@@ -1206,20 +1201,24 @@ describe("Agents HTTP bridge", () => {
           encodePayloadFrame([
             {
               jsonrpc: "2.0",
-              id: firstId,
+              id: "mix-q1",
               result: { ok: true, row_count: 1 },
             },
             {
               jsonrpc: "2.0",
-              id: secondId,
+              id: "mix-q2",
               result: { ok: true, row_count: 1 },
             },
           ]),
         );
+        finish();
+      };
+      const timeout = setTimeout(
+        () => fail(new Error("Timed out waiting for mixed-batch rpc:request")),
+        8_000,
+      );
 
-        clearTimeout(timeout);
-        resolve();
-      });
+      agentSocket?.on("rpc:request", onRpcRequest);
     });
 
     const responsePromise = request(baseUrl)
@@ -1275,23 +1274,24 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        8_000,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+      const fail = (error: Error): void => {
+        clearTimeout(timeout);
+        agentSocket?.off("rpc:request", onRpcRequest);
+        reject(error);
+      };
+      const finish = (): void => {
+        clearTimeout(timeout);
+        agentSocket?.off("rpc:request", onRpcRequest);
+        resolve();
+      };
+      const onRpcRequest = (rawPayload: unknown): void => {
         const decoded = decodePayloadFrame(rawPayload);
         if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid rpc:request payload"));
           return;
         }
 
         const requestId = toRequestId(decoded.value.data.id);
-        if (!requestId) {
-          clearTimeout(timeout);
-          reject(new Error("Missing rpc request id"));
+        if (requestId !== "out-of-order-ack") {
           return;
         }
 
@@ -1317,9 +1317,14 @@ describe("Agents HTTP bridge", () => {
           );
         }, 10);
 
-        clearTimeout(timeout);
-        resolve();
-      });
+        finish();
+      };
+      const timeout = setTimeout(
+        () => fail(new Error("Timed out waiting for rpc:request out-of-order-ack")),
+        8_000,
+      );
+
+      agentSocket?.on("rpc:request", onRpcRequest);
     });
 
     const responsePromise = request(baseUrl)
