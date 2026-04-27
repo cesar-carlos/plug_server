@@ -22,11 +22,27 @@ import {
 } from "../../../shared/metrics/client_me_agents.metrics";
 import { toClientAgentDto } from "../mappers/client_agent.mapper";
 
-const decisionHtml = (
+const clientAccessHome = (): { homeUrl: string; homeLabel: string } => {
+  const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
+  return { homeUrl, homeLabel: "Voltar ao início" };
+};
+
+const clientAccessDecisionHtml = (
   title: string,
   bodyText: string,
   tone: "success" | "danger" | "neutral",
-): string => renderApprovalDecisionPage({ title, bodyText, tone });
+): string => {
+  const { homeUrl, homeLabel } = clientAccessHome();
+  return renderApprovalDecisionPage({
+    title,
+    bodyText,
+    tone,
+    lang: "pt-BR",
+    decisionEyebrow: "Decisão registrada",
+    homeUrl,
+    homeLabel,
+  });
+};
 
 export const listMyClientAgents = async (
   _request: Request,
@@ -238,35 +254,59 @@ export const clientAccessReviewPage = async (
 ): Promise<void> => {
   const { token } = getValidated<ClientAccessReviewTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
+  const { homeUrl, homeLabel } = clientAccessHome();
   const approveAction = `${base}/api/v1/client-access/approve`;
   const rejectAction = `${base}/api/v1/client-access/reject`;
   const summary = await container.clientAgentAccessService.getReviewSummaryByToken(token);
+
+  let showActionForms = true;
+  let readOnlyMessage: string | undefined;
+  if (summary === null) {
+    showActionForms = false;
+    readOnlyMessage =
+      "Este link é inválido, expirou ou já foi utilizado. Nenhuma ação é necessária nesta página.";
+  } else if (summary.tokenStatus === "expired") {
+    showActionForms = false;
+    readOnlyMessage =
+      "Este link de aprovação expirou. Se o acesso ainda for necessário, o cliente pode solicitar novamente.";
+  } else if (summary.requestStatus !== "pending") {
+    showActionForms = false;
+    readOnlyMessage = `Este pedido de acesso já foi resolvido (status: ${summary.requestStatus}).`;
+  }
+
   const html = renderApprovalReviewPage({
-    title: "Review client access",
-    eyebrow: "Agent access approval",
+    title: "Revisar acesso do cliente",
+    eyebrow: "Aprovação de acesso ao agente",
     description:
-      "Approve this request only if the client should access this agent. GET requests do not change data.",
+      "Aprovar somente se o cliente deve acessar este agente. Requisições GET não alteram dados.",
     approveAction,
     rejectAction,
     token,
-    approveLabel: "Approve access",
-    rejectLabel: "Reject access",
-    reasonLabel: "Optional note to the client (max 500 characters)",
+    approveLabel: "Aprovar acesso",
+    rejectLabel: "Recusar acesso",
+    reasonLabel: "Mensagem opcional para o cliente (máx. 500 caracteres)",
+    showActionForms,
+    homeUrl,
+    homeLabel,
+    lang: "pt-BR",
+    textareaPlaceholder: "Nota opcional",
+    actionsAriaLabel: "Ações de aprovação",
+    ...(!showActionForms && readOnlyMessage !== undefined ? { readOnlyMessage } : {}),
     ...(summary === null
       ? {}
       : {
           summaryItems: [
-            { label: "Client", value: summary.clientName },
-            { label: "Client email", value: summary.clientEmail },
+            { label: "Cliente", value: summary.clientName },
+            { label: "E-mail", value: summary.clientEmail },
             {
-              label: "Agent",
+              label: "Agente",
               value:
                 summary.agentName !== undefined
                   ? `${summary.agentName} (${summary.agentId})`
                   : summary.agentId,
             },
-            { label: "Request status", value: summary.requestStatus },
-            { label: "Link status", value: summary.tokenStatus },
+            { label: "Status do pedido", value: summary.requestStatus },
+            { label: "Status do link", value: summary.tokenStatus },
           ],
         }),
   });
@@ -289,9 +329,9 @@ export const approveClientAccess = async (
     .status(200)
     .type("html")
     .send(
-      decisionHtml(
-        "Client access approved",
-        `The client now has access to agent ${result.value.agentId}.`,
+      clientAccessDecisionHtml(
+        "Acesso aprovado",
+        `O cliente agora tem acesso ao agente ${result.value.agentId}.`,
         "success",
       ),
     );
@@ -312,9 +352,9 @@ export const rejectClientAccess = async (
     .status(200)
     .type("html")
     .send(
-      decisionHtml(
-        "Client access rejected",
-        `The access request for agent ${result.value.agentId} was rejected.`,
+      clientAccessDecisionHtml(
+        "Acesso recusado",
+        `A solicitação de acesso ao agente ${result.value.agentId} foi recusada.`,
         "danger",
       ),
     );

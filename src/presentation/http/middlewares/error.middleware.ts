@@ -4,11 +4,17 @@ import { ZodError } from "zod";
 import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";
 import { logger } from "../../../shared/utils/logger";
+import {
+  buildApprovalErrorHtml,
+  buildApprovalInternalErrorHtml,
+  buildApprovalZodErrorHtml,
+  shouldReturnHtmlForApprovalError,
+} from "../helpers/approval_error_html";
 import { normalizeZodIssues } from "./validate.middleware";
 
 export const errorMiddleware = (
   error: unknown,
-  _request: Request,
+  request: Request,
   response: Response,
   _next: NextFunction,
 ): void => {
@@ -16,6 +22,13 @@ export const errorMiddleware = (
   const shouldExposeDetails = env.nodeEnv !== "production";
 
   if (error instanceof ZodError) {
+    if (shouldReturnHtmlForApprovalError(request) && !response.headersSent) {
+      const built = buildApprovalZodErrorHtml(request, error);
+      if (built) {
+        response.status(400).type("html").send(built.html);
+        return;
+      }
+    }
     response.status(400).json({
       message: "Validation failed",
       code: "VALIDATION_ERROR",
@@ -42,6 +55,17 @@ export const errorMiddleware = (
       logger.error(error.message, { requestId, code: error.code, details: error.details });
     }
 
+    if (shouldReturnHtmlForApprovalError(request) && !response.headersSent) {
+      const built = buildApprovalErrorHtml(request, error);
+      if (built) {
+        response
+          .status(built.statusCode)
+          .type("html")
+          .send(built.html);
+        return;
+      }
+    }
+
     response.status(error.statusCode).json({
       message: error.message,
       code: error.code,
@@ -58,6 +82,14 @@ export const errorMiddleware = (
     stack: err.stack,
     name: err.name,
   });
+
+  if (shouldReturnHtmlForApprovalError(request) && !response.headersSent) {
+    const built = buildApprovalInternalErrorHtml(request);
+    if (built) {
+      response.status(500).type("html").send(built.html);
+      return;
+    }
+  }
 
   response.status(500).json({
     message: env.nodeEnv === "production" ? "Internal server error" : "Unhandled server error",

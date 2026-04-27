@@ -101,11 +101,27 @@ const clearRefreshTokenCookie = (response: Response): void => {
   clearRefreshCookie(response, refreshTokenCookieName);
 };
 
+const appHome = (): { homeUrl: string; homeLabel: string } => {
+  const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
+  return { homeUrl, homeLabel: "Back to the app" };
+};
+
 const registrationDecisionHtml = (
   title: string,
   bodyText: string,
   tone: "success" | "danger" | "neutral",
-): string => renderApprovalDecisionPage({ title, bodyText, tone });
+): string => {
+  const { homeUrl, homeLabel } = appHome();
+  return renderApprovalDecisionPage({
+    title,
+    bodyText,
+    tone,
+    lang: "en",
+    decisionEyebrow: "Decision recorded",
+    homeUrl,
+    homeLabel,
+  });
+};
 
 export const registerClient = async (
   _request: Request,
@@ -135,6 +151,7 @@ export const clientRegistrationReviewPage = async (
 ): Promise<void> => {
   const { token } = getValidated<ClientRegistrationTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
+  const { homeUrl, homeLabel } = appHome();
   const approveAction = `${base}/api/v1/client-auth/registration/approve`;
   const rejectAction = `${base}/api/v1/client-auth/registration/reject`;
   const summary = await container.clientAuthService.getRegistrationReviewSummary(token);
@@ -149,6 +166,9 @@ export const clientRegistrationReviewPage = async (
     approveLabel: "Approve client registration",
     rejectLabel: "Reject client registration",
     reasonLabel: "Optional note to the client (max 500 characters)",
+    lang: "en",
+    homeUrl,
+    homeLabel,
     ...(summary === null
       ? {}
       : {

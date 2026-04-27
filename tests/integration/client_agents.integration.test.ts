@@ -331,7 +331,7 @@ describe("Client agent access API", () => {
     const reviewResponse = await request(app).get("/api/v1/client-access/review").query({ token });
     expect(reviewResponse.status).toBe(200);
     expect(reviewResponse.headers["content-type"]).toContain("text/html");
-    expect(reviewResponse.text).toContain("Review client access");
+    expect(reviewResponse.text).toContain("Revisar acesso do cliente");
     expect(reviewResponse.text).toContain(String(token));
     expect(reviewResponse.text).toContain(email?.clientEmail ?? "");
     expect(reviewResponse.text).toContain(agent.name);
@@ -339,6 +339,51 @@ describe("Client agent access API", () => {
     const statusResponse = await request(app).get("/api/v1/client-access/status").query({ token });
     expect(statusResponse.status).toBe(200);
     expect(statusResponse.body).toEqual({ status: "pending" });
+  });
+
+  it("GET /api/v1/client-access/review without a stored token does not show decision forms", async () => {
+    const missingToken = "a".repeat(64);
+    const reviewResponse = await request(app)
+      .get("/api/v1/client-access/review")
+      .query({ token: missingToken });
+    expect(reviewResponse.status).toBe(200);
+    expect(reviewResponse.headers["content-type"]).toContain("text/html");
+    expect(reviewResponse.text).toContain("Este link é inválido");
+    expect(reviewResponse.text).not.toContain("method=\"post\"");
+  });
+
+  it("POST /api/v1/client-access/approve with form body returns friendly HTML for expired token", async () => {
+    const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
+    const agent = await seedAgent({
+      name: "Form Html Expire Agent",
+      cnpjCpf: `form-html-expire-${Date.now()}`,
+    });
+    await seedAgentBinding(ownerUserId, agent.agentId);
+
+    const sentBefore = emailSender.clientAccessRequestsToOwner.length;
+    const requestAccess = await request(app)
+      .post("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({ agentIds: [agent.agentId] });
+    expect(requestAccess.status).toBe(200);
+
+    const token = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
+    expect(typeof token).toBe("string");
+    const storedToken = await repositories.clientAgentAccessApprovalToken.findById(token!);
+    expect(storedToken).not.toBeNull();
+    await repositories.clientAgentAccessApprovalToken.save({
+      ...storedToken!,
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+
+    const approveResponse = await request(app)
+      .post("/api/v1/client-access/approve")
+      .type("form")
+      .set("Accept", "text/html,application/xhtml+xml")
+      .send({ token: token! });
+    expect(approveResponse.status).toBe(410);
+    expect(approveResponse.headers["content-type"]).toContain("text/html");
+    expect(approveResponse.text).toContain("Este link de aprovação expirou");
   });
 
   it("POST /api/v1/client-access/approve grants access via public token flow", async () => {
@@ -364,7 +409,7 @@ describe("Client agent access API", () => {
       .send({ token });
     expect(approveResponse.status).toBe(200);
     expect(approveResponse.headers["content-type"]).toContain("text/html");
-    expect(approveResponse.text).toContain("Client access approved");
+    expect(approveResponse.text).toContain("Acesso aprovado");
     expect(approveResponse.text).toContain(agent.agentId);
 
     const approvedAgents = await request(app)
@@ -442,7 +487,7 @@ describe("Client agent access API", () => {
       .send({ token, reason: "Needs compliance review" });
     expect(rejectResponse.status).toBe(200);
     expect(rejectResponse.headers["content-type"]).toContain("text/html");
-    expect(rejectResponse.text).toContain("Client access rejected");
+    expect(rejectResponse.text).toContain("Acesso recusado");
     expect(rejectResponse.text).toContain(agent.agentId);
 
     const approvedAgents = await request(app)

@@ -211,7 +211,7 @@ export class NodemailerEmailSender implements IEmailSender {
     const reviewUrl = this.clientAccessReviewPageUrl(params.approvalToken);
     const html = buildActionEmailHtml({
       introHtml: `<p>Client <strong>${escapeHtml(params.clientName)} ${escapeHtml(params.clientLastName)}</strong> (${escapeHtml(params.clientEmail)}) requested access to agent <strong>${escapeHtml(params.agentId)}</strong>.</p>`,
-      actionLabel: "Review client access",
+      actionLabel: "Revisar acesso do cliente",
       actionUrl: reviewUrl,
     });
     await this.getTransport().sendMail({

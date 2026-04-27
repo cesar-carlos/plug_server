@@ -63,11 +63,27 @@ const toCompatibleAuthPayload = <T extends AuthTokensDto>(payload: T): Compatibl
   };
 };
 
+const appHome = (): { homeUrl: string; homeLabel: string } => {
+  const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
+  return { homeUrl, homeLabel: "Back to the app" };
+};
+
 const registrationDecisionHtml = (
   title: string,
   bodyText: string,
   tone: "success" | "danger" | "neutral",
-): string => renderApprovalDecisionPage({ title, bodyText, tone });
+): string => {
+  const { homeUrl, homeLabel } = appHome();
+  return renderApprovalDecisionPage({
+    title,
+    bodyText,
+    tone,
+    lang: "en",
+    decisionEyebrow: "Decision recorded",
+    homeUrl,
+    homeLabel,
+  });
+};
 
 export const register = async (
   _request: Request,
@@ -100,6 +116,7 @@ export const registrationReviewPage = async (
 ): Promise<void> => {
   const { token } = getValidated<RegistrationTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
+  const { homeUrl, homeLabel } = appHome();
   const approveAction = `${base}/api/v1/auth/registration/approve`;
   const rejectAction = `${base}/api/v1/auth/registration/reject`;
   const summary = await container.authService.getRegistrationReviewSummary(token);
@@ -114,6 +131,9 @@ export const registrationReviewPage = async (
     approveLabel: "Approve registration",
     rejectLabel: "Reject registration",
     reasonLabel: "Optional note to the user (max 500 characters)",
+    lang: "en",
+    homeUrl,
+    homeLabel,
     ...(summary === null
       ? {}
       : {

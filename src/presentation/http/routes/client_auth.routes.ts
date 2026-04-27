@@ -189,9 +189,21 @@ clientAuthRouter.post(
  *             required: [token]
  *             properties:
  *               token: { type: string }
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token: { type: string }
  *     responses:
  *       200:
  *         description: HTML confirmation page (approved)
+ *         content:
+ *           text/html: { schema: { type: string } }
+ *       400:
+ *         description: Validation error (JSON) or HTML for browser form posts
+ *       404:
+ *         description: Invalid or unknown token
  */
 clientAuthRouter.post(
   "/registration/approve",
@@ -216,9 +228,22 @@ clientAuthRouter.post(
  *             properties:
  *               token: { type: string }
  *               reason: { type: string, maxLength: 500 }
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token: { type: string }
+ *               reason: { type: string, maxLength: 500 }
  *     responses:
  *       200:
  *         description: HTML confirmation page (rejected)
+ *         content:
+ *           text/html: { schema: { type: string } }
+ *       400:
+ *         description: Validation error (JSON) or HTML for browser form posts
+ *       404:
+ *         description: Invalid or unknown token
  */
 clientAuthRouter.post(
   "/registration/reject",
