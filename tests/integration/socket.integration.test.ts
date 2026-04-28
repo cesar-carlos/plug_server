@@ -10,7 +10,7 @@ import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
-import { getTestRepositoryAccess } from "../../src/shared/di/container";
+import { container, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { hasRestPendingCorrelationId } from "../../src/presentation/socket/hub/rest_pending_requests";
 import { Client } from "../../src/domain/entities/client.entity";
 import { User } from "../../src/domain/entities/user.entity";
@@ -200,6 +200,9 @@ const setUserStatus = async (userId: string, status: "active" | "blocked"): Prom
       ...(currentUser!.celular !== undefined ? { celular: currentUser!.celular } : {}),
     }),
   );
+  if (status === "blocked") {
+    container.authService.invalidateSnapshotCache(userId);
+  }
 };
 
 const setClientStatus = async (clientId: string, status: "active" | "blocked"): Promise<void> => {
@@ -223,6 +226,9 @@ const setClientStatus = async (clientId: string, status: "active" | "blocked"): 
       updatedAt: new Date(),
     }),
   );
+  if (status === "blocked") {
+    container.clientAuthService.invalidateSnapshotCache(clientId);
+  }
 };
 
 describe("Socket namespaces", () => {
@@ -450,6 +456,7 @@ describe("Socket namespaces", () => {
         expect(started.conversationId).toBeDefined();
 
         await repositories.clientAgentAccess.removeAccess(clientId, testAgentId);
+        container.agentAccessService.invalidateAccessCache("client", clientId, testAgentId);
 
         const accepted = await new Promise<{
           success: boolean;
@@ -850,6 +857,7 @@ describe("Socket namespaces", () => {
         expect(commandResponse.requestId).toBeDefined();
 
         await repositories.clientAgentAccess.removeAccess(client.clientId, testAgentId);
+        container.agentAccessService.invalidateAccessCache("client", client.clientId, testAgentId);
 
         const pullResponse = await new Promise<{
           success: boolean;
@@ -950,6 +958,7 @@ describe("Socket namespaces", () => {
         expect(acceptedRequestId).toBeTruthy();
 
         await repositories.clientAgentAccess.removeAccess(client.clientId, testAgentId);
+        container.agentAccessService.invalidateAccessCache("client", client.clientId, testAgentId);
 
         const pullResponse = await new Promise<{
           success: boolean;

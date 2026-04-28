@@ -367,6 +367,7 @@ export class ClientAuthService {
     });
     await this.clientRepository.save(updated);
     if (status === "blocked") {
+      this.invalidateSnapshotCache(client.id);
       await this.clientRefreshTokenRepository.revokeAllForClient(client.id);
       await disconnectConsumerPrincipalSockets({
         principalType: "client",
