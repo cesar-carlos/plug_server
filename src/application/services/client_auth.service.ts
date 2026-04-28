@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 
 import type { IFileStorage } from "../../domain/ports/file_storage.port";
+import { TtlCache } from "../../shared/utils/ttl_cache";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import { Client, type ClientStatus } from "../../domain/entities/client.entity";
@@ -100,6 +101,18 @@ export interface ManagedClientsPage {
 }
 
 export class ClientAuthService {
+  /**
+   * Short-lived cache for `getActiveClientSnapshot`.
+   * Key: `"${clientId}:${credentialsVersion}"` — a password change issues a
+   * new access token with a different `credentials_version`, automatically
+   * invalidating the old cache key without explicit cleanup.
+   * Set `PRINCIPAL_SNAPSHOT_CACHE_TTL_MS=0` to disable.
+   */
+  private readonly snapshotCache = new TtlCache<string, ClientActiveSnapshot>(
+    env.principalSnapshotCacheTtlMs,
+    env.principalSnapshotCacheMaxSize,
+  );
+
   constructor(
     private readonly clientRepository: IClientRepository,
     private readonly clientRefreshTokenRepository: IClientRefreshTokenRepository,
@@ -464,6 +477,14 @@ export class ClientAuthService {
     clientId: string,
     accessTokenCredentialsVersion?: number,
   ): Promise<Result<ClientActiveSnapshot>> {
+    if (env.principalSnapshotCacheTtlMs > 0 && typeof accessTokenCredentialsVersion === "number") {
+      const key = `${clientId}:${accessTokenCredentialsVersion}`;
+      const cached = this.snapshotCache.get(key);
+      if (cached !== undefined) {
+        return ok(cached);
+      }
+    }
+
     const snapshot = await this.clientRepository.findActiveSnapshotById(clientId);
     if (!snapshot) {
       return err(notFound("Client"));
@@ -480,7 +501,16 @@ export class ClientAuthService {
     ) {
       return err(invalidToken("Access token is no longer valid"));
     }
+
+    if (env.principalSnapshotCacheTtlMs > 0 && typeof accessTokenCredentialsVersion === "number") {
+      this.snapshotCache.set(`${clientId}:${accessTokenCredentialsVersion}`, snapshot);
+    }
     return ok(snapshot);
+  }
+
+  /** Evicts all cached snapshots for `clientId` (e.g. after status change). */
+  invalidateSnapshotCache(clientId: string): void {
+    this.snapshotCache.deleteWhere((key) => key.startsWith(`${clientId}:`));
   }
 
   async updateMyProfile(

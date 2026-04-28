@@ -58,6 +58,12 @@ const envSchema = z.object({
    */
   CORS_ORIGIN: z.string().default("*"),
   REQUEST_BODY_LIMIT: z.string().default("1mb"),
+  /**
+   * Node.js `http.Server.requestTimeout` in ms — maximum time the server waits
+   * for a complete HTTP request (headers + body). Protects against slow-loris
+   * and hung connections. Default: 60 s. Set to 0 to disable.
+   */
+  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(0).default(60_000),
   UPLOADS_DIR: z.string().default("uploads"),
   UPLOADS_PUBLIC_BASE_URL: z.preprocess((val) => {
     if (val !== undefined && String(val).trim() !== "") {
@@ -76,6 +82,15 @@ const envSchema = z.object({
   CLIENT_THUMBNAIL_WEBP_QUALITY: z.coerce.number().int().min(1).max(100).default(82),
   REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  /** Global rate-limit applied to every `/api/v1` request (per IP). */
+  REST_GLOBAL_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+  REST_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
+  /**
+   * Per-IP rate-limit for credential-handling endpoints:
+   * `/login`, `/register`, `/refresh`, `/agent-login`, `/registration/*`, `/password-recovery/*`.
+   */
+  REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+  REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(25),
   /** Per client JWT `sub` on `POST /api/v1/client/me/agents`. */
   REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS: z.coerce
     .number()
@@ -530,6 +545,28 @@ const envSchema = z.object({
    * `0` disables. Use behind `trust proxy` when the server is behind a reverse proxy.
    */
   REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX: z.coerce.number().int().nonnegative().default(0),
+  /**
+   * TTL (ms) for the in-process agent-access cache in `AgentAccessService`.
+   * Caches positive `assertPrincipalAccess` results so the two DB queries
+   * (agent snapshot + identity/client access row) are not repeated on every
+   * bridge command within the window. `0` disables.
+   */
+  AGENT_ACCESS_CACHE_TTL_MS: z.coerce.number().int().min(0).default(30_000),
+  /** Max entries in the agent-access cache (oldest evicted first). `0` = unlimited. */
+  AGENT_ACCESS_CACHE_MAX_SIZE: z.coerce.number().int().min(0).default(5_000),
+  /**
+   * TTL (ms) for the in-process principal active-snapshot cache in `AuthService`
+   * and `ClientAuthService`. Caches `getActiveAccountUserSnapshot` /
+   * `getActiveClientSnapshot` results per `sub:credentials_version` so repeated
+   * DB status checks are skipped within the window. `0` disables.
+   *
+   * Security note: a blocked account continues to pass the snapshot check until
+   * the entry expires. Socket connections are disconnected immediately by
+   * `adminSetUserStatus`; HTTP commands are bounded by this TTL (default 15 s).
+   */
+  PRINCIPAL_SNAPSHOT_CACHE_TTL_MS: z.coerce.number().int().min(0).default(15_000),
+  /** Max entries in the principal snapshot cache. `0` = unlimited. */
+  PRINCIPAL_SNAPSHOT_CACHE_MAX_SIZE: z.coerce.number().int().min(0).default(2_000),
   /** Window for `PATCH /admin/users/:id/status` per admin (`JWT sub`). */
   REST_ADMIN_USER_STATUS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   /** Max status changes per window per admin. */
@@ -647,6 +684,7 @@ export const env = {
           .map((s) => s.trim())
           .filter((s) => s !== ""),
   requestBodyLimit: parsedEnv.REQUEST_BODY_LIMIT,
+  httpRequestTimeoutMs: parsedEnv.HTTP_REQUEST_TIMEOUT_MS,
   uploadsDir: parsedEnv.UPLOADS_DIR,
   uploadsPublicBaseUrl: parsedEnv.UPLOADS_PUBLIC_BASE_URL.replace(/\/+$/, ""),
   clientThumbnailMaxBytes: parsedEnv.CLIENT_THUMBNAIL_MAX_BYTES,
@@ -655,6 +693,10 @@ export const env = {
   clientThumbnailWebpQuality: parsedEnv.CLIENT_THUMBNAIL_WEBP_QUALITY,
   restClientThumbnailRateLimitWindowMs: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS,
   restClientThumbnailRateLimitMax: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX,
+  restGlobalRateLimitWindowMs: parsedEnv.REST_GLOBAL_RATE_LIMIT_WINDOW_MS,
+  restGlobalRateLimitMax: parsedEnv.REST_GLOBAL_RATE_LIMIT_MAX,
+  restCredentialAuthRateLimitWindowMs: parsedEnv.REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS,
+  restCredentialAuthRateLimitMax: parsedEnv.REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX,
   restClientMeAgentsPostRateLimitWindowMs:
     parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS,
   restClientMeAgentsPostRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX,
@@ -749,6 +791,10 @@ export const env = {
   restAgentsCommandsRateLimitWindowMs: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS,
   restAgentsCommandsRateLimitMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_MAX,
   restAgentsCommandsRateLimitIpMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX,
+  agentAccessCacheTtlMs: parsedEnv.AGENT_ACCESS_CACHE_TTL_MS,
+  agentAccessCacheMaxSize: parsedEnv.AGENT_ACCESS_CACHE_MAX_SIZE,
+  principalSnapshotCacheTtlMs: parsedEnv.PRINCIPAL_SNAPSHOT_CACHE_TTL_MS,
+  principalSnapshotCacheMaxSize: parsedEnv.PRINCIPAL_SNAPSHOT_CACHE_MAX_SIZE,
   restAdminUserStatusRateLimitWindowMs: parsedEnv.REST_ADMIN_USER_STATUS_RATE_LIMIT_WINDOW_MS,
   restAdminUserStatusRateLimitMax: parsedEnv.REST_ADMIN_USER_STATUS_RATE_LIMIT_MAX,
   bridgeLogJsonRpcAutoId: parsedEnv.BRIDGE_LOG_JSONRPC_AUTO_ID,

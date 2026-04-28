@@ -160,7 +160,9 @@ const agentAccessService = new AgentAccessService(
   agentIdentityRepository,
   clientAgentAccessRepository,
 );
-const agentCatalogService = new AgentCatalogService(agentRepository);
+const agentCatalogService = new AgentCatalogService(agentRepository, {
+  onAgentDeactivated: (agentId) => agentAccessService.invalidateAccessCacheForAgent(agentId),
+});
 const agentSelfProfileService = new AgentSelfProfileService(agentRepository);
 const agentProfileSyncService = new AgentProfileSyncService(agentSelfProfileService);
 const userAgentService = new UserAgentService(agentRepository, agentIdentityRepository);
@@ -192,6 +194,8 @@ const clientAgentAccessService = new ClientAgentAccessService(
         dispatch: dispatchRpcCommandToAgent,
         timeoutMs: 10_000,
       }),
+    onAccessRevoked: (clientId, agentId) =>
+      agentAccessService.invalidateAccessCache("client", clientId, agentId),
   },
 );
 

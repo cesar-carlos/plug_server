@@ -41,6 +41,10 @@ import { logger } from "./shared/utils/logger";
 
 const app = createApp();
 const httpServer = createServer(app);
+// Protects against slow-loris and hung client connections. Value 0 disables.
+if (env.httpRequestTimeoutMs > 0) {
+  httpServer.requestTimeout = env.httpRequestTimeoutMs;
+}
 const io = createSocketServer(httpServer);
 logSocketConsumerBootstrapHints();
 
@@ -150,4 +154,20 @@ process.on("SIGINT", () => {
 
 process.on("SIGTERM", () => {
   void shutdown("SIGTERM");
+});
+
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.error("unhandled_promise_rejection", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+process.on("uncaughtException", (error: Error) => {
+  logger.error("uncaught_exception", {
+    message: error.message,
+    stack: error.stack,
+    name: error.name,
+  });
+  void shutdown("uncaughtException");
 });

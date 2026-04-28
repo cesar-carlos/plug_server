@@ -64,7 +64,12 @@ export class LocalFileStorage implements IFileStorage {
 
   async delete(storageKey: string): Promise<void> {
     const normalized = storageKey.replace(/\\/g, "/");
-    const absolutePath = path.resolve(this.config.uploadsDir, normalized);
+    const absoluteBase = path.resolve(this.config.uploadsDir);
+    const absolutePath = path.resolve(absoluteBase, normalized);
+    // Defense in depth: reject any resolved path that escapes the uploads root.
+    if (!absolutePath.startsWith(absoluteBase + path.sep) && absolutePath !== absoluteBase) {
+      throw new Error(`Refused to delete path outside uploads directory: ${storageKey}`);
+    }
     await rm(absolutePath, { force: true });
   }
 }

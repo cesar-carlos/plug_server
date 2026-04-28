@@ -49,7 +49,10 @@ const validateActiveAccountAgainstDb = async (
   const startedAt = performance.now();
   const result =
     user.principal_type === "client"
-      ? await container.clientAuthService.getActiveClientSnapshot(user.sub)
+      ? await container.clientAuthService.getActiveClientSnapshot(
+          user.sub,
+          user.credentials_version,
+        )
       : await container.authService.getActiveAccountUserSnapshot(
           user.sub,
           user.credentials_version,

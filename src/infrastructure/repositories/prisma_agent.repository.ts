@@ -205,8 +205,9 @@ export class PrismaAgentRepository implements IAgentRepository {
             reason: "document_not_unique",
           };
         }
+        let createdRow: Awaited<ReturnType<typeof tx.agent.create>>;
         try {
-          await tx.agent.create({
+          createdRow = await tx.agent.create({
             data: PrismaAgentRepository.agentToPrismaCreate(input.nextAgent),
           });
         } catch (error) {
@@ -258,8 +259,7 @@ export class PrismaAgentRepository implements IAgentRepository {
             },
           },
         });
-        const row = await tx.agent.findUnique({ where: { agentId } });
-        return { status: "committed", agent: this.toEntity(row!) };
+        return { status: "committed", agent: this.toEntity(createdRow) };
       }
 
       if (

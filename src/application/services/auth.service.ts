@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { RegistrationApprovalToken } from "../../domain/entities/registration_approval_token.entity";
 import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import { User } from "../../domain/entities/user.entity";
+import { TtlCache } from "../../shared/utils/ttl_cache";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
 import type { AdminSetUserStatusInput } from "../../domain/use_cases/admin_set_user_status.use_case";
@@ -93,6 +94,18 @@ export interface RegistrationReviewSummary {
 }
 
 export class AuthService {
+  /**
+   * Short-lived cache for `getActiveAccountUserSnapshot`.
+   * Key: `"${userId}:${credentialsVersion}"` — a password/credentials change
+   * issues a new access token with a different `credentials_version`, making
+   * the old cache key unreachable without explicit invalidation.
+   * Set `PRINCIPAL_SNAPSHOT_CACHE_TTL_MS=0` to disable.
+   */
+  private readonly snapshotCache = new TtlCache<string, UserActiveSnapshot>(
+    env.principalSnapshotCacheTtlMs,
+    env.principalSnapshotCacheMaxSize,
+  );
+
   constructor(
     private readonly registerUseCase: RegisterUseCase,
     private readonly loginUseCase: LoginUseCase,
@@ -169,6 +182,14 @@ export class AuthService {
     userId: string,
     accessTokenCredentialsVersion?: number,
   ): Promise<Result<UserActiveSnapshot>> {
+    if (env.principalSnapshotCacheTtlMs > 0 && typeof accessTokenCredentialsVersion === "number") {
+      const key = `${userId}:${accessTokenCredentialsVersion}`;
+      const cached = this.snapshotCache.get(key);
+      if (cached !== undefined) {
+        return ok(cached);
+      }
+    }
+
     const snapshot = await this.userRepository.findActiveSnapshotById(userId);
     if (!snapshot) {
       return err(notFound("User"));
@@ -182,12 +203,22 @@ export class AuthService {
     ) {
       return err(invalidToken("Invalid or expired access token"));
     }
+
+    if (env.principalSnapshotCacheTtlMs > 0 && typeof accessTokenCredentialsVersion === "number") {
+      this.snapshotCache.set(`${userId}:${accessTokenCredentialsVersion}`, snapshot);
+    }
     return ok(snapshot);
+  }
+
+  /** Evicts all cached snapshots for `userId` (e.g. immediately after blocking). */
+  invalidateSnapshotCache(userId: string): void {
+    this.snapshotCache.deleteWhere((key) => key.startsWith(`${userId}:`));
   }
 
   async adminSetUserStatus(input: AdminSetUserStatusInput): Promise<Result<User>> {
     const result = await this.adminSetUserStatusUseCase.execute(input);
     if (result.ok && input.status === "blocked") {
+      this.invalidateSnapshotCache(result.value.id);
       await disconnectConsumerPrincipalSockets({
         principalType: "user",
         principalId: result.value.id,

@@ -12,12 +12,34 @@ import {
   agentNotFound,
 } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
+import { env } from "../../shared/config/env";
+import { TtlCache } from "../../shared/utils/ttl_cache";
 
 export type AgentAccessPrincipal =
   | { readonly type: "user"; readonly id: string; readonly role?: string }
   | { readonly type: "client"; readonly id: string };
 
+/**
+ * Builds the cache key for a principal+agent pair.
+ * Format: `"user:<userId>:<agentId>"` or `"client:<clientId>:<agentId>"`.
+ */
+const accessCacheKey = (principalType: string, principalId: string, agentId: string): string =>
+  `${principalType}:${principalId}:${agentId}`;
+
 export class AgentAccessService {
+  /**
+   * Short-lived positive-result cache for `assertPrincipalAccess`.
+   * Eliminates the two DB queries (agent snapshot + identity/client access row)
+   * on repeated bridge commands within the TTL window.
+   * Only caches successful (access granted) results — denied/not-found results
+   * are never cached so re-grants take effect immediately.
+   * Set `AGENT_ACCESS_CACHE_TTL_MS=0` to disable.
+   */
+  private readonly accessCache = new TtlCache<string, AgentAccessSnapshot>(
+    env.agentAccessCacheTtlMs,
+    env.agentAccessCacheMaxSize,
+  );
+
   constructor(
     private readonly agentRepository: IAgentRepository,
     private readonly agentIdentityRepository: IAgentIdentityRepository,
@@ -51,6 +73,14 @@ export class AgentAccessService {
     principal: AgentAccessPrincipal,
     agentId: string,
   ): Promise<Result<AgentAccessSnapshot>> {
+    if (env.agentAccessCacheTtlMs > 0) {
+      const key = accessCacheKey(principal.type, principal.id, agentId);
+      const cached = this.accessCache.get(key);
+      if (cached !== undefined) {
+        return ok(cached);
+      }
+    }
+
     const snapshot = await this.agentRepository.findAccessSnapshotById(agentId);
     if (!snapshot) {
       return err(agentNotFound(agentId));
@@ -70,7 +100,27 @@ export class AgentAccessService {
       return err(agentAccessDenied(agentId));
     }
 
+    if (env.agentAccessCacheTtlMs > 0) {
+      this.accessCache.set(accessCacheKey(principal.type, principal.id, agentId), snapshot);
+    }
     return ok(snapshot);
+  }
+
+  /**
+   * Immediately removes a cached access grant for a specific principal+agent pair.
+   * Call when client access is explicitly revoked so the eviction takes effect
+   * before the TTL window expires.
+   */
+  invalidateAccessCache(principalType: string, principalId: string, agentId: string): void {
+    this.accessCache.delete(accessCacheKey(principalType, principalId, agentId));
+  }
+
+  /**
+   * Removes all cached access grants for a given agent (e.g. when the agent is
+   * deactivated). O(n) over current cache size.
+   */
+  invalidateAccessCacheForAgent(agentId: string): void {
+    this.accessCache.deleteWhere((key) => key.endsWith(`:${agentId}`));
   }
 
   /**

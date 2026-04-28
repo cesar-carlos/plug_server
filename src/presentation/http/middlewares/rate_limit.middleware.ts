@@ -6,6 +6,7 @@ import {
   incrementRestHttpAgentsCommandsIpRateLimitRejected,
   incrementRestHttpAgentsCommandsUserRateLimitRejected,
   incrementRestHttpClientMeAgentsPostRateLimitRejected,
+  incrementRestHttpCredentialAuthRateLimitRejected,
   incrementRestHttpGlobalRateLimitRejected,
 } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { env } from "../../../shared/config/env";
@@ -27,8 +28,8 @@ const sendRateLimitResponse = async (
 };
 
 export const globalRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 300,
+  windowMs: env.restGlobalRateLimitWindowMs,
+  limit: env.restGlobalRateLimitMax,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -42,13 +43,17 @@ export const globalRateLimit = rateLimit({
 });
 
 export const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 25,
+  windowMs: env.restCredentialAuthRateLimitWindowMs,
+  limit: env.restCredentialAuthRateLimitMax,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
     message: "Too many authentication attempts, please try again later.",
     code: "TOO_MANY_REQUESTS",
+  },
+  handler: async (request, response, _next, optionsUsed) => {
+    incrementRestHttpCredentialAuthRateLimitRejected();
+    await sendRateLimitResponse(request, response, optionsUsed);
   },
 });
 

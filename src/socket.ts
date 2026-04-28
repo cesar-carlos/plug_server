@@ -107,7 +107,7 @@ import { decodePayloadFrameAsync, encodePayloadFrame } from "./shared/utils/payl
 import { agentSelfProfileSocketSchema } from "./presentation/http/validators/agent_self_profile.validator";
 import { agentRegisterPayloadSchema } from "./shared/validators/agent_register";
 import { emitAgentRegisterError } from "./presentation/socket/hub/agent_register_error";
-import { toAgentCatalogDto } from "./presentation/http/controllers/agent_catalog.controller";
+import { toAgentCatalogDto } from "./presentation/http/serializers/agent_catalog.serializer";
 
 type SocketData = {
   user?: JwtAccessPayload;

@@ -129,6 +129,7 @@ model RegistrationApprovalToken {
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@index([expiresAt])
   @@map("registration_approval_tokens")
 }
 
@@ -195,6 +196,7 @@ model Agent {
   profileWriteIdempotencies AgentProfileWriteIdempotency[]
 
   @@index([lastLoginUserId])
+  @@index([status])
 
   @@map("agents")
 }
@@ -320,6 +322,7 @@ model AuditEvent {
   @@index([conversationId])
   @@index([conversationId, createdAt])
   @@index([agentId])
+  @@index([actorUserId])
   @@index([requestId])
   @@index([streamId])
   @@map("audit_events")
@@ -344,6 +347,7 @@ model BridgeLatencyTrace {
 
   @@index([createdAt])
   @@index([agentId, createdAt])
+  @@index([userId, createdAt])
   @@index([channel, createdAt])
   @@index([outcome, createdAt])
   @@map("bridge_latency_traces")

@@ -1,5 +1,5 @@
 import { env } from "../../../shared/config/env";
-import { serviceUnavailable } from "../../../shared/errors/http_errors";
+import { serviceUnavailableWithRetry } from "../../../shared/errors/http_errors";
 import { logger } from "../../../shared/utils/logger";
 import {
   createLatencyRingBuffer,
@@ -91,9 +91,6 @@ export const relayMetrics = {
 let rpcFrameDecodeFailureCount = 0;
 let relayMetricsTimer: NodeJS.Timeout | null = null;
 
-const withAppendedMessage = (base: string, extra: string): string =>
-  extra.trim() === "" ? base : `${base}. ${extra}`;
-
 export const logRpcFrameDecodeFailure = (input: {
   readonly eventName: string;
   readonly socketId: string;
@@ -183,12 +180,11 @@ const getCircuitState = (agentId: string): RelayCircuitState => {
 
 export const ensureAgentCircuitClosed = (agentId: string): void => {
   const state = getCircuitState(agentId);
-  if (state.openUntilMs > Date.now()) {
+  const nowMs = Date.now();
+  if (state.openUntilMs > nowMs) {
     relayMetrics.circuitOpenRejects += 1;
-    const retryAfterMs = Math.max(0, state.openUntilMs - Date.now());
-    throw serviceUnavailable(
-      withAppendedMessage("Agent circuit is open", `retry_after_ms=${retryAfterMs}`),
-    );
+    const retryAfterMs = Math.max(0, state.openUntilMs - nowMs);
+    throw serviceUnavailableWithRetry("Agent circuit is open", retryAfterMs);
   }
 };
 

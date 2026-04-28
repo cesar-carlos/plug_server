@@ -126,6 +126,8 @@ export interface ClientAgentAccessReviewSummary {
 export interface ClientAgentLiveProfileDeps {
   readonly isAgentOnline?: (agentId: string) => boolean;
   readonly refreshAgentProfile?: (agentId: string) => Promise<Agent>;
+  /** Called after a client→agent access grant is removed (client-initiated or owner-initiated). */
+  readonly onAccessRevoked?: (clientId: string, agentId: string) => void;
 }
 
 export class ClientAgentAccessService {
@@ -543,6 +545,7 @@ export class ClientAgentAccessService {
     );
     await this.clientAgentAccessRepository.removeAgentIds(clientId, uniqueAgentIds);
     for (const agentId of uniqueAgentIds) {
+      this.liveProfileDeps?.onAccessRevoked?.(clientId, agentId);
       const request = await this.clientAgentAccessRequestRepository.findByClientAndAgent(
         clientId,
         agentId,
@@ -907,6 +910,7 @@ export class ClientAgentAccessService {
       return err(notFound("Client"));
     }
     await this.clientAgentAccessRepository.removeAccess(clientId, agentId);
+    this.liveProfileDeps?.onAccessRevoked?.(clientId, agentId);
     const request = await this.clientAgentAccessRequestRepository.findByClientAndAgent(
       clientId,
       agentId,

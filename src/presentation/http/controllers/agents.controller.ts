@@ -36,7 +36,7 @@ import {
   resolveVisibleAgentIds,
 } from "../../../application/policies/agent_visibility.policy";
 import type { AgentAccessPrincipal } from "../../../application/services/agent_access.service";
-import { toAgentCatalogDto } from "./agent_catalog.controller";
+import { toAgentCatalogDto } from "../serializers/agent_catalog.serializer";
 import { logger } from "../../../shared/utils/logger";
 
 const resolveAgentAccessPrincipal = (
@@ -174,7 +174,8 @@ export const proxyCommandToAgent = async (
       abortController.abort();
     }
   };
-  request.on("aborted", abortOnClientDisconnect);
+  // `response.close` fires on both normal completion and premature client disconnect;
+  // `request.aborted` was removed in Node.js 18 and is redundant here.
   response.on("close", abortOnClientDisconnect);
 
   incrementRestBridgeRequest();
@@ -292,7 +293,6 @@ export const proxyCommandToAgent = async (
     }
     next(error);
   } finally {
-    request.off("aborted", abortOnClientDisconnect);
     response.off("close", abortOnClientDisconnect);
   }
 };

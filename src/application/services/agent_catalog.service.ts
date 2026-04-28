@@ -7,8 +7,16 @@ import type {
 import { notFound } from "../../shared/errors/http_errors";
 import { type Result, ok, err } from "../../shared/errors/result";
 
+export interface AgentCatalogDeps {
+  /** Called after an agent is deactivated. Use to bust per-agent access caches. */
+  readonly onAgentDeactivated?: (agentId: string) => void;
+}
+
 export class AgentCatalogService {
-  constructor(private readonly agentRepository: IAgentRepository) {}
+  constructor(
+    private readonly agentRepository: IAgentRepository,
+    private readonly deps?: AgentCatalogDeps,
+  ) {}
 
   async deactivate(agentId: string): Promise<Result<Agent>> {
     const agent = await this.agentRepository.findById(agentId);
@@ -18,6 +26,7 @@ export class AgentCatalogService {
 
     const deactivated = agent.deactivate();
     await this.agentRepository.update(deactivated);
+    this.deps?.onAgentDeactivated?.(agentId);
     return ok(deactivated);
   }
 
