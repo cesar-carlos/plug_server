@@ -6,6 +6,11 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed
+
+- **Snapshot de cliente bloqueado**: `ClientAuthService.setManagedClientStatus` chama `invalidateSnapshotCache` ao passar para `blocked`, para guards Socket/REST nao servirem estado ativo obsoleto quando `PRINCIPAL_SNAPSHOT_CACHE_TTL_MS` > 0.
+- **Testes Socket + cache in-process**: `socket.integration.test.ts` invalida caches alinhado aos servicos (`removeAccess` → `AgentAccessService.invalidateAccessCache`; bloqueio de user/client → `invalidateSnapshotCache` nos helpers), evitando falsos positivos com TTL > 0.
+
 ### Changed
 
 - **REST / Socket `agents:command` — agente catalogado sem socket `/agents`**: pedidos com JSON-RPC `id` correlacionavel passam a responder com **HTTP 200** (REST) ou `agents:command_response` com `success: true` (Socket) e corpo normalizado `error.code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (antes **503** / `SERVICE_UNAVAILABLE`). Comandos **apenas notification** (`id: null` em todos os itens) mantêm **503** quando o agente está offline. Implementação: `AgentDisconnectedBeforeDispatchError`, `agent_offline_bridge_response.ts`, `rpc_bridge_dispatch_command.ts`, `agents.controller.ts`, `agents_command.handler.ts`. Documentação: `docs/api_rest_bridge.md`, OpenAPI em `agents.routes.ts`. Testes: `agent_offline_bridge_response.test.ts`, `agents_http.integration.test.ts`, `agents_command.handler.test.ts`.
