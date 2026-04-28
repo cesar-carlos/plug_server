@@ -203,6 +203,43 @@ describe("Prisma identity and access request repositories", () => {
     expect(stored?.decisionReason).toBeNull();
   });
 
+  it("persists and reloads retryCount correctly via save and findById", async () => {
+    if (!databaseAvailable) {
+      return;
+    }
+
+    const owner = await createUser();
+    const client = await createClient(owner.id);
+    const agent = await createAgent();
+
+    const request = new ClientAgentAccessRequest({
+      id: randomUUID(),
+      clientId: client.id,
+      agentId: agent.agentId,
+      status: "pending",
+      requestedAt: new Date(),
+      retryCount: 3,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    createdRequestIds.add(request.id);
+
+    await accessRequestRepository.save(request);
+
+    const loaded = await accessRequestRepository.findById(request.id);
+    expect(loaded?.retryCount).toBe(3);
+
+    const updated = new ClientAgentAccessRequest({
+      ...request,
+      retryCount: 5,
+      updatedAt: new Date(),
+    });
+    await accessRequestRepository.save(updated);
+
+    const reloaded = await accessRequestRepository.findById(request.id);
+    expect(reloaded?.retryCount).toBe(5);
+  });
+
   it("setStatus persists decision metadata and defaults decidedAt when omitted", async () => {
     if (!databaseAvailable) {
       return;

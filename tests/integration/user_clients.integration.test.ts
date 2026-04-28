@@ -183,6 +183,89 @@ describe("User client governance API", () => {
     expect(approvedAgents.body.agentIds).toContain(agent.agentId);
   });
 
+  it("lets owner reject access requests from managed clients", async () => {
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
+    const registerClient = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `reject-client-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Reject",
+        lastName: "Target",
+      });
+    expect(registerClient.status).toBe(201);
+    await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
+    const clientLogin = await request(app)
+      .post("/api/v1/client-auth/login")
+      .send({
+        email: registerClient.body.client.email as string,
+        password: "ClientPwd1",
+      });
+    expect(clientLogin.status).toBe(200);
+    const clientAccessToken = clientLogin.body.accessToken as string;
+
+    const agent = await seedAgent({
+      name: "Reject Test Agent",
+      cnpjCpf: `reject-agent-${Date.now()}`,
+    });
+    await seedAgentBinding(owner.userId, agent.agentId);
+
+    const sentBefore = emailSender.clientAccessRequestsToOwner.length;
+    const requestAccess = await request(app)
+      .post("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({ agentIds: [agent.agentId] });
+    expect(requestAccess.status).toBe(200);
+    expect(requestAccess.body.requested).toEqual([agent.agentId]);
+    const publicToken = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
+    expect(typeof publicToken).toBe("string");
+
+    const ownerRequests = await request(app)
+      .get("/api/v1/me/client-access-requests")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .query({ status: "pending", agentId: agent.agentId });
+    expect(ownerRequests.status).toBe(200);
+    expect(ownerRequests.body.count).toBe(1);
+    const requestId = ownerRequests.body.requests[0]?.id as string;
+    expect(typeof requestId).toBe("string");
+
+    const reject = await request(app)
+      .post(`/api/v1/me/client-access-requests/${requestId}/reject`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ reason: "Not authorised at this time" });
+    expect(reject.status).toBe(200);
+    expect(reject.body.rejected).toBe(true);
+    expect(reject.body.agentId).toBe(agent.agentId);
+
+    // Token is deleted after owner decision — status endpoint returns 404
+    const statusByPublicToken = await request(app)
+      .get("/api/v1/client-access/status")
+      .query({ token: publicToken });
+    expect(statusByPublicToken.status).toBe(404);
+
+    // Verify request row is marked as rejected via the owner's list
+    const rejectedRequests = await request(app)
+      .get("/api/v1/me/client-access-requests")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .query({ status: "rejected", agentId: agent.agentId });
+    expect(rejectedRequests.status).toBe(200);
+    expect(rejectedRequests.body.requests[0]?.status).toBe("rejected");
+    expect(rejectedRequests.body.requests[0]?.decisionReason).toBe("Not authorised at this time");
+
+    const approvedAgents = await request(app)
+      .get("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(approvedAgents.status).toBe(200);
+    expect(approvedAgents.body.agentIds).not.toContain(agent.agentId);
+  });
+
   it("revokes client refresh tokens when owner blocks a managed client", async () => {
     const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
     const ownerProfile = await request(app)

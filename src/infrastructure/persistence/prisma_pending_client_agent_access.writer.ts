@@ -29,6 +29,7 @@ export class PrismaPendingClientAgentAccessWriter implements IPendingClientAgent
             ...(request.decisionReason !== undefined
               ? { decisionReason: request.decisionReason }
               : {}),
+            retryCount: request.retryCount,
             createdAt: request.createdAt,
             updatedAt: request.updatedAt,
           },
@@ -37,6 +38,7 @@ export class PrismaPendingClientAgentAccessWriter implements IPendingClientAgent
             requestedAt: request.requestedAt,
             decidedAt: request.decidedAt ?? null,
             decisionReason: request.decisionReason ?? null,
+            retryCount: request.retryCount,
             updatedAt: request.updatedAt,
           },
         });
