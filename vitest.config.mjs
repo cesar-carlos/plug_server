@@ -1,5 +1,7 @@
 import { defineConfig } from "vitest/config";
 
+const isCi = Boolean(process.env.CI);
+
 export default defineConfig({
   test: {
     setupFiles: [
@@ -24,7 +26,8 @@ export default defineConfig({
         statements: 45,
       },
     },
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    // GitHub Actions runners are slower for Socket.IO + supertest bridge tests
+    testTimeout: isCi ? 30_000 : 10_000,
+    hookTimeout: isCi ? 60_000 : 10_000,
   },
 });
