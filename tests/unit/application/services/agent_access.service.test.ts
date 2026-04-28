@@ -65,7 +65,12 @@ describe("AgentAccessService.assertPrincipalAccess — access cache", () => {
     vi.useRealTimers();
   });
 
-  const buildService = async () => {
+  const buildService = async (): Promise<{
+    service: AgentAccessService;
+    snapshotSpy: ReturnType<typeof vi.spyOn<InMemoryAgentRepository, "findAccessSnapshotById">>;
+    accessSpy: ReturnType<typeof vi.spyOn<InMemoryClientAgentAccessRepository, "hasAccess">>;
+    clientAgentAccessRepository: InMemoryClientAgentAccessRepository;
+  }> => {
     const agentRepository = new InMemoryAgentRepository();
     await agentRepository.save(Agent.create({ agentId, name: "Test Agent" }));
     const agentIdentityRepository = new InMemoryAgentIdentityRepository();
