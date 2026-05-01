@@ -85,6 +85,12 @@ limit_conn_zone $binary_remote_addr zone=plug_conn:10m;
 #         include snippets/plug_server_proxy.conf;
 #     }
 #
+#     # Raiz HTML, favicon, manifesto PWA, icones (/assets/). Proxy ao Node.
+#     location = / { include snippets/plug_server_proxy.conf; }
+#     location = /favicon.ico { include snippets/plug_server_proxy.conf; }
+#     location = /site.webmanifest { include snippets/plug_server_proxy.conf; }
+#     location /assets/ { include snippets/plug_server_proxy.conf; }
+#
 #     location = /metrics {
 #         limit_req zone=plug_metrics burst=20 nodelay;
 #         include snippets/plug_server_proxy.conf;

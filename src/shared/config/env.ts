@@ -25,8 +25,16 @@ const nodeEnvForDefaults = process.env.NODE_ENV;
 /** When unset in environment, production uses performance-oriented Socket.IO defaults. */
 const isProductionNodeEnv = (): boolean => nodeEnvForDefaults === "production";
 
+/** Language policy for the HTML page served at `GET /` (root landing). */
+export type RootLandingLangConfig = "pt" | "en" | "auto";
+
 const envSchema = z.object({
   APP_NAME: z.string().default("plug_server"),
+  /**
+   * Root landing (`GET /`) language: fixed `pt` / `en`, or `auto` from the request
+   * `Accept-Language` header (defaults to Portuguese when ambiguous).
+   */
+  ROOT_LANDING_LANG: z.enum(["pt", "en", "auto"]).default("auto"),
   /**
    * Optional stable identifier for this hub process (e.g. pod name, UUID).
    * When non-empty, every Express response carries `X-Hub-Instance-Id` for
@@ -672,6 +680,7 @@ if (parsedEnv.NODE_ENV === "production") {
 
 export const env = {
   appName: parsedEnv.APP_NAME,
+  rootLandingLang: parsedEnv.ROOT_LANDING_LANG as RootLandingLangConfig,
   hubInstanceId: parsedEnv.HUB_INSTANCE_ID,
   nodeEnv: parsedEnv.NODE_ENV,
   httpTrustProxy: parsedEnv.HTTP_TRUST_PROXY,

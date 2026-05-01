@@ -2,6 +2,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
+import { env } from "../../src/shared/config/env";
 
 const app = createApp();
 
@@ -19,12 +20,22 @@ describe("Swagger docs", () => {
 
     const favicon = await request(app).get("/docs/favicon-16x16.png");
     expect([200, 404]).toContain(favicon.status);
+
+    const appFavicon = await request(app).get("/assets/icons/favicon.ico");
+    expect(appFavicon.status).toBe(200);
+    expect(appFavicon.headers["content-type"] ?? "").toMatch(/icon|octet-stream/i);
+
+    if (page.status === 200 && typeof page.text === "string") {
+      expect(page.text).toContain("/assets/icons/favicon.ico");
+    }
   });
 
   it("should expose /docs.json with method-specific REST bridge schemas", async () => {
     const response = await request(app).get("/docs.json");
 
     expect(response.status).toBe(200);
+    expect(response.body.info?.title).toBe(`${env.appName} API`);
+    expect(String(response.body.info?.description ?? "")).toContain(env.appName);
 
     const agentsCommandsPost = response.body.paths?.["/agents/commands"]?.post;
     expect(agentsCommandsPost?.requestBody?.content?.["application/json"]?.schema?.$ref).toBe(

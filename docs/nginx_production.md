@@ -6,6 +6,7 @@ Este guia documenta os ajustes recomendados de Nginx para o `plug_server`.
 
 Cobertura:
 
+- Pagina inicial em `/` (HTML), `favicon.ico`, `site.webmanifest`, estaticos em `/assets/` (icones Swagger, PWA)
 - API HTTP em `/api/v1` (inclui `client-auth`, recuperacao de senha, health, metricas duplicadas em `/api/v1/metrics`)
 - Socket.IO (`/socket.io`)
 - Arquivos publicos em `/uploads` e upload de thumbnail (`POST /api/v1/client-auth/thumbnail`)
@@ -119,6 +120,45 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
         proxy_pass http://plug_server_upstream/docs/;
+    }
+
+    # Raiz (`GET /` HTML), `favicon.ico`, `manifesto PWA`, icones em `/assets/`
+    # (inclui favicon custom do Swagger). O Node devolve 404 para pedidos a
+    # `/assets/...` com segmento oculto (ex. `.internal/`). Proxy para o Node;
+    # evitar `limit_req` estrito em `/assets/` se notar 503 em refresh com muitos
+    # pedidos paralelos.
+
+    location = / {
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://plug_server_upstream;
+    }
+
+    location = /favicon.ico {
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://plug_server_upstream;
+    }
+
+    location = /site.webmanifest {
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://plug_server_upstream;
+    }
+
+    location /assets/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://plug_server_upstream;
     }
 
     location = /metrics {

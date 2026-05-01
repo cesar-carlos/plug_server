@@ -24,10 +24,9 @@ const swaggerSpec = swaggerJSDoc({
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "Plug Server API",
+      title: `${env.appName} API`,
       version: pkg.version,
-      description:
-        "REST API documentation for the Plug Server backend. The HTTP API fronts a dual-namespace Socket.IO architecture: agents connect to /agents, consumers to /consumers. The default namespace (/) is deprecated and rejects connections with app:error (code NAMESPACE_DEPRECATED). Compatibility aliases /auth/* and /metrics are also mounted at the root.",
+      description: `REST API documentation for ${env.appName}. The HTTP API fronts a dual-namespace Socket.IO architecture: agents connect to /agents, consumers to /consumers. The default namespace (/) is deprecated and rejects connections with app:error (code NAMESPACE_DEPRECATED). Compatibility aliases /auth/* and /metrics are also mounted at the root.`,
     },
     servers: [
       {
@@ -1013,6 +1012,7 @@ export const setupSwagger = (app: Express): void => {
         tryItOutEnabled: false,
       },
       customSiteTitle: `${env.appName} API Docs`,
+      customfavIcon: "/assets/icons/favicon.ico",
     }),
   );
 

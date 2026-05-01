@@ -16,6 +16,7 @@ import { credentialAuthRateLimit } from "./presentation/http/middlewares/rate_li
 import { globalRateLimit } from "./presentation/http/middlewares/rate_limit.middleware";
 import { hubInstanceIdMiddleware } from "./presentation/http/middlewares/hub_instance_id.middleware";
 import { requestIdMiddleware } from "./presentation/http/middlewares/request_id.middleware";
+import { registerRootPublicRoutes } from "./presentation/http/routes/root_public.routes";
 import { authRouter } from "./presentation/http/routes/auth.routes";
 import { httpRouter } from "./presentation/http/routes";
 import { buildCorsOptions } from "./shared/config/cors";
@@ -68,6 +69,27 @@ export const createApp = (): Express => {
       index: false,
     }),
   );
+
+  const assetsRoot = path.resolve(process.cwd(), "assets");
+  app.use(
+    "/assets",
+    (request, response, next) => {
+      const rel = request.path.startsWith("/") ? request.path.slice(1) : request.path;
+      if (rel.split("/").some((segment) => segment.startsWith("."))) {
+        response.status(404).type("text/plain").send("Not found");
+        return;
+      }
+      next();
+    },
+    express.static(assetsRoot, {
+      etag: true,
+      maxAge: "7d",
+      dotfiles: "deny",
+      fallthrough: false,
+      index: false,
+    }),
+  );
+  registerRootPublicRoutes(app, assetsRoot);
 
   /**
    * `/metrics` is mounted at root only and requires `admin` role so generic
