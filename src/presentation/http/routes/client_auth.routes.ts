@@ -26,6 +26,7 @@ import {
   clientPasswordRecoveryRequestRateLimit,
   clientThumbnailRateLimit,
   credentialAuthRateLimit,
+  tokenRefreshRateLimit,
 } from "../middlewares/rate_limit.middleware";
 import { requireClientAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
@@ -286,6 +287,9 @@ clientAuthRouter.post(
  * /client-auth/refresh:
  *   post:
  *     summary: Refresh a client session token
+ *     description: >
+ *       Rate-limited with `REST_TOKEN_REFRESH_RATE_LIMIT_*` (same as `/auth/refresh`),
+ *       separate from the credential limiter used on `/client-auth/login`.
  *     tags: [Client Auth]
  *     requestBody:
  *       required: false
@@ -305,7 +309,7 @@ clientAuthRouter.post(
  */
 clientAuthRouter.post(
   "/refresh",
-  credentialAuthRateLimit,
+  tokenRefreshRateLimit,
   validateRequest({ body: clientRefreshBodySchema }),
   asyncHandler(refreshClient),
 );

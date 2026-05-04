@@ -6,12 +6,14 @@
 import type { Socket } from "socket.io";
 
 import { forbidden, unauthorized } from "../../../shared/errors/http_errors";
+import { AppError } from "../../../shared/errors/app_error";
 import { env } from "../../../shared/config/env";
 import { noteConsumerSocketAuthRejected } from "../../../shared/metrics/socket_consumer.metrics";
+import { noteAgentSocketAuthRejected } from "../../../shared/metrics/socket_agent.metrics";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { verifyAccessToken } from "../../../shared/utils/jwt";
 
-import { ensureJwtUserAccountActive } from "./ensure_socket_active_account";
+import { assertJwtUserAccountActive, ensureJwtUserAccountActive } from "./ensure_socket_active_account";
 
 import type { SocketAccountSnapshot } from "./ensure_socket_active_account";
 
@@ -56,6 +58,7 @@ export const authenticateAgentSocket = async (
 
   if (!token) {
     if (env.socketAuthRequired) {
+      noteAgentSocketAuthRejected("missing_token");
       next(unauthorized("Socket authentication token is required for /agents"));
       return;
     }
@@ -66,6 +69,7 @@ export const authenticateAgentSocket = async (
   const result = verifyAccessToken(token);
 
   if (!result.ok) {
+    noteAgentSocketAuthRejected("invalid_token");
     next(result.error);
     return;
   }
@@ -74,12 +78,24 @@ export const authenticateAgentSocket = async (
   const role = resolveRole(user);
 
   if (!env.socketAgentRoles.includes(role)) {
+    noteAgentSocketAuthRejected("role_denied");
     next(forbidden(`Role '${role}' is not allowed to connect to /agents`));
     return;
   }
 
-  const okActive = await ensureJwtUserAccountActive(user, next, socket);
-  if (!okActive) {
+  try {
+    await assertJwtUserAccountActive(user, socket);
+  } catch (error: unknown) {
+    if (
+      error instanceof AppError &&
+      error.code === "FORBIDDEN" &&
+      error.message === "Account is blocked"
+    ) {
+      noteAgentSocketAuthRejected("blocked_account");
+    } else {
+      noteAgentSocketAuthRejected("account_validation_error");
+    }
+    next(error instanceof Error ? error : unauthorized("Authentication required"));
     return;
   }
 

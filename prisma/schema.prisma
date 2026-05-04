@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Tune pool via URL query: connection_limit, pool_timeout (see docs/configuration.md).
   url      = env("DATABASE_URL")
 }
 

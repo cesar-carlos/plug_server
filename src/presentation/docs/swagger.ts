@@ -493,6 +493,19 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: true,
         },
+        RpcAgentGetHealthCommand: {
+          type: "object",
+          required: ["method"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["agent.getHealth"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { type: "object", additionalProperties: true },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
         RpcAgentGetProfileCommand: {
           type: "object",
           required: ["method"],
@@ -521,6 +534,7 @@ const swaggerSpec = swaggerJSDoc({
         },
         BridgeSingleCommand: {
           oneOf: [
+            { $ref: "#/components/schemas/RpcAgentGetHealthCommand" },
             { $ref: "#/components/schemas/RpcAgentGetProfileCommand" },
             { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteCommand" },

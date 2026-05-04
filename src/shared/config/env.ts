@@ -94,11 +94,18 @@ const envSchema = z.object({
   REST_GLOBAL_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
   REST_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
   /**
-   * Per-IP rate-limit for credential-handling endpoints:
-   * `/login`, `/register`, `/refresh`, `/agent-login`, `/registration/*`, `/password-recovery/*`.
+   * Per-IP rate-limit for credential-handling endpoints (password-based):
+   * `/login`, `/register`, `/agent-login`, `/registration/*`, `/password-recovery/*`, `/logout`.
+   * Token rotation (`POST .../refresh`) uses `REST_TOKEN_REFRESH_RATE_LIMIT_*` instead.
    */
   REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
   REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(25),
+  /**
+   * Per-IP rate-limit for `POST /auth/refresh` and `POST /client-auth/refresh` only.
+   * Higher defaults than credential routes so many agents behind one NAT can rotate access tokens after outages.
+   */
+  REST_TOKEN_REFRESH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+  REST_TOKEN_REFRESH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(400),
   /** Per client JWT `sub` on `POST /api/v1/client/me/agents`. */
   REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS: z.coerce
     .number()
@@ -285,6 +292,11 @@ const envSchema = z.object({
    */
   SOCKET_AGENT_KNOWN_IDS_MAX: z.coerce.number().int().min(0).max(10_000_000).default(0),
   /**
+   * Max concurrent `agent.getProfile` catalog sync RPCs kicked off after `agent:register`
+   * (limits stampedes when many agents reconnect).
+   */
+  SOCKET_AGENT_PROFILE_SYNC_MAX_CONCURRENT: z.coerce.number().int().min(1).max(500).default(8),
+  /**
    * Grace window after `agent:register` before the hub dispatches the first RPC to that agent.
    * If the agent sends `agent:heartbeat` earlier, the hub clears the wait immediately.
    */
@@ -294,11 +306,11 @@ const envSchema = z.object({
     .default("true")
     .transform((v) => v === "true"),
   /**
-   * Legacy env: previously controlled a per-socket TTL cache for skipping DB checks.
-   * Account status is now revalidated on every guard call; this value is ignored
-   * but kept so existing deployments do not fail schema validation.
+   * When > 0, successful `/agents` and `/consumers` handshake DB checks may be skipped for the same
+   * JWT `sub` + `credentials_version` + principal type until the TTL expires (reduces DB load on reconnect storms).
+   * Block/unblock can be delayed by up to this window; use `0` (default) to always hit the DB.
    */
-  SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS: z.coerce.number().int().min(0).max(600_000).default(30_000),
+  SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS: z.coerce.number().int().min(0).max(600_000).default(0),
   /**
    * Hard cap on async operations a single consumer socket may have in flight at once
    * across all event handlers (`agents:command`, `relay:rpc.request`, `agents:stream_pull`,
@@ -706,6 +718,8 @@ export const env = {
   restGlobalRateLimitMax: parsedEnv.REST_GLOBAL_RATE_LIMIT_MAX,
   restCredentialAuthRateLimitWindowMs: parsedEnv.REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS,
   restCredentialAuthRateLimitMax: parsedEnv.REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX,
+  restTokenRefreshRateLimitWindowMs: parsedEnv.REST_TOKEN_REFRESH_RATE_LIMIT_WINDOW_MS,
+  restTokenRefreshRateLimitMax: parsedEnv.REST_TOKEN_REFRESH_RATE_LIMIT_MAX,
   restClientMeAgentsPostRateLimitWindowMs:
     parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS,
   restClientMeAgentsPostRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX,
@@ -731,6 +745,7 @@ export const env = {
   payloadFrameAsyncGunzipMinCompressedBytes:
     parsedEnv.PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES,
   socketAgentKnownIdsMax: parsedEnv.SOCKET_AGENT_KNOWN_IDS_MAX,
+  socketAgentProfileSyncMaxConcurrent: parsedEnv.SOCKET_AGENT_PROFILE_SYNC_MAX_CONCURRENT,
   socketAgentProtocolReadyGraceMs: parsedEnv.SOCKET_AGENT_PROTOCOL_READY_GRACE_MS,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,

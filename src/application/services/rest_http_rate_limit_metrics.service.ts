@@ -4,6 +4,7 @@
 
 let globalRejectedTotal = 0;
 let credentialAuthRejectedTotal = 0;
+let tokenRefreshRejectedTotal = 0;
 let agentsCommandsUserRejectedTotal = 0;
 let agentsCommandsIpRejectedTotal = 0;
 let adminUserStatusRejectedTotal = 0;
@@ -15,6 +16,10 @@ export const incrementRestHttpGlobalRateLimitRejected = (): void => {
 
 export const incrementRestHttpCredentialAuthRateLimitRejected = (): void => {
   credentialAuthRejectedTotal += 1;
+};
+
+export const incrementRestHttpTokenRefreshRateLimitRejected = (): void => {
+  tokenRefreshRejectedTotal += 1;
 };
 
 export const incrementRestHttpAgentsCommandsUserRateLimitRejected = (): void => {
@@ -36,6 +41,7 @@ export const incrementRestHttpClientMeAgentsPostRateLimitRejected = (): void => 
 export const getRestHttpRateLimitMetricsSnapshot = (): {
   readonly globalRejectedTotal: number;
   readonly credentialAuthRejectedTotal: number;
+  readonly tokenRefreshRejectedTotal: number;
   readonly agentsCommandsUserRejectedTotal: number;
   readonly agentsCommandsIpRejectedTotal: number;
   readonly adminUserStatusRejectedTotal: number;
@@ -43,6 +49,7 @@ export const getRestHttpRateLimitMetricsSnapshot = (): {
 } => ({
   globalRejectedTotal,
   credentialAuthRejectedTotal,
+  tokenRefreshRejectedTotal,
   agentsCommandsUserRejectedTotal,
   agentsCommandsIpRejectedTotal,
   adminUserStatusRejectedTotal,
@@ -52,6 +59,7 @@ export const getRestHttpRateLimitMetricsSnapshot = (): {
 export const resetRestHttpRateLimitMetrics = (): void => {
   globalRejectedTotal = 0;
   credentialAuthRejectedTotal = 0;
+  tokenRefreshRejectedTotal = 0;
   agentsCommandsUserRejectedTotal = 0;
   agentsCommandsIpRejectedTotal = 0;
   adminUserStatusRejectedTotal = 0;

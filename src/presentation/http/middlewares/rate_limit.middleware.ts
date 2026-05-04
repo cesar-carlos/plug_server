@@ -8,6 +8,7 @@ import {
   incrementRestHttpClientMeAgentsPostRateLimitRejected,
   incrementRestHttpCredentialAuthRateLimitRejected,
   incrementRestHttpGlobalRateLimitRejected,
+  incrementRestHttpTokenRefreshRateLimitRejected,
 } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
@@ -57,6 +58,21 @@ export const authRateLimit = rateLimit({
   },
 });
 
+const tokenRefreshAuthRateLimit = rateLimit({
+  windowMs: env.restTokenRefreshRateLimitWindowMs,
+  limit: env.restTokenRefreshRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many token refresh requests, please try again later.",
+    code: "TOO_MANY_REQUESTS",
+  },
+  handler: async (request, response, _next, optionsUsed) => {
+    incrementRestHttpTokenRefreshRateLimitRejected();
+    await sendRateLimitResponse(request, response, optionsUsed);
+  },
+});
+
 const isTestEnv = (): boolean =>
   env.nodeEnv === "test" ||
   process.env.VITEST === "true" ||
@@ -67,17 +83,24 @@ const passthrough: RequestHandler = (_req, _res, next) => {
 };
 
 /**
- * Per-route limiter for **credential-handling** auth endpoints
- * (`/login`, `/register`, `/refresh`, `/agent-login`, `/registration/*`,
- * `/password-recovery/*`). Same budget as the legacy `authRateLimit` but
- * applied per-route so that authenticated routes such as `/auth/me`,
- * `/auth/password`, `/client-auth/me`, `/client-auth/password` are NOT
- * blanketed by it.
+ * Per-route limiter for **password and sensitive credential** auth endpoints
+ * (`/login`, `/register`, `/agent-login`, `/logout`, `/registration/*`,
+ * `/password-recovery/*`). Does **not** apply to `POST .../refresh` (see
+ * `tokenRefreshRateLimit`). Applied per-route so `/auth/me`, `/auth/password`,
+ * etc. are not affected.
  *
  * Auto-bypasses inside the test runner so existing integration tests do not
  * have to wait/reset windows between test cases.
  */
 export const credentialAuthRateLimit: RequestHandler = isTestEnv() ? passthrough : authRateLimit;
+
+/**
+ * Per-route limiter for `POST /auth/refresh` and `POST /client-auth/refresh` only.
+ * Uses `REST_TOKEN_REFRESH_RATE_LIMIT_*` (higher defaults than credential routes).
+ */
+export const tokenRefreshRateLimit: RequestHandler = isTestEnv()
+  ? passthrough
+  : tokenRefreshAuthRateLimit;
 
 const agentsCommandsTooManyMessage = {
   message: "Too many agent commands, please try again later.",

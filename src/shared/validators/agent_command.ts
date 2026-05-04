@@ -332,6 +332,39 @@ const refineClientTokenCarrierParamsSize = (
   }
 };
 
+const agentGetHealthCommandSchema = z
+  .object({
+    jsonrpc: z.literal("2.0").default("2.0"),
+    method: z.literal("agent.getHealth"),
+    id: jsonRpcIdSchema.optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
+  })
+  .merge(rpcEnvelopeExtensionsSchema)
+  .passthrough()
+  .superRefine((value, ctx) => {
+    if (value.params === undefined) {
+      return;
+    }
+    let encoded: string;
+    try {
+      encoded = JSON.stringify(value.params);
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["params"],
+        message: "`params` must be JSON-serializable",
+      });
+      return;
+    }
+    if (utf8ByteLength(encoded) > AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["params"],
+        message: `agent.getHealth params exceed max UTF-8 size (${AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES} bytes)`,
+      });
+    }
+  });
+
 const agentGetProfileCommandSchema = z
   .object({
     jsonrpc: z.literal("2.0").default("2.0"),
@@ -359,6 +392,7 @@ const clientTokenGetPolicyCommandSchema = z
   });
 
 export const supportedAgentRpcMethods = [
+  "agent.getHealth",
   "agent.getProfile",
   "client_token.getPolicy",
   "rpc.discover",
@@ -368,6 +402,7 @@ export const supportedAgentRpcMethods = [
 ] as const;
 
 export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
+  agentGetHealthCommandSchema,
   agentGetProfileCommandSchema,
   clientTokenGetPolicyCommandSchema,
   sqlExecuteCommandSchema,

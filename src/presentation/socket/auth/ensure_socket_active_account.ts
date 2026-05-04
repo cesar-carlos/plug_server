@@ -2,6 +2,7 @@ import type { Socket } from "socket.io";
 
 import { container } from "../../../shared/di/container";
 import { unauthorized } from "../../../shared/errors/http_errors";
+import { env } from "../../../shared/config/env";
 import { incrementAuthSocketBlocked } from "../../../shared/metrics/auth_account.metrics";
 import {
   noteConsumerSocketAuthRejected,
@@ -71,10 +72,11 @@ const validateActiveAccountAgainstDb = async (
 /**
  * After JWT verification: rejects when the user is missing or `blocked` (same rules as HTTP).
  *
- * After each successful DB validation, refreshes `socket.data.authSnapshot` when
- * `socket` is provided (metadata for debugging/metrics). Account status is always
- * re-checked against the DB because admin block/unblock is not visible to the socket
- * layer without a query.
+ * When `SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS` > 0 and `socket` carries a recent matching
+ * `authSnapshot`, skips the DB round-trip until the TTL expires (trade-off: block/unblock can
+ * be observed later by up to that many ms).
+ *
+ * After each successful DB validation, refreshes `socket.data.authSnapshot` when `socket` is provided.
  *
  * Increments `plug_auth_socket_blocked_total` when denied due to blocked status.
  */
@@ -84,6 +86,20 @@ export const assertJwtUserAccountActive = async (
 ): Promise<JwtAccessPayload> => {
   if (!user?.sub) {
     throw unauthorized("Authentication required");
+  }
+
+  const ttlMs = env.socketAuthAccountSnapshotTtlMs;
+  if (ttlMs > 0 && socket?.data.authSnapshot) {
+    const snap = socket.data.authSnapshot;
+    const expectedPrincipal: SocketAccountSnapshot["principalType"] =
+      user.principal_type === "client" ? "client" : "user";
+    const principalOk =
+      snap.subjectId === user.sub &&
+      snap.credentialsVersion === user.credentials_version &&
+      snap.principalType === expectedPrincipal;
+    if (principalOk && Date.now() - snap.validatedAtMs < ttlMs) {
+      return user;
+    }
   }
 
   const validated = await validateActiveAccountAgainstDb(user);

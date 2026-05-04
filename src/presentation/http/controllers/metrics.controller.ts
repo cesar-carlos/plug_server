@@ -50,6 +50,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const rateLimit = socket.relayRateLimit;
   const agentsCommandRl = socket.agentsCommandSocketRateLimit;
   const consumerRuntime = socket.consumerRuntime;
+  const agentRuntime = socket.agentRuntime;
   const audit = getSocketAuditMetricsSnapshot();
   const bridgeLatency = getBridgeLatencyTraceMetricsSnapshot();
   const agentDataMaintenance = getAgentDataMaintenanceMetricsSnapshot();
@@ -74,6 +75,18 @@ export const getMetrics = (_request: Request, response: Response): void => {
 
   lines.push(
     metricLine("plug_rest_http_rate_limit_global_rejected_total", restHttpRl.globalRejectedTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_credential_auth_rejected_total",
+      restHttpRl.credentialAuthRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_token_refresh_rejected_total",
+      restHttpRl.tokenRefreshRejectedTotal,
+    ),
   );
   lines.push(
     metricLine(
@@ -338,6 +351,41 @@ export const getMetrics = (_request: Request, response: Response): void => {
       "plug_socket_consumers_auth_rejected_total",
       consumerRuntime.authRejects.blocked_account,
       { reason: "blocked_account" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_auth_rejected_total",
+      agentRuntime.authRejects.missing_token,
+      { reason: "missing_token" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_auth_rejected_total",
+      agentRuntime.authRejects.invalid_token,
+      { reason: "invalid_token" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_auth_rejected_total",
+      agentRuntime.authRejects.role_denied,
+      { reason: "role_denied" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_auth_rejected_total",
+      agentRuntime.authRejects.blocked_account,
+      { reason: "blocked_account" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_auth_rejected_total",
+      agentRuntime.authRejects.account_validation_error,
+      { reason: "account_validation_error" },
     ),
   );
   lines.push(

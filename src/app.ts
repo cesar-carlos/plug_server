@@ -12,8 +12,11 @@ import {
   requireAuthAndActiveAccount,
   requireRole,
 } from "./presentation/http/middlewares/auth.middleware";
-import { credentialAuthRateLimit } from "./presentation/http/middlewares/rate_limit.middleware";
-import { globalRateLimit } from "./presentation/http/middlewares/rate_limit.middleware";
+import {
+  credentialAuthRateLimit,
+  globalRateLimit,
+  tokenRefreshRateLimit,
+} from "./presentation/http/middlewares/rate_limit.middleware";
 import { hubInstanceIdMiddleware } from "./presentation/http/middlewares/hub_instance_id.middleware";
 import { requestIdMiddleware } from "./presentation/http/middlewares/request_id.middleware";
 import { registerRootPublicRoutes } from "./presentation/http/routes/root_public.routes";
@@ -101,11 +104,10 @@ export const createApp = (): Express => {
 
   app.use("/auth", authRouter);
   app.use("/api/v1", httpRouter);
-  // Compat aliases were already mounted above; the credential rate limiter is
-  // now applied per-route inside `authRouter` to scope it to credential-handling
-  // endpoints only (login/register/refresh/etc), instead of blanketing every
-  // `/auth/*` request such as `/auth/me` or `/auth/password`.
+  // Compat aliases were already mounted above; credential and token-refresh
+  // rate limiters are applied per-route inside `authRouter` / `clientAuthRouter`.
   void credentialAuthRateLimit;
+  void tokenRefreshRateLimit;
   setupSwagger(app);
 
   app.use((_request, response) => {

@@ -57,6 +57,10 @@ import {
   sweepAgentProfileSocketRateLimitState,
 } from "./presentation/socket/hub/agent_profile_socket_rate_limiter";
 import {
+  acquireAgentProfileSyncSlot,
+  resetAgentProfileSyncConcurrency,
+} from "./presentation/socket/hub/agent_profile_sync_concurrency";
+import {
   getRelayOutboundQueueOverloadState,
   noteRelayOutboundQueueOverloadRejected,
   sweepRelayOutboundQueueState,
@@ -101,6 +105,10 @@ import {
   noteConsumerSocketDisconnected,
   resetSocketConsumerMetrics,
 } from "./shared/metrics/socket_consumer.metrics";
+import {
+  getSocketAgentMetricsSnapshot,
+  resetSocketAgentMetrics,
+} from "./shared/metrics/socket_agent.metrics";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
 import { decodePayloadFrameAsync, encodePayloadFrame } from "./shared/utils/payload_frame";
@@ -397,22 +405,22 @@ const scheduleAgentProfileSync = (
   const timer = setTimeout(
     () => {
       agentProfileSyncTimers.delete(input.agentId);
-      void container.agentProfileSyncService
-        .syncFromConnectedAgent({
-          agentId: input.agentId,
-          ...(input.userId !== null ? { userId: input.userId } : {}),
-          dispatch: dispatchRpcCommandToAgent,
-          timeoutMs: 10_000,
-        })
-        .then(() => {
+      void (async (): Promise<void> => {
+        const releaseSlot = await acquireAgentProfileSyncSlot();
+        try {
+          await container.agentProfileSyncService.syncFromConnectedAgent({
+            agentId: input.agentId,
+            ...(input.userId !== null ? { userId: input.userId } : {}),
+            dispatch: dispatchRpcCommandToAgent,
+            timeoutMs: 10_000,
+          });
           agentProfileSyncAttempts.delete(input.agentId);
           logger.info("agent_profile_sync_success", {
             agentId: input.agentId,
             userId: input.userId,
             attempt,
           });
-        })
-        .catch((error: unknown) => {
+        } catch (error: unknown) {
           const retryAfterMs =
             error instanceof AppError &&
             typeof error.details === "object" &&
@@ -448,7 +456,10 @@ const scheduleAgentProfileSync = (
           }
           const nextDelay = retryAfterMs > 0 ? retryAfterMs : Math.min(8_000, 1_000 * attempt);
           scheduleAgentProfileSync(input, nextDelay);
-        });
+        } finally {
+          releaseSlot();
+        }
+      })();
     },
     Math.max(0, delayMs),
   );
@@ -484,6 +495,7 @@ export const getSocketMetricsSnapshot = (): {
     typeof getAgentsCommandSocketRateLimitMetricsSnapshot
   >;
   readonly consumerRuntime: ReturnType<typeof getSocketConsumerMetricsSnapshot>;
+  readonly agentRuntime: ReturnType<typeof getSocketAgentMetricsSnapshot>;
 } => {
   const io = activeSocketServer;
   return {
@@ -495,6 +507,7 @@ export const getSocketMetricsSnapshot = (): {
     relayRateLimit: getRelayRateLimitMetricsSnapshot(),
     agentsCommandSocketRateLimit: getAgentsCommandSocketRateLimitMetricsSnapshot(),
     consumerRuntime: getSocketConsumerMetricsSnapshot(),
+    agentRuntime: getSocketAgentMetricsSnapshot(),
   };
 };
 
@@ -513,6 +526,8 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   resetConsumerCommandAbortRegistry();
   clearConsumerProfilePushState();
   resetSocketConsumerMetrics();
+  resetSocketAgentMetrics();
+  resetAgentProfileSyncConcurrency();
   resetSocketBridgeState();
   resetRestBridgeMetrics();
   conversationRegistry.clear();

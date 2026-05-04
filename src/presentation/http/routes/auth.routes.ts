@@ -17,7 +17,7 @@ import {
 } from "../controllers/auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
-import { credentialAuthRateLimit } from "../middlewares/rate_limit.middleware";
+import { credentialAuthRateLimit, tokenRefreshRateLimit } from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   agentLoginBodySchema,
@@ -434,6 +434,9 @@ authRouter.post(
  * /auth/refresh:
  *   post:
  *     summary: Rotate refresh token and issue new access token
+ *     description: >
+ *       Rate-limited separately from password login (`REST_TOKEN_REFRESH_RATE_LIMIT_*`),
+ *       not the stricter credential-auth limiter used on `/auth/login` and `/auth/agent-login`.
  *     tags: [Auth]
  *     requestBody:
  *       required: false
@@ -456,7 +459,7 @@ authRouter.post(
  */
 authRouter.post(
   "/refresh",
-  credentialAuthRateLimit,
+  tokenRefreshRateLimit,
   validateRequest({ body: refreshBodySchema }),
   asyncHandler(refresh),
 );
