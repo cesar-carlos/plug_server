@@ -16,6 +16,7 @@ import { InMemoryUserRepository } from "../../../../src/infrastructure/repositor
 import { clientAgentAccessRevokedByClientDecisionReason } from "../../../../src/application/services/client_agent_access_decision_reasons";
 import { registerConsumerSocketControlHandler } from "../../../../src/application/services/consumer_socket_control_sink";
 import { SequentialPendingClientAgentAccessWriter } from "../../../../src/infrastructure/persistence/sequential_pending_client_agent_access.writer";
+import { InMemoryClientAgentAccessApprovalTxn } from "../../../../src/infrastructure/persistence/in_memory_client_agent_access_approval_txn";
 import { env } from "../../../../src/shared/config/env";
 
 class FakeEmailSender implements IEmailSender {
@@ -84,6 +85,7 @@ describe("ClientAgentAccessService", () => {
   let requestRepository: InMemoryClientAgentAccessRequestRepository;
   let tokenRepository: InMemoryClientAgentAccessApprovalTokenRepository;
   let emailSender: FakeEmailSender;
+  let approvalTxn: InMemoryClientAgentAccessApprovalTxn;
   let service: ClientAgentAccessService;
 
   beforeEach(async () => {
@@ -107,6 +109,11 @@ describe("ClientAgentAccessService", () => {
       requestRepository,
       tokenRepository,
     );
+    approvalTxn = new InMemoryClientAgentAccessApprovalTxn(
+      requestRepository,
+      accessRepository,
+      tokenRepository,
+    );
     service = new ClientAgentAccessService(
       agentRepository,
       identityRepository,
@@ -117,6 +124,7 @@ describe("ClientAgentAccessService", () => {
       tokenRepository,
       emailSender,
       pendingWriter,
+      approvalTxn,
     );
 
     await userRepository.save(
@@ -415,6 +423,7 @@ describe("ClientAgentAccessService", () => {
       tokenRepository,
       emailSender,
       pendingWriter,
+      approvalTxn,
       {
         isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
         refreshAgentProfile,
@@ -451,6 +460,7 @@ describe("ClientAgentAccessService", () => {
       tokenRepository,
       emailSender,
       pendingWriter,
+      approvalTxn,
       {
         isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
         refreshAgentProfile,
@@ -491,6 +501,45 @@ describe("ClientAgentAccessService", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("FORBIDDEN");
+    }
+  });
+
+  it("returns conflict when agent is not active", async () => {
+    const inactiveAgentId = "b7f8d9e1-4c2a-4f8e-9d01-123456789abc";
+    await agentRepository.save(
+      Agent.create({
+        agentId: inactiveAgentId,
+        name: "Inactive agent",
+        status: "inactive",
+      }),
+    );
+    await identityRepository.bindIfUnbound(inactiveAgentId, ownerUserId);
+    const result = await service.requestAccess(clientId, [inactiveAgentId]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("CONFLICT");
+    }
+  });
+
+  it("approveByToken returns forbidden when client account is no longer active", async () => {
+    await service.requestAccess(clientId, [agentId]);
+    const tokenId = emailSender.ownerAccessRequests.at(-1)?.token;
+    expect(tokenId).toBeTruthy();
+    await clientRepository.save(
+      Client.create({
+        id: clientId,
+        userId: ownerUserId,
+        email: "client@example.com",
+        passwordHash: "hash",
+        name: "Client",
+        lastName: "One",
+        status: "blocked",
+      }),
+    );
+    const r = await service.approveByToken(tokenId!);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe("FORBIDDEN");
     }
   });
 
@@ -897,9 +946,10 @@ describe("ClientAgentAccessService", () => {
       createdAt: new Date(),
     });
     const r = await service.rejectByToken("reject-missing-client-token");
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.error.code).toBe("NOT_FOUND");
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.agentId).toBe(agentId);
+      expect(r.value.clientEmail).toBe("");
     }
   });
 
@@ -907,6 +957,11 @@ describe("ClientAgentAccessService", () => {
     const bareTokenRepo = new InMemoryClientAgentAccessApprovalTokenRepository();
     const pendingWriter = new SequentialPendingClientAgentAccessWriter(
       requestRepository,
+      bareTokenRepo,
+    );
+    const fallbackApprovalTxn = new InMemoryClientAgentAccessApprovalTxn(
+      requestRepository,
+      accessRepository,
       bareTokenRepo,
     );
     const fallbackService = new ClientAgentAccessService(
@@ -919,6 +974,7 @@ describe("ClientAgentAccessService", () => {
       bareTokenRepo,
       emailSender,
       pendingWriter,
+      fallbackApprovalTxn,
     );
     await fallbackService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests.at(-1)?.token;
@@ -935,6 +991,11 @@ describe("ClientAgentAccessService", () => {
       requestRepository,
       bareTokenRepo,
     );
+    const fallbackApprovalTxn = new InMemoryClientAgentAccessApprovalTxn(
+      requestRepository,
+      accessRepository,
+      bareTokenRepo,
+    );
     const fallbackService = new ClientAgentAccessService(
       agentRepository,
       identityRepository,
@@ -945,6 +1006,7 @@ describe("ClientAgentAccessService", () => {
       bareTokenRepo,
       emailSender,
       pendingWriter,
+      fallbackApprovalTxn,
     );
     await fallbackService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests.at(-1)?.token;
@@ -995,7 +1057,7 @@ describe("ClientAgentAccessService", () => {
     }
   });
 
-  it("rejectByOwner returns NOT_FOUND when client row is missing", async () => {
+  it("rejectByOwner succeeds without notify when client row is missing", async () => {
     const missingClientId = "66666666-6666-4666-8666-666666666666";
     const pending = ClientAgentAccessRequest.create({
       clientId: missingClientId,
@@ -1003,9 +1065,10 @@ describe("ClientAgentAccessService", () => {
     });
     await requestRepository.save(pending);
     const r = await service.rejectByOwner(ownerUserId, pending.id, "x");
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.error.code).toBe("NOT_FOUND");
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.agentId).toBe(agentId);
+      expect(r.value.clientEmail).toBe("");
     }
   });
 });

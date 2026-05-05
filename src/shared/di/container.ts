@@ -13,6 +13,7 @@ import type { IClientPasswordRecoveryTokenRepository } from "../../domain/reposi
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
 import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
 import type { IPendingClientAgentAccessWriter } from "../../domain/ports/pending_client_agent_access_writer.port";
+import type { IClientAgentAccessApprovalTxn } from "../../domain/ports/client_agent_access_approval_txn.port";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
@@ -57,6 +58,8 @@ import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/
 import { PrismaRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_registration_approval_token.repository";
 import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_user.repository";
 import { PrismaPendingClientAgentAccessWriter } from "../../infrastructure/persistence/prisma_pending_client_agent_access.writer";
+import { PrismaClientAgentAccessApprovalTxn } from "../../infrastructure/persistence/prisma_client_agent_access_approval_txn";
+import { InMemoryClientAgentAccessApprovalTxn } from "../../infrastructure/persistence/in_memory_client_agent_access_approval_txn";
 import { SequentialPendingClientAgentAccessWriter } from "../../infrastructure/persistence/sequential_pending_client_agent_access.writer";
 import { isAgentConnectedToHub } from "../../presentation/socket/hub/agent_hub_connection";
 import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/rpc_bridge";
@@ -112,6 +115,14 @@ const pendingClientAgentAccessWriter: IPendingClientAgentAccessWriter = shouldUs
       clientAgentAccessApprovalTokenRepository,
     )
   : new PrismaPendingClientAgentAccessWriter();
+
+const clientAgentAccessApprovalTxn: IClientAgentAccessApprovalTxn = shouldUseInMemoryPersistence
+  ? new InMemoryClientAgentAccessApprovalTxn(
+      clientAgentAccessRequestRepository as InMemoryClientAgentAccessRequestRepository,
+      clientAgentAccessRepository as InMemoryClientAgentAccessRepository,
+      clientAgentAccessApprovalTokenRepository as InMemoryClientAgentAccessApprovalTokenRepository,
+    )
+  : new PrismaClientAgentAccessApprovalTxn();
 
 const emailSender = shouldUseInMemoryPersistence
   ? new NoopEmailSender()
@@ -186,6 +197,7 @@ const clientAgentAccessService = new ClientAgentAccessService(
   clientAgentAccessApprovalTokenRepository,
   emailSender,
   pendingClientAgentAccessWriter,
+  clientAgentAccessApprovalTxn,
   {
     isAgentOnline: isAgentConnectedToHub,
     refreshAgentProfile: (agentId) =>

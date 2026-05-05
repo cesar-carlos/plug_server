@@ -22,6 +22,7 @@ import { InMemoryClientAgentAccessRequestRepository } from "../../../../src/infr
 import { InMemoryClientRepository } from "../../../../src/infrastructure/repositories/in_memory_client.repository";
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
 import { SequentialPendingClientAgentAccessWriter } from "../../../../src/infrastructure/persistence/sequential_pending_client_agent_access.writer";
+import { InMemoryClientAgentAccessApprovalTxn } from "../../../../src/infrastructure/persistence/in_memory_client_agent_access_approval_txn";
 
 const mockedAudit = vi.mocked(recordSocketAuditEvent);
 
@@ -57,6 +58,11 @@ const buildService = (): ClientAgentAccessService => {
     requestRepository,
     tokenRepository,
   );
+  const approvalTxn = new InMemoryClientAgentAccessApprovalTxn(
+    requestRepository,
+    accessRepository,
+    tokenRepository,
+  );
   return new ClientAgentAccessService(
     agentRepository,
     identityRepository,
@@ -67,6 +73,7 @@ const buildService = (): ClientAgentAccessService => {
     tokenRepository,
     new NoopEmailSender(),
     pendingWriter,
+    approvalTxn,
   );
 };
 

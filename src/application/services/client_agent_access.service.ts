@@ -18,6 +18,7 @@ import type {
   ClientAgentAccessApprovalToken,
   IClientAgentAccessApprovalTokenRepository,
 } from "../../domain/repositories/client_agent_access_approval_token.repository.interface";
+import type { IClientAgentAccessApprovalTxn } from "../../domain/ports/client_agent_access_approval_txn.port";
 import type { IClientAgentAccessRequestRepository } from "../../domain/repositories/client_agent_access_request.repository.interface";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
 import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
@@ -141,6 +142,7 @@ export class ClientAgentAccessService {
     private readonly approvalTokenRepository: IClientAgentAccessApprovalTokenRepository,
     private readonly emailSender: IEmailSender,
     private readonly pendingAccessWriter: IPendingClientAgentAccessWriter,
+    private readonly approvalTxn: IClientAgentAccessApprovalTxn,
     private readonly liveProfileDeps?: ClientAgentLiveProfileDeps,
   ) {}
 
@@ -287,6 +289,11 @@ export class ClientAgentAccessService {
     if (agents.length !== uniqueAgentIds.length) {
       const missingAgentId = uniqueAgentIds.find((id) => !agentById.has(id));
       return err(notFound(`Agent ${missingAgentId ?? ""}`.trim()));
+    }
+
+    const inactiveAgentId = uniqueAgentIds.find((id) => agentById.get(id)?.status !== "active");
+    if (inactiveAgentId !== undefined) {
+      return err(conflict(`Agent ${inactiveAgentId} is not active`));
     }
 
     const alreadyApproved = await this.clientAgentAccessRepository.listAccessAgentIdsForClientIn(
@@ -570,7 +577,7 @@ export class ClientAgentAccessService {
   async approveByToken(tokenId: string): Promise<Result<{ clientEmail: string; agentId: string }>> {
     const token = await this.approvalTokenRepository.findById(tokenId);
     if (!token) {
-      return err(notFound("Approval link is invalid or has expired"));
+      return err(notFound("Approval link is invalid or was already used"));
     }
     const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
     if (!request) {
@@ -589,14 +596,36 @@ export class ClientAgentAccessService {
       return err(conflict("Access request already processed"));
     }
 
-    await this.clientAgentAccessRepository.addAccess(request.clientId, request.agentId, new Date());
-    await this.clientAgentAccessRequestRepository.setStatus(request.id, "approved");
-    await this.approvalTokenRepository.deleteById(tokenId);
-
     const client = await this.clientRepository.findById(request.clientId);
     if (!client) {
       return err(notFound("Client"));
     }
+    const eligible = this.assertClientEligibleForAccessGrant(client);
+    if (!eligible.ok) {
+      return eligible;
+    }
+
+    const agent = await this.agentRepository.findById(request.agentId);
+    if (!agent) {
+      return err(notFound(`Agent ${request.agentId}`));
+    }
+    const agentEligible = this.assertAgentEligibleForAccessGrant(agent);
+    if (!agentEligible.ok) {
+      return agentEligible;
+    }
+
+    const approvedAt = new Date();
+    const granted = await this.approvalTxn.approvePendingAndGrantAccess({
+      requestId: request.id,
+      clientId: request.clientId,
+      agentId: request.agentId,
+      approvedAt,
+      consumeTokenId: tokenId,
+    });
+    if (!granted) {
+      return err(conflict("Access request already processed"));
+    }
+
     await this.notifyClientAccessApproved(client.email, request.agentId);
     return ok({ clientEmail: client.email, agentId: request.agentId });
   }
@@ -607,7 +636,7 @@ export class ClientAgentAccessService {
   ): Promise<Result<{ clientEmail: string; agentId: string }>> {
     const token = await this.approvalTokenRepository.findById(tokenId);
     if (!token) {
-      return err(notFound("Rejection link is invalid or has expired"));
+      return err(notFound("Rejection link is invalid or was already used"));
     }
     const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
     if (!request) {
@@ -626,14 +655,22 @@ export class ClientAgentAccessService {
       return err(conflict("Access request already processed"));
     }
 
-    await this.clientAgentAccessRequestRepository.setStatus(request.id, "rejected", {
+    const decidedAt = new Date();
+    const rejected = await this.approvalTxn.rejectPendingAndConsumeToken({
+      requestId: request.id,
+      decidedAt,
       ...(reason !== undefined ? { reason } : {}),
+      consumeTokenId: tokenId,
     });
-    await this.approvalTokenRepository.deleteById(tokenId);
+    if (!rejected) {
+      await this.approvalTokenRepository.deleteById(tokenId);
+      return err(conflict("Access request already processed"));
+    }
 
     const client = await this.clientRepository.findById(request.clientId);
     if (!client) {
-      return err(notFound("Client"));
+      logger.warn("client_access_reject_missing_client", { requestId: request.id });
+      return ok({ clientEmail: "", agentId: request.agentId });
     }
     await this.notifyClientAccessRejected(client.email, request.agentId, reason);
     return ok({ clientEmail: client.email, agentId: request.agentId });
@@ -692,14 +729,35 @@ export class ClientAgentAccessService {
       return err(conflict("Access request already processed"));
     }
 
-    await this.clientAgentAccessRepository.addAccess(request.clientId, request.agentId, new Date());
-    await this.clientAgentAccessRequestRepository.setStatus(request.id, "approved");
-    await this.approvalTokenRepository.deleteByRequestId(request.id);
-
     const client = await this.clientRepository.findById(request.clientId);
     if (!client) {
       return err(notFound("Client"));
     }
+    const eligible = this.assertClientEligibleForAccessGrant(client);
+    if (!eligible.ok) {
+      return eligible;
+    }
+
+    const agent = await this.agentRepository.findById(request.agentId);
+    if (!agent) {
+      return err(notFound(`Agent ${request.agentId}`));
+    }
+    const agentEligible = this.assertAgentEligibleForAccessGrant(agent);
+    if (!agentEligible.ok) {
+      return agentEligible;
+    }
+
+    const approvedAt = new Date();
+    const granted = await this.approvalTxn.approvePendingAndGrantAccess({
+      requestId: request.id,
+      clientId: request.clientId,
+      agentId: request.agentId,
+      approvedAt,
+    });
+    if (!granted) {
+      return err(conflict("Access request already processed"));
+    }
+
     await this.notifyClientAccessApproved(client.email, request.agentId);
     return ok({ clientEmail: client.email, agentId: request.agentId });
   }
@@ -721,14 +779,20 @@ export class ClientAgentAccessService {
       return err(conflict("Access request already processed"));
     }
 
-    await this.clientAgentAccessRequestRepository.setStatus(request.id, "rejected", {
+    const decidedAt = new Date();
+    const rejected = await this.approvalTxn.rejectPendingAndConsumeToken({
+      requestId: request.id,
+      decidedAt,
       ...(reason !== undefined ? { reason } : {}),
     });
-    await this.approvalTokenRepository.deleteByRequestId(request.id);
+    if (!rejected) {
+      return err(conflict("Access request already processed"));
+    }
 
     const client = await this.clientRepository.findById(request.clientId);
     if (!client) {
-      return err(notFound("Client"));
+      logger.warn("client_access_reject_owner_missing_client", { requestId: request.id });
+      return ok({ clientEmail: "", agentId: request.agentId });
     }
     await this.notifyClientAccessRejected(client.email, request.agentId, reason);
     return ok({ clientEmail: client.email, agentId: request.agentId });
@@ -1034,6 +1098,20 @@ export class ClientAgentAccessService {
 
   private isRetryEligibleStatus(status: ClientAgentAccessRequestStatus): boolean {
     return status === "rejected" || status === "expired" || status === "revoked";
+  }
+
+  private assertClientEligibleForAccessGrant(client: Client): Result<void> {
+    if (client.status !== "active") {
+      return err(forbidden("Client account cannot receive access approval in its current state"));
+    }
+    return ok(undefined);
+  }
+
+  private assertAgentEligibleForAccessGrant(agent: Agent): Result<void> {
+    if (agent.status !== "active") {
+      return err(conflict(`Agent ${agent.agentId} is not active`));
+    }
+    return ok(undefined);
   }
 
   private async sendClientAccessRequestEmails(

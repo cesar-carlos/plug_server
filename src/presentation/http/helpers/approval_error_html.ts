@@ -80,7 +80,9 @@ const bodyTextForClientAccess = (error: AppError): string => {
     case "SERVICE_UNAVAILABLE":
       return "Serviço temporariamente indisponível. Tente novamente em instantes.";
     case "NOT_FOUND":
-      return "O link de aprovação ou rejeição é inválido ou já foi usado.";
+      return "Este link é inválido, já foi utilizado ou o pedido não existe mais.";
+    case "FORBIDDEN":
+      return error.message;
     default:
       if (error.statusCode >= 500) {
         return "Ocorreu um erro no servidor. Tente novamente mais tarde.";
@@ -93,6 +95,9 @@ const titleForAppError = (error: AppError, locale: "pt" | "en"): string => {
   if (locale === "en") {
     if (error.statusCode === 400) {
       return "Request not completed";
+    }
+    if (error.statusCode === 403) {
+      return "Forbidden";
     }
     if (error.statusCode === 404) {
       return "Request not found";
@@ -113,6 +118,9 @@ const titleForAppError = (error: AppError, locale: "pt" | "en"): string => {
       return "Error";
     }
     return "Request not completed";
+  }
+  if (error.statusCode === 403) {
+    return "Não autorizado";
   }
   if (error.statusCode === 400) {
     return "Não foi possível concluir";
