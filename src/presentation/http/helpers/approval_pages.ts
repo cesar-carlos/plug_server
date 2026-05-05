@@ -79,12 +79,7 @@ const pageShell = (title: string, body: string, options?: PageShellOptions): str
     options?.includeFocusScript === false
       ? ""
       : `
-<script>
-  (function () {
-    var m = document.getElementById("main-content");
-    if (m) { m.focus(); }
-  })();
-</script>`;
+<script defer src="/assets/approval-focus.js"></script>`;
   return `<!DOCTYPE html>
 <html lang="${escapeHtmlAttr(lang)}">
 <head>
