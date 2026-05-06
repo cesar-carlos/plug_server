@@ -21,6 +21,7 @@ describe("approval_pages", () => {
     });
 
     expect(html).toContain('lang="en"');
+    expect(html).toContain("/assets/approval-focus.js");
     expect(html).toContain("Review &quot;&lt;danger&gt;&quot;");
     expect(html).toContain("&lt;b&gt;Approval&lt;/b&gt;");
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
@@ -56,6 +57,7 @@ describe("approval_pages", () => {
     });
 
     expect(html).toContain("Rejected &lt;item&gt;");
+    expect(html).toContain("/assets/approval-focus.js");
     expect(html).toContain("Message with &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
     expect(html).toContain('class="status danger"');
   });

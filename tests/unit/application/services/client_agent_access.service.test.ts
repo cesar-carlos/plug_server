@@ -5,6 +5,11 @@ import { Agent } from "../../../../src/domain/entities/agent.entity";
 import { ClientAgentAccessRequest } from "../../../../src/domain/entities/client_agent_access_request.entity";
 import { User } from "../../../../src/domain/entities/user.entity";
 import type { IEmailSender } from "../../../../src/domain/ports/email_sender.port";
+import type {
+  ClientAgentAccessApproveTxnInput,
+  ClientAgentAccessRejectTxnInput,
+  IClientAgentAccessApprovalTxn,
+} from "../../../../src/domain/ports/client_agent_access_approval_txn.port";
 import { ClientAgentAccessService } from "../../../../src/application/services/client_agent_access.service";
 import { InMemoryAgentIdentityRepository } from "../../../../src/infrastructure/repositories/in_memory_agent_identity.repository";
 import { InMemoryAgentRepository } from "../../../../src/infrastructure/repositories/in_memory_agent.repository";
@@ -1070,5 +1075,69 @@ describe("ClientAgentAccessService", () => {
       expect(r.value.agentId).toBe(agentId);
       expect(r.value.clientEmail).toBe("");
     }
+  });
+
+  describe("approval transaction failures", () => {
+    class BoomTxn implements IClientAgentAccessApprovalTxn {
+      async approvePendingAndGrantAccess(_input: ClientAgentAccessApproveTxnInput): Promise<boolean> {
+        throw new Error("simulated txn failure");
+      }
+
+      async rejectPendingAndConsumeToken(_input: ClientAgentAccessRejectTxnInput): Promise<boolean> {
+        throw new Error("simulated txn failure");
+      }
+    }
+
+    it("approveByToken returns SERVICE_UNAVAILABLE when txn throws", async () => {
+      const requestResult = await service.requestAccess(clientId, [agentId]);
+      expect(requestResult.ok).toBe(true);
+      const token = emailSender.ownerAccessRequests.at(-1)?.token;
+      expect(token).toBeTruthy();
+
+      const flakyService = new ClientAgentAccessService(
+        agentRepository,
+        identityRepository,
+        clientRepository,
+        userRepository,
+        accessRepository,
+        requestRepository,
+        tokenRepository,
+        emailSender,
+        new SequentialPendingClientAgentAccessWriter(requestRepository, tokenRepository),
+        new BoomTxn(),
+      );
+
+      const r = await flakyService.approveByToken(token!);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("SERVICE_UNAVAILABLE");
+      }
+    });
+
+    it("rejectByToken returns SERVICE_UNAVAILABLE when txn throws", async () => {
+      const requestResult = await service.requestAccess(clientId, [agentId]);
+      expect(requestResult.ok).toBe(true);
+      const token = emailSender.ownerAccessRequests.at(-1)?.token;
+      expect(token).toBeTruthy();
+
+      const flakyService = new ClientAgentAccessService(
+        agentRepository,
+        identityRepository,
+        clientRepository,
+        userRepository,
+        accessRepository,
+        requestRepository,
+        tokenRepository,
+        emailSender,
+        new SequentialPendingClientAgentAccessWriter(requestRepository, tokenRepository),
+        new BoomTxn(),
+      );
+
+      const r = await flakyService.rejectByToken(token!);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("SERVICE_UNAVAILABLE");
+      }
+    });
   });
 });
