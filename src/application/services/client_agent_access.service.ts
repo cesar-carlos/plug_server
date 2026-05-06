@@ -29,11 +29,13 @@ import {
   forbidden,
   notFound,
   registrationTokenExpired,
+  serviceUnavailable,
 } from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
 import { isExpired, parseExpiryToDate } from "../../shared/utils/date";
 import { generateOpaqueClientAccessToken } from "../../shared/utils/client_access_token";
 import { logger } from "../../shared/utils/logger";
+import { Prisma } from "@prisma/client";
 import {
   clientAgentAccessExpiredDecisionReason,
   clientAgentAccessRevokedByClientDecisionReason,
@@ -615,13 +617,23 @@ export class ClientAgentAccessService {
     }
 
     const approvedAt = new Date();
-    const granted = await this.approvalTxn.approvePendingAndGrantAccess({
-      requestId: request.id,
-      clientId: request.clientId,
-      agentId: request.agentId,
-      approvedAt,
-      consumeTokenId: tokenId,
-    });
+    let granted: boolean;
+    try {
+      granted = await this.approvalTxn.approvePendingAndGrantAccess({
+        requestId: request.id,
+        clientId: request.clientId,
+        agentId: request.agentId,
+        approvedAt,
+        consumeTokenId: tokenId,
+      });
+    } catch (error: unknown) {
+      this.logAccessTxnFailure("approve_by_token", error);
+      return err(
+        serviceUnavailable(
+          "Não foi possível concluir a aprovação. Tente novamente em instantes.",
+        ),
+      );
+    }
     if (!granted) {
       return err(conflict("Access request already processed"));
     }
@@ -656,12 +668,22 @@ export class ClientAgentAccessService {
     }
 
     const decidedAt = new Date();
-    const rejected = await this.approvalTxn.rejectPendingAndConsumeToken({
-      requestId: request.id,
-      decidedAt,
-      ...(reason !== undefined ? { reason } : {}),
-      consumeTokenId: tokenId,
-    });
+    let rejected: boolean;
+    try {
+      rejected = await this.approvalTxn.rejectPendingAndConsumeToken({
+        requestId: request.id,
+        decidedAt,
+        ...(reason !== undefined ? { reason } : {}),
+        consumeTokenId: tokenId,
+      });
+    } catch (error: unknown) {
+      this.logAccessTxnFailure("reject_by_token", error);
+      return err(
+        serviceUnavailable(
+          "Não foi possível concluir a recusa. Tente novamente em instantes.",
+        ),
+      );
+    }
     if (!rejected) {
       await this.approvalTokenRepository.deleteById(tokenId);
       return err(conflict("Access request already processed"));
@@ -748,12 +770,22 @@ export class ClientAgentAccessService {
     }
 
     const approvedAt = new Date();
-    const granted = await this.approvalTxn.approvePendingAndGrantAccess({
-      requestId: request.id,
-      clientId: request.clientId,
-      agentId: request.agentId,
-      approvedAt,
-    });
+    let granted: boolean;
+    try {
+      granted = await this.approvalTxn.approvePendingAndGrantAccess({
+        requestId: request.id,
+        clientId: request.clientId,
+        agentId: request.agentId,
+        approvedAt,
+      });
+    } catch (error: unknown) {
+      this.logAccessTxnFailure("approve_by_owner", error);
+      return err(
+        serviceUnavailable(
+          "Não foi possível concluir a aprovação. Tente novamente em instantes.",
+        ),
+      );
+    }
     if (!granted) {
       return err(conflict("Access request already processed"));
     }
@@ -780,11 +812,21 @@ export class ClientAgentAccessService {
     }
 
     const decidedAt = new Date();
-    const rejected = await this.approvalTxn.rejectPendingAndConsumeToken({
-      requestId: request.id,
-      decidedAt,
-      ...(reason !== undefined ? { reason } : {}),
-    });
+    let rejected: boolean;
+    try {
+      rejected = await this.approvalTxn.rejectPendingAndConsumeToken({
+        requestId: request.id,
+        decidedAt,
+        ...(reason !== undefined ? { reason } : {}),
+      });
+    } catch (error: unknown) {
+      this.logAccessTxnFailure("reject_by_owner", error);
+      return err(
+        serviceUnavailable(
+          "Não foi possível concluir a recusa. Tente novamente em instantes.",
+        ),
+      );
+    }
     if (!rejected) {
       return err(conflict("Access request already processed"));
     }
@@ -1098,6 +1140,23 @@ export class ClientAgentAccessService {
 
   private isRetryEligibleStatus(status: ClientAgentAccessRequestStatus): boolean {
     return status === "rejected" || status === "expired" || status === "revoked";
+  }
+
+  private logAccessTxnFailure(operation: string, error: unknown): void {
+    const base = {
+      operation,
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    };
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      logger.error("client_agent_access_txn_prisma_error", {
+        ...base,
+        prismaCode: error.code,
+        meta: error.meta,
+      });
+      return;
+    }
+    logger.error("client_agent_access_txn_failed", base);
   }
 
   private assertClientEligibleForAccessGrant(client: Client): Result<void> {
