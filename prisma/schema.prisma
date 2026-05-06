@@ -23,6 +23,7 @@ enum UserStatus {
 enum ClientStatus {
   pending
   active
+  rejected
   blocked
 }
 

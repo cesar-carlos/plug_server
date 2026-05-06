@@ -174,7 +174,7 @@ describe("ClientAuthService registration flow", () => {
     expect((await clientRepository.findById(client.id))?.status).toBe("active");
   });
 
-  it("keeps rejection successful when notification email fails after blocking", async () => {
+  it("keeps rejection successful when notification email fails after registration rejection", async () => {
     sendClientRegistrationRejected.mockRejectedValue(new Error("smtp notify failure"));
 
     const client = Client.create({
@@ -201,10 +201,10 @@ describe("ClientAuthService registration flow", () => {
       clientEmail: "rejected@test.com",
       reason: "No fit",
     });
-    expect((await clientRepository.findById(client.id))?.status).toBe("blocked");
+    expect((await clientRepository.findById(client.id))?.status).toBe("rejected");
   });
 
-  it("reopens an eligible blocked client registration", async () => {
+  it("reopens an eligible rejected client registration", async () => {
     const client = Client.create({
       id: "client-retry-id",
       userId: "owner-user-id",
@@ -212,7 +212,7 @@ describe("ClientAuthService registration flow", () => {
       passwordHash: "hashed:ClientPwd1",
       name: "Retry",
       lastName: "Client",
-      status: "blocked",
+      status: "rejected",
     });
     await clientRepository.save(client);
 
@@ -250,7 +250,7 @@ describe("ClientAuthService registration flow", () => {
       passwordHash: "hashed:ClientPwd1",
       name: "Retry",
       lastName: "OwnerInactive",
-      status: "blocked",
+      status: "rejected",
     });
     await clientRepository.save(client);
 
@@ -262,7 +262,7 @@ describe("ClientAuthService registration flow", () => {
 
     expect(result).toEqual({ ok: true, value: { retried: false } });
     expect(sendClientRegistrationRequestToOwner).not.toHaveBeenCalled();
-    expect((await clientRepository.findById(client.id))?.status).toBe("blocked");
+    expect((await clientRepository.findById(client.id))?.status).toBe("rejected");
   });
 
   it("rolls back retry when the new client approval token cannot be stored", async () => {
@@ -274,7 +274,7 @@ describe("ClientAuthService registration flow", () => {
       passwordHash: "hashed:ClientPwd1",
       name: "Retry",
       lastName: "Rollback",
-      status: "blocked",
+      status: "rejected",
     });
     await clientRepository.save(client);
 
@@ -285,7 +285,7 @@ describe("ClientAuthService registration flow", () => {
     });
 
     expect(result).toEqual({ ok: true, value: { retried: false } });
-    expect((await clientRepository.findById(client.id))?.status).toBe("blocked");
+    expect((await clientRepository.findById(client.id))?.status).toBe("rejected");
     expect(clientRegistrationApprovalTokenRepository.count()).toBe(0);
     expect(sendClientRegistrationRequestToOwner).not.toHaveBeenCalled();
   });

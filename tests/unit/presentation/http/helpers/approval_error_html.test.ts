@@ -37,9 +37,17 @@ describe("approval_error_html", () => {
   it("returns HTML for client-access app errors in Portuguese", () => {
     const req = mockRequest({ originalUrl: "/api/v1/client-access/reject" });
     const err = registrationTokenExpired("This approval link has expired");
-    const built = buildApprovalErrorHtml(req, err);
+    const built = buildApprovalErrorHtml(req, err, "req-approval-1");
     expect(built).not.toBeNull();
     expect(built?.html).toContain("Este link de aprovação expirou");
+  });
+
+  it("embeds request ids in validation HTML", () => {
+    const req = mockRequest({ originalUrl: "/api/v1/client-access/approve" });
+    const zod = z.object({ token: z.string().min(3) }).safeParse({ token: "" }).error!;
+    const built = buildApprovalZodErrorHtml(req, zod, "req-zod-1");
+    expect(built).not.toBeNull();
+    expect(built?.html).toContain("req-zod-1");
   });
 
   it("returns null for non-approval routes", () => {

@@ -35,12 +35,15 @@ Admin actions on `PATCH /api/v1/admin/users/:id/status` are **rate-limited per a
 
 ## Client account status (`ClientStatus`)
 
-Values: `pending`, `active`, `blocked`.
+Values: `pending`, `active`, `rejected`, `blocked`.
 
 - **Register (`POST /api/v1/client-auth/register`)**: creates `Client` in `pending` and sends owner approval flow.
 - **Public validation (`POST /api/v1/client-auth/register`)**: `ownerEmail` unavailable/inactive returns a generic **400** so the endpoint does not expose owner-account existence or status.
 - **Approve (`POST /api/v1/client-auth/registration/approve`)**: transitions `pending -> active`.
-- **Reject (`POST /api/v1/client-auth/registration/reject`)**: transitions `pending -> blocked`.
-- **Retry (`POST /api/v1/client-auth/registration/retry`)**: may transition `blocked -> pending` only when the client email/password match, the submitted `ownerEmail` is the same active owner, and the retry is treated as a new approval request. This remains conservative because `blocked` is also reused for owner rejection and later administrative blocking.
+- **Reject (`POST /api/v1/client-auth/registration/reject`)**: transitions `pending -> rejected`.
+- **Retry (`POST /api/v1/client-auth/registration/retry`)**: may transition `rejected -> pending` only when the client email/password match, the submitted `ownerEmail` is the same active owner, and the retry is treated as a new approval request.
 - **Owner governance (`PATCH /api/v1/me/clients/:id/status`)**: only reviewed clients may change between `active` and `blocked`; `pending` must stay on the registration approval flow.
 - **Login / refresh / protected routes / socket ops**: only `active` clients can operate.
+- **Historical compatibility**: legacy rows already stored as `blocked` are not backfilled automatically; older rejected registrations may still appear as `blocked` until they re-enter the registration flow.
+- **Operational support note**: when investigating older accounts created before the `rejected` rollout, interpret `blocked` with timeline context. A legacy `blocked` row may represent either a governance block or a historical registration rejection.
+- **Recommended triage**: use the account creation date, approval/retry history, and current owner actions before treating a legacy `blocked` client as a fresh governance event.

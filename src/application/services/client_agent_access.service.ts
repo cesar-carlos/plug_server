@@ -42,9 +42,21 @@ import {
   clientAgentAccessRevokedByOwnerDecisionReason,
 } from "./client_agent_access_decision_reasons";
 import { enqueueClientAccessApprovalEmails } from "./registration_email_outbox.service";
+import {
+  recordClientAgentAccessPublicDecisionFinished,
+  recordClientAgentAccessPublicDecisionStarted,
+  type ClientAgentAccessPublicDecision,
+  type ClientAgentAccessPublicDecisionOutcome,
+} from "../../shared/metrics/client_agent_access_public_decision.metrics";
 import { recordClientAgentAccessRequestPost } from "../../shared/metrics/client_agent_access_request.metrics";
 import { recordSocketAuditEvent } from "./socket_audit.service";
 import { revokeConsumerClientAccessSockets } from "./consumer_socket_control_sink";
+import {
+  assertAgentEligibleForClientAccessGrant,
+  assertClientEligibleForClientAccessGrant,
+  isClientAccessRequestRetryEligible,
+} from "../../domain/policies/client_agent_access_request.policy";
+import { toSafeLogContext } from "../../shared/utils/safe_log_context";
 
 /**
  * Audit event types for the per-(client, agent) bearer token storage.
@@ -131,6 +143,10 @@ export interface ClientAgentLiveProfileDeps {
   readonly refreshAgentProfile?: (agentId: string) => Promise<Agent>;
   /** Called after a client→agent access grant is removed (client-initiated or owner-initiated). */
   readonly onAccessRevoked?: (clientId: string, agentId: string) => void;
+}
+
+interface ClientAccessTokenDecisionOptions {
+  readonly requestId?: string;
 }
 
 export class ClientAgentAccessService {
@@ -499,7 +515,7 @@ export class ClientAgentAccessService {
     if (
       request.status !== "pending" &&
       request.status !== "approved" &&
-      !this.isRetryEligibleStatus(request.status)
+      !isClientAccessRequestRetryEligible(request.status)
     ) {
       return err(conflict("Access request cannot be retried from its current status"));
     }
@@ -576,126 +592,345 @@ export class ClientAgentAccessService {
     return ok(undefined);
   }
 
-  async approveByToken(tokenId: string): Promise<Result<{ clientEmail: string; agentId: string }>> {
-    const token = await this.approvalTokenRepository.findById(tokenId);
-    if (!token) {
-      return err(notFound("Approval link is invalid or was already used"));
-    }
-    const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
-    if (!request) {
-      await this.approvalTokenRepository.deleteById(tokenId);
-      return err(notFound("Access request"));
-    }
-    if (isExpired(token.expiresAt)) {
-      await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {
-        reason: clientAgentAccessExpiredDecisionReason,
-      });
-      await this.approvalTokenRepository.deleteById(tokenId);
-      return err(registrationTokenExpired("This approval link has expired"));
-    }
-    if (request.status !== "pending") {
-      await this.approvalTokenRepository.deleteById(tokenId);
-      return err(conflict("Access request already processed"));
-    }
-
-    const client = await this.clientRepository.findById(request.clientId);
-    if (!client) {
-      return err(notFound("Client"));
-    }
-    const eligible = this.assertClientEligibleForAccessGrant(client);
-    if (!eligible.ok) {
-      return eligible;
-    }
-
-    const agent = await this.agentRepository.findById(request.agentId);
-    if (!agent) {
-      return err(notFound(`Agent ${request.agentId}`));
-    }
-    const agentEligible = this.assertAgentEligibleForAccessGrant(agent);
-    if (!agentEligible.ok) {
-      return agentEligible;
-    }
-
-    const approvedAt = new Date();
-    let granted: boolean;
+  async approveByToken(
+    tokenId: string,
+    options?: ClientAccessTokenDecisionOptions,
+  ): Promise<Result<{ clientEmail: string; agentId: string }>> {
+    const startedAtMs = Date.now();
+    const baseLog = {
+      requestId: options?.requestId,
+      tokenPrefix: this.tokenPrefix(tokenId),
+      decision: "approve",
+    };
+    recordClientAgentAccessPublicDecisionStarted("approve");
+    this.logClientAccessDecision("client_access_token_decision_started", {
+      ...baseLog,
+      tokenStatus: "lookup",
+    });
     try {
-      granted = await this.approvalTxn.approvePendingAndGrantAccess({
-        requestId: request.id,
+      const token = await this.approvalTokenRepository.findById(tokenId);
+      if (!token) {
+        this.recordPublicDecisionOutcome("approve", "invalid_token", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          tokenStatus: "missing",
+          result: "invalid_token",
+        });
+        return err(notFound("Approval link is invalid or was already used"));
+      }
+      const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
+      if (!request) {
+        await this.approvalTokenRepository.deleteById(tokenId);
+        this.recordPublicDecisionOutcome("approve", "request_missing", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: token.requestId,
+          tokenStatus: "orphaned",
+          result: "request_missing",
+        });
+        return err(notFound("Access request"));
+      }
+      if (isExpired(token.expiresAt)) {
+        await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {
+          reason: clientAgentAccessExpiredDecisionReason,
+        });
+        await this.approvalTokenRepository.deleteById(tokenId);
+        this.recordPublicDecisionOutcome("approve", "expired", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "expired",
+          result: "expired",
+        });
+        return err(registrationTokenExpired("This approval link has expired"));
+      }
+      if (request.status !== "pending") {
+        await this.approvalTokenRepository.deleteById(tokenId);
+        this.recordPublicDecisionOutcome("approve", "already_processed", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+          result: "already_processed",
+        });
+        return err(conflict("Access request already processed"));
+      }
+
+      const client = await this.clientRepository.findById(request.clientId);
+      if (!client) {
+        this.recordPublicDecisionOutcome("approve", "client_missing", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+          result: "client_missing",
+        });
+        return err(notFound("Client"));
+      }
+      const eligible = assertClientEligibleForClientAccessGrant(client);
+      if (!eligible.ok) {
+        this.recordPublicDecisionOutcome("approve", "client_ineligible", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+          result: "client_ineligible",
+          errorCode: eligible.error.code,
+        });
+        return eligible;
+      }
+
+      const agent = await this.agentRepository.findById(request.agentId);
+      if (!agent) {
+        this.recordPublicDecisionOutcome("approve", "agent_missing", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+          result: "agent_missing",
+        });
+        return err(notFound(`Agent ${request.agentId}`));
+      }
+      const agentEligible = assertAgentEligibleForClientAccessGrant(agent);
+      if (!agentEligible.ok) {
+        this.recordPublicDecisionOutcome("approve", "agent_ineligible", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+          result: "agent_ineligible",
+          errorCode: agentEligible.error.code,
+        });
+        return agentEligible;
+      }
+
+      const approvedAt = new Date();
+      let granted: boolean;
+      try {
+        granted = await this.approvalTxn.approvePendingAndGrantAccess({
+          requestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          approvedAt,
+          consumeTokenId: tokenId,
+        });
+      } catch (error: unknown) {
+        this.logAccessTxnFailure("approve_by_token", error, {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+        });
+        this.recordPublicDecisionOutcome("approve", "service_unavailable", startedAtMs);
+        return err(
+          serviceUnavailable(
+            "N\u00e3o foi poss\u00edvel concluir a aprova\u00e7\u00e3o. Tente novamente em instantes.",
+          ),
+        );
+      }
+      if (!granted) {
+        this.recordPublicDecisionOutcome("approve", "already_processed", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+          result: "already_processed",
+        });
+        return err(conflict("Access request already processed"));
+      }
+
+      await this.notifyClientAccessApproved(client.email, request.agentId);
+      this.recordPublicDecisionOutcome("approve", "approved", startedAtMs);
+      this.logClientAccessDecision("client_access_token_decision_finished", {
+        ...baseLog,
+        accessRequestId: request.id,
         clientId: request.clientId,
         agentId: request.agentId,
-        approvedAt,
-        consumeTokenId: tokenId,
+        requestStatus: "approved",
+        tokenStatus: "consumed",
+        result: "approved",
       });
+      return ok({ clientEmail: client.email, agentId: request.agentId });
     } catch (error: unknown) {
-      this.logAccessTxnFailure("approve_by_token", error);
+      this.logAccessTxnFailure("approve_by_token_unhandled", error, baseLog);
+      this.recordPublicDecisionOutcome("approve", "service_unavailable", startedAtMs);
       return err(
         serviceUnavailable(
-          "Não foi possível concluir a aprovação. Tente novamente em instantes.",
+          "N\u00e3o foi poss\u00edvel concluir a aprova\u00e7\u00e3o. Tente novamente em instantes.",
         ),
       );
     }
-    if (!granted) {
-      return err(conflict("Access request already processed"));
-    }
-
-    await this.notifyClientAccessApproved(client.email, request.agentId);
-    return ok({ clientEmail: client.email, agentId: request.agentId });
   }
 
   async rejectByToken(
     tokenId: string,
     reason?: string,
+    options?: ClientAccessTokenDecisionOptions,
   ): Promise<Result<{ clientEmail: string; agentId: string }>> {
-    const token = await this.approvalTokenRepository.findById(tokenId);
-    if (!token) {
-      return err(notFound("Rejection link is invalid or was already used"));
-    }
-    const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
-    if (!request) {
-      await this.approvalTokenRepository.deleteById(tokenId);
-      return err(notFound("Access request"));
-    }
-    if (isExpired(token.expiresAt)) {
-      await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {
-        reason: clientAgentAccessExpiredDecisionReason,
-      });
-      await this.approvalTokenRepository.deleteById(tokenId);
-      return err(registrationTokenExpired("This rejection link has expired"));
-    }
-    if (request.status !== "pending") {
-      await this.approvalTokenRepository.deleteById(tokenId);
-      return err(conflict("Access request already processed"));
-    }
-
-    const decidedAt = new Date();
-    let rejected: boolean;
+    const startedAtMs = Date.now();
+    const baseLog = {
+      requestId: options?.requestId,
+      tokenPrefix: this.tokenPrefix(tokenId),
+      decision: "reject",
+    };
+    recordClientAgentAccessPublicDecisionStarted("reject");
+    this.logClientAccessDecision("client_access_token_decision_started", {
+      ...baseLog,
+      tokenStatus: "lookup",
+    });
     try {
-      rejected = await this.approvalTxn.rejectPendingAndConsumeToken({
-        requestId: request.id,
-        decidedAt,
-        ...(reason !== undefined ? { reason } : {}),
-        consumeTokenId: tokenId,
+      const token = await this.approvalTokenRepository.findById(tokenId);
+      if (!token) {
+        this.recordPublicDecisionOutcome("reject", "invalid_token", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          tokenStatus: "missing",
+          result: "invalid_token",
+        });
+        return err(notFound("Rejection link is invalid or was already used"));
+      }
+      const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
+      if (!request) {
+        await this.approvalTokenRepository.deleteById(tokenId);
+        this.recordPublicDecisionOutcome("reject", "request_missing", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: token.requestId,
+          tokenStatus: "orphaned",
+          result: "request_missing",
+        });
+        return err(notFound("Access request"));
+      }
+      if (isExpired(token.expiresAt)) {
+        await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {
+          reason: clientAgentAccessExpiredDecisionReason,
+        });
+        await this.approvalTokenRepository.deleteById(tokenId);
+        this.recordPublicDecisionOutcome("reject", "expired", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "expired",
+          result: "expired",
+        });
+        return err(registrationTokenExpired("This rejection link has expired"));
+      }
+      if (request.status !== "pending") {
+        await this.approvalTokenRepository.deleteById(tokenId);
+        this.recordPublicDecisionOutcome("reject", "already_processed", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+          result: "already_processed",
+        });
+        return err(conflict("Access request already processed"));
+      }
+
+      const decidedAt = new Date();
+      let rejected: boolean;
+      try {
+        rejected = await this.approvalTxn.rejectPendingAndConsumeToken({
+          requestId: request.id,
+          decidedAt,
+          ...(reason !== undefined ? { reason } : {}),
+          consumeTokenId: tokenId,
+        });
+      } catch (error: unknown) {
+        this.logAccessTxnFailure("reject_by_token", error, {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+        });
+        this.recordPublicDecisionOutcome("reject", "service_unavailable", startedAtMs);
+        return err(
+          serviceUnavailable(
+            "N\u00e3o foi poss\u00edvel concluir a recusa. Tente novamente em instantes.",
+          ),
+        );
+      }
+      if (!rejected) {
+        await this.approvalTokenRepository.deleteById(tokenId);
+        this.recordPublicDecisionOutcome("reject", "already_processed", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: request.status,
+          tokenStatus: "pending",
+          result: "already_processed",
+        });
+        return err(conflict("Access request already processed"));
+      }
+
+      const client = await this.clientRepository.findById(request.clientId);
+      if (!client) {
+        this.recordPublicDecisionOutcome("reject", "rejected_client_missing", startedAtMs);
+        this.logClientAccessDecision("client_access_token_decision_finished", {
+          ...baseLog,
+          accessRequestId: request.id,
+          clientId: request.clientId,
+          agentId: request.agentId,
+          requestStatus: "rejected",
+          tokenStatus: "consumed",
+          result: "rejected_client_missing",
+        });
+        return ok({ clientEmail: "", agentId: request.agentId });
+      }
+      await this.notifyClientAccessRejected(client.email, request.agentId, reason);
+      this.recordPublicDecisionOutcome("reject", "rejected", startedAtMs);
+      this.logClientAccessDecision("client_access_token_decision_finished", {
+        ...baseLog,
+        accessRequestId: request.id,
+        clientId: request.clientId,
+        agentId: request.agentId,
+        requestStatus: "rejected",
+        tokenStatus: "consumed",
+        result: "rejected",
       });
+      return ok({ clientEmail: client.email, agentId: request.agentId });
     } catch (error: unknown) {
-      this.logAccessTxnFailure("reject_by_token", error);
+      this.logAccessTxnFailure("reject_by_token_unhandled", error, baseLog);
+      this.recordPublicDecisionOutcome("reject", "service_unavailable", startedAtMs);
       return err(
         serviceUnavailable(
-          "Não foi possível concluir a recusa. Tente novamente em instantes.",
+          "N\u00e3o foi poss\u00edvel concluir a recusa. Tente novamente em instantes.",
         ),
       );
     }
-    if (!rejected) {
-      await this.approvalTokenRepository.deleteById(tokenId);
-      return err(conflict("Access request already processed"));
-    }
-
-    const client = await this.clientRepository.findById(request.clientId);
-    if (!client) {
-      logger.warn("client_access_reject_missing_client", { requestId: request.id });
-      return ok({ clientEmail: "", agentId: request.agentId });
-    }
-    await this.notifyClientAccessRejected(client.email, request.agentId, reason);
-    return ok({ clientEmail: client.email, agentId: request.agentId });
   }
 
   async getRequestStatusByToken(tokenId: string): Promise<Result<{ status: string }>> {
@@ -755,7 +990,7 @@ export class ClientAgentAccessService {
     if (!client) {
       return err(notFound("Client"));
     }
-    const eligible = this.assertClientEligibleForAccessGrant(client);
+    const eligible = assertClientEligibleForClientAccessGrant(client);
     if (!eligible.ok) {
       return eligible;
     }
@@ -764,7 +999,7 @@ export class ClientAgentAccessService {
     if (!agent) {
       return err(notFound(`Agent ${request.agentId}`));
     }
-    const agentEligible = this.assertAgentEligibleForAccessGrant(agent);
+    const agentEligible = assertAgentEligibleForClientAccessGrant(agent);
     if (!agentEligible.ok) {
       return agentEligible;
     }
@@ -1138,39 +1373,26 @@ export class ClientAgentAccessService {
     };
   }
 
-  private isRetryEligibleStatus(status: ClientAgentAccessRequestStatus): boolean {
-    return status === "rejected" || status === "expired" || status === "revoked";
-  }
-
-  private logAccessTxnFailure(operation: string, error: unknown): void {
+  private logAccessTxnFailure(
+    operation: string,
+    error: unknown,
+    context?: Record<string, unknown>,
+  ): void {
     const base = {
       operation,
       message: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      ...(context ?? {}),
     };
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      logger.error("client_agent_access_txn_prisma_error", {
+      this.safeLog("error", "client_agent_access_txn_prisma_error", {
         ...base,
         prismaCode: error.code,
         meta: error.meta,
       });
       return;
     }
-    logger.error("client_agent_access_txn_failed", base);
-  }
-
-  private assertClientEligibleForAccessGrant(client: Client): Result<void> {
-    if (client.status !== "active") {
-      return err(forbidden("Client account cannot receive access approval in its current state"));
-    }
-    return ok(undefined);
-  }
-
-  private assertAgentEligibleForAccessGrant(agent: Agent): Result<void> {
-    if (agent.status !== "active") {
-      return err(conflict(`Agent ${agent.agentId} is not active`));
-    }
-    return ok(undefined);
+    this.safeLog("error", "client_agent_access_txn_failed", base);
   }
 
   private async sendClientAccessRequestEmails(
@@ -1238,6 +1460,50 @@ export class ClientAgentAccessService {
       logger.error("client_access_rejected_email_failed", {
         agentId,
         message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private tokenPrefix(tokenId: string): string {
+    return tokenId.slice(0, 8);
+  }
+
+  private recordPublicDecisionOutcome(
+    decision: ClientAgentAccessPublicDecision,
+    outcome: ClientAgentAccessPublicDecisionOutcome,
+    startedAtMs: number,
+  ): void {
+    recordClientAgentAccessPublicDecisionFinished({
+      decision,
+      outcome,
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+    });
+  }
+
+  private logClientAccessDecision(event: string, context: Record<string, unknown>): void {
+    this.safeLog("info", event, context);
+  }
+
+  private safeLog(
+    level: "info" | "warn" | "error",
+    event: string,
+    context: Record<string, unknown>,
+  ): void {
+    try {
+      const safeContext = toSafeLogContext(context);
+      if (level === "info") {
+        logger.info(event, safeContext);
+        return;
+      }
+      if (level === "warn") {
+        logger.warn(event, safeContext);
+        return;
+      }
+      logger.error(event, safeContext);
+    } catch (logError: unknown) {
+      logger.error("client_access_safe_log_failed", {
+        event,
+        message: logError instanceof Error ? logError.message : String(logError),
       });
     }
   }

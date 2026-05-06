@@ -7,6 +7,7 @@
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { PrismaClient } = require("@prisma/client");
 
 const root = path.resolve(__dirname, "..");
 require("dotenv").config({ path: path.join(root, ".env"), quiet: true });
@@ -18,15 +19,53 @@ if (process.env.E2E_TESTS_ENABLED !== "true") {
   process.exit(0);
 }
 
-const vitestCli = path.join(root, "node_modules", "vitest", "vitest.mjs");
-const result = spawnSync(process.execPath, [vitestCli, "run", "-c", "vitest.e2e.config.mjs"], {
-  cwd: root,
-  stdio: "inherit",
-  env: process.env,
-});
+const redactDatabaseUrl = (value) => {
+  try {
+    const parsed = new URL(value);
+    if (parsed.password) {
+      parsed.password = "***";
+    }
+    return parsed.toString();
+  } catch {
+    return "<invalid DATABASE_URL>";
+  }
+};
 
-if (result.error) {
-  console.error(result.error);
-  process.exit(1);
-}
-process.exit(result.status === null ? 1 : result.status);
+const ensureDatabaseIsReady = async () => {
+  const prisma = new PrismaClient({
+    log: ["error"],
+  });
+  try {
+    await prisma.$queryRawUnsafe("SELECT 1");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      "[test:e2e] Prisma database preflight failed. The E2E suite needs a reachable Postgres before boot.",
+    );
+    console.error(`[test:e2e] DATABASE_URL=${redactDatabaseUrl(process.env.DATABASE_URL ?? "")}`);
+    console.error("[test:e2e] Try `npm run db:container:up` (or start your own Postgres) and rerun `npm run test:e2e`.");
+    console.error(`[test:e2e] Underlying error: ${message}`);
+    process.exit(1);
+  } finally {
+    await prisma.$disconnect().catch(() => {});
+  }
+};
+
+const run = async () => {
+  await ensureDatabaseIsReady();
+
+  const vitestCli = path.join(root, "node_modules", "vitest", "vitest.mjs");
+  const result = spawnSync(process.execPath, [vitestCli, "run", "-c", "vitest.e2e.config.mjs"], {
+    cwd: root,
+    stdio: "inherit",
+    env: process.env,
+  });
+
+  if (result.error) {
+    console.error(result.error);
+    process.exit(1);
+  }
+  process.exit(result.status === null ? 1 : result.status);
+};
+
+void run();

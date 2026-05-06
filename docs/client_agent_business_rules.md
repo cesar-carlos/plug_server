@@ -177,6 +177,8 @@ Regras:
 
 - token de aprovacao deve existir e estar valido
 - pedido deve estar `pending` para decisao
+- `Client` deve continuar `active` no momento da aprovacao
+- `Agent` deve continuar `active` no momento da aprovacao
 - aprovacao cria (ou mantem) vinculo em `ClientAgentAccess`
 - rejeicao nao cria vinculo
 - ao aprovar/rejeitar, pedido sai de `pending` para status final
@@ -184,6 +186,8 @@ Regras:
 - se o owner decidir por rota autenticada (`/api/v1/me/client-access-requests/{requestId}/approve|reject`), qualquer token publico pendente daquele pedido e invalidado
 - se a rejeicao tiver sido feita por engano, o proprio `Client` pode chamar a rota de retry autenticada; o pedido volta a `pending`, recebe novo token e o owner do agente recebe novo email
 - rotas publicas baseadas em token devem ser limitadas por rate limit; a pagina HTML de revisao e sempre read-only em `GET`, com mutacao somente pelos formularios `POST`
+- quando a transacao de aprovacao/rejeicao falha em infra/persistencia, as rotas publicas retornam HTML amigavel `503` com `requestId` visivel e logs estruturados (`client_agent_access_txn_failed` / `client_agent_access_txn_prisma_error`)
+- observabilidade do fluxo publico inclui metricas Prometheus para `started`, `outcomes` e `latency` por decisao (`approve` / `reject`) via `GET /metrics`
 
 ### 3.2.1 Retentativas de aprovacoes por email
 
@@ -197,7 +201,7 @@ Regras:
 
 - retry reabre apenas pedidos com status `rejected`, `expired` ou `revoked`; `pending` permanece idempotente/debounced e `approved` so retorna `alreadyApproved` enquanto o acesso real existir
 - cadastros publicos (`User` e `Client`) respondem genericamente com `202` para contas inexistentes, senha incorreta ou status nao elegivel
-- retry de `Client` exige `ownerEmail`, email/senha do client e owner ativo; como `blocked` tambem representa bloqueio administrativo, a rota nao deve reabrir clients bloqueados que nao passem por essas verificacoes
+- retry de `Client` exige `ownerEmail`, email/senha do client e owner ativo; apenas registros `rejected` sao elegiveis para reabrir `pending`
 - retry de acesso `Client -> Agent` exige JWT de `Client` ativo e ownership do pedido pelo client autenticado
 - pedidos ja `pending` devem permanecer idempotentes/debounced para evitar spam de emails
 

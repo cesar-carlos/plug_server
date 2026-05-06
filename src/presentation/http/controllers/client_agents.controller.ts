@@ -320,7 +320,10 @@ export const approveClientAccess = async (
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<ClientAccessApproveBody>(response, "body");
-  const result = await container.clientAgentAccessService.approveByToken(body.token);
+  const requestId = response.locals.requestId as string | undefined;
+  const result = await container.clientAgentAccessService.approveByToken(body.token, {
+    ...(requestId !== undefined ? { requestId } : {}),
+  });
   if (!result.ok) {
     next(result.error);
     return;
@@ -343,7 +346,10 @@ export const rejectClientAccess = async (
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<ClientAccessRejectBody>(response, "body");
-  const result = await container.clientAgentAccessService.rejectByToken(body.token, body.reason);
+  const requestId = response.locals.requestId as string | undefined;
+  const result = await container.clientAgentAccessService.rejectByToken(body.token, body.reason, {
+    ...(requestId !== undefined ? { requestId } : {}),
+  });
   if (!result.ok) {
     next(result.error);
     return;

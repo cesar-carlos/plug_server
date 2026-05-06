@@ -1,4 +1,4 @@
-import { User } from "../entities/user.entity";
+import type { User } from "../entities/user.entity";
 import type { IRegistrationApprovalTokenRepository } from "../repositories/registration_approval_token.repository.interface";
 import type { IUserRepository } from "../repositories/user.repository.interface";
 import { conflict, notFound, registrationTokenExpired } from "../../shared/errors/http_errors";
@@ -8,6 +8,7 @@ import {
 } from "../../shared/metrics/registration_flow.metrics";
 import { type Result, ok, err } from "../../shared/errors/result";
 import { isExpired } from "../../shared/utils/date";
+import { transitionUserRegistrationToApproved } from "../policies/user_registration_status.policy";
 
 export class ApproveRegistrationUseCase {
   constructor(
@@ -33,21 +34,12 @@ export class ApproveRegistrationUseCase {
       return err(notFound("User"));
     }
 
-    if (user.status !== "pending") {
+    const activeUserResult = transitionUserRegistrationToApproved(user);
+    if (!activeUserResult.ok) {
       await this.approvalTokenRepository.deleteById(tokenId);
-      return err(conflict("Registration already processed"));
+      return err(conflict(activeUserResult.error.message));
     }
-
-    const activeUser = new User({
-      id: user.id,
-      email: user.email,
-      passwordHash: user.passwordHash,
-      credentialsUpdatedAt: user.credentialsUpdatedAt,
-      role: user.role,
-      status: "active",
-      createdAt: user.createdAt,
-      ...(user.celular !== undefined ? { celular: user.celular } : {}),
-    });
+    const activeUser = activeUserResult.value;
 
     await this.userRepository.save(activeUser);
     await this.approvalTokenRepository.deleteById(tokenId);

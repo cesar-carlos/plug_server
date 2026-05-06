@@ -6,6 +6,7 @@ import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
+import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
 import { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/metrics/client_agent_access_request.metrics";
 import { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
@@ -59,6 +60,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const authAccount = getAuthAccountMetricsSnapshot();
   const clientMeAgents = getClientMeAgentsMetricsSnapshot();
   const clientAccessRequestPost = getClientAgentAccessRequestPostMetricsSnapshot();
+  const clientAccessPublicDecision = getClientAgentAccessPublicDecisionMetricsSnapshot();
 
   const lines: string[] = [];
 
@@ -287,6 +289,52 @@ export const getMetrics = (_request: Request, response: Response): void => {
       clientAccessRequestPost.postAlreadyApprovedTotal,
     ),
   );
+  for (const decision of ["approve", "reject"] as const) {
+    const decisionMetrics = clientAccessPublicDecision[decision];
+    lines.push(
+      metricLine(
+        "plug_client_agent_access_public_decision_started_total",
+        decisionMetrics.startedTotal,
+        { decision },
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_client_agent_access_public_decision_latency_count",
+        decisionMetrics.latencyCount,
+        { decision },
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_client_agent_access_public_decision_latency_sum_ms",
+        decisionMetrics.latencySumMs,
+        { decision },
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_client_agent_access_public_decision_latency_max_ms",
+        decisionMetrics.latencyMaxMs,
+        { decision },
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_client_agent_access_public_decision_latency_avg_ms",
+        decisionMetrics.latencyAvgMs,
+        { decision },
+      ),
+    );
+    for (const [outcome, value] of Object.entries(decisionMetrics.outcomes)) {
+      lines.push(
+        metricLine("plug_client_agent_access_public_decision_outcomes_total", value, {
+          decision,
+          outcome,
+        }),
+      );
+    }
+  }
   lines.push(
     metricLine(
       "plug_agent_data_maintenance_pending_operations",

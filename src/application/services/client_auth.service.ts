@@ -40,6 +40,15 @@ import { logger } from "../../shared/utils/logger";
 import { redactEmail } from "../../shared/utils/pii_redaction";
 import { generateOpaqueClientPasswordRecoveryToken } from "../../shared/utils/client_password_recovery_token";
 import { withRetry } from "../../shared/utils/retry";
+import {
+  assertClientCanLogin,
+  assertManagedClientStatusTransition,
+  isClientRegistrationRetryEligible,
+  reopenRejectedClientRegistration,
+  transitionClientRegistrationToApproved,
+  transitionClientRegistrationToRejected,
+  type ManagedClientStatus,
+} from "../../domain/policies/client_registration_status.policy";
 
 export interface RegisterClientServiceInput {
   readonly ownerEmail: string;
@@ -174,7 +183,7 @@ export class ClientAuthService {
     input: RetryClientRegistrationServiceInput,
   ): Promise<Result<RetryClientRegistrationServiceResult>> {
     const client = await this.clientRepository.findByEmail(input.email);
-    if (!client || client.status !== "blocked") {
+    if (!client || !isClientRegistrationRetryEligible(client.status)) {
       return ok({ retried: false });
     }
 
@@ -188,11 +197,11 @@ export class ClientAuthService {
       return ok({ retried: false });
     }
 
-    const pendingClient = new Client({
-      ...client,
-      status: "pending",
-      updatedAt: new Date(),
-    });
+    const pendingClientResult = reopenRejectedClientRegistration(client);
+    if (!pendingClientResult.ok) {
+      return ok({ retried: false });
+    }
+    const pendingClient = pendingClientResult.value;
     const approvalToken = this.newRegistrationApprovalToken(client.id);
 
     try {
@@ -352,19 +361,15 @@ export class ClientAuthService {
       return ok(this.toClientDto(client));
     }
 
-    if (client.status === "pending") {
-      return err(
-        conflict(
-          "Pending client registrations must be approved or rejected via the registration flow",
-        ),
-      );
+    const transition = assertManagedClientStatusTransition(
+      client.status,
+      status as ManagedClientStatus,
+    );
+    if (!transition.ok) {
+      return transition;
     }
 
-    const updated = new Client({
-      ...client,
-      status,
-      updatedAt: new Date(),
-    });
+    const updated = client.withStatus(status, { updatedAt: new Date() });
     await this.clientRepository.save(updated);
     if (status === "blocked") {
       this.invalidateSnapshotCache(client.id);
@@ -383,11 +388,9 @@ export class ClientAuthService {
     if (!client) {
       return err(unauthorized("Invalid credentials"));
     }
-    if (client.status === "blocked") {
-      return err(forbidden("Client account is blocked"));
-    }
-    if (client.status !== "active") {
-      return err(forbidden("Client account is pending approval"));
+    const canLogin = assertClientCanLogin(client.status);
+    if (!canLogin.ok) {
+      return canLogin;
     }
 
     const passwordMatch = await this.passwordHasher.compare(input.password, client.passwordHash);
@@ -421,11 +424,9 @@ export class ClientAuthService {
     if (!client) {
       return err(notFound("Client"));
     }
-    if (client.status === "blocked") {
-      return err(forbidden("Client account is blocked"));
-    }
-    if (client.status !== "active") {
-      return err(forbidden("Client account is pending approval"));
+    const canLogin = assertClientCanLogin(client.status);
+    if (!canLogin.ok) {
+      return canLogin;
     }
     return ok(await this.issueTokens(client));
   }
@@ -452,11 +453,9 @@ export class ClientAuthService {
     if (!client) {
       return err(notFound("Client"));
     }
-    if (client.status === "blocked") {
-      return err(forbidden("Client account is blocked"));
-    }
-    if (client.status !== "active") {
-      return err(forbidden("Client account is pending approval"));
+    const canLogin = assertClientCanLogin(client.status);
+    if (!canLogin.ok) {
+      return canLogin;
     }
     if (
       typeof accessTokenCredentialsVersion === "number" &&
@@ -490,11 +489,9 @@ export class ClientAuthService {
     if (!snapshot) {
       return err(notFound("Client"));
     }
-    if (snapshot.status === "blocked") {
-      return err(forbidden("Client account is blocked"));
-    }
-    if (snapshot.status !== "active") {
-      return err(forbidden("Client account is pending approval"));
+    const canLogin = assertClientCanLogin(snapshot.status);
+    if (!canLogin.ok) {
+      return canLogin;
     }
     if (
       typeof accessTokenCredentialsVersion === "number" &&
@@ -649,16 +646,12 @@ export class ClientAuthService {
       return err(registrationTokenExpired("This approval link has expired"));
     }
 
-    if (client.status !== "pending") {
+    const approvedResult = transitionClientRegistrationToApproved(client);
+    if (!approvedResult.ok) {
       await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
-      return err(conflict("Client registration already processed"));
+      return err(conflict(approvedResult.error.message));
     }
-
-    const approved = new Client({
-      ...client,
-      status: "active",
-      updatedAt: new Date(),
-    });
+    const approved = approvedResult.value;
     await this.clientRepository.save(approved);
     await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
     try {
@@ -693,16 +686,12 @@ export class ClientAuthService {
       return err(registrationTokenExpired("This rejection link has expired"));
     }
 
-    if (client.status !== "pending") {
+    const rejectedResult = transitionClientRegistrationToRejected(client);
+    if (!rejectedResult.ok) {
       await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
-      return err(conflict("Client registration already processed"));
+      return err(conflict(rejectedResult.error.message));
     }
-
-    const rejected = new Client({
-      ...client,
-      status: "blocked",
-      updatedAt: new Date(),
-    });
+    const rejected = rejectedResult.value;
     await this.clientRepository.save(rejected);
     await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
     try {

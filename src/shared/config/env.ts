@@ -44,6 +44,8 @@ const envSchema = z.object({
    */
   HUB_INSTANCE_ID: z.string().max(256).default(""),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  CONTAINER_PERSISTENCE_MODE: z.enum(["auto", "memory", "prisma"]).default("auto"),
+  CONTAINER_EMAIL_SENDER_MODE: z.enum(["auto", "noop", "smtp"]).default("auto"),
   /**
    * When true, Express `trust proxy` is set so `req.ip` and rate-limit keys use `X-Forwarded-For`
    * correctly behind nginx/reverse proxies. Defaults to true in production, false otherwise.
@@ -695,6 +697,18 @@ export const env = {
   rootLandingLang: parsedEnv.ROOT_LANDING_LANG as RootLandingLangConfig,
   hubInstanceId: parsedEnv.HUB_INSTANCE_ID,
   nodeEnv: parsedEnv.NODE_ENV,
+  persistenceMode:
+    parsedEnv.CONTAINER_PERSISTENCE_MODE === "auto"
+      ? parsedEnv.NODE_ENV === "test"
+        ? "memory"
+        : "prisma"
+      : parsedEnv.CONTAINER_PERSISTENCE_MODE,
+  emailSenderMode:
+    parsedEnv.CONTAINER_EMAIL_SENDER_MODE === "auto"
+      ? parsedEnv.NODE_ENV === "test"
+        ? "noop"
+        : "smtp"
+      : parsedEnv.CONTAINER_EMAIL_SENDER_MODE,
   httpTrustProxy: parsedEnv.HTTP_TRUST_PROXY,
   port: parsedEnv.PORT,
   corsOrigin: parsedEnv.CORS_ORIGIN,

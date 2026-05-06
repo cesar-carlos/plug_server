@@ -33,6 +33,7 @@
     "test:contract": "vitest run tests/contract",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:critical": "npm run test:coverage && node scripts/check-critical-coverage.cjs",
     "test:e2e": "node scripts/run-e2e.cjs",
     "check:swagger-edge": "bash scripts/check_swagger_edge.sh",
     "check:swagger-flaky": "LOOPS=30 BURST=10 bash scripts/check_swagger_edge.sh"

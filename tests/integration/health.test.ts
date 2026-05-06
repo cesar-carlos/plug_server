@@ -160,6 +160,9 @@ describe("GET /api/v1/health", () => {
     expect(response.text).toContain("plug_client_agent_access_expiry_runs_total");
     expect(response.text).toContain("plug_client_me_agents_list_responses_total");
     expect(response.text).toContain("plug_client_me_agents_detail_responses_total");
+    expect(response.text).toContain("plug_client_agent_access_public_decision_started_total");
+    expect(response.text).toContain("plug_client_agent_access_public_decision_outcomes_total");
+    expect(response.text).toContain("plug_client_agent_access_public_decision_latency_avg_ms");
     expect(response.text).toContain("plug_registration_approved_total");
     expect(response.text).toContain("plug_registration_rejected_total");
     expect(response.text).toContain("plug_registration_token_expired_total");

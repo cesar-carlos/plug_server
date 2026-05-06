@@ -36,6 +36,7 @@ import { logger } from "../../shared/utils/logger";
 import { redactEmail } from "../../shared/utils/pii_redaction";
 import { generateOpaqueRegistrationToken } from "../../shared/utils/registration_token";
 import { withRetry } from "../../shared/utils/retry";
+import { reopenRejectedUserRegistration } from "../../domain/policies/user_registration_status.policy";
 import type {
   AgentAuthResponseDto,
   AuthResponseDto,
@@ -374,16 +375,11 @@ export class AuthService {
       userId: user.id,
       expiresAt: parseExpiryToDate(env.approvalTokenExpiresIn),
     });
-    const pendingUser = new User({
-      id: user.id,
-      email: user.email,
-      passwordHash: user.passwordHash,
-      credentialsUpdatedAt: user.credentialsUpdatedAt,
-      role: user.role,
-      status: "pending",
-      createdAt: user.createdAt,
-      ...(user.celular !== undefined ? { celular: user.celular } : {}),
-    });
+      const pendingUserResult = reopenRejectedUserRegistration(user);
+      if (!pendingUserResult.ok) {
+        return ok({ retried: false });
+      }
+      const pendingUser = pendingUserResult.value;
 
     try {
       await this.approvalTokenRepository.replaceForUserRetry(pendingUser, approvalToken);

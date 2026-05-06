@@ -112,6 +112,56 @@ describe("User client governance API", () => {
     expect(updateStatus.body.code).toBe("CONFLICT");
   });
 
+  it("lists rejected client registrations for the owner and preserves the rejected contract", async () => {
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
+    const registerClient = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `rejected-managed-client-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Rejected",
+        lastName: "Managed",
+      });
+    expect(registerClient.status).toBe(201);
+
+    const rejectRegistration = await request(app)
+      .post("/api/v1/client-auth/registration/reject")
+      .send({
+        token: registerClient.body.approvalToken,
+        reason: "Rejected in review",
+      });
+    expect(rejectRegistration.status).toBe(200);
+
+    const rejectedList = await request(app)
+      .get("/api/v1/me/clients")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .query({ status: "rejected" });
+    expect(rejectedList.status).toBe(200);
+    expect(rejectedList.body.count).toBeGreaterThanOrEqual(1);
+
+    const rejectedClient = (
+      rejectedList.body.clients as Array<{ id: string; email: string; status: string }>
+    ).find((client) => client.id === registerClient.body.client.id);
+    expect(rejectedClient).toMatchObject({
+      id: registerClient.body.client.id,
+      email: registerClient.body.client.email,
+      status: "rejected",
+    });
+
+    const detailResponse = await request(app)
+      .get(`/api/v1/me/clients/${registerClient.body.client.id as string}`)
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(detailResponse.status).toBe(200);
+    expect(detailResponse.body.client.status).toBe("rejected");
+  });
+
   it("lets owner review and approve access requests from managed clients", async () => {
     const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
     const ownerProfile = await request(app)

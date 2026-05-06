@@ -58,4 +58,23 @@ export class User {
       ...(props.celular !== undefined ? { celular: props.celular } : {}),
     });
   }
+
+  withStatus(
+    status: UserStatus,
+    options?: {
+      readonly createdAt?: Date;
+      readonly credentialsUpdatedAt?: Date;
+    },
+  ): User {
+    return new User({
+      id: this.id,
+      email: this.email,
+      passwordHash: this.passwordHash,
+      credentialsUpdatedAt: options?.credentialsUpdatedAt ?? this.credentialsUpdatedAt,
+      role: this.role,
+      status,
+      createdAt: options?.createdAt ?? this.createdAt,
+      ...(this.celular !== undefined ? { celular: this.celular } : {}),
+    });
+  }
 }

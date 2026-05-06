@@ -66,7 +66,8 @@ import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/rpc_bri
 import { env } from "../config/env";
 
 const passwordHasher = new BcryptPasswordHasher();
-const shouldUseInMemoryPersistence = env.nodeEnv === "test";
+const shouldUseInMemoryPersistence = env.persistenceMode === "memory";
+const shouldUseNoopEmailSender = env.emailSenderMode === "noop";
 
 const userRepository: IUserRepository = shouldUseInMemoryPersistence
   ? new InMemoryUserRepository()
@@ -124,7 +125,7 @@ const clientAgentAccessApprovalTxn: IClientAgentAccessApprovalTxn = shouldUseInM
     )
   : new PrismaClientAgentAccessApprovalTxn();
 
-const emailSender = shouldUseInMemoryPersistence
+const emailSender = shouldUseNoopEmailSender
   ? new NoopEmailSender()
   : new NodemailerEmailSender({
       appName: env.appName,

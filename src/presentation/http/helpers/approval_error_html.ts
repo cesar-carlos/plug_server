@@ -1,4 +1,4 @@
-import type { Request } from "express";
+﻿import type { Request } from "express";
 import type { ZodError } from "zod";
 
 import { env } from "../../../shared/config/env";
@@ -12,7 +12,7 @@ const stripQuery = (url: string | undefined): string => {
   if (url === undefined || url === "") {
     return "";
   }
-  return url.split("?")[0] ?? url;
+  return url.split("?")[0] ?? "";
 };
 
 const routeFromPath = (urlPath: string): ApprovalErrorHtmlRoute => {
@@ -64,7 +64,8 @@ const homeFooter = (): { homeUrl: string; homeLabel: string } => {
   return { homeUrl, homeLabel: "Back to the app" };
 };
 
-const localeFromRoute = (route: ApprovalErrorHtmlRoute): "pt" | "en" => (route === "client_access" ? "pt" : "en");
+const localeFromRoute = (route: ApprovalErrorHtmlRoute): "pt" | "en" =>
+  route === "client_access" ? "pt" : "en";
 
 const bodyTextForClientAccess = (error: AppError): string => {
   switch (error.code) {
@@ -164,6 +165,7 @@ const buildZodText = (error: ZodError, locale: "pt" | "en"): string => {
 export const buildApprovalErrorHtml = (
   request: Request,
   error: AppError,
+  requestId?: string,
 ): { statusCode: number; html: string } | null => {
   const path = stripQuery(request.originalUrl ?? request.path);
   const group = routeFromPath(path);
@@ -181,13 +183,20 @@ export const buildApprovalErrorHtml = (
       bodyText: body,
       lang: isPt ? "pt-BR" : "en",
       eyebrow: isPt ? "Algo deu errado" : "Something went wrong",
+      ...(requestId
+        ? { detailsText: isPt ? `ID da solicitação: ${requestId}` : `Request ID: ${requestId}` }
+        : {}),
       homeUrl,
       homeLabel: isPt ? "Voltar ao início" : homeLabel,
     }),
   };
 };
 
-export const buildApprovalZodErrorHtml = (request: Request, error: ZodError): { html: string } | null => {
+export const buildApprovalZodErrorHtml = (
+  request: Request,
+  error: ZodError,
+  requestId?: string,
+): { html: string } | null => {
   const path = stripQuery(request.originalUrl ?? request.path);
   const group = routeFromPath(path);
   if (group === null) {
@@ -202,13 +211,19 @@ export const buildApprovalZodErrorHtml = (request: Request, error: ZodError): { 
       bodyText: buildZodText(error, loc),
       lang: isPt ? "pt-BR" : "en",
       eyebrow: isPt ? "Validação" : "Validation",
+      ...(requestId
+        ? { detailsText: isPt ? `ID da solicitação: ${requestId}` : `Request ID: ${requestId}` }
+        : {}),
       homeUrl,
       homeLabel: isPt ? "Voltar ao início" : homeLabel,
     }),
   };
 };
 
-export const buildApprovalInternalErrorHtml = (request: Request): { html: string } | null => {
+export const buildApprovalInternalErrorHtml = (
+  request: Request,
+  requestId?: string,
+): { html: string } | null => {
   const path = stripQuery(request.originalUrl ?? request.path);
   const group = routeFromPath(path);
   if (group === null) {
@@ -226,6 +241,9 @@ export const buildApprovalInternalErrorHtml = (request: Request): { html: string
           : "An unexpected error occurred. Please try again later.",
       lang: isPt ? "pt-BR" : "en",
       eyebrow: isPt ? "Erro" : "Error",
+      ...(requestId
+        ? { detailsText: isPt ? `ID da solicitação: ${requestId}` : `Request ID: ${requestId}` }
+        : {}),
       homeUrl,
       homeLabel: isPt ? "Voltar ao início" : homeLabel,
     }),

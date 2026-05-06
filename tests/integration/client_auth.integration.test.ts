@@ -163,7 +163,7 @@ describe("Client auth registration approval flow", () => {
     expect(response.body.code).toBe("BAD_REQUEST");
   });
 
-  it("keeps client blocked after rejection and token cannot be reused", async () => {
+  it("keeps client rejected after rejection and token cannot be reused", async () => {
     const owner = await registerOwnerSession(app, {
       suffix: `${Date.now()}-e`,
       emailPrefix: "client-owner",
@@ -188,6 +188,8 @@ describe("Client auth registration approval flow", () => {
 
     const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
     expect(loginRes.status).toBe(403);
+    const storedClient = await repositories.client.findByEmail(email);
+    expect(storedClient?.status).toBe("rejected");
 
     const secondApprove = await request(app)
       .post("/api/v1/client-auth/registration/approve")
@@ -224,6 +226,8 @@ describe("Client auth registration approval flow", () => {
     });
     expect(retryRes.status).toBe(202);
     expect(retryRes.body.message).toBe("If eligible, a new approval request will be sent.");
+    const retriedClient = await repositories.client.findByEmail(email);
+    expect(retriedClient?.status).toBe("pending");
     expect(noopEmailSender.clientRegistrationRequestsToOwner.length).toBe(beforeCount + 1);
 
     const retryToken = noopEmailSender.clientRegistrationRequestsToOwner.at(-1)?.approvalToken;

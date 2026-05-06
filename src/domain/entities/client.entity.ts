@@ -1,4 +1,4 @@
-export type ClientStatus = "pending" | "active" | "blocked";
+export type ClientStatus = "pending" | "active" | "rejected" | "blocked";
 
 export interface ClientProps {
   readonly id: string;
@@ -82,6 +82,21 @@ export class Client {
       ...this,
       passwordHash,
       updatedAt: new Date(),
+    });
+  }
+
+  withStatus(
+    status: ClientStatus,
+    options?: {
+      readonly updatedAt?: Date;
+      readonly credentialsUpdatedAt?: Date;
+    },
+  ): Client {
+    return new Client({
+      ...this,
+      status,
+      credentialsUpdatedAt: options?.credentialsUpdatedAt ?? this.credentialsUpdatedAt,
+      updatedAt: options?.updatedAt ?? new Date(),
     });
   }
 }

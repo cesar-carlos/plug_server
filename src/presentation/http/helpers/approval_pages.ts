@@ -42,6 +42,7 @@ export interface ApprovalErrorPageInput {
   readonly title: string;
   readonly bodyText: string;
   readonly eyebrow: string;
+  readonly detailsText?: string;
   readonly lang?: string;
   readonly homeUrl?: string;
   readonly homeLabel?: string;
@@ -331,6 +332,7 @@ export const renderApprovalErrorPage = (input: ApprovalErrorPageInput): string =
       <p class="eyebrow">${escapeHtml(input.eyebrow)}</p>
       <h1>${escapeHtml(input.title)}</h1>
       <p>${escapeHtml(input.bodyText)}</p>
+      ${input.detailsText ? `<p class="muted">${escapeHtml(input.detailsText)}</p>` : ""}
     </section>`,
     {
       lang,

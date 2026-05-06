@@ -23,7 +23,7 @@ export const errorMiddleware = (
 
   if (error instanceof ZodError) {
     if (shouldReturnHtmlForApprovalError(request) && !response.headersSent) {
-      const built = buildApprovalZodErrorHtml(request, error);
+      const built = buildApprovalZodErrorHtml(request, error, requestId);
       if (built) {
         response.status(400).type("html").send(built.html);
         return;
@@ -56,7 +56,7 @@ export const errorMiddleware = (
     }
 
     if (shouldReturnHtmlForApprovalError(request) && !response.headersSent) {
-      const built = buildApprovalErrorHtml(request, error);
+      const built = buildApprovalErrorHtml(request, error, requestId);
       if (built) {
         response
           .status(built.statusCode)
@@ -84,7 +84,7 @@ export const errorMiddleware = (
   });
 
   if (shouldReturnHtmlForApprovalError(request) && !response.headersSent) {
-    const built = buildApprovalInternalErrorHtml(request);
+    const built = buildApprovalInternalErrorHtml(request, requestId);
     if (built) {
       response.status(500).type("html").send(built.html);
       return;

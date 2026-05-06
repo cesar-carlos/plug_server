@@ -20,6 +20,8 @@ export default defineConfig({
       E2E_SILENCE_LOGS: "true",
       /** Registration omits `approvalToken` when NODE_ENV is production; e2e needs it. */
       NODE_ENV: "test",
+      CONTAINER_PERSISTENCE_MODE: "prisma",
+      CONTAINER_EMAIL_SENDER_MODE: "noop",
     },
   },
 });
