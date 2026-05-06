@@ -431,6 +431,94 @@ describe("Client agent access API", () => {
     expect(approvedAgents.body.agentIds).toContain(agent.agentId);
   });
 
+  it("POST /api/v1/client-access/approve allows opaque Origin (email webviews)", async () => {
+    const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
+    const agent = await seedAgent({
+      name: "Origin Null Approve Agent",
+      cnpjCpf: `token-approve-origin-null-${Date.now()}`,
+    });
+    await seedAgentBinding(ownerUserId, agent.agentId);
+
+    const sentBefore = emailSender.clientAccessRequestsToOwner.length;
+    const requestAccess = await request(app)
+      .post("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({ agentIds: [agent.agentId] });
+    expect(requestAccess.status).toBe(200);
+
+    const token = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
+    expect(typeof token).toBe("string");
+
+    const approveResponse = await request(app)
+      .post("/api/v1/client-access/approve")
+      .type("form")
+      .set("Accept", "text/html,application/xhtml+xml")
+      .set("Origin", "null")
+      .send({ token });
+    expect(approveResponse.status).toBe(200);
+    expect(approveResponse.headers["content-type"]).toContain("text/html");
+    expect(approveResponse.text).toContain("Acesso aprovado");
+
+    const approvedAgents = await request(app)
+      .get("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(approvedAgents.status).toBe(200);
+    expect(approvedAgents.body.agentIds).toContain(agent.agentId);
+  });
+
+  it("OPTIONS /api/v1/client-access/approve CORS preflight allows opaque Origin", async () => {
+    const response = await request(app)
+      .options("/api/v1/client-access/approve")
+      .set("Origin", "null")
+      .set("Access-Control-Request-Method", "POST");
+
+    expect(response.status).toBe(204);
+  });
+
+  it("POST /api/v1/client-access/reject allows opaque Origin (email webviews)", async () => {
+    const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
+    const agent = await seedAgent({
+      name: "Origin Null Reject Agent",
+      cnpjCpf: `token-reject-origin-null-${Date.now()}`,
+    });
+    await seedAgentBinding(ownerUserId, agent.agentId);
+
+    const sentBefore = emailSender.clientAccessRequestsToOwner.length;
+    const requestAccess = await request(app)
+      .post("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`)
+      .send({ agentIds: [agent.agentId] });
+    expect(requestAccess.status).toBe(200);
+
+    const token = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
+    expect(typeof token).toBe("string");
+
+    const rejectResponse = await request(app)
+      .post("/api/v1/client-access/reject")
+      .type("form")
+      .set("Accept", "text/html,application/xhtml+xml")
+      .set("Origin", "null")
+      .send({ token, reason: "Opaque origin regression test" });
+    expect(rejectResponse.status).toBe(200);
+    expect(rejectResponse.headers["content-type"]).toContain("text/html");
+    expect(rejectResponse.text).toContain("Acesso recusado");
+
+    const approvedAgents = await request(app)
+      .get("/api/v1/client/me/agents")
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(approvedAgents.status).toBe(200);
+    expect(approvedAgents.body.agentIds).not.toContain(agent.agentId);
+  });
+
+  it("OPTIONS /api/v1/client-access/reject CORS preflight allows opaque Origin", async () => {
+    const response = await request(app)
+      .options("/api/v1/client-access/reject")
+      .set("Origin", "null")
+      .set("Access-Control-Request-Method", "POST");
+
+    expect(response.status).toBe(204);
+  });
+
   it("POST /api/v1/client-access/approve returns friendly HTML with request id when the approval transaction fails", async () => {
     const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
     const agent = await seedAgent({

@@ -25,4 +25,13 @@ describe("buildCorsOptions", () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain("not allowed");
   });
+
+  it('allows the literal string "null" (opaque origin / email webviews)', async () => {
+    const options = buildCorsOptions(["https://app.example.com"]);
+    const originHandler = options.origin as NonNullable<typeof options.origin>;
+
+    const allowCallback = vi.fn();
+    originHandler("null", allowCallback);
+    expect(allowCallback).toHaveBeenCalledWith(null, true);
+  });
 });

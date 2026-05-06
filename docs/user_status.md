@@ -47,3 +47,7 @@ Values: `pending`, `active`, `rejected`, `blocked`.
 - **Historical compatibility**: legacy rows already stored as `blocked` are not backfilled automatically; older rejected registrations may still appear as `blocked` until they re-enter the registration flow.
 - **Operational support note**: when investigating older accounts created before the `rejected` rollout, interpret `blocked` with timeline context. A legacy `blocked` row may represent either a governance block or a historical registration rejection.
 - **Recommended triage**: use the account creation date, approval/retry history, and current owner actions before treating a legacy `blocked` client as a fresh governance event.
+
+## Public approval links and CORS
+
+HTML review pages and `POST` approve/reject for **user** registration (`/api/v1/auth/registration/*`) and **client** registration (`/api/v1/client-auth/registration/*`) use the same global CORS middleware as other public flows (including `/api/v1/client-access/*`). Some email apps and embedded browsers send the HTTP header `Origin` with the literal value `null` (opaque origin). The server accepts that case in `buildCorsOptions` (`src/shared/config/cors.ts`) so those routes are not blocked before business logic runs. Regression coverage includes approve and reject (plus `OPTIONS` preflight where exercised): `tests/integration/auth.integration.test.ts`, `tests/integration/client_auth.integration.test.ts`, `tests/integration/client_agents.integration.test.ts`, and unit tests in `tests/unit/shared/config/cors.test.ts`.

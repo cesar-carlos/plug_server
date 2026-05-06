@@ -140,6 +140,60 @@ describe("Auth API", () => {
       expect(status.body.status).toBe("pending");
     });
 
+    it("POST /api/v1/auth/registration/approve allows opaque Origin (email webviews)", async () => {
+      const email = `origin-null-user-${Date.now()}@test.com`;
+      const password = "OriginNullUser1";
+      const reg = await request(app).post("/api/v1/auth/register").send({ email, password });
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const approve = await request(app)
+        .post("/api/v1/auth/registration/approve")
+        .set("Origin", "null")
+        .send({ token });
+      expect(approve.status).toBe(200);
+
+      const login = await request(app).post("/api/v1/auth/login").send({ email, password });
+      expect(login.status).toBe(200);
+    });
+
+    it("OPTIONS /api/v1/auth/registration/approve CORS preflight allows opaque Origin", async () => {
+      const response = await request(app)
+        .options("/api/v1/auth/registration/approve")
+        .set("Origin", "null")
+        .set("Access-Control-Request-Method", "POST");
+
+      expect(response.status).toBe(204);
+    });
+
+    it("POST /api/v1/auth/registration/reject allows opaque Origin (email webviews)", async () => {
+      const rejectedUser = { email: `reject-origin-null-${Date.now()}@test.com`, password: "RejectOrig1" };
+      const reg = await request(app).post("/api/v1/auth/register").send(rejectedUser);
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const reject = await request(app)
+        .post("/api/v1/auth/registration/reject")
+        .set("Origin", "null")
+        .send({ token, reason: "Opaque origin regression test" });
+      expect(reject.status).toBe(200);
+      expect(reject.text).toContain("Registration rejected");
+      expect(reject.text).toContain(rejectedUser.email);
+
+      const login = await request(app).post("/api/v1/auth/login").send(rejectedUser);
+      expect(login.status).toBe(403);
+      expect(login.body.code).toBe("FORBIDDEN");
+    });
+
+    it("OPTIONS /api/v1/auth/registration/reject CORS preflight allows opaque Origin", async () => {
+      const response = await request(app)
+        .options("/api/v1/auth/registration/reject")
+        .set("Origin", "null")
+        .set("Access-Control-Request-Method", "POST");
+
+      expect(response.status).toBe(204);
+    });
+
     it("second POST /registration/approve with same token returns 404", async () => {
       const reg = await request(app)
         .post("/api/v1/auth/register")

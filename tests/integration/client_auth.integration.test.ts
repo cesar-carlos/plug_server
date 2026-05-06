@@ -89,6 +89,82 @@ describe("Client auth registration approval flow", () => {
     expect(loginRes.body.accessToken).toBeDefined();
   });
 
+  it("POST /api/v1/client-auth/registration/approve allows opaque Origin (email webviews)", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-origin-null`,
+      emailPrefix: "client-owner",
+    });
+    const email = `origin-null-client-${Date.now()}@test.com`;
+    const password = "ClientRegPwd1";
+
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+      name: "OriginNull",
+      lastName: "Client",
+    });
+    expect(registerRes.status).toBe(201);
+
+    const approveRes = await request(app)
+      .post("/api/v1/client-auth/registration/approve")
+      .set("Origin", "null")
+      .send({ token: registerRes.body.approvalToken });
+    expect(approveRes.status).toBe(200);
+
+    const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.accessToken).toBeDefined();
+  });
+
+  it("OPTIONS /api/v1/client-auth/registration/approve CORS preflight allows opaque Origin", async () => {
+    const response = await request(app)
+      .options("/api/v1/client-auth/registration/approve")
+      .set("Origin", "null")
+      .set("Access-Control-Request-Method", "POST");
+
+    expect(response.status).toBe(204);
+  });
+
+  it("POST /api/v1/client-auth/registration/reject allows opaque Origin (email webviews)", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-reject-origin`,
+      emailPrefix: "client-owner",
+    });
+    const email = `reject-origin-null-${Date.now()}@test.com`;
+    const password = "ClientRegPwd1";
+
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+      name: "RejectOrig",
+      lastName: "Client",
+    });
+    expect(registerRes.status).toBe(201);
+    const token = registerRes.body.approvalToken as string;
+
+    const rejectRes = await request(app)
+      .post("/api/v1/client-auth/registration/reject")
+      .set("Origin", "null")
+      .send({ token, reason: "Opaque origin regression test" });
+    expect(rejectRes.status).toBe(200);
+
+    const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
+    expect(loginRes.status).toBe(403);
+    const storedClient = await repositories.client.findByEmail(email);
+    expect(storedClient?.status).toBe("rejected");
+  });
+
+  it("OPTIONS /api/v1/client-auth/registration/reject CORS preflight allows opaque Origin", async () => {
+    const response = await request(app)
+      .options("/api/v1/client-auth/registration/reject")
+      .set("Origin", "null")
+      .set("Access-Control-Request-Method", "POST");
+
+    expect(response.status).toBe(204);
+  });
+
   it("renders the client registration review page with summary details without changing state", async () => {
     const owner = await registerOwnerSession(app, {
       suffix: `${Date.now()}-review`,
