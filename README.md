@@ -41,6 +41,15 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - `npm run typecheck` - checagem de tipos
 - `npm run lint` - lint
 - `npm run test` - testes (unit/integration/contract; e2e excluídos)
+- `npm run test:access-flow` - regressão focada no fluxo cliente→agente (pedido, inbox owner, rotas `/client-access/*`, unitário do serviço); útil antes de deploy ou após alterações nessa área
 - `npm run test:e2e` - Vitest e2e (HTTP + Socket.IO). Com `E2E_TESTS_ENABLED=true` no `.env` e `DATABASE_URL` acessível (ver `.env.example`); se estiver desligado, termina com exit 0 sem correr a suíte. Pode ser invocado no CI após `npm run test` (idempotente quando desligado).
 - `npm run build` - build de producao
+
+## Client-access e base de dados (produção)
+
+- Manter a **mesma versão** da API em todos os nós.
+- Configurar `DATABASE_URL` para transações interativas do Prisma (poolers tipo PgBouncer em modo inadequado podem falhar nas operações atómicas de aprovação/recusa).
+- Em falhas ao aprovar ou recusar, a API pode responder **503**; consultar logs estruturados `client_agent_access_txn_failed` e `client_agent_access_txn_prisma_error` (ver também [docs/observability.md](./docs/observability.md)).
+- Detalhes adicionais em `.env.example` junto a `DATABASE_URL`.
+- Para regressão E2E opcional do link público (review HTML + POST approve), ativar `E2E_TESTS_ENABLED=true` e correr `npm run test:e2e` (ficheiro `tests/e2e/flows/client_access_public_token.e2e.test.ts`).
 

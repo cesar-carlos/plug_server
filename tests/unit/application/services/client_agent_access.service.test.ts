@@ -1088,13 +1088,10 @@ describe("ClientAgentAccessService", () => {
       }
     }
 
-    it("approveByToken returns SERVICE_UNAVAILABLE when txn throws", async () => {
-      const requestResult = await service.requestAccess(clientId, [agentId]);
-      expect(requestResult.ok).toBe(true);
-      const token = emailSender.ownerAccessRequests.at(-1)?.token;
-      expect(token).toBeTruthy();
-
-      const flakyService = new ClientAgentAccessService(
+    const createServiceWithApprovalTxn = (
+      txn: IClientAgentAccessApprovalTxn,
+    ): ClientAgentAccessService =>
+      new ClientAgentAccessService(
         agentRepository,
         identityRepository,
         clientRepository,
@@ -1104,10 +1101,16 @@ describe("ClientAgentAccessService", () => {
         tokenRepository,
         emailSender,
         new SequentialPendingClientAgentAccessWriter(requestRepository, tokenRepository),
-        new BoomTxn(),
+        txn,
       );
 
-      const r = await flakyService.approveByToken(token!);
+    it("approveByToken returns SERVICE_UNAVAILABLE when txn throws", async () => {
+      const requestResult = await service.requestAccess(clientId, [agentId]);
+      expect(requestResult.ok).toBe(true);
+      const token = emailSender.ownerAccessRequests.at(-1)?.token;
+      expect(token).toBeTruthy();
+
+      const r = await createServiceWithApprovalTxn(new BoomTxn()).approveByToken(token!);
       expect(r.ok).toBe(false);
       if (!r.ok) {
         expect(r.error.code).toBe("SERVICE_UNAVAILABLE");
@@ -1120,20 +1123,40 @@ describe("ClientAgentAccessService", () => {
       const token = emailSender.ownerAccessRequests.at(-1)?.token;
       expect(token).toBeTruthy();
 
-      const flakyService = new ClientAgentAccessService(
-        agentRepository,
-        identityRepository,
-        clientRepository,
-        userRepository,
-        accessRepository,
-        requestRepository,
-        tokenRepository,
-        emailSender,
-        new SequentialPendingClientAgentAccessWriter(requestRepository, tokenRepository),
-        new BoomTxn(),
-      );
+      const r = await createServiceWithApprovalTxn(new BoomTxn()).rejectByToken(token!);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("SERVICE_UNAVAILABLE");
+      }
+    });
 
-      const r = await flakyService.rejectByToken(token!);
+    it("approveByOwner returns SERVICE_UNAVAILABLE when txn throws", async () => {
+      const requestResult = await service.requestAccess(clientId, [agentId]);
+      expect(requestResult.ok).toBe(true);
+      const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+      expect(stored).not.toBeNull();
+
+      const r = await createServiceWithApprovalTxn(new BoomTxn()).approveByOwner(
+        ownerUserId,
+        stored!.id,
+      );
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("SERVICE_UNAVAILABLE");
+      }
+    });
+
+    it("rejectByOwner returns SERVICE_UNAVAILABLE when txn throws", async () => {
+      const requestResult = await service.requestAccess(clientId, [agentId]);
+      expect(requestResult.ok).toBe(true);
+      const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+      expect(stored).not.toBeNull();
+
+      const r = await createServiceWithApprovalTxn(new BoomTxn()).rejectByOwner(
+        ownerUserId,
+        stored!.id,
+        "no",
+      );
       expect(r.ok).toBe(false);
       if (!r.ok) {
         expect(r.error.code).toBe("SERVICE_UNAVAILABLE");
