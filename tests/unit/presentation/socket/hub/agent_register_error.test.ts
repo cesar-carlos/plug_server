@@ -39,6 +39,7 @@ describe("emitAgentRegisterError (plug_agente agent:register_error contract)", (
     ["rate_limited", -32013],
     ["transient_failure", -32603],
     ["internal_error", -32603],
+    ["session_active", -32014],
   ] as const)("maps reason `%s` to JSON-RPC code %i", (reason, expectedCode) => {
     const socket = createFakeSocket();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,5 +65,22 @@ describe("emitAgentRegisterError (plug_agente agent:register_error contract)", (
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       emitAgentRegisterError(socket as any, "transient_failure", "try later");
     }).not.toThrow();
+  });
+
+  it("includes optional details in payload when provided", () => {
+    const socket = createFakeSocket();
+    emitAgentRegisterError(
+      socket as never,
+      "session_active",
+      "msg",
+      { agentId: "x" },
+      { code: "same_agent_session_active" },
+    );
+
+    const [, payload] = socket.emit.mock.calls[0] as [
+      string,
+      { details?: Record<string, unknown> },
+    ];
+    expect(payload.details).toEqual({ code: "same_agent_session_active" });
   });
 });

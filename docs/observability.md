@@ -103,6 +103,13 @@ plug_socket_relay_outbound_queue_inflight_request_ids
 rate(plug_socket_agents_command_rate_limit_allowed_total[5m])
 rate(plug_socket_agents_command_rate_limit_rejected_total[5m])
 
+# Sessao exclusiva por agente no namespace /agents (registo vs segundo agent:register)
+rate(plug_agent_session_rejected_active_total[5m])
+rate(plug_agent_session_takeover_disconnect_total[5m])
+rate(plug_agent_session_register_rate_limited_total[5m])
+# Ex.: ratio de conflitos de sessao — comparar com taxa de registos bem-sucedidos noutro painel
+# (SLI sugerida: pico de session_active apos restauro de backup em varios PCs)
+
 # Contas bloqueadas (login/refresh/socket negados por status; sem PII nos labels)
 rate(plug_auth_login_blocked_total[5m])
 rate(plug_auth_refresh_blocked_total[5m])
@@ -302,9 +309,9 @@ rate(plug_bridge_latency_trace_writes_failed_total[5m]) > 0.1
 # Bridge latency traces: discrepancia total_ms vs soma das fases (definir limiar com PHASES_MISMATCH_WARN_MS)
 rate(plug_bridge_latency_trace_phases_mismatch_total[5m]) > 0
 
-# `agent:register_error` emitidos: pico pode indicar rotacao de credencial, conflito de ownership ou cliente desalinhado
-# (o evento e logado como `agent_register_error_emitted` em STDERR; nao ha contador Prometheus dedicado — usar grep/log shipper
-#  por `reason` / `code` para identificar o motivo predominante).
+# `agent:register_error` e conflitos de sessao: picos indicam rotacao de credencial, conflito de ownership,
+# `session_active` (restauro/segundo PC com o mesmo agentId) ou taxa; logs `agent_register_error_emitted` em
+# STDERR; contadores `plug_agent_session_*` e `plug_agent_session_register_rate_limited_total` em `GET /metrics`.
 ```
 
 ## Dashboards operacionais sugeridos

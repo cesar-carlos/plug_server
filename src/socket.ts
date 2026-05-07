@@ -107,6 +107,9 @@ import {
 } from "./shared/metrics/socket_consumer.metrics";
 import {
   getSocketAgentMetricsSnapshot,
+  noteAgentRegisterRateLimited,
+  noteAgentSessionRejectedActive,
+  noteAgentSessionTakeoverDisconnect,
   resetSocketAgentMetrics,
 } from "./shared/metrics/socket_agent.metrics";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
@@ -114,7 +117,16 @@ import { logger } from "./shared/utils/logger";
 import { decodePayloadFrameAsync, encodePayloadFrame } from "./shared/utils/payload_frame";
 import { agentSelfProfileSocketSchema } from "./presentation/http/validators/agent_self_profile.validator";
 import { agentRegisterPayloadSchema } from "./shared/validators/agent_register";
-import { emitAgentRegisterError } from "./presentation/socket/hub/agent_register_error";
+import {
+  AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
+  AGENT_REGISTER_RATE_LIMIT_MESSAGE,
+  AGENT_SESSION_SUPERSEDED_MESSAGE,
+  emitAgentRegisterError,
+} from "./presentation/socket/hub/agent_register_error";
+import {
+  tryConsumeAgentRegisterRateLimit,
+  resetAgentRegisterRateLimitState,
+} from "./presentation/socket/hub/agent_register_rate_limit";
 import { toAgentCatalogDto } from "./presentation/http/serializers/agent_catalog.serializer";
 
 type SocketData = {
@@ -527,6 +539,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   clearConsumerProfilePushState();
   resetSocketConsumerMetrics();
   resetSocketAgentMetrics();
+  resetAgentRegisterRateLimitState();
   resetAgentProfileSyncConcurrency();
   resetSocketBridgeState();
   resetRestBridgeMetrics();
@@ -690,16 +703,42 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      socket.data.agentId = agentId;
-      socket.data.capabilities = capabilities;
-      const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
-      const registration = agentRegistry.upsert({
+      const rateLimitOk = tryConsumeAgentRegisterRateLimit(userId, agentId);
+      if (!rateLimitOk.ok) {
+        noteAgentRegisterRateLimited();
+        emitAgentRegisterError(socket, "rate_limited", AGENT_REGISTER_RATE_LIMIT_MESSAGE, {
+          agentId,
+          userId,
+          policy: env.socketAgentSessionPolicy,
+        });
+        return;
+      }
+
+      const registration = agentRegistry.registerAgentSession({
         agentId,
         socketId: socket.id,
         userId,
         capabilities,
+        policy: env.socketAgentSessionPolicy,
+        isPeerConnected: (sid) => agentsNsp.sockets.has(sid),
       });
+
       if (!registration.ok) {
+        if (registration.reason === "SESSION_ACTIVE") {
+          noteAgentSessionRejectedActive();
+          emitAgentRegisterError(
+            socket,
+            "session_active",
+            AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
+            {
+              agentId,
+              userId,
+              policy: env.socketAgentSessionPolicy,
+            },
+            { code: "same_agent_session_active" },
+          );
+          return;
+        }
         emitAgentRegisterError(
           socket,
           "unauthorized",
@@ -708,6 +747,30 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         );
         return;
       }
+
+      if (registration.replacedSocketId !== undefined) {
+        noteAgentSessionTakeoverDisconnect();
+        const previousSocket = agentsNsp.sockets.get(registration.replacedSocketId);
+        if (previousSocket) {
+          previousSocket.emit(socketEvents.agentSessionSuperseded, {
+            reason: "session_superseded",
+            message: AGENT_SESSION_SUPERSEDED_MESSAGE,
+            policy: env.socketAgentSessionPolicy,
+          });
+          previousSocket.disconnect(true);
+        }
+        logger.info("agent_session_takeover_disconnect", {
+          agentId,
+          userId,
+          policy: env.socketAgentSessionPolicy,
+          previousSocketId: registration.replacedSocketId,
+          newSocketId: socket.id,
+        });
+      }
+
+      socket.data.agentId = agentId;
+      socket.data.capabilities = capabilities;
+      const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
 
       logSocketLifecycleInfo("Agent registered on hub", {
         socketId: socket.id,

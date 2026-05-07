@@ -53,7 +53,7 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | ---- | ------------- | --------------- |
 | Namespace do agente em `/agents` | alinhado | `docs/migracao_plug_agente_namespaces.md` |
 | Handshake autenticado e `agent:register` (zod schema) | alinhado | `docs/api_rest_bridge.md`, `src/shared/validators/agent_register.ts` |
-| Rejeicao de `agent:register` via `agent:register_error` (JSON puro, `{ code, reason, message }`) | alinhado | `docs/migracao_plug_agente_namespaces.md`, `src/presentation/socket/hub/agent_register_error.ts` |
+| Rejeicao de `agent:register` via `agent:register_error` (JSON puro, `{ code, reason, message, details? }`) | alinhado | `docs/migracao_plug_agente_namespaces.md`, `src/presentation/socket/hub/agent_register_error.ts` |
 | Negociacao de capabilities (com hints de stream pull) | alinhado | `docs/socket_relay_protocol.md` |
 | Readiness explicito com `agent:ready` | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `PayloadFrame` com gzip, assinatura opcional e payload base64 | alinhado | `docs/socket_relay_protocol.md` |

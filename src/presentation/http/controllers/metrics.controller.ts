@@ -436,6 +436,16 @@ export const getMetrics = (_request: Request, response: Response): void => {
       { reason: "account_validation_error" },
     ),
   );
+  lines.push(metricLine("plug_agent_session_rejected_active_total", agentRuntime.sessionRejectedActiveTotal));
+  lines.push(
+    metricLine("plug_agent_session_takeover_disconnect_total", agentRuntime.sessionTakeoverDisconnectTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_session_register_rate_limited_total",
+      agentRuntime.sessionRegisterRateLimitedTotal,
+    ),
+  );
   lines.push(
     metricLine("plug_socket_consumers_guard_db_count", consumerRuntime.guardDb.count),
   );

@@ -102,7 +102,8 @@ namespace `/agents`, incluindo:
 | Evento | Direcao | Notas |
 | ------ | ------- | ----- |
 | `agent:register` | agente -> hub | `PayloadFrame` com `agentId`, `timestamp`, `capabilities` (e `profile` opcional) |
-| `agent:register_error` | hub -> agente | **JSON puro** (NAO `PayloadFrame`) com `{ code, reason, message }`. `reason` `transient_failure`/`rate_limited` orienta o agente a reagendar `agent:register`; outros valores indicam reconexao. Ver `docs/migracao_plug_agente_namespaces.md` |
+| `agent:register_error` | hub -> agente | **JSON puro** (NAO `PayloadFrame`) com `{ code, reason, message, details? }`. `reason` `transient_failure`/`rate_limited` orienta o agente a reagendar `agent:register`; outros valores indicam reconexao. Ver `docs/migracao_plug_agente_namespaces.md` |
+| `agent:session.superseded` | hub -> agente (socket substituido) | **JSON puro** quando `SOCKET_AGENT_SESSION_POLICY=takeover_disconnect_previous`; antecede `disconnect` da sessao antiga |
 | `agent:capabilities` | hub -> agente | Inclui `extensions.recommendedStreamPullWindowSize` / `maxStreamPullWindowSize` para calibrar pulls |
 | `agent:ready` | agente -> hub | Opcional, quando o agente anuncia `extensions.protocolReadyAck` |
 | `agent:heartbeat` | agente -> hub | Periodico; `hub:heartbeat_ack` confirma |

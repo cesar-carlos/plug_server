@@ -1,3 +1,4 @@
+import type { AgentSessionPolicy } from "../../../shared/constants/agent_session_policy";
 import { env } from "../../../shared/config/env";
 import {
   HUB_MAX_BATCH_SIZE,
@@ -224,12 +225,19 @@ class InMemoryAgentRegistry {
     this.readyTimerByAgentId.set(agentId, timer);
   }
 
-  upsert(input: {
+  /**
+   * Atomically registers or rejects an agent session (same event-loop turn; no await inside).
+   */
+  registerAgentSession(input: {
     readonly agentId: string;
     readonly socketId: string;
     readonly userId: string | null;
     readonly capabilities: Record<string, unknown>;
-  }): { ok: true; agent: RegisteredAgent } | { ok: false; reason: "OWNED_BY_ANOTHER_USER" } {
+    readonly policy: AgentSessionPolicy;
+    readonly isPeerConnected: (socketId: string) => boolean;
+  }):
+    | { ok: true; agent: RegisteredAgent; replacedSocketId?: string }
+    | { ok: false; reason: "OWNED_BY_ANOTHER_USER" | "SESSION_ACTIVE" } {
     const nowMs = Date.now();
     const existing = this.agents.get(input.agentId);
     if (
@@ -240,8 +248,22 @@ class InMemoryAgentRegistry {
     ) {
       return { ok: false, reason: "OWNED_BY_ANOTHER_USER" };
     }
+
+    let replacedSocketId: string | undefined;
+
     if (existing && existing.socketId !== input.socketId) {
-      this.agentIdBySocketId.delete(existing.socketId);
+      const peerAlive = input.isPeerConnected(existing.socketId);
+      if (peerAlive) {
+        if (input.policy === "reject_active") {
+          return { ok: false, reason: "SESSION_ACTIVE" };
+        }
+        this.agentIdBySocketId.delete(existing.socketId);
+        if (input.policy === "takeover_disconnect_previous") {
+          replacedSocketId = existing.socketId;
+        }
+      } else {
+        this.agentIdBySocketId.delete(existing.socketId);
+      }
     }
 
     const agent: InternalRegisteredAgent = {
@@ -258,7 +280,28 @@ class InMemoryAgentRegistry {
     this.agentIdBySocketId.set(input.socketId, input.agentId);
     this.scheduleProtocolReady(input.agentId, input.capabilities);
     this.pruneKnownAgentIdsIfOverCap();
-    return { ok: true, agent: this.toPublic(agent) };
+    return {
+      ok: true,
+      agent: this.toPublic(agent),
+      ...(replacedSocketId !== undefined ? { replacedSocketId } : {}),
+    };
+  }
+
+  upsert(input: {
+    readonly agentId: string;
+    readonly socketId: string;
+    readonly userId: string | null;
+    readonly capabilities: Record<string, unknown>;
+  }): { ok: true; agent: RegisteredAgent } | { ok: false; reason: "OWNED_BY_ANOTHER_USER" } {
+    const result = this.registerAgentSession({
+      ...input,
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    if (!result.ok) {
+      return { ok: false, reason: "OWNED_BY_ANOTHER_USER" };
+    }
+    return { ok: true, agent: result.agent };
   }
 
   touch(

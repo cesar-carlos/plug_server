@@ -91,7 +91,9 @@ No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
 
 Toda rejeicao do `agent:register` no hub sai pelo evento dedicado
 `agent:register_error` em **JSON puro** (NAO `PayloadFrame`), com o shape
-`{ code, reason, message }`. O agente usa `reason` para decidir entre
+`{ code, reason, message, details? }`. O campo opcional `details` e um objeto
+livre (ex. `{ code: "same_agent_session_active" }` quando `reason = session_active`).
+O agente usa `reason` para decidir entre
 **reagendar** o registo (`transient_failure`, `rate_limited`) ou **forcar
 reconexao** (demais valores).
 
@@ -101,13 +103,16 @@ reconexao** (demais valores).
 | `invalid_request`       | `-32600` | Schema zod do `agent:register` falhou (capabilities incompleto, etc.)                        |
 | `authentication_failed` | `-32001` | Token sem `agent_id` ou divergente do `agentId` enviado                                      |
 | `unauthorized`          | `-32002` | `agentId` ja pertence a outro `User` (`AGENT_ALREADY_LINKED`) ou outro bloqueio de ownership |
-| `rate_limited`          | `-32013` | Reservado para futuras rejeicoes por taxa do `agent:register`                                |
+| `session_active`        | `-32014` | Ja existe outra sessao `agent:register` canonica para o mesmo `agentId` no processo (politica `reject_active`); ver `SOCKET_AGENT_SESSION_POLICY` |
+| `rate_limited`          | `-32013` | Rajada de `agent:register` por `(userId, agentId)` quando `SOCKET_AGENT_REGISTER_RATE_LIMIT_*` > 0 |
 | `transient_failure`     | `-32603` | Falha temporaria do hub que justifica retry                                                  |
 | `internal_error`        | `-32603` | Erro inesperado nao categorizado                                                             |
 
+Hub → agente quando outra conexao assume o mesmo agente (`SOCKET_AGENT_SESSION_POLICY=takeover_disconnect_previous`): antes de desligar o socket antigo, o hub pode emitir **`agent:session.superseded`** (JSON puro: `reason`, `message`, `policy`) e depois `disconnect` no socket substituido.
+
 Implementacao: `src/presentation/socket/hub/agent_register_error.ts`. Cada
 emissao e logada como `agent_register_error_emitted` com `socketId`, `code`,
-`reason`, `message` e contexto (sem PII).
+`reason`, `message`, `details` (quando presente) e contexto (sem PII).
 
 As regras completas de ownership, `ClientAgentAccess`, aprovacao por owner,
 revogacao e autorizacao entre REST e Socket vivem em

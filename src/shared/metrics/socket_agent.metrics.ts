@@ -18,14 +18,36 @@ const authRejects: Record<AgentSocketAuthRejectReason, number> = {
   account_validation_error: 0,
 };
 
+let sessionRejectedActiveTotal = 0;
+let sessionTakeoverDisconnectTotal = 0;
+let sessionRegisterRateLimitedTotal = 0;
+
 export const noteAgentSocketAuthRejected = (reason: AgentSocketAuthRejectReason): void => {
   authRejects[reason] += 1;
 };
 
+export const noteAgentSessionRejectedActive = (): void => {
+  sessionRejectedActiveTotal += 1;
+};
+
+export const noteAgentSessionTakeoverDisconnect = (): void => {
+  sessionTakeoverDisconnectTotal += 1;
+};
+
+export const noteAgentRegisterRateLimited = (): void => {
+  sessionRegisterRateLimitedTotal += 1;
+};
+
 export const getSocketAgentMetricsSnapshot = (): {
   readonly authRejects: typeof authRejects;
+  readonly sessionRejectedActiveTotal: number;
+  readonly sessionTakeoverDisconnectTotal: number;
+  readonly sessionRegisterRateLimitedTotal: number;
 } => ({
   authRejects: { ...authRejects },
+  sessionRejectedActiveTotal,
+  sessionTakeoverDisconnectTotal,
+  sessionRegisterRateLimitedTotal,
 });
 
 export const resetSocketAgentMetrics = (): void => {
@@ -34,4 +56,7 @@ export const resetSocketAgentMetrics = (): void => {
   authRejects.role_denied = 0;
   authRejects.blocked_account = 0;
   authRejects.account_validation_error = 0;
+  sessionRejectedActiveTotal = 0;
+  sessionTakeoverDisconnectTotal = 0;
+  sessionRegisterRateLimitedTotal = 0;
 };

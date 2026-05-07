@@ -303,6 +303,22 @@ const envSchema = z.object({
    * If the agent sends `agent:heartbeat` earlier, the hub clears the wait immediately.
    */
   SOCKET_AGENT_PROTOCOL_READY_GRACE_MS: z.coerce.number().int().min(0).max(5_000).default(100),
+  /**
+   * When a second socket completes `agent:register` for the same `agentId` (same owner):
+   * `reject_active` — refuse registration while another canonical socket is connected;
+   * `takeover_disconnect_previous` — replace registry entry and disconnect the previous socket;
+   * `legacy_silent_takeover` — replace registry mapping without forcing disconnect (legacy hub behaviour).
+   */
+  SOCKET_AGENT_SESSION_POLICY: z
+    .enum(["reject_active", "takeover_disconnect_previous", "legacy_silent_takeover"])
+    .default("reject_active"),
+  /**
+   * Sliding window for rate-limiting `agent:register` attempts per `(userId, agentId)` pair.
+   * `0` on window or max disables this limiter (recommended default).
+   */
+  SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(0).max(600_000).default(0),
+  /** Max `agent:register` attempts per window per `(userId, agentId)`. `0` disables. */
+  SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(100_000).default(0),
   SOCKET_AUTH_REQUIRED: z
     .enum(["true", "false"])
     .default("true")
@@ -761,6 +777,9 @@ export const env = {
   socketAgentKnownIdsMax: parsedEnv.SOCKET_AGENT_KNOWN_IDS_MAX,
   socketAgentProfileSyncMaxConcurrent: parsedEnv.SOCKET_AGENT_PROFILE_SYNC_MAX_CONCURRENT,
   socketAgentProtocolReadyGraceMs: parsedEnv.SOCKET_AGENT_PROTOCOL_READY_GRACE_MS,
+  socketAgentSessionPolicy: parsedEnv.SOCKET_AGENT_SESSION_POLICY,
+  socketAgentRegisterRateLimitWindowMs: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS,
+  socketAgentRegisterRateLimitMax: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,

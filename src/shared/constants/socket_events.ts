@@ -11,6 +11,8 @@ export const socketEvents = {
    * `invalid_request`).
    */
   agentRegisterError: "agent:register_error",
+  /** Hub → agent: previous session replaced under `takeover_disconnect_previous` policy (plain JSON). */
+  agentSessionSuperseded: "agent:session.superseded",
   agentCapabilities: "agent:capabilities",
   agentReady: "agent:ready",
   agentHeartbeat: "agent:heartbeat",
