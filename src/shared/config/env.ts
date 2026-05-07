@@ -319,6 +319,14 @@ const envSchema = z.object({
   SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(0).max(600_000).default(0),
   /** Max `agent:register` attempts per window per `(userId, agentId)`. `0` disables. */
   SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(100_000).default(0),
+  /**
+   * When > 0, successful `bindOwnershipOnRegister(userId, agentId)` skip repeated DB work until TTL.
+   * Cleared with `AgentAccessService.invalidateAccessCache*` / `invalidateAccessCacheForAgent` (same hooks as `AGENT_ACCESS_CACHE_*`).
+   * `0` disables (always hit DB on each `agent:register`).
+   */
+  AGENT_REGISTER_BIND_CACHE_TTL_MS: z.coerce.number().int().min(0).max(600_000).default(5_000),
+  /** Max entries for the bind-register cache; `0` means unlimited (TTL still applies per entry). */
+  AGENT_REGISTER_BIND_CACHE_MAX_SIZE: z.coerce.number().int().min(0).default(2_000),
   SOCKET_AUTH_REQUIRED: z
     .enum(["true", "false"])
     .default("true")
@@ -780,6 +788,8 @@ export const env = {
   socketAgentSessionPolicy: parsedEnv.SOCKET_AGENT_SESSION_POLICY,
   socketAgentRegisterRateLimitWindowMs: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS,
   socketAgentRegisterRateLimitMax: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX,
+  agentRegisterBindCacheTtlMs: parsedEnv.AGENT_REGISTER_BIND_CACHE_TTL_MS,
+  agentRegisterBindCacheMaxSize: parsedEnv.AGENT_REGISTER_BIND_CACHE_MAX_SIZE,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,

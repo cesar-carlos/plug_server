@@ -6,18 +6,19 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Changed
+
+- **`agent:register` performance / fiabilidade**: (1) rate limit de `agent:register` corre **antes** de `bindOwnershipOnRegister`, reduzindo carga na BD em rajadas; (2) limite em janela deslizante passa a **podar** timestamps expirados ao rejeitar e liberta buckets quando a janela esvazia; (3) cache opcional `AGENT_REGISTER_BIND_CACHE_*` para omitir trabalho repetido de stub do catálogo + `bindIfUnbound` após `assertOwnershipEligible`, invalidado com `invalidateAccessCache*` / `invalidateAccessCacheForAgent`; documentação de **multi-réplica** na secção de validação de registo em `docs/configuration.md`. Testes: `agent_register_rate_limit.test.ts`, `agent_access_bind_cache.test.ts`.
+- **CI (GitHub Actions)**: `actions/checkout@v5` e `actions/setup-node@v5`; removido `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`. Servico **PostgreSQL 16** com healthcheck e passo `npx prisma migrate deploy` antes de `npm run test`, para `DATABASE_URL` de CI corresponder a uma BD real e as integracoes Prisma nao ficarem a `return` cedo por BD indisponivel.
+
+- **REST / Socket `agents:command` — agente catalogado sem socket `/agents`**: pedidos com JSON-RPC `id` correlacionavel passam a responder com **HTTP 200** (REST) ou `agents:command_response` com `success: true` (Socket) e corpo normalizado `error.code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (antes **503** / `SERVICE_UNAVAILABLE`). Comandos **apenas notification** (`id: null` em todos os itens) mantêm **503** quando o agente está offline. Implementação: `AgentDisconnectedBeforeDispatchError`, `agent_offline_bridge_response.ts`, `rpc_bridge_dispatch_command.ts`, `agents.controller.ts`, `agents_command.handler.ts`. Documentação: `docs/api_rest_bridge.md`, OpenAPI em `agents.routes.ts`. Testes: `agent_offline_bridge_response.test.ts`, `agents_http.integration.test.ts`, `agents_command.handler.test.ts`.
+- **Arranque — hints Colmeia / socket**: `logSocketConsumerBootstrapHints()` (invocado após `createSocketServer`) emite `INFO` `socket_consumer_roles_ensured_client` quando o parse de `SOCKET_CONSUMER_ROLES` teve de acrescentar `client` (lista só `user,admin`); emite `WARN` se `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED` for `false`.
+
 ### Fixed
 
 - **Snapshot de cliente bloqueado**: `ClientAuthService.setManagedClientStatus` chama `invalidateSnapshotCache` ao passar para `blocked`, para guards Socket/REST nao servirem estado ativo obsoleto quando `PRINCIPAL_SNAPSHOT_CACHE_TTL_MS` > 0.
 - **Testes Socket + cache in-process**: `socket.integration.test.ts` invalida caches alinhado aos servicos (`removeAccess` → `AgentAccessService.invalidateAccessCache`; bloqueio de user/client → `invalidateSnapshotCache` nos helpers), evitando falsos positivos com TTL > 0.
 - **ESLint no CI**: `tests/unit/application/services/agent_access.service.test.ts` — `buildService` com tipo de retorno `Promise<...>` explicito (`@typescript-eslint/explicit-function-return-type`).
-
-### Changed
-
-- **CI (GitHub Actions)**: `actions/checkout@v5` e `actions/setup-node@v5`; removido `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`. Servico **PostgreSQL 16** com healthcheck e passo `npx prisma migrate deploy` antes de `npm run test`, para `DATABASE_URL` de CI corresponder a uma BD real e as integracoes Prisma nao ficarem a `return` cedo por BD indisponivel.
-
-- **REST / Socket `agents:command` — agente catalogado sem socket `/agents`**: pedidos com JSON-RPC `id` correlacionavel passam a responder com **HTTP 200** (REST) ou `agents:command_response` com `success: true` (Socket) e corpo normalizado `error.code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (antes **503** / `SERVICE_UNAVAILABLE`). Comandos **apenas notification** (`id: null` em todos os itens) mantêm **503** quando o agente está offline. Implementação: `AgentDisconnectedBeforeDispatchError`, `agent_offline_bridge_response.ts`, `rpc_bridge_dispatch_command.ts`, `agents.controller.ts`, `agents_command.handler.ts`. Documentação: `docs/api_rest_bridge.md`, OpenAPI em `agents.routes.ts`. Testes: `agent_offline_bridge_response.test.ts`, `agents_http.integration.test.ts`, `agents_command.handler.test.ts`.
-- **Arranque — hints Colmeia / socket**: `logSocketConsumerBootstrapHints()` (invocado após `createSocketServer`) emite `INFO` `socket_consumer_roles_ensured_client` quando o parse de `SOCKET_CONSUMER_ROLES` teve de acrescentar `client` (lista só `user,admin`); emite `WARN` se `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED` for `false`.
 
 ### Added
 

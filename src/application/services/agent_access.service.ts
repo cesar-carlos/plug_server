@@ -26,6 +26,10 @@ export type AgentAccessPrincipal =
 const accessCacheKey = (principalType: string, principalId: string, agentId: string): string =>
   `${principalType}:${principalId}:${agentId}`;
 
+/** Positive-result cache key for idempotent `bindOwnershipOnRegister` after eligibility checks. */
+const bindRegisterCacheKey = (userId: string, agentId: string): string =>
+  `bindReg:user:${userId}:${agentId}`;
+
 export class AgentAccessService {
   /**
    * Short-lived positive-result cache for `assertPrincipalAccess`.
@@ -39,6 +43,19 @@ export class AgentAccessService {
     env.agentAccessCacheTtlMs,
     env.agentAccessCacheMaxSize,
   );
+
+  /**
+   * After `assertOwnershipEligible` succeeds, skip repeated catalog stub + `bindIfUnbound`
+   * within TTL (reconnect/register storms). Always invalidated together with access-cache hooks.
+   * Disabled when `AGENT_REGISTER_BIND_CACHE_TTL_MS=0`.
+   */
+  private readonly bindRegisterCache: TtlCache<string, true> | null =
+    env.agentRegisterBindCacheTtlMs > 0
+      ? new TtlCache<string, true>(
+          env.agentRegisterBindCacheTtlMs,
+          env.agentRegisterBindCacheMaxSize,
+        )
+      : null;
 
   constructor(
     private readonly agentRepository: IAgentRepository,
@@ -113,6 +130,9 @@ export class AgentAccessService {
    */
   invalidateAccessCache(principalType: string, principalId: string, agentId: string): void {
     this.accessCache.delete(accessCacheKey(principalType, principalId, agentId));
+    if (principalType === "user") {
+      this.bindRegisterCache?.delete(bindRegisterCacheKey(principalId, agentId));
+    }
   }
 
   /**
@@ -121,6 +141,7 @@ export class AgentAccessService {
    */
   invalidateAccessCacheForAgent(agentId: string): void {
     this.accessCache.deleteWhere((key) => key.endsWith(`:${agentId}`));
+    this.bindRegisterCache?.deleteWhere((key) => key.endsWith(`:${agentId}`));
   }
 
   /**
@@ -140,6 +161,12 @@ export class AgentAccessService {
       return allowed;
     }
 
+    const cache = this.bindRegisterCache;
+    const bindKey = bindRegisterCacheKey(userId, agentId);
+    if (cache !== null && cache.get(bindKey) === true) {
+      return ok(undefined);
+    }
+
     // `agent_identities.agent_id` FK-references `agents`. Catalog rows are normally filled by
     // profile sync after register; ensure a stub exists before inserting identity.
     await this.ensureCatalogAgentExistsForIdentity(agentId, userId);
@@ -147,6 +174,10 @@ export class AgentAccessService {
     const status = await this.agentIdentityRepository.bindIfUnbound(agentId, userId);
     if (status === "bound_to_other_user") {
       return err(agentAlreadyLinked(agentId));
+    }
+
+    if (cache !== null) {
+      cache.set(bindKey, true);
     }
 
     return ok(undefined);

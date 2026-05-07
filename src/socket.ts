@@ -691,6 +691,17 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
+      const rateLimitOk = tryConsumeAgentRegisterRateLimit(userId, agentId);
+      if (!rateLimitOk.ok) {
+        noteAgentRegisterRateLimited();
+        emitAgentRegisterError(socket, "rate_limited", AGENT_REGISTER_RATE_LIMIT_MESSAGE, {
+          agentId,
+          userId,
+          policy: env.socketAgentSessionPolicy,
+        });
+        return;
+      }
+
       const bindResult = await container.agentAccessService.bindOwnershipOnRegister(
         userId,
         agentId,
@@ -699,17 +710,6 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         emitAgentRegisterError(socket, "unauthorized", bindResult.error.message, {
           agentId,
           userId,
-        });
-        return;
-      }
-
-      const rateLimitOk = tryConsumeAgentRegisterRateLimit(userId, agentId);
-      if (!rateLimitOk.ok) {
-        noteAgentRegisterRateLimited();
-        emitAgentRegisterError(socket, "rate_limited", AGENT_REGISTER_RATE_LIMIT_MESSAGE, {
-          agentId,
-          userId,
-          policy: env.socketAgentSessionPolicy,
         });
         return;
       }
