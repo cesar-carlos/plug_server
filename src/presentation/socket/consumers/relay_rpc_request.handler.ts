@@ -44,9 +44,7 @@ const emitRelayRpcAccepted = (socket: Socket, payload: RelayRpcAcceptedPayload):
 
 export const parseRelayRpcRequestEnvelope = (
   rawPayload: unknown,
-):
-  | { success: true; data: RelayRpcRequestEnvelope }
-  | { success: false; errorMessage: string } => {
+): { success: true; data: RelayRpcRequestEnvelope } | { success: false; errorMessage: string } => {
   const parsed = relayRpcEnvelopeSchema.safeParse(rawPayload);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];

@@ -12,9 +12,7 @@ import {
   registerRelayRequestRoute,
   resetRelayRequestRegistry,
 } from "../../../../../src/presentation/socket/hub/relay_request_registry";
-import {
-  createPrepareAgentStreamPull,
-} from "../../../../../src/presentation/socket/hub/rpc_bridge_stream_pull";
+import { createPrepareAgentStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge_stream_pull";
 import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { decodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";

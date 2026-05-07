@@ -31,6 +31,7 @@ Todos os limitadores HTTP (`globalRateLimit`, `credentialAuthRateLimit`, `agents
 
 **Mitigacoes ja em produção:**
 - `HTTP_TRUST_PROXY=true` faz `req.ip` refletir o cliente real atras de Nginx;
+- `REST_RATE_LIMIT_REDIS_URL` opcional: quando definido, os limitadores HTTP `express-rate-limit` usam Redis (`rate-limit-redis`) para estado partilhado entre replicas; vazio mantem store em memoria por processo (comportamento anterior). Falha na ligacao: log `rest_rate_limit_redis_fallback_memory`, metrica Prometheus `plug_rest_http_rate_limit_redis_fallback_events_total`, store em memoria;
 - chaves dos limitadores autenticados usam `JWT sub`, nao IP, o que continua funcional cross-replica para o **mesmo usuario** (o teto e por usuario, mas multiplicado pelo numero de pods que o usuario alcanca);
 - `Retry-After` e `RateLimit-*` headers continuam corretos por replica.
 

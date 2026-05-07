@@ -1,5 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../../../../src/shared/config/env")>();
+  return {
+    ...mod,
+    env: {
+      ...mod.env,
+      socketRelayRateLimitMaxConversationStarts: 8,
+      socketRelayRateLimitMaxRequests: 64,
+      socketRelayRateLimitMaxStreamPullCredits: 1000,
+    },
+  };
+});
+
 import { env } from "../../../../../src/shared/config/env";
 import {
   allowRelayConversationStart,

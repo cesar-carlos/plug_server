@@ -1,6 +1,7 @@
-import { createServer } from "node:http";
+import { createServer, type Server as HttpServer } from "node:http";
 
-import { createApp } from "./app";
+import type { Server as SocketIoServer } from "socket.io";
+
 import {
   startAgentProfileMaintenanceScheduler,
   startClientAgentAccessExpiryScheduler,
@@ -32,56 +33,82 @@ import {
   startSocketAuditRetentionScheduler,
   stopSocketAuditRetentionScheduler,
 } from "./application/services/socket_audit.service";
+import {
+  closeRestHttpRateLimitRedis,
+  initRestHttpRateLimitRedis,
+} from "./infrastructure/redis/rest_rate_limit_redis";
 import { prismaClient } from "./infrastructure/database/prisma/client";
+import { registerHttpRateLimits } from "./presentation/http/middlewares/rate_limit.middleware";
 import { closeSocketServer, createSocketServer } from "./socket";
 import { container } from "./shared/di/container";
 import { env } from "./shared/config/env";
 import { logSocketConsumerBootstrapHints } from "./shared/config/log_socket_consumer_bootstrap_hints";
 import { logger } from "./shared/utils/logger";
 
-const app = createApp();
-const httpServer = createServer(app);
-// Protects against slow-loris and hung client connections. Value 0 disables.
-if (env.httpRequestTimeoutMs > 0) {
-  httpServer.requestTimeout = env.httpRequestTimeoutMs;
-}
-const io = createSocketServer(httpServer);
-logSocketConsumerBootstrapHints();
-
-startSocketAuditRetentionScheduler({
-  retentionDays: env.socketAuditRetentionDays,
-  intervalMs: env.socketAuditRetentionIntervalMinutes * 60 * 1000,
-  batchSize: env.socketAuditPruneBatchSize,
-});
-
-startBridgeLatencyTraceRetentionScheduler({
-  intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
-  batchSize: env.bridgeLatencyTracePruneBatchSize,
-});
-startBridgeLatencyTraceRollupScheduler();
-startAgentProfileMaintenanceScheduler({
-  intervalMs: env.agentProfileMaintenanceIntervalMinutes * 60 * 1000,
-  batchSize: env.agentProfileMaintenancePruneBatchSize,
-});
-startClientAgentAccessExpiryScheduler({
-  intervalMs: env.clientAgentAccessExpirySweepIntervalMinutes * 60 * 1000,
-  batchSize: env.clientAgentAccessExpirySweepBatchSize,
-});
-startRegistrationEmailOutboxWorker(container.emailSender);
-startRegistrationEmailOutboxDeadLetterScheduler();
-
-httpServer.listen(env.port, "0.0.0.0", () => {
-  logger.info("HTTP server started", {
-    appName: env.appName,
-    port: env.port,
-    environment: env.nodeEnv,
-  });
-});
+let httpServer: HttpServer | undefined;
+let io: SocketIoServer | undefined;
 
 let shutdownInProgress = false;
 
+const bootstrap = async (): Promise<void> => {
+  await initRestHttpRateLimitRedis();
+  registerHttpRateLimits();
+
+  const { createApp } = await import("./app");
+  const app = createApp();
+  httpServer = createServer(app);
+  // Protects against slow-loris and hung client connections. Value 0 disables.
+  if (env.httpRequestTimeoutMs > 0) {
+    httpServer.requestTimeout = env.httpRequestTimeoutMs;
+  }
+  io = createSocketServer(httpServer);
+  logSocketConsumerBootstrapHints();
+
+  startSocketAuditRetentionScheduler({
+    retentionDays: env.socketAuditRetentionDays,
+    intervalMs: env.socketAuditRetentionIntervalMinutes * 60 * 1000,
+    batchSize: env.socketAuditPruneBatchSize,
+  });
+
+  startBridgeLatencyTraceRetentionScheduler({
+    intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
+    batchSize: env.bridgeLatencyTracePruneBatchSize,
+  });
+  startBridgeLatencyTraceRollupScheduler();
+  startAgentProfileMaintenanceScheduler({
+    intervalMs: env.agentProfileMaintenanceIntervalMinutes * 60 * 1000,
+    batchSize: env.agentProfileMaintenancePruneBatchSize,
+  });
+  startClientAgentAccessExpiryScheduler({
+    intervalMs: env.clientAgentAccessExpirySweepIntervalMinutes * 60 * 1000,
+    batchSize: env.clientAgentAccessExpirySweepBatchSize,
+  });
+  startRegistrationEmailOutboxWorker(container.emailSender);
+  startRegistrationEmailOutboxDeadLetterScheduler();
+
+  httpServer.listen(env.port, "0.0.0.0", () => {
+    logger.info("HTTP server started", {
+      appName: env.appName,
+      port: env.port,
+      environment: env.nodeEnv,
+    });
+  });
+};
+
+void bootstrap().catch((error: unknown) => {
+  logger.error("bootstrap_failed", {
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+  process.exit(1);
+});
+
 const closeHttpServer = (): Promise<void> =>
   new Promise<void>((resolve, reject) => {
+    if (httpServer === undefined) {
+      resolve();
+      return;
+    }
     httpServer.close((error) => {
       if (error) {
         const code = (error as NodeJS.ErrnoException).code;
@@ -134,8 +161,11 @@ const shutdown = async (signal: string): Promise<void> => {
       logger.warn("registration_email_outbox_drain_timeout", { pending: outboxDrain.pending });
     }
 
-    await closeSocketServer(io, signal);
+    if (io !== undefined) {
+      await closeSocketServer(io, signal);
+    }
     await closeHttpServer();
+    await closeRestHttpRateLimitRedis();
     await prismaClient.$disconnect();
     logger.info("Shutdown completed", { signal });
     process.exit(0);

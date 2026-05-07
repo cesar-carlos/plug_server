@@ -849,17 +849,24 @@ const swaggerSpec = swaggerJSDoc({
             agentId: { type: "string", format: "uuid" },
             clientToken: {
               description: "Currently stored token. `null` when no token is configured.",
-              oneOf: [
-                { type: "string", minLength: 1, maxLength: 512 },
-                { type: "null" },
-              ],
+              oneOf: [{ type: "string", minLength: 1, maxLength: 512 }, { type: "null" }],
             },
           },
         },
         ClientAgentAccessRequestRecord: {
           type: "object",
-          required: ["id", "clientId", "agentId", "status", "retryCount", "requestedAt", "createdAt", "updatedAt"],
-          description: "A client-to-agent access request with its current status and retry counter.",
+          required: [
+            "id",
+            "clientId",
+            "agentId",
+            "status",
+            "retryCount",
+            "requestedAt",
+            "createdAt",
+            "updatedAt",
+          ],
+          description:
+            "A client-to-agent access request with its current status and retry counter.",
           properties: {
             id: { type: "string", format: "uuid" },
             clientId: { type: "string", format: "uuid" },
@@ -879,7 +886,11 @@ const swaggerSpec = swaggerJSDoc({
             requestedAt: { type: "string", format: "date-time" },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
-            agentName: { type: "string", nullable: true, description: "Agent name (when enriched by repository)." },
+            agentName: {
+              type: "string",
+              nullable: true,
+              description: "Agent name (when enriched by repository).",
+            },
           },
         },
         PaginatedAgentCatalogResponse: {
@@ -995,9 +1006,7 @@ const compatAliasServers = [
  * for backward compatibility. Document those aliases with operation-level
  * servers, without implying that the whole API is available at `/`.
  */
-for (const [pathKey, pathItem] of Object.entries(
-  (swaggerSpec as OpenApiSpecRuntime).paths ?? {},
-)) {
+for (const [pathKey, pathItem] of Object.entries((swaggerSpec as OpenApiSpecRuntime).paths ?? {})) {
   if (pathKey !== "/metrics" && !pathKey.startsWith("/auth/")) {
     continue;
   }

@@ -18,7 +18,10 @@ import {
   resetRestPendingRequestsStore,
 } from "../../../../../src/presentation/socket/hub/rest_pending_requests";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
-import { decodePayloadFrame, encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
+import {
+  decodePayloadFrame,
+  encodePayloadFrame,
+} from "../../../../../src/shared/utils/payload_frame";
 
 describe("rpc_bridge_agent_inbound", () => {
   const timeoutHandles: NodeJS.Timeout[] = [];

@@ -5,6 +5,7 @@ const isCi = Boolean(process.env.CI);
 export default defineConfig({
   test: {
     setupFiles: [
+      "tests/setup/vitest.rate_limits.ts",
       "tests/setup/vitest.socket_consumer_roles.ts",
       "tests/setup/vitest.uploads_dir.ts",
     ],

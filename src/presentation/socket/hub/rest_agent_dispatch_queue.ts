@@ -1,6 +1,9 @@
 /**
  * Per-agent inflight limit + FIFO wait queue for REST bridge dispatch (`dispatchRpcCommandToAgent`).
  * Isolated from `rpc_bridge.ts` to keep relay/stream logic separate.
+ *
+ * `SOCKET_REST_AGENT_MAX_INFLIGHT=0` disables inflight + queue enforcement (returns immediately).
+ * `SOCKET_REST_AGENT_MAX_QUEUE=0` allows unlimited wait-queue depth (still uses `SOCKET_REST_AGENT_QUEUE_WAIT_MS` timeouts).
  */
 
 import { env } from "../../../shared/config/env";
@@ -72,6 +75,9 @@ const setAgentInflight = (agentId: string, value: number): void => {
 };
 
 const drainAgentQueue = (agentId: string): void => {
+  if (maxInflight <= 0) {
+    return;
+  }
   const inflight = getAgentInflight(agentId);
   if (inflight >= maxInflight) {
     return;
@@ -137,6 +143,10 @@ export const acquireRestAgentDispatchSlot = async (
     throw serviceUnavailable("HTTP request aborted by client");
   }
 
+  if (maxInflight <= 0) {
+    return () => {};
+  }
+
   const inflight = getAgentInflight(agentId);
   if (inflight < maxInflight) {
     setAgentInflight(agentId, inflight + 1);
@@ -146,7 +156,7 @@ export const acquireRestAgentDispatchSlot = async (
   }
 
   const queue = agentQueueById.get(agentId) ?? [];
-  if (queue.length >= maxQueue) {
+  if (maxQueue > 0 && queue.length >= maxQueue) {
     onRestDispatchQueueReject("queue_full");
     throw serviceUnavailableWithRetry(
       withAppendedMessage("Agent is overloaded", "queue is full"),

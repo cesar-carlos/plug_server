@@ -4,6 +4,7 @@ import { getBridgeLatencyTraceMetricsSnapshot } from "../../../application/servi
 import { getAgentDataMaintenanceMetricsSnapshot } from "../../../application/services/agent_data_maintenance.service";
 import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
+import { getRestRateLimitRedisMetricsSnapshot } from "../../../application/services/rest_rate_limit_redis_metrics.service";
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
 import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
@@ -29,12 +30,10 @@ const metricLine = (name: string, value: number, labels?: Record<string, string>
 };
 
 const metricsResponseCacheTtlMs = 500;
-let metricsResponseCache:
-  | {
-      body: string;
-      expiresAtMs: number;
-    }
-  | null = null;
+let metricsResponseCache: {
+  body: string;
+  expiresAtMs: number;
+} | null = null;
 
 export const getMetrics = (_request: Request, response: Response): void => {
   const nowMs = Date.now();
@@ -56,6 +55,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const bridgeLatency = getBridgeLatencyTraceMetricsSnapshot();
   const agentDataMaintenance = getAgentDataMaintenanceMetricsSnapshot();
   const restHttpRl = getRestHttpRateLimitMetricsSnapshot();
+  const restRateLimitRedis = getRestRateLimitRedisMetricsSnapshot();
   const registrationFlow = getRegistrationFlowMetricsSnapshot();
   const authAccount = getAuthAccountMetricsSnapshot();
   const clientMeAgents = getClientMeAgentsMetricsSnapshot();
@@ -112,6 +112,22 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_rest_http_rate_limit_client_me_agents_post_rejected_total",
       restHttpRl.clientMeAgentsPostRejectedTotal,
+    ),
+  );
+
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_redis_url_configured",
+      restRateLimitRedis.redisUrlConfigured,
+    ),
+  );
+  lines.push(
+    metricLine("plug_rest_http_rate_limit_redis_store_active", restRateLimitRedis.redisStoreActive),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_redis_fallback_events_total",
+      restRateLimitRedis.fallbackEventsTotal,
     ),
   );
 
@@ -353,11 +369,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
     }),
   );
   lines.push(
-    metricLine(
-      "plug_socket_consumers_active_connections",
-      consumerRuntime.activeConnections.user,
-      { principal_type: "user" },
-    ),
+    metricLine("plug_socket_consumers_active_connections", consumerRuntime.activeConnections.user, {
+      principal_type: "user",
+    }),
   );
   lines.push(
     metricLine(
@@ -402,32 +416,24 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
   lines.push(
-    metricLine(
-      "plug_socket_agents_auth_rejected_total",
-      agentRuntime.authRejects.missing_token,
-      { reason: "missing_token" },
-    ),
+    metricLine("plug_socket_agents_auth_rejected_total", agentRuntime.authRejects.missing_token, {
+      reason: "missing_token",
+    }),
   );
   lines.push(
-    metricLine(
-      "plug_socket_agents_auth_rejected_total",
-      agentRuntime.authRejects.invalid_token,
-      { reason: "invalid_token" },
-    ),
+    metricLine("plug_socket_agents_auth_rejected_total", agentRuntime.authRejects.invalid_token, {
+      reason: "invalid_token",
+    }),
   );
   lines.push(
-    metricLine(
-      "plug_socket_agents_auth_rejected_total",
-      agentRuntime.authRejects.role_denied,
-      { reason: "role_denied" },
-    ),
+    metricLine("plug_socket_agents_auth_rejected_total", agentRuntime.authRejects.role_denied, {
+      reason: "role_denied",
+    }),
   );
   lines.push(
-    metricLine(
-      "plug_socket_agents_auth_rejected_total",
-      agentRuntime.authRejects.blocked_account,
-      { reason: "blocked_account" },
-    ),
+    metricLine("plug_socket_agents_auth_rejected_total", agentRuntime.authRejects.blocked_account, {
+      reason: "blocked_account",
+    }),
   );
   lines.push(
     metricLine(
@@ -436,9 +442,14 @@ export const getMetrics = (_request: Request, response: Response): void => {
       { reason: "account_validation_error" },
     ),
   );
-  lines.push(metricLine("plug_agent_session_rejected_active_total", agentRuntime.sessionRejectedActiveTotal));
   lines.push(
-    metricLine("plug_agent_session_takeover_disconnect_total", agentRuntime.sessionTakeoverDisconnectTotal),
+    metricLine("plug_agent_session_rejected_active_total", agentRuntime.sessionRejectedActiveTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_session_takeover_disconnect_total",
+      agentRuntime.sessionTakeoverDisconnectTotal,
+    ),
   );
   lines.push(
     metricLine(
@@ -446,15 +457,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
       agentRuntime.sessionRegisterRateLimitedTotal,
     ),
   );
-  lines.push(
-    metricLine("plug_socket_consumers_guard_db_count", consumerRuntime.guardDb.count),
-  );
-  lines.push(
-    metricLine("plug_socket_consumers_guard_db_avg_ms", consumerRuntime.guardDb.avgMs),
-  );
-  lines.push(
-    metricLine("plug_socket_consumers_guard_db_max_ms", consumerRuntime.guardDb.maxMs),
-  );
+  lines.push(metricLine("plug_socket_consumers_guard_db_count", consumerRuntime.guardDb.count));
+  lines.push(metricLine("plug_socket_consumers_guard_db_avg_ms", consumerRuntime.guardDb.avgMs));
+  lines.push(metricLine("plug_socket_consumers_guard_db_max_ms", consumerRuntime.guardDb.maxMs));
   lines.push(
     metricLine(
       "plug_socket_consumers_commands_aborted_on_disconnect_total",

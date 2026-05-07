@@ -187,7 +187,9 @@ describe("Client auth registration approval flow", () => {
     expect(page.text).toContain(email);
     expect(page.text).toContain("Review Client");
 
-    const status = await request(app).get("/api/v1/client-auth/registration/status").query({ token });
+    const status = await request(app)
+      .get("/api/v1/client-auth/registration/status")
+      .query({ token });
     expect(status.status).toBe(200);
     expect(status.body.status).toBe("pending");
   });
@@ -318,11 +320,13 @@ describe("Client auth registration approval flow", () => {
   });
 
   it("returns generic 202 when client registration retry is not eligible", async () => {
-    const retryRes = await request(app).post("/api/v1/client-auth/registration/retry").send({
-      ownerEmail: `missing-owner-${Date.now()}@test.com`,
-      email: `missing-client-${Date.now()}@test.com`,
-      password: "ClientRegPwd1",
-    });
+    const retryRes = await request(app)
+      .post("/api/v1/client-auth/registration/retry")
+      .send({
+        ownerEmail: `missing-owner-${Date.now()}@test.com`,
+        email: `missing-client-${Date.now()}@test.com`,
+        password: "ClientRegPwd1",
+      });
     expect(retryRes.status).toBe(202);
     expect(retryRes.body.message).toBe("If eligible, a new approval request will be sent.");
   });
@@ -352,13 +356,17 @@ describe("Client auth registration approval flow", () => {
       .send({ token: registerRes.body.approvalToken });
     expect(rejectRes.status).toBe(200);
 
-    const wrongPasswordRetry = await request(app).post("/api/v1/client-auth/registration/retry").send({
-      ownerEmail: owner.email,
-      email,
-      password: "WrongPassword1",
-    });
+    const wrongPasswordRetry = await request(app)
+      .post("/api/v1/client-auth/registration/retry")
+      .send({
+        ownerEmail: owner.email,
+        email,
+        password: "WrongPassword1",
+      });
     expect(wrongPasswordRetry.status).toBe(202);
-    expect(wrongPasswordRetry.body.message).toBe("If eligible, a new approval request will be sent.");
+    expect(wrongPasswordRetry.body.message).toBe(
+      "If eligible, a new approval request will be sent.",
+    );
 
     const wrongOwnerRetry = await request(app).post("/api/v1/client-auth/registration/retry").send({
       ownerEmail: otherOwner.email,
@@ -638,15 +646,13 @@ describe("Client auth HTTP email validation", () => {
       suffix: `${Date.now()}-email-val`,
       emailPrefix: "client-owner",
     });
-    const response = await request(app)
-      .post("/api/v1/client-auth/register")
-      .send({
-        ownerEmail: owner.email,
-        email: "also-not-email",
-        password: "ClientRegPwd1",
-        name: "A",
-        lastName: "B",
-      });
+    const response = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email: "also-not-email",
+      password: "ClientRegPwd1",
+      name: "A",
+      lastName: "B",
+    });
 
     expect(response.status).toBe(400);
     expect(response.body.code).toBe("VALIDATION_ERROR");
@@ -662,11 +668,13 @@ describe("Client auth HTTP email validation", () => {
   });
 
   it("returns 400 when registration retry has invalid ownerEmail", async () => {
-    const response = await request(app).post("/api/v1/client-auth/registration/retry").send({
-      ownerEmail: "bad",
-      email: `some-${Date.now()}@test.com`,
-      password: "secret",
-    });
+    const response = await request(app)
+      .post("/api/v1/client-auth/registration/retry")
+      .send({
+        ownerEmail: "bad",
+        email: `some-${Date.now()}@test.com`,
+        password: "secret",
+      });
 
     expect(response.status).toBe(400);
     expect(response.body.code).toBe("VALIDATION_ERROR");

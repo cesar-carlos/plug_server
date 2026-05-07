@@ -2,10 +2,7 @@ import { Router } from "express";
 
 import { listMyAgents, listUserAgents } from "../controllers/user_agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
-import {
-  requireAuthAndActiveAccountSnapshot,
-  requireRole,
-} from "../middlewares/auth.middleware";
+import { requireAuthAndActiveAccountSnapshot, requireRole } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import { userIdParamSchema } from "../validators/user_agents.validator";
 

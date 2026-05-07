@@ -6,7 +6,11 @@ import type { AppError } from "../../../shared/errors/app_error";
 import { renderApprovalErrorPage } from "./approval_pages";
 import { normalizeZodIssues } from "../middlewares/validate.middleware";
 
-export type ApprovalErrorHtmlRoute = "client_access" | "user_registration" | "client_registration" | null;
+export type ApprovalErrorHtmlRoute =
+  | "client_access"
+  | "user_registration"
+  | "client_registration"
+  | null;
 
 const stripQuery = (url: string | undefined): string => {
   if (url === undefined || url === "") {
@@ -19,7 +23,10 @@ const routeFromPath = (urlPath: string): ApprovalErrorHtmlRoute => {
   if (urlPath.includes("/client-access/approve") || urlPath.includes("/client-access/reject")) {
     return "client_access";
   }
-  if (urlPath.includes("/auth/registration/approve") || urlPath.includes("/auth/registration/reject")) {
+  if (
+    urlPath.includes("/auth/registration/approve") ||
+    urlPath.includes("/auth/registration/reject")
+  ) {
     return "user_registration";
   }
   if (

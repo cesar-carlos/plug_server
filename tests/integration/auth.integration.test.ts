@@ -167,7 +167,10 @@ describe("Auth API", () => {
     });
 
     it("POST /api/v1/auth/registration/reject allows opaque Origin (email webviews)", async () => {
-      const rejectedUser = { email: `reject-origin-null-${Date.now()}@test.com`, password: "RejectOrig1" };
+      const rejectedUser = {
+        email: `reject-origin-null-${Date.now()}@test.com`,
+        password: "RejectOrig1",
+      };
       const reg = await request(app).post("/api/v1/auth/register").send(rejectedUser);
       expect(reg.status).toBe(201);
       const token = reg.body.approvalToken as string;
@@ -227,7 +230,10 @@ describe("Auth API", () => {
     });
 
     it("POST /api/v1/auth/registration/retry reopens rejected registrations generically", async () => {
-      const rejectedUser = { email: `retry-rejected-${Date.now()}@test.com`, password: "RetryReg1" };
+      const rejectedUser = {
+        email: `retry-rejected-${Date.now()}@test.com`,
+        password: "RetryReg1",
+      };
       const reg = await request(app).post("/api/v1/auth/register").send(rejectedUser);
       expect(reg.status).toBe(201);
       const token = reg.body.approvalToken as string;
@@ -236,9 +242,7 @@ describe("Auth API", () => {
       expect(reject.status).toBe(200);
       const beforeCount = emailSender.adminApprovalRequests.length;
 
-      const retry = await request(app)
-        .post("/api/v1/auth/registration/retry")
-        .send(rejectedUser);
+      const retry = await request(app).post("/api/v1/auth/registration/retry").send(rejectedUser);
       expect(retry.status).toBe(202);
       expect(retry.body.message).toBe("If eligible, a new approval request will be sent.");
       expect(emailSender.adminApprovalRequests.length).toBe(beforeCount + 1);
@@ -275,7 +279,9 @@ describe("Auth API", () => {
         .post("/api/v1/auth/registration/retry")
         .send({ email: rejectedUser.email, password: "WrongPassword1" });
       expect(wrongPasswordRetry.status).toBe(202);
-      expect(wrongPasswordRetry.body.message).toBe("If eligible, a new approval request will be sent.");
+      expect(wrongPasswordRetry.body.message).toBe(
+        "If eligible, a new approval request will be sent.",
+      );
 
       const activeUser = { email: `retry-active-${Date.now()}@test.com`, password: "RetryReg1" };
       const activeReg = await request(app).post("/api/v1/auth/register").send(activeUser);

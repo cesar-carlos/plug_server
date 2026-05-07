@@ -74,7 +74,10 @@ describe("E2E client-access public approval token", () => {
       const storedToken = await repositories.clientAgentAccessApprovalToken.findById(token!);
       expect(storedToken).toBeNull();
 
-      const storedAccess = await repositories.clientAgentAccess.hasAccess(client.clientId, ctx.agentId);
+      const storedAccess = await repositories.clientAgentAccess.hasAccess(
+        client.clientId,
+        ctx.agentId,
+      );
       expect(storedAccess).toBe(true);
     } finally {
       agentSocket.disconnect();

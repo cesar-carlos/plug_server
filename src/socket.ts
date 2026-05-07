@@ -182,19 +182,16 @@ const buildConsumerPrincipalRoom = (user: JwtAccessPayload | undefined): string 
 };
 
 const buildConsumerClientRoom = (user: JwtAccessPayload | undefined): string | null => {
-  return user?.principal_type === "client" &&
-    typeof user.sub === "string" &&
-    user.sub.trim() !== ""
+  return user?.principal_type === "client" && typeof user.sub === "string" && user.sub.trim() !== ""
     ? buildClientRoomName(user.sub)
     : null;
 };
 
 const joinConsumerIdentityRooms = async (socket: HubSocket): Promise<void> => {
   const user = socket.data.user;
-  const rooms = [
-    buildConsumerPrincipalRoom(user),
-    buildConsumerClientRoom(user),
-  ].filter((room): room is string => room !== null);
+  const rooms = [buildConsumerPrincipalRoom(user), buildConsumerClientRoom(user)].filter(
+    (room): room is string => room !== null,
+  );
   if (user?.principal_type === "client" && typeof user.sub === "string" && user.sub.trim() !== "") {
     const agentIds = await container.clientAgentAccessService.listApprovedAgentIds(user.sub);
     rooms.push(
@@ -255,7 +252,8 @@ const getCachedProfilePushRecipients = async (agentId: string): Promise<readonly
     return cached.clientIds;
   }
 
-  const clientIds = await container.clientAgentAccessService.listActiveApprovedClientIdsForAgent(agentId);
+  const clientIds =
+    await container.clientAgentAccessService.listActiveApprovedClientIdsForAgent(agentId);
   clientProfileRecipientsCacheByAgentId.set(agentId, {
     clientIds,
     expiresAtMs: Date.now() + clientAgentProfileRecipientsCacheTtlMs,

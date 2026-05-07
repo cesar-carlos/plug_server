@@ -26,7 +26,9 @@ vi.mock("../../../../../src/shared/di/container", () => ({
 import { container } from "../../../../../src/shared/di/container";
 
 const mockedVerifyAccessToken = vi.mocked(verifyAccessToken);
-const mockedGetActiveAccountUserSnapshot = vi.mocked(container.authService.getActiveAccountUserSnapshot);
+const mockedGetActiveAccountUserSnapshot = vi.mocked(
+  container.authService.getActiveAccountUserSnapshot,
+);
 
 const activeUserSnapshot = (id: string) =>
   ({

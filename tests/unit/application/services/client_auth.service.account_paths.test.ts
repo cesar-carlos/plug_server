@@ -52,9 +52,7 @@ class TestClientRepository extends InMemoryClientRepository {
   }
 }
 
-class TestClientRegistrationApprovalTokenRepository
-  implements IClientRegistrationApprovalTokenRepository
-{
+class TestClientRegistrationApprovalTokenRepository implements IClientRegistrationApprovalTokenRepository {
   private readonly store = new Map<string, ClientRegistrationApprovalToken>();
   private readonly tokenIdByClientId = new Map<string, string>();
   private readonly summaries = new Map<string, ClientRegistrationApprovalReviewSummaryRecord>();
@@ -73,7 +71,10 @@ class TestClientRegistrationApprovalTokenRepository
     this.tokenIdByClientId.set(token.clientId, token.id);
   }
 
-  async replaceForClientRetry(_client: Client, token: ClientRegistrationApprovalToken): Promise<void> {
+  async replaceForClientRetry(
+    _client: Client,
+    token: ClientRegistrationApprovalToken,
+  ): Promise<void> {
     await this.save(token);
   }
 
@@ -81,7 +82,9 @@ class TestClientRegistrationApprovalTokenRepository
     return this.store.get(id) ?? null;
   }
 
-  async findReviewSummaryById(id: string): Promise<ClientRegistrationApprovalReviewSummaryRecord | null> {
+  async findReviewSummaryById(
+    id: string,
+  ): Promise<ClientRegistrationApprovalReviewSummaryRecord | null> {
     return this.summaries.get(id) ?? null;
   }
 
@@ -148,7 +151,9 @@ const createEmailSender = (): MockEmailSender => {
   return sender;
 };
 
-const createClient = (overrides?: Partial<ConstructorParameters<typeof Client.create>[0]>): Client =>
+type ClientCreateInput = Parameters<typeof Client.create>[0];
+
+const createClient = (overrides?: Partial<ClientCreateInput>): Client =>
   Client.create({
     id: overrides?.id ?? "client-id",
     userId: overrides?.userId ?? "owner-id",
@@ -371,7 +376,9 @@ describe("ClientAuthService account and approval paths", () => {
     expect(await service.findManagedClient("blocked-owner-id", "client-id")).toMatchObject({
       ok: false,
     });
-    expect(await service.setManagedClientStatus("owner-id", "missing-client-id", "active")).toMatchObject({
+    expect(
+      await service.setManagedClientStatus("owner-id", "missing-client-id", "active"),
+    ).toMatchObject({
       ok: false,
     });
   });
@@ -450,7 +457,11 @@ describe("ClientAuthService account and approval paths", () => {
     const repeated = await service.setManagedClientStatus("owner-id", activeClient.id, "active");
     expect(repeated.ok).toBe(true);
 
-    const invalidPending = await service.setManagedClientStatus("owner-id", pendingClient.id, "blocked");
+    const invalidPending = await service.setManagedClientStatus(
+      "owner-id",
+      pendingClient.id,
+      "blocked",
+    );
     expect(invalidPending.ok).toBe(false);
     if (!invalidPending.ok) {
       expect(invalidPending.error.code).toBe("CONFLICT");
@@ -603,7 +614,10 @@ describe("ClientAuthService account and approval paths", () => {
     expect(stale.ok).toBe(false);
 
     service.invalidateSnapshotCache(activeClient.id);
-    await service.getActiveClientSnapshot(activeClient.id, activeClient.credentialsUpdatedAt.getTime());
+    await service.getActiveClientSnapshot(
+      activeClient.id,
+      activeClient.credentialsUpdatedAt.getTime(),
+    );
     expect(clientRepository.snapshotLookups).toBe(5);
   });
 
@@ -915,7 +929,9 @@ describe("ClientAuthService account and approval paths", () => {
   it("best-effort cleanup keeps register failure surfacing even when rollback steps fail", async () => {
     clientRepository.failOnDelete = true;
     registrationApprovalTokenRepository.failOnDelete = true;
-    emailSender.sendClientRegistrationRequestToOwner.mockRejectedValue(new Error("smtp hard failure"));
+    emailSender.sendClientRegistrationRequestToOwner.mockRejectedValue(
+      new Error("smtp hard failure"),
+    );
 
     await expect(
       service.register({

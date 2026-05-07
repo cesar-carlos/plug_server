@@ -122,7 +122,11 @@ describe("ClientAgentAccessService client_token audit", () => {
   });
 
   it("emits client_token.set audit with len + replacedExisting=false on first write", async () => {
-    const result = await service.setClientTokenForAgent(clientId, agentId, "secret-token-value-123");
+    const result = await service.setClientTokenForAgent(
+      clientId,
+      agentId,
+      "secret-token-value-123",
+    );
     expect(result.ok).toBe(true);
 
     expect(mockedAudit).toHaveBeenCalledTimes(1);
@@ -132,7 +136,10 @@ describe("ClientAgentAccessService client_token audit", () => {
     expect(call?.actorRole).toBe("client");
     expect(call?.direction).toBe("control");
     expect(call?.agentId).toBe(agentId);
-    expect(call?.payload).toEqual({ len: "secret-token-value-123".length, replacedExisting: false });
+    expect(call?.payload).toEqual({
+      len: "secret-token-value-123".length,
+      replacedExisting: false,
+    });
 
     const serialized = JSON.stringify(call);
     expect(serialized).not.toContain("secret-token-value-123");

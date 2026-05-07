@@ -29,9 +29,9 @@ describe("auth.validator email-related schemas", () => {
   });
 
   it("registerBodySchema rejects invalid email", () => {
-    expect(() =>
-      registerBodySchema.parse({ ...validRegister, email: "not-an-email" }),
-    ).toThrow("Must be a valid email address");
+    expect(() => registerBodySchema.parse({ ...validRegister, email: "not-an-email" })).toThrow(
+      "Must be a valid email address",
+    );
   });
 
   it("registrationRetryBodySchema lowercases email", () => {
@@ -43,9 +43,9 @@ describe("auth.validator email-related schemas", () => {
   });
 
   it("registrationRetryBodySchema rejects invalid email", () => {
-    expect(() =>
-      registrationRetryBodySchema.parse({ email: "bad", password: "x" }),
-    ).toThrow("Must be a valid email address");
+    expect(() => registrationRetryBodySchema.parse({ email: "bad", password: "x" })).toThrow(
+      "Must be a valid email address",
+    );
   });
 
   it("loginBodySchema rejects malformed email when email is provided", () => {
@@ -135,9 +135,9 @@ describe("client_auth.validator email-related schemas", () => {
   });
 
   it("clientLoginBodySchema rejects invalid email", () => {
-    expect(() =>
-      clientLoginBodySchema.parse({ email: "nope", password: "secret" }),
-    ).toThrow("Must be a valid email address");
+    expect(() => clientLoginBodySchema.parse({ email: "nope", password: "secret" })).toThrow(
+      "Must be a valid email address",
+    );
   });
 
   it("clientRegistrationRetryBodySchema lowercases both emails", () => {
@@ -178,9 +178,9 @@ describe("client_auth.validator email-related schemas", () => {
   });
 
   it("clientPasswordRecoveryRequestBodySchema rejects invalid email", () => {
-    expect(() =>
-      clientPasswordRecoveryRequestBodySchema.parse({ email: "bad" }),
-    ).toThrow("Must be a valid email address");
+    expect(() => clientPasswordRecoveryRequestBodySchema.parse({ email: "bad" })).toThrow(
+      "Must be a valid email address",
+    );
   });
 });
 
@@ -195,8 +195,8 @@ describe("client agent access HTTP schemas (no email on request body)", () => {
     expect(clientAgentAccessRequestIdParamSchema.parse({ requestId: id })).toEqual({
       requestId: id,
     });
-    expect(() =>
-      clientAgentAccessRequestIdParamSchema.parse({ requestId: "not-uuid" }),
-    ).toThrow("Must be a valid UUID");
+    expect(() => clientAgentAccessRequestIdParamSchema.parse({ requestId: "not-uuid" })).toThrow(
+      "Must be a valid UUID",
+    );
   });
 });

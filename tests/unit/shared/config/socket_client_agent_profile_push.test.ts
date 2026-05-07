@@ -24,7 +24,7 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
     vi.resetModules();
   });
 
-  it('defaults to true when SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED is unset', async () => {
+  it("defaults to true when SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED is unset", async () => {
     const env = await reloadEnv();
     expect(env.socketClientAgentProfilePushEnabled).toBe(true);
   });

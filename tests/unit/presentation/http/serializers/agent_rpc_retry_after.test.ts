@@ -23,7 +23,9 @@ describe("resolveAgentRpcRetryAfterSeconds", () => {
   it("returns null when response is not a normalized envelope", () => {
     expect(resolveAgentRpcRetryAfterSeconds(null)).toBeNull();
     expect(resolveAgentRpcRetryAfterSeconds("not-an-object")).toBeNull();
-    expect(resolveAgentRpcRetryAfterSeconds({ type: "raw", success: false, payload: {} })).toBeNull();
+    expect(
+      resolveAgentRpcRetryAfterSeconds({ type: "raw", success: false, payload: {} }),
+    ).toBeNull();
   });
 
   it("returns null when single response carries a non-rate-limit error", () => {

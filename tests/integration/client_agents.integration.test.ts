@@ -6,7 +6,11 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../../src/app";
 import { ClientAgentAccessRequest } from "../../src/domain/entities/client_agent_access_request.entity";
 import { env } from "../../src/shared/config/env";
-import { container, getTestNoopEmailSender, getTestRepositoryAccess } from "../../src/shared/di/container";
+import {
+  container,
+  getTestNoopEmailSender,
+  getTestRepositoryAccess,
+} from "../../src/shared/di/container";
 import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../src/shared/metrics/client_agent_access_public_decision.metrics";
 import { registerOwnerAndClientSession } from "./helpers/client_sessions";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
@@ -351,7 +355,7 @@ describe("Client agent access API", () => {
     expect(reviewResponse.status).toBe(200);
     expect(reviewResponse.headers["content-type"]).toContain("text/html");
     expect(reviewResponse.text).toContain("Este link é inválido");
-    expect(reviewResponse.text).not.toContain("method=\"post\"");
+    expect(reviewResponse.text).not.toContain('method="post"');
   });
 
   it("POST /api/v1/client-access/approve with form body returns friendly HTML for expired token", async () => {
@@ -594,7 +598,9 @@ describe("Client agent access API", () => {
     await repositories.client.save(client!.withStatus("blocked"));
 
     const token = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
-    const approveResponse = await request(app).post("/api/v1/client-access/approve").send({ token });
+    const approveResponse = await request(app)
+      .post("/api/v1/client-access/approve")
+      .send({ token });
 
     expect(approveResponse.status).toBe(403);
     expect(approveResponse.body.code).toBe("FORBIDDEN");
@@ -618,7 +624,9 @@ describe("Client agent access API", () => {
     await repositories.agent.save(agent.deactivate());
 
     const token = emailSender.clientAccessRequestsToOwner[sentBefore]?.approvalToken;
-    const approveResponse = await request(app).post("/api/v1/client-access/approve").send({ token });
+    const approveResponse = await request(app)
+      .post("/api/v1/client-access/approve")
+      .send({ token });
 
     expect(approveResponse.status).toBe(409);
     expect(approveResponse.body.code).toBe("CONFLICT");
@@ -766,8 +774,9 @@ describe("Client agent access API", () => {
 
   it("POST /api/v1/client/me/agent-access-requests/:requestId/retry debounces pending requests", async () => {
     const previousDebounceMs = env.clientAgentAccessRequestEmailDebounceMs;
-    (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
-      60_000;
+    (
+      env as { clientAgentAccessRequestEmailDebounceMs: number }
+    ).clientAgentAccessRequestEmailDebounceMs = 60_000;
     try {
       const { ownerUserId, clientAccessToken } = await registerOwnerAndClient();
       const agent = await seedAgent({
@@ -799,8 +808,9 @@ describe("Client agent access API", () => {
       expect(retry.body.debounced).toEqual([agent.agentId]);
       expect(emailSender.clientAccessRequestsToOwner.length).toBe(sentBefore);
     } finally {
-      (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
-        previousDebounceMs;
+      (
+        env as { clientAgentAccessRequestEmailDebounceMs: number }
+      ).clientAgentAccessRequestEmailDebounceMs = previousDebounceMs;
     }
   });
 

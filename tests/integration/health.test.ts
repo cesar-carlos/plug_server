@@ -99,9 +99,7 @@ describe("GET /api/v1/health", () => {
     expect(loginResponse.status).toBe(200);
     const userToken = loginResponse.body.accessToken as string;
 
-    const response = await request(app)
-      .get("/metrics")
-      .set("Authorization", `Bearer ${userToken}`);
+    const response = await request(app).get("/metrics").set("Authorization", `Bearer ${userToken}`);
 
     expect(response.status).toBe(403);
     expect(response.body.code).toBe("FORBIDDEN");

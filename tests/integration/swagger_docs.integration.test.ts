@@ -122,9 +122,7 @@ describe("Swagger docs", () => {
     ).toEqual(["ownerEmail", "email", "password"]);
     expect(
       response.body.paths?.["/client/me/agent-access-requests/{requestId}/retry"]?.post?.parameters,
-    ).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: "requestId", in: "path" })]),
-    );
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ name: "requestId", in: "path" })]));
     expect(response.body.paths?.["/me/agents"]?.get?.tags).toContain("User agents");
     expect(response.body.paths?.["/users/{userId}/agents"]?.get?.tags).toContain("User agents");
     expect(response.body.paths?.["/me/agents"]?.post).toBeUndefined();

@@ -44,10 +44,7 @@ const clientAccessDecisionHtml = (
   });
 };
 
-export const listMyClientAgents = async (
-  _request: Request,
-  response: Response,
-): Promise<void> => {
+export const listMyClientAgents = async (_request: Request, response: Response): Promise<void> => {
   const authClient = getAuthClient(response);
   const query = getValidated<ClientListAgentsQuery>(response, "query");
   const pageResult = await container.clientAgentAccessService.listApprovedAgentsPage(

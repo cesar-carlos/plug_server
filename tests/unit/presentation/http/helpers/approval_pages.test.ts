@@ -45,7 +45,7 @@ describe("approval_pages", () => {
       showActionForms: false,
       readOnlyMessage: "Link bad <script>x</script>",
     });
-    expect(html).not.toContain("method=\"post\"");
+    expect(html).not.toContain('method="post"');
     expect(html).toContain("Link bad &lt;script&gt;x&lt;/script&gt;");
   });
 

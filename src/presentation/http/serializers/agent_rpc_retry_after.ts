@@ -54,7 +54,14 @@ const collectErrorsFromNormalizedResponse = (
 ): readonly { code: number; data?: unknown }[] => {
   if (normalized.type === "single") {
     return normalized.item.error
-      ? [{ code: normalized.item.error.code, ...(normalized.item.error.data !== undefined ? { data: normalized.item.error.data } : {}) }]
+      ? [
+          {
+            code: normalized.item.error.code,
+            ...(normalized.item.error.data !== undefined
+              ? { data: normalized.item.error.data }
+              : {}),
+          },
+        ]
       : [];
   }
   if (normalized.type === "batch") {

@@ -4,6 +4,7 @@ import { env } from "../../../shared/config/env";
  * Fixed-window rate limit for Socket `agents:command` on `/consumers`.
  * Uses the same window and per-user cap as `POST /agents/commands` (`REST_AGENTS_COMMANDS_RATE_LIMIT_*`).
  * Counter is **independent** from the Express rate-limiter store (separate buckets per channel).
+ * When `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` is `0`, enforcement is off (always allows).
  */
 
 interface WindowState {
@@ -50,6 +51,10 @@ export const allowAgentsCommandSocket = (
   userSub: string | undefined,
   socketId: string,
 ): boolean => {
+  if (env.restAgentsCommandsRateLimitMax === 0) {
+    return true;
+  }
+
   const trimmed = userSub?.trim();
   const key = trimmed ? `agents_cmd:user:${trimmed}` : `agents_cmd:anon:${socketId}`;
   const state = ensureState(key);
@@ -62,10 +67,7 @@ export const allowAgentsCommandSocket = (
   return true;
 };
 
-export const refundAgentsCommandSocket = (
-  userSub: string | undefined,
-  socketId: string,
-): void => {
+export const refundAgentsCommandSocket = (userSub: string | undefined, socketId: string): void => {
   const trimmed = userSub?.trim();
   const key = trimmed ? `agents_cmd:user:${trimmed}` : `agents_cmd:anon:${socketId}`;
   const state = statesByKey.get(key);

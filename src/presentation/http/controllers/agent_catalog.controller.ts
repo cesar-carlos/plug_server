@@ -12,10 +12,7 @@ import { toAgentCatalogDto } from "../serializers/agent_catalog.serializer";
 
 export { toAgentCatalogDto };
 
-export const listAgents = async (
-  _request: Request,
-  response: Response,
-): Promise<void> => {
+export const listAgents = async (_request: Request, response: Response): Promise<void> => {
   const authUser = getAuthUser(response);
   const query = getValidated<ListAgentsQuery>(response, "query");
 
@@ -83,4 +80,3 @@ export const deactivateAgent = async (
   }
   response.status(200).json({ agent: toAgentCatalogDto(result.value) });
 };
-

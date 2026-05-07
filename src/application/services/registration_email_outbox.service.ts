@@ -621,8 +621,7 @@ export const startRegistrationEmailOutboxDeadLetterScheduler = (): void => {
     return;
   }
 
-  const intervalMs =
-    env.registrationEmailOutboxDeadLetterPruneIntervalMinutes * 60 * 1000;
+  const intervalMs = env.registrationEmailOutboxDeadLetterPruneIntervalMinutes * 60 * 1000;
 
   // Multi-replica safe: the advisory lock ensures only one replica runs the
   // DELETE per interval, even if all replicas tick concurrently.

@@ -40,7 +40,10 @@ class TestClientRegistrationApprovalTokenRepository implements IClientRegistrati
     this.tokenIdByClientId.set(token.clientId, token.id);
   }
 
-  async replaceForClientRetry(_client: Client, token: ClientRegistrationApprovalToken): Promise<void> {
+  async replaceForClientRetry(
+    _client: Client,
+    token: ClientRegistrationApprovalToken,
+  ): Promise<void> {
     await this.save(token);
   }
 
@@ -102,6 +105,7 @@ describe("ClientAuthService registration flow", () => {
         sendClientRegistrationRequestToOwner,
         sendClientRegistrationApproved,
         sendClientRegistrationRejected,
+        sendClientPasswordRecovery: async () => {},
       },
       {
         saveClientThumbnail: async () => ({

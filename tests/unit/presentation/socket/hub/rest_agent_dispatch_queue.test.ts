@@ -1,4 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../../../../src/shared/config/env")>();
+  return {
+    ...mod,
+    env: {
+      ...mod.env,
+      socketRestAgentMaxInflight: 32,
+      socketRestAgentMaxQueue: 64,
+      socketRestAgentQueueWaitMs: 200,
+    },
+  };
+});
 
 import {
   acquireRestAgentDispatchSlot,

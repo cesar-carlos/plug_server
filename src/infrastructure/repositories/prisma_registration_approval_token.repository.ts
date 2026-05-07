@@ -56,9 +56,7 @@ export class PrismaRegistrationApprovalTokenRepository implements IRegistrationA
     return this.toDomain(row);
   }
 
-  async findReviewSummaryById(
-    id: string,
-  ): Promise<RegistrationApprovalReviewSummaryRecord | null> {
+  async findReviewSummaryById(id: string): Promise<RegistrationApprovalReviewSummaryRecord | null> {
     const hashedId = hashRegistrationToken(id);
     const row = await prismaClient.registrationApprovalToken.findFirst({
       where: { OR: [{ id: hashedId }, { id }] },

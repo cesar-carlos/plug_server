@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const enqueueBridgeLatencyTrace = vi.fn();
 const recordBridgeLatencyTracePersistSkipped = vi.fn();
@@ -41,6 +41,13 @@ describe("bridge_latency_trace_builder", () => {
   });
 
   describe("BridgeLatencyTraceSession", () => {
+    beforeEach(() => {
+      vi.spyOn(Math, "random").mockReturnValue(0);
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
     it("does not enqueue finalize without dispatch meta", () => {
       const s = new BridgeLatencyTraceSession("rest", "user-1");
       expect(s.finalizeOnce({ outcome: "success", httpStatus: 200 })).toBe(false);
@@ -61,6 +68,8 @@ describe("bridge_latency_trace_builder", () => {
       expect(enqueueBridgeLatencyTrace).toHaveBeenCalledTimes(1);
       const row = enqueueBridgeLatencyTrace.mock.calls[0][0] as {
         phasesMs: Record<string, number>;
+        phasesSumMs: number;
+        phasesSchemaVersion: number;
         outcome: string;
         channel: string;
       };

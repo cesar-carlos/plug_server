@@ -10,10 +10,7 @@ describe("withRetry", () => {
   });
 
   it("retries and succeeds on second attempt", async () => {
-    const action = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("transient"))
-      .mockResolvedValue("ok");
+    const action = vi.fn().mockRejectedValueOnce(new Error("transient")).mockResolvedValue("ok");
     const result = await withRetry("op", action, { maxAttempts: 3, delayMs: 0 });
     expect(result).toBe("ok");
     expect(action).toHaveBeenCalledTimes(2);
@@ -50,10 +47,7 @@ describe("withRetry", () => {
 
   it("respects maxDelayMs cap", async () => {
     vi.useFakeTimers();
-    const action = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("fail"))
-      .mockResolvedValue("done");
+    const action = vi.fn().mockRejectedValueOnce(new Error("fail")).mockResolvedValue("done");
 
     const promise = withRetry("op", action, {
       maxAttempts: 2,

@@ -10,6 +10,7 @@ import {
   incrementRestHttpGlobalRateLimitRejected,
   incrementRestHttpTokenRefreshRateLimitRejected,
 } from "../../../application/services/rest_http_rate_limit_metrics.service";
+import { getRestHttpRateLimitStore } from "../../../infrastructure/redis/rest_rate_limit_redis";
 import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
@@ -28,79 +29,44 @@ const sendRateLimitResponse = async (
   }
 };
 
-export const globalRateLimit = rateLimit({
-  windowMs: env.restGlobalRateLimitWindowMs,
-  limit: env.restGlobalRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many requests, please try again later.",
-    code: "TOO_MANY_REQUESTS",
-  },
-  handler: async (request, response, _next, optionsUsed) => {
-    incrementRestHttpGlobalRateLimitRejected();
-    await sendRateLimitResponse(request, response, optionsUsed);
-  },
-});
-
-export const authRateLimit = rateLimit({
-  windowMs: env.restCredentialAuthRateLimitWindowMs,
-  limit: env.restCredentialAuthRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many authentication attempts, please try again later.",
-    code: "TOO_MANY_REQUESTS",
-  },
-  handler: async (request, response, _next, optionsUsed) => {
-    incrementRestHttpCredentialAuthRateLimitRejected();
-    await sendRateLimitResponse(request, response, optionsUsed);
-  },
-});
-
-const tokenRefreshAuthRateLimit = rateLimit({
-  windowMs: env.restTokenRefreshRateLimitWindowMs,
-  limit: env.restTokenRefreshRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many token refresh requests, please try again later.",
-    code: "TOO_MANY_REQUESTS",
-  },
-  handler: async (request, response, _next, optionsUsed) => {
-    incrementRestHttpTokenRefreshRateLimitRejected();
-    await sendRateLimitResponse(request, response, optionsUsed);
-  },
-});
-
-const isTestEnv = (): boolean =>
-  env.nodeEnv === "test" ||
-  process.env.VITEST === "true" ||
-  process.env.VITEST_WORKER_ID !== undefined;
-
-const passthrough: RequestHandler = (_req, _res, next) => {
-  next();
+const optionalStore = (): Pick<Options, "store"> | undefined => {
+  const store = getRestHttpRateLimitStore();
+  return store !== undefined ? { store } : undefined;
 };
 
-/**
- * Per-route limiter for **password and sensitive credential** auth endpoints
- * (`/login`, `/register`, `/agent-login`, `/logout`, `/registration/*`,
- * `/password-recovery/*`). Does **not** apply to `POST .../refresh` (see
- * `tokenRefreshRateLimit`). Applied per-route so `/auth/me`, `/auth/password`,
- * etc. are not affected.
- *
- * Auto-bypasses inside the test runner so existing integration tests do not
- * have to wait/reset windows between test cases.
- */
-export const credentialAuthRateLimit: RequestHandler = isTestEnv() ? passthrough : authRateLimit;
+export const globalRateLimitNotRegistered: RequestHandler = (_req, res) => {
+  res.status(500).json({
+    message: "HTTP rate limiters not initialized (call registerHttpRateLimits).",
+    code: "RATE_LIMIT_NOT_INITIALIZED",
+  });
+};
 
-/**
- * Per-route limiter for `POST /auth/refresh` and `POST /client-auth/refresh` only.
- * Uses `REST_TOKEN_REFRESH_RATE_LIMIT_*` (higher defaults than credential routes).
- */
-export const tokenRefreshRateLimit: RequestHandler = isTestEnv()
-  ? passthrough
-  : tokenRefreshAuthRateLimit;
+export let globalRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+export let credentialAuthRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+export let tokenRefreshRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+export let agentsCommandsIpRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+/** Per authenticated user (`JWT sub`) on `POST /agents/commands`. */
+export let agentsCommandsUserRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+/** @deprecated Same middleware as {@link agentsCommandsUserRateLimit}. */
+export let agentsCommandsRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+/** Per authenticated agent on `PATCH /agents/:agentId/profile`. */
+export let agentsSelfProfileRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+/** Per admin (`JWT sub`) on `PATCH /admin/users/:id/status`. */
+export let adminUserStatusRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+/** Per authenticated client (`JWT sub`) on `POST /client/me/agents`. */
+export let clientMeAgentsPostRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+export let clientThumbnailRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+export let clientPasswordRecoveryRequestRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
 const agentsCommandsTooManyMessage = {
   message: "Too many agent commands, please try again later.",
@@ -151,125 +117,204 @@ export const agentsSelfProfileRateLimitKey = (res: Response): string => {
   return "agents_self_profile:anonymous";
 };
 
-/**
- * Optional per-IP cap on `POST /agents/commands` (same window as user limiter).
- * Disabled when `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX` is `0`.
- * Runs after JWT auth (and active-account check); use Express `trust proxy` so `req.ip` reflects the client behind proxies.
- */
-export const agentsCommandsIpRateLimit: RequestHandler =
-  env.restAgentsCommandsRateLimitIpMax > 0
-    ? rateLimit({
-        windowMs: env.restAgentsCommandsRateLimitWindowMs,
-        limit: env.restAgentsCommandsRateLimitIpMax,
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: agentsCommandsTooManyMessage,
-        keyGenerator: (req: Request) => agentsCommandsIpRateLimitKey(req),
-        handler: async (request, response, _next, optionsUsed) => {
-          incrementRestHttpAgentsCommandsIpRateLimitRejected();
-          await sendRateLimitResponse(request, response, optionsUsed);
-        },
-      })
-    : (((_req: Request, _res: Response, next) => {
-        next();
-      }) as RequestHandler);
+const isTestEnv = (): boolean =>
+  env.nodeEnv === "test" ||
+  process.env.VITEST === "true" ||
+  process.env.VITEST_WORKER_ID !== undefined;
 
-/**
- * Per authenticated user (`JWT sub`) on `POST /agents/commands`.
- * Must run after auth middleware so `response.locals.authUser` is set.
- */
-export const agentsCommandsUserRateLimit = rateLimit({
-  windowMs: env.restAgentsCommandsRateLimitWindowMs,
-  limit: env.restAgentsCommandsRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: agentsCommandsTooManyMessage,
-  keyGenerator: (_req: Request, res: Response) => agentsCommandsUserRateLimitKey(res),
-  handler: async (request, response, _next, optionsUsed) => {
-    incrementRestHttpAgentsCommandsUserRateLimitRejected();
-    await sendRateLimitResponse(request, response, optionsUsed);
-  },
-});
-
-/**
- * Per authenticated agent on `PATCH /agents/:agentId/profile`.
- * Reuses the same window/max defaults as the agent command bridge but keeps an independent bucket.
- */
-export const agentsSelfProfileRateLimit = rateLimit({
-  windowMs: env.restAgentsCommandsRateLimitWindowMs,
-  limit: env.restAgentsCommandsRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: agentSelfProfileTooManyMessage,
-  keyGenerator: (_req: Request, res: Response) => agentsSelfProfileRateLimitKey(res),
-  handler: async (request, response, _next, optionsUsed) => {
-    await sendRateLimitResponse(request, response, optionsUsed);
-  },
-});
-
-/** @deprecated Use `agentsCommandsUserRateLimit` (and optionally `agentsCommandsIpRateLimit`). */
-export const agentsCommandsRateLimit = agentsCommandsUserRateLimit;
-
-/**
- * Per admin (`JWT sub`) on `PATCH /admin/users/:id/status`.
- * Runs after JWT + active-account middleware so `response.locals.authUser` is set.
- */
-export const adminUserStatusRateLimit = rateLimit({
-  windowMs: env.restAdminUserStatusRateLimitWindowMs,
-  limit: env.restAdminUserStatusRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many user status updates, please try again later.",
-    code: "TOO_MANY_REQUESTS",
-  },
-  keyGenerator: (_req: Request, res: Response) => adminUserStatusRateLimitKey(res),
-  handler: async (request, response, _next, optionsUsed) => {
-    incrementRestHttpAdminUserStatusRateLimitRejected();
-    await sendRateLimitResponse(request, response, optionsUsed);
-  },
-});
-
-const clientMeAgentsPostTooManyMessage = {
-  message: "Too many client agent access requests, please try again later.",
-  code: "TOO_MANY_REQUESTS",
+const passthrough: RequestHandler = (_req, _res, next) => {
+  next();
 };
 
 /**
- * Per authenticated client (`JWT sub`) on `POST /client/me/agents`.
- * Runs after client auth + active-account middleware so `response.locals.authClient` is set.
+ * Builds all `express-rate-limit` middlewares. Must run once before `createApp()` (after optional
+ * {@link initRestHttpRateLimitRedis} in production). Vitest setup calls this from `tests/setup/vitest.rate_limits.ts`.
+ *
+ * For each `REST_*_RATE_LIMIT_MAX` (and related `REST_CLIENT_*` limits), **`0` means unlimited**
+ * (middleware becomes a no-op for that route group).
  */
-export const clientMeAgentsPostRateLimit = rateLimit({
-  windowMs: env.restClientMeAgentsPostRateLimitWindowMs,
-  limit: env.restClientMeAgentsPostRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: clientMeAgentsPostTooManyMessage,
-  keyGenerator: (_req: Request, res: Response) => clientMeAgentsPostRateLimitKey(res),
-  handler: async (request, response, _next, optionsUsed) => {
-    incrementRestHttpClientMeAgentsPostRateLimitRejected();
-    await sendRateLimitResponse(request, response, optionsUsed);
-  },
-});
+export function registerHttpRateLimits(): void {
+  const storeOpts = optionalStore();
 
-export const clientThumbnailRateLimit = rateLimit({
-  windowMs: env.restClientThumbnailRateLimitWindowMs,
-  limit: env.restClientThumbnailRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many thumbnail uploads, please try again later.",
-    code: "TOO_MANY_REQUESTS",
-  },
-});
+  globalRateLimit =
+    env.restGlobalRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restGlobalRateLimitWindowMs,
+          limit: env.restGlobalRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many requests, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpGlobalRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
 
-export const clientPasswordRecoveryRequestRateLimit = rateLimit({
-  windowMs: env.restClientPasswordRecoveryRateLimitWindowMs,
-  limit: env.restClientPasswordRecoveryRateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Too many password recovery requests, please try again later.",
-    code: "TOO_MANY_REQUESTS",
-  },
-});
+  const authRateLimit =
+    env.restCredentialAuthRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restCredentialAuthRateLimitWindowMs,
+          limit: env.restCredentialAuthRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many authentication attempts, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpCredentialAuthRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  const tokenRefreshAuthRateLimit =
+    env.restTokenRefreshRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restTokenRefreshRateLimitWindowMs,
+          limit: env.restTokenRefreshRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many token refresh requests, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpTokenRefreshRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  credentialAuthRateLimit = isTestEnv() ? passthrough : authRateLimit;
+  tokenRefreshRateLimit = isTestEnv() ? passthrough : tokenRefreshAuthRateLimit;
+
+  agentsCommandsIpRateLimit =
+    env.restAgentsCommandsRateLimitIpMax > 0
+      ? rateLimit({
+          windowMs: env.restAgentsCommandsRateLimitWindowMs,
+          limit: env.restAgentsCommandsRateLimitIpMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: agentsCommandsTooManyMessage,
+          keyGenerator: (req: Request) => agentsCommandsIpRateLimitKey(req),
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpAgentsCommandsIpRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        })
+      : passthrough;
+
+  agentsCommandsUserRateLimit =
+    env.restAgentsCommandsRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restAgentsCommandsRateLimitWindowMs,
+          limit: env.restAgentsCommandsRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: agentsCommandsTooManyMessage,
+          keyGenerator: (_req: Request, res: Response) => agentsCommandsUserRateLimitKey(res),
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpAgentsCommandsUserRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  agentsSelfProfileRateLimit =
+    env.restAgentsCommandsRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restAgentsCommandsRateLimitWindowMs,
+          limit: env.restAgentsCommandsRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: agentSelfProfileTooManyMessage,
+          keyGenerator: (_req: Request, res: Response) => agentsSelfProfileRateLimitKey(res),
+          handler: async (request, response, _next, optionsUsed) => {
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  adminUserStatusRateLimit =
+    env.restAdminUserStatusRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restAdminUserStatusRateLimitWindowMs,
+          limit: env.restAdminUserStatusRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many user status updates, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          keyGenerator: (_req: Request, res: Response) => adminUserStatusRateLimitKey(res),
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpAdminUserStatusRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  clientMeAgentsPostRateLimit =
+    env.restClientMeAgentsPostRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restClientMeAgentsPostRateLimitWindowMs,
+          limit: env.restClientMeAgentsPostRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many client agent access requests, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          keyGenerator: (_req: Request, res: Response) => clientMeAgentsPostRateLimitKey(res),
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpClientMeAgentsPostRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  clientThumbnailRateLimit =
+    env.restClientThumbnailRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restClientThumbnailRateLimitWindowMs,
+          limit: env.restClientThumbnailRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many thumbnail uploads, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+        });
+
+  clientPasswordRecoveryRequestRateLimit =
+    env.restClientPasswordRecoveryRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restClientPasswordRecoveryRateLimitWindowMs,
+          limit: env.restClientPasswordRecoveryRateLimitMax,
+          ...(storeOpts ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many password recovery requests, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+        });
+
+  agentsCommandsRateLimit = agentsCommandsUserRateLimit;
+}

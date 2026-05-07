@@ -94,8 +94,9 @@ describe("ClientAgentAccessService", () => {
   let service: ClientAgentAccessService;
 
   beforeEach(async () => {
-    (env as { clientAgentAccessRequestEmailDebounceMs: number }).clientAgentAccessRequestEmailDebounceMs =
-      60_000;
+    (
+      env as { clientAgentAccessRequestEmailDebounceMs: number }
+    ).clientAgentAccessRequestEmailDebounceMs = 60_000;
 
     userRepository = new InMemoryUserRepository();
     clientRepository = new InMemoryClientRepository();
@@ -1079,11 +1080,15 @@ describe("ClientAgentAccessService", () => {
 
   describe("approval transaction failures", () => {
     class BoomTxn implements IClientAgentAccessApprovalTxn {
-      async approvePendingAndGrantAccess(_input: ClientAgentAccessApproveTxnInput): Promise<boolean> {
+      async approvePendingAndGrantAccess(
+        _input: ClientAgentAccessApproveTxnInput,
+      ): Promise<boolean> {
         throw new Error("simulated txn failure");
       }
 
-      async rejectPendingAndConsumeToken(_input: ClientAgentAccessRejectTxnInput): Promise<boolean> {
+      async rejectPendingAndConsumeToken(
+        _input: ClientAgentAccessRejectTxnInput,
+      ): Promise<boolean> {
         throw new Error("simulated txn failure");
       }
     }

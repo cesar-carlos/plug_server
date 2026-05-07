@@ -58,10 +58,7 @@ export const errorMiddleware = (
     if (shouldReturnHtmlForApprovalError(request) && !response.headersSent) {
       const built = buildApprovalErrorHtml(request, error, requestId);
       if (built) {
-        response
-          .status(built.statusCode)
-          .type("html")
-          .send(built.html);
+        response.status(built.statusCode).type("html").send(built.html);
         return;
       }
     }

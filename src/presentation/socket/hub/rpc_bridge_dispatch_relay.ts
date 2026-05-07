@@ -25,10 +25,7 @@ import {
   payloadFrameEncodeOptionsFromPreference,
 } from "../../../shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
-import {
-  getActiveStreamRouteByRequestId,
-  removeActiveStreamRoute,
-} from "./active_stream_registry";
+import { getActiveStreamRouteByRequestId, removeActiveStreamRoute } from "./active_stream_registry";
 import {
   ensureAgentCircuitClosed,
   logRpcFrameDecodeFailure,
@@ -63,10 +60,7 @@ import {
   resolveOutboundApiVersion,
   sanitizeOutboundRpcMeta,
 } from "./rpc_bridge_command_helpers";
-import {
-  emitRelayTimeoutResponse,
-  type EmitToConsumerFn,
-} from "./rpc_bridge_relay_stream";
+import { emitRelayTimeoutResponse, type EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 import type {
   PreparedAgentStreamPull,
   RequestAgentStreamPullInput,
@@ -374,10 +368,14 @@ export const createRpcBridgeRelayDispatch = (
     trace?.addPhaseMs("relay_preflight_ms", performance.now() - relayPreflightStart);
 
     if (clientRequestId) {
-      const idempotencyResult = setRelayIdempotencyEntry(conversation.conversationId, clientRequestId, {
-        requestId,
-        expiresAtMs: Date.now() + relayIdempotencyTtlMs,
-      });
+      const idempotencyResult = setRelayIdempotencyEntry(
+        conversation.conversationId,
+        clientRequestId,
+        {
+          requestId,
+          expiresAtMs: Date.now() + relayIdempotencyTtlMs,
+        },
+      );
       if (!idempotencyResult.ok) {
         throw serviceUnavailable(
           idempotencyResult.reason === "global_cap_reached"

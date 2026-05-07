@@ -108,7 +108,8 @@ let auditBatchDebounceTimer: NodeJS.Timeout | null = null;
 /** Chains flush work so concurrent producers do not drop batches. */
 let auditFlushChain: Promise<void> = Promise.resolve();
 
-const getAuditEventQueueLength = (): number => Math.max(0, auditEventQueue.length - auditEventQueueHead);
+const getAuditEventQueueLength = (): number =>
+  Math.max(0, auditEventQueue.length - auditEventQueueHead);
 
 const compactAuditEventQueue = (): void => {
   if (auditEventQueueHead === 0) {

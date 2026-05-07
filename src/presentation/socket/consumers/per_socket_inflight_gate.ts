@@ -32,9 +32,7 @@ export const tryAcquireSocketInflightSlot = (
   if (max <= 0) {
     return true;
   }
-  const ctx =
-    socket.data.inflightCounter ??
-    (socket.data.inflightCounter = { inflightCount: 0 });
+  const ctx = socket.data.inflightCounter ?? (socket.data.inflightCounter = { inflightCount: 0 });
   if (ctx.inflightCount >= max) {
     return false;
   }

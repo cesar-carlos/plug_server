@@ -7,6 +7,7 @@ import { defineConfig } from "vitest/config";
  */
 export default defineConfig({
   test: {
+    setupFiles: ["tests/setup/vitest.rate_limits.ts"],
     globals: true,
     environment: "node",
     root: ".",

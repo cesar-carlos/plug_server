@@ -91,30 +91,48 @@ const envSchema = z.object({
   CLIENT_THUMBNAIL_HEIGHT: z.coerce.number().int().positive().max(4096).default(256),
   CLIENT_THUMBNAIL_WEBP_QUALITY: z.coerce.number().int().min(1).max(100).default(82),
   REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
-  REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  /** `0` = unlimited (middleware skips counting). */
+  REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(20),
   /** Global rate-limit applied to every `/api/v1` request (per IP). */
   REST_GLOBAL_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
-  REST_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
+  /** `0` = unlimited. */
+  REST_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(300),
   /**
    * Per-IP rate-limit for credential-handling endpoints (password-based):
    * `/login`, `/register`, `/agent-login`, `/registration/*`, `/password-recovery/*`, `/logout`.
    * Token rotation (`POST .../refresh`) uses `REST_TOKEN_REFRESH_RATE_LIMIT_*` instead.
    */
   REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
-  REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(25),
+  /** `0` = unlimited. */
+  REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(25),
   /**
    * Per-IP rate-limit for `POST /auth/refresh` and `POST /client-auth/refresh` only.
    * Higher defaults than credential routes so many agents behind one NAT can rotate access tokens after outages.
    */
   REST_TOKEN_REFRESH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
-  REST_TOKEN_REFRESH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(400),
+  /** `0` = unlimited. */
+  REST_TOKEN_REFRESH_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(400),
+  /**
+   * Optional Redis URL for HTTP rate limits (`express-rate-limit` + `rate-limit-redis`).
+   * Empty = default in-memory store (per process). Set when multiple hub replicas share HTTP limits.
+   */
+  REST_RATE_LIMIT_REDIS_URL: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
   /** Per client JWT `sub` on `POST /api/v1/client/me/agents`. */
   REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS: z.coerce
     .number()
     .int()
     .positive()
     .default(900_000),
-  REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  /** `0` = unlimited. */
+  REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(60),
   /**
    * When > 0, a second `POST /client/me/agents` for the same agent while the request is still `pending`
    * and `requestedAt` is within this many ms does not re-email the owner (returns `debounced`).
@@ -136,7 +154,13 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(300_000),
-  REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  /** `0` = unlimited. */
+  REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(10),
   DATABASE_URL: z.string().min(1),
   JWT_ACCESS_SECRET: z.string().min(16).default("change-me-access-development"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
@@ -316,7 +340,12 @@ const envSchema = z.object({
    * Sliding window for rate-limiting `agent:register` attempts per `(userId, agentId)` pair.
    * `0` on window or max disables this limiter (recommended default).
    */
-  SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(0).max(600_000).default(0),
+  SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(600_000)
+    .default(0),
   /** Max `agent:register` attempts per window per `(userId, agentId)`. `0` disables. */
   SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(100_000).default(0),
   /**
@@ -421,9 +450,29 @@ const envSchema = z.object({
   /** `0` disables overload shedding by outbound queue p95 duration. */
   SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS: z.coerce.number().int().min(0).default(250),
   SOCKET_RELAY_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(10_000),
-  SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS: z.coerce.number().int().positive().default(8),
-  SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(64),
-  SOCKET_RELAY_RATE_LIMIT_MAX_STREAM_PULL_CREDITS: z.coerce.number().int().positive().default(1000),
+  /**
+   * Per consumer identity per {@link SOCKET_RELAY_RATE_LIMIT_WINDOW_MS}. `0` disables this limiter
+   * (conversation starts are always allowed; counters are not incremented for enforcement).
+   */
+  SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(8),
+  /**
+   * Per consumer identity per window. `0` disables (relay RPC requests are always allowed).
+   */
+  SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(0).max(10_000_000).default(64),
+  /**
+   * Credits granted per window for `relay:rpc.stream.pull`. `0` disables (pulls are not credit-limited).
+   */
+  SOCKET_RELAY_RATE_LIMIT_MAX_STREAM_PULL_CREDITS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(1000),
   SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER: z.coerce.number().positive().default(3),
   /**
    * Transitional handshake compatibility mode for `connection:ready`.
@@ -433,8 +482,14 @@ const envSchema = z.object({
     .enum(["payload_frame", "raw_json"])
     .default("payload_frame"),
   SOCKET_REST_MAX_PENDING_REQUESTS: z.coerce.number().int().positive().default(10_000),
-  SOCKET_REST_AGENT_MAX_INFLIGHT: z.coerce.number().int().positive().default(32),
-  SOCKET_REST_AGENT_MAX_QUEUE: z.coerce.number().int().nonnegative().default(64),
+  /**
+   * Max concurrent REST→agent RPC dispatches per agent id. `0` = unlimited (no wait queue enforcement).
+   */
+  SOCKET_REST_AGENT_MAX_INFLIGHT: z.coerce.number().int().min(0).max(10_000).default(32),
+  /**
+   * Max waiters when inflight is saturated. `0` = unlimited queue depth (still subject to wait timeout).
+   */
+  SOCKET_REST_AGENT_MAX_QUEUE: z.coerce.number().int().min(0).max(1_000_000).default(64),
   SOCKET_REST_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(200),
   /** Window size for automatic `rpc:stream.pull` when the REST bridge materializes a streaming `sql.execute` result. */
   SOCKET_REST_STREAM_PULL_WINDOW_SIZE: z.coerce.number().int().positive().max(10_000).default(256),
@@ -584,8 +639,8 @@ const envSchema = z.object({
     .default("true")
     .transform((v) => v === "true"),
   REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
-  /** Max requests per window per authenticated user (JWT `sub`). */
-  REST_AGENTS_COMMANDS_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  /** Max requests per window per authenticated user (JWT `sub`). `0` = unlimited (HTTP + socket consumer). */
+  REST_AGENTS_COMMANDS_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(100),
   /**
    * Optional second limiter on `POST /agents/commands` keyed by `req.ip` (same window as above).
    * `0` disables. Use behind `trust proxy` when the server is behind a reverse proxy.
@@ -615,8 +670,8 @@ const envSchema = z.object({
   PRINCIPAL_SNAPSHOT_CACHE_MAX_SIZE: z.coerce.number().int().min(0).default(2_000),
   /** Window for `PATCH /admin/users/:id/status` per admin (`JWT sub`). */
   REST_ADMIN_USER_STATUS_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
-  /** Max status changes per window per admin. */
-  REST_ADMIN_USER_STATUS_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  /** Max status changes per window per admin. `0` = unlimited. */
+  REST_ADMIN_USER_STATUS_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(60),
   BRIDGE_LOG_JSONRPC_AUTO_ID: z
     .enum(["true", "false"])
     .default("false")
@@ -758,6 +813,7 @@ export const env = {
   restCredentialAuthRateLimitMax: parsedEnv.REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX,
   restTokenRefreshRateLimitWindowMs: parsedEnv.REST_TOKEN_REFRESH_RATE_LIMIT_WINDOW_MS,
   restTokenRefreshRateLimitMax: parsedEnv.REST_TOKEN_REFRESH_RATE_LIMIT_MAX,
+  restRateLimitRedisUrl: parsedEnv.REST_RATE_LIMIT_REDIS_URL,
   restClientMeAgentsPostRateLimitWindowMs:
     parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS,
   restClientMeAgentsPostRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX,

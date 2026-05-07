@@ -79,11 +79,7 @@ export const agentsRouter = Router();
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-agentsRouter.get(
-  "/",
-  ...requireAuthAndActiveAccountSnapshot,
-  asyncHandler(listConnectedAgents),
-);
+agentsRouter.get("/", ...requireAuthAndActiveAccountSnapshot, asyncHandler(listConnectedAgents));
 
 /**
  * @openapi

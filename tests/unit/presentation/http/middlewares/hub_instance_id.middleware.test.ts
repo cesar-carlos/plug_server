@@ -15,9 +15,8 @@ describe("hubInstanceIdMiddleware", () => {
       env: { hubInstanceId: "hub-pod-7" },
     }));
 
-    const { hubInstanceIdMiddleware } = await import(
-      "../../../../../src/presentation/http/middlewares/hub_instance_id.middleware"
-    );
+    const { hubInstanceIdMiddleware } =
+      await import("../../../../../src/presentation/http/middlewares/hub_instance_id.middleware");
 
     const response = makeResponse();
     const next = vi.fn() as NextFunction;
@@ -34,9 +33,8 @@ describe("hubInstanceIdMiddleware", () => {
       env: { hubInstanceId: "  hub-pod-2 \n" },
     }));
 
-    const { hubInstanceIdMiddleware } = await import(
-      "../../../../../src/presentation/http/middlewares/hub_instance_id.middleware"
-    );
+    const { hubInstanceIdMiddleware } =
+      await import("../../../../../src/presentation/http/middlewares/hub_instance_id.middleware");
 
     const response = makeResponse();
     const next = vi.fn() as NextFunction;
@@ -53,9 +51,8 @@ describe("hubInstanceIdMiddleware", () => {
       env: { hubInstanceId: "" },
     }));
 
-    const { hubInstanceIdMiddleware } = await import(
-      "../../../../../src/presentation/http/middlewares/hub_instance_id.middleware"
-    );
+    const { hubInstanceIdMiddleware } =
+      await import("../../../../../src/presentation/http/middlewares/hub_instance_id.middleware");
 
     const response = makeResponse();
     const next = vi.fn() as NextFunction;
@@ -72,9 +69,8 @@ describe("hubInstanceIdMiddleware", () => {
       env: { hubInstanceId: "   \t  " },
     }));
 
-    const { hubInstanceIdMiddleware } = await import(
-      "../../../../../src/presentation/http/middlewares/hub_instance_id.middleware"
-    );
+    const { hubInstanceIdMiddleware } =
+      await import("../../../../../src/presentation/http/middlewares/hub_instance_id.middleware");
 
     const response = makeResponse();
     const next = vi.fn() as NextFunction;

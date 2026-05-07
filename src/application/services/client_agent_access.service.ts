@@ -1016,9 +1016,7 @@ export class ClientAgentAccessService {
     } catch (error: unknown) {
       this.logAccessTxnFailure("approve_by_owner", error);
       return err(
-        serviceUnavailable(
-          "Não foi possível concluir a aprovação. Tente novamente em instantes.",
-        ),
+        serviceUnavailable("Não foi possível concluir a aprovação. Tente novamente em instantes."),
       );
     }
     if (!granted) {
@@ -1057,9 +1055,7 @@ export class ClientAgentAccessService {
     } catch (error: unknown) {
       this.logAccessTxnFailure("reject_by_owner", error);
       return err(
-        serviceUnavailable(
-          "Não foi possível concluir a recusa. Tente novamente em instantes.",
-        ),
+        serviceUnavailable("Não foi possível concluir a recusa. Tente novamente em instantes."),
       );
     }
     if (!rejected) {
@@ -1171,10 +1167,7 @@ export class ClientAgentAccessService {
     agentId: string,
     clientToken: string | null,
   ): Promise<Result<{ clientToken: string | null }>> {
-    const existing = await this.clientAgentAccessRepository.findByClientAndAgent(
-      clientId,
-      agentId,
-    );
+    const existing = await this.clientAgentAccessRepository.findByClientAndAgent(clientId, agentId);
     if (!existing) {
       return err(agentAccessDenied(agentId));
     }

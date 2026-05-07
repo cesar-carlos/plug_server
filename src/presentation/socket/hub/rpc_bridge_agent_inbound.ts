@@ -457,7 +457,9 @@ export const createRpcBridgeAgentInboundHandlers = (
       const decoded = result.value;
       const frameRequestId = toRequestId(decoded.frame.requestId);
       const responseIds = pickResponseIds(decoded.data);
-      const candidateIds = Array.from(new Set([...responseIds, ...(frameRequestId ? [frameRequestId] : [])]));
+      const candidateIds = Array.from(
+        new Set([...responseIds, ...(frameRequestId ? [frameRequestId] : [])]),
+      );
 
       if (candidateIds.length === 0) {
         return;
@@ -485,7 +487,9 @@ export const createRpcBridgeAgentInboundHandlers = (
           const materializeMaxRows = env.socketRestSqlStreamMaterializeMaxRows;
           const materializeMaxChunks = env.socketRestSqlStreamMaterializeMaxChunks;
           const materializeMaxBytes = env.socketRestSqlStreamMaterializeMaxBytes;
-          const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(pendingRequest.agentId);
+          const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(
+            pendingRequest.agentId,
+          );
           if (countOpenStreamRoutesForAgent(socketId) >= effectivePolicy.maxConcurrentStreams) {
             relayMetrics.restMaterializeActiveStreamLimitExceeded += 1;
             registerAgentFailure(pendingRequest.agentId);
@@ -614,9 +618,7 @@ export const createRpcBridgeAgentInboundHandlers = (
               } catch (err) {
                 const mergeError =
                   err instanceof Error ? err : new Error("Failed to merge SQL stream");
-                if (
-                  mergeError.message.startsWith("Agent SQL stream ended with terminal_status=")
-                ) {
+                if (mergeError.message.startsWith("Agent SQL stream ended with terminal_status=")) {
                   rejectOnce(serviceUnavailable(mergeError.message));
                   return;
                 }

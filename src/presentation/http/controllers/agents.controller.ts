@@ -48,10 +48,7 @@ const resolveAgentAccessPrincipal = (
     ? { type: "client", id: sub }
     : { type: "user", id: sub, ...(role !== undefined ? { role } : {}) };
 
-export const listConnectedAgents = async (
-  _request: Request,
-  response: Response,
-): Promise<void> => {
+export const listConnectedAgents = async (_request: Request, response: Response): Promise<void> => {
   const authUser = getAuthUser(response);
   let agents = agentRegistry.listAll();
 

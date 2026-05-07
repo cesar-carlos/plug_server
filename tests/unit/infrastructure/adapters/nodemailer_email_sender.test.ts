@@ -48,7 +48,7 @@ describe("NodemailerEmailSender", () => {
     await sender.sendClientAccessRequestToOwner({
       ownerEmail: "owner@example.com",
       clientEmail: 'client+"bad"@example.com',
-      clientName: '<Client>',
+      clientName: "<Client>",
       clientLastName: '"Name"',
       agentId: "agent-123",
       approvalToken: 'tok"&<>',

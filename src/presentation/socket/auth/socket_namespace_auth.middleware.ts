@@ -13,7 +13,10 @@ import { noteAgentSocketAuthRejected } from "../../../shared/metrics/socket_agen
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { verifyAccessToken } from "../../../shared/utils/jwt";
 
-import { assertJwtUserAccountActive, ensureJwtUserAccountActive } from "./ensure_socket_active_account";
+import {
+  assertJwtUserAccountActive,
+  ensureJwtUserAccountActive,
+} from "./ensure_socket_active_account";
 
 import type { SocketAccountSnapshot } from "./ensure_socket_active_account";
 

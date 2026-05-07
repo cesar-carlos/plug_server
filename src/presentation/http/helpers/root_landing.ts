@@ -6,11 +6,9 @@ import type { RootLandingLangConfig } from "../../../shared/config/env";
 export type RootLandingLang = "pt" | "en";
 
 /** Cache for HTML landing; `stale-while-revalidate` helps CDNs while `APP_NAME` is stable. */
-export const ROOT_LANDING_HTML_CACHE_CONTROL =
-  "public, max-age=600, stale-while-revalidate=86400";
+export const ROOT_LANDING_HTML_CACHE_CONTROL = "public, max-age=600, stale-while-revalidate=86400";
 
-export const SITE_WEBMANIFEST_CACHE_CONTROL =
-  "public, max-age=3600, stale-while-revalidate=86400";
+export const SITE_WEBMANIFEST_CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=86400";
 
 const INTERNAL_RELATIVE = path.join(".internal");
 
@@ -58,7 +56,7 @@ export const pickRootLandingTemplate = (
   templates: RootLandingTemplates,
   lang: RootLandingLang,
 ): string | undefined =>
-  (lang === "en" ? templates.en ?? templates.pt : templates.pt ?? templates.en) ?? undefined;
+  (lang === "en" ? (templates.en ?? templates.pt) : (templates.pt ?? templates.en)) ?? undefined;
 
 export const buildRootLandingFallbackHtml = (
   lang: RootLandingLang,

@@ -244,8 +244,11 @@ export class ClientAuthService {
     }
   }
 
-  async getRegistrationReviewSummary(tokenId: string): Promise<ClientRegistrationReviewSummary | null> {
-    const summary = await this.clientRegistrationApprovalTokenRepository.findReviewSummaryById(tokenId);
+  async getRegistrationReviewSummary(
+    tokenId: string,
+  ): Promise<ClientRegistrationReviewSummary | null> {
+    const summary =
+      await this.clientRegistrationApprovalTokenRepository.findReviewSummaryById(tokenId);
     if (summary) {
       return {
         ownerEmail: summary.ownerEmail,

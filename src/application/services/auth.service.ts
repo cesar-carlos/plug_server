@@ -375,11 +375,11 @@ export class AuthService {
       userId: user.id,
       expiresAt: parseExpiryToDate(env.approvalTokenExpiresIn),
     });
-      const pendingUserResult = reopenRejectedUserRegistration(user);
-      if (!pendingUserResult.ok) {
-        return ok({ retried: false });
-      }
-      const pendingUser = pendingUserResult.value;
+    const pendingUserResult = reopenRejectedUserRegistration(user);
+    if (!pendingUserResult.ok) {
+      return ok({ retried: false });
+    }
+    const pendingUser = pendingUserResult.value;
 
     try {
       await this.approvalTokenRepository.replaceForUserRetry(pendingUser, approvalToken);

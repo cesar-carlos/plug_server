@@ -3,7 +3,10 @@ import { conflict } from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
 
 const withStatus = (user: User, status: UserStatus): User =>
-  user.withStatus(status, { createdAt: user.createdAt, credentialsUpdatedAt: user.credentialsUpdatedAt });
+  user.withStatus(status, {
+    createdAt: user.createdAt,
+    credentialsUpdatedAt: user.credentialsUpdatedAt,
+  });
 
 export const transitionUserRegistrationToApproved = (user: User): Result<User> => {
   if (user.status !== "pending") {

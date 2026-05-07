@@ -21,7 +21,9 @@ export class InMemoryClientAgentAccessApprovalTokenRepository implements IClient
   private readonly store = new Map<string, ClientAgentAccessApprovalToken>();
   private readonly tokenIdByRequestId = new Map<string, string>();
 
-  constructor(private readonly reviewSummaryDeps?: InMemoryClientAgentAccessApprovalTokenReviewSummaryDeps) {}
+  constructor(
+    private readonly reviewSummaryDeps?: InMemoryClientAgentAccessApprovalTokenReviewSummaryDeps,
+  ) {}
 
   async save(token: ClientAgentAccessApprovalToken): Promise<void> {
     const existingTokenId = this.tokenIdByRequestId.get(token.requestId);
@@ -36,7 +38,9 @@ export class InMemoryClientAgentAccessApprovalTokenRepository implements IClient
     return this.store.get(id) ?? null;
   }
 
-  async findReviewSummaryById(id: string): Promise<ClientAgentAccessApprovalReviewSummaryRecord | null> {
+  async findReviewSummaryById(
+    id: string,
+  ): Promise<ClientAgentAccessApprovalReviewSummaryRecord | null> {
     if (this.reviewSummaryDeps === undefined) {
       return null;
     }

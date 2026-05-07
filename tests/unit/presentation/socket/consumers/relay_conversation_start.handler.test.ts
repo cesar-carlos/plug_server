@@ -57,7 +57,10 @@ describe("handleRelayConversationStart", () => {
     mockedTryReserveAndCreate.mockReset();
 
     mockedAssertAccess.mockResolvedValue({ type: "user", id: "user-1", role: "user" });
-    mockedFindByAgentId.mockReturnValue({ agentId: "agent-1", socketId: "agent-socket-1" } as never);
+    mockedFindByAgentId.mockReturnValue({
+      agentId: "agent-1",
+      socketId: "agent-socket-1",
+    } as never);
     mockedTryReserveAndCreate.mockReturnValue({
       ok: true,
       conversation: {

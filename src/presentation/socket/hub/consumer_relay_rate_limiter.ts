@@ -88,6 +88,10 @@ export const allowRelayConversationStart = (
   userSub: string | undefined,
   socketId: string,
 ): boolean => {
+  if (env.socketRelayRateLimitMaxConversationStarts === 0) {
+    return true;
+  }
+
   const { key, scope } = buildIdentityKey(userSub, socketId);
   const state = ensureWindowState(key);
   if (state.conversationStarts >= env.socketRelayRateLimitMaxConversationStarts) {
@@ -121,6 +125,10 @@ export const refundRelayConversationStart = (
 };
 
 export const allowRelayRpcRequest = (userSub: string | undefined, socketId: string): boolean => {
+  if (env.socketRelayRateLimitMaxRequests === 0) {
+    return true;
+  }
+
   const { key, scope } = buildIdentityKey(userSub, socketId);
   const state = ensureWindowState(key);
   if (state.relayRequests >= env.socketRelayRateLimitMaxRequests) {
@@ -156,9 +164,28 @@ export const allowRelayStreamPull = (
   creditsRequested: number,
 ): RelayStreamPullAllowance => {
   const { key, scope } = buildIdentityKey(userSub, socketId);
-  const state = ensureWindowState(key);
   const safeCreditsRequested = Math.max(0, Math.floor(creditsRequested));
   const limit = env.socketRelayRateLimitMaxStreamPullCredits;
+
+  if (limit === 0) {
+    if (safeCreditsRequested > 0) {
+      if (scope === "user") {
+        relayRateLimitMetrics.streamPullCreditsGrantedUser += safeCreditsRequested;
+      } else {
+        relayRateLimitMetrics.streamPullCreditsGrantedAnon += safeCreditsRequested;
+      }
+    }
+    return {
+      allowed: true,
+      scope,
+      limit: 0,
+      requestedCredits: safeCreditsRequested,
+      grantedCredits: safeCreditsRequested,
+      remainingCredits: Number.MAX_SAFE_INTEGER,
+    };
+  }
+
+  const state = ensureWindowState(key);
   const remainingBefore = Math.max(0, limit - state.streamPullCreditsGranted);
 
   if (state.streamPullCreditsGranted + safeCreditsRequested > limit) {

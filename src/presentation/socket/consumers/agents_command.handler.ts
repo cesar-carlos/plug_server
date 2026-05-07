@@ -110,7 +110,11 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
 
   void (async () => {
     try {
-      const principal = await assertConsumerSocketAgentAccess(socket.data.user, body.agentId, socket);
+      const principal = await assertConsumerSocketAgentAccess(
+        socket.data.user,
+        body.agentId,
+        socket,
+      );
 
       const result = await executeAuthorizedAgentCommand(
         {

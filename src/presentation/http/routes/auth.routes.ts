@@ -17,7 +17,10 @@ import {
 } from "../controllers/auth.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
-import { credentialAuthRateLimit, tokenRefreshRateLimit } from "../middlewares/rate_limit.middleware";
+import {
+  credentialAuthRateLimit,
+  tokenRefreshRateLimit,
+} from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   agentLoginBodySchema,

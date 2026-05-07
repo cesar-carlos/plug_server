@@ -2,10 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentCommandBody } from "../../../shared/validators/agent_command";
 import { isRecord, toJsonRpcId } from "../../../shared/utils/rpc_types";
-import {
-  isBatchCommand,
-  toCorrelationIds,
-} from "../../socket/hub/rpc_bridge_command_helpers";
+import { isBatchCommand, toCorrelationIds } from "../../socket/hub/rpc_bridge_command_helpers";
 import type {
   NormalizedAgentRpcResponse,
   NormalizedRpcItem,
@@ -32,9 +29,7 @@ const extractItemMetaFields = (
   };
 };
 
-export const resolveBridgeRequestIdFromCommand = (
-  command: AgentCommandBody["command"],
-): string => {
+export const resolveBridgeRequestIdFromCommand = (command: AgentCommandBody["command"]): string => {
   const correlationIds = toCorrelationIds(command);
   const firstCorrelationId = correlationIds.at(0);
   if (!isBatchCommand(command) && firstCorrelationId) {
