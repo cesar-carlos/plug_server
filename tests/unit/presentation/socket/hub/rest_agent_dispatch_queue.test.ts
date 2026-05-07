@@ -1,7 +1,8 @@
+import type * as EnvModule from "../../../../../src/shared/config/env";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("../../../../../src/shared/config/env")>();
+  const mod = await importOriginal<typeof EnvModule>();
   return {
     ...mod,
     env: {

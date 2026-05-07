@@ -1,3 +1,4 @@
+import type * as EnvModule from "../../../../src/shared/config/env";
 import { describe, expect, it, vi } from "vitest";
 
 import { Agent } from "../../../../src/domain/entities/agent.entity";
@@ -7,8 +8,7 @@ import { InMemoryAgentRepository } from "../../../../src/infrastructure/reposito
 import { InMemoryClientAgentAccessRepository } from "../../../../src/infrastructure/repositories/in_memory_client_agent_access.repository";
 
 vi.mock("../../../../src/shared/config/env", async (importOriginal) => {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- vitest mock needs typeof module
-  const mod = await importOriginal<typeof import("../../../../src/shared/config/env")>();
+  const mod = await importOriginal<typeof EnvModule>();
   return {
     ...mod,
     env: {
