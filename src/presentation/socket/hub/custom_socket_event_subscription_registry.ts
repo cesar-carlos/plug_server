@@ -1,9 +1,6 @@
 const subscriptionsBySocketId = new Map<string, Set<string>>();
 
-export const addCustomSocketEventSubscription = (
-  socketId: string,
-  eventName: string,
-): boolean => {
+export const addCustomSocketEventSubscription = (socketId: string, eventName: string): boolean => {
   const existing = subscriptionsBySocketId.get(socketId);
   if (existing) {
     const before = existing.size;

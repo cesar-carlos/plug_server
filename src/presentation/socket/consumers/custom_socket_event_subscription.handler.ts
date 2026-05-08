@@ -42,7 +42,10 @@ type SubscriptionResponse =
 const parseSubscriptionPayload = (
   rawPayload: unknown,
 ):
-  | { readonly ok: true; readonly value: { readonly requestId: string; readonly eventName: string } }
+  | {
+      readonly ok: true;
+      readonly value: { readonly requestId: string; readonly eventName: string };
+    }
   | {
       readonly ok: false;
       readonly requestId?: string;

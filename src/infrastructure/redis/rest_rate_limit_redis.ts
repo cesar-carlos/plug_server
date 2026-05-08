@@ -94,7 +94,9 @@ const markRedisStoreWarmupHandled = (store: RedisStore): void => {
   void warmup.getScriptSha?.catch(() => undefined);
 };
 
-export function createRestHttpRateLimitStore(scope: RestHttpRateLimitStoreScope): Store | undefined {
+export function createRestHttpRateLimitStore(
+  scope: RestHttpRateLimitStoreScope,
+): Store | undefined {
   if (redisSendCommand === undefined) {
     return undefined;
   }

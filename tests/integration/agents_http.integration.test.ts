@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { request as httpRequest } from "node:http";
+import { Agent, request as httpRequest } from "node:http";
 
 import request from "supertest";
 import { io as ioClient } from "socket.io-client";
@@ -16,6 +16,13 @@ import { getTestRepositoryAccess } from "../../src/shared/di/container";
 import { User } from "../../src/domain/entities/user.entity";
 
 const repositories = getTestRepositoryAccess();
+
+/** High concurrency for overload burst test — default Agent maxSockets would serialize HTTP. */
+const restBridgeOverloadHttpAgent = new Agent({
+  keepAlive: true,
+  maxSockets: 4096,
+  maxTotalSockets: 4096,
+});
 
 /** Budget for `rpc:request` → `rpc:response` + HTTP completion (CI runners are slower). */
 const agentsHttpRpcWaitMs = process.env.CI ? 25_000 : 8_000;
@@ -1543,7 +1550,14 @@ describe("Agents HTTP bridge", () => {
       throw new Error("Agent socket not initialized");
     }
 
+    if (env.socketRestAgentMaxInflight <= 0) {
+      return;
+    }
+
     const overloadAccessToken = await createAdminAccessToken(baseUrl);
+
+    // Hold agent responses so HTTP handlers can fill inflight+queue before any release (avoids race).
+    const rpcResponseDelayMs = Math.max(env.socketRestAgentQueueWaitMs + 150, 5000);
 
     const onRpcRequest = (rawPayload: unknown): void => {
       const decoded = decodePayloadFrame(rawPayload);
@@ -1556,30 +1570,30 @@ describe("Agents HTTP bridge", () => {
         return;
       }
 
-      setTimeout(
-        () => {
-          agentSocket?.emit(
-            "rpc:response",
-            encodePayloadFrame({
-              jsonrpc: "2.0",
-              id: requestId,
-              result: { ok: true },
-            }),
-          );
-        },
-        Math.max(env.socketRestAgentQueueWaitMs + 150, 350),
-      );
+      setTimeout(() => {
+        agentSocket?.emit(
+          "rpc:response",
+          encodePayloadFrame({
+            jsonrpc: "2.0",
+            id: requestId,
+            result: { ok: true },
+          }),
+        );
+      }, rpcResponseDelayMs);
     };
     agentSocket.on("rpc:request", onRpcRequest);
 
-    const requestCount = env.socketRestAgentMaxInflight + env.socketRestAgentMaxQueue + 1;
-    const requests = Array.from({ length: requestCount }, (_item, index) => {
-      return request(baseUrl)
-        .post("/api/v1/agents/commands")
-        .set("Authorization", `Bearer ${overloadAccessToken}`)
-        .send({
+    const capacity = env.socketRestAgentMaxInflight + env.socketRestAgentMaxQueue;
+    const requestCount = capacity + Math.max(16, Math.min(256, Math.ceil(capacity * 0.15)));
+
+    const postOverloadCommand = (
+      index: number,
+    ): Promise<{ status: number; headers: Record<string, unknown>; body: unknown }> =>
+      new Promise((resolve, reject) => {
+        const endpoint = new URL("/api/v1/agents/commands", baseUrl);
+        const payload = JSON.stringify({
           agentId: testAgentId,
-          timeoutMs: Math.max(env.socketRestAgentQueueWaitMs + 1000, 1500),
+          timeoutMs: rpcResponseDelayMs + 15_000,
           command: {
             jsonrpc: "2.0",
             method: "sql.execute",
@@ -1589,27 +1603,76 @@ describe("Agents HTTP bridge", () => {
             },
           },
         });
-    });
+
+        const req = httpRequest(
+          {
+            protocol: endpoint.protocol,
+            hostname: endpoint.hostname,
+            port: endpoint.port === "" ? undefined : Number(endpoint.port),
+            path: `${endpoint.pathname}`,
+            method: "POST",
+            agent: restBridgeOverloadHttpAgent,
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(payload),
+              Authorization: `Bearer ${overloadAccessToken}`,
+            },
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on("data", (chunk: Buffer) => chunks.push(chunk));
+            res.on("end", () => {
+              const raw = Buffer.concat(chunks).toString("utf8");
+              let body: unknown = {};
+              if (raw.length > 0) {
+                try {
+                  body = JSON.parse(raw) as unknown;
+                } catch {
+                  body = raw;
+                }
+              }
+              resolve({
+                status: res.statusCode ?? 0,
+                headers: res.headers as Record<string, unknown>,
+                body,
+              });
+            });
+          },
+        );
+        req.on("error", reject);
+        req.write(payload);
+        req.end();
+      });
+
+    const requests = Array.from({ length: requestCount }, (_item, index) =>
+      postOverloadCommand(index),
+    );
 
     try {
       const responses = await Promise.all(requests);
-      const rejectedWithRetryAfter = responses.filter(
-        (item) => item.status === 503 && typeof item.headers["retry-after"] === "string",
-      );
+      const rejectedWithRetryAfter = responses.filter((item) => {
+        const ra = item.headers["retry-after"];
+        const retryAfterStr = Array.isArray(ra) ? ra[0] : ra;
+        return item.status === 503 && typeof retryAfterStr === "string";
+      });
 
       expect(rejectedWithRetryAfter.length).toBeGreaterThan(0);
       expect(
         rejectedWithRetryAfter.some((item) => {
-          const value = Number(item.headers["retry-after"]);
+          const ra = item.headers["retry-after"];
+          const value = Number(Array.isArray(ra) ? ra[0] : ra);
           return Number.isFinite(value) && value >= 1;
         }),
       ).toBe(true);
       expect(
-        rejectedWithRetryAfter.some(
-          (item) =>
-            typeof item.body?.details?.retry_after_ms === "number" &&
-            item.body.details.retry_after_ms >= 0,
-        ),
+        rejectedWithRetryAfter.some((item) => {
+          const recordBody = item.body;
+          if (!isRecord(recordBody) || !isRecord(recordBody.details)) {
+            return false;
+          }
+          const retryMs = recordBody.details.retry_after_ms;
+          return typeof retryMs === "number" && retryMs >= 0;
+        }),
       ).toBe(true);
     } finally {
       agentSocket.off("rpc:request", onRpcRequest);

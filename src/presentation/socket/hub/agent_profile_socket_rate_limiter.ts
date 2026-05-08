@@ -33,6 +33,11 @@ const ensureState = (key: string): WindowState => {
 };
 
 export const allowAgentProfileSocketUpdate = (agentId: string, socketId: string): boolean => {
+  // Align with HTTP `agentsSelfProfileRateLimit`: max === 0 disables limiting (passthrough).
+  if (env.restAgentsCommandsRateLimitMax === 0) {
+    return true;
+  }
+
   const trimmedAgentId = agentId.trim();
   const key = trimmedAgentId
     ? `agent_profile_update:agent:${trimmedAgentId}`

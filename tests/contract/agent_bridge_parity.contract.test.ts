@@ -93,14 +93,17 @@ describe("agent bridge parity contract", () => {
     }
   });
 
-  it.each(bridgeParityMethods)("accepts %s through the REST/agents:command bridge schema", (method) => {
-    const parsed = agentCommandBodySchema.safeParse({
-      agentId: "agent-1",
-      command: sampleCommandByMethod[method],
-    });
+  it.each(bridgeParityMethods)(
+    "accepts %s through the REST/agents:command bridge schema",
+    (method) => {
+      const parsed = agentCommandBodySchema.safeParse({
+        agentId: "agent-1",
+        command: sampleCommandByMethod[method],
+      });
 
-    expect(parsed.success).toBe(true);
-  });
+      expect(parsed.success).toBe(true);
+    },
+  );
 
   it("documents that Socket parity is scoped to the command bridge, not the full REST API", () => {
     expect(bridgeSocketRestApiParityScope.duplicatesFullRestApi).toBe(false);
@@ -127,5 +130,4 @@ describe("agent bridge parity contract", () => {
       ]),
     );
   });
-
 });

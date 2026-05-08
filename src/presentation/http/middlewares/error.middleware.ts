@@ -13,16 +13,18 @@ import {
 import { buildHttpErrorResponseBody } from "../helpers/http_error_response";
 import { normalizeZodIssues } from "./validate.middleware";
 
-const clientErrorByStatus: ReadonlyMap<number, { readonly code: string; readonly message: string }> =
-  new Map([
-    [400, { code: "BAD_REQUEST", message: "Invalid request" }],
-    [401, { code: "UNAUTHORIZED", message: "Authentication required" }],
-    [403, { code: "FORBIDDEN", message: "Forbidden" }],
-    [404, { code: "NOT_FOUND", message: "Resource not found" }],
-    [413, { code: "PAYLOAD_TOO_LARGE", message: "Request payload too large" }],
-    [415, { code: "UNSUPPORTED_MEDIA_TYPE", message: "Unsupported media type" }],
-    [429, { code: "TOO_MANY_REQUESTS", message: "Too many requests, please try again later." }],
-  ]);
+const clientErrorByStatus: ReadonlyMap<
+  number,
+  { readonly code: string; readonly message: string }
+> = new Map([
+  [400, { code: "BAD_REQUEST", message: "Invalid request" }],
+  [401, { code: "UNAUTHORIZED", message: "Authentication required" }],
+  [403, { code: "FORBIDDEN", message: "Forbidden" }],
+  [404, { code: "NOT_FOUND", message: "Resource not found" }],
+  [413, { code: "PAYLOAD_TOO_LARGE", message: "Request payload too large" }],
+  [415, { code: "UNSUPPORTED_MEDIA_TYPE", message: "Unsupported media type" }],
+  [429, { code: "TOO_MANY_REQUESTS", message: "Too many requests, please try again later." }],
+]);
 
 const getClientErrorStatusCode = (error: unknown): number | undefined => {
   if (typeof error !== "object" || error === null) {

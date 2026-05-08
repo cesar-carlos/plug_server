@@ -659,11 +659,15 @@ describe("Socket namespaces", () => {
       expect(agentLoginRes.status).toBe(200);
 
       const socket = await connectAgent(baseUrl, agentLoginRes.body.accessToken as string);
-      await registerAgentAndWaitReady(socket, {
-        protocols: ["jsonrpc-v2"],
-        encodings: ["json"],
-        compressions: ["none"],
-      }, agentId);
+      await registerAgentAndWaitReady(
+        socket,
+        {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        },
+        agentId,
+      );
 
       try {
         const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
@@ -2191,6 +2195,10 @@ describe("Socket namespaces", () => {
     });
 
     it("should enforce relay conversation start rate limit per consumer", async () => {
+      if (env.socketRelayRateLimitMaxConversationStarts <= 0) {
+        return;
+      }
+
       const consumerSocket = await connectConsumer(baseUrl, accessToken);
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);
 

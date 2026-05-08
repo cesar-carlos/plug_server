@@ -291,16 +291,14 @@ export const refundRelayRpcRequestAsync = async (
   refundRelayRpcRequest(userSub, socketId);
 };
 
-const allowCreditWindow = (
-  input: {
-    readonly userSub: string | undefined;
-    readonly socketId: string;
-    readonly creditsRequested: number;
-    readonly limit: number;
-    readonly metricKind: "relay" | "agents";
-    readonly memoryField: "streamPullCreditsGranted" | "agentsStreamPullCreditsGranted";
-  },
-): RelayStreamPullAllowance => {
+const allowCreditWindow = (input: {
+  readonly userSub: string | undefined;
+  readonly socketId: string;
+  readonly creditsRequested: number;
+  readonly limit: number;
+  readonly metricKind: "relay" | "agents";
+  readonly memoryField: "streamPullCreditsGranted" | "agentsStreamPullCreditsGranted";
+}): RelayStreamPullAllowance => {
   const { key, scope } = buildIdentityKey(input.userSub, input.socketId);
   const safeCreditsRequested = Math.max(0, Math.floor(input.creditsRequested));
 

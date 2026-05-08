@@ -179,8 +179,7 @@ export const noteAgentHealthRpcResponse = (response: unknown): void => {
   agentHealth.lastUptimeSeconds = pickNumber(result, ["uptime_seconds", "uptimeSeconds"]) ?? 0;
   agentHealth.lastSqlQueueCurrentSize =
     pickNumber(sqlQueue, ["current_size", "currentSize", "pending"]) ?? 0;
-  agentHealth.lastSqlQueueMaxSize =
-    pickNumber(sqlQueue, ["max_size", "maxSize", "capacity"]) ?? 0;
+  agentHealth.lastSqlQueueMaxSize = pickNumber(sqlQueue, ["max_size", "maxSize", "capacity"]) ?? 0;
   agentHealth.lastActiveWorkers =
     pickNumber(sqlQueue, ["active_workers", "activeWorkers", "active"]) ?? 0;
   agentHealth.lastMaxWorkers = pickNumber(sqlQueue, ["max_workers", "maxWorkers"]) ?? 0;

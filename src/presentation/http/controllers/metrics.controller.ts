@@ -191,7 +191,10 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
 
   lines.push(
-    metricLine("plug_socket_rate_limit_redis_url_configured", socketRateLimitRedis.redisUrlConfigured),
+    metricLine(
+      "plug_socket_rate_limit_redis_url_configured",
+      socketRateLimitRedis.redisUrlConfigured,
+    ),
   );
   lines.push(
     metricLine("plug_socket_rate_limit_redis_store_active", socketRateLimitRedis.redisStoreActive),
@@ -224,7 +227,10 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
   lines.push(
-    metricLine("plug_socket_rate_limit_redis_allowed_total", socketRateLimitRedis.redisAllowedTotal),
+    metricLine(
+      "plug_socket_rate_limit_redis_allowed_total",
+      socketRateLimitRedis.redisAllowedTotal,
+    ),
   );
   lines.push(
     metricLine(

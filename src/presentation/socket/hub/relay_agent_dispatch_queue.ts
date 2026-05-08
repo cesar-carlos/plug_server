@@ -6,7 +6,10 @@
  */
 
 import { env } from "../../../shared/config/env";
-import { serviceUnavailable, serviceUnavailableWithRetry } from "../../../shared/errors/http_errors";
+import {
+  serviceUnavailable,
+  serviceUnavailableWithRetry,
+} from "../../../shared/errors/http_errors";
 
 interface AgentQueueWaiter {
   readonly resolve: () => void;
@@ -107,7 +110,10 @@ export const acquireRelayAgentDispatchSlot = async (
   const queue = agentQueueById.get(agentId) ?? [];
   if (maxQueue > 0 && queue.length >= maxQueue) {
     metrics.queueFullRejected += 1;
-    throw serviceUnavailableWithRetry("Agent relay dispatch is overloaded; queue is full", queueWaitMs);
+    throw serviceUnavailableWithRetry(
+      "Agent relay dispatch is overloaded; queue is full",
+      queueWaitMs,
+    );
   }
 
   return new Promise<() => void>((resolve, reject) => {

@@ -90,7 +90,8 @@ const setupRateLimitModule = async (withRedisStore: boolean): Promise<RateLimitM
     incrementRestHttpTokenRefreshRateLimitRejected: vi.fn(),
   }));
 
-  const module = await import("../../../../../src/presentation/http/middlewares/rate_limit.middleware");
+  const module =
+    await import("../../../../../src/presentation/http/middlewares/rate_limit.middleware");
   module.registerHttpRateLimits();
 
   return { capturedOptions, createStoreMock, rateLimitMock };
@@ -112,7 +113,9 @@ describe("registerHttpRateLimits Redis store wiring", () => {
     expect(rateLimitMock).toHaveBeenCalledTimes(expectedScopes.length);
     expect(createStoreMock.mock.calls.map(([scope]) => scope)).toEqual(expectedScopes);
     expect(capturedOptions.map((options) => options.store)).toHaveLength(expectedScopes.length);
-    expect(new Set(capturedOptions.map((options) => options.store)).size).toBe(expectedScopes.length);
+    expect(new Set(capturedOptions.map((options) => options.store)).size).toBe(
+      expectedScopes.length,
+    );
     expect(capturedOptions.every((options) => options.passOnStoreError === true)).toBe(true);
   });
 

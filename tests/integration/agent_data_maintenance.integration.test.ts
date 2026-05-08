@@ -197,16 +197,14 @@ describe("agent_data_maintenance.service (integration)", () => {
       ],
     });
 
-    await expect(
-      pruneAgentProfileData({
-        revisionRetentionDays: 30,
-        idempotencyRetentionDays: 30,
-        batchSize: 100,
-      }),
-    ).resolves.toEqual({
-      revisionsDeleted: 1,
-      idempotencyDeleted: 1,
+    const pruneResult = await pruneAgentProfileData({
+      revisionRetentionDays: 30,
+      idempotencyRetentionDays: 30,
+      batchSize: 100,
     });
+    // Prune deletes globally by retention cutoff; shared DBs may delete extra stale rows from other tests.
+    expect(pruneResult.revisionsDeleted).toBeGreaterThanOrEqual(1);
+    expect(pruneResult.idempotencyDeleted).toBeGreaterThanOrEqual(1);
 
     await expect(
       prismaClient.agentProfileRevision.findUnique({ where: { id: oldRevisionId } }),

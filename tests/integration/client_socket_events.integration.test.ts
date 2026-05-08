@@ -298,10 +298,7 @@ describe("Client REST socket event pub/sub", () => {
     const unexpectedFileField = await request(server.httpServer)
       .post("/api/v1/client/me/socket-events")
       .set("Authorization", `Bearer ${session.client.accessToken}`)
-      .field(
-        "event",
-        JSON.stringify({ eventName: "client:custom.status", payload: { ok: true } }),
-      )
+      .field("event", JSON.stringify({ eventName: "client:custom.status", payload: { ok: true } }))
       .attach("upload", Buffer.from("hello"), {
         filename: "hello.txt",
         contentType: "text/plain",

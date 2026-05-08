@@ -91,7 +91,11 @@ describe("rest_rate_limit_redis", () => {
     const {
       clientSendCommand,
       capturedStores,
-      module: { closeRestHttpRateLimitRedis, createRestHttpRateLimitStore, initRestHttpRateLimitRedis },
+      module: {
+        closeRestHttpRateLimitRedis,
+        createRestHttpRateLimitStore,
+        initRestHttpRateLimitRedis,
+      },
     } = await setupRedisModule();
 
     await initRestHttpRateLimitRedis();
@@ -120,7 +124,11 @@ describe("rest_rate_limit_redis", () => {
   it("handles RedisStore script warmup rejections outside the request path", async () => {
     const warmupError = new Error("script load failed");
     const {
-      module: { closeRestHttpRateLimitRedis, createRestHttpRateLimitStore, initRestHttpRateLimitRedis },
+      module: {
+        closeRestHttpRateLimitRedis,
+        createRestHttpRateLimitStore,
+        initRestHttpRateLimitRedis,
+      },
     } = await setupRedisModuleWithStore((options) => ({
       options,
       incrementScriptSha: Promise.reject(warmupError),
@@ -138,7 +146,11 @@ describe("rest_rate_limit_redis", () => {
     let storeCreateAttempts = 0;
     const {
       client,
-      module: { closeRestHttpRateLimitRedis, createRestHttpRateLimitStore, initRestHttpRateLimitRedis },
+      module: {
+        closeRestHttpRateLimitRedis,
+        createRestHttpRateLimitStore,
+        initRestHttpRateLimitRedis,
+      },
     } = await setupRedisModuleWithStore(() => {
       storeCreateAttempts += 1;
       throw new Error("store init failed");
@@ -187,7 +199,11 @@ describe("rest_rate_limit_redis", () => {
     const {
       capturedStores,
       envMock,
-      module: { closeRestHttpRateLimitRedis, createRestHttpRateLimitStore, initRestHttpRateLimitRedis },
+      module: {
+        closeRestHttpRateLimitRedis,
+        createRestHttpRateLimitStore,
+        initRestHttpRateLimitRedis,
+      },
     } = await setupRedisModule();
 
     await initRestHttpRateLimitRedis();

@@ -183,6 +183,10 @@ describe("Agent self profile HTTP route", () => {
   });
 
   it("should rate limit repeated self profile updates", async () => {
+    if (env.restAgentsCommandsRateLimitMax === 0) {
+      return;
+    }
+
     const user = await registerApprovedUser(baseUrl, "rate");
     const agentId = randomUUID();
 

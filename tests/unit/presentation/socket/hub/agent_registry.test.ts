@@ -104,9 +104,7 @@ describe("agent_registry session policies", () => {
       isPeerConnected: () => true,
     });
 
-    expect(agentRegistry.findByAgentId("ag-time")?.connectedAt).toBe(
-      "2026-05-08T10:05:00.000Z",
-    );
+    expect(agentRegistry.findByAgentId("ag-time")?.connectedAt).toBe("2026-05-08T10:05:00.000Z");
   });
 
   it("sync registration blocks reject_active race via single synchronous path", () => {

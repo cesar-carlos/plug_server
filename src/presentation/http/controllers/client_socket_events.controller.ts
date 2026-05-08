@@ -110,7 +110,9 @@ const parseMultipartEventBody = (request: Request): unknown => {
 };
 
 const parsePublishInput = (request: Request): ClientSocketEventPublishInput => {
-  const rawBody = request.is("multipart/form-data") ? parseMultipartEventBody(request) : request.body;
+  const rawBody = request.is("multipart/form-data")
+    ? parseMultipartEventBody(request)
+    : request.body;
   const parsed = clientSocketEventPublishBodySchema.parse(rawBody);
   const payloadSize = jsonUtf8ByteLength(parsed.payload);
   if (payloadSize > env.restSocketEventPayloadJsonMaxBytes) {

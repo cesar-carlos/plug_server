@@ -338,8 +338,7 @@ export function registerHttpRateLimits(): void {
             message: "Too many socket event publish requests, please try again later.",
             code: "TOO_MANY_REQUESTS",
           },
-          keyGenerator: (_req: Request, res: Response) =>
-            clientSocketEventPublishRateLimitKey(res),
+          keyGenerator: (_req: Request, res: Response) => clientSocketEventPublishRateLimitKey(res),
           handler: async (request, response, _next, optionsUsed) => {
             incrementRestHttpClientSocketEventPublishRateLimitRejected();
             await sendRateLimitResponse(request, response, optionsUsed);

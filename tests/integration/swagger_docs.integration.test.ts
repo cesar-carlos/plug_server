@@ -77,12 +77,12 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/client/me/agents"]?.get?.tags).toContain("Client Agent Access");
     const socketEventsPost = response.body.paths?.["/client/me/socket-events"]?.post;
     expect(socketEventsPost?.tags).toContain("Client Socket Events");
-    expect(
-      socketEventsPost?.requestBody?.content?.["application/json"]?.schema?.$ref,
-    ).toBe("#/components/schemas/ClientSocketEventPublishRequest");
-    expect(
-      socketEventsPost?.requestBody?.content?.["multipart/form-data"]?.schema?.$ref,
-    ).toBe("#/components/schemas/ClientSocketEventMultipartPublishRequest");
+    expect(socketEventsPost?.requestBody?.content?.["application/json"]?.schema?.$ref).toBe(
+      "#/components/schemas/ClientSocketEventPublishRequest",
+    );
+    expect(socketEventsPost?.requestBody?.content?.["multipart/form-data"]?.schema?.$ref).toBe(
+      "#/components/schemas/ClientSocketEventMultipartPublishRequest",
+    );
     expect(schemas?.ClientSocketEventPublishResponse).toBeDefined();
     expect(response.body.paths?.["/client/me/agents"]?.get?.parameters).toEqual(
       expect.arrayContaining([

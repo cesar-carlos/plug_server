@@ -42,7 +42,10 @@ const swaggerSpec = swaggerJSDoc({
       { name: "Agent catalog", description: "Agent catalog read and filter" },
       { name: "User agents", description: "User-to-agent binding management" },
       { name: "Client Agent Access", description: "Client-to-agent access requests and approvals" },
-      { name: "Client Socket Events", description: "REST-published custom events for /consumers subscribers" },
+      {
+        name: "Client Socket Events",
+        description: "REST-published custom events for /consumers subscribers",
+      },
       { name: "User clients", description: "Owner management of managed clients" },
       { name: "Admin", description: "Admin-only operations (user status, blocking)" },
     ],

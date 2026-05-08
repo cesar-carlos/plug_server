@@ -243,6 +243,10 @@ describe("Agent self profile socket event", () => {
   });
 
   it("should rate limit repeated agent:profile.update events", async () => {
+    if (env.restAgentsCommandsRateLimitMax === 0) {
+      return;
+    }
+
     const user = await registerApprovedUser(baseUrl, "rate");
     const agentId = randomUUID();
 

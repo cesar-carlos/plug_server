@@ -118,7 +118,9 @@ describe("RPC contract alignment", () => {
 
     expect(withoutOptionalForwardCompatibleMethods(validatorMethods)).toEqual(openRpcCoreMethods);
     expect(withoutOptionalForwardCompatibleMethods(swaggerMethods)).toEqual(openRpcCoreMethods);
-    for (const method of openRpcMethods.filter((name) => optionalForwardCompatibleMethods.has(name))) {
+    for (const method of openRpcMethods.filter((name) =>
+      optionalForwardCompatibleMethods.has(name),
+    )) {
       expect(validatorMethods).toContain(method);
       expect(swaggerMethods).toContain(method);
     }

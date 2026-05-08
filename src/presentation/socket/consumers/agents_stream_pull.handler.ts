@@ -174,11 +174,7 @@ export const handleAgentsStreamPull = (
         ...(parsed.data.requestId ? { requestId: parsed.data.requestId } : {}),
         ...(parsed.data.windowSize !== undefined ? { windowSize: parsed.data.windowSize } : {}),
       });
-      const allowance = await allowAgentsStreamPullCredits(
-        userSub,
-        socket.id,
-        prepared.windowSize,
-      );
+      const allowance = await allowAgentsStreamPullCredits(userSub, socket.id, prepared.windowSize);
       if (!allowance.allowed) {
         emitStreamPullResponse(socket, {
           success: false,
