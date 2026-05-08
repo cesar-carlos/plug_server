@@ -24,6 +24,7 @@ import type { RegisterUseCase } from "../../domain/use_cases/register.use_case";
 import type { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registration.use_case";
 import type { UpdateMyCelularUseCase } from "../../domain/use_cases/update_my_celular.use_case";
 import type { AgentAccessService } from "./agent_access.service";
+import { disconnectAgentPrincipalSockets } from "./agent_socket_control_sink";
 import { disconnectConsumerPrincipalSockets } from "./consumer_socket_control_sink";
 import { enqueueRegistrationApprovalEmails } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
@@ -220,11 +221,17 @@ export class AuthService {
     const result = await this.adminSetUserStatusUseCase.execute(input);
     if (result.ok && input.status === "blocked") {
       this.invalidateSnapshotCache(result.value.id);
-      await disconnectConsumerPrincipalSockets({
-        principalType: "user",
-        principalId: result.value.id,
-        reason: "account_blocked",
-      });
+      await Promise.all([
+        disconnectConsumerPrincipalSockets({
+          principalType: "user",
+          principalId: result.value.id,
+          reason: "account_blocked",
+        }),
+        disconnectAgentPrincipalSockets({
+          userId: result.value.id,
+          reason: "account_blocked",
+        }),
+      ]);
     }
     return result;
   }

@@ -45,6 +45,26 @@ apos login HTTP. Para carga representativa, use:
 - streams com `relay:rpc.chunk` + `relay:rpc.stream.pull`;
 - rajadas de `client:agent.profile.updated` para o mesmo `agentId`.
 
+O repositorio tambem inclui um probe leve para o bridge Socket quando ja existe
+um hub em execucao e um agente real registado:
+
+```bash
+HUB_URL=http://localhost:3000 \
+CONSUMER_TOKEN=YOUR_ACCESS_TOKEN \
+AGENT_ID=YOUR_AGENT \
+CONSUMERS=100 \
+REQUESTS_PER_CONSUMER=20 \
+CONCURRENCY=25 \
+MODE=agents-command \
+npm run load:socket-bridge
+
+MODE=relay npm run load:socket-bridge
+```
+
+O script reporta sucesso/falha e p50/p95/p99. Ele foi desenhado para smoke de
+capacidade do bridge; para benchmark de banco/ODBC, manter os testes de carga no
+`plug_agente`.
+
 ## O que medir
 
 - CPU do processo Node e event-loop lag.
@@ -55,6 +75,7 @@ apos login HTTP. Para carga representativa, use:
 - `plug_socket_consumers_guard_db_*`.
 - `plug_socket_consumers_profile_push_*`.
 - `plug_socket_consumers_commands_aborted_on_disconnect_total`.
+- `plug_socket_agents_command_rate_limit_weighted_costs_enabled`.
 
 ## Sinais de regressao
 
@@ -63,6 +84,8 @@ apos login HTTP. Para carga representativa, use:
 - `guard_db_max_ms` sobe muito durante bursts;
 - `profile_push_fanout_max` explode sem aumento proporcional de recipients;
 - `503 SERVICE_UNAVAILABLE` por overload fora de picos esperados.
+- `plug_socket_relay_dispatch_total_queued_waiters` nao retorna a zero depois
+  de encerrado o burst.
 
 ## Validacoes operacionais
 

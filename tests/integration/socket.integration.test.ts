@@ -640,6 +640,59 @@ describe("Socket namespaces", () => {
       }
     });
 
+    it("should disconnect an agent socket when the owner account is blocked by admin", async () => {
+      const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const email = `socket-agent-owner-${unique}@test.com`;
+      const password = "SocketAgentOwner1";
+      const agentId = randomUUID();
+      const registerRes = await request(baseUrl)
+        .post("/api/v1/auth/register")
+        .send({ email, password });
+      expect(registerRes.status).toBe(201);
+      await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
+      const adminAccessToken = await createAdminAccessToken(baseUrl);
+      const agentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+        email,
+        password,
+        agentId,
+      });
+      expect(agentLoginRes.status).toBe(200);
+
+      const socket = await connectAgent(baseUrl, agentLoginRes.body.accessToken as string);
+      await registerAgentAndWaitReady(socket, {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      }, agentId);
+
+      try {
+        const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
+          socket,
+          "app:error",
+          8_000,
+        );
+        const disconnectPromise = waitForEvent<string>(socket, "disconnect", 8_000);
+
+        const response = await request(baseUrl)
+          .patch(`/api/v1/admin/users/${registerRes.body.user.id as string}/status`)
+          .set("Authorization", `Bearer ${adminAccessToken}`)
+          .send({ status: "blocked" });
+
+        expect(response.status).toBe(200);
+
+        const [appError, disconnectReason] = await Promise.all([
+          appErrorPromise,
+          disconnectPromise,
+        ]);
+        expect(appError.code).toBe("ACCOUNT_BLOCKED");
+        expect(disconnectReason).toBe("io server disconnect");
+      } finally {
+        if (socket.connected) {
+          socket.disconnect();
+        }
+      }
+    });
+
     it("should disconnect a client consumer socket when the owner blocks the client account", async () => {
       if (!env.socketConsumerRoles.includes("client")) {
         return;

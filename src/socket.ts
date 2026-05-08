@@ -82,6 +82,7 @@ import {
   type AgentProfileBroadcastEvent,
   registerAgentProfileBroadcastHandler,
 } from "./application/services/agent_profile_broadcast_sink";
+import { registerAgentSocketControlHandler } from "./application/services/agent_socket_control_sink";
 import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
 import {
   buildConsumerClientAgentRoom,
@@ -187,6 +188,40 @@ const buildConsumerClientRoom = (user: JwtAccessPayload | undefined): string | n
   return user?.principal_type === "client" && typeof user.sub === "string" && user.sub.trim() !== ""
     ? buildClientRoomName(user.sub)
     : null;
+};
+
+const buildAgentPrincipalRoom = (user: JwtAccessPayload | undefined): string | null => {
+  return typeof user?.sub === "string" && user.sub.trim() !== ""
+    ? `agent:principal:${user.sub}`
+    : null;
+};
+
+const joinAgentIdentityRooms = async (socket: HubSocket): Promise<void> => {
+  const room = buildAgentPrincipalRoom(socket.data.user);
+  if (room) {
+    await socket.join(room);
+  }
+};
+
+const disconnectAgentSocketsInRoom = async (
+  namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
+  room: string,
+  payload: { code: string; message: string },
+  logContext: Record<string, unknown>,
+): Promise<number> => {
+  const sockets = await namespace.in(room).fetchSockets();
+  for (const socket of sockets) {
+    socket.emit(socketEvents.appError, payload);
+    socket.disconnect(true);
+  }
+  if (sockets.length > 0) {
+    logger.info("agent_socket_sessions_disconnected", {
+      room,
+      disconnectedCount: sockets.length,
+      ...logContext,
+    });
+  }
+  return sockets.length;
 };
 
 const joinConsumerIdentityRooms = async (socket: HubSocket): Promise<void> => {
@@ -564,6 +599,8 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   agentsNamespace = null;
 
   registerAgentProfileBroadcastHandler(undefined);
+  registerAgentSocketControlHandler(undefined);
+  registerConsumerSocketControlHandler(undefined);
 
   await new Promise<void>((resolve) => {
     io.close(() => resolve());
@@ -643,6 +680,19 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     logSocketLifecycleInfo("Socket client connected", {
       socketId: socket.id,
       userId: getUserId(socket),
+    });
+
+    void joinAgentIdentityRooms(socket).catch((error: unknown) => {
+      logger.warn("agent_socket_identity_room_join_failed", {
+        socketId: socket.id,
+        userId: getUserId(socket),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      socket.emit(socketEvents.appError, {
+        code: "ROOM_JOIN_FAILED",
+        message: "Failed to join agent identity room",
+      });
+      socket.disconnect(true);
     });
 
     emitConnectionReady(socket, {
@@ -1301,6 +1351,23 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     // becomes a no-op until the next boot with the env enabled.
     registerAgentProfileBroadcastHandler(undefined);
   }
+
+  registerAgentSocketControlHandler({
+    disconnectPrincipal: async (event) => {
+      await disconnectAgentSocketsInRoom(
+        agentsNsp,
+        `agent:principal:${event.userId}`,
+        {
+          code: "ACCOUNT_BLOCKED",
+          message: "Account is blocked",
+        },
+        {
+          userId: event.userId,
+          reason: event.reason,
+        },
+      );
+    },
+  });
 
   registerConsumerSocketControlHandler({
     disconnectPrincipal: async (event) => {

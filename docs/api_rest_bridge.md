@@ -86,6 +86,11 @@ vale apenas para o bridge de comandos (`POST /api/v1/agents/commands`).
 ser correlacionavel para timeout, idempotencia, roteamento de resposta/chunks e
 liberacao de fila/backpressure.
 
+A matriz tambem existe como contrato executavel em
+`src/shared/constants/agent_bridge_parity.ts` e
+`tests/contract/agent_bridge_parity.contract.test.ts`; qualquer novo metodo do
+bridge deve atualizar os dois lados.
+
 Alternativa em tempo real: consumers podem conectar ao namespace `/consumers`
 e emitir `agents:command` com o mesmo payload. A resposta inicial chega em
 `agents:command_response`. Quando a execucao entra em streaming, os chunks

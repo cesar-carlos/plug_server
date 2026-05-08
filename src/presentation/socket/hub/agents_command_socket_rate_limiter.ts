@@ -3,6 +3,7 @@ import {
   consumeSocketRateLimitRedis,
   refundSocketRateLimitRedis,
 } from "../../../infrastructure/redis/socket_rate_limit_redis";
+import type { BridgeCommand, BridgeSingleCommand } from "../../../shared/validators/agent_command";
 
 /**
  * Fixed-window rate limit for Socket `agents:command` on `/consumers`.
@@ -32,6 +33,29 @@ const buildIdentityKey = (userSub: string | undefined, socketId: string): string
   return trimmed ? `agents_cmd:user:${trimmed}` : `agents_cmd:anon:${socketId}`;
 };
 
+const estimateSingleCommandCost = (command: BridgeSingleCommand): number => {
+  if (command.method === "sql.executeBatch") {
+    return Math.max(1, command.params.commands.length);
+  }
+  return 1;
+};
+
+export const estimateAgentsCommandRateLimitCost = (
+  command: BridgeCommand,
+  weightedCosts: boolean = env.socketAgentsCommandRateLimitWeightedCosts,
+): number => {
+  if (!weightedCosts) {
+    return 1;
+  }
+  if (Array.isArray(command)) {
+    return Math.max(
+      1,
+      command.reduce((total, item) => total + estimateSingleCommandCost(item), 0),
+    );
+  }
+  return estimateSingleCommandCost(command);
+};
+
 const ensureState = (key: string): WindowState => {
   const nowMs = Date.now();
   const existing = statesByKey.get(key);
@@ -59,6 +83,7 @@ const ensureState = (key: string): WindowState => {
 export const allowAgentsCommandSocket = (
   userSub: string | undefined,
   socketId: string,
+  cost = 1,
 ): boolean => {
   if (env.restAgentsCommandsRateLimitMax === 0) {
     return true;
@@ -66,11 +91,12 @@ export const allowAgentsCommandSocket = (
 
   const key = buildIdentityKey(userSub, socketId);
   const state = ensureState(key);
-  if (state.count >= env.restAgentsCommandsRateLimitMax) {
+  const safeCost = Math.max(1, Math.floor(cost));
+  if (state.count + safeCost > env.restAgentsCommandsRateLimitMax) {
     metrics.rejected += 1;
     return false;
   }
-  state.count += 1;
+  state.count += safeCost;
   metrics.allowed += 1;
   return true;
 };
@@ -78,17 +104,20 @@ export const allowAgentsCommandSocket = (
 export const allowAgentsCommandSocketAsync = async (
   userSub: string | undefined,
   socketId: string,
+  cost = 1,
 ): Promise<boolean> => {
   if (env.restAgentsCommandsRateLimitMax === 0) {
     return true;
   }
 
   const key = buildIdentityKey(userSub, socketId);
+  const safeCost = Math.max(1, Math.floor(cost));
   const redisDecision = await consumeSocketRateLimitRedis({
     scope: "agents_command",
     key,
     windowMs: env.restAgentsCommandsRateLimitWindowMs,
     max: env.restAgentsCommandsRateLimitMax,
+    cost: safeCost,
   });
   if (redisDecision) {
     if (redisDecision.allowed) {
@@ -99,25 +128,31 @@ export const allowAgentsCommandSocketAsync = async (
     return false;
   }
 
-  return allowAgentsCommandSocket(userSub, socketId);
+  return allowAgentsCommandSocket(userSub, socketId, safeCost);
 };
 
-export const refundAgentsCommandSocket = (userSub: string | undefined, socketId: string): void => {
+export const refundAgentsCommandSocket = (
+  userSub: string | undefined,
+  socketId: string,
+  cost = 1,
+): void => {
   const key = buildIdentityKey(userSub, socketId);
   const state = statesByKey.get(key);
   if (!state || state.count <= 0) {
     return;
   }
-  state.count -= 1;
+  state.count = Math.max(0, state.count - Math.max(1, Math.floor(cost)));
 };
 
 export const refundAgentsCommandSocketAsync = async (
   userSub: string | undefined,
   socketId: string,
+  cost = 1,
 ): Promise<void> => {
   const key = buildIdentityKey(userSub, socketId);
-  await refundSocketRateLimitRedis({ scope: "agents_command", key });
-  refundAgentsCommandSocket(userSub, socketId);
+  const safeCost = Math.max(1, Math.floor(cost));
+  await refundSocketRateLimitRedis({ scope: "agents_command", key, cost: safeCost });
+  refundAgentsCommandSocket(userSub, socketId, safeCost);
 };
 
 export const sweepAgentsCommandSocketRateLimitState = (): void => {
@@ -144,12 +179,14 @@ export const resetAgentsCommandSocketRateLimitState = (): void => {
 export const getAgentsCommandSocketRateLimitMetricsSnapshot = (): {
   readonly windowMs: number;
   readonly maxPerWindow: number;
+  readonly weightedCosts: boolean;
   readonly trackedKeys: number;
   readonly allowedTotal: number;
   readonly rejectedTotal: number;
 } => ({
   windowMs: env.restAgentsCommandsRateLimitWindowMs,
   maxPerWindow: env.restAgentsCommandsRateLimitMax,
+  weightedCosts: env.socketAgentsCommandRateLimitWeightedCosts,
   trackedKeys: statesByKey.size,
   allowedTotal: metrics.allowed,
   rejectedTotal: metrics.rejected,

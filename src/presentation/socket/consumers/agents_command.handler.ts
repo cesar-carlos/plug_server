@@ -17,7 +17,10 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../shared/errors/app_error";
-import { allowAgentsCommandSocketAsync } from "../hub/agents_command_socket_rate_limiter";
+import {
+  allowAgentsCommandSocketAsync,
+  estimateAgentsCommandRateLimitCost,
+} from "../hub/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
@@ -91,6 +94,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     channel: "consumer_socket",
     userId: userSub,
   });
+  const rateLimitCost = estimateAgentsCommandRateLimitCost(body.command);
   const abortController = new AbortController();
   const unregisterAbortController = registerConsumerCommandAbortController(
     socket.id,
@@ -108,7 +112,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
 
   void (async () => {
     try {
-      if (!(await allowAgentsCommandSocketAsync(userSub, socket.id))) {
+      if (!(await allowAgentsCommandSocketAsync(userSub, socket.id, rateLimitCost))) {
         emitCommandResponse(socket, {
           success: false,
           error: {

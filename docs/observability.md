@@ -92,9 +92,22 @@ rate(plug_rest_http_rate_limit_redis_runtime_command_errors_total[5m])
 plug_rest_http_rate_limit_redis_circuit_open
 rate(plug_rest_http_rate_limit_redis_circuit_opened_total[5m])
 
+# Redis opcional dos rate limits Socket
+plug_socket_rate_limit_redis_url_configured
+plug_socket_rate_limit_redis_store_active
+plug_socket_rate_limit_redis_circuit_open
+rate(plug_socket_rate_limit_redis_fallback_events_total[5m])
+rate(plug_socket_rate_limit_redis_runtime_command_errors_total[5m])
+
 # Relay: pedidos aceites vs rejeitados por rate-limit
 rate(plug_socket_relay_rate_limit_request_allowed_total[5m])
 rate(plug_socket_relay_rate_limit_request_rejected_total[5m])
+
+# Fila por agente no relay Socket
+plug_socket_relay_dispatch_inflight_total
+plug_socket_relay_dispatch_total_queued_waiters
+rate(plug_socket_relay_dispatch_queue_full_rejected_total[5m])
+rate(plug_socket_relay_dispatch_queue_wait_timeout_rejected_total[5m])
 
 # Fila hub→consumer relay (gzip async serializado por requestId): taxa de jobs e falhas
 rate(plug_socket_relay_outbound_queue_jobs_finished_total[5m])
@@ -329,6 +342,20 @@ rate(plug_socket_relay_circuit_open_rejects_total[5m]) > 0.05
 # Redis dos rate limits HTTP em fallback/circuito aberto
 plug_rest_http_rate_limit_redis_circuit_open > 0
 rate(plug_rest_http_rate_limit_redis_runtime_command_errors_total[5m]) > 0.1
+
+# Redis dos rate limits Socket em fallback/circuito aberto
+plug_socket_rate_limit_redis_circuit_open > 0
+rate(plug_socket_rate_limit_redis_fallback_events_total[5m]) > 0.1
+rate(plug_socket_rate_limit_redis_runtime_command_errors_total[5m]) > 0.1
+
+# Relay Socket: fila por agente crescendo ou rejeitando overload
+plug_socket_relay_dispatch_total_queued_waiters > 0
+rate(plug_socket_relay_dispatch_queue_full_rejected_total[5m]) > 0
+rate(plug_socket_relay_dispatch_queue_wait_timeout_rejected_total[5m]) > 0
+
+# Backoff propagado ao cliente Socket; picos podem indicar agente saturado ou policy externa
+rate(plug_socket_consumers_retry_after_ms_propagated_total[5m]) > 0
+rate(plug_socket_agents_command_retry_after_seconds_propagated_total[5m]) > 0
 
 # Agentes registados com perfil antigo ou desconhecido
 rate(plug_socket_agents_capability_profiles_total{status!="current"}[15m]) > 0

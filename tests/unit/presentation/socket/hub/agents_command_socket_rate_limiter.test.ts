@@ -9,6 +9,7 @@ vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
       ...mod.env,
       restAgentsCommandsRateLimitMax: 100,
       restAgentsCommandsRateLimitWindowMs: mod.env.restAgentsCommandsRateLimitWindowMs,
+      socketAgentsCommandRateLimitWeightedCosts: false,
       socketRelayRateLimitSweepStaleMultiplier: mod.env.socketRelayRateLimitSweepStaleMultiplier,
     },
   };
@@ -17,6 +18,7 @@ vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
 import { env } from "../../../../../src/shared/config/env";
 import {
   allowAgentsCommandSocket,
+  estimateAgentsCommandRateLimitCost,
   getAgentsCommandSocketRateLimitMetricsSnapshot,
   resetAgentsCommandSocketRateLimitState,
   sweepAgentsCommandSocketRateLimitState,
@@ -46,6 +48,22 @@ describe("agents_command_socket_rate_limiter", () => {
   it("should use separate buckets for different subs", () => {
     expect(allowAgentsCommandSocket("u-a", "s1")).toBe(true);
     expect(allowAgentsCommandSocket("u-b", "s2")).toBe(true);
+  });
+
+  it("supports weighted command costs without changing the default one-event budget", () => {
+    const batchCommand = {
+      jsonrpc: "2.0",
+      id: "batch-1",
+      method: "sql.executeBatch",
+      params: {
+        commands: [{ sql: "SELECT 1" }, { sql: "SELECT 2" }, { sql: "SELECT 3" }],
+      },
+    } as const;
+
+    expect(estimateAgentsCommandRateLimitCost(batchCommand)).toBe(1);
+    expect(estimateAgentsCommandRateLimitCost(batchCommand, true)).toBe(3);
+    expect(allowAgentsCommandSocket("u-cost", "s-cost", 99)).toBe(true);
+    expect(allowAgentsCommandSocket("u-cost", "s-cost", 2)).toBe(false);
   });
 
   it("should reset window after REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS", () => {

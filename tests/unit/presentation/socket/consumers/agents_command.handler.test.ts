@@ -14,6 +14,7 @@ vi.mock("../../../../../src/application/services/bridge_latency_trace_builder", 
 
 vi.mock("../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter", () => ({
   allowAgentsCommandSocketAsync: vi.fn(),
+  estimateAgentsCommandRateLimitCost: vi.fn(() => 1),
 }));
 
 vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard", () => ({

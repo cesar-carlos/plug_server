@@ -1280,6 +1280,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
   lines.push(
+    metricLine(
+      "plug_socket_agents_command_rate_limit_weighted_costs_enabled",
+      agentsCommandRl.weightedCosts ? 1 : 0,
+    ),
+  );
+  lines.push(
     metricLine("plug_socket_agents_command_rate_limit_tracked_keys", agentsCommandRl.trackedKeys),
   );
   lines.push(

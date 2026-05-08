@@ -48,6 +48,7 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 | `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` / `..._CONVERSATION_STARTS` | Teto de pedidos relay por janela; subir em workloads intensos (com cuidado). |
 | `SOCKET_RATE_LIMIT_REDIS_URL` | Redis opcional para rate limits Socket compartilhados entre replicas. Mantem fallback fail-open local; nao substitui sticky sessions porque conversas, pending requests, streams e idempotencia continuam em memoria. |
 | `SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS` | Limite por creditos do `agents:stream_pull` legacy. `0` conserva comportamento anterior; valores positivos protegem o agente/hub de pull bursts. |
+| `SOCKET_AGENTS_COMMAND_RATE_LIMIT_WEIGHTED_COSTS` | Quando `true`, `agents:command` debita custo proporcional para batch/`sql.executeBatch`. Deixe `false` durante migracao se clientes dependem do antigo limite por evento. |
 | `SOCKET_RELAY_MAX_BUFFERED_CHUNKS_*` | Backpressure relay (defeitos **256** por pedido, **25600** global); mais buffer = mais throughput até ao limite de memória. |
 | `SOCKET_AUDIT_BATCH_MAX` / `FLUSH_MS` | Menos round-trips à DB em auditoria. |
 | `REST_AGENTS_COMMANDS_RATE_LIMIT_*` | Limite por utilizador (`sub`) no REST + opcional por IP; `agents:command` usa os mesmos números (contador Socket separado). |

@@ -669,6 +669,15 @@ const envSchema = z.object({
   /** Max requests per window per authenticated user (JWT `sub`). `0` = unlimited (HTTP + socket consumer). */
   REST_AGENTS_COMMANDS_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(100),
   /**
+   * When true, Socket `agents:command` consumes rate-limit budget according to
+   * command workload (batch item count / sql.executeBatch command count).
+   * Default false preserves the historical one-event = one-credit behaviour.
+   */
+  SOCKET_AGENTS_COMMAND_RATE_LIMIT_WEIGHTED_COSTS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /**
    * Optional second limiter on `POST /agents/commands` keyed by `req.ip` (same window as above).
    * `0` disables. Use behind `trust proxy` when the server is behind a reverse proxy.
    */
@@ -946,6 +955,8 @@ export const env = {
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
   restAgentsCommandsRateLimitWindowMs: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS,
   restAgentsCommandsRateLimitMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_MAX,
+  socketAgentsCommandRateLimitWeightedCosts:
+    parsedEnv.SOCKET_AGENTS_COMMAND_RATE_LIMIT_WEIGHTED_COSTS,
   restAgentsCommandsRateLimitIpMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX,
   agentAccessCacheTtlMs: parsedEnv.AGENT_ACCESS_CACHE_TTL_MS,
   agentAccessCacheMaxSize: parsedEnv.AGENT_ACCESS_CACHE_MAX_SIZE,

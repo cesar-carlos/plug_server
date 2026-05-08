@@ -83,6 +83,25 @@ describe("relay_agent_dispatch_queue", () => {
     releaseFirst();
   });
 
+  it("removes queued waiters when the consumer aborts before dispatch", async () => {
+    const releaseFirst = await acquireRelayAgentDispatchSlot("agent-abort");
+    const abortController = new AbortController();
+    const second = acquireRelayAgentDispatchSlot("agent-abort", abortController.signal);
+
+    await vi.waitFor(() => {
+      expect(getRelayAgentDispatchQueueMetricsSnapshot().totalQueuedWaiters).toBe(1);
+    });
+
+    abortController.abort();
+
+    await expect(second).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+    });
+    expect(getRelayAgentDispatchQueueMetricsSnapshot().totalQueuedWaiters).toBe(0);
+
+    releaseFirst();
+  });
+
   it("is safe to release a slot more than once", async () => {
     const release = await acquireRelayAgentDispatchSlot("agent-d");
     release();
