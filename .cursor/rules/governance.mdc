@@ -7,6 +7,7 @@ alwaysApply: true
 
 - This is a universal rule file. It owns rule precedence, exception policy, architectural enforcement, and task-completion verification.
 - Organize rule files into three groups: `universal`, `stack-specific`, and `project-specific`.
+- Agent Git branching behavior is defined in `git_workflow.mdc` (do not create branches unless explicitly requested).
 - Keep TypeScript, Node.js, Express, Socket.IO, or library-specific guidance out of universal files unless the point cannot be expressed generically.
 - Resolve rule conflicts in this order: `security` -> `architecture` and boundary rules -> transport-specific rules (`express_api`, `websocket_api`) -> `typescript` -> `testing` -> `coding_standards`.
 - Keep each rule file focused on one concern. Prefer pointing to the owning rule rather than restating detailed guidance in multiple files.
