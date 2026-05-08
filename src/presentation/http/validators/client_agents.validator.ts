@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { registrationOpaqueTokenSchema, uuidSchema } from "../../../shared/validators/schemas";
 
+const booleanQuerySchema = z
+  .enum(["true", "false"])
+  .transform((value) => value === "true")
+  .or(z.boolean());
+
 export const clientAgentIdsBodySchema = z.object({
   agentIds: z.array(uuidSchema).min(1).max(100),
 });
@@ -24,7 +29,7 @@ export const clientListAgentsQuerySchema = z.object({
   search: z.string().max(120).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
-  refresh: z.coerce.boolean().optional(),
+  refresh: booleanQuerySchema.optional(),
 });
 
 export type ClientListAgentsQuery = z.infer<typeof clientListAgentsQuerySchema>;

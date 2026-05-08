@@ -22,6 +22,7 @@ import { requestIdMiddleware } from "./presentation/http/middlewares/request_id.
 import { registerRootPublicRoutes } from "./presentation/http/routes/root_public.routes";
 import { authRouter } from "./presentation/http/routes/auth.routes";
 import { httpRouter } from "./presentation/http/routes";
+import { buildHttpErrorResponseBody } from "./presentation/http/helpers/http_error_response";
 import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
 
@@ -53,6 +54,8 @@ export const createApp = (): Express => {
   );
   /** Fail-fast: throttle /api/v1 before JSON body parsing (reduces CPU on abusive traffic). */
   app.use("/api/v1", globalRateLimit);
+  /** Root auth compatibility alias should be throttled before JSON parsing as well. */
+  app.use("/auth", globalRateLimit);
   app.use(express.json({ limit: env.requestBodyLimit }));
   /**
    * `extended: false` uses the built-in querystring parser (no nested objects);
@@ -100,7 +103,13 @@ export const createApp = (): Express => {
    * controller is also mounted under `/api/v1/metrics` (httpRouter) for
    * Swagger reachability and reuses the same guard.
    */
-  app.get("/metrics", ...requireAuthAndActiveAccount, requireRole("admin"), getMetrics);
+  app.get(
+    "/metrics",
+    globalRateLimit,
+    ...requireAuthAndActiveAccount,
+    requireRole("admin"),
+    getMetrics,
+  );
 
   app.use("/auth", authRouter);
   app.use("/api/v1", httpRouter);
@@ -111,11 +120,13 @@ export const createApp = (): Express => {
   setupSwagger(app);
 
   app.use((_request, response) => {
-    response.status(404).json({
-      message: "Route not found",
-      code: "ROUTE_NOT_FOUND",
-      requestId: response.locals.requestId as string | undefined,
-    });
+    response.status(404).json(
+      buildHttpErrorResponseBody({
+        message: "Route not found",
+        code: "ROUTE_NOT_FOUND",
+        requestId: response.locals.requestId as string | undefined,
+      }),
+    );
   });
   app.use(errorMiddleware);
 

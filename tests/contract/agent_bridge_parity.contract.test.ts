@@ -30,6 +30,29 @@ const sampleCommandByMethod = {
     method: "client_token.getPolicy",
     params: { client_token: "token" },
   },
+  "observer.list": {
+    jsonrpc: "2.0",
+    id: "observer-list-1",
+    method: "observer.list",
+    params: { client_token: "token" },
+  },
+  "observer.register": {
+    jsonrpc: "2.0",
+    id: "observer-register-1",
+    method: "observer.register",
+    params: {
+      sql: "SELECT 1",
+      client_token: "token",
+      interval_seconds: 30,
+      condition: { type: "rows_present" },
+    },
+  },
+  "observer.unregister": {
+    jsonrpc: "2.0",
+    id: "observer-unregister-1",
+    method: "observer.unregister",
+    params: { observer_id: "observer-1" },
+  },
   "rpc.discover": {
     jsonrpc: "2.0",
     id: "discover-1",

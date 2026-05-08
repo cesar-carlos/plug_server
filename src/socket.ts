@@ -79,16 +79,30 @@ import {
   parseRelayRpcStreamPullEnvelope,
 } from "./presentation/socket/consumers/relay_rpc_stream_pull.handler";
 import {
+  handleCustomSocketEventSubscribe,
+  handleCustomSocketEventUnsubscribe,
+} from "./presentation/socket/consumers/custom_socket_event_subscription.handler";
+import {
   type AgentProfileBroadcastEvent,
   registerAgentProfileBroadcastHandler,
 } from "./application/services/agent_profile_broadcast_sink";
 import { registerAgentSocketControlHandler } from "./application/services/agent_socket_control_sink";
 import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
+import { registerConsumerSocketEventHandler } from "./application/services/consumer_socket_event_sink";
 import {
   buildConsumerClientAgentRoom,
   buildConsumerClientRoom as buildClientRoomName,
   buildConsumerPrincipalRoom as buildPrincipalRoomName,
 } from "./presentation/socket/hub/consumer_identity_rooms";
+import { buildCustomSocketEventRoom } from "./presentation/socket/hub/custom_socket_event_rooms";
+import {
+  clearCustomSocketEventSubscriptionRateLimitState,
+  resetCustomSocketEventSubscriptionRateLimitState,
+} from "./presentation/socket/hub/custom_socket_event_subscription_limiter";
+import {
+  removeCustomSocketEventSubscriptionsBySocketId,
+  resetCustomSocketEventSubscriptions,
+} from "./presentation/socket/hub/custom_socket_event_subscription_registry";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
@@ -99,6 +113,7 @@ import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_event
 import { container } from "./shared/di/container";
 import {
   getSocketConsumerMetricsSnapshot,
+  noteCustomSocketEventSubscriptionsRemoved,
   noteConsumerPendingCommandsAborted,
   noteConsumerProfilePushBatch,
   noteConsumerProfilePushCoalesced,
@@ -116,7 +131,12 @@ import {
 } from "./shared/metrics/socket_agent.metrics";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
-import { decodePayloadFrameAsync, encodePayloadFrame } from "./shared/utils/payload_frame";
+import {
+  decodePayloadFrameAsync,
+  encodePayloadFrame,
+  encodePayloadFrameBridge,
+  payloadFrameEncodeOptionsFromPreference,
+} from "./shared/utils/payload_frame";
 import { agentSelfProfileSocketSchema } from "./presentation/http/validators/agent_self_profile.validator";
 import { agentRegisterPayloadSchema } from "./shared/validators/agent_register";
 import {
@@ -579,6 +599,8 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   resetAgentsCommandSocketRateLimitState();
   resetAgentProfileSocketRateLimitState();
   resetConsumerCommandAbortRegistry();
+  resetCustomSocketEventSubscriptions();
+  resetCustomSocketEventSubscriptionRateLimitState();
   clearConsumerProfilePushState();
   resetSocketConsumerMetrics();
   resetSocketAgentMetrics();
@@ -601,6 +623,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   registerAgentProfileBroadcastHandler(undefined);
   registerAgentSocketControlHandler(undefined);
   registerConsumerSocketControlHandler(undefined);
+  registerConsumerSocketEventHandler(undefined);
 
   await new Promise<void>((resolve) => {
     io.close(() => resolve());
@@ -1320,8 +1343,23 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       handleRelayRpcStreamPull(socket, rawPayload);
     });
 
+    socket.on(socketEvents.socketEventSubscribe, (rawPayload: unknown) => {
+      handleCustomSocketEventSubscribe(socket, rawPayload);
+    });
+
+    socket.on(socketEvents.socketEventUnsubscribe, (rawPayload: unknown) => {
+      handleCustomSocketEventUnsubscribe(socket, rawPayload);
+    });
+
     socket.on("disconnect", () => {
       const abortedCommands = abortPendingConsumerCommands(socket.id);
+      const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(
+        socket.id,
+      );
+      clearCustomSocketEventSubscriptionRateLimitState(socket.id);
+      if (removedCustomEventSubscriptions > 0) {
+        noteCustomSocketEventSubscriptionsRemoved(removedCustomEventSubscriptions);
+      }
       noteConsumerSocketDisconnected(socket.data.user?.principal_type ?? null);
       cleanupConsumerStreamSubscriptions(socket.id);
       clearRelayRateLimitStateByConsumerSocket(socket.id);
@@ -1405,6 +1443,40 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           reason: event.reason,
         },
       );
+    },
+  });
+
+  registerConsumerSocketEventHandler({
+    publish: async (event) => {
+      const room = buildCustomSocketEventRoom(event.eventName);
+      const recipients = (await consumersNsp.in(room).fetchSockets()).length;
+      if (recipients === 0) {
+        return { recipients };
+      }
+      if (env.restSocketEventMaxRecipients > 0 && recipients > env.restSocketEventMaxRecipients) {
+        throw new AppError("socket event recipient fan-out limit exceeded", {
+          statusCode: 503,
+          code: "SERVICE_UNAVAILABLE",
+          details: { retry_after_ms: env.restSocketEventRateLimitWindowMs },
+        });
+      }
+      const frame = await encodePayloadFrameBridge(
+        {
+          eventId: event.eventId,
+          eventName: event.eventName,
+          emittedAt: event.emittedAt,
+          publisher: event.publisher,
+          payload: event.payload,
+          attachments: event.attachments,
+        },
+        {
+          ...payloadFrameEncodeOptionsFromPreference(event.payloadFrameCompression),
+          requestId: event.eventId,
+          omitTraceId: true,
+        },
+      );
+      consumersNsp.to(room).emit(event.eventName, frame);
+      return { recipients };
     },
   });
 

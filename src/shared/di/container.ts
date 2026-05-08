@@ -5,6 +5,7 @@ import { AgentProfileSyncService } from "../../application/services/agent_profil
 import { AgentSelfProfileService } from "../../application/services/agent_self_profile.service";
 import { ClientAgentAccessService } from "../../application/services/client_agent_access.service";
 import { ClientAuthService } from "../../application/services/client_auth.service";
+import { HealthReadinessService } from "../../application/services/health_readiness.service";
 import { UserAgentService } from "../../application/services/user_agent.service";
 import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
 import type { IClientAgentAccessApprovalTokenRepository } from "../../domain/repositories/client_agent_access_approval_token.repository.interface";
@@ -54,6 +55,7 @@ import { PrismaClientPasswordRecoveryTokenRepository } from "../../infrastructur
 import { PrismaClientRefreshTokenRepository } from "../../infrastructure/repositories/prisma_client_refresh_token.repository";
 import { PrismaClientRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_client_registration_approval_token.repository";
 import { PrismaClientRepository } from "../../infrastructure/repositories/prisma_client.repository";
+import { PrismaDatabaseReadinessProbe } from "../../infrastructure/database/prisma/prisma_database_readiness_probe";
 import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/prisma_refresh_token.repository";
 import { PrismaRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_registration_approval_token.repository";
 import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_user.repository";
@@ -143,6 +145,10 @@ const fileStorage = new LocalFileStorage({
   clientThumbnailWidth: env.clientThumbnailWidth,
   clientThumbnailHeight: env.clientThumbnailHeight,
   clientThumbnailWebpQuality: env.clientThumbnailWebpQuality,
+});
+const healthReadinessService = new HealthReadinessService(new PrismaDatabaseReadinessProbe(), {
+  databaseTimeoutMs: 1_500,
+  skipDatabaseProbe: env.nodeEnv === "test",
 });
 
 const registerUseCase = new RegisterUseCase(userRepository, registrationApprovalTokenRepository);
@@ -239,6 +245,7 @@ export const container = {
   userAgentService,
   clientAuthService,
   clientAgentAccessService,
+  healthReadinessService,
   isAgentConnectedToHub,
 };
 

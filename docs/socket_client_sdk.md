@@ -36,6 +36,7 @@ real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 - Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`
 - Dados em `PayloadFrame`: `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
 - **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/client_agent_business_rules.md`.
+- **Pub/sub customizado:** sockets em `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe`; publicacoes REST em `POST /api/v1/client/me/socket-events` chegam no proprio `eventName` em `PayloadFrame`.
 
 ## Estrutura do PayloadFrame
 
@@ -55,6 +56,62 @@ type PayloadFrame = {
 ```
 
 Em alguns eventos de **alto debito** (`relay:rpc.chunk`, `relay:rpc.complete`, acks relay), o servidor pode omitir `traceId` no envelope; usar `requestId` para correlacao.
+
+## Pub/sub customizado REST -> Socket
+
+Use este fluxo para eventos de aplicacao que nao sao comandos RPC para agente:
+
+1. Conecte no namespace `/consumers` com JWT valido.
+2. Assine um evento reservado:
+
+```ts
+socket.emit("socket:event.subscribe", {
+  requestId: crypto.randomUUID(),
+  eventName: "client:custom.status.changed",
+});
+
+socket.on("socket:event.subscribed", (ack) => {
+  if (!ack.success) throw new Error(ack.error.message);
+});
+```
+
+3. Publique via REST com token de `Client`:
+
+```http
+POST /api/v1/client/me/socket-events
+Authorization: Bearer <client-access-token>
+Idempotency-Key: publish-status-123
+Content-Type: application/json
+
+{
+  "eventName": "client:custom.status.changed",
+  "payloadFrameCompression": "default",
+  "payload": { "status": "ready", "message": "job finished" }
+}
+```
+
+4. Receba o evento dinamico e decodifique o `PayloadFrame`:
+
+```ts
+socket.on("client:custom.status.changed", (rawFrame) => {
+  const decoded = decodeFrame(rawFrame);
+  console.log(decoded.payload, decoded.attachments);
+});
+```
+
+Para cancelar: `socket.emit("socket:event.unsubscribe", { requestId, eventName })`.
+Somente nomes `client:custom.*` sao aceitos. A entrega e global por `eventName`
+dentro do hub atual; a resposta REST `recipients` indica quantos sockets locais
+estavam inscritos no momento da publicacao. Em multi-replica sem adapter
+Socket.IO distribuido, a publicacao so alcanca sockets da mesma replica.
+Use `Idempotency-Key` em retries REST: repetir a mesma chave com o mesmo corpo
+retorna a resposta original com `idempotentReplay: true` sem emitir o evento de
+novo; repetir a chave com outro corpo retorna `409`.
+
+Multipart tambem e aceito: envie o campo `event` com o JSON acima e campos
+`files` repetidos. Os anexos sao pequenos e inline, entregues como
+`attachments[]` com `originalName`, `mimeType`, `sizeBytes` e `base64`.
+Campos de arquivo diferentes de `files` sao rejeitados.
 
 ## Limites e comportamento do hub (resumo)
 

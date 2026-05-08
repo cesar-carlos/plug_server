@@ -49,6 +49,9 @@ describe("Swagger docs", () => {
     ).toBe("#/components/schemas/AgentCommandResponse202");
 
     const schemas = response.body.components?.schemas;
+    expect(schemas?.ErrorResponse?.required).toEqual(["success", "message", "code", "error"]);
+    expect(schemas?.ErrorResponse?.properties?.success?.enum).toEqual([false]);
+    expect(schemas?.ErrorResponse?.properties?.error?.required).toEqual(["code", "message"]);
     expect(schemas?.RpcSqlExecuteCommand?.properties?.params?.$ref).toBe(
       "#/components/schemas/SqlExecuteParams",
     );
@@ -72,6 +75,15 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/agents/catalog"]?.post).toBeUndefined();
     expect(response.body.paths?.["/agents/catalog/{agentId}"]?.patch).toBeUndefined();
     expect(response.body.paths?.["/client/me/agents"]?.get?.tags).toContain("Client Agent Access");
+    const socketEventsPost = response.body.paths?.["/client/me/socket-events"]?.post;
+    expect(socketEventsPost?.tags).toContain("Client Socket Events");
+    expect(
+      socketEventsPost?.requestBody?.content?.["application/json"]?.schema?.$ref,
+    ).toBe("#/components/schemas/ClientSocketEventPublishRequest");
+    expect(
+      socketEventsPost?.requestBody?.content?.["multipart/form-data"]?.schema?.$ref,
+    ).toBe("#/components/schemas/ClientSocketEventMultipartPublishRequest");
+    expect(schemas?.ClientSocketEventPublishResponse).toBeDefined();
     expect(response.body.paths?.["/client/me/agents"]?.get?.parameters).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "status" }),

@@ -15,6 +15,15 @@ const toRecord = (value: unknown): Record<string, unknown> | null =>
 const toSortedUnique = (values: readonly string[]): readonly string[] =>
   Array.from(new Set(values)).sort();
 
+const optionalForwardCompatibleMethods = new Set([
+  "observer.list",
+  "observer.register",
+  "observer.unregister",
+]);
+
+const withoutOptionalForwardCompatibleMethods = (values: readonly string[]): readonly string[] =>
+  values.filter((method) => !optionalForwardCompatibleMethods.has(method));
+
 const resolveOpenRpcPath = (): string | null => {
   const explicitPath = process.env.PLUG_AGENTE_OPENRPC_PATH;
   const candidates = [
@@ -105,8 +114,13 @@ describe("RPC contract alignment", () => {
     const openRpcMethods = readOpenRpcMethods();
     const validatorMethods = toSortedUnique([...supportedAgentRpcMethods]);
     const swaggerMethods = await readSwaggerMethods();
+    const openRpcCoreMethods = withoutOptionalForwardCompatibleMethods(openRpcMethods);
 
-    expect(validatorMethods).toEqual(openRpcMethods);
-    expect(swaggerMethods).toEqual(openRpcMethods);
+    expect(withoutOptionalForwardCompatibleMethods(validatorMethods)).toEqual(openRpcCoreMethods);
+    expect(withoutOptionalForwardCompatibleMethods(swaggerMethods)).toEqual(openRpcCoreMethods);
+    for (const method of openRpcMethods.filter((name) => optionalForwardCompatibleMethods.has(name))) {
+      expect(validatorMethods).toContain(method);
+      expect(swaggerMethods).toContain(method);
+    }
   });
 });

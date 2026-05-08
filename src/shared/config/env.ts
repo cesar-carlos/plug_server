@@ -133,6 +133,43 @@ const envSchema = z.object({
     .min(0)
     .max(10_000_000)
     .default(60),
+  REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  /** `0` = unlimited. */
+  REST_SOCKET_EVENT_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(120),
+  REST_SOCKET_EVENT_MAX_FILES: z.coerce.number().int().min(0).max(32).default(5),
+  REST_SOCKET_EVENT_FILE_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 * 1024)
+    .default(512 * 1024),
+  REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10 * 1024 * 1024)
+    .default(2 * 1024 * 1024),
+  REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 * 1024)
+    .default(512 * 1024),
+  /** `0` = do not cap local recipient fan-out for one custom socket event publish. */
+  REST_SOCKET_EVENT_MAX_RECIPIENTS: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  /** `0` = disable REST socket event idempotency cache. */
+  REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(86_400_000)
+    .default(300_000),
+  REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1_000_000)
+    .default(10_000),
   /**
    * When > 0, a second `POST /client/me/agents` for the same agent while the request is still `pending`
    * and `requestedAt` is within this many ms does not re-email the owner (returns `debounced`).
@@ -382,6 +419,26 @@ const envSchema = z.object({
    * Set `0` to disable the gate (legacy behaviour: unbounded inflight per socket).
    */
   SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET: z.coerce.number().int().min(0).max(10_000).default(32),
+  /** Max custom `client:custom.*` subscriptions retained per consumer socket. `0` = unlimited. */
+  SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000)
+    .default(128),
+  SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(600_000)
+    .default(60_000),
+  /** Max valid subscribe/unsubscribe controls per consumer socket per window. `0` disables. */
+  SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(1_000_000)
+    .default(240),
   SOCKET_AGENT_ROLES: z
     .string()
     .default("agent")
@@ -853,6 +910,15 @@ export const env = {
   restClientMeAgentsPostRateLimitWindowMs:
     parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS,
   restClientMeAgentsPostRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX,
+  restSocketEventRateLimitWindowMs: parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS,
+  restSocketEventRateLimitMax: parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_MAX,
+  restSocketEventMaxFiles: parsedEnv.REST_SOCKET_EVENT_MAX_FILES,
+  restSocketEventFileMaxBytes: parsedEnv.REST_SOCKET_EVENT_FILE_MAX_BYTES,
+  restSocketEventTotalFilesMaxBytes: parsedEnv.REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES,
+  restSocketEventPayloadJsonMaxBytes: parsedEnv.REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES,
+  restSocketEventMaxRecipients: parsedEnv.REST_SOCKET_EVENT_MAX_RECIPIENTS,
+  restSocketEventIdempotencyTtlMs: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS,
+  restSocketEventIdempotencyMaxEntries: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES,
   clientAgentAccessRequestEmailDebounceMs: parsedEnv.CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS,
   clientAgentAccessMaxRetries: parsedEnv.CLIENT_AGENT_ACCESS_MAX_RETRIES,
   restClientPasswordRecoveryRateLimitWindowMs:
@@ -886,6 +952,12 @@ export const env = {
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,
+  socketCustomEventMaxSubscriptionsPerSocket:
+    parsedEnv.SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET,
+  socketCustomEventSubscriptionRateLimitWindowMs:
+    parsedEnv.SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_WINDOW_MS,
+  socketCustomEventSubscriptionRateLimitMax:
+    parsedEnv.SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_MAX,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES.roles,
   socketConsumerRolesClientAppended: parsedEnv.SOCKET_CONSUMER_ROLES.clientAppended,

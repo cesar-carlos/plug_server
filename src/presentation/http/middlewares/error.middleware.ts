@@ -10,7 +10,30 @@ import {
   buildApprovalZodErrorHtml,
   shouldReturnHtmlForApprovalError,
 } from "../helpers/approval_error_html";
+import { buildHttpErrorResponseBody } from "../helpers/http_error_response";
 import { normalizeZodIssues } from "./validate.middleware";
+
+const clientErrorByStatus: ReadonlyMap<number, { readonly code: string; readonly message: string }> =
+  new Map([
+    [400, { code: "BAD_REQUEST", message: "Invalid request" }],
+    [401, { code: "UNAUTHORIZED", message: "Authentication required" }],
+    [403, { code: "FORBIDDEN", message: "Forbidden" }],
+    [404, { code: "NOT_FOUND", message: "Resource not found" }],
+    [413, { code: "PAYLOAD_TOO_LARGE", message: "Request payload too large" }],
+    [415, { code: "UNSUPPORTED_MEDIA_TYPE", message: "Unsupported media type" }],
+    [429, { code: "TOO_MANY_REQUESTS", message: "Too many requests, please try again later." }],
+  ]);
+
+const getClientErrorStatusCode = (error: unknown): number | undefined => {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+  const candidate = error as { readonly status?: unknown; readonly statusCode?: unknown };
+  const status = typeof candidate.status === "number" ? candidate.status : candidate.statusCode;
+  return typeof status === "number" && Number.isInteger(status) && status >= 400 && status < 500
+    ? status
+    : undefined;
+};
 
 export const errorMiddleware = (
   error: unknown,
@@ -29,12 +52,14 @@ export const errorMiddleware = (
         return;
       }
     }
-    response.status(400).json({
-      message: "Validation failed",
-      code: "VALIDATION_ERROR",
-      issues: normalizeZodIssues(error),
-      requestId,
-    });
+    response.status(400).json(
+      buildHttpErrorResponseBody({
+        message: "Validation failed",
+        code: "VALIDATION_ERROR",
+        issues: normalizeZodIssues(error),
+        requestId,
+      }),
+    );
     return;
   }
 
@@ -63,12 +88,31 @@ export const errorMiddleware = (
       }
     }
 
-    response.status(error.statusCode).json({
-      message: error.message,
-      code: error.code,
-      ...(shouldExposeDetails && error.details !== undefined ? { details: error.details } : {}),
-      requestId,
-    });
+    response.status(error.statusCode).json(
+      buildHttpErrorResponseBody({
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        exposeDetails: shouldExposeDetails,
+        requestId,
+      }),
+    );
+    return;
+  }
+
+  const clientErrorStatusCode = getClientErrorStatusCode(error);
+  if (clientErrorStatusCode !== undefined) {
+    const fallback = clientErrorByStatus.get(clientErrorStatusCode) ?? {
+      code: "REQUEST_ERROR",
+      message: "Request failed",
+    };
+    response.status(clientErrorStatusCode).json(
+      buildHttpErrorResponseBody({
+        message: fallback.message,
+        code: fallback.code,
+        requestId,
+      }),
+    );
     return;
   }
 
@@ -88,9 +132,11 @@ export const errorMiddleware = (
     }
   }
 
-  response.status(500).json({
-    message: env.nodeEnv === "production" ? "Internal server error" : "Unhandled server error",
-    code: "INTERNAL_SERVER_ERROR",
-    requestId,
-  });
+  response.status(500).json(
+    buildHttpErrorResponseBody({
+      message: env.nodeEnv === "production" ? "Internal server error" : "Unhandled server error",
+      code: "INTERNAL_SERVER_ERROR",
+      requestId,
+    }),
+  );
 };

@@ -45,6 +45,10 @@ export const socketEvents = {
   relayRpcBatchAck: "relay:rpc.batch_ack",
   relayRpcStreamPull: "relay:rpc.stream.pull",
   relayRpcStreamPullResponse: "relay:rpc.stream.pull_response",
+  socketEventSubscribe: "socket:event.subscribe",
+  socketEventSubscribed: "socket:event.subscribed",
+  socketEventUnsubscribe: "socket:event.unsubscribe",
+  socketEventUnsubscribed: "socket:event.unsubscribed",
   /** Server → consumer: agent catalog profile changed (approved clients only). */
   clientAgentProfileUpdated: "client:agent.profile.updated",
 } as const;

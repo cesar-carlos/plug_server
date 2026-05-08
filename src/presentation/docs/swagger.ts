@@ -42,6 +42,7 @@ const swaggerSpec = swaggerJSDoc({
       { name: "Agent catalog", description: "Agent catalog read and filter" },
       { name: "User agents", description: "User-to-agent binding management" },
       { name: "Client Agent Access", description: "Client-to-agent access requests and approvals" },
+      { name: "Client Socket Events", description: "REST-published custom events for /consumers subscribers" },
       { name: "User clients", description: "Owner management of managed clients" },
       { name: "Admin", description: "Admin-only operations (user status, blocking)" },
     ],
@@ -57,10 +58,23 @@ const swaggerSpec = swaggerJSDoc({
       schemas: {
         ErrorResponse: {
           type: "object",
-          required: ["message", "code"],
+          required: ["success", "message", "code", "error"],
           properties: {
+            success: { type: "boolean", enum: [false], example: false },
             message: { type: "string", example: "Invalid or expired token" },
             code: { type: "string", example: "INVALID_TOKEN" },
+            error: {
+              type: "object",
+              required: ["code", "message"],
+              properties: {
+                code: { type: "string", example: "INVALID_TOKEN" },
+                message: { type: "string", example: "Invalid or expired token" },
+                details: {
+                  type: "object",
+                  additionalProperties: true,
+                },
+              },
+            },
             requestId: { type: "string", example: "0d2a9475-ccf8-4f03-a64c-ef75f9b2f5c6" },
             details: {
               type: "object",
@@ -89,6 +103,74 @@ const swaggerSpec = swaggerJSDoc({
               },
             },
           ],
+        },
+        ClientSocketEventPublishRequest: {
+          type: "object",
+          required: ["eventName", "payload"],
+          additionalProperties: false,
+          properties: {
+            eventName: {
+              type: "string",
+              pattern: "^client:custom\\.",
+              maxLength: 128,
+              example: "client:custom.status.changed",
+              description:
+                "Custom event name. Only the reserved client:custom.* prefix is accepted; internal Socket protocol events are blocked.",
+            },
+            payload: {
+              description: "JSON payload delivered inside the outbound PayloadFrame.",
+              nullable: true,
+            },
+            payloadFrameCompression: {
+              type: "string",
+              enum: ["default", "none", "always"],
+              default: "default",
+              description:
+                "Compression policy used when the hub emits the PayloadFrame to subscribed consumers.",
+            },
+          },
+        },
+        ClientSocketEventMultipartPublishRequest: {
+          type: "object",
+          required: ["event"],
+          properties: {
+            event: {
+              type: "string",
+              description:
+                "JSON string matching ClientSocketEventPublishRequest. Files are sent in repeated `files` fields and delivered as inline base64 attachments.",
+              example:
+                '{"eventName":"client:custom.document.ready","payload":{"documentId":"doc-1"},"payloadFrameCompression":"default"}',
+            },
+            files: {
+              type: "array",
+              items: { type: "string", format: "binary" },
+            },
+          },
+        },
+        ClientSocketEventPublishResponse: {
+          type: "object",
+          required: ["success", "eventId", "eventName", "recipients"],
+          properties: {
+            success: { type: "boolean", enum: [true] },
+            eventId: { type: "string", format: "uuid" },
+            eventName: { type: "string", example: "client:custom.status.changed" },
+            recipients: {
+              type: "integer",
+              minimum: 0,
+              description:
+                "Number of local sockets subscribed to the event on this hub instance at publish time.",
+            },
+            requestId: { type: "string" },
+            idempotencyKey: {
+              type: "string",
+              description: "Echoed when the request used Idempotency-Key.",
+            },
+            idempotentReplay: {
+              type: "boolean",
+              description:
+                "True when this response was replayed from the Idempotency-Key cache without emitting a duplicate Socket event.",
+            },
+          },
         },
         AuthUser: {
           type: "object",
@@ -417,6 +499,64 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: false,
         },
+        ObserverRegisterCondition: {
+          type: "object",
+          required: ["type"],
+          properties: {
+            type: { type: "string", enum: ["rows_present"] },
+          },
+          additionalProperties: false,
+        },
+        ObserverRegisterOptions: {
+          type: "object",
+          properties: {
+            timeout_ms: { type: "integer", minimum: 1, maximum: AGENT_TIMEOUT_MS_LIMIT },
+            max_rows: { type: "integer", minimum: 1, maximum: AGENT_MAX_ROWS_LIMIT },
+            execution_mode: { type: "string", enum: ["managed", "preserve"] },
+            preserve_sql: { type: "boolean" },
+            multi_result: { type: "boolean" },
+          },
+          additionalProperties: false,
+        },
+        ObserverRegisterParams: {
+          type: "object",
+          required: ["sql"],
+          description:
+            "Registers a session-scoped SQL observer. idempotency_key is intentionally rejected because periodic executions must not reuse cached SQL results.",
+          properties: {
+            sql: {
+              type: "string",
+              minLength: 1,
+              description: `Max ${AGENT_SQL_MAX_UTF8_BYTES} UTF-8 bytes (matches Zod).`,
+            },
+            params: {
+              type: "object",
+              additionalProperties: true,
+              description: `Named parameters; JSON max ${AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES} UTF-8 bytes when serialized.`,
+            },
+            client_token: { type: "string", minLength: 1 },
+            clientToken: { type: "string", minLength: 1 },
+            auth: { type: "string", minLength: 1 },
+            database: { type: "string", minLength: 1 },
+            interval_seconds: { type: "integer", minimum: 30, maximum: 86400, default: 300 },
+            condition: { $ref: "#/components/schemas/ObserverRegisterCondition" },
+            run_immediately: { type: "boolean", default: false },
+            options: { $ref: "#/components/schemas/ObserverRegisterOptions" },
+          },
+          additionalProperties: false,
+        },
+        ObserverUnregisterParams: {
+          type: "object",
+          required: ["observer_id"],
+          properties: {
+            observer_id: { type: "string", minLength: 1 },
+          },
+          additionalProperties: false,
+        },
+        ObserverListParams: {
+          allOf: [{ $ref: "#/components/schemas/RpcClientTokenCarrierParams" }],
+          description: "Optional client token aliases used to scope observer listing.",
+        },
         SqlCancelParams: {
           type: "object",
           properties: {
@@ -536,11 +676,53 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: true,
         },
+        RpcObserverRegisterCommand: {
+          type: "object",
+          required: ["method", "params"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["observer.register"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/ObserverRegisterParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
+        RpcObserverUnregisterCommand: {
+          type: "object",
+          required: ["method", "params"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["observer.unregister"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/ObserverUnregisterParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
+        RpcObserverListCommand: {
+          type: "object",
+          required: ["method"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["observer.list"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/ObserverListParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
         BridgeSingleCommand: {
           oneOf: [
             { $ref: "#/components/schemas/RpcAgentGetHealthCommand" },
             { $ref: "#/components/schemas/RpcAgentGetProfileCommand" },
             { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
+            { $ref: "#/components/schemas/RpcObserverListCommand" },
+            { $ref: "#/components/schemas/RpcObserverRegisterCommand" },
+            { $ref: "#/components/schemas/RpcObserverUnregisterCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteBatchCommand" },
             { $ref: "#/components/schemas/RpcSqlCancelCommand" },

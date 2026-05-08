@@ -15,6 +15,7 @@ import {
 import {
   clientAgentAccessRequestIdParamSchema,
   clientAgentIdsBodySchema,
+  clientListAgentsQuerySchema,
 } from "../../../../../src/presentation/http/validators/client_agents.validator";
 
 describe("auth.validator email-related schemas", () => {
@@ -198,5 +199,12 @@ describe("client agent access HTTP schemas (no email on request body)", () => {
     expect(() => clientAgentAccessRequestIdParamSchema.parse({ requestId: "not-uuid" })).toThrow(
       "Must be a valid UUID",
     );
+  });
+
+  it("clientListAgentsQuerySchema parses refresh query flag explicitly", () => {
+    expect(clientListAgentsQuerySchema.parse({ refresh: "true" }).refresh).toBe(true);
+    expect(clientListAgentsQuerySchema.parse({ refresh: "false" }).refresh).toBe(false);
+    expect(clientListAgentsQuerySchema.parse({ refresh: true }).refresh).toBe(true);
+    expect(() => clientListAgentsQuerySchema.parse({ refresh: "1" })).toThrow();
   });
 });

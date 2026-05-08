@@ -134,6 +134,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
       restHttpRl.clientPasswordRecoveryRequestRejectedTotal,
     ),
   );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_client_socket_event_publish_rejected_total",
+      restHttpRl.clientSocketEventPublishRejectedTotal,
+    ),
+  );
 
   lines.push(
     metricLine(
@@ -722,6 +728,60 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_agents_command_retry_after_seconds_propagated_total",
       consumerRuntime.retryAfter.agentsCommandRetryAfterSecondsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_subscriptions_active",
+      consumerRuntime.customEvents.subscriptionsActive,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_subscribed_total",
+      consumerRuntime.customEvents.subscribedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_unsubscribed_total",
+      consumerRuntime.customEvents.unsubscribedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_subscription_rejected_total",
+      consumerRuntime.customEvents.subscriptionRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_accepted_total",
+      consumerRuntime.customEvents.publishAcceptedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_rejected_total",
+      consumerRuntime.customEvents.publishRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_idempotent_replay_total",
+      consumerRuntime.customEvents.publishIdempotentReplayTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_recipients_total",
+      consumerRuntime.customEvents.publishRecipientsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_attachment_bytes_total",
+      consumerRuntime.customEvents.publishAttachmentBytesTotal,
     ),
   );
   lines.push(

@@ -108,8 +108,30 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_RELAY_AGENT_QUEUE_WAIT_MS`                      | `200`    | Tempo maximo aguardando slot na fila por agente; rejeita com `SERVICE_UNAVAILABLE` e `retryAfterMs` quando estoura.                                                                                                                                                                                                               |
 | `SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS`      | `0`      | Orcamento por janela para creditos de `agents:stream_pull` legacy. `0` preserva comportamento anterior sem limite por creditos; quando ativo, a resposta inclui `rateLimit`.                                                                                                                                                      |
 | `SOCKET_AGENTS_COMMAND_RATE_LIMIT_WEIGHTED_COSTS`       | `false`  | Quando `true`, `agents:command` consome creditos por trabalho aproximado (`command[]` soma itens; `sql.executeBatch` soma comandos internos). `false` preserva o comportamento historico de um evento = um credito.                                                                                                                   |
+| `SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET`      | `128`    | Maximo de eventos `client:custom.*` que um socket `/consumers` pode assinar ao mesmo tempo. `0` = ilimitado.                                                                                                                                                                                                                       |
+| `SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_WINDOW_MS` | `60000`  | Janela do rate limit local para controles `socket:event.subscribe` / `socket:event.unsubscribe` por socket.                                                                                                                                                                                                                       |
+| `SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_MAX`       | `240`    | Quantidade maxima de subscribe/unsubscribe validos por socket dentro da janela. `0` desativa.                                                                                                                                                                                                                                      |
 | `SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION` | `1024`   | Cap FIFO por conversa para o mapa de idempotência relay.                                                                                                                                                                                                                                                                         |
 | `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES`            | `100000` | Cap FIFO global para o mapa de idempotência relay. `0` desativa o teto global.                                                                                                                                                                                                                                                   |
+
+## REST -> Socket pub/sub customizado
+
+| Variavel                                   | Defeito   | Notas                                                                                     |
+| ------------------------------------------ | --------- | ----------------------------------------------------------------------------------------- |
+| `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS`   | `60000`   | Janela do rate limit de `POST /api/v1/client/me/socket-events` por JWT `sub` de `Client`. |
+| `REST_SOCKET_EVENT_RATE_LIMIT_MAX`         | `120`     | Publicacoes por janela. `0` desativa o limitador especifico.                              |
+| `REST_SOCKET_EVENT_MAX_FILES`              | `5`       | Numero maximo de anexos multipart inline (`files`).                                       |
+| `REST_SOCKET_EVENT_FILE_MAX_BYTES`         | `524288`  | Tamanho maximo por arquivo inline.                                                        |
+| `REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES`  | `2097152` | Soma maxima dos anexos inline por publicacao.                                             |
+| `REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES` | `524288`  | Teto UTF-8 do `payload` JSON antes de empacotar em `PayloadFrame`.                        |
+| `REST_SOCKET_EVENT_MAX_RECIPIENTS`         | `0`       | Teto opcional de fan-out local por publicacao. `0` = ilimitado; quando estoura, retorna `503`. |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS`     | `300000`  | Janela em memoria para deduplicar `POST /client/me/socket-events` com `Idempotency-Key`. `0` desativa. |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES` | `10000`  | Maximo de respostas idempotentes retidas por processo.                                    |
+
+Eventos publicados por esta rota chegam apenas a sockets `/consumers`
+inscritos em `client:custom.*` via `socket:event.subscribe`. Em multi-replica
+sem adapter distribuido do Socket.IO, a entrega alcanca somente sockets
+conectados a mesma replica que processou o REST.
 
 ## Client → Agent: bearer token armazenado por par
 

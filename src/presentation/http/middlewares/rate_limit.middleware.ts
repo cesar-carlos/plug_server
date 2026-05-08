@@ -8,6 +8,7 @@ import {
   incrementRestHttpAgentsSelfProfileRateLimitRejected,
   incrementRestHttpClientMeAgentsPostRateLimitRejected,
   incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected,
+  incrementRestHttpClientSocketEventPublishRateLimitRejected,
   incrementRestHttpClientThumbnailRateLimitRejected,
   incrementRestHttpCredentialAuthRateLimitRejected,
   incrementRestHttpGlobalRateLimitRejected,
@@ -19,6 +20,7 @@ import {
 } from "../../../infrastructure/redis/rest_rate_limit_redis";
 import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { buildHttpErrorResponseBody } from "../helpers/http_error_response";
 
 const sendRateLimitResponse = async (
   request: Request,
@@ -31,7 +33,24 @@ const sendRateLimitResponse = async (
       ? await optionsUsed.message(request, response)
       : optionsUsed.message;
   if (!response.writableEnded) {
-    response.send(message);
+    const normalized =
+      message && typeof message === "object" && !Array.isArray(message)
+        ? (message as Record<string, unknown>)
+        : {};
+    const code = typeof normalized.code === "string" ? normalized.code : "TOO_MANY_REQUESTS";
+    const text =
+      typeof normalized.message === "string"
+        ? normalized.message
+        : typeof message === "string"
+          ? message
+          : "Too many requests, please try again later.";
+    response.json(
+      buildHttpErrorResponseBody({
+        code,
+        message: text,
+        requestId: response.locals.requestId as string | undefined,
+      }),
+    );
   }
 };
 
@@ -43,10 +62,13 @@ const optionalRedisStore = (
 };
 
 export const globalRateLimitNotRegistered: RequestHandler = (_req, res) => {
-  res.status(500).json({
-    message: "HTTP rate limiters not initialized (call registerHttpRateLimits).",
-    code: "RATE_LIMIT_NOT_INITIALIZED",
-  });
+  res.status(500).json(
+    buildHttpErrorResponseBody({
+      message: "HTTP rate limiters not initialized (call registerHttpRateLimits).",
+      code: "RATE_LIMIT_NOT_INITIALIZED",
+      requestId: res.locals.requestId as string | undefined,
+    }),
+  );
 };
 
 export let globalRateLimit: RequestHandler = globalRateLimitNotRegistered;
@@ -71,6 +93,8 @@ export let adminUserStatusRateLimit: RequestHandler = globalRateLimitNotRegister
 
 /** Per authenticated client (`JWT sub`) on `POST /client/me/agents`. */
 export let clientMeAgentsPostRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+export let clientSocketEventPublishRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
 export let clientThumbnailRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
@@ -111,6 +135,12 @@ export const clientMeAgentsPostRateLimitKey = (res: Response): string => {
   const authClient = res.locals.authClient as JwtAccessPayload | undefined;
   const sub = authClient?.sub?.trim();
   return sub ? `client_me_agents_post:${sub}` : "client_me_agents_post:anonymous";
+};
+
+export const clientSocketEventPublishRateLimitKey = (res: Response): string => {
+  const authClient = res.locals.authClient as JwtAccessPayload | undefined;
+  const sub = authClient?.sub?.trim();
+  return sub ? `client_socket_event_publish:${sub}` : "client_socket_event_publish:anonymous";
 };
 
 /** Rate-limit store key for `PATCH /agents/:agentId/profile` keyed by authenticated user and bound agent claim. */
@@ -291,6 +321,27 @@ export function registerHttpRateLimits(): void {
           keyGenerator: (_req: Request, res: Response) => clientMeAgentsPostRateLimitKey(res),
           handler: async (request, response, _next, optionsUsed) => {
             incrementRestHttpClientMeAgentsPostRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  clientSocketEventPublishRateLimit =
+    env.restSocketEventRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restSocketEventRateLimitWindowMs,
+          limit: env.restSocketEventRateLimitMax,
+          ...(optionalRedisStore("client_socket_event_publish") ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many socket event publish requests, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          keyGenerator: (_req: Request, res: Response) =>
+            clientSocketEventPublishRateLimitKey(res),
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpClientSocketEventPublishRateLimitRejected();
             await sendRateLimitResponse(request, response, optionsUsed);
           },
         });

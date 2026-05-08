@@ -39,6 +39,18 @@ const profilePush = {
   fanoutMax: 0,
 };
 
+const customEvents = {
+  subscriptionsActive: 0,
+  subscribedTotal: 0,
+  unsubscribedTotal: 0,
+  subscriptionRejectedTotal: 0,
+  publishAcceptedTotal: 0,
+  publishRejectedTotal: 0,
+  publishIdempotentReplayTotal: 0,
+  publishRecipientsTotal: 0,
+  publishAttachmentBytesTotal: 0,
+};
+
 export const noteConsumerSocketConnected = (
   principalType: "user" | "client" | null | undefined,
 ): void => {
@@ -101,6 +113,42 @@ export const noteAgentsCommandRetryAfterSecondsPropagated = (): void => {
   retryAfter.agentsCommandRetryAfterSecondsTotal += 1;
 };
 
+export const noteCustomSocketEventSubscribed = (): void => {
+  customEvents.subscriptionsActive += 1;
+  customEvents.subscribedTotal += 1;
+};
+
+export const noteCustomSocketEventUnsubscribed = (): void => {
+  customEvents.subscriptionsActive = Math.max(0, customEvents.subscriptionsActive - 1);
+  customEvents.unsubscribedTotal += 1;
+};
+
+export const noteCustomSocketEventSubscriptionsRemoved = (count: number): void => {
+  customEvents.subscriptionsActive = Math.max(0, customEvents.subscriptionsActive - count);
+  customEvents.unsubscribedTotal += Math.max(0, count);
+};
+
+export const noteCustomSocketEventSubscriptionRejected = (): void => {
+  customEvents.subscriptionRejectedTotal += 1;
+};
+
+export const noteCustomSocketEventPublishAccepted = (input: {
+  readonly recipients: number;
+  readonly attachmentBytes: number;
+}): void => {
+  customEvents.publishAcceptedTotal += 1;
+  customEvents.publishRecipientsTotal += Math.max(0, input.recipients);
+  customEvents.publishAttachmentBytesTotal += Math.max(0, input.attachmentBytes);
+};
+
+export const noteCustomSocketEventPublishRejected = (): void => {
+  customEvents.publishRejectedTotal += 1;
+};
+
+export const noteCustomSocketEventPublishIdempotentReplay = (): void => {
+  customEvents.publishIdempotentReplayTotal += 1;
+};
+
 export const getSocketConsumerMetricsSnapshot = (): {
   readonly activeConnections: typeof activeConnections;
   readonly authRejects: typeof authRejects;
@@ -112,6 +160,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   };
   readonly commandAbort: typeof commandAbort;
   readonly retryAfter: typeof retryAfter;
+  readonly customEvents: typeof customEvents;
   readonly profilePush: {
     readonly batchesTotal: number;
     readonly coalescedTotal: number;
@@ -130,6 +179,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   },
   commandAbort: { ...commandAbort },
   retryAfter: { ...retryAfter },
+  customEvents: { ...customEvents },
   profilePush: {
     batchesTotal: profilePush.batchesTotal,
     coalescedTotal: profilePush.coalescedTotal,
@@ -160,4 +210,13 @@ export const resetSocketConsumerMetrics = (): void => {
   profilePush.coalescedTotal = 0;
   profilePush.fanoutTotal = 0;
   profilePush.fanoutMax = 0;
+  customEvents.subscriptionsActive = 0;
+  customEvents.subscribedTotal = 0;
+  customEvents.unsubscribedTotal = 0;
+  customEvents.subscriptionRejectedTotal = 0;
+  customEvents.publishAcceptedTotal = 0;
+  customEvents.publishRejectedTotal = 0;
+  customEvents.publishIdempotentReplayTotal = 0;
+  customEvents.publishRecipientsTotal = 0;
+  customEvents.publishAttachmentBytesTotal = 0;
 };

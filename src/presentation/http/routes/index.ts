@@ -13,6 +13,7 @@ import { adminUsersRouter } from "./admin_users.routes";
 import { userAgentsRouter } from "./user_agents.routes";
 import { clientAuthRouter } from "./client_auth.routes";
 import { clientAgentsRouter, clientAccessReviewRouter } from "./client_agents.routes";
+import { clientSocketEventsRouter } from "./client_socket_events.routes";
 import { userClientsRouter } from "./user_clients.routes";
 
 export const httpRouter = Router();
@@ -20,6 +21,7 @@ export const httpRouter = Router();
 httpRouter.use("/auth", authRouter);
 httpRouter.use("/client-auth", clientAuthRouter);
 httpRouter.use("/", clientAgentsRouter);
+httpRouter.use("/", clientSocketEventsRouter);
 httpRouter.use("/client-access", clientAccessReviewRouter);
 httpRouter.use("/admin/users", adminUsersRouter);
 httpRouter.use("/agents/catalog", agentCatalogRouter);

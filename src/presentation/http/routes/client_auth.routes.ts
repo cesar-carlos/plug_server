@@ -530,9 +530,12 @@ clientAuthRouter.post(
  *     responses:
  *       200:
  *         description: HTML page
+ *       429:
+ *         description: Too many password recovery token checks
  */
 clientAuthRouter.get(
   "/password-recovery/review",
+  clientPasswordRecoveryRequestRateLimit,
   validateRequest({ query: clientPasswordRecoveryTokenQuerySchema }),
   asyncHandler(clientPasswordRecoveryReviewPage),
 );
@@ -561,9 +564,12 @@ clientAuthRouter.get(
  *               $ref: '#/components/schemas/ClientPasswordRecoveryStatusResponse'
  *       404:
  *         $ref: '#/components/responses/NotFound'
+ *       429:
+ *         description: Too many password recovery token checks
  */
 clientAuthRouter.get(
   "/password-recovery/status",
+  clientPasswordRecoveryRequestRateLimit,
   validateRequest({ query: clientPasswordRecoveryTokenQuerySchema }),
   asyncHandler(clientPasswordRecoveryStatus),
 );

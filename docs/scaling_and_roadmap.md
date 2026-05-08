@@ -13,6 +13,7 @@ Estado explicitamente **por processo** hoje:
 - `conversationRegistry` (conversas relay e idle timeout)
 - pending requests REST/legacy socket
 - rooms Socket.IO (`client:<id>`, `consumer:principal:*`)
+- rooms de pub/sub customizado (`client:custom.*` assinado via `socket:event.subscribe`)
 - `agentRegistry` e readiness/circuit local
 - mapa de idempotencia relay
 - filas outbound hub -> consumer e buffers de stream
@@ -24,7 +25,7 @@ cliente/agent voltem ao processo que detem esse estado.
 
 ### Rate limits HTTP (`express-rate-limit`)
 
-Todos os limitadores HTTP (`globalRateLimit`, `credentialAuthRateLimit`, `agentsCommandsUserRateLimit`, `agentsCommandsIpRateLimit`, `adminUserStatusRateLimit`, `clientMeAgentsPostRateLimit`, `clientThumbnailRateLimit`, `clientPasswordRecoveryRequestRateLimit`, `agentsSelfProfileRateLimit`) usam o **store default em memoria** do `express-rate-limit` quando `REST_RATE_LIMIT_REDIS_URL` esta vazio. Em multi-replica sem Redis:
+Todos os limitadores HTTP (`globalRateLimit`, `credentialAuthRateLimit`, `agentsCommandsUserRateLimit`, `agentsCommandsIpRateLimit`, `adminUserStatusRateLimit`, `clientMeAgentsPostRateLimit`, `clientSocketEventPublishRateLimit`, `clientThumbnailRateLimit`, `clientPasswordRecoveryRequestRateLimit`, `agentsSelfProfileRateLimit`) usam o **store default em memoria** do `express-rate-limit` quando `REST_RATE_LIMIT_REDIS_URL` esta vazio. Em multi-replica sem Redis:
 
 - cada pod tem o seu balde, logo o **limite efetivo** se multiplica pelo numero de replicas;
 - nao ha coordenacao para detetar abuso distribuido por trás de balanceador;
@@ -47,6 +48,14 @@ hub volta ao limiter local em memoria.
 Isso **nao** torna o Socket stateless. Conversas, pending requests, streams,
 idempotencia relay, registry do agente e filas por agente continuam por processo.
 Portanto sticky sessions seguem obrigatorias para `/consumers` e `/agents`.
+
+O pub/sub customizado REST -> Socket (`POST /api/v1/client/me/socket-events`
+para `client:custom.*`) tambem e local ao processo quando nao ha adapter
+distribuido do Socket.IO. `recipients` conta somente sockets inscritos na mesma
+replica que recebeu o REST. A idempotencia via `Idempotency-Key` tambem e cache
+em memoria por processo; em multi-replica, retries precisam cair na mesma
+replica para reaproveitar a resposta sem nova emissao. Use
+`REST_SOCKET_EVENT_MAX_RECIPIENTS` para proteger fan-out local em picos.
 
 **Proximos passos:** manter fail-open quando o Redis cair (politica conservadora: se store indisponivel, deixar passar e logar) para evitar transformar uma falha de cache num corte total de API. Para estado do bridge/relay Socket, o desenho ainda assume **sticky sessions** ou um numero de replicas baixo o suficiente para que o estado em memoria continue aceitavel.
 

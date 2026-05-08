@@ -50,6 +50,59 @@ const registerLogin = async (
 };
 
 describe("REST hardening", () => {
+  describe("HTTP error normalization", () => {
+    it("returns a standardized 404 for missing /assets static files", async () => {
+      const response = await request(app).get("/assets/missing-static-file.png");
+
+      expect(response.status).toBe(404);
+      expect(response.body).toMatchObject({
+        success: false,
+        code: "NOT_FOUND",
+        message: "Resource not found",
+        error: {
+          code: "NOT_FOUND",
+          message: "Resource not found",
+        },
+      });
+      expect(response.body.requestId).toEqual(expect.any(String));
+    });
+
+    it("returns a standardized 404 for missing /uploads static files", async () => {
+      const response = await request(app).get("/uploads/missing-static-file.png");
+
+      expect(response.status).toBe(404);
+      expect(response.body).toMatchObject({
+        success: false,
+        code: "NOT_FOUND",
+        message: "Resource not found",
+        error: {
+          code: "NOT_FOUND",
+          message: "Resource not found",
+        },
+      });
+      expect(response.body.requestId).toEqual(expect.any(String));
+    });
+
+    it("returns a standardized 400 for malformed JSON bodies", async () => {
+      const response = await request(app)
+        .post("/auth/login")
+        .set("content-type", "application/json")
+        .send("{");
+
+      expect(response.status).toBe(400);
+      expect(response.body).toMatchObject({
+        success: false,
+        code: "BAD_REQUEST",
+        message: "Invalid request",
+        error: {
+          code: "BAD_REQUEST",
+          message: "Invalid request",
+        },
+      });
+      expect(response.body.requestId).toEqual(expect.any(String));
+    });
+  });
+
   // ─── F1.A1: socketId leak in GET /agents ─────────────────────────────────
   describe("GET /api/v1/agents serializer", () => {
     it("returns agents without exposing internal socketId", async () => {

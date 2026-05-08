@@ -74,6 +74,9 @@ vale apenas para o bridge de comandos (`POST /api/v1/agents/commands`).
 | `agent.getHealth` | Sim | Sim | Sim |
 | `agent.getProfile` | Sim | Sim | Sim |
 | `client_token.getPolicy` | Sim | Sim | Sim |
+| `observer.register` | Sim | Sim | Sim |
+| `observer.unregister` | Sim | Sim | Sim |
+| `observer.list` | Sim | Sim | Sim |
 | Batch JSON-RPC (`command: []`) | Sim, ate 32 itens | Sim, mesmo schema | Nao, por desenho |
 | Notification (`id: null`) | Sim | Sim | Nao, por desenho |
 | `timeoutMs` | Sim | Sim | Usa timeout do relay por request |
@@ -226,7 +229,7 @@ O token e validado por `requireAuth` antes de qualquer processamento.
 
 ### OpenAPI (Swagger)
 
-Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` (execute e batch) ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel` e `rpc.discover`.
+Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch`/`observer.register` `options.timeout_ms` ate **300000** ms; `options.max_rows` (execute, batch e observer) ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel`, `rpc.discover` e `observer.*`.
 
 ## Request body
 
@@ -314,7 +317,7 @@ Validacao no hub antes do `PayloadFrame` (constantes em `agent_command.ts`):
 
 | Campo                                                                       | Teto             |
 | --------------------------------------------------------------------------- | ---------------- |
-| `sql` (`sql.execute` e cada item de `sql.executeBatch`)                     | **1 MiB** UTF-8  |
+| `sql` (`sql.execute`, `observer.register` e cada item de `sql.executeBatch`) | **1 MiB** UTF-8  |
 | `params` nomeado (objeto serializado em JSON)                               | **2 MiB** UTF-8  |
 | `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` `params` (objeto serializado) | **64 KiB** UTF-8 |
 | `rpc.discover` `params` (objeto serializado)                                | **64 KiB** UTF-8 |
@@ -1416,6 +1419,28 @@ REQUEST_BODY_LIMIT=2mb   # ou 5mb conforme necessidade
 ```
 
 O valor deve ser menor ou igual ao limite do PayloadFrame (10MB).
+
+### Pub/sub customizado REST -> Socket
+
+`POST /api/v1/client/me/socket-events` e um contrato separado do bridge RPC.
+Ele nao envia comandos JSON-RPC ao agente e nao substitui
+`POST /api/v1/agents/commands`. A rota permite que um `Client` autenticado
+publique eventos de aplicacao `client:custom.*` para sockets `/consumers`
+inscritos via `socket:event.subscribe`.
+
+O corpo JSON usa `{ eventName, payload, payloadFrameCompression? }`; multipart
+usa o campo `event` com esse JSON e campos `files` repetidos para anexos inline
+pequenos. O hub entrega um `PayloadFrame` no proprio `eventName`, com
+`{ eventId, eventName, emittedAt, publisher, payload, attachments }`.
+O campo `payload` e obrigatorio mesmo quando for `null`. Para retries HTTP,
+envie `Idempotency-Key`: a mesma chave com o mesmo corpo reaproveita a resposta
+`202` sem publicar de novo; a mesma chave com outro corpo retorna `409`.
+Campos de arquivo diferentes de `files` sao rejeitados.
+
+Sem adapter distribuido do Socket.IO, a publicacao e local a replica que recebeu
+o REST. A resposta `202` confirma emissao local e inclui `recipients`; nao
+confirma processamento pelo listener do cliente. O fan-out local pode ser
+limitado por `REST_SOCKET_EVENT_MAX_RECIPIENTS`.
 
 ### Rate limit do endpoint commands
 

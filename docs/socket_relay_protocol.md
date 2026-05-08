@@ -83,6 +83,14 @@ Dados:
 - `relay:rpc.stream.pull`
 - `relay:rpc.stream.pull_response`
 
+Pub/sub customizado:
+
+- `socket:event.subscribe`
+- `socket:event.subscribed`
+- `socket:event.unsubscribe`
+- `socket:event.unsubscribed`
+- `client:custom.*` (evento dinamico publicado pelo REST)
+
 ## Eventos de controle (JSON)
 
 Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
@@ -93,6 +101,42 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 - `relay:conversation.ended` -> `{ success, conversationId, reason }` ou erro
 - `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`, `inFlight`)
 - `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`, `rateLimit`) ou erro
+- `socket:event.subscribe` -> `{ requestId, eventName }`
+- `socket:event.subscribed` -> `{ success, requestId, data: { eventName, subscribed: true } }` ou erro
+- `socket:event.unsubscribe` -> `{ requestId, eventName }`
+- `socket:event.unsubscribed` -> `{ success, requestId, data: { eventName, subscribed: false } }` ou erro
+
+## Pub/sub customizado REST -> Socket
+
+O namespace `/consumers` tambem oferece um pub/sub simples para eventos de
+aplicacao. Sockets autenticados assinam eventos `client:custom.*`; um cliente
+autenticado publica via `POST /api/v1/client/me/socket-events`; o hub emite o
+evento dinamico para todos os sockets locais inscritos.
+
+Regras:
+
+- apenas prefixo `client:custom.` e permitido;
+- eventos internos (`agent:*`, `agents:*`, `relay:*`, `rpc:*`, `hub:*`,
+  `connection:*`, `app:*`, `client:agent.*`, `socket:event.*`) ficam fora do
+  prefixo aceito e nao podem ser publicados;
+- subscribe/unsubscribe usam JSON puro com envelope de ack;
+- cada socket tem limite configuravel de inscricoes simultaneas
+  (`SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET`) e rate limit local para
+  controles `socket:event.*`;
+- o evento dinamico `client:custom.*` usa `PayloadFrame`;
+- payload logico do frame: `{ eventId, eventName, emittedAt, publisher, payload, attachments }`;
+- `publisher` e derivado do JWT do `Client`, nunca do body REST;
+- `attachments` sao inline e pequenos (`base64`), vindos de multipart;
+- a resposta REST confirma emissao local no hub, nao processamento por listeners;
+- `Idempotency-Key` no REST evita emissao duplicada em retry; replay retorna
+  `idempotentReplay: true`, e reuso da chave com outro corpo retorna `409`;
+- `REST_SOCKET_EVENT_MAX_RECIPIENTS` pode limitar fan-out local e rejeitar com
+  `503` quando houver inscritos demais.
+
+Sem adapter distribuido do Socket.IO, o pub/sub e por processo: uma publicacao
+REST chega aos sockets inscritos na mesma replica. Em producao multi-replica,
+use sticky sessions/topologia equivalente ou trate adapter/pub-sub distribuido
+como evolucao de arquitetura.
 
 ### `relay:conversation.ended.reason`
 
@@ -110,12 +154,12 @@ nao deve ser tratado como contrato publico para SDKs.
 O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 `plug_agente/docs/communication/socket_communication_standard.md`.
 
-**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`.
+**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`, `observer.register`, `observer.unregister`, `observer.list`.
 
 **Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
 
-O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
+O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB em `sql.execute` e `observer.register`, `params` nomeado serializado ate 2 MiB, `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
 
 - validacao barata de envelope JSON acontece antes do rate limit fixo
 - validacao profunda do `PayloadFrame` / JSON-RPC pode ocorrer depois do `allowRelayRpcRequest`
