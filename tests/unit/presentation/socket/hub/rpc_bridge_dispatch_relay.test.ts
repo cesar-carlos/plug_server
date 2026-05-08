@@ -1,7 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRpcBridgeRelayDispatch } from "../../../../../src/presentation/socket/hub/rpc_bridge_dispatch_relay";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
+import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
+import {
+  getRelayRegisteredRouteCount,
+  resetRelayRequestRegistry,
+} from "../../../../../src/presentation/socket/hub/relay_request_registry";
+import {
+  resetRelayIdempotencyStore,
+  setRelayIdempotencyEntry,
+} from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
+import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
+import { env } from "../../../../../src/shared/config/env";
 import { encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
+
+afterEach(() => {
+  agentRegistry.clear();
+  conversationRegistry.clear();
+  resetRelayRequestRegistry();
+  resetRelayIdempotencyStore();
+  resetRelayStreamFlowState();
+  vi.clearAllMocks();
+});
 
 describe("rpc_bridge_dispatch_relay", () => {
   it("rejects JSON-RPC notifications (`id: null`) in relay:rpc.request", async () => {
@@ -10,10 +31,15 @@ describe("rpc_bridge_dispatch_relay", () => {
       emitToConsumer: () => {
         /* not reached in this test */
       },
-      requestAgentStreamPull: () => ({
+      prepareAgentStreamPull: () => ({
         requestId: "req-1",
         streamId: "stream-1",
         windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
       }),
     });
 
@@ -31,5 +57,76 @@ describe("rpc_bridge_dispatch_relay", () => {
     });
 
     await expect(run).rejects.toThrow(/does not support JSON-RPC notifications/i);
+  });
+
+  it("cleans the relay route immediately when idempotency capacity rejects a new request", async () => {
+    const agentId = "agent-idem-cap";
+    const agentSocketId = "agent-socket-idem-cap";
+    const consumerSocketId = "consumer-idem-cap";
+    const conversationId = "conversation-idem-cap";
+    const agentEmit = vi.fn();
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const expiresAtMs = Date.now() + env.socketRelayIdempotencyTtlMs;
+    for (let index = 0; index < env.socketRelayIdempotencyMaxEntriesPerConversation; index += 1) {
+      const result = setRelayIdempotencyEntry(conversationId, `existing-${index}`, {
+        requestId: `request-${index}`,
+        expiresAtMs,
+      });
+      expect(result.ok).toBe(true);
+    }
+
+    const handlers = createRpcBridgeRelayDispatch({
+      getAgentsNamespace: () =>
+        ({
+          sockets: new Map([[agentSocketId, { emit: agentEmit }]]),
+        }) as never,
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    await expect(
+      handlers.dispatchRelayRpcToAgent({
+        conversationId,
+        consumerSocketId,
+        rawFramePayload: encodePayloadFrame({
+          jsonrpc: "2.0",
+          method: "agent.getHealth",
+          id: "client-request-over-cap",
+          params: {},
+        }),
+      }),
+    ).rejects.toThrow(/Relay idempotency capacity reached for conversation/i);
+
+    expect(getRelayRegisteredRouteCount()).toBe(0);
+    expect(agentEmit).not.toHaveBeenCalled();
   });
 });

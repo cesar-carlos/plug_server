@@ -13,7 +13,7 @@ hub. Regras de negocio e semantica de autorizacao ficam em
 
 > **Nota — `Retry-After` derivado do agente.** Erros JSON-RPC `-32013` com
 > `error.data.retry_after_ms` ou `error.data.reset_at` (notavelmente
-> `client_token.getPolicy` no perfil 2.8) sao propagados pelo `POST /api/v1/agents/commands`
+> `client_token.getPolicy` (introduzido no perfil 2.7) sao propagados pelo `POST /api/v1/agents/commands`
 > como header HTTP `Retry-After`. Nao gera contador Prometheus dedicado; o
 > sinal de volume continua em `plug_socket_relay_rate_limit_*` e nas series
 > de erros do agente. Detalhes: `docs/api_rest_bridge.md`.
@@ -79,6 +79,18 @@ plug_socket_relay_rest_dispatch_max_queue_depth
 rate(plug_rest_http_rate_limit_global_rejected_total[5m])
 rate(plug_rest_http_rate_limit_agents_commands_user_rejected_total[5m])
 rate(plug_rest_http_rate_limit_agents_commands_ip_rejected_total[5m])
+rate(plug_rest_http_rate_limit_agents_self_profile_rejected_total[5m])
+rate(plug_rest_http_rate_limit_client_thumbnail_rejected_total[5m])
+rate(plug_rest_http_rate_limit_client_password_recovery_request_rejected_total[5m])
+
+# Redis opcional dos rate limits HTTP (estado partilhado entre replicas)
+plug_rest_http_rate_limit_redis_url_configured
+plug_rest_http_rate_limit_redis_store_active
+rate(plug_rest_http_rate_limit_redis_connection_events_total[5m])
+rate(plug_rest_http_rate_limit_redis_fallback_events_total[5m])
+rate(plug_rest_http_rate_limit_redis_runtime_command_errors_total[5m])
+plug_rest_http_rate_limit_redis_circuit_open
+rate(plug_rest_http_rate_limit_redis_circuit_opened_total[5m])
 
 # Relay: pedidos aceites vs rejeitados por rate-limit
 rate(plug_socket_relay_rate_limit_request_allowed_total[5m])
@@ -107,6 +119,27 @@ rate(plug_socket_agents_command_rate_limit_rejected_total[5m])
 rate(plug_agent_session_rejected_active_total[5m])
 rate(plug_agent_session_takeover_disconnect_total[5m])
 rate(plug_agent_session_register_rate_limited_total[5m])
+
+# Perfil/capacidade dos agentes e respostas de `agent.getHealth`
+rate(plug_socket_agents_capability_profiles_total[5m])
+rate(plug_socket_agents_capability_agent_get_health_capable_total[5m])
+rate(plug_socket_agents_health_responses_total[5m])
+rate(plug_socket_agents_health_errors_total[5m])
+plug_socket_agents_health_last_healthy
+plug_socket_agents_health_last_degraded
+plug_socket_agents_health_last_sql_queue_current_size
+plug_socket_agents_health_last_sql_queue_max_size
+plug_socket_agents_health_last_active_workers
+plug_socket_agents_health_last_max_workers
+plug_socket_agents_health_last_sql_queue_rejections
+plug_socket_agents_health_last_sql_queue_timeouts
+plug_socket_agents_health_last_sql_queue_avg_wait_time_ms
+plug_socket_agents_health_last_query_count
+plug_socket_agents_health_last_query_errors
+plug_socket_agents_health_last_query_success_rate
+plug_socket_agents_health_last_avg_latency_ms
+plug_socket_agents_health_last_p95_latency_ms
+plug_socket_agents_health_last_p99_latency_ms
 # Ex.: ratio de conflitos de sessao — comparar com taxa de registos bem-sucedidos noutro painel
 # (SLI sugerida: pico de session_active apos restauro de backup em varios PCs)
 
@@ -292,6 +325,13 @@ rate(plug_socket_relay_outbound_queue_overload_rejected_total[5m]) > 0
 
 # Circuito do agente a abrir frequentemente
 rate(plug_socket_relay_circuit_open_rejects_total[5m]) > 0.05
+
+# Redis dos rate limits HTTP em fallback/circuito aberto
+plug_rest_http_rate_limit_redis_circuit_open > 0
+rate(plug_rest_http_rate_limit_redis_runtime_command_errors_total[5m]) > 0.1
+
+# Agentes registados com perfil antigo ou desconhecido
+rate(plug_socket_agents_capability_profiles_total{status!="current"}[15m]) > 0
 
 # REST bridge: muitas falhas
 rate(plug_rest_bridge_requests_failed_total[5m])

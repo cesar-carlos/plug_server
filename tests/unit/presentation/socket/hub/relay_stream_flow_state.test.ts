@@ -13,6 +13,7 @@ import {
   addRelayStreamForwardedRows,
   drainRelayStreamBuffer,
   getRelayStreamForwardedRows,
+  getRelayStreamBufferedChunkCount,
 } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
 
 afterEach(() => {
@@ -100,5 +101,34 @@ describe("relay_stream_flow_state", () => {
     expect(getRelayStreamForwardedRows("r1")).toBe(1);
     expect(getRelayStreamPendingComplete("r1")).toBeUndefined();
     expect(getRelayStreamTotalBufferedChunks()).toBe(0);
+  });
+
+  it("keeps buffered chunk and credits when chunk encoding fails", async () => {
+    setRelayStreamFlowCredits("r1", 1);
+    addRelayStreamBufferedChunk("r1", {
+      stream_id: "stream-r1",
+      rows: [{ id: 1 }],
+    });
+
+    const ctx = {
+      requestId: "r1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "agent-1",
+      conversationId: "conversation-1",
+      agentId: "agent-123",
+      emitChunk: () => {},
+      emitComplete: () => {},
+      encodeFrame: async () => {
+        throw new Error("encode failed");
+      },
+      recordAudit: () => {},
+    } as const;
+
+    await expect(drainRelayStreamBuffer(ctx)).rejects.toThrow("encode failed");
+
+    expect(getRelayStreamBufferedChunkCount("r1")).toBe(1);
+    expect(getRelayStreamTotalBufferedChunks()).toBe(1);
+    expect(getRelayStreamFlowCredits("r1")).toBe(1);
+    expect(getRelayStreamForwardedRows("r1")).toBe(0);
   });
 });

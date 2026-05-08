@@ -8,14 +8,19 @@ import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { conversationIdSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
-import { allowRelayStreamPull } from "../hub/consumer_relay_rate_limiter";
-import { refundRelayStreamPullCredits } from "../hub/consumer_relay_rate_limiter";
+import {
+  allowRelayStreamPullAsync,
+  refundRelayStreamPullCreditsAsync,
+} from "../hub/consumer_relay_rate_limiter";
 import { conversationRegistry } from "../hub/conversation_registry";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
+import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,
 } from "./per_socket_inflight_gate";
+import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
+import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
 
 export const relayStreamPullEnvelopeSchema = z.object({
   conversationId: conversationIdSchema,
@@ -55,7 +60,7 @@ type RelayStreamPullResponsePayload =
     }
   | {
       success: false;
-      error: { code: string; message: string; statusCode?: number };
+      error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
       rateLimit?: {
         remainingCredits: number;
         limit: number;
@@ -96,9 +101,23 @@ export const handleRelayRpcStreamPull = (
     });
     return;
   }
+  const abortController = new AbortController();
+  const unregisterAbortController = registerConsumerCommandAbortController(
+    socket.id,
+    abortController,
+  );
+  const assertNotAborted = (): void => {
+    if (abortController.signal.aborted) {
+      throw new AppError("Consumer socket disconnected before stream pull completed", {
+        code: "SERVICE_UNAVAILABLE",
+        statusCode: 503,
+      });
+    }
+  };
 
   void (async () => {
     try {
+      assertNotAborted();
       const conversation = conversationRegistry.findInternalByConversationId(
         parsed.data.conversationId,
       );
@@ -107,14 +126,16 @@ export const handleRelayRpcStreamPull = (
       }
 
       await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId, socket);
+      assertNotAborted();
 
       const prepared = await prepareRelayStreamPull({
         consumerSocketId: socket.id,
         conversationId: parsed.data.conversationId,
         rawFramePayload: parsed.data.frame,
       });
+      assertNotAborted();
 
-      const allowance = allowRelayStreamPull(userSub, socket.id, prepared.windowSize);
+      const allowance = await allowRelayStreamPullAsync(userSub, socket.id, prepared.windowSize);
       if (!allowance.allowed) {
         emitRelayStreamPullResponse(socket, {
           success: false,
@@ -134,9 +155,10 @@ export const handleRelayRpcStreamPull = (
 
       let result;
       try {
+        assertNotAborted();
         result = prepared.execute();
       } catch (error) {
-        refundRelayStreamPullCredits(userSub, socket.id, allowance.grantedCredits);
+        await refundRelayStreamPullCreditsAsync(userSub, socket.id, allowance.grantedCredits);
         throw error;
       }
 
@@ -172,15 +194,21 @@ export const handleRelayRpcStreamPull = (
       });
     } catch (err: unknown) {
       const appError = err instanceof AppError ? err : undefined;
+      const retryAfterMs = resolveAppErrorRetryAfterMs(err);
+      if (retryAfterMs !== undefined) {
+        noteSocketErrorRetryAfterMsPropagated();
+      }
       emitRelayStreamPullResponse(socket, {
         success: false,
         error: {
           code: appError?.code ?? "RELAY_STREAM_PULL_FAILED",
           message: err instanceof Error ? err.message : "Failed to pull stream",
           ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
         },
       });
     } finally {
+      unregisterAbortController();
       releaseSocketInflightSlot(socket);
     }
   })();

@@ -205,4 +205,38 @@ describe("agent_command contract (plug_agente compatibility)", () => {
     const parsed = agentCommandBodySchema.safeParse(payload);
     expect(parsed.success).toBe(true);
   });
+
+  it("should accept agent.getHealth with token carrier params", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "req-health",
+        params: {
+          client_token: "a1b2c3d4e5f6",
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("should reject agent.getHealth with unpublished params", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "req-health",
+        params: {
+          includeDiagnostics: true,
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(false);
+  });
 });

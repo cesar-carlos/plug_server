@@ -11,12 +11,15 @@ import { conversationIdSchema } from "../../../shared/validators/schemas";
 import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { conversationRegistry } from "../hub/conversation_registry";
-import { refundRelayRpcRequest } from "../hub/consumer_relay_rate_limiter";
+import { refundRelayRpcRequestAsync } from "../hub/consumer_relay_rate_limiter";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
+import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,
 } from "./per_socket_inflight_gate";
+import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
+import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
 
 export const relayRpcEnvelopeSchema = z.object({
   conversationId: conversationIdSchema,
@@ -36,7 +39,10 @@ type RelayRpcAcceptedPayload =
       replayed?: boolean;
       inFlight?: boolean;
     }
-  | { success: false; error: { code: string; message: string; statusCode?: number } };
+  | {
+      success: false;
+      error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
+    };
 
 const emitRelayRpcAccepted = (socket: Socket, payload: RelayRpcAcceptedPayload): void => {
   socket.emit(socketEvents.relayRpcAccepted, payload);
@@ -72,7 +78,7 @@ export const handleRelayRpcRequest = (
   const parsed = { success: true as const, data: envelope.data };
 
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
-    refundRelayRpcRequest(userSub, socket.id);
+    void refundRelayRpcRequestAsync(userSub, socket.id);
     emitRelayRpcAccepted(socket, {
       success: false,
       error: {
@@ -87,6 +93,11 @@ export const handleRelayRpcRequest = (
     channel: "relay",
     userId: userSub,
   });
+  const abortController = new AbortController();
+  const unregisterAbortController = registerConsumerCommandAbortController(
+    socket.id,
+    abortController,
+  );
 
   void (async () => {
     try {
@@ -107,6 +118,7 @@ export const handleRelayRpcRequest = (
           ? { payloadFrameCompression: parsed.data.payloadFrameCompression }
           : {}),
         ...(latencyTrace ? { latencyTrace } : {}),
+        signal: abortController.signal,
       });
 
       emitRelayRpcAccepted(socket, {
@@ -119,7 +131,7 @@ export const handleRelayRpcRequest = (
         ...(result.inFlight ? { inFlight: true } : {}),
       });
       if (result.deduplicated) {
-        refundRelayRpcRequest(userSub, socket.id);
+        await refundRelayRpcRequestAsync(userSub, socket.id);
       }
 
       const actorRole = resolveSocketActorRole(socket.data.user);
@@ -139,8 +151,12 @@ export const handleRelayRpcRequest = (
       });
     } catch (err: unknown) {
       const appError = err instanceof AppError ? err : undefined;
-      if (appError?.statusCode === 400) {
-        refundRelayRpcRequest(userSub, socket.id);
+      if (appError?.statusCode === 400 || abortController.signal.aborted) {
+        await refundRelayRpcRequestAsync(userSub, socket.id);
+      }
+      const retryAfterMs = resolveAppErrorRetryAfterMs(err);
+      if (retryAfterMs !== undefined) {
+        noteSocketErrorRetryAfterMsPropagated();
       }
       if (latencyTrace && !latencyTrace.isFinalized()) {
         if (latencyTrace.hasDispatchMeta()) {
@@ -161,9 +177,11 @@ export const handleRelayRpcRequest = (
           code: appError?.code ?? "RELAY_RPC_REQUEST_FAILED",
           message: err instanceof Error ? err.message : "Failed to relay request",
           ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
         },
       });
     } finally {
+      unregisterAbortController();
       releaseSocketInflightSlot(socket);
     }
   })();

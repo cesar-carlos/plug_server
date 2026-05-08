@@ -10,6 +10,7 @@ import {
 import { percentile } from "../../../shared/utils/percentile";
 import { getRestPendingRequestCount } from "./rest_pending_requests";
 import { getRestAgentDispatchQueueMetricsSnapshot } from "./rest_agent_dispatch_queue";
+import { getRelayAgentDispatchQueueMetricsSnapshot } from "./relay_agent_dispatch_queue";
 import {
   getRelayOutboundQueueFastMetricsSnapshot,
   getRelayOutboundQueueMetricsSnapshot,
@@ -323,6 +324,7 @@ export type RelayHubMetricsSnapshot = {
   }[];
   readonly relayOutboundQueue: ReturnType<typeof getRelayOutboundQueueMetricsSnapshot>;
   readonly restAgentDispatchQueue: ReturnType<typeof getRestAgentDispatchQueueMetricsSnapshot>;
+  readonly relayAgentDispatchQueue: ReturnType<typeof getRelayAgentDispatchQueueMetricsSnapshot>;
 };
 
 export const buildRelayHubMetricsSnapshot = (input: {
@@ -370,6 +372,7 @@ export const buildRelayHubMetricsSnapshot = (input: {
         ? getRelayOutboundQueueFastMetricsSnapshot()
         : getRelayOutboundQueueMetricsSnapshot(),
     restAgentDispatchQueue: getRestAgentDispatchQueueMetricsSnapshot(),
+    relayAgentDispatchQueue: getRelayAgentDispatchQueueMetricsSnapshot(),
   };
 };
 
@@ -385,6 +388,7 @@ export const scheduleRelayHubMetricsLogger = (getSnapshot: () => RelayHubMetrics
       ...snapshot.gauges,
       relayOutboundQueue: snapshot.relayOutboundQueue,
       restAgentDispatchQueue: snapshot.restAgentDispatchQueue,
+      relayAgentDispatchQueue: snapshot.relayAgentDispatchQueue,
     });
   }, env.socketRelayMetricsLogIntervalMs);
   relayMetricsTimer.unref?.();

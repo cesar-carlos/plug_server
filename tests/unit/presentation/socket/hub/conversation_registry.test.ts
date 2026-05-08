@@ -57,4 +57,24 @@ describe("conversation_registry", () => {
     expect(after).not.toBeNull();
     expect(after?.lastSeenAtMs).toBeGreaterThan(before?.lastSeenAtMs ?? 0);
   });
+
+  it("reusing a conversation id clears stale consumer and agent indexes", () => {
+    conversationRegistry.create({
+      consumerSocketId: "consumer-old",
+      agentSocketId: "agent-socket-old",
+      agentId: "agent-old",
+      conversationId: "conv-reused",
+    });
+    conversationRegistry.create({
+      consumerSocketId: "consumer-new",
+      agentSocketId: "agent-socket-new",
+      agentId: "agent-new",
+      conversationId: "conv-reused",
+    });
+
+    expect(conversationRegistry.countByConsumerSocketId("consumer-old")).toBe(0);
+    expect(conversationRegistry.countByConsumerSocketId("consumer-new")).toBe(1);
+    expect(conversationRegistry.removeByAgentSocketId("agent-socket-old")).toEqual([]);
+    expect(conversationRegistry.removeByAgentSocketId("agent-socket-new")).toHaveLength(1);
+  });
 });

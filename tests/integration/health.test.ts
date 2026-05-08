@@ -142,6 +142,7 @@ describe("GET /api/v1/health", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.text).toContain("plug_socket_relay_requests_accepted_total");
     expect(response.text).toContain("plug_socket_relay_rest_pending_rejected_total");
     expect(response.text).toContain("plug_socket_relay_rpc_frame_decode_failed_total");
@@ -164,5 +165,18 @@ describe("GET /api/v1/health", () => {
     expect(response.text).toContain("plug_registration_approved_total");
     expect(response.text).toContain("plug_registration_rejected_total");
     expect(response.text).toContain("plug_registration_token_expired_total");
+    expect(response.text).toContain("plug_rest_http_rate_limit_agents_self_profile_rejected_total");
+    expect(response.text).toContain("plug_rest_http_rate_limit_client_thumbnail_rejected_total");
+    expect(response.text).toContain(
+      "plug_rest_http_rate_limit_client_password_recovery_request_rejected_total",
+    );
+    expect(response.text).toContain("plug_rest_http_rate_limit_redis_connection_events_total");
+    expect(response.text).toContain("plug_rest_http_rate_limit_redis_circuit_open");
+    expect(response.text).toContain("plug_socket_agents_capability_profiles_total");
+    expect(response.text).toContain("plug_socket_agents_health_responses_total");
+    expect(response.text).toContain("plug_socket_agents_health_last_sql_queue_avg_wait_time_ms");
+    expect(response.text).toContain("plug_socket_agents_health_last_query_count");
+    expect(response.text).toContain("plug_socket_agents_health_last_query_success_rate");
+    expect(response.text).toContain("plug_socket_agents_health_last_p95_latency_ms");
   });
 });

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../../../src/presentation/socket/hub/rpc_bridge", () => ({
-  requestAgentStreamPull: vi.fn(),
+  prepareLegacyAgentStreamPull: vi.fn(),
 }));
 
 vi.mock("../../../../../src/presentation/socket/hub/active_stream_registry", () => ({
@@ -25,28 +25,43 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
 }));
 
 vi.mock("../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter", () => ({
-  allowAgentsCommandSocket: vi.fn(() => true),
+  allowAgentsCommandSocketAsync: vi.fn(() => Promise.resolve(true)),
+}));
+
+vi.mock("../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => ({
+  allowAgentsStreamPullCredits: vi.fn(() =>
+    Promise.resolve({
+      allowed: true,
+      scope: "user",
+      limit: 0,
+      requestedCredits: 16,
+      grantedCredits: 16,
+      remainingCredits: Number.MAX_SAFE_INTEGER,
+    }),
+  ),
+  refundAgentsStreamPullCredits: vi.fn(),
 }));
 
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { handleAgentsStreamPull } from "../../../../../src/presentation/socket/consumers/agents_stream_pull.handler";
-import { requestAgentStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge";
+import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
+import { prepareLegacyAgentStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge";
 import {
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteByStreamId,
 } from "../../../../../src/presentation/socket/hub/active_stream_registry";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
-import { allowAgentsCommandSocket } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
 import { tryAcquireSocketInflightSlot } from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
 
-const mockedRequestAgentStreamPull = vi.mocked(requestAgentStreamPull);
+const mockedPrepareAgentStreamPull = vi.mocked(prepareLegacyAgentStreamPull);
 const mockedGetActiveStreamRouteByRequestId = vi.mocked(getActiveStreamRouteByRequestId);
 const mockedGetActiveStreamRouteByStreamId = vi.mocked(getActiveStreamRouteByStreamId);
 const mockedFindBySocketId = vi.mocked(agentRegistry.findBySocketId);
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
-const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocket);
+const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocketAsync);
 
 const buildSocket = () =>
   ({
@@ -57,7 +72,7 @@ const buildSocket = () =>
 
 describe("handleAgentsStreamPull", () => {
   beforeEach(() => {
-    mockedRequestAgentStreamPull.mockReset();
+    mockedPrepareAgentStreamPull.mockReset();
     mockedGetActiveStreamRouteByRequestId.mockReset();
     mockedGetActiveStreamRouteByStreamId.mockReset();
     mockedFindBySocketId.mockReset();
@@ -66,16 +81,21 @@ describe("handleAgentsStreamPull", () => {
     mockedAllowAgentsCommandSocket.mockReset();
 
     mockedTryAcquire.mockReturnValue(true);
-    mockedAllowAgentsCommandSocket.mockReturnValue(true);
+    mockedAllowAgentsCommandSocket.mockResolvedValue(true);
     mockedGetActiveStreamRouteByRequestId.mockReturnValue({
       agentSocketId: "agent-socket-1",
     } as never);
     mockedFindBySocketId.mockReturnValue({ agentId: "agent-1" } as never);
     mockedAssertAccess.mockResolvedValue({ type: "user", id: "user-1", role: "user" });
-    mockedRequestAgentStreamPull.mockReturnValue({
+    mockedPrepareAgentStreamPull.mockReturnValue({
       requestId: "req-1",
       streamId: "stream-1",
       windowSize: 16,
+      execute: vi.fn(() => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 16,
+      })),
     });
   });
 
@@ -106,19 +126,50 @@ describe("handleAgentsStreamPull", () => {
     });
   });
 
-  it("returns TOO_MANY_REQUESTS when the shared agents:command budget is exhausted", () => {
+  it("returns TOO_MANY_REQUESTS when the shared agents:command budget is exhausted", async () => {
     const socket = buildSocket();
-    mockedAllowAgentsCommandSocket.mockReturnValue(false);
+    mockedAllowAgentsCommandSocket.mockResolvedValue(false);
 
     handleAgentsStreamPull(socket as never, { requestId: "req-1" });
 
-    expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, {
-      success: false,
-      error: {
-        code: "TOO_MANY_REQUESTS",
-        message: "Too many agent stream pulls, please try again later.",
-        statusCode: 429,
-      },
+    await vi.waitFor(() => {
+      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, {
+        success: false,
+        error: {
+          code: "TOO_MANY_REQUESTS",
+          message: "Too many agent stream pulls, please try again later.",
+          statusCode: 429,
+        },
+      });
     });
+  });
+
+  it("does not pull from the agent if the consumer disconnects while access is being checked", async () => {
+    const socket = buildSocket();
+    let resolveAccess!: () => void;
+    mockedAssertAccess.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAccess = () => resolve({ type: "user", id: "user-1", role: "user" });
+        }),
+    );
+
+    handleAgentsStreamPull(socket as never, { requestId: "req-1" });
+
+    await vi.waitFor(() => expect(mockedAssertAccess).toHaveBeenCalled());
+    expect(abortPendingConsumerCommands("consumer-1")).toBe(1);
+    resolveAccess();
+
+    await vi.waitFor(() => {
+      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, {
+        success: false,
+        error: {
+          code: "SERVICE_UNAVAILABLE",
+          message: "Consumer socket disconnected before stream pull completed",
+          statusCode: 503,
+        },
+      });
+    });
+    expect(mockedPrepareAgentStreamPull).not.toHaveBeenCalled();
   });
 });

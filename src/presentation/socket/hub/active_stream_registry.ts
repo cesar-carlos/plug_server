@@ -179,11 +179,21 @@ export const upsertActiveStreamRoute = (input: {
   readonly restMaterializeState?: RestMaterializeStreamState;
 }): ActiveStreamRoute => {
   const existing = activeStreamsByRequestId.get(input.requestId);
+  const existingByStreamId = input.streamId
+    ? activeStreamsByStreamId.get(input.streamId)
+    : undefined;
+  if (existingByStreamId && existingByStreamId.requestId !== input.requestId) {
+    throw new Error("Active stream id is already registered for another request");
+  }
+
   if (existing) {
     if (existing.agentSocketId !== input.agentSocketId) {
       throw new Error("Active stream route agent socket mismatch");
     }
     if (input.streamId) {
+      if (existing.streamId && existing.streamId !== input.streamId) {
+        activeStreamsByStreamId.delete(existing.streamId);
+      }
       existing.streamId = input.streamId;
     }
     activeStreamsByRequestId.set(input.requestId, existing);

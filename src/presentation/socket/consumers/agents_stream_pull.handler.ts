@@ -1,7 +1,7 @@
 import type { Socket } from "socket.io";
 import { z } from "zod";
 
-import { requestAgentStreamPull } from "../hub/rpc_bridge";
+import { prepareLegacyAgentStreamPull } from "../hub/rpc_bridge";
 import {
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteByStreamId,
@@ -13,12 +13,19 @@ import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
-import { allowAgentsCommandSocket } from "../hub/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync } from "../hub/agents_command_socket_rate_limiter";
+import {
+  allowAgentsStreamPullCredits,
+  refundAgentsStreamPullCredits,
+} from "../hub/consumer_relay_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
+import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,
 } from "./per_socket_inflight_gate";
+import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
+import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
 
 const streamPullPayloadSchema = z
   .object({
@@ -37,8 +44,26 @@ const streamPullPayloadSchema = z
   });
 
 type StreamPullResponsePayload =
-  | { success: true; requestId: string; streamId: string; windowSize: number }
-  | { success: false; error: { code: string; message: string; statusCode?: number } };
+  | {
+      success: true;
+      requestId: string;
+      streamId: string;
+      windowSize: number;
+      rateLimit?: {
+        remainingCredits: number;
+        limit: number;
+        scope: "user" | "anon";
+      };
+    }
+  | {
+      success: false;
+      error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
+      rateLimit?: {
+        remainingCredits: number;
+        limit: number;
+        scope: "user" | "anon";
+      };
+    };
 
 const emitStreamPullResponse = (socket: Socket, payload: StreamPullResponsePayload): void => {
   socket.emit(socketEvents.agentsStreamPullResponse, payload);
@@ -102,21 +127,36 @@ export const handleAgentsStreamPull = (
     return;
   }
 
-  if (!allowAgentsCommandSocket(userSub, socket.id)) {
-    releaseSocketInflightSlot(socket);
-    emitStreamPullResponse(socket, {
-      success: false,
-      error: {
-        code: "TOO_MANY_REQUESTS",
-        message: "Too many agent stream pulls, please try again later.",
-        statusCode: 429,
-      },
-    });
-    return;
-  }
+  const abortController = new AbortController();
+  const unregisterAbortController = registerConsumerCommandAbortController(
+    socket.id,
+    abortController,
+  );
+  const assertNotAborted = (): void => {
+    if (abortController.signal.aborted) {
+      throw new AppError("Consumer socket disconnected before stream pull completed", {
+        code: "SERVICE_UNAVAILABLE",
+        statusCode: 503,
+      });
+    }
+  };
 
   void (async () => {
+    let grantedCredits = 0;
     try {
+      if (!(await allowAgentsCommandSocketAsync(userSub, socket.id))) {
+        emitStreamPullResponse(socket, {
+          success: false,
+          error: {
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many agent stream pulls, please try again later.",
+            statusCode: 429,
+          },
+        });
+        return;
+      }
+
+      assertNotAborted();
       const agentId = resolveStreamRouteAgentId({
         ...(parsed.data.streamId ? { streamId: parsed.data.streamId } : {}),
         ...(parsed.data.requestId ? { requestId: parsed.data.requestId } : {}),
@@ -126,25 +166,65 @@ export const handleAgentsStreamPull = (
       }
 
       await assertConsumerSocketAgentAccess(socket.data.user, agentId, socket);
+      assertNotAborted();
 
-      const result = requestAgentStreamPull({
+      const prepared = prepareLegacyAgentStreamPull({
         consumerSocketId: socket.id,
         ...(parsed.data.streamId ? { streamId: parsed.data.streamId } : {}),
         ...(parsed.data.requestId ? { requestId: parsed.data.requestId } : {}),
         ...(parsed.data.windowSize !== undefined ? { windowSize: parsed.data.windowSize } : {}),
       });
+      const allowance = await allowAgentsStreamPullCredits(
+        userSub,
+        socket.id,
+        prepared.windowSize,
+      );
+      if (!allowance.allowed) {
+        emitStreamPullResponse(socket, {
+          success: false,
+          error: {
+            code: "RATE_LIMITED",
+            message: "Stream pull credit budget exceeded for this window",
+            statusCode: 429,
+          },
+          rateLimit: {
+            remainingCredits: allowance.remainingCredits,
+            limit: allowance.limit,
+            scope: allowance.scope,
+          },
+        });
+        return;
+      }
+      grantedCredits = allowance.grantedCredits;
+      const result = prepared.execute();
 
       emitStreamPullResponse(socket, {
         success: true,
         requestId: result.requestId,
         streamId: result.streamId,
         windowSize: result.windowSize,
+        ...(allowance.limit > 0
+          ? {
+              rateLimit: {
+                remainingCredits: allowance.remainingCredits,
+                limit: allowance.limit,
+                scope: allowance.scope,
+              },
+            }
+          : {}),
       });
     } catch (err: unknown) {
+      if (grantedCredits > 0) {
+        await refundAgentsStreamPullCredits(userSub, socket.id, grantedCredits);
+      }
       const appError = err instanceof AppError ? err : undefined;
       const code = appError?.code ?? "STREAM_PULL_FAILED";
       const message = err instanceof Error ? err.message : "Failed to pull stream";
       const statusCode = appError?.statusCode;
+      const retryAfterMs = resolveAppErrorRetryAfterMs(err);
+      if (retryAfterMs !== undefined) {
+        noteSocketErrorRetryAfterMsPropagated();
+      }
 
       emitStreamPullResponse(socket, {
         success: false,
@@ -152,9 +232,11 @@ export const handleAgentsStreamPull = (
           code,
           message,
           ...(typeof statusCode === "number" ? { statusCode } : {}),
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
         },
       });
     } finally {
+      unregisterAbortController();
       releaseSocketInflightSlot(socket);
     }
   })();

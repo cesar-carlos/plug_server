@@ -37,9 +37,21 @@ let logicalPendingCount = 0;
 
 export const registerRestPendingRequest = (pending: PendingRequest): void => {
   for (const requestId of pending.correlationIds) {
+    const existing = pendingByCorrelationId.get(requestId);
+    if (existing && existing !== pending) {
+      throw new Error("REST pending correlation id is already registered");
+    }
+  }
+
+  const isAlreadyRegistered = pending.correlationIds.some(
+    (requestId) => pendingByCorrelationId.get(requestId) === pending,
+  );
+  for (const requestId of pending.correlationIds) {
     pendingByCorrelationId.set(requestId, pending);
   }
-  logicalPendingCount += 1;
+  if (!isAlreadyRegistered) {
+    logicalPendingCount += 1;
+  }
 };
 
 export const clearRestPendingRequest = (pending: PendingRequest): void => {

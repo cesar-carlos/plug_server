@@ -59,7 +59,8 @@ Em alguns eventos de **alto debito** (`relay:rpc.chunk`, `relay:rpc.complete`, a
 ## Limites e comportamento do hub (resumo)
 
 - **Tamanho de frame**: até **10 MiB** comprimido/decodificado no contrato do hub (`payload_frame.ts`); validar no cliente antes de enviar SQL/parametros enormes.
-- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`) e `agents:command` no namespace `/consumers` têm tetos por janela; REST `POST /api/v1/agents/commands` por utilizador (e opcionalmente por IP). Respostas **429** quando excedido. No relay, dedupe (`deduplicated: true`) e falhas profundas de validacao `400` nao devem consumir quota final da janela; o hub faz rollback do contador. Erros RPC com `-32013` que carregam `error.data.retry_after_ms` (notavelmente `client_token.getPolicy` na v2.8) sao propagados pelo REST como header HTTP `Retry-After`.
+- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`, creditos de `relay:rpc.stream.pull`), `agents:command`, `agents:stream_pull` e `agent:register` tem tetos por janela. Quando `SOCKET_RATE_LIMIT_REDIS_URL` esta configurado, esses limitadores Socket usam Redis com fallback fail-open para memoria; caso contrario ficam locais ao processo. Respostas **429** quando excedido. No relay, dedupe (`deduplicated: true`) e falhas profundas de validacao `400` nao devem consumir quota final da janela; o hub faz rollback do contador.
+- **Retry-After**: erros Socket de overload podem incluir `retryAfterMs`. Em `agents:command_response`, se o agente retornar erro JSON-RPC `-32013` com `error.data.retry_after_ms`, o hub adiciona `retryAfterSeconds`, espelhando o header `Retry-After` do REST. No relay, o frame JSON-RPC do agente continua sendo fonte de verdade; leia `error.data.retry_after_ms`.
 - **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`).
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
 - **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; várias instâncias sem afinidade partilhada degradam o comportamento — ver `docs/scaling_and_roadmap.md`.
@@ -123,6 +124,20 @@ negociada (ver `plug_agente/docs/communication/socketio_client_binary_transport.
 6. Em streaming, envia `relay:rpc.stream.pull` com `{ conversationId, frame }`
 7. Finaliza com `relay:conversation.end`
 
+## Escolha de canal
+
+Use REST para bootstrap/auth/catalogo/CRUD/admin e Socket para comandos e tempo
+real. `agents:command` e o caminho compativel com o bridge REST; `relay:*` e o
+caminho recomendado para carga alta, streaming, idempotencia e backpressure.
+
+| Necessidade | Melhor canal |
+| ----------- | ------------ |
+| Mesmo contrato do REST, incluindo batch, notification, `timeoutMs`, `pagination` e `payloadFrameCompression` | `agents:command` |
+| Streaming em tempo real com controle de creditos | `relay:*` |
+| Retry idempotente pelo cliente | `relay:*` |
+| Comandos simples sem estado de conversa | REST ou `agents:command` |
+| Bootstrap, auth, catalogo, admin, health HTTP, metricas | REST |
+
 ### Resposta de `relay:rpc.stream.pull`
 
 O servidor responde em JSON e inclui o orçamento restante da janela quando o pull é aceite ou rejeitado:
@@ -143,6 +158,26 @@ O servidor responde em JSON e inclui o orçamento restante da janela quando o pu
 ```
 
 Em overload do namespace `/consumers`, ou quando a janela de créditos estoura, a resposta vem com `success: false`; no caso de rate-limit por créditos, `error.code = "RATE_LIMITED"` e o bloco `rateLimit` mostra o saldo remanescente.
+
+### Resposta de `agents:stream_pull`
+
+`agents:stream_pull_response` tambem pode incluir `rateLimit` quando o limiter
+por creditos legacy (`SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS`) estiver
+ativo ou quando houver rejeicao:
+
+```json
+{
+  "success": true,
+  "requestId": "req-1",
+  "streamId": "stream-1",
+  "windowSize": 32,
+  "rateLimit": {
+    "remainingCredits": 768,
+    "limit": 1000,
+    "scope": "user"
+  }
+}
+```
 
 ## Observacoes importantes
 
@@ -223,7 +258,7 @@ Espelha o mesmo objeto que enviarias no body do `POST /api/v1/agents/commands` (
     "jsonrpc": "2.0",
     "method": "sql.execute",
     "id": "req-socket-1",
-    "api_version": "2.8",
+    "api_version": "2.9",
     "meta": {
       "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
     },
@@ -240,4 +275,3 @@ Espelha o mesmo objeto que enviarias no body do `POST /api/v1/agents/commands` (
 
 Batch: o campo `command` pode ser um **array** de ate 32 pedidos JSON-RPC (mesmas regras que o REST).
 Paginacao no nivel do body: `pagination: { "page": 1, "pageSize": 100 }` apenas com `sql.execute` unico.
-

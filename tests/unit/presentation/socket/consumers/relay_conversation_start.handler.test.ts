@@ -24,6 +24,7 @@ vi.mock("../../../../../src/presentation/socket/hub/conversation_registry", () =
 import { conflict } from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { handleRelayConversationStart } from "../../../../../src/presentation/socket/consumers/relay_conversation_start.handler";
+import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
@@ -104,6 +105,38 @@ describe("handleRelayConversationStart", () => {
         code: conflict("Consumer reached max active relay conversations").code,
         message: "Consumer reached max active relay conversations",
         statusCode: 409,
+      },
+    });
+  });
+
+  it("does not create a conversation if the consumer disconnects while access is being checked", async () => {
+    const socket = buildSocket();
+    let resolveAccess!: () => void;
+    mockedAssertAccess.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAccess = () => resolve({ type: "user", id: "user-1", role: "user" });
+        }),
+    );
+
+    const run = handleRelayConversationStart(
+      socket as never,
+      { agentId: "agent-1" },
+      buildNamespace() as never,
+    );
+
+    await vi.waitFor(() => expect(mockedAssertAccess).toHaveBeenCalled());
+    expect(abortPendingConsumerCommands("consumer-1")).toBe(1);
+    resolveAccess();
+    await run;
+
+    expect(mockedTryReserveAndCreate).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
+      success: false,
+      error: {
+        code: "SERVICE_UNAVAILABLE",
+        message: "Consumer socket disconnected before conversation start completed",
+        statusCode: 503,
       },
     });
   });

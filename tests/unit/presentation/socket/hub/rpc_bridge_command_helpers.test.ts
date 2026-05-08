@@ -33,10 +33,10 @@ describe("rpc_bridge_command_helpers", () => {
     expect(toCorrelationIds(batch)).toEqual(["b1", "b2"]);
   });
 
-  it("resolveOutboundApiVersion trims or defaults to 2.8", () => {
+  it("resolveOutboundApiVersion trims or defaults to 2.9", () => {
     expect(resolveOutboundApiVersion({ api_version: "  3.0  " })).toBe("3.0");
-    expect(resolveOutboundApiVersion({ api_version: "" })).toBe("2.8");
-    expect(resolveOutboundApiVersion({})).toBe("2.8");
+    expect(resolveOutboundApiVersion({ api_version: "" })).toBe("2.9");
+    expect(resolveOutboundApiVersion({})).toBe("2.9");
   });
 
   it("sanitizeOutboundRpcMeta strips hub-only and undocumented fields", () => {
@@ -77,7 +77,7 @@ describe("rpc_bridge_command_helpers", () => {
       trace_id: "trace-1",
       timestamp: "t0",
     });
-    expect(out[1].api_version).toBe("2.8");
+    expect(out[1].api_version).toBe("2.9");
     expect(out[1].meta?.request_id).toBe("i2");
   });
 
@@ -86,7 +86,7 @@ describe("rpc_bridge_command_helpers", () => {
       jsonrpc: "2.0",
       method: "rpc.discover",
       id: "rid",
-      api_version: "2.8",
+      api_version: "2.9",
       meta: { traceparent: "00-parent", existing: true, outbound_compression: "auto" },
     };
     const out = withBridgeMeta(cmd, {

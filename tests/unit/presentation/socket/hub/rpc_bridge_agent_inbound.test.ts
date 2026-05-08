@@ -19,6 +19,10 @@ import {
 } from "../../../../../src/presentation/socket/hub/rest_pending_requests";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import {
+  getSocketAgentMetricsSnapshot,
+  resetSocketAgentMetrics,
+} from "../../../../../src/shared/metrics/socket_agent.metrics";
+import {
   decodePayloadFrame,
   encodePayloadFrame,
 } from "../../../../../src/shared/utils/payload_frame";
@@ -30,12 +34,14 @@ describe("rpc_bridge_agent_inbound", () => {
     resetRestPendingRequestsStore();
     resetActiveStreamRegistry();
     resetRelayRequestRegistry();
+    resetSocketAgentMetrics();
   });
 
   afterEach(() => {
     resetRestPendingRequestsStore();
     resetActiveStreamRegistry();
     resetRelayRequestRegistry();
+    resetSocketAgentMetrics();
     for (const handle of timeoutHandles.splice(0)) {
       clearTimeout(handle);
     }
@@ -313,6 +319,46 @@ describe("rpc_bridge_agent_inbound", () => {
         },
       },
     });
+  });
+
+  it("records agent.getHealth metrics for relay responses", async () => {
+    const emitToConsumer = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+
+    registerRelayRequestRoute({
+      requestId: "req-relay-health",
+      conversationId: "conv-1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      jsonRpcMethod: "agent.getHealth",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+    });
+
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id: "req-relay-health",
+          result: {
+            status: "healthy",
+            uptime_seconds: 10,
+            sql_queue: { enabled: true, current_size: 1, max_size: 2, active_workers: 1 },
+            queries: { total: 3, errors: 0, success_rate: 100, avg_latency_ms: 4 },
+          },
+        },
+        { requestId: "req-relay-health" },
+      ),
+    );
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+    expect(getSocketAgentMetricsSnapshot().agentHealth.responsesTotal).toBe(1);
+    expect(getSocketAgentMetricsSnapshot().agentHealth.lastQuerySuccessRate).toBe(100);
   });
 
   it("should fail fast instead of leaking an unhandled rejection on unexpected relay processing errors", async () => {

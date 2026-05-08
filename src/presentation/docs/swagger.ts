@@ -431,7 +431,7 @@ const swaggerSpec = swaggerJSDoc({
           additionalProperties: true,
           description: `Optional free-form params; serialized JSON max ${AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES} UTF-8 bytes (Zod).`,
         },
-        AgentGetProfileParams: {
+        RpcClientTokenCarrierParams: {
           type: "object",
           additionalProperties: false,
           properties: {
@@ -439,7 +439,11 @@ const swaggerSpec = swaggerJSDoc({
             clientToken: { type: "string", minLength: 1 },
             auth: { type: "string", minLength: 1 },
           },
-          description: `Optional client_token / clientToken / auth aliases accepted by agent.getProfile and client_token.getPolicy; serialized JSON max ${AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES} UTF-8 bytes (Zod).`,
+          description: `Optional client_token / clientToken / auth aliases accepted by agent.getHealth, agent.getProfile and client_token.getPolicy; serialized JSON max ${AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES} UTF-8 bytes (Zod).`,
+        },
+        AgentGetProfileParams: {
+          allOf: [{ $ref: "#/components/schemas/RpcClientTokenCarrierParams" }],
+          description: "Deprecated OpenAPI alias for RpcClientTokenCarrierParams.",
         },
         RpcSqlExecuteCommand: {
           type: "object",
@@ -500,7 +504,7 @@ const swaggerSpec = swaggerJSDoc({
             jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
             method: { type: "string", enum: ["agent.getHealth"] },
             id: { $ref: "#/components/schemas/JsonRpcId" },
-            params: { type: "object", additionalProperties: true },
+            params: { $ref: "#/components/schemas/RpcClientTokenCarrierParams" },
             api_version: { type: "string", minLength: 1 },
             meta: { $ref: "#/components/schemas/RpcMeta" },
           },
@@ -513,7 +517,7 @@ const swaggerSpec = swaggerJSDoc({
             jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
             method: { type: "string", enum: ["agent.getProfile"] },
             id: { $ref: "#/components/schemas/JsonRpcId" },
-            params: { $ref: "#/components/schemas/AgentGetProfileParams" },
+            params: { $ref: "#/components/schemas/RpcClientTokenCarrierParams" },
             api_version: { type: "string", minLength: 1 },
             meta: { $ref: "#/components/schemas/RpcMeta" },
           },
@@ -526,7 +530,7 @@ const swaggerSpec = swaggerJSDoc({
             jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
             method: { type: "string", enum: ["client_token.getPolicy"] },
             id: { $ref: "#/components/schemas/JsonRpcId" },
-            params: { $ref: "#/components/schemas/AgentGetProfileParams" },
+            params: { $ref: "#/components/schemas/RpcClientTokenCarrierParams" },
             api_version: { type: "string", minLength: 1 },
             meta: { $ref: "#/components/schemas/RpcMeta" },
           },

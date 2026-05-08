@@ -36,8 +36,8 @@ import {
 import { emitConnectionReady } from "./presentation/socket/hub/connection_ready_handshake";
 import { conversationRegistry } from "./presentation/socket/hub/conversation_registry";
 import {
-  allowRelayConversationStart,
-  allowRelayRpcRequest,
+  allowRelayConversationStartAsync,
+  allowRelayRpcRequestAsync,
   clearRelayRateLimitStateByConsumerSocket,
   getRelayRateLimitMetricsSnapshot,
   resetRelayRateLimiterState,
@@ -107,6 +107,7 @@ import {
 } from "./shared/metrics/socket_consumer.metrics";
 import {
   getSocketAgentMetricsSnapshot,
+  noteAgentCapabilityProfile,
   noteAgentRegisterRateLimited,
   noteAgentSessionRejectedActive,
   noteAgentSessionTakeoverDisconnect,
@@ -124,10 +125,11 @@ import {
   emitAgentRegisterError,
 } from "./presentation/socket/hub/agent_register_error";
 import {
-  tryConsumeAgentRegisterRateLimit,
+  tryConsumeAgentRegisterRateLimitAsync,
   resetAgentRegisterRateLimitState,
 } from "./presentation/socket/hub/agent_register_rate_limit";
 import { toAgentCatalogDto } from "./presentation/http/serializers/agent_catalog.serializer";
+import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
 
 type SocketData = {
   user?: JwtAccessPayload;
@@ -305,7 +307,12 @@ const scheduleAgentProfilePush = (
   }
 
   const timeoutHandle = setTimeout(() => {
-    void flushAgentProfilePush(consumersNamespace, event.agentId);
+    void flushAgentProfilePush(consumersNamespace, event.agentId).catch((error: unknown) => {
+      logger.warn("client_agent_profile_push_failed", {
+        agentId: event.agentId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   }, clientAgentProfilePushDebounceMs);
   timeoutHandle.unref?.();
   pendingAgentProfilePushByAgentId.set(event.agentId, {
@@ -416,8 +423,9 @@ const scheduleAgentProfileSync = (
     () => {
       agentProfileSyncTimers.delete(input.agentId);
       void (async (): Promise<void> => {
-        const releaseSlot = await acquireAgentProfileSyncSlot();
+        let releaseSlot: (() => void) | null = null;
         try {
+          releaseSlot = await acquireAgentProfileSyncSlot();
           await container.agentProfileSyncService.syncFromConnectedAgent({
             agentId: input.agentId,
             ...(input.userId !== null ? { userId: input.userId } : {}),
@@ -467,7 +475,7 @@ const scheduleAgentProfileSync = (
           const nextDelay = retryAfterMs > 0 ? retryAfterMs : Math.min(8_000, 1_000 * attempt);
           scheduleAgentProfileSync(input, nextDelay);
         } finally {
-          releaseSlot();
+          releaseSlot?.();
         }
       })();
     },
@@ -501,6 +509,7 @@ export const getSocketMetricsSnapshot = (): {
   };
   readonly relay: ReturnType<typeof getRelayMetricsSnapshot>;
   readonly relayRateLimit: ReturnType<typeof getRelayRateLimitMetricsSnapshot>;
+  readonly socketRateLimitRedis: ReturnType<typeof getSocketRateLimitRedisMetricsSnapshot>;
   readonly agentsCommandSocketRateLimit: ReturnType<
     typeof getAgentsCommandSocketRateLimitMetricsSnapshot
   >;
@@ -515,6 +524,7 @@ export const getSocketMetricsSnapshot = (): {
     },
     relay: getRelayMetricsSnapshot(),
     relayRateLimit: getRelayRateLimitMetricsSnapshot(),
+    socketRateLimitRedis: getSocketRateLimitRedisMetricsSnapshot(),
     agentsCommandSocketRateLimit: getAgentsCommandSocketRateLimitMetricsSnapshot(),
     consumerRuntime: getSocketConsumerMetricsSnapshot(),
     agentRuntime: getSocketAgentMetricsSnapshot(),
@@ -663,6 +673,19 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
       const { agentId, capabilities } = parsed.data;
 
+      if (socket.data.agentId && socket.data.agentId !== agentId) {
+        emitAgentRegisterError(
+          socket,
+          "invalid_request",
+          "agent:register cannot change agentId for an already registered socket",
+          {
+            currentAgentId: socket.data.agentId,
+            requestedAgentId: agentId,
+          },
+        );
+        return;
+      }
+
       const tokenAgentId = socket.data.user?.agent_id;
       if (
         typeof tokenAgentId === "string" &&
@@ -689,7 +712,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      const rateLimitOk = tryConsumeAgentRegisterRateLimit(userId, agentId);
+      const rateLimitOk = await tryConsumeAgentRegisterRateLimitAsync(userId, agentId);
       if (!rateLimitOk.ok) {
         noteAgentRegisterRateLimited();
         emitAgentRegisterError(socket, "rate_limited", AGENT_REGISTER_RATE_LIMIT_MESSAGE, {
@@ -700,10 +723,26 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      const bindResult = await container.agentAccessService.bindOwnershipOnRegister(
-        userId,
-        agentId,
-      );
+      let bindResult: Awaited<
+        ReturnType<typeof container.agentAccessService.bindOwnershipOnRegister>
+      >;
+      try {
+        bindResult = await container.agentAccessService.bindOwnershipOnRegister(userId, agentId);
+      } catch (error: unknown) {
+        logger.warn("agent_register_ownership_bind_failed", {
+          socketId: socket.id,
+          agentId,
+          userId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        emitAgentRegisterError(
+          socket,
+          "transient_failure",
+          "agent:register failed while validating agent ownership",
+          { agentId, userId },
+        );
+        return;
+      }
       if (!bindResult.ok) {
         emitAgentRegisterError(socket, "unauthorized", bindResult.error.message, {
           agentId,
@@ -768,6 +807,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
       socket.data.agentId = agentId;
       socket.data.capabilities = capabilities;
+      noteAgentCapabilityProfile(capabilities);
       const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
 
       logSocketLifecycleInfo("Agent registered on hub", {
@@ -1065,7 +1105,22 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
     noteConsumerSocketConnected(socket.data.user?.principal_type ?? null);
 
-    await joinConsumerIdentityRooms(socket);
+    try {
+      await joinConsumerIdentityRooms(socket);
+    } catch (error: unknown) {
+      logger.warn("consumer_socket_identity_room_join_failed", {
+        socketId: socket.id,
+        userId: getUserId(socket),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      socket.emit(socketEvents.appError, {
+        code: "CONSUMER_SOCKET_INITIALIZATION_FAILED",
+        message: "Consumer socket initialization failed",
+      });
+      noteConsumerSocketDisconnected(socket.data.user?.principal_type ?? null);
+      socket.disconnect(true);
+      return;
+    }
 
     emitConnectionReady(socket, {
       id: socket.id,
@@ -1082,46 +1137,53 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
-      const tOverload = performance.now();
-      const overload = getRelayOutboundQueueOverloadState();
-      observeRelayOverloadCheck(performance.now() - tOverload);
-      if (overload.overloaded) {
-        noteRelayOutboundQueueOverloadRejected();
-        socket.emit(socketEvents.relayConversationStarted, {
-          success: false,
-          error: buildConsumerOverloadError(
-            overload.retryAfterMs,
-            overload.reason ?? "relay_outbound_queue",
-          ),
-        });
-        return;
-      }
+      void (async (): Promise<void> => {
+        const tOverload = performance.now();
+        const overload = getRelayOutboundQueueOverloadState();
+        observeRelayOverloadCheck(performance.now() - tOverload);
+        if (overload.overloaded) {
+          noteRelayOutboundQueueOverloadRejected();
+          socket.emit(socketEvents.relayConversationStarted, {
+            success: false,
+            error: buildConsumerOverloadError(
+              overload.retryAfterMs,
+              overload.reason ?? "relay_outbound_queue",
+            ),
+          });
+          return;
+        }
 
-      // Pre-validate envelope BEFORE consuming rate-limit budget; malformed
-      // payloads should not burn quota (self-DoS).
-      const envelope = parseRelayConversationStartEnvelope(rawPayload);
-      if (!envelope.success) {
-        socket.emit(socketEvents.relayConversationStarted, {
-          success: false,
-          error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
-        });
-        return;
-      }
+        // Pre-validate envelope BEFORE consuming rate-limit budget; malformed
+        // payloads should not burn quota (self-DoS).
+        const envelope = parseRelayConversationStartEnvelope(rawPayload);
+        if (!envelope.success) {
+          socket.emit(socketEvents.relayConversationStarted, {
+            success: false,
+            error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
+          });
+          return;
+        }
 
-      const userSub = socket.data.user?.sub;
-      if (!allowRelayConversationStart(userSub, socket.id)) {
-        socket.emit(socketEvents.relayConversationStarted, {
-          success: false,
-          error: {
-            code: "RATE_LIMITED",
-            message: "Rate limit exceeded for relay:conversation.start",
-            statusCode: 429,
-          },
-        });
-        return;
-      }
+        const userSub = socket.data.user?.sub;
+        if (!(await allowRelayConversationStartAsync(userSub, socket.id))) {
+          socket.emit(socketEvents.relayConversationStarted, {
+            success: false,
+            error: {
+              code: "RATE_LIMITED",
+              message: "Rate limit exceeded for relay:conversation.start",
+              statusCode: 429,
+            },
+          });
+          return;
+        }
 
-      void handleRelayConversationStart(socket, rawPayload, agentsNsp);
+        await handleRelayConversationStart(socket, rawPayload, agentsNsp);
+      })().catch((error: unknown) => {
+        logger.warn("relay_conversation_start_handler_failed", {
+          socketId: socket.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
     });
 
     socket.on(socketEvents.relayConversationEnd, (rawPayload: unknown) => {
@@ -1129,45 +1191,52 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on(socketEvents.relayRpcRequest, (rawPayload: unknown) => {
-      const tOverload = performance.now();
-      const overload = getRelayOutboundQueueOverloadState();
-      observeRelayOverloadCheck(performance.now() - tOverload);
-      if (overload.overloaded) {
-        noteRelayOutboundQueueOverloadRejected();
-        socket.emit(socketEvents.relayRpcAccepted, {
-          success: false,
-          error: buildConsumerOverloadError(
-            overload.retryAfterMs,
-            overload.reason ?? "relay_outbound_queue",
-          ),
-        });
-        return;
-      }
+      void (async (): Promise<void> => {
+        const tOverload = performance.now();
+        const overload = getRelayOutboundQueueOverloadState();
+        observeRelayOverloadCheck(performance.now() - tOverload);
+        if (overload.overloaded) {
+          noteRelayOutboundQueueOverloadRejected();
+          socket.emit(socketEvents.relayRpcAccepted, {
+            success: false,
+            error: buildConsumerOverloadError(
+              overload.retryAfterMs,
+              overload.reason ?? "relay_outbound_queue",
+            ),
+          });
+          return;
+        }
 
-      // Pre-validate envelope BEFORE consuming rate-limit budget.
-      const envelope = parseRelayRpcRequestEnvelope(rawPayload);
-      if (!envelope.success) {
-        socket.emit(socketEvents.relayRpcAccepted, {
-          success: false,
-          error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
-        });
-        return;
-      }
+        // Pre-validate envelope BEFORE consuming rate-limit budget.
+        const envelope = parseRelayRpcRequestEnvelope(rawPayload);
+        if (!envelope.success) {
+          socket.emit(socketEvents.relayRpcAccepted, {
+            success: false,
+            error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
+          });
+          return;
+        }
 
-      const userSub = socket.data.user?.sub;
-      if (!allowRelayRpcRequest(userSub, socket.id)) {
-        socket.emit(socketEvents.relayRpcAccepted, {
-          success: false,
-          error: {
-            code: "RATE_LIMITED",
-            message: "Rate limit exceeded for relay:rpc.request",
-            statusCode: 429,
-          },
-        });
-        return;
-      }
+        const userSub = socket.data.user?.sub;
+        if (!(await allowRelayRpcRequestAsync(userSub, socket.id))) {
+          socket.emit(socketEvents.relayRpcAccepted, {
+            success: false,
+            error: {
+              code: "RATE_LIMITED",
+              message: "Rate limit exceeded for relay:rpc.request",
+              statusCode: 429,
+            },
+          });
+          return;
+        }
 
-      handleRelayRpcRequest(socket, rawPayload);
+        handleRelayRpcRequest(socket, rawPayload);
+      })().catch((error: unknown) => {
+        logger.warn("relay_rpc_request_handler_failed", {
+          socketId: socket.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
     });
 
     socket.on(socketEvents.relayRpcStreamPull, (rawPayload: unknown) => {

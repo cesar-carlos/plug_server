@@ -31,6 +31,7 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
 import { dispatchRelayRpcToAgent } from "../../../../../src/presentation/socket/hub/rpc_bridge";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
 import { handleRelayRpcRequest } from "../../../../../src/presentation/socket/consumers/relay_rpc_request.handler";
+import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 
@@ -106,5 +107,28 @@ describe("handleRelayRpcRequest", () => {
         inFlight: true,
       });
     });
+  });
+
+  it("passes an abort signal to relay dispatch and aborts it when the consumer disconnects", async () => {
+    const socket = buildSocket();
+    let capturedSignal: AbortSignal | undefined;
+    mockedDispatchRelayRpcToAgent.mockImplementation(async (input) => {
+      capturedSignal = input.signal;
+      await new Promise<void>((resolve) => {
+        input.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return { requestId: "req-abort" };
+    });
+
+    handleRelayRpcRequest(socket as never, {
+      conversationId: "conv-1",
+      frame: { schemaVersion: "1.0" },
+    });
+
+    await vi.waitFor(() => expect(capturedSignal).toBeDefined());
+    expect(capturedSignal?.aborted).toBe(false);
+
+    expect(abortPendingConsumerCommands("consumer-1")).toBe(1);
+    expect(capturedSignal?.aborted).toBe(true);
   });
 });

@@ -90,15 +90,17 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
       registerAgentFailure(agentId);
     }
     if (route.mode === "relay") {
+      const forwardedRows = getRelayStreamForwardedRows(route.requestId);
+      const streamId = route.streamId;
       removeRelayRequestRoute(route.requestId);
       removeActiveStreamRoute(route, { restMaterialize: "detach" });
       enqueueRelayOutbound(route.requestId, async () => {
         const frame = await encodeRelayOutboundFrame(
           {
             request_id: route.requestId,
-            total_rows: getRelayStreamForwardedRows(route.requestId),
+            total_rows: forwardedRows,
             terminal_status: "error",
-            ...(route.streamId ? { stream_id: route.streamId } : {}),
+            ...(streamId ? { stream_id: streamId } : {}),
           },
           route.requestId,
         );
@@ -162,6 +164,8 @@ const prepareAgentStreamPull = createPrepareAgentStreamPull({
   getAgentsNamespace,
   emitToConsumer,
 });
+
+export const prepareLegacyAgentStreamPull = prepareAgentStreamPull;
 
 export const requestAgentStreamPull = createRequestAgentStreamPull({
   getAgentsNamespace,

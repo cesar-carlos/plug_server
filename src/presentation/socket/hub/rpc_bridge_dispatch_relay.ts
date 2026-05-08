@@ -45,6 +45,7 @@ import {
   setRelayIdempotencyEntry,
 } from "./relay_idempotency_store";
 import { setRelayStreamFlowCredits, ensureRelayStreamFlowEntry } from "./relay_stream_flow_state";
+import { acquireRelayAgentDispatchSlot } from "./relay_agent_dispatch_queue";
 import type { RelayRequestRoute } from "./relay_request_registry";
 import {
   getRelayPendingRequestCountForConsumer,
@@ -85,6 +86,7 @@ export interface DispatchRelayRpcInput {
   /** Hub → agent PayloadFrame gzip for re-encoded `rpc:request` (consumer frame is decoded first). */
   readonly payloadFrameCompression?: PayloadFrameCompression;
   readonly latencyTrace?: BridgeLatencyTraceSession;
+  readonly signal?: AbortSignal;
 }
 
 export interface DispatchRelayRpcResult {
@@ -147,9 +149,17 @@ export const createRpcBridgeRelayDispatch = (
   const dispatchRelayRpcToAgent = async (
     input: DispatchRelayRpcInput,
   ): Promise<DispatchRelayRpcResult> => {
+    const assertNotAborted = (): void => {
+      if (input.signal?.aborted) {
+        throw serviceUnavailable("Consumer socket disconnected before relay dispatch completed");
+      }
+    };
+
+    assertNotAborted();
     const trace = input.latencyTrace;
     const relayWallStart = performance.now();
     const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
+    assertNotAborted();
     const decodeElapsed = performance.now() - relayWallStart;
     trace?.addPhaseMs("consumer_frame_decode_ms", decodeElapsed);
     observeRelayFrameDecode(decodeElapsed);
@@ -321,6 +331,11 @@ export const createRpcBridgeRelayDispatch = (
         ? "none"
         : input.payloadFrameCompression;
 
+    const releaseAgentDispatchSlot = await acquireRelayAgentDispatchSlot(
+      conversation.agentId,
+      input.signal,
+    );
+
     const timeoutHandle = setTimeout(() => {
       const route = getRelayRequestRoute(requestId);
       if (!route) {
@@ -351,10 +366,12 @@ export const createRpcBridgeRelayDispatch = (
       consumerSocketId: conversation.consumerSocketId,
       agentSocketId: conversation.agentSocketId,
       agentId: conversation.agentId,
+      jsonRpcMethod: inferBridgeCommandMethod(command),
       timeoutHandle,
       createdAtMs: Date.now(),
       ...(clientRequestId !== null ? { clientRequestId } : {}),
       ...(trace ? { latencyTrace: trace } : {}),
+      releaseAgentDispatchSlot,
     };
 
     registerRelayRequestRoute(relayRoute);
@@ -377,6 +394,7 @@ export const createRpcBridgeRelayDispatch = (
         },
       );
       if (!idempotencyResult.ok) {
+        removeRelayRequestRoute(requestId);
         throw serviceUnavailable(
           idempotencyResult.reason === "global_cap_reached"
             ? "Relay idempotency capacity reached"
@@ -386,12 +404,14 @@ export const createRpcBridgeRelayDispatch = (
     }
 
     try {
+      assertNotAborted();
       const tEnc = performance.now();
       const wireFrame = await encodePayloadFrameBridge(commandPayload, {
         requestId,
         omitTraceId: true,
         ...relayPayloadFrameOpts,
       });
+      assertNotAborted();
       const encodeElapsed = performance.now() - tEnc;
       trace?.addPhaseMs("encode_ms", encodeElapsed);
       observeRelayBridgeEncode(encodeElapsed);
@@ -405,12 +425,15 @@ export const createRpcBridgeRelayDispatch = (
       if (existingStream && existingStream.agentSocketId === conversation.agentSocketId) {
         removeActiveStreamRoute(existingStream);
       }
-      registerAgentFailure(conversation.agentId);
+      const aborted = input.signal?.aborted === true;
+      if (!aborted) {
+        registerAgentFailure(conversation.agentId);
+      }
       const err = error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
       const appErr = err instanceof AppError ? err : null;
       if (trace && !trace.isFinalized()) {
         trace.finalizeOnce({
-          outcome: "error",
+          outcome: aborted ? "abort" : "error",
           httpStatus: appErr?.statusCode ?? 503,
           errorCode: appErr?.code ?? "BRIDGE_ERROR",
         });

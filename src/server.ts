@@ -37,6 +37,10 @@ import {
   closeRestHttpRateLimitRedis,
   initRestHttpRateLimitRedis,
 } from "./infrastructure/redis/rest_rate_limit_redis";
+import {
+  closeSocketRateLimitRedis,
+  initSocketRateLimitRedis,
+} from "./infrastructure/redis/socket_rate_limit_redis";
 import { prismaClient } from "./infrastructure/database/prisma/client";
 import { registerHttpRateLimits } from "./presentation/http/middlewares/rate_limit.middleware";
 import { closeSocketServer, createSocketServer } from "./socket";
@@ -52,6 +56,7 @@ let shutdownInProgress = false;
 
 const bootstrap = async (): Promise<void> => {
   await initRestHttpRateLimitRedis();
+  await initSocketRateLimitRedis();
   registerHttpRateLimits();
 
   const { createApp } = await import("./app");
@@ -166,6 +171,7 @@ const shutdown = async (signal: string): Promise<void> => {
     }
     await closeHttpServer();
     await closeRestHttpRateLimitRedis();
+    await closeSocketRateLimitRedis();
     await prismaClient.$disconnect();
     logger.info("Shutdown completed", { signal });
     process.exit(0);

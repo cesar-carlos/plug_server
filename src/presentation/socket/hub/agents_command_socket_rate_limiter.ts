@@ -1,4 +1,8 @@
 import { env } from "../../../shared/config/env";
+import {
+  consumeSocketRateLimitRedis,
+  refundSocketRateLimitRedis,
+} from "../../../infrastructure/redis/socket_rate_limit_redis";
 
 /**
  * Fixed-window rate limit for Socket `agents:command` on `/consumers`.
@@ -22,6 +26,11 @@ const metrics = {
 
 const staleAfterMs = (): number =>
   env.restAgentsCommandsRateLimitWindowMs * env.socketRelayRateLimitSweepStaleMultiplier;
+
+const buildIdentityKey = (userSub: string | undefined, socketId: string): string => {
+  const trimmed = userSub?.trim();
+  return trimmed ? `agents_cmd:user:${trimmed}` : `agents_cmd:anon:${socketId}`;
+};
 
 const ensureState = (key: string): WindowState => {
   const nowMs = Date.now();
@@ -55,8 +64,7 @@ export const allowAgentsCommandSocket = (
     return true;
   }
 
-  const trimmed = userSub?.trim();
-  const key = trimmed ? `agents_cmd:user:${trimmed}` : `agents_cmd:anon:${socketId}`;
+  const key = buildIdentityKey(userSub, socketId);
   const state = ensureState(key);
   if (state.count >= env.restAgentsCommandsRateLimitMax) {
     metrics.rejected += 1;
@@ -67,14 +75,49 @@ export const allowAgentsCommandSocket = (
   return true;
 };
 
+export const allowAgentsCommandSocketAsync = async (
+  userSub: string | undefined,
+  socketId: string,
+): Promise<boolean> => {
+  if (env.restAgentsCommandsRateLimitMax === 0) {
+    return true;
+  }
+
+  const key = buildIdentityKey(userSub, socketId);
+  const redisDecision = await consumeSocketRateLimitRedis({
+    scope: "agents_command",
+    key,
+    windowMs: env.restAgentsCommandsRateLimitWindowMs,
+    max: env.restAgentsCommandsRateLimitMax,
+  });
+  if (redisDecision) {
+    if (redisDecision.allowed) {
+      metrics.allowed += 1;
+      return true;
+    }
+    metrics.rejected += 1;
+    return false;
+  }
+
+  return allowAgentsCommandSocket(userSub, socketId);
+};
+
 export const refundAgentsCommandSocket = (userSub: string | undefined, socketId: string): void => {
-  const trimmed = userSub?.trim();
-  const key = trimmed ? `agents_cmd:user:${trimmed}` : `agents_cmd:anon:${socketId}`;
+  const key = buildIdentityKey(userSub, socketId);
   const state = statesByKey.get(key);
   if (!state || state.count <= 0) {
     return;
   }
   state.count -= 1;
+};
+
+export const refundAgentsCommandSocketAsync = async (
+  userSub: string | undefined,
+  socketId: string,
+): Promise<void> => {
+  const key = buildIdentityKey(userSub, socketId);
+  await refundSocketRateLimitRedis({ scope: "agents_command", key });
+  refundAgentsCommandSocket(userSub, socketId);
 };
 
 export const sweepAgentsCommandSocketRateLimitState = (): void => {

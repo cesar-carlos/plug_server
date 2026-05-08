@@ -40,6 +40,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const cached = metricsResponseCache;
   if (cached && cached.expiresAtMs > nowMs) {
     response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    response.setHeader("Cache-Control", "no-store");
     response.status(200).send(cached.body);
     return;
   }
@@ -48,6 +49,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const restBridge = getRestBridgeMetricsSnapshot();
   const relay = socket.relay;
   const rateLimit = socket.relayRateLimit;
+  const socketRateLimitRedis = socket.socketRateLimitRedis;
   const agentsCommandRl = socket.agentsCommandSocketRateLimit;
   const consumerRuntime = socket.consumerRuntime;
   const agentRuntime = socket.agentRuntime;
@@ -104,6 +106,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_rest_http_rate_limit_agents_self_profile_rejected_total",
+      restHttpRl.agentsSelfProfileRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_rest_http_rate_limit_admin_user_status_rejected_total",
       restHttpRl.adminUserStatusRejectedTotal,
     ),
@@ -112,6 +120,18 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_rest_http_rate_limit_client_me_agents_post_rejected_total",
       restHttpRl.clientMeAgentsPostRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_client_thumbnail_rejected_total",
+      restHttpRl.clientThumbnailRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_client_password_recovery_request_rejected_total",
+      restHttpRl.clientPasswordRecoveryRequestRejectedTotal,
     ),
   );
 
@@ -128,6 +148,100 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_rest_http_rate_limit_redis_fallback_events_total",
       restRateLimitRedis.fallbackEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_redis_runtime_command_errors_total",
+      restRateLimitRedis.runtimeCommandErrorEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_redis_connection_events_total",
+      restRateLimitRedis.connectionEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine("plug_rest_http_rate_limit_redis_circuit_open", restRateLimitRedis.circuitOpen),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_redis_circuit_opened_total",
+      restRateLimitRedis.circuitOpenedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_redis_last_fallback_timestamp_ms",
+      restRateLimitRedis.lastFallbackAtMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_http_rate_limit_redis_last_connection_timestamp_ms",
+      restRateLimitRedis.lastConnectionAtMs,
+    ),
+  );
+
+  lines.push(
+    metricLine("plug_socket_rate_limit_redis_url_configured", socketRateLimitRedis.redisUrlConfigured),
+  );
+  lines.push(
+    metricLine("plug_socket_rate_limit_redis_store_active", socketRateLimitRedis.redisStoreActive),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_fallback_events_total",
+      socketRateLimitRedis.fallbackEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_runtime_command_errors_total",
+      socketRateLimitRedis.runtimeCommandErrorEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_connection_events_total",
+      socketRateLimitRedis.connectionEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_rate_limit_redis_circuit_open", socketRateLimitRedis.circuitOpen),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_circuit_opened_total",
+      socketRateLimitRedis.circuitOpenedTotal,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_rate_limit_redis_allowed_total", socketRateLimitRedis.redisAllowedTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_rejected_total",
+      socketRateLimitRedis.redisRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_tracked_keys_approx",
+      socketRateLimitRedis.trackedKeysApprox,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_last_fallback_timestamp_ms",
+      socketRateLimitRedis.lastFallbackAtMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_last_connection_timestamp_ms",
+      socketRateLimitRedis.lastConnectionAtMs,
     ),
   );
 
@@ -457,6 +571,138 @@ export const getMetrics = (_request: Request, response: Response): void => {
       agentRuntime.sessionRegisterRateLimitedTotal,
     ),
   );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_capability_profiles_total",
+      agentRuntime.capabilityProfiles.current,
+      { status: "current" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_capability_profiles_total",
+      agentRuntime.capabilityProfiles.older,
+      { status: "older" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_capability_profiles_total",
+      agentRuntime.capabilityProfiles.unknown,
+      { status: "unknown" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_capability_agent_get_health_capable_total",
+      agentRuntime.capabilityAgentGetHealthCapableTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_responses_total",
+      agentRuntime.agentHealth.responsesTotal,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_agents_health_errors_total", agentRuntime.agentHealth.errorsTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_seen_timestamp_ms",
+      agentRuntime.agentHealth.lastSeenAtMs,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_agents_health_last_healthy", agentRuntime.agentHealth.lastHealthy),
+  );
+  lines.push(
+    metricLine("plug_socket_agents_health_last_degraded", agentRuntime.agentHealth.lastDegraded),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_uptime_seconds",
+      agentRuntime.agentHealth.lastUptimeSeconds,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_sql_queue_current_size",
+      agentRuntime.agentHealth.lastSqlQueueCurrentSize,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_sql_queue_max_size",
+      agentRuntime.agentHealth.lastSqlQueueMaxSize,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_active_workers",
+      agentRuntime.agentHealth.lastActiveWorkers,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_max_workers",
+      agentRuntime.agentHealth.lastMaxWorkers,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_sql_queue_rejections",
+      agentRuntime.agentHealth.lastSqlQueueRejectionsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_sql_queue_timeouts",
+      agentRuntime.agentHealth.lastSqlQueueTimeoutsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_sql_queue_avg_wait_time_ms",
+      agentRuntime.agentHealth.lastSqlQueueAvgWaitTimeMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_query_count",
+      agentRuntime.agentHealth.lastQueryTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_query_errors",
+      agentRuntime.agentHealth.lastQueryErrors,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_query_success_rate",
+      agentRuntime.agentHealth.lastQuerySuccessRate,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_avg_latency_ms",
+      agentRuntime.agentHealth.lastAvgLatencyMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_p95_latency_ms",
+      agentRuntime.agentHealth.lastP95LatencyMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_health_last_p99_latency_ms",
+      agentRuntime.agentHealth.lastP99LatencyMs,
+    ),
+  );
   lines.push(metricLine("plug_socket_consumers_guard_db_count", consumerRuntime.guardDb.count));
   lines.push(metricLine("plug_socket_consumers_guard_db_avg_ms", consumerRuntime.guardDb.avgMs));
   lines.push(metricLine("plug_socket_consumers_guard_db_max_ms", consumerRuntime.guardDb.maxMs));
@@ -464,6 +710,18 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_consumers_commands_aborted_on_disconnect_total",
       consumerRuntime.commandAbort.abortedCommandsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_retry_after_ms_propagated_total",
+      consumerRuntime.retryAfter.socketErrorRetryAfterMsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_command_retry_after_seconds_propagated_total",
+      consumerRuntime.retryAfter.agentsCommandRetryAfterSecondsTotal,
     ),
   );
   lines.push(
@@ -726,6 +984,42 @@ export const getMetrics = (_request: Request, response: Response): void => {
       relay.restAgentDispatchQueue.maxQueueDepthPerAgent,
     ),
   );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_dispatch_inflight_total",
+      relay.relayAgentDispatchQueue.totalInflight,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_dispatch_queued_waiters_total",
+      relay.relayAgentDispatchQueue.totalQueuedWaiters,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_dispatch_agents_with_queue",
+      relay.relayAgentDispatchQueue.agentsWithQueuedWaiters,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_dispatch_max_queue_depth",
+      relay.relayAgentDispatchQueue.maxQueueDepthPerAgent,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_dispatch_queue_full_rejected_total",
+      relay.relayAgentDispatchQueue.queueFullRejected,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_dispatch_queue_wait_timeout_rejected_total",
+      relay.relayAgentDispatchQueue.queueWaitTimeoutRejected,
+    ),
+  );
 
   lines.push(
     metricLine(
@@ -941,6 +1235,40 @@ export const getMetrics = (_request: Request, response: Response): void => {
       { scope: "anon" },
     ),
   );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_stream_pull_rate_limit_max_credits",
+      rateLimit.maxAgentsStreamPullCredits,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_stream_pull_rate_limit_credits_granted_total",
+      rateLimit.counters.agentsStreamPullCreditsGrantedUser,
+      { scope: "user" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_stream_pull_rate_limit_credits_granted_total",
+      rateLimit.counters.agentsStreamPullCreditsGrantedAnon,
+      { scope: "anon" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_stream_pull_rate_limit_credits_rejected_total",
+      rateLimit.counters.agentsStreamPullCreditsRejectedUser,
+      { scope: "user" },
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_stream_pull_rate_limit_credits_rejected_total",
+      rateLimit.counters.agentsStreamPullCreditsRejectedAnon,
+      { scope: "anon" },
+    ),
+  );
 
   lines.push(
     metricLine("plug_socket_agents_command_rate_limit_window_ms", agentsCommandRl.windowMs),
@@ -1026,5 +1354,6 @@ export const getMetrics = (_request: Request, response: Response): void => {
     expiresAtMs: nowMs + metricsResponseCacheTtlMs,
   };
   response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+  response.setHeader("Cache-Control", "no-store");
   response.status(200).send(body);
 };

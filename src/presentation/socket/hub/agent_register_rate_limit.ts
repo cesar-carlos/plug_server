@@ -1,4 +1,5 @@
 import { env } from "../../../shared/config/env";
+import { consumeSocketRateLimitRedis } from "../../../infrastructure/redis/socket_rate_limit_redis";
 
 const buckets = new Map<string, number[]>();
 
@@ -43,6 +44,30 @@ export const tryConsumeAgentRegisterRateLimit = (
   fresh.push(nowMs);
   buckets.set(key, fresh);
   return { ok: true };
+};
+
+export const tryConsumeAgentRegisterRateLimitAsync = async (
+  userId: string,
+  agentId: string,
+  options?: AgentRegisterRateLimitConsumeOptions,
+): Promise<{ ok: true } | { ok: false }> => {
+  const windowMs = options?.windowMs ?? env.socketAgentRegisterRateLimitWindowMs;
+  const max = options?.max ?? env.socketAgentRegisterRateLimitMax;
+  if (windowMs <= 0 || max <= 0) {
+    return { ok: true };
+  }
+
+  const redisDecision = await consumeSocketRateLimitRedis({
+    scope: "agent_register",
+    key: bucketKey(userId, agentId),
+    windowMs,
+    max,
+  });
+  if (redisDecision) {
+    return redisDecision.allowed ? { ok: true } : { ok: false };
+  }
+
+  return tryConsumeAgentRegisterRateLimit(userId, agentId, options);
 };
 
 export const resetAgentRegisterRateLimitState = (): void => {

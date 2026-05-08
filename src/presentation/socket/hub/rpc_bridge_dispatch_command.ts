@@ -20,6 +20,7 @@ import type {
   PayloadFrameCompression,
 } from "../../../shared/validators/agent_command";
 import { logger } from "../../../shared/utils/logger";
+import { noteAgentHealthRpcResponse } from "../../../shared/metrics/socket_agent.metrics";
 import { isRecord } from "../../../shared/utils/rpc_types";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import {
@@ -359,6 +360,18 @@ export const createDispatchRpcCommandToAgent = (
           acked: false,
         };
 
+        for (const correlationId of correlationIds) {
+          if (
+            hasRestPendingCorrelationId(correlationId) ||
+            hasActiveStreamRouteForRequestId(correlationId) ||
+            hasRelayRequestRoute(correlationId)
+          ) {
+            clearTimeout(timeoutHandle);
+            rejectOnce(badRequest("A request with this JSON-RPC id is already pending"));
+            return;
+          }
+        }
+
         signalListener = () => {
           clearTimeout(timeoutHandle);
           clearRestPendingRequest(pendingRequest);
@@ -397,6 +410,10 @@ export const createDispatchRpcCommandToAgent = (
           );
         }
       });
+
+      if (!isBatchCommand(command) && command.method === "agent.getHealth") {
+        noteAgentHealthRpcResponse(response);
+      }
 
       return {
         requestId,

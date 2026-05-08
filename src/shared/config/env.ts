@@ -349,6 +349,14 @@ const envSchema = z.object({
   /** Max `agent:register` attempts per window per `(userId, agentId)`. `0` disables. */
   SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(100_000).default(0),
   /**
+   * Optional Redis URL for Socket rate-limit state shared across hub replicas.
+   * Empty = in-memory per process. Sticky sessions are still required for Socket bridge state.
+   */
+  SOCKET_RATE_LIMIT_REDIS_URL: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
+  /**
    * When > 0, successful `bindOwnershipOnRegister(userId, agentId)` skip repeated DB work until TTL.
    * Cleared with `AgentAccessService.invalidateAccessCache*` / `invalidateAccessCacheForAgent` (same hooks as `AGENT_ACCESS_CACHE_*`).
    * `0` disables (always hit DB on each `agent:register`).
@@ -474,6 +482,25 @@ const envSchema = z.object({
     .max(10_000_000)
     .default(1000),
   SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER: z.coerce.number().positive().default(3),
+  /**
+   * Max concurrent relay RPC dispatches per agent id. `0` = unlimited.
+   * Protects one connected agent from bursts across many consumer sockets.
+   */
+  SOCKET_RELAY_AGENT_MAX_INFLIGHT: z.coerce.number().int().min(0).max(10_000).default(32),
+  /** Max queued relay RPC dispatch waiters per agent when inflight is saturated. `0` = unlimited. */
+  SOCKET_RELAY_AGENT_MAX_QUEUE: z.coerce.number().int().min(0).max(1_000_000).default(64),
+  /** Max time a relay RPC request waits for an agent dispatch slot before failing with retryAfterMs. */
+  SOCKET_RELAY_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(200),
+  /**
+   * Credits granted per window for legacy `/consumers` `agents:stream_pull`.
+   * `0` disables the credit limiter and preserves pre-credit-limit behavior.
+   */
+  SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(0),
   /**
    * Transitional handshake compatibility mode for `connection:ready`.
    * `payload_frame` is the default/current contract; `raw_json` exists only as a short-lived migration shim.
@@ -844,6 +871,7 @@ export const env = {
   socketAgentSessionPolicy: parsedEnv.SOCKET_AGENT_SESSION_POLICY,
   socketAgentRegisterRateLimitWindowMs: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS,
   socketAgentRegisterRateLimitMax: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX,
+  socketRateLimitRedisUrl: parsedEnv.SOCKET_RATE_LIMIT_REDIS_URL,
   agentRegisterBindCacheTtlMs: parsedEnv.AGENT_REGISTER_BIND_CACHE_TTL_MS,
   agentRegisterBindCacheMaxSize: parsedEnv.AGENT_REGISTER_BIND_CACHE_MAX_SIZE,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
@@ -886,6 +914,11 @@ export const env = {
     parsedEnv.SOCKET_RELAY_RATE_LIMIT_MAX_STREAM_PULL_CREDITS,
   socketRelayRateLimitSweepStaleMultiplier:
     parsedEnv.SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER,
+  socketRelayAgentMaxInflight: parsedEnv.SOCKET_RELAY_AGENT_MAX_INFLIGHT,
+  socketRelayAgentMaxQueue: parsedEnv.SOCKET_RELAY_AGENT_MAX_QUEUE,
+  socketRelayAgentQueueWaitMs: parsedEnv.SOCKET_RELAY_AGENT_QUEUE_WAIT_MS,
+  socketAgentsStreamPullRateLimitMaxCredits:
+    parsedEnv.SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS,
   socketConnectionReadyCompatMode: parsedEnv.SOCKET_CONNECTION_READY_COMPAT_MODE,
   socketRestMaxPendingRequests: parsedEnv.SOCKET_REST_MAX_PENDING_REQUESTS,
   socketRestAgentMaxInflight: parsedEnv.SOCKET_REST_AGENT_MAX_INFLIGHT,

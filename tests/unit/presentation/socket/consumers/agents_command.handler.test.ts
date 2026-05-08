@@ -13,7 +13,7 @@ vi.mock("../../../../../src/application/services/bridge_latency_trace_builder", 
 }));
 
 vi.mock("../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter", () => ({
-  allowAgentsCommandSocket: vi.fn(),
+  allowAgentsCommandSocketAsync: vi.fn(),
 }));
 
 vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard", () => ({
@@ -23,12 +23,12 @@ vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard"
 import { executeAuthorizedAgentCommand } from "../../../../../src/application/agent_commands/execute_authorized_agent_command";
 import { createBridgeLatencyTraceIfSampled } from "../../../../../src/application/services/bridge_latency_trace_builder";
 import { handleAgentsCommand } from "../../../../../src/presentation/socket/consumers/agents_command.handler";
-import { allowAgentsCommandSocket } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 
 const mockedExecuteAuthorizedAgentCommand = vi.mocked(executeAuthorizedAgentCommand);
 const mockedCreateBridgeLatencyTraceIfSampled = vi.mocked(createBridgeLatencyTraceIfSampled);
-const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocket);
+const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocketAsync);
 const mockedAssertConsumerSocketAgentAccess = vi.mocked(assertConsumerSocketAgentAccess);
 
 const buildSocket = () =>
@@ -63,7 +63,7 @@ describe("handleAgentsCommand", () => {
     mockedAllowAgentsCommandSocket.mockReset();
     mockedAssertConsumerSocketAgentAccess.mockReset();
 
-    mockedAllowAgentsCommandSocket.mockReturnValue(true);
+    mockedAllowAgentsCommandSocket.mockResolvedValue(true);
     mockedAssertConsumerSocketAgentAccess.mockResolvedValue({
       type: "user",
       id: "user-1",
@@ -103,19 +103,21 @@ describe("handleAgentsCommand", () => {
     );
   });
 
-  it("rejects when socket command rate limit is exceeded", () => {
+  it("rejects when socket command rate limit is exceeded", async () => {
     const socket = buildSocket();
-    mockedAllowAgentsCommandSocket.mockReturnValue(false);
+    mockedAllowAgentsCommandSocket.mockResolvedValue(false);
 
     handleAgentsCommand(socket as never, validPayload);
 
-    expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
-      success: false,
-      error: {
-        code: "TOO_MANY_REQUESTS",
-        message: "Too many agent commands, please try again later.",
-        statusCode: 429,
-      },
+    await vi.waitFor(() => {
+      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+        success: false,
+        error: {
+          code: "TOO_MANY_REQUESTS",
+          message: "Too many agent commands, please try again later.",
+          statusCode: 429,
+        },
+      });
     });
   });
 
@@ -180,6 +182,39 @@ describe("handleAgentsCommand", () => {
         },
         streamId: "stream-1",
       });
+    });
+  });
+
+  it("adds retryAfterSeconds for normalized RPC rate-limit errors", async () => {
+    const socket = buildSocket();
+    mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+      requestId: "req-1",
+      response: {
+        type: "single",
+        success: false,
+        item: {
+          id: "req-1",
+          success: false,
+          error: {
+            code: -32013,
+            message: "rate_limited",
+            data: { retry_after_ms: 2500 },
+          },
+        },
+      },
+    } as never);
+
+    handleAgentsCommand(socket as never, validPayload);
+
+    await vi.waitFor(() => {
+      expect(socket.emit).toHaveBeenCalledWith(
+        socketEvents.agentsCommandResponse,
+        expect.objectContaining({
+          success: true,
+          requestId: "req-1",
+          retryAfterSeconds: 3,
+        }),
+      );
     });
   });
 

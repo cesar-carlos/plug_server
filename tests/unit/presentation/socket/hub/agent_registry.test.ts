@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
 
 describe("agent_registry session policies", () => {
   afterEach(() => {
+    vi.useRealTimers();
     agentRegistry.clear();
   });
 
@@ -81,6 +82,33 @@ describe("agent_registry session policies", () => {
     expect(agentRegistry.findByAgentId("ag-t")?.socketId).toBe("sock-2");
   });
 
+  it("starts a fresh connectedAt timestamp when a session moves to another socket", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
+    agentRegistry.registerAgentSession({
+      agentId: "ag-time",
+      socketId: "sock-old",
+      userId: "u1",
+      capabilities: {},
+      policy: "takeover_disconnect_previous",
+      isPeerConnected: () => true,
+    });
+
+    vi.setSystemTime(new Date("2026-05-08T10:05:00.000Z"));
+    agentRegistry.registerAgentSession({
+      agentId: "ag-time",
+      socketId: "sock-new",
+      userId: "u1",
+      capabilities: {},
+      policy: "takeover_disconnect_previous",
+      isPeerConnected: () => true,
+    });
+
+    expect(agentRegistry.findByAgentId("ag-time")?.connectedAt).toBe(
+      "2026-05-08T10:05:00.000Z",
+    );
+  });
+
   it("sync registration blocks reject_active race via single synchronous path", () => {
     const alive = new Set(["s1"]);
     agentRegistry.registerAgentSession({
@@ -101,6 +129,31 @@ describe("agent_registry session policies", () => {
       isPeerConnected: (sid) => alive.has(sid),
     });
     expect(r2).toEqual({ ok: false, reason: "SESSION_ACTIVE" });
+  });
+
+  it("keeps one canonical agent per socket when a socket is reused for another agent id", () => {
+    agentRegistry.registerAgentSession({
+      agentId: "agent-old",
+      socketId: "sock-reused",
+      userId: "u1",
+      capabilities: {},
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+
+    const next = agentRegistry.registerAgentSession({
+      agentId: "agent-new",
+      socketId: "sock-reused",
+      userId: "u1",
+      capabilities: {},
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+
+    expect(next.ok).toBe(true);
+    expect(agentRegistry.findByAgentId("agent-old")).toBeNull();
+    expect(agentRegistry.findBySocketId("sock-reused")?.agentId).toBe("agent-new");
+    expect(agentRegistry.listAll().map((agent) => agent.agentId)).toEqual(["agent-new"]);
   });
 });
 

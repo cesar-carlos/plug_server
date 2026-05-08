@@ -250,6 +250,13 @@ class InMemoryAgentRegistry {
     }
 
     let replacedSocketId: string | undefined;
+    const previousAgentIdForSocket = this.agentIdBySocketId.get(input.socketId);
+    if (previousAgentIdForSocket && previousAgentIdForSocket !== input.agentId) {
+      this.clearReadyTimer(previousAgentIdForSocket);
+      this.readyAtByAgentId.delete(previousAgentIdForSocket);
+      this.protocolReadyModeByAgentId.delete(previousAgentIdForSocket);
+      this.agents.delete(previousAgentIdForSocket);
+    }
 
     if (existing && existing.socketId !== input.socketId) {
       const peerAlive = input.isPeerConnected(existing.socketId);
@@ -271,7 +278,7 @@ class InMemoryAgentRegistry {
       socketId: input.socketId,
       userId: input.userId,
       capabilities: input.capabilities,
-      connectedAtMs: existing?.connectedAtMs ?? nowMs,
+      connectedAtMs: existing?.socketId === input.socketId ? existing.connectedAtMs : nowMs,
       lastSeenAtMs: nowMs,
     };
 

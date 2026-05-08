@@ -20,7 +20,7 @@ const rpcMetaSchema = z
     timestamp: rpcTimestampSchema.optional(),
     /**
      * Accepted on bridge ingress for backward compatibility, but stripped before
-     * forwarding to the agent. `socket_communication_standard.md` (v2.8,
+     * forwarding to the agent. `socket_communication_standard.md` (v2.9,
      * "Nota operacional (largura de banda)" and "Limitacoes e observacoes do
      * estado atual") states the agent does NOT support per-request compression
      * overrides via `meta`; outbound `PayloadFrame` compression follows the
@@ -59,7 +59,7 @@ export const AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Max UTF-8 bytes for serialized `params` on `rpc.discover`. */
 export const AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
-/** Max UTF-8 bytes for serialized token-carrier `params` (`agent.getProfile`, `client_token.getPolicy`). */
+/** Max UTF-8 bytes for serialized token-carrier `params` (`agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`). */
 export const AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
 
 /**
@@ -337,32 +337,12 @@ const agentGetHealthCommandSchema = z
     jsonrpc: z.literal("2.0").default("2.0"),
     method: z.literal("agent.getHealth"),
     id: jsonRpcIdSchema.optional(),
-    params: z.record(z.string(), z.unknown()).optional(),
+    params: clientTokenCarrierParamsSchema.optional(),
   })
   .merge(rpcEnvelopeExtensionsSchema)
   .passthrough()
   .superRefine((value, ctx) => {
-    if (value.params === undefined) {
-      return;
-    }
-    let encoded: string;
-    try {
-      encoded = JSON.stringify(value.params);
-    } catch {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["params"],
-        message: "`params` must be JSON-serializable",
-      });
-      return;
-    }
-    if (utf8ByteLength(encoded) > AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["params"],
-        message: `agent.getHealth params exceed max UTF-8 size (${AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES} bytes)`,
-      });
-    }
+    refineClientTokenCarrierParamsSize(value, ctx, "agent.getHealth");
   });
 
 const agentGetProfileCommandSchema = z

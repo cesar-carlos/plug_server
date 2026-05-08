@@ -5,7 +5,7 @@ vi.mock("../../src/presentation/socket/hub/rpc_bridge", () => ({
 }));
 
 vi.mock("../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => ({
-  allowRelayStreamPull: vi.fn(),
+  allowRelayStreamPullAsync: vi.fn(),
 }));
 
 vi.mock("../../src/presentation/socket/hub/conversation_registry", () => ({
@@ -28,7 +28,7 @@ import {
   CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER,
 } from "../../src/presentation/socket/hub/connection_ready_handshake";
 import { prepareRelayStreamPull } from "../../src/presentation/socket/hub/rpc_bridge";
-import { allowRelayStreamPull } from "../../src/presentation/socket/hub/consumer_relay_rate_limiter";
+import { allowRelayStreamPullAsync } from "../../src/presentation/socket/hub/consumer_relay_rate_limiter";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { decodePayloadFrame, isPayloadFrameEnvelope } from "../../src/shared/utils/payload_frame";
 
@@ -62,7 +62,7 @@ describe("socket relay public contract", () => {
       windowSize: 64,
       execute,
     });
-    vi.mocked(allowRelayStreamPull).mockReturnValue({
+    vi.mocked(allowRelayStreamPullAsync).mockResolvedValue({
       allowed: false,
       scope: "user",
       limit: 1000,
@@ -84,10 +84,8 @@ describe("socket relay public contract", () => {
       conversationId: "conv-1",
       frame: { schemaVersion: "1.0" },
     });
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(emitted).toHaveLength(1);
+    await vi.waitFor(() => expect(emitted).toHaveLength(1));
     expect(emitted[0]?.event).toBe(socketEvents.relayRpcStreamPullResponse);
     expect(emitted[0]?.payload).toEqual({
       success: false,

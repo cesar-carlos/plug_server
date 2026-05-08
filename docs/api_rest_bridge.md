@@ -59,6 +59,33 @@ Use outros docs para:
 Regra pratica: se o mesmo fluxo gera streams grandes repetidamente, migre para
 Socket/relay em vez de aumentar apenas limites de materializacao no REST.
 
+#### Matriz oficial de paridade do bridge
+
+O Socket **nao** duplica a API REST inteira. REST continua sendo o canal para
+bootstrap, auth, catalogo, CRUD/admin, health HTTP e metricas. A paridade abaixo
+vale apenas para o bridge de comandos (`POST /api/v1/agents/commands`).
+
+| Recurso do bridge | REST `POST /agents/commands` | Socket `agents:command` | Socket `relay:*` |
+| ----------------- | ---------------------------- | ----------------------- | ---------------- |
+| `sql.execute` | Sim | Sim | Sim |
+| `sql.executeBatch` | Sim | Sim | Sim, apenas request unico que pode chamar o metodo; nao batch JSON-RPC no envelope relay |
+| `sql.cancel` | Sim | Sim | Sim |
+| `rpc.discover` | Sim | Sim | Sim |
+| `agent.getHealth` | Sim | Sim | Sim |
+| `agent.getProfile` | Sim | Sim | Sim |
+| `client_token.getPolicy` | Sim | Sim | Sim |
+| Batch JSON-RPC (`command: []`) | Sim, ate 32 itens | Sim, mesmo schema | Nao, por desenho |
+| Notification (`id: null`) | Sim | Sim | Nao, por desenho |
+| `timeoutMs` | Sim | Sim | Usa timeout do relay por request |
+| `pagination` no body | Sim, para `sql.execute` unico | Sim, mesmo schema | Nao no envelope relay; use params/options do comando |
+| `payloadFrameCompression` | Sim | Sim | Sim no envelope `relay:rpc.request` |
+| Streaming progressivo ao cliente | Nao, REST materializa | Sim, `agents:command_stream_*` | Sim, `relay:rpc.*` |
+| Idempotencia forte por retry de cliente | Nao | Nao | Sim, via `client_request_id` por conversa |
+
+`relay:*` rejeita batch e notification de forma intencional: cada request precisa
+ser correlacionavel para timeout, idempotencia, roteamento de resposta/chunks e
+liberacao de fila/backpressure.
+
 Alternativa em tempo real: consumers podem conectar ao namespace `/consumers`
 e emitir `agents:command` com o mesmo payload. A resposta inicial chega em
 `agents:command_response`. Quando a execucao entra em streaming, os chunks
@@ -284,7 +311,7 @@ Validacao no hub antes do `PayloadFrame` (constantes em `agent_command.ts`):
 | --------------------------------------------------------------------------- | ---------------- |
 | `sql` (`sql.execute` e cada item de `sql.executeBatch`)                     | **1 MiB** UTF-8  |
 | `params` nomeado (objeto serializado em JSON)                               | **2 MiB** UTF-8  |
-| `agent.getProfile` / `client_token.getPolicy` `params` (objeto serializado) | **64 KiB** UTF-8 |
+| `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` `params` (objeto serializado) | **64 KiB** UTF-8 |
 | `rpc.discover` `params` (objeto serializado)                                | **64 KiB** UTF-8 |
 
 O limite HTTP total continua a ser `REQUEST_BODY_LIMIT`; estes tetos evitam cargas JSON enormes mesmo com body permitido maior.
@@ -379,12 +406,12 @@ Nao requer token de autorizacao.
 
 Introspecao da **politica de autorizacao** ja resolvida para o token apresentado
 (mesmo pipeline que `sql.execute` no agente), **sem executar SQL**. O resultado
-inclui identificadores, flags (`all_tables`, `all_views`, `all_permissions`),
-regras por recurso, estado de revogacao e `payload` com metadados (valores
-sensiveis podem ser redigidos no agente).
+inclui identificadores, flags (`all_tables`, `all_views`,
+`global_permissions`, `all_permissions` legado derivado), regras por recurso,
+estado de revogacao e `payload` com metadados (valores sensiveis podem ser
+redigidos no agente).
 
-Requer plug_agente com o metodo implementado (perfil **2.7+**, profile completo
-em **2.8**). Com auth desativada no agente ou introspecao desativada
+Requer plug_agente com o metodo implementado (introduzido no perfil **2.7**). Com auth desativada no agente ou introspecao desativada
 (`enableClientTokenPolicyIntrospection`), o agente pode responder com erro
 `-32602` e `reason` especifico; rate limit do agente pode devolver `-32013`
 (`client_token_get_policy_rate_limited`) com `error.data.retry_after_ms` e
@@ -1017,8 +1044,8 @@ O valor e arredondado **para cima** em segundos (minimo `1`). Em batch
 JSON-RPC com varios `-32013`, o hub usa o **maior** valor para nao sugerir
 retry mais cedo do que o limite mais restrito.
 
-Esse caminho e especialmente util para o metodo `client_token.getPolicy` (perfil
-2.8 do `plug_agente`), que tem rate limit dedicado por `agent_id` + hash do
+Esse caminho e especialmente util para o metodo `client_token.getPolicy`
+(introduzido no perfil 2.7 do `plug_agente`), que tem rate limit dedicado por `agent_id` + hash do
 credential. O cliente HTTP pode usar diretamente `Retry-After` para backoff
 sem precisar parsear o envelope JSON-RPC. Implementacao:
 `src/presentation/http/serializers/agent_rpc_retry_after.ts`.
@@ -1060,6 +1087,10 @@ timeout), o servidor também pode devolver:
 > multi-pod o teto efetivo se multiplica pelo número de réplicas. Veja
 > `docs/scaling_and_roadmap.md` (seção “Rate limits HTTP em memoria”) para a
 > recomendação de `Redis Store` quando justificar.
+
+> Atualizacao Redis: quando `REST_RATE_LIMIT_REDIS_URL` esta configurado, o estado
+> dos limitadores HTTP e compartilhado entre replicas e opera em
+> fail-open/circuit-breaker se o Redis ficar indisponivel.
 
 ### Per-(client, agent) client_token storage
 
@@ -1311,7 +1342,7 @@ deste arquivo e em `docs/socket_relay_protocol.md`.
 | `options.execution_mode` (managed/preserve)                            | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
 | `options.preserve_sql` (alias legado)                                  | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
 | `options.transaction` (batch)                                          | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
-| `api_version` no request                                               | implementado               | exposto           | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.8"` como fallback, alinhado ao profile anunciado em `agent:capabilities` (`plug-jsonrpc-profile/2.8`)                                                                                                                                |
+| `api_version` no request                                               | implementado               | exposto           | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.9"` como fallback, alinhado ao profile anunciado em `agent:capabilities` (`plug-jsonrpc-profile/2.9`)                                                                                                                                |
 | `meta` no request (trace_id, traceparent)                              | implementado               | exposto           | hub preserva apenas os campos publicados pelo schema do `plug_agente` (`trace_id`, `traceparent`, `tracestate`, `request_id`, `agent_id`, `timestamp`); campos extras aceitos na entrada sao **stripados** antes do envio ao agente; o hub injeta/reescreve `request_id`, `agent_id`, `timestamp`, `trace_id` |
 | `meta.outbound_compression` (`none` / `gzip` / `auto`)                 | **no-op** no runtime atual | aceito + OpenAPI  | aceito por compatibilidade na entrada, mas **nao e encaminhado** ao agente; o `socket_communication_standard.md` (v2.8, _Nota operacional_) declara explicitamente que o agente **nao** suporta override de compressao por request                                                                            |
 | `api_version` na response                                              | implementado               | exposto           | serializer preserva `api_version` e `meta` do agente                                                                                                                                                                                                                                                          |

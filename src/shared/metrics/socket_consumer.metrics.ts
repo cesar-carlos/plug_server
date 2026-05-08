@@ -27,6 +27,11 @@ const commandAbort = {
   abortedCommandsTotal: 0,
 };
 
+const retryAfter = {
+  socketErrorRetryAfterMsTotal: 0,
+  agentsCommandRetryAfterSecondsTotal: 0,
+};
+
 const profilePush = {
   batchesTotal: 0,
   coalescedTotal: 0,
@@ -88,6 +93,14 @@ export const noteConsumerProfilePushCoalesced = (): void => {
   profilePush.coalescedTotal += 1;
 };
 
+export const noteSocketErrorRetryAfterMsPropagated = (): void => {
+  retryAfter.socketErrorRetryAfterMsTotal += 1;
+};
+
+export const noteAgentsCommandRetryAfterSecondsPropagated = (): void => {
+  retryAfter.agentsCommandRetryAfterSecondsTotal += 1;
+};
+
 export const getSocketConsumerMetricsSnapshot = (): {
   readonly activeConnections: typeof activeConnections;
   readonly authRejects: typeof authRejects;
@@ -98,6 +111,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
     readonly maxMs: number;
   };
   readonly commandAbort: typeof commandAbort;
+  readonly retryAfter: typeof retryAfter;
   readonly profilePush: {
     readonly batchesTotal: number;
     readonly coalescedTotal: number;
@@ -115,6 +129,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
     maxMs: guardDb.maxMs,
   },
   commandAbort: { ...commandAbort },
+  retryAfter: { ...retryAfter },
   profilePush: {
     batchesTotal: profilePush.batchesTotal,
     coalescedTotal: profilePush.coalescedTotal,
@@ -139,6 +154,8 @@ export const resetSocketConsumerMetrics = (): void => {
   guardDb.sumMs = 0;
   guardDb.maxMs = 0;
   commandAbort.abortedCommandsTotal = 0;
+  retryAfter.socketErrorRetryAfterMsTotal = 0;
+  retryAfter.agentsCommandRetryAfterSecondsTotal = 0;
   profilePush.batchesTotal = 0;
   profilePush.coalescedTotal = 0;
   profilePush.fanoutTotal = 0;

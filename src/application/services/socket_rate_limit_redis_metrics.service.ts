@@ -1,6 +1,5 @@
 /**
- * Optional Redis backend state for REST HTTP rate limits (`express-rate-limit`).
- * Exposed via GET /metrics.
+ * Optional Redis backend state for Socket rate limits. Exposed via GET /metrics.
  */
 
 let redisUrlConfigured: 0 | 1 = 0;
@@ -10,16 +9,19 @@ let runtimeCommandErrorEventsTotal = 0;
 let connectionEventsTotal = 0;
 let circuitOpen: 0 | 1 = 0;
 let circuitOpenedTotal = 0;
+let redisAllowedTotal = 0;
+let redisRejectedTotal = 0;
 let lastFallbackAtMs = 0;
 let lastConnectionAtMs = 0;
+const trackedRedisKeys = new Set<string>();
 
-export const noteRestRateLimitRedisSkippedEmptyUrl = (): void => {
+export const noteSocketRateLimitRedisSkippedEmptyUrl = (): void => {
   redisUrlConfigured = 0;
   redisStoreActive = 0;
   circuitOpen = 0;
 };
 
-export const noteRestRateLimitRedisConnected = (): void => {
+export const noteSocketRateLimitRedisConnected = (): void => {
   const wasActive = redisStoreActive;
   redisUrlConfigured = 1;
   redisStoreActive = 1;
@@ -30,25 +32,25 @@ export const noteRestRateLimitRedisConnected = (): void => {
   }
 };
 
-export const noteRestRateLimitRedisRecovered = (): void => {
+export const noteSocketRateLimitRedisRecovered = (): void => {
   redisUrlConfigured = 1;
   redisStoreActive = 1;
   circuitOpen = 0;
 };
 
-export const noteRestRateLimitRedisFallback = (): void => {
+export const noteSocketRateLimitRedisFallback = (): void => {
   redisUrlConfigured = 1;
   redisStoreActive = 0;
   fallbackEventsTotal += 1;
   lastFallbackAtMs = Date.now();
 };
 
-export const noteRestRateLimitRedisCommandError = (): void => {
+export const noteSocketRateLimitRedisCommandError = (): void => {
   runtimeCommandErrorEventsTotal += 1;
-  noteRestRateLimitRedisFallback();
+  noteSocketRateLimitRedisFallback();
 };
 
-export const noteRestRateLimitRedisCircuitOpened = (): void => {
+export const noteSocketRateLimitRedisCircuitOpened = (): void => {
   redisUrlConfigured = 1;
   redisStoreActive = 0;
   circuitOpen = 1;
@@ -56,16 +58,31 @@ export const noteRestRateLimitRedisCircuitOpened = (): void => {
   lastFallbackAtMs = Date.now();
 };
 
-export const noteRestRateLimitRedisCircuitClosed = (): void => {
+export const noteSocketRateLimitRedisCircuitClosed = (): void => {
   circuitOpen = 0;
 };
 
-export const noteRestRateLimitRedisDisconnected = (): void => {
+export const noteSocketRateLimitRedisDisconnected = (): void => {
   redisStoreActive = 0;
   circuitOpen = 0;
 };
 
-export const getRestRateLimitRedisMetricsSnapshot = (): {
+export const noteSocketRateLimitRedisDecision = (allowed: boolean): void => {
+  if (allowed) {
+    redisAllowedTotal += 1;
+    return;
+  }
+  redisRejectedTotal += 1;
+};
+
+export const noteSocketRateLimitRedisTrackedKey = (key: string): void => {
+  if (trackedRedisKeys.size >= 10_000 && !trackedRedisKeys.has(key)) {
+    trackedRedisKeys.clear();
+  }
+  trackedRedisKeys.add(key);
+};
+
+export const getSocketRateLimitRedisMetricsSnapshot = (): {
   readonly redisUrlConfigured: 0 | 1;
   readonly redisStoreActive: 0 | 1;
   readonly fallbackEventsTotal: number;
@@ -73,6 +90,9 @@ export const getRestRateLimitRedisMetricsSnapshot = (): {
   readonly connectionEventsTotal: number;
   readonly circuitOpen: 0 | 1;
   readonly circuitOpenedTotal: number;
+  readonly redisAllowedTotal: number;
+  readonly redisRejectedTotal: number;
+  readonly trackedKeysApprox: number;
   readonly lastFallbackAtMs: number;
   readonly lastConnectionAtMs: number;
 } => ({
@@ -83,11 +103,14 @@ export const getRestRateLimitRedisMetricsSnapshot = (): {
   connectionEventsTotal,
   circuitOpen,
   circuitOpenedTotal,
+  redisAllowedTotal,
+  redisRejectedTotal,
+  trackedKeysApprox: trackedRedisKeys.size,
   lastFallbackAtMs,
   lastConnectionAtMs,
 });
 
-export const resetRestRateLimitRedisMetricsForTests = (): void => {
+export const resetSocketRateLimitRedisMetricsForTests = (): void => {
   redisUrlConfigured = 0;
   redisStoreActive = 0;
   fallbackEventsTotal = 0;
@@ -95,6 +118,9 @@ export const resetRestRateLimitRedisMetricsForTests = (): void => {
   connectionEventsTotal = 0;
   circuitOpen = 0;
   circuitOpenedTotal = 0;
+  redisAllowedTotal = 0;
+  redisRejectedTotal = 0;
+  trackedRedisKeys.clear();
   lastFallbackAtMs = 0;
   lastConnectionAtMs = 0;
 };

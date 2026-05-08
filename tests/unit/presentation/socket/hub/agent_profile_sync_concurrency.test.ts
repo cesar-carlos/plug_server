@@ -41,4 +41,29 @@ describe("agent_profile_sync_concurrency", () => {
       });
     }
   });
+
+  it("rejects queued acquires when the gate is reset", async () => {
+    resetAgentProfileSyncConcurrency();
+    const original = env.socketAgentProfileSyncMaxConcurrent;
+    Object.defineProperty(env, "socketAgentProfileSyncMaxConcurrent", {
+      value: 1,
+      configurable: true,
+    });
+
+    try {
+      const release = await acquireAgentProfileSyncSlot();
+      const queued = acquireAgentProfileSyncSlot();
+
+      resetAgentProfileSyncConcurrency();
+
+      await expect(queued).rejects.toThrow(/concurrency gate has been reset/i);
+      release();
+    } finally {
+      Object.defineProperty(env, "socketAgentProfileSyncMaxConcurrent", {
+        value: original,
+        configurable: true,
+      });
+      resetAgentProfileSyncConcurrency();
+    }
+  });
 });

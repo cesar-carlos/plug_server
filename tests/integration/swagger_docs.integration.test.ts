@@ -52,6 +52,16 @@ describe("Swagger docs", () => {
     expect(schemas?.RpcSqlExecuteCommand?.properties?.params?.$ref).toBe(
       "#/components/schemas/SqlExecuteParams",
     );
+    expect(schemas?.RpcClientTokenCarrierParams).toBeDefined();
+    expect(schemas?.RpcAgentGetHealthCommand?.properties?.params?.$ref).toBe(
+      "#/components/schemas/RpcClientTokenCarrierParams",
+    );
+    expect(schemas?.RpcAgentGetProfileCommand?.properties?.params?.$ref).toBe(
+      "#/components/schemas/RpcClientTokenCarrierParams",
+    );
+    expect(schemas?.RpcClientTokenGetPolicyCommand?.properties?.params?.$ref).toBe(
+      "#/components/schemas/RpcClientTokenCarrierParams",
+    );
     expect(schemas?.RpcSqlExecuteCommand?.properties).toHaveProperty("api_version");
     expect(schemas?.RpcSqlExecuteCommand?.properties).toHaveProperty("meta");
     expect(schemas?.SqlExecuteBatchCommandItem?.properties).toHaveProperty("execution_order");

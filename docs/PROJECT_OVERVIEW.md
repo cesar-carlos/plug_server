@@ -96,7 +96,7 @@ Detalhes normativos:
 
 ### Socket em `/agents`
 
-O agente usa o protocolo do `plug_agente` (perfil `plug-jsonrpc-profile/2.8`) no
+O agente usa o protocolo do `plug_agente` (perfil `plug-jsonrpc-profile/2.9`) no
 namespace `/agents`, incluindo:
 
 | Evento | Direcao | Notas |
@@ -152,13 +152,13 @@ O projeto ja contem:
 - `POST /api/v1/auth/agent-login` para agentes
 - ownership automatica de agente no fluxo `agent-login` + `agent:register`
 - registry de agentes e negociacao de capabilities
-  (`HUB_TRANSPORT_EXTENSIONS.plugProfile = "plug-jsonrpc-profile/2.8"`)
+  (`HUB_TRANSPORT_EXTENSIONS.plugProfile = "plug-jsonrpc-profile/2.9"`)
 - validacao zod do payload `agent:register` alinhada ao schema do agente, com
   resposta de rejeicao em `agent:register_error` (JSON puro)
 - readiness explicito com `agent:ready` e fallback por grace window
 - bridge REST `POST /api/v1/agents/commands` com propagacao automatica de
   `Retry-After` quando o agente devolve `-32013` com `retry_after_ms`/`reset_at`
-  (ex.: `client_token.getPolicy` na v2.8)
+  (ex.: `client_token.getPolicy`, introduzido no perfil 2.7)
 - bridge Socket legado `agents:*`
 - relay Socket `relay:*` com isolamento por `conversationId`
 - streaming, backpressure e `rpc:stream.pull`

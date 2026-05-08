@@ -72,15 +72,17 @@ export const createPrepareAgentStreamPull = (
     }
 
     if (route.mode === "relay") {
+      const forwardedRows = getRelayStreamForwardedRows(route.requestId);
+      const streamId = route.streamId;
       removeRelayRequestRoute(route.requestId);
       removeActiveStreamRoute(route, { restMaterialize: "detach" });
       enqueueRelayOutbound(route.requestId, async () => {
         const frame = await encodeRelayOutboundFrame(
           {
             request_id: route.requestId,
-            total_rows: getRelayStreamForwardedRows(route.requestId),
+            total_rows: forwardedRows,
             terminal_status: "error",
-            ...(route.streamId ? { stream_id: route.streamId } : {}),
+            ...(streamId ? { stream_id: streamId } : {}),
           },
           route.requestId,
         );
@@ -99,11 +101,17 @@ export const createPrepareAgentStreamPull = (
       throw badRequest("Provide streamId or requestId to pull stream chunks");
     }
 
-    const route = resolvedStreamId
+    const routeByStreamId = resolvedStreamId
       ? getActiveStreamRouteByStreamId(resolvedStreamId)
-      : resolvedRequestId
-        ? getActiveStreamRouteByRequestId(resolvedRequestId)
-        : undefined;
+      : undefined;
+    const routeByRequestId = resolvedRequestId
+      ? getActiveStreamRouteByRequestId(resolvedRequestId)
+      : undefined;
+    if (routeByStreamId && routeByRequestId && routeByStreamId !== routeByRequestId) {
+      throw badRequest("streamId and requestId refer to different stream routes");
+    }
+
+    const route = routeByStreamId ?? routeByRequestId;
 
     if (!route) {
       throw notFound("Stream route");

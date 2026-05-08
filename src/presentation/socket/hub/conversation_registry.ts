@@ -90,6 +90,7 @@ class InMemoryConversationRegistry {
   }): RelayConversation {
     const nowMs = Date.now();
     const conversationId = input.conversationId ?? randomUUID();
+    this.removeByConversationId(conversationId);
 
     const conversation: InternalRelayConversation = {
       conversationId,

@@ -229,7 +229,7 @@ export const proxyCommandToAgent = async (
     observeRestBridgeLatency(Date.now() - startMs);
     const tWriteOk = performance.now();
     // Surface agent-side `-32013 / rate_limited` hints (notably from
-    // `client_token.getPolicy` per `socket_communication_standard.md` v2.8) as
+    // `client_token.getPolicy` per `socket_communication_standard.md` (introduced in profile 2.7) as
     // a standard HTTP `Retry-After` header so REST clients can back off
     // without parsing the JSON-RPC error envelope.
     const retryAfterSeconds = resolveAgentRpcRetryAfterSeconds(result.response);

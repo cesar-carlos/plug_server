@@ -8,10 +8,13 @@ import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { agentIdSchema } from "../../../shared/validators/schemas";
 import { agentRegistry } from "../hub/agent_registry";
-import { refundRelayConversationStart } from "../hub/consumer_relay_rate_limiter";
+import { refundRelayConversationStartAsync } from "../hub/consumer_relay_rate_limiter";
 import { conversationRegistry } from "../hub/conversation_registry";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
+import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
+import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
+import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
 
 export const conversationStartPayloadSchema = z.object({
   agentId: agentIdSchema,
@@ -46,7 +49,7 @@ const emitConversationStarted = (
       }
     | {
         success: false;
-        error: { code: string; message: string; statusCode?: number };
+        error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
       },
 ): void => {
   socket.emit(socketEvents.relayConversationStarted, payload);
@@ -66,9 +69,21 @@ export const handleRelayConversationStart = async (
     return;
   }
   const parsed = { success: true as const, data: envelope.data };
+  const abortController = new AbortController();
+  const unregisterAbortController = registerConsumerCommandAbortController(
+    socket.id,
+    abortController,
+  );
+  const assertNotAborted = (): void => {
+    if (abortController.signal.aborted) {
+      throw serviceUnavailable("Consumer socket disconnected before conversation start completed");
+    }
+  };
 
   try {
+    assertNotAborted();
     await assertConsumerSocketAgentAccess(socket.data.user, parsed.data.agentId, socket);
+    assertNotAborted();
 
     const registeredAgent = agentRegistry.findByAgentId(parsed.data.agentId);
     if (!registeredAgent) {
@@ -80,6 +95,7 @@ export const handleRelayConversationStart = async (
       throw serviceUnavailable("Agent socket is unavailable");
     }
 
+    assertNotAborted();
     // Atomic reserve+create: check global + per-consumer caps and insert in
     // one synchronous step (no TOCTOU between counts and registry insert).
     const reservation = conversationRegistry.tryReserveAndCreate({
@@ -115,15 +131,22 @@ export const handleRelayConversationStart = async (
       payload: { createdAt: conversation.createdAt },
     });
   } catch (err: unknown) {
-    refundRelayConversationStart(socket.data.user?.sub, socket.id);
+    await refundRelayConversationStartAsync(socket.data.user?.sub, socket.id);
     const appError = err instanceof AppError ? err : undefined;
+    const retryAfterMs = resolveAppErrorRetryAfterMs(err);
+    if (retryAfterMs !== undefined) {
+      noteSocketErrorRetryAfterMsPropagated();
+    }
     emitConversationStarted(socket, {
       success: false,
       error: {
         code: appError?.code ?? "CONVERSATION_START_FAILED",
         message: err instanceof Error ? err.message : "Failed to start conversation",
         ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
+        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
       },
     });
+  } finally {
+    unregisterAbortController();
   }
 };

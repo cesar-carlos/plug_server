@@ -10,6 +10,7 @@ vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
       socketRelayRateLimitMaxConversationStarts: 8,
       socketRelayRateLimitMaxRequests: 64,
       socketRelayRateLimitMaxStreamPullCredits: 1000,
+      socketAgentsStreamPullRateLimitMaxCredits: 48,
     },
   };
 });
@@ -17,6 +18,7 @@ vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
 import { env } from "../../../../../src/shared/config/env";
 import {
   allowRelayConversationStart,
+  allowAgentsStreamPullCredits,
   allowRelayRpcRequest,
   allowRelayStreamPull,
   clearRelayRateLimitStateByConsumerSocket,
@@ -123,5 +125,19 @@ describe("consumer_relay_rate_limiter", () => {
     expect(rejected.allowed).toBe(false);
     expect(rejected.remainingCredits).toBe(env.socketRelayRateLimitMaxStreamPullCredits - 400);
     expect(rejected.scope).toBe("user");
+  });
+
+  it("allowAgentsStreamPullCredits enforces the legacy credit budget", async () => {
+    const accepted = await allowAgentsStreamPullCredits("user-legacy-pull", "sock8", 32);
+    expect(accepted.allowed).toBe(true);
+    expect(accepted.remainingCredits).toBe(16);
+
+    const rejected = await allowAgentsStreamPullCredits("user-legacy-pull", "sock8", 17);
+    expect(rejected.allowed).toBe(false);
+    expect(rejected.remainingCredits).toBe(16);
+
+    const snapshot = getRelayRateLimitMetricsSnapshot();
+    expect(snapshot.counters.agentsStreamPullCreditsGrantedUser).toBe(32);
+    expect(snapshot.counters.agentsStreamPullCreditsRejectedUser).toBe(17);
   });
 });

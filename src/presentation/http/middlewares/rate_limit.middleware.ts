@@ -1,16 +1,22 @@
 import type { Request, RequestHandler, Response } from "express";
-import { rateLimit, type Options } from "express-rate-limit";
+import { ipKeyGenerator, rateLimit, type Options } from "express-rate-limit";
 
 import {
   incrementRestHttpAdminUserStatusRateLimitRejected,
   incrementRestHttpAgentsCommandsIpRateLimitRejected,
   incrementRestHttpAgentsCommandsUserRateLimitRejected,
+  incrementRestHttpAgentsSelfProfileRateLimitRejected,
   incrementRestHttpClientMeAgentsPostRateLimitRejected,
+  incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected,
+  incrementRestHttpClientThumbnailRateLimitRejected,
   incrementRestHttpCredentialAuthRateLimitRejected,
   incrementRestHttpGlobalRateLimitRejected,
   incrementRestHttpTokenRefreshRateLimitRejected,
 } from "../../../application/services/rest_http_rate_limit_metrics.service";
-import { getRestHttpRateLimitStore } from "../../../infrastructure/redis/rest_rate_limit_redis";
+import {
+  createRestHttpRateLimitStore,
+  type RestHttpRateLimitStoreScope,
+} from "../../../infrastructure/redis/rest_rate_limit_redis";
 import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
@@ -29,9 +35,11 @@ const sendRateLimitResponse = async (
   }
 };
 
-const optionalStore = (): Pick<Options, "store"> | undefined => {
-  const store = getRestHttpRateLimitStore();
-  return store !== undefined ? { store } : undefined;
+const optionalRedisStore = (
+  scope: RestHttpRateLimitStoreScope,
+): Pick<Options, "passOnStoreError" | "store"> | undefined => {
+  const store = createRestHttpRateLimitStore(scope);
+  return store !== undefined ? { store, passOnStoreError: true } : undefined;
 };
 
 export const globalRateLimitNotRegistered: RequestHandler = (_req, res) => {
@@ -79,8 +87,10 @@ const agentSelfProfileTooManyMessage = {
 };
 
 /** Rate-limit store key for `POST /agents/commands` when limiting by `req.ip`. */
-export const agentsCommandsIpRateLimitKey = (req: Request): string =>
-  `agents_commands:ip:${req.ip ?? "unknown"}`;
+export const agentsCommandsIpRateLimitKey = (req: Request): string => {
+  const ip = typeof req.ip === "string" && req.ip.trim() !== "" ? req.ip : "unknown";
+  return `agents_commands:ip:${ipKeyGenerator(ip)}`;
+};
 
 /** Rate-limit store key for `POST /agents/commands` when limiting by JWT `sub` (after auth; typically `requireAuthAndActiveAccount`). */
 export const agentsCommandsUserRateLimitKey = (res: Response): string => {
@@ -134,15 +144,13 @@ const passthrough: RequestHandler = (_req, _res, next) => {
  * (middleware becomes a no-op for that route group).
  */
 export function registerHttpRateLimits(): void {
-  const storeOpts = optionalStore();
-
   globalRateLimit =
     env.restGlobalRateLimitMax === 0
       ? passthrough
       : rateLimit({
           windowMs: env.restGlobalRateLimitWindowMs,
           limit: env.restGlobalRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("global") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: {
@@ -161,7 +169,7 @@ export function registerHttpRateLimits(): void {
       : rateLimit({
           windowMs: env.restCredentialAuthRateLimitWindowMs,
           limit: env.restCredentialAuthRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("credential_auth") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: {
@@ -180,7 +188,7 @@ export function registerHttpRateLimits(): void {
       : rateLimit({
           windowMs: env.restTokenRefreshRateLimitWindowMs,
           limit: env.restTokenRefreshRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("token_refresh") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: {
@@ -201,7 +209,7 @@ export function registerHttpRateLimits(): void {
       ? rateLimit({
           windowMs: env.restAgentsCommandsRateLimitWindowMs,
           limit: env.restAgentsCommandsRateLimitIpMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("agents_commands_ip") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: agentsCommandsTooManyMessage,
@@ -219,7 +227,7 @@ export function registerHttpRateLimits(): void {
       : rateLimit({
           windowMs: env.restAgentsCommandsRateLimitWindowMs,
           limit: env.restAgentsCommandsRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("agents_commands_user") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: agentsCommandsTooManyMessage,
@@ -236,12 +244,13 @@ export function registerHttpRateLimits(): void {
       : rateLimit({
           windowMs: env.restAgentsCommandsRateLimitWindowMs,
           limit: env.restAgentsCommandsRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("agents_self_profile") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: agentSelfProfileTooManyMessage,
           keyGenerator: (_req: Request, res: Response) => agentsSelfProfileRateLimitKey(res),
           handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpAgentsSelfProfileRateLimitRejected();
             await sendRateLimitResponse(request, response, optionsUsed);
           },
         });
@@ -252,7 +261,7 @@ export function registerHttpRateLimits(): void {
       : rateLimit({
           windowMs: env.restAdminUserStatusRateLimitWindowMs,
           limit: env.restAdminUserStatusRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("admin_user_status") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: {
@@ -272,7 +281,7 @@ export function registerHttpRateLimits(): void {
       : rateLimit({
           windowMs: env.restClientMeAgentsPostRateLimitWindowMs,
           limit: env.restClientMeAgentsPostRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("client_me_agents_post") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: {
@@ -292,12 +301,16 @@ export function registerHttpRateLimits(): void {
       : rateLimit({
           windowMs: env.restClientThumbnailRateLimitWindowMs,
           limit: env.restClientThumbnailRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("client_thumbnail") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: {
             message: "Too many thumbnail uploads, please try again later.",
             code: "TOO_MANY_REQUESTS",
+          },
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpClientThumbnailRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
           },
         });
 
@@ -307,12 +320,16 @@ export function registerHttpRateLimits(): void {
       : rateLimit({
           windowMs: env.restClientPasswordRecoveryRateLimitWindowMs,
           limit: env.restClientPasswordRecoveryRateLimitMax,
-          ...(storeOpts ?? {}),
+          ...(optionalRedisStore("client_password_recovery_request") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
           message: {
             message: "Too many password recovery requests, please try again later.",
             code: "TOO_MANY_REQUESTS",
+          },
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
           },
         });
 

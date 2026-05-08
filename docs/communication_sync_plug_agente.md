@@ -42,7 +42,7 @@ Historico detalhado de mudancas: `CHANGELOG.md`.
 
 ## Versao do profile
 
-O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.8"` em
+O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.9"` em
 `agent:capabilities` (`HUB_TRANSPORT_EXTENSIONS` em
 `src/shared/constants/agent_transport_contract.ts`). A versao acompanha o
 OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
@@ -65,7 +65,7 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | Pull capability-aware (`recommendedStreamPullWindowSize`, `maxStreamPullWindowSize`) | publicado pelo hub e clampado por agente | `docs/socket_relay_protocol.md`, `docs/api_rest_bridge.md` |
 | `execution_mode`, `preserve_sql`, `effective_max_rows` | alinhado | `docs/api_rest_bridge.md` |
 | `id` omitido vs `id: null` no bridge | alinhado | `docs/api_rest_bridge.md`, `docs/socket_client_sdk.md` |
-| `client_token.getPolicy` (introspecao de policy, perfil 2.7+) com **`Retry-After`** automatico em `-32013` | alinhado | `docs/api_rest_bridge.md` |
+| `client_token.getPolicy` (introspecao de policy, introduzido no perfil 2.7) com **`Retry-After`** automatico em `-32013` | alinhado | `docs/api_rest_bridge.md` |
 | `meta.outbound_compression` aceito no schema (no-op no runtime atual, alinhado a v2.8) | tolerancia | `src/shared/validators/agent_command.ts` |
 | Teste de contrato contra OpenRPC/schemas do agente | alinhado | `docs/observability.md` |
 | `profile_version` no resultado de `agent.getProfile` | hub usa para *pull sync* / consistencia | `docs/client_agent_business_rules.md`, `docs/configuration.md`; o JSON Schema publicado em `plug_agente` pode ainda omitir o campo — o hub tolera extensao |

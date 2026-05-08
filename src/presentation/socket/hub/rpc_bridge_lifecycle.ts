@@ -12,6 +12,7 @@ import {
   resetRelayHubHealthAndMetrics,
   stopRelayHubMetricsLogger,
 } from "./bridge_relay_health_metrics";
+import { resetRelayAgentDispatchQueue } from "./relay_agent_dispatch_queue";
 import { resetRestAgentDispatchQueue } from "./rest_agent_dispatch_queue";
 import { restSqlStreamMaterializeReset } from "./rest_sql_stream_materialize";
 import type { PendingRequest } from "./rest_pending_requests";
@@ -130,8 +131,10 @@ export const cleanupConversationStreamSubscriptions = (conversationId: string): 
  * Call from `rpc_bridge.resetSocketBridgeState` after clearing agent/consumer namespace refs.
  */
 export const resetRpcBridgeMutableStores = (): void => {
+  const resetError = serviceUnavailable("Socket bridge has been reset");
   forEachUniqueRestPendingRequest((pending) => {
     clearTimeout(pending.timeoutHandle);
+    pending.reject(resetError);
   });
   resetRestPendingRequestsStore();
 
@@ -144,6 +147,7 @@ export const resetRpcBridgeMutableStores = (): void => {
   restSqlStreamMaterializeReset();
   resetRelayHubHealthAndMetrics();
   resetRestAgentDispatchQueue(serviceUnavailable("REST agent queue has been reset"));
+  resetRelayAgentDispatchQueue(serviceUnavailable("Relay agent queue has been reset"));
 
   stopRelayHubMetricsLogger();
   stopRelayIdempotencyCleanupTimer();

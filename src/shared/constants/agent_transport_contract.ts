@@ -48,11 +48,11 @@ export const HUB_TRANSPORT_EXTENSIONS = {
   signatureAlgorithms: ["hmac-sha256"] as const,
   streamingResults: true,
   /**
-   * Aligned with plug_agente OpenRPC `info.version` 2.8.0 (introspection of
-   * `client_token.getPolicy`, payload redaction, dedicated rate limit, flag
-   * `enableClientTokenPolicyIntrospection`). Bump in lockstep with agent profile.
+   * Aligned with plug_agente OpenRPC `info.version` 2.9.0 (`agent.getHealth`
+   * plus the 2.8 client-token policy introspection contract). Bump in lockstep
+   * with agent profile.
    */
-  plugProfile: "plug-jsonrpc-profile/2.8",
+  plugProfile: "plug-jsonrpc-profile/2.9",
   orderedBatchResponses: true,
   notificationNullIdCompatibility: true,
   paginationModes: ["page-offset", "cursor-keyset"] as const,

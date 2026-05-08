@@ -4,6 +4,7 @@ import {
   countOpenStreamRoutesForAgent,
   countStreamRoutesForAgent,
   getActiveStreamRouteByRequestId,
+  getActiveStreamRouteByStreamId,
   getActiveStreamRouteCount,
   removeActiveStreamRoute,
   resolveActiveStreamRoute,
@@ -42,6 +43,25 @@ describe("active_stream_registry", () => {
     expect(countOpenStreamRoutesForAgent("a1")).toBe(1);
   });
 
+  it("upsertActiveStreamRoute drops the previous stream id index when stream id changes", () => {
+    upsertActiveStreamRoute({
+      requestId: "r-rekey",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+      streamId: "s-old",
+    });
+
+    upsertActiveStreamRoute({
+      requestId: "r-rekey",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+      streamId: "s-new",
+    });
+
+    expect(getActiveStreamRouteByStreamId("s-old")).toBeUndefined();
+    expect(getActiveStreamRouteByStreamId("s-new")?.requestId).toBe("r-rekey");
+  });
+
   it("rejects upsert collisions for the same request id from another agent socket", () => {
     upsertActiveStreamRoute({
       requestId: "r-collision",
@@ -56,6 +76,26 @@ describe("active_stream_registry", () => {
         streamHandlers: handlers,
       }),
     ).toThrow(/agent socket mismatch/i);
+  });
+
+  it("rejects stream id reuse by a different request id", () => {
+    upsertActiveStreamRoute({
+      requestId: "r-original",
+      agentSocketId: "a1",
+      streamHandlers: handlers,
+      streamId: "stream-shared",
+    });
+
+    expect(() =>
+      upsertActiveStreamRoute({
+        requestId: "r-other",
+        agentSocketId: "a1",
+        streamHandlers: handlers,
+        streamId: "stream-shared",
+      }),
+    ).toThrow(/stream id is already registered/i);
+
+    expect(getActiveStreamRouteByStreamId("stream-shared")?.requestId).toBe("r-original");
   });
 
   it("does not resolve ambiguous stream/request id pairs", () => {

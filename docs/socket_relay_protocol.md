@@ -110,12 +110,12 @@ nao deve ser tratado como contrato publico para SDKs.
 O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 `plug_agente/docs/communication/socket_communication_standard.md`.
 
-**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`, `agent.getProfile`, `client_token.getPolicy`.
+**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`.
 
 **Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
 
-O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
+O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB, `params` nomeado serializado ate 2 MiB, `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
 
 - validacao barata de envelope JSON acontece antes do rate limit fixo
 - validacao profunda do `PayloadFrame` / JSON-RPC pode ocorrer depois do `allowRelayRpcRequest`
@@ -242,6 +242,10 @@ Capacidade operacional:
   devolve erro JSON-RPC no `relay:rpc.response`.
 - Circuit breaker por agente: falhas consecutivas abrem circuito por janela
   curta, bloqueando novas requests temporariamente.
+- Fila por agente no relay: `relay:rpc.request` passa por um gate FIFO por
+  `agentId` antes do dispatch ao socket do agente. Isso evita que muitos
+  consumers sobrecarreguem o mesmo agente. Overload retorna erro
+  `SERVICE_UNAVAILABLE` com `retryAfterMs`.
 - Backpressure reforcado: chunks no relay respeitam creditos de
   `relay:rpc.stream.pull`, e o orçamento de creditos do consumer e validado
   **antes** de o hub conceder novos credits/pulls ao agente. Se o pull for aceite
@@ -290,12 +294,41 @@ Variaveis principais do relay:
 - `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS`
 - `SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS`
 - `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS`
+- `SOCKET_RELAY_AGENT_MAX_INFLIGHT`
+- `SOCKET_RELAY_AGENT_MAX_QUEUE`
+- `SOCKET_RELAY_AGENT_QUEUE_WAIT_MS`
+- `SOCKET_RATE_LIMIT_REDIS_URL`
 
 ### Rate limit por consumer (janela fixa)
 
 Os limites `SOCKET_RELAY_RATE_LIMIT_*` aplicam-se por identidade lógica (`relay:user:<sub>` quando autenticado; `relay:anon:<socketId>` como fallback) e usam **janela fixa**: quando decorre `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS` desde o inicio da janela, os contadores de `relay:conversation.start`, `relay:rpc.request` e do orçamento de créditos de `relay:rpc.stream.pull` **zeram** de uma vez. Nao e _sliding window_; o trafego pode concentrar-se nos limites de cada janela. Estados inativos sao removidos pelo sweep periodico (`SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` x duracao da janela) e ao disconnect apenas para chaves anónimas.
 
 Métricas Prometheus em `GET /metrics`: `plug_socket_relay_rate_limit_conversation_start_allowed_total`, `..._rejected_total`, `plug_socket_relay_rate_limit_request_allowed_total`, `..._rejected_total`, etc.
+
+Quando `SOCKET_RATE_LIMIT_REDIS_URL` esta vazio, os contadores ficam em memoria
+por processo. Quando configurado, os limitadores Socket usam Redis com fallback
+fail-open/circuit breaker: em falha de conexao/comando, o hub registra metricas
+e volta ao limiter local para nao transformar cache indisponivel em queda total
+do Socket. Isso distribui apenas rate limit; registries, conversas, pending
+requests e idempotencia relay continuam por processo, portanto sticky sessions
+seguem obrigatorias em multi-replica.
+
+Metricas adicionais: `plug_socket_rate_limit_redis_*` para Redis/fallback,
+`plug_socket_relay_dispatch_*` para a fila por agente e
+`plug_socket_consumers_retry_after_ms_propagated_total` para propagacao de
+`retryAfterMs`.
+
+### Fila por agente no relay
+
+`SOCKET_RELAY_AGENT_MAX_INFLIGHT` limita requests relay simultaneas por agente.
+Quando o limite e atingido, novas requests entram em fila FIFO ate
+`SOCKET_RELAY_AGENT_MAX_QUEUE`. Se a fila estiver cheia ou o tempo de espera
+passar de `SOCKET_RELAY_AGENT_QUEUE_WAIT_MS`, o hub rejeita com
+`SERVICE_UNAVAILABLE` e `retryAfterMs`.
+
+O slot e liberado no termino real da request: `relay:rpc.response`,
+`relay:rpc.complete`, timeout, abort ou disconnect do consumer/agente. Isso
+preserva backpressure entre varias conversas apontando para o mesmo agente.
 
 `relay:rpc.stream.pull_response` inclui:
 

@@ -30,6 +30,8 @@ const SCHEMA_FILES = [
   "agent.capabilities.schema.json",
   "agent.profile.schema.json",
   "agent.ready.schema.json",
+  "rpc.params.agent-get-health.schema.json",
+  "rpc.result.agent-get-health.schema.json",
   "rpc.params.agent-get-profile.schema.json",
   "rpc.result.agent-get-profile.schema.json",
   "rpc.params.client-token-get-policy.schema.json",
@@ -135,6 +137,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     expect(names.has("sql.cancel")).toBe(true);
     expect(names.has("rpc.discover")).toBe(true);
     expect(names.has("agent.getProfile")).toBe(true);
+    expect(names.has("agent.getHealth")).toBe(true);
     expect(names.has("client_token.getPolicy")).toBe(true);
 
     const version = doc.info?.version;
@@ -183,6 +186,12 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     const validateAgentGetProfileResult = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.result.agent-get-profile.v1.json",
     );
+    const validateAgentGetHealthParams = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.params.agent-get-health.v1.json",
+    );
+    const validateAgentGetHealthResult = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.result.agent-get-health.v1.json",
+    );
     const validateClientTokenGetPolicyParams = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.params.client-token-get-policy.v1.json",
     );
@@ -204,6 +213,8 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     expect(validateSqlResult).toBeDefined();
     expect(validateAgentGetProfileParams).toBeDefined();
     expect(validateAgentGetProfileResult).toBeDefined();
+    expect(validateAgentGetHealthParams).toBeDefined();
+    expect(validateAgentGetHealthResult).toBeDefined();
     expect(validateClientTokenGetPolicyParams).toBeDefined();
     expect(validateClientTokenGetPolicyResult).toBeDefined();
     expect(validateBatchRequest).toBeDefined();
@@ -266,6 +277,33 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       params: getProfileParams,
     });
 
+    const getHealthParams = { client_token: "a1b2c3d4" };
+    expect(validateAgentGetHealthParams!(getHealthParams)).toBe(true);
+    assertZodAcceptsCommand({
+      jsonrpc: "2.0",
+      method: "agent.getHealth",
+      id: "contract-health-1",
+      params: getHealthParams,
+    });
+
+    const getHealthResult = {
+      status: "healthy",
+      timestamp: "2026-05-08T12:00:00.000Z",
+      version: "1.0.0",
+      pool: { size: 4 },
+      sql_queue: { enabled: false },
+      queries: {
+        total: 10,
+        errors: 0,
+        success_rate: 100,
+        avg_latency_ms: 12,
+        p95_latency_ms: 25,
+        p99_latency_ms: 40,
+      },
+      uptime_seconds: 3600,
+    };
+    expect(validateAgentGetHealthResult!(getHealthResult)).toBe(true);
+
     const getPolicyParams = { client_token: "a1b2c3d4" };
     expect(validateClientTokenGetPolicyParams!(getPolicyParams)).toBe(true);
     assertZodAcceptsCommand({
@@ -280,6 +318,12 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       payload: {},
       all_tables: false,
       all_views: false,
+      global_permissions: {
+        read: true,
+        update: false,
+        delete: false,
+        ddl: false,
+      },
       all_permissions: false,
       is_revoked: false,
       rules: [
@@ -290,6 +334,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
           read: true,
           update: false,
           delete: false,
+          ddl: false,
         },
       ],
     };
@@ -299,7 +344,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       jsonrpc: "2.0",
       method: "sql.execute",
       id: "rpc-meta",
-      api_version: "2.8",
+      api_version: "2.9",
       meta: {
         traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
       },

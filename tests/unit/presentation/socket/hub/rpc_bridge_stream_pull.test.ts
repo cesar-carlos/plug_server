@@ -14,6 +14,7 @@ import {
 } from "../../../../../src/presentation/socket/hub/relay_request_registry";
 import { createPrepareAgentStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge_stream_pull";
 import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
+import { addRelayStreamForwardedRows } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { decodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
 
@@ -63,6 +64,7 @@ describe("rpc_bridge_stream_pull", () => {
       },
       streamId: "stream-1",
     });
+    addRelayStreamForwardedRows("req-1", 7);
 
     expect(() =>
       prepare({
@@ -87,11 +89,51 @@ describe("rpc_bridge_stream_pull", () => {
       expect(decoded.value.data).toMatchObject({
         request_id: "req-1",
         stream_id: "stream-1",
+        total_rows: 7,
         terminal_status: "error",
       });
     }
 
     expect(getActiveStreamRouteByRequestId("req-1")).toBeUndefined();
     expect(getRelayRequestRoute("req-1")).toBeUndefined();
+  });
+
+  it("rejects stream pull payloads with mismatched streamId and requestId", () => {
+    const prepare = createPrepareAgentStreamPull({
+      getAgentsNamespace: () =>
+        ({
+          sockets: new Map([["agent-socket-1", { emit: vi.fn() }]]),
+        }) as unknown as Namespace,
+      emitToConsumer: vi.fn(),
+    });
+
+    upsertActiveStreamRoute({
+      requestId: "req-1",
+      agentSocketId: "agent-socket-1",
+      streamHandlers: {
+        consumerSocketId: "consumer-1",
+        onChunk: vi.fn(),
+        onComplete: vi.fn(),
+      },
+      streamId: "stream-1",
+    });
+    upsertActiveStreamRoute({
+      requestId: "req-2",
+      agentSocketId: "agent-socket-1",
+      streamHandlers: {
+        consumerSocketId: "consumer-1",
+        onChunk: vi.fn(),
+        onComplete: vi.fn(),
+      },
+      streamId: "stream-2",
+    });
+
+    expect(() =>
+      prepare({
+        consumerSocketId: "consumer-1",
+        streamId: "stream-1",
+        requestId: "req-2",
+      }),
+    ).toThrow(/different stream routes/i);
   });
 });

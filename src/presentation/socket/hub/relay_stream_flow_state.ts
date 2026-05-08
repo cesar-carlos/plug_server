@@ -102,6 +102,14 @@ export const popRelayStreamBufferedChunk = (
   return chunk;
 };
 
+const peekRelayStreamBufferedChunk = (requestId: string): Record<string, unknown> | undefined => {
+  const entry = entriesByRequestId.get(requestId);
+  if (!entry || entry.bufferedChunkHead >= entry.bufferedChunks.length) {
+    return undefined;
+  }
+  return entry.bufferedChunks[entry.bufferedChunkHead];
+};
+
 export const getRelayStreamPendingComplete = (
   requestId: string,
 ): Record<string, unknown> | undefined => {
@@ -228,15 +236,15 @@ export const drainRelayStreamBuffer = async (
 
     if (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
       while (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
-        const chunk = popRelayStreamBufferedChunk(ctx.requestId);
+        const chunk = peekRelayStreamBufferedChunk(ctx.requestId);
         if (!chunk) {
           break;
         }
 
-        addRelayStreamForwardedRows(ctx.requestId, countChunkRows(chunk));
-
         const frame = await ctx.encodeFrame(chunk);
         ctx.emitChunk(frame);
+        popRelayStreamBufferedChunk(ctx.requestId);
+        addRelayStreamForwardedRows(ctx.requestId, countChunkRows(chunk));
         chunksDrained += 1;
 
         const streamId = typeof chunk.stream_id === "string" ? chunk.stream_id : null;

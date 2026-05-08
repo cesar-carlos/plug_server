@@ -1,10 +1,15 @@
 import { env } from "../../../shared/config/env";
+import {
+  consumeSocketRateLimitRedis,
+  refundSocketRateLimitRedis,
+} from "../../../infrastructure/redis/socket_rate_limit_redis";
 
 interface ConsumerRateLimitWindowState {
   windowStartMs: number;
   conversationStarts: number;
   relayRequests: number;
   streamPullCreditsGranted: number;
+  agentsStreamPullCreditsGranted: number;
   lastSeenAtMs: number;
 }
 
@@ -21,6 +26,10 @@ interface RelayRateLimitMetrics {
   streamPullCreditsRejectedUser: number;
   streamPullCreditsGrantedAnon: number;
   streamPullCreditsRejectedAnon: number;
+  agentsStreamPullCreditsGrantedUser: number;
+  agentsStreamPullCreditsRejectedUser: number;
+  agentsStreamPullCreditsGrantedAnon: number;
+  agentsStreamPullCreditsRejectedAnon: number;
 }
 
 export interface RelayStreamPullAllowance {
@@ -31,6 +40,8 @@ export interface RelayStreamPullAllowance {
   readonly grantedCredits: number;
   readonly remainingCredits: number;
 }
+
+export type AgentsStreamPullAllowance = RelayStreamPullAllowance;
 
 const statesByIdentityKey = new Map<string, ConsumerRateLimitWindowState>();
 const relayRateLimitMetrics: RelayRateLimitMetrics = {
@@ -46,6 +57,10 @@ const relayRateLimitMetrics: RelayRateLimitMetrics = {
   streamPullCreditsRejectedUser: 0,
   streamPullCreditsGrantedAnon: 0,
   streamPullCreditsRejectedAnon: 0,
+  agentsStreamPullCreditsGrantedUser: 0,
+  agentsStreamPullCreditsRejectedUser: 0,
+  agentsStreamPullCreditsGrantedAnon: 0,
+  agentsStreamPullCreditsRejectedAnon: 0,
 };
 
 const buildIdentityKey = (
@@ -68,6 +83,7 @@ const ensureWindowState = (identityKey: string): ConsumerRateLimitWindowState =>
       conversationStarts: 0,
       relayRequests: 0,
       streamPullCreditsGranted: 0,
+      agentsStreamPullCreditsGranted: 0,
       lastSeenAtMs: nowMs,
     };
     statesByIdentityKey.set(identityKey, created);
@@ -79,9 +95,82 @@ const ensureWindowState = (identityKey: string): ConsumerRateLimitWindowState =>
     existing.conversationStarts = 0;
     existing.relayRequests = 0;
     existing.streamPullCreditsGranted = 0;
+    existing.agentsStreamPullCreditsGranted = 0;
   }
   existing.lastSeenAtMs = nowMs;
   return existing;
+};
+
+const noteConversationStartDecision = (scope: "user" | "anon", allowed: boolean): void => {
+  if (scope === "user") {
+    if (allowed) {
+      relayRateLimitMetrics.conversationStartAllowedUser += 1;
+    } else {
+      relayRateLimitMetrics.conversationStartRejectedUser += 1;
+    }
+    return;
+  }
+  if (allowed) {
+    relayRateLimitMetrics.conversationStartAllowedAnon += 1;
+  } else {
+    relayRateLimitMetrics.conversationStartRejectedAnon += 1;
+  }
+};
+
+const noteRelayRequestDecision = (scope: "user" | "anon", allowed: boolean): void => {
+  if (scope === "user") {
+    if (allowed) {
+      relayRateLimitMetrics.relayRequestAllowedUser += 1;
+    } else {
+      relayRateLimitMetrics.relayRequestRejectedUser += 1;
+    }
+    return;
+  }
+  if (allowed) {
+    relayRateLimitMetrics.relayRequestAllowedAnon += 1;
+  } else {
+    relayRateLimitMetrics.relayRequestRejectedAnon += 1;
+  }
+};
+
+const noteRelayStreamPullCredits = (
+  scope: "user" | "anon",
+  allowed: boolean,
+  credits: number,
+): void => {
+  if (scope === "user") {
+    if (allowed) {
+      relayRateLimitMetrics.streamPullCreditsGrantedUser += credits;
+    } else {
+      relayRateLimitMetrics.streamPullCreditsRejectedUser += credits;
+    }
+    return;
+  }
+  if (allowed) {
+    relayRateLimitMetrics.streamPullCreditsGrantedAnon += credits;
+  } else {
+    relayRateLimitMetrics.streamPullCreditsRejectedAnon += credits;
+  }
+};
+
+const noteAgentsStreamPullCredits = (
+  scope: "user" | "anon",
+  allowed: boolean,
+  credits: number,
+): void => {
+  if (scope === "user") {
+    if (allowed) {
+      relayRateLimitMetrics.agentsStreamPullCreditsGrantedUser += credits;
+    } else {
+      relayRateLimitMetrics.agentsStreamPullCreditsRejectedUser += credits;
+    }
+    return;
+  }
+  if (allowed) {
+    relayRateLimitMetrics.agentsStreamPullCreditsGrantedAnon += credits;
+  } else {
+    relayRateLimitMetrics.agentsStreamPullCreditsRejectedAnon += credits;
+  }
 };
 
 export const allowRelayConversationStart = (
@@ -95,21 +184,34 @@ export const allowRelayConversationStart = (
   const { key, scope } = buildIdentityKey(userSub, socketId);
   const state = ensureWindowState(key);
   if (state.conversationStarts >= env.socketRelayRateLimitMaxConversationStarts) {
-    if (scope === "user") {
-      relayRateLimitMetrics.conversationStartRejectedUser += 1;
-    } else {
-      relayRateLimitMetrics.conversationStartRejectedAnon += 1;
-    }
+    noteConversationStartDecision(scope, false);
     return false;
   }
 
   state.conversationStarts += 1;
-  if (scope === "user") {
-    relayRateLimitMetrics.conversationStartAllowedUser += 1;
-  } else {
-    relayRateLimitMetrics.conversationStartAllowedAnon += 1;
-  }
+  noteConversationStartDecision(scope, true);
   return true;
+};
+
+export const allowRelayConversationStartAsync = async (
+  userSub: string | undefined,
+  socketId: string,
+): Promise<boolean> => {
+  if (env.socketRelayRateLimitMaxConversationStarts === 0) {
+    return true;
+  }
+  const { key, scope } = buildIdentityKey(userSub, socketId);
+  const redisDecision = await consumeSocketRateLimitRedis({
+    scope: "relay_conversation_start",
+    key,
+    windowMs: env.socketRelayRateLimitWindowMs,
+    max: env.socketRelayRateLimitMaxConversationStarts,
+  });
+  if (redisDecision) {
+    noteConversationStartDecision(scope, redisDecision.allowed);
+    return redisDecision.allowed;
+  }
+  return allowRelayConversationStart(userSub, socketId);
 };
 
 export const refundRelayConversationStart = (
@@ -124,6 +226,15 @@ export const refundRelayConversationStart = (
   state.conversationStarts -= 1;
 };
 
+export const refundRelayConversationStartAsync = async (
+  userSub: string | undefined,
+  socketId: string,
+): Promise<void> => {
+  const { key } = buildIdentityKey(userSub, socketId);
+  await refundSocketRateLimitRedis({ scope: "relay_conversation_start", key });
+  refundRelayConversationStart(userSub, socketId);
+};
+
 export const allowRelayRpcRequest = (userSub: string | undefined, socketId: string): boolean => {
   if (env.socketRelayRateLimitMaxRequests === 0) {
     return true;
@@ -132,21 +243,34 @@ export const allowRelayRpcRequest = (userSub: string | undefined, socketId: stri
   const { key, scope } = buildIdentityKey(userSub, socketId);
   const state = ensureWindowState(key);
   if (state.relayRequests >= env.socketRelayRateLimitMaxRequests) {
-    if (scope === "user") {
-      relayRateLimitMetrics.relayRequestRejectedUser += 1;
-    } else {
-      relayRateLimitMetrics.relayRequestRejectedAnon += 1;
-    }
+    noteRelayRequestDecision(scope, false);
     return false;
   }
 
   state.relayRequests += 1;
-  if (scope === "user") {
-    relayRateLimitMetrics.relayRequestAllowedUser += 1;
-  } else {
-    relayRateLimitMetrics.relayRequestAllowedAnon += 1;
-  }
+  noteRelayRequestDecision(scope, true);
   return true;
+};
+
+export const allowRelayRpcRequestAsync = async (
+  userSub: string | undefined,
+  socketId: string,
+): Promise<boolean> => {
+  if (env.socketRelayRateLimitMaxRequests === 0) {
+    return true;
+  }
+  const { key, scope } = buildIdentityKey(userSub, socketId);
+  const redisDecision = await consumeSocketRateLimitRedis({
+    scope: "relay_rpc_request",
+    key,
+    windowMs: env.socketRelayRateLimitWindowMs,
+    max: env.socketRelayRateLimitMaxRequests,
+  });
+  if (redisDecision) {
+    noteRelayRequestDecision(scope, redisDecision.allowed);
+    return redisDecision.allowed;
+  }
+  return allowRelayRpcRequest(userSub, socketId);
 };
 
 export const refundRelayRpcRequest = (userSub: string | undefined, socketId: string): void => {
@@ -158,21 +282,34 @@ export const refundRelayRpcRequest = (userSub: string | undefined, socketId: str
   state.relayRequests -= 1;
 };
 
-export const allowRelayStreamPull = (
+export const refundRelayRpcRequestAsync = async (
   userSub: string | undefined,
   socketId: string,
-  creditsRequested: number,
-): RelayStreamPullAllowance => {
-  const { key, scope } = buildIdentityKey(userSub, socketId);
-  const safeCreditsRequested = Math.max(0, Math.floor(creditsRequested));
-  const limit = env.socketRelayRateLimitMaxStreamPullCredits;
+): Promise<void> => {
+  const { key } = buildIdentityKey(userSub, socketId);
+  await refundSocketRateLimitRedis({ scope: "relay_rpc_request", key });
+  refundRelayRpcRequest(userSub, socketId);
+};
 
-  if (limit === 0) {
+const allowCreditWindow = (
+  input: {
+    readonly userSub: string | undefined;
+    readonly socketId: string;
+    readonly creditsRequested: number;
+    readonly limit: number;
+    readonly metricKind: "relay" | "agents";
+    readonly memoryField: "streamPullCreditsGranted" | "agentsStreamPullCreditsGranted";
+  },
+): RelayStreamPullAllowance => {
+  const { key, scope } = buildIdentityKey(input.userSub, input.socketId);
+  const safeCreditsRequested = Math.max(0, Math.floor(input.creditsRequested));
+
+  if (input.limit === 0) {
     if (safeCreditsRequested > 0) {
-      if (scope === "user") {
-        relayRateLimitMetrics.streamPullCreditsGrantedUser += safeCreditsRequested;
+      if (input.metricKind === "relay") {
+        noteRelayStreamPullCredits(scope, true, safeCreditsRequested);
       } else {
-        relayRateLimitMetrics.streamPullCreditsGrantedAnon += safeCreditsRequested;
+        noteAgentsStreamPullCredits(scope, true, safeCreditsRequested);
       }
     }
     return {
@@ -186,38 +323,84 @@ export const allowRelayStreamPull = (
   }
 
   const state = ensureWindowState(key);
-  const remainingBefore = Math.max(0, limit - state.streamPullCreditsGranted);
+  const used = state[input.memoryField];
+  const remainingBefore = Math.max(0, input.limit - used);
 
-  if (state.streamPullCreditsGranted + safeCreditsRequested > limit) {
-    if (scope === "user") {
-      relayRateLimitMetrics.streamPullCreditsRejectedUser += safeCreditsRequested;
+  if (used + safeCreditsRequested > input.limit) {
+    if (input.metricKind === "relay") {
+      noteRelayStreamPullCredits(scope, false, safeCreditsRequested);
     } else {
-      relayRateLimitMetrics.streamPullCreditsRejectedAnon += safeCreditsRequested;
+      noteAgentsStreamPullCredits(scope, false, safeCreditsRequested);
     }
     return {
       allowed: false,
       scope,
-      limit,
+      limit: input.limit,
       requestedCredits: safeCreditsRequested,
       grantedCredits: 0,
       remainingCredits: remainingBefore,
     };
   }
 
-  state.streamPullCreditsGranted += safeCreditsRequested;
-  if (scope === "user") {
-    relayRateLimitMetrics.streamPullCreditsGrantedUser += safeCreditsRequested;
+  state[input.memoryField] += safeCreditsRequested;
+  if (input.metricKind === "relay") {
+    noteRelayStreamPullCredits(scope, true, safeCreditsRequested);
   } else {
-    relayRateLimitMetrics.streamPullCreditsGrantedAnon += safeCreditsRequested;
+    noteAgentsStreamPullCredits(scope, true, safeCreditsRequested);
   }
   return {
     allowed: true,
     scope,
-    limit,
+    limit: input.limit,
     requestedCredits: safeCreditsRequested,
     grantedCredits: safeCreditsRequested,
-    remainingCredits: Math.max(0, limit - state.streamPullCreditsGranted),
+    remainingCredits: Math.max(0, input.limit - state[input.memoryField]),
   };
+};
+
+export const allowRelayStreamPull = (
+  userSub: string | undefined,
+  socketId: string,
+  creditsRequested: number,
+): RelayStreamPullAllowance =>
+  allowCreditWindow({
+    userSub,
+    socketId,
+    creditsRequested,
+    limit: env.socketRelayRateLimitMaxStreamPullCredits,
+    metricKind: "relay",
+    memoryField: "streamPullCreditsGranted",
+  });
+
+export const allowRelayStreamPullAsync = async (
+  userSub: string | undefined,
+  socketId: string,
+  creditsRequested: number,
+): Promise<RelayStreamPullAllowance> => {
+  const limit = env.socketRelayRateLimitMaxStreamPullCredits;
+  const safeCreditsRequested = Math.max(0, Math.floor(creditsRequested));
+  const { key, scope } = buildIdentityKey(userSub, socketId);
+  if (limit > 0) {
+    const redisDecision = await consumeSocketRateLimitRedis({
+      scope: "relay_stream_pull_credits",
+      key,
+      windowMs: env.socketRelayRateLimitWindowMs,
+      max: limit,
+      cost: safeCreditsRequested,
+    });
+    if (redisDecision) {
+      noteRelayStreamPullCredits(scope, redisDecision.allowed, safeCreditsRequested);
+      return {
+        allowed: redisDecision.allowed,
+        scope,
+        limit,
+        requestedCredits: safeCreditsRequested,
+        grantedCredits: redisDecision.allowed ? safeCreditsRequested : 0,
+        remainingCredits: redisDecision.remaining,
+      };
+    }
+  }
+  return allowRelayStreamPull(userSub, socketId, creditsRequested);
 };
 
 export const refundRelayStreamPullCredits = (
@@ -233,6 +416,79 @@ export const refundRelayStreamPullCredits = (
   state.streamPullCreditsGranted = Math.max(
     0,
     state.streamPullCreditsGranted - Math.max(0, Math.floor(creditsToRefund)),
+  );
+};
+
+export const refundRelayStreamPullCreditsAsync = async (
+  userSub: string | undefined,
+  socketId: string,
+  creditsToRefund: number,
+): Promise<void> => {
+  const { key } = buildIdentityKey(userSub, socketId);
+  await refundSocketRateLimitRedis({
+    scope: "relay_stream_pull_credits",
+    key,
+    cost: creditsToRefund,
+  });
+  refundRelayStreamPullCredits(userSub, socketId, creditsToRefund);
+};
+
+export const allowAgentsStreamPullCredits = async (
+  userSub: string | undefined,
+  socketId: string,
+  creditsRequested: number,
+): Promise<AgentsStreamPullAllowance> => {
+  const limit = env.socketAgentsStreamPullRateLimitMaxCredits;
+  const safeCreditsRequested = Math.max(0, Math.floor(creditsRequested));
+  const { key, scope } = buildIdentityKey(userSub, socketId);
+  if (limit > 0) {
+    const redisDecision = await consumeSocketRateLimitRedis({
+      scope: "agents_stream_pull_credits",
+      key,
+      windowMs: env.socketRelayRateLimitWindowMs,
+      max: limit,
+      cost: safeCreditsRequested,
+    });
+    if (redisDecision) {
+      noteAgentsStreamPullCredits(scope, redisDecision.allowed, safeCreditsRequested);
+      return {
+        allowed: redisDecision.allowed,
+        scope,
+        limit,
+        requestedCredits: safeCreditsRequested,
+        grantedCredits: redisDecision.allowed ? safeCreditsRequested : 0,
+        remainingCredits: redisDecision.remaining,
+      };
+    }
+  }
+  return allowCreditWindow({
+    userSub,
+    socketId,
+    creditsRequested,
+    limit,
+    metricKind: "agents",
+    memoryField: "agentsStreamPullCreditsGranted",
+  });
+};
+
+export const refundAgentsStreamPullCredits = async (
+  userSub: string | undefined,
+  socketId: string,
+  creditsToRefund: number,
+): Promise<void> => {
+  const { key } = buildIdentityKey(userSub, socketId);
+  await refundSocketRateLimitRedis({
+    scope: "agents_stream_pull_credits",
+    key,
+    cost: creditsToRefund,
+  });
+  const state = statesByIdentityKey.get(key);
+  if (!state) {
+    return;
+  }
+  state.agentsStreamPullCreditsGranted = Math.max(
+    0,
+    state.agentsStreamPullCreditsGranted - Math.max(0, Math.floor(creditsToRefund)),
   );
 };
 
@@ -256,12 +512,16 @@ export const getRelayRateLimitMetricsSnapshot = (): {
   readonly windowMs: number;
   readonly maxConversationStarts: number;
   readonly maxRequests: number;
+  readonly maxStreamPullCredits: number;
+  readonly maxAgentsStreamPullCredits: number;
   readonly activeIdentitiesTracked: number;
   readonly counters: RelayRateLimitMetrics;
 } => ({
   windowMs: env.socketRelayRateLimitWindowMs,
   maxConversationStarts: env.socketRelayRateLimitMaxConversationStarts,
   maxRequests: env.socketRelayRateLimitMaxRequests,
+  maxStreamPullCredits: env.socketRelayRateLimitMaxStreamPullCredits,
+  maxAgentsStreamPullCredits: env.socketAgentsStreamPullRateLimitMaxCredits,
   activeIdentitiesTracked: statesByIdentityKey.size,
   counters: {
     ...relayRateLimitMetrics,
@@ -282,4 +542,8 @@ export const resetRelayRateLimiterState = (): void => {
   relayRateLimitMetrics.streamPullCreditsRejectedUser = 0;
   relayRateLimitMetrics.streamPullCreditsGrantedAnon = 0;
   relayRateLimitMetrics.streamPullCreditsRejectedAnon = 0;
+  relayRateLimitMetrics.agentsStreamPullCreditsGrantedUser = 0;
+  relayRateLimitMetrics.agentsStreamPullCreditsRejectedUser = 0;
+  relayRateLimitMetrics.agentsStreamPullCreditsGrantedAnon = 0;
+  relayRateLimitMetrics.agentsStreamPullCreditsRejectedAnon = 0;
 };

@@ -17,7 +17,7 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../shared/errors/app_error";
-import { allowAgentsCommandSocket } from "../hub/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync } from "../hub/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
@@ -25,15 +25,26 @@ import {
   tryAcquireSocketInflightSlot,
 } from "./per_socket_inflight_gate";
 import { toCorrelationIds } from "../hub/rpc_bridge_command_helpers";
+import { resolveAppErrorRetryAfterMs, resolveRpcRetryAfterSeconds } from "./socket_retry_after";
+import {
+  noteAgentsCommandRetryAfterSecondsPropagated,
+  noteSocketErrorRetryAfterMsPropagated,
+} from "../../../shared/metrics/socket_consumer.metrics";
 
 const emitCommandResponse = (
   socket: Socket,
   payload:
-    | { success: true; requestId: string; response: unknown; streamId?: string }
+    | {
+        success: true;
+        requestId: string;
+        response: unknown;
+        streamId?: string;
+        retryAfterSeconds?: number;
+      }
     | {
         success: false;
         requestId?: string;
-        error: { code: string; message: string; statusCode?: number };
+        error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
       },
 ): void => {
   socket.emit(socketEvents.agentsCommandResponse, payload);
@@ -76,19 +87,6 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     return;
   }
 
-  if (!allowAgentsCommandSocket(userSub, socket.id)) {
-    releaseSocketInflightSlot(socket);
-    emitCommandResponse(socket, {
-      success: false,
-      error: {
-        code: "TOO_MANY_REQUESTS",
-        message: "Too many agent commands, please try again later.",
-        statusCode: 429,
-      },
-    });
-    return;
-  }
-
   const latencyTrace = createBridgeLatencyTraceIfSampled({
     channel: "consumer_socket",
     userId: userSub,
@@ -110,6 +108,18 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
 
   void (async () => {
     try {
+      if (!(await allowAgentsCommandSocketAsync(userSub, socket.id))) {
+        emitCommandResponse(socket, {
+          success: false,
+          error: {
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many agent commands, please try again later.",
+            statusCode: 429,
+          },
+        });
+        return;
+      }
+
       const principal = await assertConsumerSocketAgentAccess(
         socket.data.user,
         body.agentId,
@@ -167,11 +177,16 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
         : null;
 
       const tWrite = performance.now();
+      const retryAfterSeconds = resolveRpcRetryAfterSeconds(normalizedResponse);
+      if (retryAfterSeconds !== undefined) {
+        noteAgentsCommandRetryAfterSecondsPropagated();
+      }
       emitCommandResponse(socket, {
         success: true,
         requestId: result.requestId,
         response: normalizedResponse,
         ...(streamId ? { streamId } : {}),
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
       });
       latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWrite);
       latencyTrace?.finalizeOnce({ outcome: "success" });
@@ -215,6 +230,10 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       const code = appError?.code ?? "COMMAND_FAILED";
       const message = err instanceof Error ? err.message : "Command execution failed";
       const statusCode = appError?.statusCode;
+      const retryAfterMs = resolveAppErrorRetryAfterMs(err);
+      if (retryAfterMs !== undefined) {
+        noteSocketErrorRetryAfterMsPropagated();
+      }
 
       if (latencyTrace && !latencyTrace.isFinalized()) {
         latencyTrace.finalizeOnce({
@@ -230,6 +249,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
           code,
           message,
           ...(typeof statusCode === "number" ? { statusCode } : {}),
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
         },
       });
     } finally {

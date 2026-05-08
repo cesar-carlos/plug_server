@@ -8,10 +8,12 @@ export interface RelayRequestRoute {
   readonly consumerSocketId: string;
   readonly agentSocketId: string;
   readonly agentId: string;
+  readonly jsonRpcMethod?: string;
   readonly timeoutHandle: NodeJS.Timeout;
   readonly createdAtMs: number;
   readonly clientRequestId?: string;
   readonly latencyTrace?: BridgeLatencyTraceSession;
+  readonly releaseAgentDispatchSlot?: () => void;
   timedOut?: boolean;
 }
 
@@ -94,6 +96,10 @@ export const listRelayRequestIdsForAgent = (agentSocketId: string): string[] =>
   Array.from(relayRequestIdsByAgent.get(agentSocketId) ?? []);
 
 export const registerRelayRequestRoute = (route: RelayRequestRoute): void => {
+  if (relayRequestsByRequestId.has(route.requestId)) {
+    removeRelayRequestRoute(route.requestId);
+  }
+
   relayRequestsByRequestId.set(route.requestId, route);
   incrementCounter(relayPendingCountByConversation, route.conversationId);
   incrementCounter(relayPendingCountByConsumer, route.consumerSocketId);
@@ -110,6 +116,7 @@ export const removeRelayRequestRoute = (requestId: string): RelayRequestRoute | 
   }
 
   clearTimeout(route.timeoutHandle);
+  route.releaseAgentDispatchSlot?.();
   relayRequestsByRequestId.delete(requestId);
   decrementCounter(relayPendingCountByConversation, route.conversationId);
   decrementCounter(relayPendingCountByConsumer, route.consumerSocketId);
@@ -123,6 +130,8 @@ export const removeRelayRequestRoute = (requestId: string): RelayRequestRoute | 
 export const resetRelayRequestRegistry = (): void => {
   for (const route of relayRequestsByRequestId.values()) {
     clearTimeout(route.timeoutHandle);
+    route.releaseAgentDispatchSlot?.();
+    clearRelayStreamFlowState(route.requestId);
   }
   relayRequestsByRequestId.clear();
   relayPendingCountByConversation.clear();
