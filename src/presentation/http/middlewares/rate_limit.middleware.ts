@@ -334,6 +334,13 @@ export function registerHttpRateLimits(): void {
           ...(optionalRedisStore("client_socket_event_publish") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,
+          /**
+           * Align with `socket:event.publish`: after the limiter increments, responses with status
+           * `>= 500` decrement the hit on `finish` (transient / hub failure). `4xx` keep the hit
+           * (client fault, including validation and `409` idempotency conflict).
+           */
+          skipFailedRequests: true,
+          requestWasSuccessful: (_request, response) => response.statusCode < 500,
           message: {
             message: "Too many socket event publish requests, please try again later.",
             code: "TOO_MANY_REQUESTS",

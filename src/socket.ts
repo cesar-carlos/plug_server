@@ -1524,24 +1524,33 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
         });
       }
-      const frame = await encodePayloadFrameBridge(
-        {
-          eventId: event.eventId,
-          eventName: event.eventName,
-          emittedAt: event.emittedAt,
-          publisher: event.publisher,
-          payload: event.payload,
-          attachments: event.attachments,
-        },
-        {
-          ...payloadFrameEncodeOptionsFromPreference(event.payloadFrameCompression),
-          requestId:
-            typeof event.publishRequestId === "string" && event.publishRequestId.trim() !== ""
-              ? event.publishRequestId.trim()
-              : event.eventId,
-          omitTraceId: true,
-        },
-      );
+      let frame;
+      try {
+        frame = await encodePayloadFrameBridge(
+          {
+            eventId: event.eventId,
+            eventName: event.eventName,
+            emittedAt: event.emittedAt,
+            publisher: event.publisher,
+            payload: event.payload,
+            attachments: event.attachments,
+          },
+          {
+            ...payloadFrameEncodeOptionsFromPreference(event.payloadFrameCompression),
+            requestId:
+              typeof event.publishRequestId === "string" && event.publishRequestId.trim() !== ""
+                ? event.publishRequestId.trim()
+                : event.eventId,
+            omitTraceId: true,
+          },
+        );
+      } catch {
+        throw new AppError("Failed to encode custom socket event PayloadFrame", {
+          statusCode: 503,
+          code: "SERVICE_UNAVAILABLE",
+          details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
+        });
+      }
       consumersNsp.to(room).emit(event.eventName, frame);
       return { recipients };
     },

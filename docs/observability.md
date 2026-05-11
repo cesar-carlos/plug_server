@@ -52,7 +52,7 @@ rate(plug_socket_custom_event_publish_via_socket_total[5m])
 rate(plug_socket_custom_event_publish_idempotent_replay_total[5m])
   / clamp_min(rate(plug_socket_custom_event_publish_accepted_total[5m]), 0.001)
 
-# Nota: `plug_socket_custom_event_publish_via_socket_total` sobe apenas em publicacoes Socket que levam a uma **nova** emissao ao sink (nao conta `idempotentReplay: true`). `plug_socket_custom_event_publish_accepted_total` inclui REST e Socket apos emissao bem-sucedida.
+# Nota: `plug_socket_custom_event_publish_via_socket_total` sobe apenas em publicacoes Socket que levam a uma **nova** emissao ao sink (nao conta `idempotentReplay: true`). `plug_socket_custom_event_publish_accepted_total` inclui REST e Socket apos emissao bem-sucedida. `plug_socket_custom_event_publish_rejected_total` incrementa **uma vez** por falha de `executeClientSocketEventPublish` (REST ou Socket) e tambem em falhas pre-`execute` no Socket (validacao, `403`, etc.); o teto de serializacao de idempotencia incrementa `plug_socket_custom_event_publish_idempotency_serialization_cap_rejected_total` **e** `publish_rejected_total`.
 
 # Gauge: chaves distintas com cadeia de serializacao de idempotencia ainda activa neste processo (ver `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS`)
 plug_socket_custom_event_publish_idempotency_serialization_tracked_keys

@@ -126,7 +126,7 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | Variavel                                   | Defeito   | Notas                                                                                     |
 | ------------------------------------------ | --------- | ----------------------------------------------------------------------------------------- |
 | `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS`   | `60000`   | Janela do rate limit de `POST /api/v1/client/me/socket-events` (por IP/JWT conforme middleware). |
-| `REST_SOCKET_EVENT_RATE_LIMIT_MAX`         | `120`     | Publicacoes REST permitidas por janela. `0` desativa o limitador HTTP desta rota. |
+| `REST_SOCKET_EVENT_RATE_LIMIT_MAX`         | `120`     | Publicacoes REST permitidas por janela. `0` desativa o limitador HTTP desta rota. Com `skipFailedRequests` + `requestWasSuccessful` (`statusCode < 500`), respostas **5xx** ao fim do pedido **decrementam** o hit (alinhado ao refund do rate limit de `socket:event.publish` em falhas transitorias); **4xx** (validacao, `409`, `413`, etc.) **mantem** o hit. |
 | `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_WINDOW_MS` | _(espelha `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS`)_ | Quando definida, janela (ms) **apenas** para `socket:event.publish` (balde independente do Express e do contador REST). |
 | `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_MAX` | _(espelha `REST_SOCKET_EVENT_RATE_LIMIT_MAX`)_ | Quando definida, maximo de `socket:event.publish` por janela por JWT `sub` de `Client`. `0` desativa o limitador Socket deste evento. |
 | `REST_SOCKET_EVENT_MAX_FILES`              | `5`       | Numero maximo de anexos multipart inline (`files`).                                       |

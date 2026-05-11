@@ -11,6 +11,7 @@ import {
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { AppError } from "../../../shared/errors/app_error";
+import { logger } from "../../../shared/utils/logger";
 import {
   noteCustomSocketEventPublishRejected,
   noteCustomSocketEventPublishViaSocket,
@@ -75,9 +76,18 @@ const extractRequestId = (raw: unknown): string | undefined => {
 };
 
 /**
- * After `allowClientSocketEventPublishSocketAsync` consumes a slot, refund on execute failure
- * except for client idempotency conflicts (quota should not be refunded for abusive mismatched retries).
- * Exported for unit tests.
+ * After {@link allowClientSocketEventPublishSocketAsync} consumes a slot, decides whether to
+ * {@link refundClientSocketEventPublishSocketAsync} when {@link executeClientSocketEventPublish} fails.
+ *
+ * Policy (aligned with “no refund on client fault”):
+ * - **Refund**: non-`AppError` (unexpected / transient), and `AppError` outside the 4xx range (e.g. 503
+ *   fan-out cap, idempotency serialization cap).
+ * - **No refund**: `IDEMPOTENCY_KEY_CONFLICT` / 409 (same key, different body), and any other **4xx**
+ *   (validation, payload limits, etc.).
+ *
+ * Not covered here (by design): **429 `RATE_LIMITED`** from the per-socket inflight gate or from
+ * `allow === false` — those paths never consume the publish rate-limit budget. **429** from
+ * `socket:event.subscribe` (`SUBSCRIPTION_LIMIT_EXCEEDED`, etc.) is unrelated to publish quota.
  */
 export const shouldRefundSocketCustomEventPublishRateLimit = (error: unknown): boolean => {
   if (!(error instanceof AppError)) {
@@ -238,9 +248,15 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
           },
         });
       } catch (error: unknown) {
-        noteCustomSocketEventPublishRejected();
         if (shouldRefundSocketCustomEventPublishRateLimit(error)) {
-          await refundClientSocketEventPublishSocketAsync(clientSub, 1);
+          try {
+            await refundClientSocketEventPublishSocketAsync(clientSub, 1);
+          } catch (refundError: unknown) {
+            logger.warn("client_socket_event_publish_rate_limit_refund_failed", {
+              clientSub,
+              message: refundError instanceof Error ? refundError.message : String(refundError),
+            });
+          }
         }
         if (error instanceof AppError) {
           const retryAfterMs = resolveAppErrorRetryAfterMs(error);

@@ -19,6 +19,15 @@ vi.mock("../../../../../src/shared/metrics/socket_consumer.metrics", () => ({
   noteCustomSocketEventPublishViaSocket: vi.fn(),
 }));
 
+vi.mock("../../../../../src/shared/utils/logger", () => ({
+  logger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
 import { executeClientSocketEventPublish } from "../../../../../src/application/services/client_socket_event_publish.service";
 import {
   allowClientSocketEventPublishSocketAsync,
@@ -32,6 +41,7 @@ import {
   noteCustomSocketEventPublishRejected,
   noteCustomSocketEventPublishViaSocket,
 } from "../../../../../src/shared/metrics/socket_consumer.metrics";
+import { logger } from "../../../../../src/shared/utils/logger";
 import { assertClientSocketEventPublishInputWithinLimits } from "../../../../../src/application/services/client_socket_event_publish.service";
 import { env } from "../../../../../src/shared/config/env";
 
@@ -41,6 +51,7 @@ const mockedAllow = vi.mocked(allowClientSocketEventPublishSocketAsync);
 const mockedRefund = vi.mocked(refundClientSocketEventPublishSocketAsync);
 const mockedNoteViaSocket = vi.mocked(noteCustomSocketEventPublishViaSocket);
 const mockedNoteRejected = vi.mocked(noteCustomSocketEventPublishRejected);
+const mockedLoggerWarn = vi.mocked(logger.warn);
 
 const flushMicrotasks = async (): Promise<void> => {
   await new Promise<void>((resolve) => {
@@ -95,6 +106,14 @@ describe("shouldRefundSocketCustomEventPublishRateLimit", () => {
 
   it("returns true for non-AppError", () => {
     expect(shouldRefundSocketCustomEventPublishRateLimit(new Error("boom"))).toBe(true);
+  });
+
+  it("returns false for 429 AppError (execute path does not use this today; policy is no refund on 4xx)", () => {
+    expect(
+      shouldRefundSocketCustomEventPublishRateLimit(
+        new AppError("busy", { statusCode: 429, code: "RATE_LIMITED" }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -158,7 +177,7 @@ describe("handleCustomSocketEventPublish", () => {
     await flushMicrotasks();
 
     expect(mockedRefund).toHaveBeenCalledWith("client-sub-xyz", 1);
-    expect(mockedNoteRejected).toHaveBeenCalled();
+    expect(mockedNoteRejected).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.socketEventPublished,
       expect.objectContaining({ success: false }),
@@ -176,6 +195,51 @@ describe("handleCustomSocketEventPublish", () => {
     await flushMicrotasks();
 
     expect(mockedRefund).not.toHaveBeenCalled();
+  });
+
+  it("should not refund when execute fails with 413", async () => {
+    mockedExecute.mockRejectedValue(
+      new AppError("too big", { statusCode: 413, code: "PAYLOAD_TOO_LARGE" }),
+    );
+
+    const socket = buildClientSocket();
+    handleCustomSocketEventPublish(socket, validPublishPayload);
+
+    await flushMicrotasks();
+
+    expect(mockedRefund).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventPublished,
+      expect.objectContaining({
+        success: false,
+        error: expect.objectContaining({ code: "PAYLOAD_TOO_LARGE", statusCode: 413 }),
+      }),
+    );
+  });
+
+  it("should emit original execute error when refund throws", async () => {
+    mockedExecute.mockRejectedValue(
+      new AppError("fan-out", { statusCode: 503, code: "SERVICE_UNAVAILABLE" }),
+    );
+    mockedRefund.mockRejectedValueOnce(new Error("refund failed"));
+
+    const socket = buildClientSocket();
+    handleCustomSocketEventPublish(socket, validPublishPayload);
+
+    await flushMicrotasks();
+
+    expect(mockedRefund).toHaveBeenCalledWith("client-sub-xyz", 1);
+    expect(mockedLoggerWarn).toHaveBeenCalledWith(
+      "client_socket_event_publish_rate_limit_refund_failed",
+      expect.objectContaining({ clientSub: "client-sub-xyz", message: "refund failed" }),
+    );
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventPublished,
+      expect.objectContaining({
+        success: false,
+        error: expect.objectContaining({ code: "SERVICE_UNAVAILABLE", statusCode: 503 }),
+      }),
+    );
   });
 });
 

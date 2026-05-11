@@ -38,10 +38,11 @@ describe("runWithClientSocketEventPublishIdempotencySerialization", () => {
 
   it("rejects with 503 when distinct keys exceed maxTrackedKeys (and records metric)", async () => {
     resetClientSocketEventPublishIdempotencySerializationQueues();
-    const spy = vi.spyOn(
+    const spyCap = vi.spyOn(
       socketConsumerMetrics,
       "noteClientSocketEventPublishIdempotencySerializationCapRejected",
     );
+    const spyRejected = vi.spyOn(socketConsumerMetrics, "noteCustomSocketEventPublishRejected");
 
     let release!: () => void;
     const wall = new Promise<void>((resolve) => {
@@ -80,7 +81,8 @@ describe("runWithClientSocketEventPublishIdempotencySerialization", () => {
       code: "SERVICE_UNAVAILABLE",
       details: { retry_after_ms: expect.any(Number) },
     });
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spyCap).toHaveBeenCalledTimes(1);
+    expect(spyRejected).toHaveBeenCalledTimes(1);
 
     expect(first).toBeInstanceOf(Promise);
     expect(second).toBeInstanceOf(Promise);
@@ -88,6 +90,7 @@ describe("runWithClientSocketEventPublishIdempotencySerialization", () => {
     await Promise.all([first, second]);
     expect(getClientSocketEventPublishIdempotencySerializationTrackedKeyCount()).toBe(0);
 
-    spy.mockRestore();
+    spyCap.mockRestore();
+    spyRejected.mockRestore();
   });
 });

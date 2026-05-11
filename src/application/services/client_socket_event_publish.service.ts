@@ -105,8 +105,15 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
   readonly publishRequestId?: string;
 }): Promise<ClientSocketEventPublishOutcome> => {
   const { clientId, body, idempotencyKey, publishRequestId } = params;
-  const fingerprint =
-    idempotencyKey !== undefined ? buildClientSocketEventPublishFingerprint(body) : undefined;
+  let fingerprint: string | undefined;
+  if (idempotencyKey !== undefined) {
+    try {
+      fingerprint = buildClientSocketEventPublishFingerprint(body);
+    } catch (error: unknown) {
+      noteCustomSocketEventPublishRejected();
+      throw error;
+    }
+  }
 
   if (idempotencyKey !== undefined && fingerprint !== undefined) {
     const existing = getClientSocketEventPublishIdempotencyEntry(clientId, idempotencyKey);

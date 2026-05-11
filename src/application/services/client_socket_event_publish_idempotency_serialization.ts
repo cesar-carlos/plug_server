@@ -1,6 +1,9 @@
 import { env } from "../../shared/config/env";
 import { AppError } from "../../shared/errors/app_error";
-import { noteClientSocketEventPublishIdempotencySerializationCapRejected } from "../../shared/metrics/socket_consumer.metrics";
+import {
+  noteClientSocketEventPublishIdempotencySerializationCapRejected,
+  noteCustomSocketEventPublishRejected,
+} from "../../shared/metrics/socket_consumer.metrics";
 
 /**
  * Serializes {@link executeClientSocketEventPublish} per `(clientId, idempotencyKey)` so concurrent
@@ -40,6 +43,7 @@ export const runWithClientSocketEventPublishIdempotencySerialization = async <T>
     serializationTails.size >= maxTracked
   ) {
     noteClientSocketEventPublishIdempotencySerializationCapRejected();
+    noteCustomSocketEventPublishRejected();
     throw new AppError(
       "Too many concurrent distinct client socket event idempotency keys on this process; retry later or raise REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS",
       {

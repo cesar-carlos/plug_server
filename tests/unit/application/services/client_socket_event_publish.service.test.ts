@@ -8,6 +8,7 @@ import { env } from "../../../../src/shared/config/env";
 import { resetClientSocketEventPublishIdempotencyStore } from "../../../../src/application/services/client_socket_event_idempotency_store";
 import { resetClientSocketEventPublishIdempotencySerializationQueues } from "../../../../src/application/services/client_socket_event_publish_idempotency_serialization";
 import * as consumerSocketEventSink from "../../../../src/application/services/consumer_socket_event_sink";
+import * as socketConsumerMetrics from "../../../../src/shared/metrics/socket_consumer.metrics";
 
 vi.spyOn(consumerSocketEventSink, "publishConsumerSocketEvent").mockResolvedValue({ recipients: 2 });
 
@@ -99,6 +100,7 @@ describe("executeClientSocketEventPublish", () => {
   });
 
   it("rejects non-fingerprintable body when idempotency key is set", async () => {
+    const spyRejected = vi.spyOn(socketConsumerMetrics, "noteCustomSocketEventPublishRejected");
     const body = {
       eventName: "client:custom.fp.bigint",
       payload: { x: BigInt(1) } as unknown,
@@ -112,6 +114,26 @@ describe("executeClientSocketEventPublish", () => {
       }),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(consumerSocketEventSink.publishConsumerSocketEvent).not.toHaveBeenCalled();
+    expect(spyRejected).toHaveBeenCalledTimes(1);
+    spyRejected.mockRestore();
+  });
+
+  it("records publish rejected once when sink rejects", async () => {
+    const spyRejected = vi.spyOn(socketConsumerMetrics, "noteCustomSocketEventPublishRejected");
+    vi.mocked(consumerSocketEventSink.publishConsumerSocketEvent).mockRejectedValueOnce(new Error("sink down"));
+    const body = {
+      eventName: "client:custom.unit.sink.fail",
+      payload: { n: 1 },
+      attachments: [] as const,
+    };
+    await expect(
+      executeClientSocketEventPublish({
+        clientId: "client-sink-fail",
+        body,
+      }),
+    ).rejects.toThrow("sink down");
+    expect(spyRejected).toHaveBeenCalledTimes(1);
+    spyRejected.mockRestore();
   });
 });
 
