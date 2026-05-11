@@ -7,7 +7,8 @@ import { registerOwnerAndClientSession } from "./helpers/client_sessions";
 import { decodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { isRecord } from "../../src/shared/utils/rpc_types";
-import { resetClientSocketEventPublishIdempotencyStore } from "../../src/presentation/http/services/client_socket_event_idempotency_store";
+import { resetClientSocketEventPublishIdempotencyStore } from "../../src/application/services/client_socket_event_idempotency_store";
+import { resetClientSocketEventPublishSocketRateLimitState } from "../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter";
 
 const connectConsumer = (baseUrl: string, token: string): Promise<ReturnType<typeof ioClient>> =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
@@ -114,6 +115,7 @@ describe("Client REST socket event pub/sub", () => {
       socket.disconnect();
     }
     resetClientSocketEventPublishIdempotencyStore();
+    resetClientSocketEventPublishSocketRateLimitState();
     await server.close();
   });
 
@@ -304,5 +306,159 @@ describe("Client REST socket event pub/sub", () => {
         contentType: "text/plain",
       });
     expect(unexpectedFileField.status).toBe(400);
+  });
+});
+
+describe("Client Socket socket:event.publish pub/sub", () => {
+  let server: TestServerResult;
+  const sockets: ReturnType<typeof ioClient>[] = [];
+
+  beforeAll(async () => {
+    server = await createTestServer();
+  });
+
+  afterAll(async () => {
+    for (const socket of sockets) {
+      socket.disconnect();
+    }
+    resetClientSocketEventPublishIdempotencyStore();
+    resetClientSocketEventPublishSocketRateLimitState();
+    await server.close();
+  });
+
+  const waitForPublishedAck = (
+    socket: ReturnType<typeof ioClient>,
+    requestId: string,
+    timeoutMs = 4_000,
+  ): Promise<{
+    success: boolean;
+    requestId: string;
+    data?: Record<string, unknown>;
+    error?: { code: string; message: string };
+  }> =>
+    new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        socket.off(socketEvents.socketEventPublished, onPublished);
+        reject(new Error(`Timed out waiting for socket:event.published (${requestId})`));
+      }, timeoutMs);
+
+      const onPublished = (ack: {
+        success: boolean;
+        requestId: string;
+        data?: Record<string, unknown>;
+        error?: { code: string; message: string };
+      }): void => {
+        if (ack.requestId !== requestId) {
+          return;
+        }
+        clearTimeout(timeout);
+        socket.off(socketEvents.socketEventPublished, onPublished);
+        resolve(ack);
+      };
+
+      socket.on(socketEvents.socketEventPublished, onPublished);
+    });
+
+  it("should publish via socket to subscribed consumers", async () => {
+    const session = await registerOwnerAndClientSession(server.httpServer, {
+      suffix: "socket-publish-via-socket",
+    });
+    const eventName = "client:custom.socket.fanout";
+    const subscriberA = await connectConsumer(server.getUrl(), session.client.accessToken);
+    const subscriberB = await connectConsumer(server.getUrl(), session.client.accessToken);
+    sockets.push(subscriberA, subscriberB);
+
+    await subscribe(subscriberA, eventName, "sock-sub-a");
+    await subscribe(subscriberB, eventName, "sock-sub-b");
+
+    const eventA = waitForEvent<unknown>(subscriberA, eventName);
+    const eventB = waitForEvent<unknown>(subscriberB, eventName);
+
+    const requestId = "pub-req-1";
+    const ackPromise = waitForPublishedAck(subscriberA, requestId);
+    subscriberA.emit(socketEvents.socketEventPublish, {
+      requestId,
+      eventName,
+      payloadFrameCompression: "default",
+      payload: { via: "socket", count: 2 },
+    });
+
+    const ack = await ackPromise;
+    expect(ack.success).toBe(true);
+    expect(ack.data).toMatchObject({
+      eventName,
+      recipients: 2,
+      idempotentReplay: false,
+    });
+
+    const payloadA = decodeCustomEventFrame(await eventA);
+    const payloadB = decodeCustomEventFrame(await eventB);
+    expect(payloadA.payload).toEqual({ via: "socket", count: 2 });
+    expect(payloadB.payload).toEqual({ via: "socket", count: 2 });
+    expect(payloadA.publisher).toEqual({
+      principalType: "client",
+      clientId: session.client.clientId,
+    });
+  });
+
+  it("should replay idempotent socket publish without duplicate dynamic events", async () => {
+    const session = await registerOwnerAndClientSession(server.httpServer, {
+      suffix: "socket-publish-idem",
+    });
+    const eventName = "client:custom.socket.idempotent";
+    const socket = await connectConsumer(server.getUrl(), session.client.accessToken);
+    sockets.push(socket);
+    await subscribe(socket, eventName, "sock-idem-sub");
+
+    const eventPromise = waitForEvent<unknown>(socket, eventName);
+    const rid1 = "idem-pub-1";
+    const ack1Promise = waitForPublishedAck(socket, rid1);
+    socket.emit(socketEvents.socketEventPublish, {
+      requestId: rid1,
+      idempotencyKey: "socket-idem-key-1",
+      eventName,
+      payload: { n: 1 },
+    });
+    const firstAck = await ack1Promise;
+    expect(firstAck.success).toBe(true);
+    expect(firstAck.data?.idempotentReplay).toBe(false);
+    expect(decodeCustomEventFrame(await eventPromise).payload).toEqual({ n: 1 });
+
+    const noDup = waitForNoEvent(socket, eventName);
+    const rid2 = "idem-pub-2";
+    const ack2Promise = waitForPublishedAck(socket, rid2);
+    socket.emit(socketEvents.socketEventPublish, {
+      requestId: rid2,
+      idempotencyKey: "socket-idem-key-1",
+      eventName,
+      payload: { n: 1 },
+    });
+    const replayAck = await ack2Promise;
+    expect(replayAck.success).toBe(true);
+    expect(replayAck.data).toMatchObject({
+      idempotencyKey: "socket-idem-key-1",
+      idempotentReplay: true,
+      eventName,
+    });
+    await noDup;
+  });
+
+  it("should reject publish from non-client consumer with FORBIDDEN ack", async () => {
+    const session = await registerOwnerAndClientSession(server.httpServer, {
+      suffix: "socket-publish-forbidden",
+    });
+    const userSocket = await connectConsumer(server.getUrl(), session.owner.accessToken);
+    sockets.push(userSocket);
+
+    const requestId = "forbidden-pub-1";
+    const ackPromise = waitForPublishedAck(userSocket, requestId);
+    userSocket.emit(socketEvents.socketEventPublish, {
+      requestId,
+      eventName: "client:custom.user.try",
+      payload: {},
+    });
+    const ack = await ackPromise;
+    expect(ack.success).toBe(false);
+    expect(ack.error?.code).toBe("FORBIDDEN");
   });
 });

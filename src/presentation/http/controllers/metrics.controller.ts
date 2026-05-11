@@ -51,6 +51,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const rateLimit = socket.relayRateLimit;
   const socketRateLimitRedis = socket.socketRateLimitRedis;
   const agentsCommandRl = socket.agentsCommandSocketRateLimit;
+  const clientSocketEventPublishRl = socket.clientSocketEventPublishSocketRateLimit;
   const consumerRuntime = socket.consumerRuntime;
   const agentRuntime = socket.agentRuntime;
   const audit = getSocketAuditMetricsSnapshot();
@@ -792,6 +793,28 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_socket_custom_event_publish_via_socket_total",
+      consumerRuntime.customEvents.publishViaSocketTotal,
+    ),
+  );
+  const recipientHist = consumerRuntime.publishRecipientsHistogram;
+  for (const bucket of recipientHist.cumulativeBuckets) {
+    lines.push(
+      metricLine(
+        "plug_socket_custom_event_publish_recipients_hist_bucket",
+        bucket.count,
+        { le: bucket.le },
+      ),
+    );
+  }
+  lines.push(
+    metricLine("plug_socket_custom_event_publish_recipients_hist_sum", recipientHist.sum),
+  );
+  lines.push(
+    metricLine("plug_socket_custom_event_publish_recipients_hist_count", recipientHist.count),
+  );
+  lines.push(
+    metricLine(
       "plug_socket_consumers_profile_push_batches_total",
       consumerRuntime.profilePush.batchesTotal,
     ),
@@ -1361,6 +1384,37 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_agents_command_rate_limit_rejected_total",
       agentsCommandRl.rejectedTotal,
+    ),
+  );
+
+  lines.push(
+    metricLine(
+      "plug_socket_client_event_publish_rate_limit_window_ms",
+      clientSocketEventPublishRl.windowMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_client_event_publish_rate_limit_max_per_window",
+      clientSocketEventPublishRl.maxPerWindow,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_client_event_publish_rate_limit_tracked_keys",
+      clientSocketEventPublishRl.trackedKeys,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_client_event_publish_rate_limit_allowed_total",
+      clientSocketEventPublishRl.allowedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_client_event_publish_rate_limit_rejected_total",
+      clientSocketEventPublishRl.rejectedTotal,
     ),
   );
 

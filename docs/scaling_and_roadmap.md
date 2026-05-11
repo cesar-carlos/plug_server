@@ -14,6 +14,7 @@ Estado explicitamente **por processo** hoje:
 - pending requests REST/legacy socket
 - rooms Socket.IO (`client:<id>`, `consumer:principal:*`)
 - rooms de pub/sub customizado (`client:custom.*` assinado via `socket:event.subscribe`)
+- estado em memoria do limitador `socket:event.publish` (`client_socket_event_publish_socket_rate_limiter`; Redis opcional com scope `client_socket_event_publish`, chave de identidade `client:<JWT sub do Client>`)
 - `agentRegistry` e readiness/circuit local
 - mapa de idempotencia relay
 - filas outbound hub -> consumer e buffers de stream
@@ -34,6 +35,7 @@ Todos os limitadores HTTP (`globalRateLimit`, `credentialAuthRateLimit`, `agents
 **Mitigacoes ja em produção:**
 - `HTTP_TRUST_PROXY=true` faz `req.ip` refletir o cliente real atras de Nginx;
 - `REST_RATE_LIMIT_REDIS_URL` opcional: quando definido, os limitadores HTTP `express-rate-limit` usam Redis (`rate-limit-redis`) para estado partilhado entre replicas, com prefixo isolado por limitador; vazio mantem store em memoria por processo (comportamento anterior). Falha na ligacao: log `rest_rate_limit_redis_fallback_memory`, metrica Prometheus `plug_rest_http_rate_limit_redis_fallback_events_total`, store em memoria. Falha runtime do store Redis: `passOnStoreError=true`, log `rest_rate_limit_redis_command_error`, request permitido sem rate-limit distribuido, metricas `plug_rest_http_rate_limit_redis_runtime_command_errors_total` / `plug_rest_http_rate_limit_redis_fallback_events_total` incrementadas. Apos erros consecutivos, o circuito Redis abre temporariamente (`plug_rest_http_rate_limit_redis_circuit_open=1`) para reduzir latencia em cascata;
+- exemplo de chave Redis para `clientSocketEventPublishRateLimit`: `plug_rl:client_socket_event_publish:client:<JWT sub>` (o sufixo e o valor devolvido por `clientSocketEventPublishRateLimitKey` em `rate_limit.middleware.ts`);
 - chaves dos limitadores autenticados usam `JWT sub`, nao IP, o que continua funcional para o **mesmo usuario**; com Redis, o teto e partilhado entre replicas, e sem Redis o teto se multiplica pelo numero de pods que o usuario alcanca;
 - `Retry-After` e `RateLimit-*` headers continuam corretos para o store efetivamente usado.
 
@@ -41,7 +43,7 @@ Todos os limitadores HTTP (`globalRateLimit`, `credentialAuthRateLimit`, `agents
 
 `SOCKET_RATE_LIMIT_REDIS_URL` distribui os limitadores de `agents:command`,
 `agents:stream_pull`, `relay:conversation.start`, `relay:rpc.request`, creditos
-de `relay:rpc.stream.pull` e `agent:register`. O comportamento e fail-open:
+de `relay:rpc.stream.pull`, `agent:register` e `socket:event.publish` (`client_socket_event_publish`; chave Redis por cliente `client:<JWT sub>` dentro desse scope). O comportamento e fail-open:
 queda/conexao instavel no Redis registra `plug_socket_rate_limit_redis_*` e o
 hub volta ao limiter local em memoria.
 
@@ -49,10 +51,10 @@ Isso **nao** torna o Socket stateless. Conversas, pending requests, streams,
 idempotencia relay, registry do agente e filas por agente continuam por processo.
 Portanto sticky sessions seguem obrigatorias para `/consumers` e `/agents`.
 
-O pub/sub customizado REST -> Socket (`POST /api/v1/client/me/socket-events`
+O pub/sub customizado (`POST /api/v1/client/me/socket-events` ou `socket:event.publish`
 para `client:custom.*`) tambem e local ao processo quando nao ha adapter
 distribuido do Socket.IO. `recipients` conta somente sockets inscritos na mesma
-replica que recebeu o REST. A idempotencia via `Idempotency-Key` tambem e cache
+replica que recebeu o pedido. A idempotencia via `Idempotency-Key` (REST) ou `idempotencyKey` (Socket) tambem e cache
 em memoria por processo; em multi-replica, retries precisam cair na mesma
 replica para reaproveitar a resposta sem nova emissao. Use
 `REST_SOCKET_EVENT_MAX_RECIPIENTS` para proteger fan-out local em picos.

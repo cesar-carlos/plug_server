@@ -124,20 +124,31 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 
 | Variavel                                   | Defeito   | Notas                                                                                     |
 | ------------------------------------------ | --------- | ----------------------------------------------------------------------------------------- |
-| `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS`   | `60000`   | Janela do rate limit de `POST /api/v1/client/me/socket-events` por JWT `sub` de `Client`. |
-| `REST_SOCKET_EVENT_RATE_LIMIT_MAX`         | `120`     | Publicacoes por janela. `0` desativa o limitador especifico.                              |
+| `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS`   | `60000`   | Janela do rate limit de `POST /api/v1/client/me/socket-events` (por IP/JWT conforme middleware). |
+| `REST_SOCKET_EVENT_RATE_LIMIT_MAX`         | `120`     | Publicacoes REST permitidas por janela. `0` desativa o limitador HTTP desta rota. |
+| `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_WINDOW_MS` | _(espelha `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS`)_ | Quando definida, janela (ms) **apenas** para `socket:event.publish` (balde independente do Express e do contador REST). |
+| `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_MAX` | _(espelha `REST_SOCKET_EVENT_RATE_LIMIT_MAX`)_ | Quando definida, maximo de `socket:event.publish` por janela por JWT `sub` de `Client`. `0` desativa o limitador Socket deste evento. |
 | `REST_SOCKET_EVENT_MAX_FILES`              | `5`       | Numero maximo de anexos multipart inline (`files`).                                       |
 | `REST_SOCKET_EVENT_FILE_MAX_BYTES`         | `524288`  | Tamanho maximo por arquivo inline.                                                        |
 | `REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES`  | `2097152` | Soma maxima dos anexos inline por publicacao.                                             |
 | `REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES` | `524288`  | Teto UTF-8 do `payload` JSON antes de empacotar em `PayloadFrame`.                        |
 | `REST_SOCKET_EVENT_MAX_RECIPIENTS`         | `0`       | Teto opcional de fan-out local por publicacao. `0` = ilimitado; quando estoura, retorna `503`. |
-| `REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS`     | `300000`  | Janela em memoria para deduplicar `POST /api/v1/client/me/socket-events` com `Idempotency-Key`. `0` desativa. |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS`     | `300000`  | Janela em memoria para deduplicar publicacoes com `Idempotency-Key` (REST) ou `idempotencyKey` no corpo (`socket:event.publish`). `0` desativa. |
 | `REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES` | `10000`  | Maximo de respostas idempotentes retidas por processo.                                    |
 
-Eventos publicados por esta rota chegam apenas a sockets `/consumers`
+O hub tambem calcula `socketEventPublishRawJsonMaxBytes` (sem variavel de ambiente dedicada): e o teto em bytes UTF-8 para o JSON bruto de `socket:event.publish` antes do Zod, derivado de `REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES` e dos tetos de anexos REST. Deve ser **inferior ou igual** a `SOCKET_IO_MAX_HTTP_BUFFER_BYTES` (pacote Engine.IO); caso contrario o hub regista `WARN` no arranque — mensagens maiores que o buffer podem ser cortadas antes do handler.
+
+**Redis (rate limits, chaves ilustrativas):**
+
+| Canal | Prefixo / scope | Sufixo de identidade (Client JWT `sub`) |
+| ----- | ----------------- | ---------------------------------------- |
+| HTTP `POST .../socket-events` | `plug_rl:client_socket_event_publish:` (`express-rate-limit`) | `client:<sub>` (ou `client:anonymous` sem `sub`) |
+| Socket `socket:event.publish` | `plug_socket_rl:client_socket_event_publish:` | `client:<sub>` |
+
+Os dois sistemas sao independentes (prefixos diferentes); contadores REST e Socket nao se misturam.
 inscritos em `client:custom.*` via `socket:event.subscribe`. Em multi-replica
 sem adapter distribuido do Socket.IO, a entrega alcanca somente sockets
-conectados a mesma replica que processou o REST.
+conectados a mesma replica que processou o pedido (REST ou Socket).
 
 ## Client → Agent: bearer token armazenado por par
 

@@ -49,6 +49,10 @@ export const socketEvents = {
   socketEventSubscribed: "socket:event.subscribed",
   socketEventUnsubscribe: "socket:event.unsubscribe",
   socketEventUnsubscribed: "socket:event.unsubscribed",
+  /** Consumer → hub: publish a `client:custom.*` event (same semantics as REST). */
+  socketEventPublish: "socket:event.publish",
+  /** Hub → consumer: acknowledgement for `socket:event.publish`. */
+  socketEventPublished: "socket:event.published",
   /** Server → consumer: agent catalog profile changed (approved clients only). */
   clientAgentProfileUpdated: "client:agent.profile.updated",
 } as const;

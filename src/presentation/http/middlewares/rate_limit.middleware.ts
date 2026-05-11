@@ -140,7 +140,7 @@ export const clientMeAgentsPostRateLimitKey = (res: Response): string => {
 export const clientSocketEventPublishRateLimitKey = (res: Response): string => {
   const authClient = res.locals.authClient as JwtAccessPayload | undefined;
   const sub = authClient?.sub?.trim();
-  return sub ? `client_socket_event_publish:${sub}` : "client_socket_event_publish:anonymous";
+  return sub ? `client:${sub}` : "client:anonymous";
 };
 
 /** Rate-limit store key for `PATCH /agents/:agentId/profile` keyed by authenticated user and bound agent claim. */

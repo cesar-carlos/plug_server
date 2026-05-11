@@ -49,6 +49,30 @@ const customEvents = {
   publishIdempotentReplayTotal: 0,
   publishRecipientsTotal: 0,
   publishAttachmentBytesTotal: 0,
+  publishViaSocketTotal: 0,
+};
+
+/** Upper bounds for Prometheus-style cumulative histogram of publish recipient fan-out. */
+const PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS = [
+  0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536, 131_072,
+  262_144, 524_288, 1_048_576,
+] as const;
+
+let publishRecipientsHistSum = 0;
+let publishRecipientsHistCount = 0;
+const publishRecipientsHistBuckets = new Map<number, number>();
+let publishRecipientsHistInf = 0;
+
+const observePublishRecipientsHistogram = (recipients: number): void => {
+  const v = Math.max(0, recipients);
+  publishRecipientsHistSum += v;
+  publishRecipientsHistCount += 1;
+  for (const b of PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS) {
+    if (v <= b) {
+      publishRecipientsHistBuckets.set(b, (publishRecipientsHistBuckets.get(b) ?? 0) + 1);
+    }
+  }
+  publishRecipientsHistInf += 1;
 };
 
 export const noteConsumerSocketConnected = (
@@ -139,6 +163,7 @@ export const noteCustomSocketEventPublishAccepted = (input: {
   customEvents.publishAcceptedTotal += 1;
   customEvents.publishRecipientsTotal += Math.max(0, input.recipients);
   customEvents.publishAttachmentBytesTotal += Math.max(0, input.attachmentBytes);
+  observePublishRecipientsHistogram(input.recipients);
 };
 
 export const noteCustomSocketEventPublishRejected = (): void => {
@@ -147,6 +172,10 @@ export const noteCustomSocketEventPublishRejected = (): void => {
 
 export const noteCustomSocketEventPublishIdempotentReplay = (): void => {
   customEvents.publishIdempotentReplayTotal += 1;
+};
+
+export const noteCustomSocketEventPublishViaSocket = (): void => {
+  customEvents.publishViaSocketTotal += 1;
 };
 
 export const getSocketConsumerMetricsSnapshot = (): {
@@ -161,6 +190,11 @@ export const getSocketConsumerMetricsSnapshot = (): {
   readonly commandAbort: typeof commandAbort;
   readonly retryAfter: typeof retryAfter;
   readonly customEvents: typeof customEvents;
+  readonly publishRecipientsHistogram: {
+    readonly cumulativeBuckets: readonly { readonly le: string; readonly count: number }[];
+    readonly sum: number;
+    readonly count: number;
+  };
   readonly profilePush: {
     readonly batchesTotal: number;
     readonly coalescedTotal: number;
@@ -180,6 +214,17 @@ export const getSocketConsumerMetricsSnapshot = (): {
   commandAbort: { ...commandAbort },
   retryAfter: { ...retryAfter },
   customEvents: { ...customEvents },
+  publishRecipientsHistogram: {
+    cumulativeBuckets: [
+      ...PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS.map((b) => ({
+        le: String(b),
+        count: publishRecipientsHistBuckets.get(b) ?? 0,
+      })),
+      { le: "+Inf", count: publishRecipientsHistInf },
+    ],
+    sum: publishRecipientsHistSum,
+    count: publishRecipientsHistCount,
+  },
   profilePush: {
     batchesTotal: profilePush.batchesTotal,
     coalescedTotal: profilePush.coalescedTotal,
@@ -219,4 +264,9 @@ export const resetSocketConsumerMetrics = (): void => {
   customEvents.publishIdempotentReplayTotal = 0;
   customEvents.publishRecipientsTotal = 0;
   customEvents.publishAttachmentBytesTotal = 0;
+  customEvents.publishViaSocketTotal = 0;
+  publishRecipientsHistSum = 0;
+  publishRecipientsHistCount = 0;
+  publishRecipientsHistBuckets.clear();
+  publishRecipientsHistInf = 0;
 };

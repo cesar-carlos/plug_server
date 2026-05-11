@@ -4,6 +4,8 @@ import {
   clientSocketEventPublishBodySchema,
   customSocketEventNameSchema,
   jsonUtf8ByteLength,
+  jsonUtf8ByteLengthOrNull,
+  socketEventPublishRequestSchema,
   socketEventSubscriptionSchema,
 } from "../../../../src/shared/validators/custom_socket_event";
 
@@ -56,5 +58,43 @@ describe("custom_socket_event validators", () => {
     });
 
     expect(parsed.success).toBe(false);
+  });
+
+  it("should parse socket:event.publish request with optional idempotencyKey and attachments", () => {
+    expect(
+      socketEventPublishRequestSchema.parse({
+        requestId: "req-1",
+        idempotencyKey: "idem-1",
+        eventName: "client:custom.socket.publish",
+        payload: { n: 1 },
+        attachments: [
+          {
+            fieldName: "files",
+            originalName: "a.txt",
+            mimeType: "text/plain",
+            sizeBytes: 3,
+            base64: Buffer.from("abc").toString("base64"),
+          },
+        ],
+      }),
+    ).toMatchObject({
+      requestId: "req-1",
+      idempotencyKey: "idem-1",
+      eventName: "client:custom.socket.publish",
+    });
+  });
+
+  it("should reject socket publish request without requestId", () => {
+    const parsed = socketEventPublishRequestSchema.safeParse({
+      eventName: "client:custom.x",
+      payload: {},
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should return null from jsonUtf8ByteLengthOrNull for circular structures", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(jsonUtf8ByteLengthOrNull(circular)).toBeNull();
   });
 });

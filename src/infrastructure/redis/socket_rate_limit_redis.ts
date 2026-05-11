@@ -30,7 +30,8 @@ export type SocketRateLimitScope =
   | "relay_conversation_start"
   | "relay_rpc_request"
   | "relay_stream_pull_credits"
-  | "agent_register";
+  | "agent_register"
+  | "client_socket_event_publish";
 
 export interface SocketRateLimitRedisConsumeInput {
   readonly scope: SocketRateLimitScope;

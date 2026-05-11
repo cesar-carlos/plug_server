@@ -89,7 +89,9 @@ Pub/sub customizado:
 - `socket:event.subscribed`
 - `socket:event.unsubscribe`
 - `socket:event.unsubscribed`
-- `client:custom.*` (evento dinamico publicado pelo REST)
+- `socket:event.publish`
+- `socket:event.published`
+- `client:custom.*` (evento dinamico publicado pelo hub apos REST ou `socket:event.publish`)
 
 ## Eventos de controle (JSON)
 
@@ -105,12 +107,15 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 - `socket:event.subscribed` -> `{ success, requestId, data: { eventName, subscribed: true } }` ou erro
 - `socket:event.unsubscribe` -> `{ requestId, eventName }`
 - `socket:event.unsubscribed` -> `{ success, requestId, data: { eventName, subscribed: false } }` ou erro
+- `socket:event.publish` -> `{ requestId, eventName, payload, idempotencyKey?, payloadFrameCompression?, attachments? }` (JSON; apenas principal `client`)
+- `socket:event.published` -> `{ success, requestId, data?: { eventId, eventName, recipients, idempotencyKey?, idempotentReplay }, error? }` (ack; nao `PayloadFrame`)
 
-## Pub/sub customizado REST -> Socket
+## Pub/sub customizado REST ou Socket
 
 O namespace `/consumers` tambem oferece um pub/sub simples para eventos de
-aplicacao. Sockets autenticados assinam eventos `client:custom.*`; um cliente
-autenticado publica via `POST /api/v1/client/me/socket-events`; o hub emite o
+aplicacao. Sockets autenticados assinam eventos `client:custom.*`; um `Client`
+publica via **`POST /api/v1/client/me/socket-events`** (REST) **ou**
+**`socket:event.publish`** no `/consumers` com o mesmo JWT; o hub emite o
 evento dinamico para todos os sockets locais inscritos.
 
 Regras:
@@ -119,22 +124,26 @@ Regras:
 - eventos internos (`agent:*`, `agents:*`, `relay:*`, `rpc:*`, `hub:*`,
   `connection:*`, `app:*`, `client:agent.*`, `socket:event.*`) ficam fora do
   prefixo aceito e nao podem ser publicados;
-- subscribe/unsubscribe usam JSON puro com envelope de ack;
+- subscribe/unsubscribe/publish usam JSON puro com envelope de ack no subscribe/unsubscribe e em `socket:event.published` para publish;
+- `socket:event.publish` aplica o mesmo limite de inflight que outros handlers (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) e um rate limit **separado** do Express; por defeito usam-se as mesmas env numericas que `POST /client/me/socket-events` (`REST_SOCKET_EVENT_RATE_LIMIT_*`), com overrides opcionais **só Socket** `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` (ver `docs/configuration.md`); com `SOCKET_RATE_LIMIT_REDIS_URL`, o scope Redis e `client_socket_event_publish` e a chave de identidade e `client:<JWT sub do Client>`; apos consumir quota, falhas **transientes** do publish (ex.: `503` fan-out local) **devolvem** a contagem na janela; conflitos de idempotencia (`409` / `IDEMPOTENCY_KEY_CONFLICT`) **nao** devolvem quota (erro de cliente);
+- antes do parse Zod, o hub rejeita envelopes JSON brutos acima de um teto derivado dos limites REST (`PAYLOAD_TOO_LARGE` / `413` no ack) para cortar cargas maliciosas cedo;
 - cada socket tem limite configuravel de inscricoes simultaneas
   (`SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET`) e rate limit local para
   controles `socket:event.*`;
 - o evento dinamico `client:custom.*` usa `PayloadFrame`;
 - payload logico do frame: `{ eventId, eventName, emittedAt, publisher, payload, attachments }`;
-- `publisher` e derivado do JWT do `Client`, nunca do body REST;
-- `attachments` sao inline e pequenos (`base64`), vindos de multipart;
-- a resposta REST confirma emissao local no hub, nao processamento por listeners;
-- `Idempotency-Key` no REST evita emissao duplicada em retry; replay retorna
-  `idempotentReplay: true`, e reuso da chave com outro corpo retorna `409`;
+- `publisher` e derivado do JWT do `Client`, nunca do corpo da publicacao;
+- `attachments` sao inline e pequenos (`base64`); no REST vêm de multipart; no Socket podem ir no array `attachments` com o mesmo shape logico;
+- a resposta REST ou o ack `socket:event.published` confirmam emissao local no hub, nao processamento por listeners;
+- **Idempotencia unificada (REST e Socket):** o cache em memoria e partilhado por `clientId` (JWT `sub` do `Client`) e pela mesma chave logica: cabecalho HTTP `Idempotency-Key` e campo `idempotencyKey` no `socket:event.publish` escrevem na **mesma** entrada (`client_socket_event_idempotency_store`). O corpo e resumido por fingerprint (SHA-256 canónico); repetir a chave noutro canal com o mesmo corpo devolve replay sem nova emissao; corpo divergente devolve `409` / `IDEMPOTENCY_KEY_CONFLICT` em qualquer canal. Cuidado em migracoes e testes para nao reutilizar chaves globais entre canais sem querer.
+- `Idempotency-Key` no REST **ou** campo `idempotencyKey` no `socket:event.publish` evita emissao duplicada em retry; replay retorna
+  `idempotentReplay: true`, e reuso da chave com outro corpo retorna `409` (REST) ou `success: false` com `IDEMPOTENCY_KEY_CONFLICT` (Socket);
 - `REST_SOCKET_EVENT_MAX_RECIPIENTS` pode limitar fan-out local e rejeitar com
-  `503` quando houver inscritos demais.
+  `503` quando houver inscritos demais;
+- convencao de produto: nomes `client:custom.*` sao **globais** por hub para quem subscreve o mesmo `eventName`; prefira prefixar por tenant ou cliente (ex.: `client:custom.acme-tenant.notifications`) para evitar colisao entre tenants.
 
 Sem adapter distribuido do Socket.IO, o pub/sub e por processo: uma publicacao
-REST chega aos sockets inscritos na mesma replica. Em producao multi-replica,
+REST ou `socket:event.publish` chega aos sockets inscritos na mesma replica. Em producao multi-replica,
 use sticky sessions/topologia equivalente ou trate adapter/pub-sub distribuido
 como evolucao de arquitetura.
 

@@ -1,41 +1,25 @@
-import { randomUUID } from "node:crypto";
-
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import multer, { MulterError } from "multer";
 import { ZodError } from "zod";
 
-import { publishConsumerSocketEvent } from "../../../application/services/consumer_socket_event_sink";
+import {
+  assertClientSocketEventPublishInputWithinLimits,
+  executeClientSocketEventPublish,
+} from "../../../application/services/client_socket_event_publish.service";
 import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";
 import { badRequest } from "../../../shared/errors/http_errors";
 import {
   clientSocketEventPublishBodySchema,
-  jsonUtf8ByteLength,
   toSocketEventAttachment,
   type ClientSocketEventPublishInput,
 } from "../../../shared/validators/custom_socket_event";
 import { getAuthClient } from "../middlewares/auth.middleware";
 import { getValidated } from "../middlewares/validate.middleware";
-import {
-  noteCustomSocketEventPublishAccepted,
-  noteCustomSocketEventPublishIdempotentReplay,
-  noteCustomSocketEventPublishRejected,
-} from "../../../shared/metrics/socket_consumer.metrics";
-import {
-  buildClientSocketEventPublishFingerprint,
-  getClientSocketEventPublishIdempotencyEntry,
-  setClientSocketEventPublishIdempotencyEntry,
-  type ClientSocketEventPublishIdempotencyResponse,
-} from "../services/client_socket_event_idempotency_store";
+import { noteCustomSocketEventPublishRejected } from "../../../shared/metrics/socket_consumer.metrics";
 
 const payloadTooLarge = (message: string): AppError =>
   new AppError(message, { statusCode: 413, code: "PAYLOAD_TOO_LARGE" });
-
-const idempotencyConflict = (): AppError =>
-  new AppError("Idempotency-Key was already used with a different socket event publish body", {
-    statusCode: 409,
-    code: "IDEMPOTENCY_KEY_CONFLICT",
-  });
 
 export const clientSocketEventUpload = multer({
   storage: multer.memoryStorage(),
@@ -114,18 +98,8 @@ const parsePublishInput = (request: Request): ClientSocketEventPublishInput => {
     ? parseMultipartEventBody(request)
     : request.body;
   const parsed = clientSocketEventPublishBodySchema.parse(rawBody);
-  const payloadSize = jsonUtf8ByteLength(parsed.payload);
-  if (payloadSize > env.restSocketEventPayloadJsonMaxBytes) {
-    throw payloadTooLarge("socket event payload exceeds JSON size limit");
-  }
-
   const files = getUploadedFiles(request);
-  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-  if (totalBytes > env.restSocketEventTotalFilesMaxBytes) {
-    throw payloadTooLarge("socket event attachments exceed total size limit");
-  }
-
-  return {
+  const body: ClientSocketEventPublishInput = {
     eventName: parsed.eventName,
     payload: parsed.payload,
     ...(parsed.payloadFrameCompression !== undefined
@@ -133,6 +107,8 @@ const parsePublishInput = (request: Request): ClientSocketEventPublishInput => {
       : {}),
     attachments: files.map(toSocketEventAttachment),
   };
+  assertClientSocketEventPublishInputWithinLimits(body);
+  return body;
 };
 
 export const validateClientSocketEventPublishRequest = (
@@ -163,72 +139,25 @@ export const publishClientSocketEvent = async (
   const authClient = getAuthClient(response);
   const body = getValidated<ClientSocketEventPublishInput>(response, "body");
   const idempotencyKey = normalizeClientSocketEventIdempotencyKey(request);
-  const fingerprint =
-    idempotencyKey !== undefined ? buildClientSocketEventPublishFingerprint(body) : undefined;
 
-  if (idempotencyKey !== undefined && fingerprint !== undefined) {
-    const existing = getClientSocketEventPublishIdempotencyEntry(authClient.sub, idempotencyKey);
-    if (existing) {
-      if (existing.fingerprint !== fingerprint) {
-        noteCustomSocketEventPublishRejected();
-        throw idempotencyConflict();
-      }
-      noteCustomSocketEventPublishIdempotentReplay();
-      response.status(202).json({
-        ...existing.response,
-        idempotencyKey,
-        idempotentReplay: true,
-        requestId: response.locals.requestId as string | undefined,
-      });
-      return;
-    }
-  }
-
-  const eventId = randomUUID();
-  const emittedAt = new Date().toISOString();
-
-  let result: Awaited<ReturnType<typeof publishConsumerSocketEvent>>;
-  try {
-    result = await publishConsumerSocketEvent({
-      eventId,
-      eventName: body.eventName,
-      emittedAt,
-      publisher: {
-        principalType: "client",
-        clientId: authClient.sub,
-      },
-      payload: body.payload,
-      attachments: body.attachments,
-      ...(body.payloadFrameCompression !== undefined
-        ? { payloadFrameCompression: body.payloadFrameCompression }
-        : {}),
-    });
-  } catch (error: unknown) {
-    noteCustomSocketEventPublishRejected();
-    throw error;
-  }
-
-  noteCustomSocketEventPublishAccepted({
-    recipients: result.recipients,
-    attachmentBytes: body.attachments.reduce((sum, attachment) => sum + attachment.sizeBytes, 0),
+  const httpRequestId = response.locals.requestId;
+  const outcome = await executeClientSocketEventPublish({
+    clientId: authClient.sub,
+    body,
+    ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
+    ...(typeof httpRequestId === "string" && httpRequestId.trim() !== ""
+      ? { publishRequestId: httpRequestId.trim() }
+      : {}),
   });
 
-  const idempotencyResponse: ClientSocketEventPublishIdempotencyResponse = {
-    success: true,
-    eventId,
-    eventName: body.eventName,
-    recipients: result.recipients,
-  };
-  if (idempotencyKey !== undefined && fingerprint !== undefined) {
-    setClientSocketEventPublishIdempotencyEntry(authClient.sub, idempotencyKey, {
-      fingerprint,
-      response: idempotencyResponse,
-    });
-  }
-
   response.status(202).json({
-    ...idempotencyResponse,
-    ...(idempotencyKey !== undefined ? { idempotencyKey, idempotentReplay: false } : {}),
+    success: outcome.success,
+    eventId: outcome.eventId,
+    eventName: outcome.eventName,
+    recipients: outcome.recipients,
+    ...(outcome.idempotencyKey !== undefined
+      ? { idempotencyKey: outcome.idempotencyKey, idempotentReplay: outcome.idempotentReplay }
+      : {}),
     requestId: response.locals.requestId as string | undefined,
   });
 };

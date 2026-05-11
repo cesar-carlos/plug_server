@@ -1432,13 +1432,14 @@ REQUEST_BODY_LIMIT=2mb   # ou 5mb conforme necessidade
 
 O valor deve ser menor ou igual ao limite do PayloadFrame (10MB).
 
-### Pub/sub customizado REST -> Socket
+### Pub/sub customizado (REST ou Socket)
 
 `POST /api/v1/client/me/socket-events` e um contrato separado do bridge RPC.
 Ele nao envia comandos JSON-RPC ao agente e nao substitui
 `POST /api/v1/agents/commands`. A rota permite que um `Client` autenticado
 publique eventos de aplicacao `client:custom.*` para sockets `/consumers`
-inscritos via `socket:event.subscribe`.
+inscritos via `socket:event.subscribe`. A alternativa equivalente no Socket e
+`socket:event.publish` (ver `docs/socket_relay_protocol.md`).
 
 O corpo JSON usa `{ eventName, payload, payloadFrameCompression? }`; multipart
 usa o campo `event` com esse JSON e campos `files` repetidos para anexos inline
@@ -1447,10 +1448,11 @@ pequenos. O hub entrega um `PayloadFrame` no proprio `eventName`, com
 O campo `payload` e obrigatorio mesmo quando for `null`. Para retries HTTP,
 envie `Idempotency-Key`: a mesma chave com o mesmo corpo reaproveita a resposta
 `202` sem publicar de novo; a mesma chave com outro corpo retorna `409`.
+A **mesma** chave e fingerprint partilham-se com `idempotencyKey` em `socket:event.publish` (mesmo `Client` JWT `sub`); ver `docs/socket_relay_protocol.md`.
 Campos de arquivo diferentes de `files` sao rejeitados.
 
 Sem adapter distribuido do Socket.IO, a publicacao e local a replica que recebeu
-o REST. A resposta `202` confirma emissao local e inclui `recipients`; nao
+o pedido (REST ou Socket). A resposta `202` ou o ack `socket:event.published` confirmam emissao local e incluem `recipients`; nao
 confirma processamento pelo listener do cliente. O fan-out local pode ser
 limitado por `REST_SOCKET_EVENT_MAX_RECIPIENTS`.
 

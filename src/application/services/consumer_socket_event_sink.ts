@@ -14,6 +14,8 @@ export interface PublishConsumerSocketEventInput {
   readonly payload: unknown;
   readonly attachments: readonly ClientSocketEventAttachment[];
   readonly payloadFrameCompression?: PayloadFrameCompression;
+  /** When set, used as PayloadFrame `requestId` for tracing (e.g. `socket:event.publish` `requestId`). */
+  readonly publishRequestId?: string;
 }
 
 export interface PublishConsumerSocketEventResult {

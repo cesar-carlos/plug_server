@@ -37,7 +37,7 @@ real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 - Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`
 - Dados em `PayloadFrame`: `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
 - **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/client_agent_business_rules.md`.
-- **Pub/sub customizado:** sockets em `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe`; publicacoes REST em `POST /api/v1/client/me/socket-events` chegam no proprio `eventName` em `PayloadFrame`.
+- **Pub/sub customizado:** sockets em `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe`; publicacoes com token de `Client` chegam ao `eventName` em `PayloadFrame` via **`POST /api/v1/client/me/socket-events`** (REST) ou **`socket:event.publish`** (Socket; ack em `socket:event.published`).
 
 ## Estrutura do PayloadFrame
 
@@ -58,7 +58,7 @@ type PayloadFrame = {
 
 Em alguns eventos de **alto debito** (`relay:rpc.chunk`, `relay:rpc.complete`, acks relay), o servidor pode omitir `traceId` no envelope; usar `requestId` para correlacao.
 
-## Pub/sub customizado REST -> Socket
+## Pub/sub customizado (REST ou Socket)
 
 Use este fluxo para eventos de aplicacao que nao sao comandos RPC para agente:
 
@@ -76,7 +76,7 @@ socket.on("socket:event.subscribed", (ack) => {
 });
 ```
 
-3. Publique via REST com token de `Client`:
+3. Publique com token de `Client` — **opcao A: REST** (multipart suportado para anexos):
 
 ```http
 POST /api/v1/client/me/socket-events
@@ -91,6 +91,27 @@ Content-Type: application/json
 }
 ```
 
+**Opcao B: Socket** (mesmos limites de tamanho de payload e anexos; anexos inline no JSON). O campo `requestId` e propagado para logs do hub e para o `requestId` do `PayloadFrame` entregue aos subscritores (além do `eventId` unico da emissao). **Ficheiros grandes:** prefira **multipart** no REST (`POST .../socket-events`): `attachments[]` no Socket implica `base64` no JSON e aumenta o tamanho no fio; o hub aplica um teto ao envelope JSON bruto antes do Zod.
+
+```ts
+const publishReqId = crypto.randomUUID();
+socket.emit("socket:event.publish", {
+  requestId: publishReqId,
+  idempotencyKey: "publish-status-123",
+  eventName: "client:custom.status.changed",
+  payloadFrameCompression: "default",
+  payload: { status: "ready", message: "job finished" },
+});
+
+socket.on("socket:event.published", (ack) => {
+  if (ack.requestId !== publishReqId) return;
+  if (!ack.success) throw new Error(ack.error.message);
+  console.log(ack.data.eventId, ack.data.recipients, ack.data.idempotentReplay);
+});
+```
+
+O rate limit numerico do Socket usa por defeito `REST_SOCKET_EVENT_RATE_LIMIT_*`, com overrides opcionais `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*`; o balde Socket e **independente** do balde HTTP (como em `agents:command` vs REST de comandos).
+
 4. Receba o evento dinamico e decodifique o `PayloadFrame`:
 
 ```ts
@@ -102,12 +123,13 @@ socket.on("client:custom.status.changed", (rawFrame) => {
 
 Para cancelar: `socket.emit("socket:event.unsubscribe", { requestId, eventName })`.
 Somente nomes `client:custom.*` sao aceitos. A entrega e global por `eventName`
-dentro do hub atual; a resposta REST `recipients` indica quantos sockets locais
-estavam inscritos no momento da publicacao. Em multi-replica sem adapter
+dentro do hub atual; a resposta REST `recipients` ou o ack `socket:event.published`
+indica quantos sockets locais estavam inscritos no momento da publicacao. Em multi-replica sem adapter
 Socket.IO distribuido, a publicacao so alcanca sockets da mesma replica.
-Use `Idempotency-Key` em retries REST: repetir a mesma chave com o mesmo corpo
+Use `Idempotency-Key` (REST) ou `idempotencyKey` (Socket) em retries: repetir a mesma chave com o mesmo corpo
 retorna a resposta original com `idempotentReplay: true` sem emitir o evento de
-novo; repetir a chave com outro corpo retorna `409`.
+novo; repetir a chave com outro corpo retorna `409` (REST) ou `socket:event.published` com `error.code: IDEMPOTENCY_KEY_CONFLICT` (Socket).
+A mesma chave e partilhada entre REST e Socket para o mesmo `Client` (JWT `sub`); ver `docs/socket_relay_protocol.md`.
 
 Multipart tambem e aceito: envie o campo `event` com o JSON acima e campos
 `files` repetidos. Os anexos sao pequenos e inline, entregues como

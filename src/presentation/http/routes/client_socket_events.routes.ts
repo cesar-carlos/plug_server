@@ -20,6 +20,9 @@ export const clientSocketEventsRouter = Router();
  *     description: >
  *       Publishes a custom `client:custom.*` event to every authenticated `/consumers`
  *       socket currently subscribed through `socket:event.subscribe` on this hub instance.
+ *       Equivalent semantics exist on Socket: authenticated `Client` principals may emit
+ *       `socket:event.publish` on `/consumers` and receive `socket:event.published` (see
+ *       `docs/socket_relay_protocol.md` and `docs/socket_client_sdk.md`).
  *       The server emits the dynamic event name with a PayloadFrame containing the logical
  *       payload and optional inline attachments. The route confirms local emission only;
  *       it does not wait for listener-level acknowledgement.

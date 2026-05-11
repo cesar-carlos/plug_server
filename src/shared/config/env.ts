@@ -171,6 +171,28 @@ const envSchema = z.object({
     .max(1_000_000)
     .default(10_000),
   /**
+   * Optional fixed-window (ms) for `socket:event.publish` only. When unset/empty, mirrors
+   * `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS` (same default, separate counter bucket).
+   */
+  SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_WINDOW_MS: z.preprocess(
+    (val) =>
+      val === undefined || val === null || String(val).trim() === ""
+        ? undefined
+        : Number(String(val).trim()),
+    z.number().int().positive().optional(),
+  ),
+  /**
+   * Optional max publishes per `socket:event.publish` window per client JWT `sub`.
+   * When unset/empty, mirrors `REST_SOCKET_EVENT_RATE_LIMIT_MAX`.
+   */
+  SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_MAX: z.preprocess(
+    (val) =>
+      val === undefined || val === null || String(val).trim() === ""
+        ? undefined
+        : Number(String(val).trim()),
+    z.number().int().min(0).max(10_000_000).optional(),
+  ),
+  /**
    * When > 0, a second `POST /client/me/agents` for the same agent while the request is still `pending`
    * and `requestedAt` is within this many ms does not re-email the owner (returns `debounced`).
    * `0` disables debouncing.
@@ -919,6 +941,27 @@ export const env = {
   restSocketEventMaxRecipients: parsedEnv.REST_SOCKET_EVENT_MAX_RECIPIENTS,
   restSocketEventIdempotencyTtlMs: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS,
   restSocketEventIdempotencyMaxEntries: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES,
+  socketCustomEventPublishRateLimitWindowMs:
+    parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_WINDOW_MS ??
+    parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS,
+  socketCustomEventPublishRateLimitMax:
+    parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_MAX ?? parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_MAX,
+  /**
+   * Max UTF-8 bytes of `JSON.stringify(socket:event.publish)` envelope before Zod (defence in depth).
+   * Derived from REST attachment/payload limits so legitimate publishes fit while oversized JSON is rejected early.
+   */
+  socketEventPublishRawJsonMaxBytes: Math.min(
+    8 * 1024 * 1024,
+    Math.max(
+      256 * 1024,
+      parsedEnv.REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES +
+        Math.min(
+          6 * 1024 * 1024,
+          Math.ceil((parsedEnv.REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES * 4) / 3) + 512 * 1024,
+        ) +
+        64 * 1024,
+    ),
+  ),
   clientAgentAccessRequestEmailDebounceMs: parsedEnv.CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS,
   clientAgentAccessMaxRetries: parsedEnv.CLIENT_AGENT_ACCESS_MAX_RETRIES,
   restClientPasswordRecoveryRateLimitWindowMs:

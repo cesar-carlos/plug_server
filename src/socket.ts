@@ -50,6 +50,11 @@ import {
   sweepAgentsCommandSocketRateLimitState,
 } from "./presentation/socket/hub/agents_command_socket_rate_limiter";
 import {
+  getClientSocketEventPublishSocketRateLimitMetricsSnapshot,
+  resetClientSocketEventPublishSocketRateLimitState,
+  sweepClientSocketEventPublishSocketRateLimitState,
+} from "./presentation/socket/hub/client_socket_event_publish_socket_rate_limiter";
+import {
   allowAgentProfileSocketUpdate,
   clearAgentProfileSocketRateLimitStateForAgentId,
   clearAgentProfileSocketRateLimitStateForSocketId,
@@ -82,6 +87,7 @@ import {
   handleCustomSocketEventSubscribe,
   handleCustomSocketEventUnsubscribe,
 } from "./presentation/socket/consumers/custom_socket_event_subscription.handler";
+import { handleCustomSocketEventPublish } from "./presentation/socket/consumers/custom_socket_event_publish.handler";
 import {
   type AgentProfileBroadcastEvent,
   registerAgentProfileBroadcastHandler,
@@ -568,6 +574,9 @@ export const getSocketMetricsSnapshot = (): {
   readonly agentsCommandSocketRateLimit: ReturnType<
     typeof getAgentsCommandSocketRateLimitMetricsSnapshot
   >;
+  readonly clientSocketEventPublishSocketRateLimit: ReturnType<
+    typeof getClientSocketEventPublishSocketRateLimitMetricsSnapshot
+  >;
   readonly consumerRuntime: ReturnType<typeof getSocketConsumerMetricsSnapshot>;
   readonly agentRuntime: ReturnType<typeof getSocketAgentMetricsSnapshot>;
 } => {
@@ -581,6 +590,7 @@ export const getSocketMetricsSnapshot = (): {
     relayRateLimit: getRelayRateLimitMetricsSnapshot(),
     socketRateLimitRedis: getSocketRateLimitRedisMetricsSnapshot(),
     agentsCommandSocketRateLimit: getAgentsCommandSocketRateLimitMetricsSnapshot(),
+    clientSocketEventPublishSocketRateLimit: getClientSocketEventPublishSocketRateLimitMetricsSnapshot(),
     consumerRuntime: getSocketConsumerMetricsSnapshot(),
     agentRuntime: getSocketAgentMetricsSnapshot(),
   };
@@ -597,6 +607,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
 
   resetRelayRateLimiterState();
   resetAgentsCommandSocketRateLimitState();
+  resetClientSocketEventPublishSocketRateLimitState();
   resetAgentProfileSocketRateLimitState();
   resetConsumerCommandAbortRegistry();
   resetCustomSocketEventSubscriptions();
@@ -648,6 +659,15 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     ...(env.socketIoPingTimeoutMs !== undefined ? { pingTimeout: env.socketIoPingTimeoutMs } : {}),
   });
 
+  if (env.socketEventPublishRawJsonMaxBytes > env.socketIoMaxHttpBufferBytes) {
+    logger.warn("socket_custom_event_publish_envelope_exceeds_engineio_buffer", {
+      socketEventPublishRawJsonMaxBytes: env.socketEventPublishRawJsonMaxBytes,
+      socketIoMaxHttpBufferBytes: env.socketIoMaxHttpBufferBytes,
+      message:
+        "socketEventPublishRawJsonMaxBytes exceeds SOCKET_IO_MAX_HTTP_BUFFER_BYTES; large socket:event.publish payloads may be rejected by Engine.IO before the hub handler runs",
+    });
+  }
+
   const agentsNsp = io.of(SOCKET_NAMESPACES.agents);
   agentsNamespace = agentsNsp;
   activeSocketServer = io;
@@ -679,6 +699,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   conversationSweepTimer = setInterval(() => {
     sweepRelayRateLimitState();
     sweepAgentsCommandSocketRateLimitState();
+    sweepClientSocketEventPublishSocketRateLimitState();
     sweepAgentProfileSocketRateLimitState();
     sweepRelayOutboundQueueState();
     const expiredConversations = conversationRegistry.removeExpired(
@@ -1354,6 +1375,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       handleCustomSocketEventUnsubscribe(socket, rawPayload);
     });
 
+    socket.on(socketEvents.socketEventPublish, (rawPayload: unknown) => {
+      handleCustomSocketEventPublish(socket, rawPayload);
+    });
+
     socket.on("disconnect", () => {
       const abortedCommands = abortPendingConsumerCommands(socket.id);
       const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(
@@ -1474,7 +1499,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         },
         {
           ...payloadFrameEncodeOptionsFromPreference(event.payloadFrameCompression),
-          requestId: event.eventId,
+          requestId:
+            typeof event.publishRequestId === "string" && event.publishRequestId.trim() !== ""
+              ? event.publishRequestId.trim()
+              : event.eventId,
           omitTraceId: true,
         },
       );

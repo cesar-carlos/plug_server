@@ -111,6 +111,8 @@ const swaggerSpec = swaggerJSDoc({
           type: "object",
           required: ["eventName", "payload"],
           additionalProperties: false,
+          description:
+            "Same logical fields as `socket:event.publish` on `/consumers` for `Client` JWTs. REST uses HTTP rate limits (`REST_SOCKET_EVENT_RATE_LIMIT_*`). Socket uses a separate counter; defaults mirror those env vars, with optional overrides `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` (see `docs/configuration.md`).",
           properties: {
             eventName: {
               type: "string",

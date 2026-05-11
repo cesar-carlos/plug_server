@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-import { env } from "../../../shared/config/env";
-import type { ClientSocketEventPublishInput } from "../../../shared/validators/custom_socket_event";
+import { env } from "../../shared/config/env";
+import type { ClientSocketEventPublishInput } from "../../shared/validators/custom_socket_event";
 
 export interface ClientSocketEventPublishIdempotencyResponse {
   readonly success: true;

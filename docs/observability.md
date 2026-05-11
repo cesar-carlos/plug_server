@@ -45,6 +45,15 @@ rate(plug_rest_bridge_requests_failed_total[5m])
 rate(plug_rest_bridge_requests_success_total[5m])
   / clamp_min(rate(plug_rest_bridge_requests_total[5m]), 0.001)
 
+# Pub/sub `client:custom.*` via Socket: novas emissoes apos `socket:event.publish` (exclui replay idempotente)
+rate(plug_socket_custom_event_publish_via_socket_total[5m])
+
+# Fracao de replays idempotent sobre aceites (REST + Socket)
+rate(plug_socket_custom_event_publish_idempotent_replay_total[5m])
+  / clamp_min(rate(plug_socket_custom_event_publish_accepted_total[5m]), 0.001)
+
+# Nota: `plug_socket_custom_event_publish_via_socket_total` sobe apenas em publicacoes Socket que levam a uma **nova** emissao ao sink (nao conta `idempotentReplay: true`). `plug_socket_custom_event_publish_accepted_total` inclui REST e Socket apos emissao bem-sucedida.
+
 # Pulls internos ao materializar stream SQL via REST
 rate(plug_rest_sql_stream_materialize_pulls_total[5m])
 rate(plug_rest_sql_stream_materialize_completed_total[5m])
