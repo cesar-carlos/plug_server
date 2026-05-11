@@ -1,6 +1,6 @@
 # Socket Client SDK Minimo (Relay)
 
-Data: 2026-03-20
+Data: 2026-05-11
 
 Guia rapido para cliente Socket no modo relay (`/consumers`), com tratamento de
 `PayloadFrame` binario + `gzip`.
@@ -24,11 +24,12 @@ real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
 
 ### Producao — alinhamento Colmeia (smoke)
 
-- **`SOCKET_CONSUMER_ROLES`**: deve incluir `client` (ou omitir a env para usar o default `user,admin,client` em `env.ts`). Sem `client`, o handshake `/consumers` falha para JWT `role=client`.
+- **`SOCKET_CONSUMER_ROLES`**: o default em `env.ts` e `user,admin,client`. Se a env listar apenas `user,admin` (sem o literal `client`), o parse **acrescenta** `client` automaticamente (`parseSocketConsumerRolesValue`); o arranque pode registar `INFO` `socket_consumer_roles_ensured_client`. Para Colmeia, garantir que o JWT de `Client` usa `role=client` e que esse papel nao foi removido por configuracao anomala (o runtime nunca remove `client` apos o parse).
 - **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou omitido; `false` remove o push `client:agent.profile.updated`.
 - **Handshake `/consumers`**: exige JWT valido mesmo que `SOCKET_AUTH_REQUIRED=false` noutros canais; nao existe modo anonimo suportado para operacao real do namespace.
+- **Capacidade ao conectar (principal `client`)**: o hub pode fazer `join` em muitas salas `consumer:client-agent:{clientId}:{agentId}` — uma por agente aprovado. Se o numero de aprovacoes for muito grande, o custo de handshake sobe (memoria Socket.IO + round-trip de salas). Se isto se tornar gargalo operacional, avaliar desenho de produto (menos aprovacoes simultaneas, lazy join no servidor, ou limites explicitos); nada disso substitui monitorizar latencia de `connection:ready` em producao.
 - **REST offline**: `POST /api/v1/agents/commands` com `id` correlacionável e agente conhecido em memória mas sem socket → **HTTP 200** e `response.item.error` com `code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (não confundir com **503** de overload / notification-only / disconnect a meio de request).
-- **Multi-réplica**: validar sticky + `X-Hub-Instance-Id` — `docs/nginx_production.md` § 12 e checklist em `docs/configuration.md` (*Checklist produção*).
+- **Multi-réplica**: validar sticky + `X-Hub-Instance-Id` — `docs/nginx_production.md` (secção **12) Sticky session para Socket.IO (multi-replica)**) e checklist em `docs/configuration.md` (*Checklist produção*).
 
 ## Eventos e formato
 

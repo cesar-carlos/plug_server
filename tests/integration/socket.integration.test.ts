@@ -12,6 +12,7 @@ import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
 import { container, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { hasRestPendingCorrelationId } from "../../src/presentation/socket/hub/rest_pending_requests";
+import { agentsNamespace } from "../../src/socket";
 import { Client } from "../../src/domain/entities/client.entity";
 import { User } from "../../src/domain/entities/user.entity";
 
@@ -2251,6 +2252,56 @@ describe("Socket namespaces", () => {
   });
 
   describe("/agents namespace", () => {
+    it("should have joined agent:principal room when connection:ready fires", async () => {
+      expect(agentsNamespace).not.toBeNull();
+      const nsp = agentsNamespace!;
+
+      const socket = ioClient(`${baseUrl}/agents`, {
+        auth: { token: agentAccessToken },
+        transports: ["websocket"],
+      });
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          socket.on("connection:ready", (rawPayload: unknown) => {
+            void (async (): Promise<void> => {
+              try {
+                const decoded = decodePayloadFrame(rawPayload);
+                if (!decoded.ok) {
+                  reject(new Error(`Failed to decode connection:ready: ${decoded.error.message}`));
+                  return;
+                }
+                const data = decoded.value.data;
+                if (!isRecord(data) || !isRecord(data.user) || typeof data.user.sub !== "string") {
+                  reject(new Error("connection:ready missing user.sub"));
+                  return;
+                }
+                const userSub = data.user.sub;
+                const sockets = await nsp.in(`agent:principal:${userSub}`).fetchSockets();
+                if (!sockets.some((remote) => remote.id === socket.id)) {
+                  reject(
+                    new Error(
+                      `Socket ${socket.id} not in agent:principal:${userSub} when connection:ready was received`,
+                    ),
+                  );
+                  return;
+                }
+                resolve();
+              } catch (error: unknown) {
+                reject(error instanceof Error ? error : new Error(String(error)));
+              }
+            })();
+          });
+          socket.on("connect_error", (err) => {
+            reject(err);
+          });
+        });
+        expect(socket.connected).toBe(true);
+      } finally {
+        socket.disconnect();
+      }
+    });
+
     it("should create catalog row, sync profile and lastLoginUserId on first agent connect", async () => {
       const freshAgentId = randomUUID();
       const freshAgentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({

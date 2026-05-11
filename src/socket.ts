@@ -699,13 +699,15 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   }, env.socketRelayConversationSweepIntervalMs);
   conversationSweepTimer.unref?.();
 
-  agentsNsp.on("connection", (socket: HubSocket) => {
+  agentsNsp.on("connection", async (socket: HubSocket) => {
     logSocketLifecycleInfo("Socket client connected", {
       socketId: socket.id,
       userId: getUserId(socket),
     });
 
-    void joinAgentIdentityRooms(socket).catch((error: unknown) => {
+    try {
+      await joinAgentIdentityRooms(socket);
+    } catch (error: unknown) {
       logger.warn("agent_socket_identity_room_join_failed", {
         socketId: socket.id,
         userId: getUserId(socket),
@@ -716,7 +718,8 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         message: "Failed to join agent identity room",
       });
       socket.disconnect(true);
-    });
+      return;
+    }
 
     emitConnectionReady(socket, {
       id: socket.id,

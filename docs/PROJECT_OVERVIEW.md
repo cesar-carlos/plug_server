@@ -3,10 +3,12 @@
 Este e o ponto de entrada da documentacao. Para navegar por escopo, ver
 `docs/README.md`.
 
-Para rotas HTTP, use `/api/v1` como prefixo canonico. O servico ainda mantem os
-aliases de compatibilidade `/auth/*` e `/metrics`, mas a navegacao e os exemplos
-abaixo priorizam os caminhos sob o prefixo da API. Para schemas detalhados de
-request/response, consulte o OpenAPI em `GET /docs` e `GET /docs.json`.
+Para rotas HTTP, use `/api/v1` como prefixo canonico. O servico mantem aliases de
+compatibilidade para `/auth/*` (tambem sob `/api/v1/auth/*`). O `GET /metrics`
+(Prometheus) responde em `/metrics` na raiz e em `/api/v1/metrics`; em ambos exige
+JWT com `role=admin`. A navegacao e os exemplos abaixo priorizam caminhos sob o
+prefixo da API. Para schemas detalhados de request/response, consulte o OpenAPI em
+`GET /docs` e `GET /docs.json`.
 
 ## Objetivo
 
@@ -85,6 +87,8 @@ Existem dois modos:
 
 - `agents:*`: bridge legado em JSON logico
 - `relay:*`: modo isolado por conversa, com `PayloadFrame` tambem no consumer
+
+Para **novas integracoes**, prefere `relay:*` quando precisares de streaming em tempo real, carga continua elevada ou idempotencia por conversa (`client_request_id`); o canal `agents:*` continua suportado como legado sem data de remocao anunciada neste documento.
 
 Quando precisas de chunks em tempo real e `stream_pull`, prefere Socket.
 

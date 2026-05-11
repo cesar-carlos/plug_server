@@ -41,6 +41,18 @@ Use outros docs para:
 - `docs/performance_hub_agent.md`: tuning e operacao sob carga
 - `docs/observability.md`: metricas, traces e alertas
 
+### Erros e fases do handshake Socket
+
+Fases tipicas (apos o TCP/WebSocket do Socket.IO):
+
+1. **Middleware de namespace** (`/agents` ou `/consumers`): valida JWT, `role` e conta activa. Falhas aqui aparecem ao cliente como **`connect_error`** (nao chega `connection`).
+2. **Handler `connection`**: entra em salas de identidade (`agent:principal:{sub}` em `/agents` quando ha `sub`; em `/consumers` salas de principal, `client:{id}` e `consumer:client-agent:*` para agentes aprovados). Falha ao entrar nas salas → hub emite **`app:error`** (ex.: codigo `ROOM_JOIN_FAILED` em `/agents`, `CONSUMER_SOCKET_INITIALIZATION_FAILED` em `/consumers`) e **`disconnect`**.
+3. **`connection:ready`**: emitido **depois** das salas de identidade estarem aplicadas no mesmo processo; o payload e normalmente um **`PayloadFrame`** (ver `SOCKET_CONNECTION_READY_COMPAT_MODE` / `docs/socket_relay_protocol.md`). O cliente deve tratar `connection:ready` como sinal de sessao pronta para o protocolo de aplicacao (`agent:register`, `agents:command`, `relay:*`, etc.).
+
+Outros **`app:error`** relevantes: ligacao ao namespace padrao `/` (codigo `NAMESPACE_DEPRECATED`) antes do disconnect.
+
+Isto e independente da [matriz oficial de paridade do bridge](#matriz-oficial-de-paridade-do-bridge): o Socket **nao** duplica a API REST completa (auth, catalogo, CRUD, metricas HTTP continuam em REST).
+
 ### REST vs Socket no consumer (mesmo comando, canais diferentes)
 
 - **Dois canais** chegam ao mesmo fluxo interno (`executeAgentCommand` → dispatch para o agente): **HTTP** (`POST /api/v1/agents/commands`) ou **Socket** (`agents:command` no `/consumers`, ou relay `relay:rpc.request`).

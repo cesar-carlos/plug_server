@@ -27,6 +27,12 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 | ----------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SOCKET_CONSUMER_ROLES` | `user,admin,client` | Lista separada por vírgulas de `role` JWT permitidas no handshake do namespace Socket.IO **`/consumers`**. O literal **`client`** é necessário para apps Colmeia (principal `Client`). Se a variável listar só `user,admin`, o processo **acrescenta** `client` no parse (ver `parseSocketConsumerRolesValue` em `env.ts`) e regista `INFO` `socket_consumer_roles_ensured_client` no arranque. |
 
+### `SOCKET_AUTH_REQUIRED` (opcional)
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `SOCKET_AUTH_REQUIRED` | `true` | Quando `false`, o middleware do namespace **`/agents`** pode aceitar ligacao **sem** token no handshake (modo desenvolvimento / compat). Em **produção** mantém `true`. O namespace **`/consumers`** continua a exigir JWT válido no handshake independentemente desta flag (ver `docs/socket_client_sdk.md`). |
+
 ### Checklist produção (smoke socket / Colmeia)
 
 1. **`SOCKET_CONSUMER_ROLES`**: no PID, confirmar o valor; se faltar o literal `client` na string, o runtime acrescenta (ver tabela acima) e o efeito final inclui `client`.
@@ -125,7 +131,7 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES`  | `2097152` | Soma maxima dos anexos inline por publicacao.                                             |
 | `REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES` | `524288`  | Teto UTF-8 do `payload` JSON antes de empacotar em `PayloadFrame`.                        |
 | `REST_SOCKET_EVENT_MAX_RECIPIENTS`         | `0`       | Teto opcional de fan-out local por publicacao. `0` = ilimitado; quando estoura, retorna `503`. |
-| `REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS`     | `300000`  | Janela em memoria para deduplicar `POST /client/me/socket-events` com `Idempotency-Key`. `0` desativa. |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS`     | `300000`  | Janela em memoria para deduplicar `POST /api/v1/client/me/socket-events` com `Idempotency-Key`. `0` desativa. |
 | `REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES` | `10000`  | Maximo de respostas idempotentes retidas por processo.                                    |
 
 Eventos publicados por esta rota chegam apenas a sockets `/consumers`

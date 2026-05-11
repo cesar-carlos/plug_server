@@ -11,7 +11,7 @@ O fluxo alvo no hub e:
 
 1. obter token via `POST /api/v1/auth/agent-login`
 2. conectar com `io("/agents")`
-3. autenticar no handshake com esse token
+3. autenticar no handshake com esse token; após sucesso o hub entra na sala `agent:principal:{JWT sub}` e só então emite `connection:ready` (mesma ideia que em `/consumers`: salas de identidade antes do ready)
 4. emitir `agent:register`
 5. aguardar `agent:capabilities`
 6. emitir `agent:ready` quando anunciar `extensions.protocolReadyAck`

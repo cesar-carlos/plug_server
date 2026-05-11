@@ -1,6 +1,6 @@
 # Socket Relay Protocol (N:1)
 
-Data: 2026-03-20
+Data: 2026-05-11
 
 ## Objetivo
 

@@ -12,7 +12,9 @@ Use os documentos nesta ordem:
 
 Para rotas HTTP, a referencia viva e o OpenAPI exposto em `GET /docs` e `GET /docs.json`.
 Os caminhos canonicos usam prefixo `/api/v1`, com excecao dos aliases de compatibilidade
-`/auth/*` e `/metrics`.
+`/auth/*`. O endpoint `GET /metrics` (Prometheus) esta em `/metrics` na raiz e tambem
+em `/api/v1/metrics` para alinhamento com o OpenAPI; em ambos os casos exige JWT com
+`role=admin`.
 
 ## Inicio rapido
 
@@ -23,6 +25,34 @@ Os caminhos canonicos usam prefixo `/api/v1`, com excecao dos aliases de compati
 - `docs/socket_client_sdk.md`: guia pratico para consumidor Socket.
 - `docs/configuration.md`: checklist de ambiente, defaults e links para `env.ts` / `.env.example`.
 - `CHANGELOG.md`: historico de mudancas que afetam contrato e operacao.
+
+## Superficie HTTP vs Socket
+
+A maior parte da API do produto expoe-se por **HTTP** (`/api/v1/...`, OpenAPI em `GET /docs`). O **Socket** cobre transporte em tempo real entre hub, **consumers** (`/consumers`) e **agentes** (`/agents`), nao substitui o REST inteiro.
+
+```mermaid
+flowchart LR
+  subgraph httpLayer [HTTP]
+    auth[Auth e sessao]
+    catalog[Catalogo e CRUD]
+    bridgeHttp[POST agents commands]
+    metricsHttp[Metrics e health HTTP]
+  end
+  subgraph socketLayer [Socket.IO]
+    agentsNs[Namespace agents]
+    consumersNs[Namespace consumers]
+  end
+  auth --> catalog
+  catalog --> bridgeHttp
+  httpLayer -.->|paridade limitada| socketLayer
+  consumersNs --> relay[relay conversa e RPC]
+  consumersNs --> legacy[agents command legado]
+  agentsNs --> plugAgente[plug_agente JSON-RPC]
+```
+
+- Visao de produto e canais: [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
+- Bridge REST e canal legado `agents:*`: [api_rest_bridge.md](api_rest_bridge.md).
+- Relay `relay:*`: [socket_relay_protocol.md](socket_relay_protocol.md).
 
 ## Por assunto
 
