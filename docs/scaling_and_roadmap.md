@@ -13,7 +13,9 @@ Estado explicitamente **por processo** hoje:
 - `conversationRegistry` (conversas relay e idle timeout)
 - pending requests REST/legacy socket
 - rooms Socket.IO (`client:<id>`, `consumer:principal:*`)
-- rooms de pub/sub customizado (`client:custom.*` assinado via `socket:event.subscribe`)
+- rooms de pub/sub customizado (`client:custom.*` assinado via `socket:event.subscribe`; apenas principals **Client** podem subscrever)
+- fila in-process de serializacao de publicacoes com `idempotencyKey` / `Idempotency-Key` (`client_socket_event_publish_idempotency_serialization`; **nao** partilhada entre replicas — ver nota em pub/sub abaixo)
+- joins em tempo real a `consumer:client-agent:{clientId}:{agentId}` quando um pedido de acesso e aprovado (`grantClientAccess` no processo que trata a aprovacao; ver `docs/scaling_and_roadmap.md`)
 - estado em memoria do limitador `socket:event.publish` (`client_socket_event_publish_socket_rate_limiter`; Redis opcional com scope `client_socket_event_publish`, chave de identidade `client:<JWT sub do Client>`)
 - `agentRegistry` e readiness/circuit local
 - mapa de idempotencia relay
@@ -55,9 +57,10 @@ O pub/sub customizado (`POST /api/v1/client/me/socket-events` ou `socket:event.p
 para `client:custom.*`) tambem e local ao processo quando nao ha adapter
 distribuido do Socket.IO. `recipients` conta somente sockets inscritos na mesma
 replica que recebeu o pedido. A idempotencia via `Idempotency-Key` (REST) ou `idempotencyKey` (Socket) tambem e cache
-em memoria por processo; em multi-replica, retries precisam cair na mesma
-replica para reaproveitar a resposta sem nova emissao. Use
+em memoria por processo; a **fila de serializacao** que evita dupla emissao concorrente com a mesma chave (`client_socket_event_publish_idempotency_serialization`) e igualmente **so neste processo** — em multi-replica, retries com a mesma chave devem preferencialmente aterrar no mesmo no para replay sem nova emissao **e** para nao contar como chaves distintas em excesso quando `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS` > 0. Use
 `REST_SOCKET_EVENT_MAX_RECIPIENTS` para proteger fan-out local em picos.
+
+**Salas `consumer:client-agent:*` apos aprovacao de acesso:** o handler `grantClientAccess` corre no processo que executa `approveByToken` / `approveByOwner`. So liga sockets **nessa** instancia (via `fetchSockets` na room `client:{clientId}`). Clientes com socket noutra replica continuam sem a nova room ate **reconnect** (ou ate o proximo evento que passe por esse no). Mitigacao operacional: **sticky sessions** para `/consumers` ou tolerar um reconnect apos aprovacao.
 
 **Proximos passos:** manter fail-open quando o Redis cair (politica conservadora: se store indisponivel, deixar passar e logar) para evitar transformar uma falha de cache num corte total de API. Para estado do bridge/relay Socket, o desenho ainda assume **sticky sessions** ou um numero de replicas baixo o suficiente para que o estado em memoria continue aceitavel.
 

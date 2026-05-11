@@ -8,6 +8,7 @@ import {
   setClientSocketEventPublishIdempotencyEntry,
   type ClientSocketEventPublishIdempotencyResponse,
 } from "./client_socket_event_idempotency_store";
+import { runWithClientSocketEventPublishIdempotencySerialization } from "./client_socket_event_publish_idempotency_serialization";
 import { env } from "../../shared/config/env";
 import { AppError } from "../../shared/errors/app_error";
 import { logger } from "../../shared/utils/logger";
@@ -28,7 +29,15 @@ const payloadTooLarge = (message: string): AppError =>
 export const assertClientSocketEventPublishInputWithinLimits = (
   body: ClientSocketEventPublishInput,
 ): void => {
-  const payloadSize = jsonUtf8ByteLength(body.payload);
+  let payloadSize: number;
+  try {
+    payloadSize = jsonUtf8ByteLength(body.payload);
+  } catch {
+    throw new AppError("socket event payload is not JSON-serializable", {
+      statusCode: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
   if (payloadSize > env.restSocketEventPayloadJsonMaxBytes) {
     throw payloadTooLarge("socket event payload exceeds JSON size limit");
   }
@@ -77,6 +86,22 @@ export const executeClientSocketEventPublish = async (params: {
   readonly body: ClientSocketEventPublishInput;
   readonly idempotencyKey?: string;
   /** Correlates with client `requestId` / HTTP request id in logs and PayloadFrame when set. */
+  readonly publishRequestId?: string;
+}): Promise<ClientSocketEventPublishOutcome> => {
+  if (params.idempotencyKey !== undefined) {
+    return runWithClientSocketEventPublishIdempotencySerialization(
+      params.clientId,
+      params.idempotencyKey,
+      () => executeClientSocketEventPublishUnsynchronized(params),
+    );
+  }
+  return executeClientSocketEventPublishUnsynchronized(params);
+};
+
+const executeClientSocketEventPublishUnsynchronized = async (params: {
+  readonly clientId: string;
+  readonly body: ClientSocketEventPublishInput;
+  readonly idempotencyKey?: string;
   readonly publishRequestId?: string;
 }): Promise<ClientSocketEventPublishOutcome> => {
   const { clientId, body, idempotencyKey, publishRequestId } = params;

@@ -99,6 +99,7 @@ import {
   buildConsumerClientAgentRoom,
   buildConsumerClientRoom as buildClientRoomName,
   buildConsumerPrincipalRoom as buildPrincipalRoomName,
+  joinConsumerClientAgentRoom,
 } from "./presentation/socket/hub/consumer_identity_rooms";
 import { buildCustomSocketEventRoom } from "./presentation/socket/hub/custom_socket_event_rooms";
 import {
@@ -119,6 +120,10 @@ import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_event
 import { container } from "./shared/di/container";
 import {
   getSocketConsumerMetricsSnapshot,
+  noteConsumerClientAgentRoomGrantAttempt,
+  noteConsumerClientAgentRoomGrantFetchFailed,
+  noteConsumerClientAgentRoomGrantJoinFailed,
+  noteConsumerClientAgentRoomGrantSocketsJoined,
   noteCustomSocketEventSubscriptionsRemoved,
   noteConsumerPendingCommandsAborted,
   noteConsumerProfilePushBatch,
@@ -1472,6 +1477,37 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         },
       );
     },
+    grantClientAccess: async (event) => {
+      noteConsumerClientAgentRoomGrantAttempt();
+      const clientRoom = buildClientRoomName(event.clientId);
+      try {
+        const sockets = await consumersNsp.in(clientRoom).fetchSockets();
+        for (const remote of sockets) {
+          try {
+            await joinConsumerClientAgentRoom(remote, {
+              clientId: event.clientId,
+              agentId: event.agentId,
+            });
+            noteConsumerClientAgentRoomGrantSocketsJoined(1);
+          } catch (error: unknown) {
+            noteConsumerClientAgentRoomGrantJoinFailed();
+            logger.warn("consumer_socket_client_agent_room_grant_failed", {
+              clientId: event.clientId,
+              agentId: event.agentId,
+              socketId: remote.id,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } catch (error: unknown) {
+        noteConsumerClientAgentRoomGrantFetchFailed();
+        logger.warn("consumer_socket_client_agent_room_grant_fetch_failed", {
+          clientId: event.clientId,
+          agentId: event.agentId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
   });
 
   registerConsumerSocketEventHandler({
@@ -1485,7 +1521,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         throw new AppError("socket event recipient fan-out limit exceeded", {
           statusCode: 503,
           code: "SERVICE_UNAVAILABLE",
-          details: { retry_after_ms: env.restSocketEventRateLimitWindowMs },
+          details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
         });
       }
       const frame = await encodePayloadFrameBridge(

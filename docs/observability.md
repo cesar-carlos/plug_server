@@ -54,6 +54,22 @@ rate(plug_socket_custom_event_publish_idempotent_replay_total[5m])
 
 # Nota: `plug_socket_custom_event_publish_via_socket_total` sobe apenas em publicacoes Socket que levam a uma **nova** emissao ao sink (nao conta `idempotentReplay: true`). `plug_socket_custom_event_publish_accepted_total` inclui REST e Socket apos emissao bem-sucedida.
 
+# Gauge: chaves distintas com cadeia de serializacao de idempotencia ainda activa neste processo (ver `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS`)
+plug_socket_custom_event_publish_idempotency_serialization_tracked_keys
+
+# Rejeicoes por teto de chaves distintas em serializacao (`503` ao publicar com nova chave quando o mapa esta cheio)
+rate(plug_socket_custom_event_publish_idempotency_serialization_cap_rejected_total[5m])
+# Nota: esse `503` inclui `details.retry_after_ms` = `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS`; no REST o hub pode tambem definir o header `Retry-After`.
+
+# Aprovacao de acesso client-agent: joins em tempo real na room `consumer:client-agent:*` (por processo; ver docs de escala)
+rate(plug_socket_consumer_client_agent_room_grant_attempts_total[5m])
+rate(plug_socket_consumer_client_agent_room_grant_join_failures_total[5m])
+rate(plug_socket_consumer_client_agent_room_grant_fetch_failures_total[5m])
+
+# Subscricoes custom: 403 (principal nao-Client) vs outras rejeicoes
+rate(plug_socket_custom_event_subscription_forbidden_total[5m])
+rate(plug_socket_custom_event_subscription_rejected_total[5m])
+
 # Pulls internos ao materializar stream SQL via REST
 rate(plug_rest_sql_stream_materialize_pulls_total[5m])
 rate(plug_rest_sql_stream_materialize_completed_total[5m])

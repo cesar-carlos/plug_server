@@ -33,6 +33,7 @@ import {
   noteCustomSocketEventPublishViaSocket,
 } from "../../../../../src/shared/metrics/socket_consumer.metrics";
 import { assertClientSocketEventPublishInputWithinLimits } from "../../../../../src/application/services/client_socket_event_publish.service";
+import { env } from "../../../../../src/shared/config/env";
 
 const mockedExecute = vi.mocked(executeClientSocketEventPublish);
 const mockedAssertLimits = vi.mocked(assertClientSocketEventPublishInputWithinLimits);
@@ -50,6 +51,7 @@ const flushMicrotasks = async (): Promise<void> => {
 const buildClientSocket = (): Socket =>
   ({
     id: "sock-1",
+    connected: true,
     data: {
       user: {
         sub: "client-sub-xyz",
@@ -174,5 +176,60 @@ describe("handleCustomSocketEventPublish", () => {
     await flushMicrotasks();
 
     expect(mockedRefund).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleCustomSocketEventPublish dedicated inflight", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedAssertLimits.mockImplementation(() => undefined);
+    mockedAllow.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    (env as { socketCustomEventPublishMaxInflightPerSocket: number }).socketCustomEventPublishMaxInflightPerSocket = 0;
+  });
+
+  it("should reject second publish when dedicated cap is 1 and first is still in flight", () => {
+    (env as { socketCustomEventPublishMaxInflightPerSocket: number }).socketCustomEventPublishMaxInflightPerSocket = 1;
+    mockedExecute.mockImplementation(
+      () =>
+        new Promise(() => {
+          /* never resolves */
+        }),
+    );
+
+    const socket = buildClientSocket();
+    handleCustomSocketEventPublish(socket, validPublishPayload);
+    handleCustomSocketEventPublish(socket, { ...validPublishPayload, requestId: "req-2" });
+
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventPublished,
+      expect.objectContaining({
+        success: false,
+        requestId: "req-2",
+        error: expect.objectContaining({
+          code: "RATE_LIMITED",
+          message: "Custom publish concurrent limit exceeded",
+        }),
+      }),
+    );
+  });
+
+  it("should not emit published ack when socket is disconnected", async () => {
+    mockedExecute.mockResolvedValue({
+      success: true,
+      eventId: "e3",
+      eventName: "client:custom.handler.unit",
+      recipients: 0,
+      idempotentReplay: false,
+    });
+
+    const socket = buildClientSocket();
+    handleCustomSocketEventPublish(socket, validPublishPayload);
+    (socket as { connected: boolean }).connected = false;
+    await flushMicrotasks();
+
+    expect(socket.emit).not.toHaveBeenCalled();
   });
 });

@@ -37,6 +37,7 @@ Emitido imediatamente após autenticacao bem-sucedida. **Desde versao mais recen
 No caso de principals `client`, o hub entra primeiro na room `client:<clientId>` e
 so depois emite `connection:ready`; ao receber esse evento, o cliente ja esta apto
 para receber `client:agent.profile.updated` sem race de room join.
+Para cada par `(clientId, agentId)` com acesso aprovado, o hub entra tambem na room `consumer:client-agent:{clientId}:{agentId}` no connect. Quando o acesso e **concedido** (aprovacao por token ou pelo dono) enquanto o cliente ja tem sessao `/consumers` aberta, o servidor repete esse `join` **sem exigir reconnect**.
 
 **Payload lógico após decode**:
 
@@ -104,16 +105,16 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 - `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`, `inFlight`)
 - `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`, `rateLimit`) ou erro
 - `socket:event.subscribe` -> `{ requestId, eventName }`
-- `socket:event.subscribed` -> `{ success, requestId, data: { eventName, subscribed: true } }` ou erro
+- `socket:event.subscribed` -> `{ success, requestId, data: { eventName, subscribed, alreadySubscribed? }, error? }` — `alreadySubscribed: true` quando o socket ja estava inscrito nesse `eventName` (re-subscribe idempotente; a metrica `plug_socket_custom_event_subscribed_total` nao incrementa de novo)
 - `socket:event.unsubscribe` -> `{ requestId, eventName }`
-- `socket:event.unsubscribed` -> `{ success, requestId, data: { eventName, subscribed: false } }` ou erro
+- `socket:event.unsubscribed` -> `{ success, requestId, data: { eventName, subscribed: false, wasSubscribed }, error? }` — `wasSubscribed` indica se havia entrada local no registo antes do `leave` (falso = unsubscribe idempotente sem subscricao previa)
 - `socket:event.publish` -> `{ requestId, eventName, payload, idempotencyKey?, payloadFrameCompression?, attachments? }` (JSON; apenas principal `client`)
 - `socket:event.published` -> `{ success, requestId, data?: { eventId, eventName, recipients, idempotencyKey?, idempotentReplay }, error? }` (ack; nao `PayloadFrame`)
 
 ## Pub/sub customizado REST ou Socket
 
 O namespace `/consumers` tambem oferece um pub/sub simples para eventos de
-aplicacao. Sockets autenticados assinam eventos `client:custom.*`; um `Client`
+aplicacao. Sockets autenticados como **Client** (`principal_type: client`) assinam eventos `client:custom.*`; um `Client`
 publica via **`POST /api/v1/client/me/socket-events`** (REST) **ou**
 **`socket:event.publish`** no `/consumers` com o mesmo JWT; o hub emite o
 evento dinamico para todos os sockets locais inscritos.
@@ -125,7 +126,8 @@ Regras:
   `connection:*`, `app:*`, `client:agent.*`, `socket:event.*`) ficam fora do
   prefixo aceito e nao podem ser publicados;
 - subscribe/unsubscribe/publish usam JSON puro com envelope de ack no subscribe/unsubscribe e em `socket:event.published` para publish;
-- `socket:event.publish` aplica o mesmo limite de inflight que outros handlers (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) e um rate limit **separado** do Express; por defeito usam-se as mesmas env numericas que `POST /client/me/socket-events` (`REST_SOCKET_EVENT_RATE_LIMIT_*`), com overrides opcionais **só Socket** `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` (ver `docs/configuration.md`); com `SOCKET_RATE_LIMIT_REDIS_URL`, o scope Redis e `client_socket_event_publish` e a chave de identidade e `client:<JWT sub do Client>`; apos consumir quota, falhas **transientes** do publish (ex.: `503` fan-out local) **devolvem** a contagem na janela; conflitos de idempotencia (`409` / `IDEMPOTENCY_KEY_CONFLICT`) **nao** devolvem quota (erro de cliente);
+- `socket:event.subscribe` / `socket:event.unsubscribe` aceitam apenas principal **Client** (JWT com `principal_type: client` e `sub`); `user`/`admin` recebem `403` / `FORBIDDEN` sem consumir o rate limit de subscribe;
+- `socket:event.publish` aplica o limite de inflight partilhado (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) **ou**, quando `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` > 0, um contador **dedicado** so para publicacoes custom (relay/comandos nao consomem esse teto; com **ambos** > 0 os contadores somam no maximo em voo); e um rate limit **separado** do Express; por defeito usam-se as mesmas env numericas que `POST /client/me/socket-events` (`REST_SOCKET_EVENT_RATE_LIMIT_*`), com overrides opcionais **só Socket** `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` (ver `docs/configuration.md`); com `SOCKET_RATE_LIMIT_REDIS_URL`, o scope Redis e `client_socket_event_publish` e a chave de identidade e `client:<JWT sub do Client>`; apos consumir quota, falhas **transientes** do publish (ex.: `503` fan-out local) **devolvem** a contagem na janela; conflitos de idempotencia (`409` / `IDEMPOTENCY_KEY_CONFLICT`) **nao** devolvem quota (erro de cliente);
 - antes do parse Zod, o hub rejeita envelopes JSON brutos acima de um teto derivado dos limites REST (`PAYLOAD_TOO_LARGE` / `413` no ack) para cortar cargas maliciosas cedo;
 - cada socket tem limite configuravel de inscricoes simultaneas
   (`SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET`) e rate limit local para
@@ -134,12 +136,12 @@ Regras:
 - payload logico do frame: `{ eventId, eventName, emittedAt, publisher, payload, attachments }`;
 - `publisher` e derivado do JWT do `Client`, nunca do corpo da publicacao;
 - `attachments` sao inline e pequenos (`base64`); no REST vêm de multipart; no Socket podem ir no array `attachments` com o mesmo shape logico;
-- a resposta REST ou o ack `socket:event.published` confirmam emissao local no hub, nao processamento por listeners;
-- **Idempotencia unificada (REST e Socket):** o cache em memoria e partilhado por `clientId` (JWT `sub` do `Client`) e pela mesma chave logica: cabecalho HTTP `Idempotency-Key` e campo `idempotencyKey` no `socket:event.publish` escrevem na **mesma** entrada (`client_socket_event_idempotency_store`). O corpo e resumido por fingerprint (SHA-256 canónico); repetir a chave noutro canal com o mesmo corpo devolve replay sem nova emissao; corpo divergente devolve `409` / `IDEMPOTENCY_KEY_CONFLICT` em qualquer canal. Cuidado em migracoes e testes para nao reutilizar chaves globais entre canais sem querer.
+- a resposta REST ou o ack `socket:event.published` confirmam emissao local no hub, nao processamento por listeners; se o socket fechar antes do hub emitir o ack, o cliente pode nao receber `socket:event.published` (o hub evita escrever num socket ja desligado);
+- **Idempotencia unificada (REST e Socket):** o cache em memoria e partilhado por `clientId` (JWT `sub` do `Client`) e pela mesma chave logica: cabecalho HTTP `Idempotency-Key` e campo `idempotencyKey` no `socket:event.publish` escrevem na **mesma** entrada (`client_socket_event_idempotency_store`). O corpo e resumido por fingerprint (SHA-256 canónico); repetir a chave noutro canal com o mesmo corpo devolve replay sem nova emissao; corpo divergente devolve `409` / `IDEMPOTENCY_KEY_CONFLICT` em qualquer canal. Com `REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS` > 0, publicacoes **concorrentes** no mesmo processo com a mesma chave passam por **fila por chave** (`client_socket_event_publish_idempotency_serialization`) para nao emitir duas vezes antes da escrita no cache; quando a cadeia termina, a entrada do mapa e removida (chaves unicas nao acumulam para sempre). Com TTL **`0`**, nao ha replay guardado: pedidos **sequenciais** com a mesma chave podem **emitir de novo** (a fila so protege concorrencia). Opcional: `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS` > 0 limita quantas chaves **distintas** podem estar em serializacao em simultaneo neste processo; em excesso, novas chaves recebem `503` / `SERVICE_UNAVAILABLE` com `error.details.retry_after_ms` = `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS` (como no `503` de fan-out). Quando `REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES` enche, o hub remove entradas pela **ordem de insercao** do mapa (nao por expiracao mais antiga). **Nao** substitui coordenacao entre replicas (ver escala). Cuidado em migracoes e testes para nao reutilizar chaves globais entre canais sem querer.
 - `Idempotency-Key` no REST **ou** campo `idempotencyKey` no `socket:event.publish` evita emissao duplicada em retry; replay retorna
   `idempotentReplay: true`, e reuso da chave com outro corpo retorna `409` (REST) ou `success: false` com `IDEMPOTENCY_KEY_CONFLICT` (Socket);
 - `REST_SOCKET_EVENT_MAX_RECIPIENTS` pode limitar fan-out local e rejeitar com
-  `503` quando houver inscritos demais;
+  `503` quando houver inscritos demais; `error.details.retry_after_ms` usa `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS` (por defeito `2000`), independentemente da janela `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS`;
 - convencao de produto: nomes `client:custom.*` sao **globais** por hub para quem subscreve o mesmo `eventName`; prefira prefixar por tenant ou cliente (ex.: `client:custom.acme-tenant.notifications`) para evitar colisao entre tenants.
 
 Sem adapter distribuido do Socket.IO, o pub/sub e por processo: uma publicacao

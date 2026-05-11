@@ -46,6 +46,7 @@ describe("AuthService socket revocation", () => {
     registerConsumerSocketControlHandler({
       disconnectPrincipal: disconnectConsumer,
       revokeClientAccess: vi.fn(),
+      grantClientAccess: vi.fn(),
     });
 
     const service = makeService({ ok: true, value: blockedUser });

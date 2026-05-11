@@ -388,6 +388,7 @@ describe("ClientAuthService account and approval paths", () => {
     registerConsumerSocketControlHandler({
       disconnectPrincipal,
       revokeClientAccess: vi.fn().mockResolvedValue(undefined),
+      grantClientAccess: vi.fn(),
     });
 
     const activeClient = createClient({ id: "managed-client-id", email: "managed@test.com" });

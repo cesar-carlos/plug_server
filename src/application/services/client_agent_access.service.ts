@@ -50,7 +50,7 @@ import {
 } from "../../shared/metrics/client_agent_access_public_decision.metrics";
 import { recordClientAgentAccessRequestPost } from "../../shared/metrics/client_agent_access_request.metrics";
 import { recordSocketAuditEvent } from "./socket_audit.service";
-import { revokeConsumerClientAccessSockets } from "./consumer_socket_control_sink";
+import { revokeConsumerClientAccessSockets, grantConsumerClientAccessRooms } from "./consumer_socket_control_sink";
 import {
   assertAgentEligibleForClientAccessGrant,
   assertClientEligibleForClientAccessGrant,
@@ -763,6 +763,10 @@ export class ClientAgentAccessService {
       }
 
       await this.notifyClientAccessApproved(client.email, request.agentId);
+      await grantConsumerClientAccessRooms({
+        clientId: request.clientId,
+        agentId: request.agentId,
+      });
       this.recordPublicDecisionOutcome("approve", "approved", startedAtMs);
       this.logClientAccessDecision("client_access_token_decision_finished", {
         ...baseLog,
@@ -1024,6 +1028,10 @@ export class ClientAgentAccessService {
     }
 
     await this.notifyClientAccessApproved(client.email, request.agentId);
+    await grantConsumerClientAccessRooms({
+      clientId: request.clientId,
+      agentId: request.agentId,
+    });
     return ok({ clientEmail: client.email, agentId: request.agentId });
   }
 

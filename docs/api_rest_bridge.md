@@ -1454,7 +1454,7 @@ Campos de arquivo diferentes de `files` sao rejeitados.
 Sem adapter distribuido do Socket.IO, a publicacao e local a replica que recebeu
 o pedido (REST ou Socket). A resposta `202` ou o ack `socket:event.published` confirmam emissao local e incluem `recipients`; nao
 confirma processamento pelo listener do cliente. O fan-out local pode ser
-limitado por `REST_SOCKET_EVENT_MAX_RECIPIENTS`.
+limitado por `REST_SOCKET_EVENT_MAX_RECIPIENTS`; nesse `503`, `details.retry_after_ms` segue `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS` (por defeito `2000`). Outro `503` raro: `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS` > 0 e demasiadas chaves de idempotencia **distintas** em voo no mesmo processo — o mesmo `retry_after_ms` e usado como sugestao de backoff (e o hub pode enviar `Retry-After` no REST).
 
 ### Rate limit do endpoint commands
 

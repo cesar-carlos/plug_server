@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { env } from "../../shared/config/env";
+import { AppError } from "../../shared/errors/app_error";
 import type { ClientSocketEventPublishInput } from "../../shared/validators/custom_socket_event";
 
 export interface ClientSocketEventPublishIdempotencyResponse {
@@ -24,12 +25,20 @@ const buildStoreKey = (clientId: string, idempotencyKey: string): string =>
 export const buildClientSocketEventPublishFingerprint = (
   input: ClientSocketEventPublishInput,
 ): string => {
-  const canonical = JSON.stringify({
-    eventName: input.eventName,
-    payloadFrameCompression: input.payloadFrameCompression ?? null,
-    payload: input.payload,
-    attachments: input.attachments,
-  });
+  let canonical: string;
+  try {
+    canonical = JSON.stringify({
+      eventName: input.eventName,
+      payloadFrameCompression: input.payloadFrameCompression ?? null,
+      payload: input.payload,
+      attachments: input.attachments,
+    });
+  } catch {
+    throw new AppError("socket event publish body cannot be fingerprinted (non-JSON-serializable)", {
+      statusCode: 400,
+      code: "VALIDATION_ERROR",
+    });
+  }
   return createHash("sha256").update(canonical).digest("hex");
 };
 

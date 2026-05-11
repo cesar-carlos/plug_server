@@ -12,6 +12,7 @@ import { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/
 import { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
+import { getClientSocketEventPublishIdempotencySerializationTrackedKeyCount } from "../../../application/services/client_socket_event_publish_idempotency_serialization";
 import { getSocketMetricsSnapshot } from "../../../socket";
 
 const escapePrometheusLabelValue = (value: string): string =>
@@ -763,6 +764,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_socket_custom_event_subscription_forbidden_total",
+      consumerRuntime.customEvents.subscriptionForbiddenTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_socket_custom_event_publish_accepted_total",
       consumerRuntime.customEvents.publishAcceptedTotal,
     ),
@@ -795,6 +802,42 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_custom_event_publish_via_socket_total",
       consumerRuntime.customEvents.publishViaSocketTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_idempotency_serialization_cap_rejected_total",
+      consumerRuntime.customEvents.publishIdempotencySerializationCapRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_idempotency_serialization_tracked_keys",
+      getClientSocketEventPublishIdempotencySerializationTrackedKeyCount(),
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_grant_attempts_total",
+      consumerRuntime.consumerClientAgentRoomGrant.attemptsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_grant_sockets_joined_total",
+      consumerRuntime.consumerClientAgentRoomGrant.socketsJoinedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_grant_join_failures_total",
+      consumerRuntime.consumerClientAgentRoomGrant.joinFailuresTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_grant_fetch_failures_total",
+      consumerRuntime.consumerClientAgentRoomGrant.fetchFailuresTotal,
     ),
   );
   const recipientHist = consumerRuntime.publishRecipientsHistogram;

@@ -7,6 +7,7 @@ import { registerOwnerAndClientSession } from "./helpers/client_sessions";
 import { decodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { resetClientSocketEventPublishIdempotencyStore } from "../../src/application/services/client_socket_event_idempotency_store";
+import { resetClientSocketEventPublishIdempotencySerializationQueues } from "../../src/application/services/client_socket_event_publish_idempotency_serialization";
 import { resetClientSocketEventPublishSocketRateLimitState } from "../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter";
 
 vi.mock("../../src/shared/config/env", async (importOriginal) => {
@@ -81,6 +82,7 @@ describe("Client Socket socket:event.publish inflight gate", () => {
       socket.disconnect();
     }
     resetClientSocketEventPublishIdempotencyStore();
+    resetClientSocketEventPublishIdempotencySerializationQueues();
     resetClientSocketEventPublishSocketRateLimitState();
     await server.close();
   });

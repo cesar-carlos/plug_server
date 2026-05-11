@@ -91,6 +91,15 @@ const recordRedisCommandSuccess = (): void => {
 
 const normalizeKey = (key: string): string => key.replace(/[^A-Za-z0-9:_-]/g, "_");
 
+/** Single round-trip: avoids a successful `DECRBY` followed by a failed `DEL` retrying and decrementing twice. */
+const SOCKET_RATE_LIMIT_REFUND_SCRIPT = `
+local v = redis.call('DECRBY', KEYS[1], tonumber(ARGV[1]))
+if v <= 0 then
+  redis.call('DEL', KEYS[1])
+end
+return v
+`;
+
 export const consumeSocketRateLimitRedis = async (
   input: SocketRateLimitRedisConsumeInput,
 ): Promise<SocketRateLimitRedisConsumeResult | null> => {
@@ -147,18 +156,30 @@ export const refundSocketRateLimitRedis = async (input: {
   }
   const cost = Math.max(1, Math.floor(input.cost ?? 1));
   const redisKey = `plug_socket_rl:${input.scope}:${normalizeKey(input.key)}`;
-  try {
-    const next = await client.decrBy(redisKey, cost);
-    if (Number(next) <= 0) {
-      await client.del(redisKey);
+
+  const attemptRefund = async (): Promise<boolean> => {
+    try {
+      await client.eval(SOCKET_RATE_LIMIT_REFUND_SCRIPT, {
+        keys: [redisKey],
+        arguments: [String(cost)],
+      });
+      recordRedisCommandSuccess();
+      return true;
+    } catch (error: unknown) {
+      recordRedisCommandFailure(error);
+      logger.warn("socket_rate_limit_redis_refund_error", {
+        scope: input.scope,
+        message: toSafeErrorMessage(error),
+      });
+      return false;
     }
-    recordRedisCommandSuccess();
-  } catch (error: unknown) {
-    recordRedisCommandFailure(error);
-    logger.warn("socket_rate_limit_redis_refund_error", {
-      scope: input.scope,
-      message: toSafeErrorMessage(error),
+  };
+
+  if (!(await attemptRefund())) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 40);
     });
+    await attemptRefund();
   }
 };
 

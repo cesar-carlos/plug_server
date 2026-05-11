@@ -216,6 +216,27 @@ describe("ClientAgentAccessService", () => {
     expect(hasAccess).toBe(true);
   });
 
+  it("notifies hub to join client-agent room after token approval", async () => {
+    const grantClientAccess = vi.fn().mockResolvedValue(undefined);
+    registerConsumerSocketControlHandler({
+      disconnectPrincipal: vi.fn(),
+      revokeClientAccess: vi.fn(),
+      grantClientAccess,
+    });
+
+    const requestResult = await service.requestAccess(clientId, [agentId]);
+    expect(requestResult.ok).toBe(true);
+    const token = emailSender.ownerAccessRequests[0]?.token;
+    expect(token).toBeTruthy();
+
+    const approved = await service.approveByToken(token!);
+    expect(approved.ok).toBe(true);
+    expect(grantClientAccess).toHaveBeenCalledWith({
+      clientId,
+      agentId,
+    });
+  });
+
   it("reopens pending when access row was removed after a prior approval", async () => {
     const requestResult = await service.requestAccess(clientId, [agentId]);
     expect(requestResult.ok).toBe(true);
@@ -269,6 +290,7 @@ describe("ClientAgentAccessService", () => {
       revokeClientAccess: async (event) => {
         revokedEvents.push({ clientId: event.clientId, agentId: event.agentId });
       },
+      grantClientAccess: vi.fn(),
     });
 
     await accessRepository.addAccess(clientId, agentId);
@@ -285,6 +307,7 @@ describe("ClientAgentAccessService", () => {
     registerConsumerSocketControlHandler({
       disconnectPrincipal: vi.fn(),
       revokeClientAccess,
+      grantClientAccess: vi.fn(),
     });
 
     const remove = await service.removeApprovedAccess(clientId, [agentId]);

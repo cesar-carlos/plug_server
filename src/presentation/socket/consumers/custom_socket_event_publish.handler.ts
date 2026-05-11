@@ -21,8 +21,11 @@ import {
   toClientSocketEventPublishInput,
 } from "../../../shared/validators/custom_socket_event";
 import {
+  releaseCustomPublishInflightSlot,
   releaseSocketInflightSlot,
+  tryAcquireCustomPublishInflightSlot,
   tryAcquireSocketInflightSlot,
+  type SocketWithCustomPublishInflight,
   type SocketWithInflightCounter,
 } from "./per_socket_inflight_gate";
 import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
@@ -55,7 +58,11 @@ type PublishedAck =
       };
     };
 
-const emitPublished = (socket: Socket, payload: PublishedAck): void => {
+/** Avoids writing to a disconnected Engine.IO client (e.g. publish completed after `disconnect`). */
+const emitPublishedIfConnected = (socket: Socket, payload: PublishedAck): void => {
+  if (!socket.connected) {
+    return;
+  }
   socket.emit(socketEvents.socketEventPublished, payload);
 };
 
@@ -91,7 +98,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
   const rawBytes = jsonUtf8ByteLengthOrNull(rawPayload);
   if (rawBytes === null || rawBytes > env.socketEventPublishRawJsonMaxBytes) {
     noteCustomSocketEventPublishRejected();
-    emitPublished(socket, {
+    emitPublishedIfConnected(socket, {
       success: false,
       ...(requestIdFallback !== undefined ? { requestId: requestIdFallback } : {}),
       error: {
@@ -110,7 +117,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
     const message = firstIssue
       ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
       : "Validation failed";
-    emitPublished(socket, {
+    emitPublishedIfConnected(socket, {
       success: false,
       ...(requestIdFallback !== undefined ? { requestId: requestIdFallback } : {}),
       error: { code: "VALIDATION_ERROR", message },
@@ -123,7 +130,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
 
   if (user?.principal_type !== "client" || typeof user.sub !== "string" || user.sub.trim() === "") {
     noteCustomSocketEventPublishRejected();
-    emitPublished(socket, {
+    emitPublishedIfConnected(socket, {
       success: false,
       requestId,
       error: {
@@ -136,15 +143,24 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
   }
 
   const clientSub = user.sub.trim();
-  const inflightSocket = socket as SocketWithInflightCounter;
-  if (!tryAcquireSocketInflightSlot(inflightSocket, env.socketConsumerMaxInflightPerSocket)) {
+  const publishInflightMax = env.socketCustomEventPublishMaxInflightPerSocket;
+  const useDedicatedPublishInflight = publishInflightMax > 0;
+  const inflightSocket = socket as SocketWithInflightCounter & SocketWithCustomPublishInflight;
+
+  const acquiredInflight = useDedicatedPublishInflight
+    ? tryAcquireCustomPublishInflightSlot(inflightSocket, publishInflightMax)
+    : tryAcquireSocketInflightSlot(inflightSocket, env.socketConsumerMaxInflightPerSocket);
+
+  if (!acquiredInflight) {
     noteCustomSocketEventPublishRejected();
-    emitPublished(socket, {
+    emitPublishedIfConnected(socket, {
       success: false,
       requestId,
       error: {
         code: "RATE_LIMITED",
-        message: "Per-socket inflight gate exceeded",
+        message: useDedicatedPublishInflight
+          ? "Custom publish concurrent limit exceeded"
+          : "Per-socket inflight gate exceeded",
         statusCode: 429,
       },
     });
@@ -159,7 +175,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
       } catch (error: unknown) {
         noteCustomSocketEventPublishRejected();
         if (error instanceof AppError) {
-          emitPublished(socket, {
+          emitPublishedIfConnected(socket, {
             success: false,
             requestId,
             error: {
@@ -170,7 +186,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
           });
           return;
         }
-        emitPublished(socket, {
+        emitPublishedIfConnected(socket, {
           success: false,
           requestId,
           error: { code: "VALIDATION_ERROR", message: "Invalid socket event publish request" },
@@ -181,7 +197,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
       const allowed = await allowClientSocketEventPublishSocketAsync(clientSub);
       if (!allowed) {
         noteCustomSocketEventPublishRejected();
-        emitPublished(socket, {
+        emitPublishedIfConnected(socket, {
           success: false,
           requestId,
           error: {
@@ -209,7 +225,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
         if (!outcome.idempotentReplay) {
           noteCustomSocketEventPublishViaSocket();
         }
-        emitPublished(socket, {
+        emitPublishedIfConnected(socket, {
           success: true,
           requestId,
           data: {
@@ -228,7 +244,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
         }
         if (error instanceof AppError) {
           const retryAfterMs = resolveAppErrorRetryAfterMs(error);
-          emitPublished(socket, {
+          emitPublishedIfConnected(socket, {
             success: false,
             requestId,
             error: {
@@ -240,18 +256,22 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
           });
           return;
         }
-        emitPublished(socket, {
+        emitPublishedIfConnected(socket, {
           success: false,
           requestId,
           error: { code: "INTERNAL_SERVER_ERROR", message: "Unexpected error publishing event" },
         });
       }
     } finally {
-      releaseSocketInflightSlot(inflightSocket);
+      if (useDedicatedPublishInflight) {
+        releaseCustomPublishInflightSlot(inflightSocket);
+      } else {
+        releaseSocketInflightSlot(inflightSocket);
+      }
     }
   })().catch(() => {
     noteCustomSocketEventPublishRejected();
-    emitPublished(socket, {
+    emitPublishedIfConnected(socket, {
       success: false,
       requestId,
       error: { code: "INTERNAL_SERVER_ERROR", message: "Unexpected error publishing event" },

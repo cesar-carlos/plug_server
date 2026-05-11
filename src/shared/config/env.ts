@@ -157,6 +157,16 @@ const envSchema = z.object({
     .default(512 * 1024),
   /** `0` = do not cap local recipient fan-out for one custom socket event publish. */
   REST_SOCKET_EVENT_MAX_RECIPIENTS: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  /**
+   * Hint `retry_after_ms` when local fan-out exceeds {@link REST_SOCKET_EVENT_MAX_RECIPIENTS} (REST or Socket publish).
+   * Independent from `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS` (rate limit window is unrelated to subscription churn).
+   */
+  REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3_600_000)
+    .default(2_000),
   /** `0` = disable REST socket event idempotency cache. */
   REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS: z.coerce
     .number()
@@ -170,6 +180,17 @@ const envSchema = z.object({
     .min(1)
     .max(1_000_000)
     .default(10_000),
+  /**
+   * Max distinct `(clientId, idempotencyKey)` serialization chains tracked at once on this process.
+   * `0` = unlimited. When exceeded, new **distinct** keys receive `503` until in-flight publishes complete.
+   * Does not replace cross-replica coordination (see scaling docs).
+   */
+  REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(1_000_000)
+    .default(0),
   /**
    * Optional fixed-window (ms) for `socket:event.publish` only. When unset/empty, mirrors
    * `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS` (same default, separate counter bucket).
@@ -441,6 +462,17 @@ const envSchema = z.object({
    * Set `0` to disable the gate (legacy behaviour: unbounded inflight per socket).
    */
   SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET: z.coerce.number().int().min(0).max(10_000).default(32),
+  /**
+   * Dedicated async cap for `socket:event.publish` only. When `0` (default), publish shares
+   * {@link SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET} with relay/command handlers. When > 0, publish
+   * uses this counter only so relay traffic cannot starve custom publishes (and vice versa for the shared cap).
+   */
+  SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000)
+    .default(0),
   /** Max custom `client:custom.*` subscriptions retained per consumer socket. `0` = unlimited. */
   SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET: z.coerce
     .number()
@@ -939,8 +971,11 @@ export const env = {
   restSocketEventTotalFilesMaxBytes: parsedEnv.REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES,
   restSocketEventPayloadJsonMaxBytes: parsedEnv.REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES,
   restSocketEventMaxRecipients: parsedEnv.REST_SOCKET_EVENT_MAX_RECIPIENTS,
+  restSocketEventFanoutRetryAfterMs: parsedEnv.REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS,
   restSocketEventIdempotencyTtlMs: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS,
   restSocketEventIdempotencyMaxEntries: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES,
+  restSocketEventIdempotencySerializationMaxKeys:
+    parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS,
   socketCustomEventPublishRateLimitWindowMs:
     parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_WINDOW_MS ??
     parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS,
@@ -995,6 +1030,8 @@ export const env = {
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,
+  socketCustomEventPublishMaxInflightPerSocket:
+    parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET,
   socketCustomEventMaxSubscriptionsPerSocket:
     parsedEnv.SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET,
   socketCustomEventSubscriptionRateLimitWindowMs:

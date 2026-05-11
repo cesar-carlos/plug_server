@@ -3,6 +3,7 @@ import type { Socket } from "socket.io";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import {
+  noteCustomSocketEventSubscriptionForbidden,
   noteCustomSocketEventSubscriptionRejected,
   noteCustomSocketEventSubscribed,
   noteCustomSocketEventUnsubscribed,
@@ -17,11 +18,25 @@ import {
   removeCustomSocketEventSubscription,
 } from "../hub/custom_socket_event_subscription_registry";
 
+const isClientPrincipalForCustomSocketEvents = (socket: Socket): boolean => {
+  const user = socket.data.user;
+  return (
+    user?.principal_type === "client" &&
+    typeof user.sub === "string" &&
+    user.sub.trim() !== ""
+  );
+};
+
 type SubscriptionResponse =
   | {
       readonly success: true;
       readonly requestId: string;
-      readonly data: { readonly eventName: string; readonly subscribed: boolean };
+      readonly data: {
+        readonly eventName: string;
+        readonly subscribed: boolean;
+        readonly alreadySubscribed?: boolean;
+        readonly wasSubscribed?: boolean;
+      };
     }
   | {
       readonly success: false;
@@ -93,6 +108,21 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
   }
 
   const { eventName, requestId } = parsed.value;
+
+  if (!isClientPrincipalForCustomSocketEvents(socket)) {
+    noteCustomSocketEventSubscriptionForbidden();
+    emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
+      success: false,
+      requestId,
+      error: {
+        code: "FORBIDDEN",
+        message: "Only Client principals may subscribe to custom socket events",
+        statusCode: 403,
+      },
+    });
+    return;
+  }
+
   const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
   if (!allowance.allowed) {
     noteCustomSocketEventSubscriptionRejected();
@@ -136,13 +166,18 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
 
   void Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)))
     .then(() => {
-      if (addCustomSocketEventSubscription(socket.id, eventName)) {
+      const addedNew = addCustomSocketEventSubscription(socket.id, eventName);
+      if (addedNew) {
         noteCustomSocketEventSubscribed();
       }
       emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
         success: true,
         requestId,
-        data: { eventName, subscribed: true },
+        data: {
+          eventName,
+          subscribed: true,
+          ...(addedNew ? {} : { alreadySubscribed: true as const }),
+        },
       });
     })
     .catch((error: unknown) => {
@@ -171,6 +206,21 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
   }
 
   const { eventName, requestId } = parsed.value;
+
+  if (!isClientPrincipalForCustomSocketEvents(socket)) {
+    noteCustomSocketEventSubscriptionForbidden();
+    emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
+      success: false,
+      requestId,
+      error: {
+        code: "FORBIDDEN",
+        message: "Only Client principals may unsubscribe from custom socket events",
+        statusCode: 403,
+      },
+    });
+    return;
+  }
+
   const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
   if (!allowance.allowed) {
     noteCustomSocketEventSubscriptionRejected();
@@ -194,13 +244,14 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
 
   void Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)))
     .then(() => {
-      if (removeCustomSocketEventSubscription(socket.id, eventName)) {
+      const wasSubscribed = removeCustomSocketEventSubscription(socket.id, eventName);
+      if (wasSubscribed) {
         noteCustomSocketEventUnsubscribed();
       }
       emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
         success: true,
         requestId,
-        data: { eventName, subscribed: false },
+        data: { eventName, subscribed: false, wasSubscribed },
       });
     })
     .catch((error: unknown) => {

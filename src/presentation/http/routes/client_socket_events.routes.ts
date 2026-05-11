@@ -87,7 +87,11 @@ export const clientSocketEventsRouter = Router();
  *       429:
  *         $ref: '#/components/responses/TooManyRequests'
  *       503:
- *         description: Local custom event fan-out limit exceeded
+ *         description: |
+ *           Service unavailable for this publish attempt: local custom event fan-out limit exceeded
+ *           (`retry_after_ms` from `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS`, default 2000), or too many
+ *           concurrent distinct idempotency keys on this process (`REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS` > 0).
+ *           When the error carries `retry_after_ms` in `details`, the hub may also set the HTTP `Retry-After` header (seconds).
  *         content:
  *           application/json:
  *             schema:

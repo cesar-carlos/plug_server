@@ -12,6 +12,7 @@ const setupSocketRedisModule = async (): Promise<{
     readonly pTTL: ReturnType<typeof vi.fn>;
     readonly decrBy: ReturnType<typeof vi.fn>;
     readonly del: ReturnType<typeof vi.fn>;
+    readonly eval: ReturnType<typeof vi.fn>;
   };
   readonly envMock: {
     socketRateLimitRedisUrl: string;
@@ -30,6 +31,7 @@ const setupSocketRedisModule = async (): Promise<{
     pTTL: vi.fn().mockResolvedValue(10_000),
     decrBy: vi.fn(),
     del: vi.fn().mockResolvedValue(1),
+    eval: vi.fn(),
   };
   const envMock = {
     socketRateLimitRedisUrl: "redis://localhost:6379",
@@ -128,12 +130,12 @@ describe("socket_rate_limit_redis", () => {
     await closeSocketRateLimitRedis();
   });
 
-  it("refunds consumed Redis credits and deletes empty buckets", async () => {
+  it("refunds consumed Redis credits with a single atomic EVAL", async () => {
     const {
       client,
       module: { closeSocketRateLimitRedis, refundSocketRateLimitRedis, initSocketRateLimitRedis },
     } = await setupSocketRedisModule();
-    client.decrBy.mockResolvedValue(0);
+    client.eval.mockResolvedValue(0);
 
     await initSocketRateLimitRedis();
     await refundSocketRateLimitRedis({
@@ -142,11 +144,39 @@ describe("socket_rate_limit_redis", () => {
       cost: 4,
     });
 
-    expect(client.decrBy).toHaveBeenCalledWith(
-      "plug_socket_rl:relay_stream_pull_credits:user:abc",
-      4,
+    expect(client.eval).toHaveBeenCalledTimes(1);
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.stringContaining("DECRBY"),
+      expect.objectContaining({
+        keys: ["plug_socket_rl:relay_stream_pull_credits:user:abc"],
+        arguments: ["4"],
+      }),
     );
-    expect(client.del).toHaveBeenCalledWith("plug_socket_rl:relay_stream_pull_credits:user:abc");
+    expect(client.decrBy).not.toHaveBeenCalled();
+    expect(client.del).not.toHaveBeenCalled();
+
+    await closeSocketRateLimitRedis();
+  });
+
+  it("retries refund once after Redis transient failure", async () => {
+    const {
+      client,
+      module: { closeSocketRateLimitRedis, refundSocketRateLimitRedis, initSocketRateLimitRedis },
+    } = await setupSocketRedisModule();
+    client.eval.mockRejectedValueOnce(new Error("timeout")).mockResolvedValueOnce(0);
+
+    await initSocketRateLimitRedis();
+    vi.useFakeTimers();
+    const refundPromise = refundSocketRateLimitRedis({
+      scope: "client_socket_event_publish",
+      key: "client:test",
+      cost: 1,
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    await refundPromise;
+    vi.useRealTimers();
+
+    expect(client.eval).toHaveBeenCalledTimes(2);
 
     await closeSocketRateLimitRedis();
   });

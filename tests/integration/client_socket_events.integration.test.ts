@@ -8,6 +8,7 @@ import { decodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { isRecord } from "../../src/shared/utils/rpc_types";
 import { resetClientSocketEventPublishIdempotencyStore } from "../../src/application/services/client_socket_event_idempotency_store";
+import { resetClientSocketEventPublishIdempotencySerializationQueues } from "../../src/application/services/client_socket_event_publish_idempotency_serialization";
 import { resetClientSocketEventPublishSocketRateLimitState } from "../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter";
 
 const connectConsumer = (baseUrl: string, token: string): Promise<ReturnType<typeof ioClient>> =>
@@ -71,7 +72,7 @@ const subscribe = async (
   expect(ack).toMatchObject({
     success: true,
     requestId,
-    data: { eventName, subscribed: true },
+    data: expect.objectContaining({ eventName, subscribed: true }),
   });
 };
 
@@ -90,7 +91,7 @@ const unsubscribe = async (
   expect(ack).toMatchObject({
     success: true,
     requestId,
-    data: { eventName, subscribed: false },
+    data: expect.objectContaining({ eventName, subscribed: false }),
   });
 };
 
@@ -115,6 +116,7 @@ describe("Client REST socket event pub/sub", () => {
       socket.disconnect();
     }
     resetClientSocketEventPublishIdempotencyStore();
+    resetClientSocketEventPublishIdempotencySerializationQueues();
     resetClientSocketEventPublishSocketRateLimitState();
     await server.close();
   });
@@ -183,6 +185,59 @@ describe("Client REST socket event pub/sub", () => {
     expect(response.status).toBe(202);
     expect(response.body.recipients).toBe(0);
     await noEvent;
+  });
+
+  it("should include alreadySubscribed and wasSubscribed on subscribe/unsubscribe acks", async () => {
+    const session = await registerOwnerAndClientSession(server.httpServer, {
+      suffix: "socket-events-ack-flags",
+    });
+    const eventName = "client:custom.ack.flags";
+    const socket = await connectConsumer(server.getUrl(), session.client.accessToken);
+    sockets.push(socket);
+
+    const firstSubPromise = waitForEvent<{
+      success: boolean;
+      requestId: string;
+      data?: { eventName: string; subscribed: boolean; alreadySubscribed?: boolean };
+    }>(socket, socketEvents.socketEventSubscribed);
+    socket.emit(socketEvents.socketEventSubscribe, { requestId: "ack-sub-1", eventName });
+    const firstAck = await firstSubPromise;
+    expect(firstAck).toMatchObject({
+      success: true,
+      data: expect.objectContaining({ eventName, subscribed: true }),
+    });
+    expect(firstAck.data?.alreadySubscribed).toBeUndefined();
+
+    const dupSubPromise = waitForEvent<{
+      success: boolean;
+      requestId: string;
+      data?: { eventName: string; subscribed: boolean; alreadySubscribed?: boolean };
+    }>(socket, socketEvents.socketEventSubscribed);
+    socket.emit(socketEvents.socketEventSubscribe, { requestId: "ack-sub-2", eventName });
+    expect(await dupSubPromise).toMatchObject({
+      success: true,
+      data: { eventName, subscribed: true, alreadySubscribed: true },
+    });
+
+    const unsub1Promise = waitForEvent<{
+      success: boolean;
+      data?: { eventName: string; subscribed: boolean; wasSubscribed?: boolean };
+    }>(socket, socketEvents.socketEventUnsubscribed);
+    socket.emit(socketEvents.socketEventUnsubscribe, { requestId: "ack-unsub-1", eventName });
+    expect(await unsub1Promise).toMatchObject({
+      success: true,
+      data: { eventName, subscribed: false, wasSubscribed: true },
+    });
+
+    const unsub2Promise = waitForEvent<{
+      success: boolean;
+      data?: { eventName: string; subscribed: boolean; wasSubscribed?: boolean };
+    }>(socket, socketEvents.socketEventUnsubscribed);
+    socket.emit(socketEvents.socketEventUnsubscribe, { requestId: "ack-unsub-2", eventName });
+    expect(await unsub2Promise).toMatchObject({
+      success: true,
+      data: { eventName, subscribed: false, wasSubscribed: false },
+    });
   });
 
   it("should publish multipart attachments inline", async () => {
@@ -322,6 +377,7 @@ describe("Client Socket socket:event.publish pub/sub", () => {
       socket.disconnect();
     }
     resetClientSocketEventPublishIdempotencyStore();
+    resetClientSocketEventPublishIdempotencySerializationQueues();
     resetClientSocketEventPublishSocketRateLimitState();
     await server.close();
   });

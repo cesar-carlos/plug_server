@@ -44,12 +44,22 @@ const customEvents = {
   subscribedTotal: 0,
   unsubscribedTotal: 0,
   subscriptionRejectedTotal: 0,
+  subscriptionForbiddenTotal: 0,
   publishAcceptedTotal: 0,
   publishRejectedTotal: 0,
   publishIdempotentReplayTotal: 0,
   publishRecipientsTotal: 0,
   publishAttachmentBytesTotal: 0,
   publishViaSocketTotal: 0,
+  publishIdempotencySerializationCapRejectedTotal: 0,
+};
+
+/** Live `grantClientAccess` on this process only (multi-replica: see docs). */
+const consumerClientAgentRoomGrant = {
+  attemptsTotal: 0,
+  socketsJoinedTotal: 0,
+  joinFailuresTotal: 0,
+  fetchFailuresTotal: 0,
 };
 
 /** Upper bounds for Prometheus-style cumulative histogram of publish recipient fan-out. */
@@ -156,6 +166,10 @@ export const noteCustomSocketEventSubscriptionRejected = (): void => {
   customEvents.subscriptionRejectedTotal += 1;
 };
 
+export const noteCustomSocketEventSubscriptionForbidden = (): void => {
+  customEvents.subscriptionForbiddenTotal += 1;
+};
+
 export const noteCustomSocketEventPublishAccepted = (input: {
   readonly recipients: number;
   readonly attachmentBytes: number;
@@ -178,6 +192,26 @@ export const noteCustomSocketEventPublishViaSocket = (): void => {
   customEvents.publishViaSocketTotal += 1;
 };
 
+export const noteClientSocketEventPublishIdempotencySerializationCapRejected = (): void => {
+  customEvents.publishIdempotencySerializationCapRejectedTotal += 1;
+};
+
+export const noteConsumerClientAgentRoomGrantAttempt = (): void => {
+  consumerClientAgentRoomGrant.attemptsTotal += 1;
+};
+
+export const noteConsumerClientAgentRoomGrantSocketsJoined = (count: number): void => {
+  consumerClientAgentRoomGrant.socketsJoinedTotal += Math.max(0, count);
+};
+
+export const noteConsumerClientAgentRoomGrantJoinFailed = (): void => {
+  consumerClientAgentRoomGrant.joinFailuresTotal += 1;
+};
+
+export const noteConsumerClientAgentRoomGrantFetchFailed = (): void => {
+  consumerClientAgentRoomGrant.fetchFailuresTotal += 1;
+};
+
 export const getSocketConsumerMetricsSnapshot = (): {
   readonly activeConnections: typeof activeConnections;
   readonly authRejects: typeof authRejects;
@@ -190,6 +224,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   readonly commandAbort: typeof commandAbort;
   readonly retryAfter: typeof retryAfter;
   readonly customEvents: typeof customEvents;
+  readonly consumerClientAgentRoomGrant: typeof consumerClientAgentRoomGrant;
   readonly publishRecipientsHistogram: {
     readonly cumulativeBuckets: readonly { readonly le: string; readonly count: number }[];
     readonly sum: number;
@@ -214,6 +249,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   commandAbort: { ...commandAbort },
   retryAfter: { ...retryAfter },
   customEvents: { ...customEvents },
+  consumerClientAgentRoomGrant: { ...consumerClientAgentRoomGrant },
   publishRecipientsHistogram: {
     cumulativeBuckets: [
       ...PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS.map((b) => ({
@@ -259,12 +295,18 @@ export const resetSocketConsumerMetrics = (): void => {
   customEvents.subscribedTotal = 0;
   customEvents.unsubscribedTotal = 0;
   customEvents.subscriptionRejectedTotal = 0;
+  customEvents.subscriptionForbiddenTotal = 0;
   customEvents.publishAcceptedTotal = 0;
   customEvents.publishRejectedTotal = 0;
   customEvents.publishIdempotentReplayTotal = 0;
   customEvents.publishRecipientsTotal = 0;
   customEvents.publishAttachmentBytesTotal = 0;
   customEvents.publishViaSocketTotal = 0;
+  customEvents.publishIdempotencySerializationCapRejectedTotal = 0;
+  consumerClientAgentRoomGrant.attemptsTotal = 0;
+  consumerClientAgentRoomGrant.socketsJoinedTotal = 0;
+  consumerClientAgentRoomGrant.joinFailuresTotal = 0;
+  consumerClientAgentRoomGrant.fetchFailuresTotal = 0;
   publishRecipientsHistSum = 0;
   publishRecipientsHistCount = 0;
   publishRecipientsHistBuckets.clear();
