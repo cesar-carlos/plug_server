@@ -334,7 +334,10 @@ describe("Client agent access API", () => {
     const token = email?.approvalToken;
     expect(typeof token).toBe("string");
 
-    const reviewResponse = await request(app).get("/api/v1/client-access/review").query({ token });
+    const reviewResponse = await request(app)
+      .get("/api/v1/client-access/review")
+      .set("Accept-Language", "pt-BR")
+      .query({ token });
     expect(reviewResponse.status).toBe(200);
     expect(reviewResponse.headers["content-type"]).toContain("text/html");
     expect(reviewResponse.text).toContain("Revisar acesso do cliente");
@@ -351,6 +354,7 @@ describe("Client agent access API", () => {
     const missingToken = "a".repeat(64);
     const reviewResponse = await request(app)
       .get("/api/v1/client-access/review")
+      .set("Accept-Language", "pt-BR")
       .query({ token: missingToken });
     expect(reviewResponse.status).toBe(200);
     expect(reviewResponse.headers["content-type"]).toContain("text/html");
@@ -386,6 +390,7 @@ describe("Client agent access API", () => {
       .post("/api/v1/client-access/approve")
       .type("form")
       .set("Accept", "text/html,application/xhtml+xml")
+      .set("Accept-Language", "pt-BR")
       .send({ token: token! });
     expect(approveResponse.status).toBe(410);
     expect(approveResponse.headers["content-type"]).toContain("text/html");
@@ -418,6 +423,7 @@ describe("Client agent access API", () => {
       .post("/api/v1/client-access/approve")
       .type("form")
       .set("Accept", "text/html,application/xhtml+xml")
+      .set("Accept-Language", "pt-BR")
       .set("X-Request-Id", "req-client-access-form-approve")
       .send({ token });
     expect(approveResponse.status).toBe(200);
@@ -457,6 +463,7 @@ describe("Client agent access API", () => {
       .post("/api/v1/client-access/approve")
       .type("form")
       .set("Accept", "text/html,application/xhtml+xml")
+      .set("Accept-Language", "pt-BR")
       .set("Origin", "null")
       .send({ token });
     expect(approveResponse.status).toBe(200);
@@ -501,6 +508,7 @@ describe("Client agent access API", () => {
       .post("/api/v1/client-access/reject")
       .type("form")
       .set("Accept", "text/html,application/xhtml+xml")
+      .set("Accept-Language", "pt-BR")
       .set("Origin", "null")
       .send({ token, reason: "Opaque origin regression test" });
     expect(rejectResponse.status).toBe(200);
@@ -561,6 +569,7 @@ describe("Client agent access API", () => {
         .post("/api/v1/client-access/approve")
         .type("form")
         .set("Accept", "text/html,application/xhtml+xml")
+        .set("Accept-Language", "pt-BR")
         .set("X-Request-Id", "req-client-access-503")
         .send({ token });
 
@@ -697,6 +706,7 @@ describe("Client agent access API", () => {
 
     const rejectResponse = await request(app)
       .post("/api/v1/client-access/reject")
+      .set("Accept-Language", "pt-BR")
       .send({ token, reason: "Needs compliance review" });
     expect(rejectResponse.status).toBe(200);
     expect(rejectResponse.headers["content-type"]).toContain("text/html");

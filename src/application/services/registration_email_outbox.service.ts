@@ -503,6 +503,7 @@ export const flushRegistrationEmailOutbox = async (emailSender: IEmailSender): P
   try {
     await trackPendingOutboxOp(
       (async () => {
+        await maybeLogRegistrationEmailOutboxHealth();
         await processOutboxBatch(emailSender);
       })(),
     );
@@ -546,6 +547,80 @@ export const stopRegistrationEmailOutboxWorker = (): void => {
 };
 
 let outboxDeadLetterPruneTimer: NodeJS.Timeout | null = null;
+
+/** Throttle aggregate outbox health logs (read-only) for operators / metrics pipelines. */
+const OUTBOX_HEALTH_LOG_INTERVAL_MS = 10 * 60 * 1000;
+let lastOutboxHealthLogAt = 0;
+
+const maybeLogRegistrationEmailOutboxHealth = async (): Promise<void> => {
+  const now = Date.now();
+  if (now - lastOutboxHealthLogAt < OUTBOX_HEALTH_LOG_INTERVAL_MS) {
+    return;
+  }
+  lastOutboxHealthLogAt = now;
+
+  if (!(await canUseOutboxTable())) {
+    return;
+  }
+
+  const maxAttempts = env.registrationEmailOutboxMaxAttempts;
+  try {
+    const rows = await prismaClient.$queryRaw<
+      Array<{
+        total: bigint;
+        retrying_with_error: bigint;
+        dead_lettered: bigint;
+        high_attempts: bigint;
+      }>
+    >`
+      SELECT
+        COUNT(*)::bigint AS total,
+        COUNT(*) FILTER (
+          WHERE last_error IS NOT NULL AND attempts < ${maxAttempts}
+        )::bigint AS retrying_with_error,
+        COUNT(*) FILTER (WHERE attempts >= ${maxAttempts})::bigint AS dead_lettered,
+        COUNT(*) FILTER (WHERE attempts >= ${maxAttempts} - 1 AND attempts < ${maxAttempts})::bigint AS high_attempts
+      FROM registration_email_outbox
+    `;
+    const row = rows[0];
+    if (!row) {
+      return;
+    }
+
+    const total = Number(row.total);
+    const retryingWithError = Number(row.retrying_with_error);
+    const deadLettered = Number(row.dead_lettered);
+    const highAttempts = Number(row.high_attempts);
+
+    if (total === 0) {
+      return;
+    }
+
+    const backlogConcerning = total >= 100;
+    const hasErrors = retryingWithError > 0 || deadLettered > 0 || highAttempts > 0;
+
+    if (!hasErrors && !backlogConcerning) {
+      return;
+    }
+
+    logger.warn("registration_email_outbox_health", {
+      message:
+        "Registration email outbox shows retries, dead letters, or a large backlog — check SMTP and pending registrations.",
+      total,
+      retryingWithError,
+      deadLettered,
+      highAttempts,
+      maxAttempts,
+      backlogConcerning,
+    });
+  } catch (error: unknown) {
+    if (isOutboxTableMissing(error)) {
+      outboxTableState = "missing";
+      return;
+    }
+    logger.warn("registration_email_outbox_health_probe_failed", { message: toErrorMessage(error) });
+  }
+};
 
 const outboxPruneMetrics = {
   pruneRuns: 0,

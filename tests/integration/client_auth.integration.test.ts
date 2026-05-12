@@ -194,6 +194,79 @@ describe("Client auth registration approval flow", () => {
     expect(status.body.status).toBe("pending");
   });
 
+  it("accepts ownerEmail that only differs by letter casing from the stored user", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-owner-case`,
+      emailPrefix: "client-owner",
+    });
+    const [local, domain] = owner.email.split("@");
+    const ownerEmailMixedCase = `${local.toUpperCase()}@${domain}`;
+    const email = `client-owner-case-${Date.now()}@test.com`;
+
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: ownerEmailMixedCase,
+      email,
+      password: "ClientRegPwd1",
+      name: "Case",
+      lastName: "Owner",
+    });
+    expect(registerRes.status).toBe(201);
+    expect(registerRes.body.client.userId).toBe(owner.userId);
+  });
+
+  it("rejects client registration when email only differs by casing from an existing client", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-dup-case`,
+      emailPrefix: "client-owner",
+    });
+    const local = `dup-case-${Date.now()}`;
+    const emailLower = `${local}@test.com`;
+    const emailUpperCased = `${local.toUpperCase()}@test.com`;
+
+    const first = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email: emailLower,
+      password: "ClientRegPwd1",
+      name: "Dup",
+      lastName: "One",
+    });
+    expect(first.status).toBe(201);
+
+    const second = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email: emailUpperCased,
+      password: "ClientRegPwd1",
+      name: "Dup",
+      lastName: "Two",
+    });
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe("CONFLICT");
+  });
+
+  it("GET registration/review serves Portuguese copy when Accept-Language prefers pt", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-pt-review`,
+      emailPrefix: "client-owner",
+    });
+    const email = `client-pt-review-${Date.now()}@test.com`;
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password: "ClientRegPwd1",
+      name: "PT",
+      lastName: "Review",
+    });
+    expect(registerRes.status).toBe(201);
+    const token = registerRes.body.approvalToken as string;
+
+    const page = await request(app)
+      .get("/api/v1/client-auth/registration/review")
+      .set("Accept-Language", "pt-BR")
+      .query({ token });
+    expect(page.status).toBe(200);
+    expect(page.text).toContain("Rever registo de cliente");
+  });
+
   it("returns 400 when owner email is not eligible", async () => {
     const response = await request(app)
       .post("/api/v1/client-auth/register")

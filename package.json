@@ -21,6 +21,7 @@
     "db:studio": "prisma studio",
     "db:registration:diag": "tsx scripts/registration-diagnostics.ts",
     "db:registration:owner": "tsx scripts/registration-diagnostics.ts --short --owner",
+    "db:email:dup-scan": "tsx scripts/list-email-case-duplicates.ts",
     "db:container:up": "docker compose up -d postgres",
     "db:container:down": "docker compose down",
     "db:container:logs": "docker compose logs -f postgres",

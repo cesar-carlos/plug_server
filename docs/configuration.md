@@ -35,10 +35,13 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 
 ### Checklist produção (smoke socket / Colmeia)
 
-1. **`SOCKET_CONSUMER_ROLES`**: no PID, confirmar o valor; se faltar o literal `client` na string, o runtime acrescenta (ver tabela acima) e o efeito final inclui `client`.
-2. **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou ausente; `false` desliga push de catálogo (polling no app).
-3. **`POST /api/v1/agents/commands`** com agente offline mas **já** registado nesse worker: resposta **200** com `response.item.error.code === -32000` e `data.reason === agent_disconnected_at_dispatch` quando o JSON-RPC tem `id` correlacionável (ver tabela _Erros HTTP_ em `docs/api_rest_bridge.md`).
-4. **Multi-réplica**: `HUB_INSTANCE_ID` + header `X-Hub-Instance-Id` estável entre pedidos do mesmo cliente; sticky no nginx — `docs/nginx_production.md` § 12.
+1. **`APP_BASE_URL`** e **`DATABASE_URL`**: o host da URL pública da API e o host da base devem parecer o **mesmo ambiente** (ex.: não misturar Postgres em `localhost` com `APP_BASE_URL` apontando para produção). O arranque regista `WARN` `env_world_alignment_mismatch` quando detecta esse desalinhamento.
+2. **Outbox de e-mails de registo**: monitorizar o log `registration_email_outbox_health` (agregado a cada ~10 min quando há fila, erros ou dead letters). Acúmulo persistente indica falha de SMTP ou fila bloqueada.
+3. **`SOCKET_CONSUMER_ROLES`**: no PID, confirmar o valor; se faltar o literal `client` na string, o runtime acrescenta (ver tabela acima) e o efeito final inclui `client`.
+4. **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou ausente; `false` desliga push de catálogo (polling no app).
+5. **`POST /api/v1/agents/commands`** com agente offline mas **já** registado nesse worker: resposta **200** com `response.item.error.code === -32000` e `data.reason === agent_disconnected_at_dispatch` quando o JSON-RPC tem `id` correlacionável (ver tabela _Erros HTTP_ em `docs/api_rest_bridge.md`).
+6. **Multi-réplica**: `HUB_INSTANCE_ID` + header `X-Hub-Instance-Id` estável entre pedidos do mesmo cliente; sticky no nginx — `docs/nginx_production.md` § 12.
+7. **Duplicados só por maiúsculas** (antes de migrar para `citext`): correr `npm run db:email:dup-scan` na base alvo; corrigir duplicados antes de `prisma migrate deploy`.
 
 ### `NODE_ENV=production` sem variável definida
 

@@ -3,6 +3,8 @@ import type { ZodError } from "zod";
 
 import { env } from "../../../shared/config/env";
 import type { AppError } from "../../../shared/errors/app_error";
+import { negotiateApprovalHtmlLang } from "./approval_page_locale";
+import { approvalHomeLabel } from "./approval_registration_i18n";
 import { renderApprovalErrorPage } from "./approval_pages";
 import { normalizeZodIssues } from "../middlewares/validate.middleware";
 
@@ -66,15 +68,39 @@ export const isApprovalFormPostErrorRoute = (request: Request): boolean => {
 export const shouldReturnHtmlForApprovalError = (request: Request): boolean =>
   isApprovalFormPostErrorRoute(request) && isBrowserLikeApprovalErrorRequest(request);
 
-const homeFooter = (): { homeUrl: string; homeLabel: string } => {
+const homeFooterFromRequest = (request: Request): { homeUrl: string; homeLabel: string } => {
   const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
-  return { homeUrl, homeLabel: "Back to the app" };
+  return { homeUrl, homeLabel: approvalHomeLabel(negotiateApprovalHtmlLang(request)) };
 };
 
-const localeFromRoute = (route: ApprovalErrorHtmlRoute): "pt" | "en" =>
-  route === "client_access" ? "pt" : "en";
+const localeFromRoute = (_route: ApprovalErrorHtmlRoute, request: Request): "pt" | "en" =>
+  negotiateApprovalHtmlLang(request) === "pt-BR" ? "pt" : "en";
 
-const bodyTextForClientAccess = (error: AppError): string => {
+const bodyTextForClientAccess = (error: AppError, locale: "pt" | "en"): string => {
+  if (locale === "en") {
+    switch (error.code) {
+      case "REGISTRATION_TOKEN_EXPIRED":
+        return "This approval link has expired. If it still makes sense, ask the client to request access again.";
+      case "CONFLICT":
+        if (String(error.message).toLowerCase().includes("processed")) {
+          return "This access request has already been processed.";
+        }
+        return error.message;
+      case "TOO_MANY_REQUESTS":
+        return "Too many attempts. Wait a moment and try again.";
+      case "SERVICE_UNAVAILABLE":
+        return "Service temporarily unavailable. Please try again shortly.";
+      case "NOT_FOUND":
+        return "This link is invalid, has already been used, or the request no longer exists.";
+      case "FORBIDDEN":
+        return error.message;
+      default:
+        if (error.statusCode >= 500) {
+          return "A server error occurred. Please try again later.";
+        }
+        return error.message;
+    }
+  }
   switch (error.code) {
     case "REGISTRATION_TOKEN_EXPIRED":
       return "Este link de aprovação expirou. Se ainda fizer sentido, peça para o cliente solicitar acesso de novo.";
@@ -179,10 +205,10 @@ export const buildApprovalErrorHtml = (
   if (group === null) {
     return null;
   }
-  const { homeUrl, homeLabel } = homeFooter();
-  const loc = localeFromRoute(group);
+  const { homeUrl, homeLabel } = homeFooterFromRequest(request);
+  const loc = localeFromRoute(group, request);
   const isPt = loc === "pt";
-  const body = group === "client_access" ? bodyTextForClientAccess(error) : error.message;
+  const body = group === "client_access" ? bodyTextForClientAccess(error, loc) : error.message;
   return {
     statusCode: error.statusCode,
     html: renderApprovalErrorPage({
@@ -194,7 +220,7 @@ export const buildApprovalErrorHtml = (
         ? { detailsText: isPt ? `ID da solicitação: ${requestId}` : `Request ID: ${requestId}` }
         : {}),
       homeUrl,
-      homeLabel: isPt ? "Voltar ao início" : homeLabel,
+      homeLabel,
     }),
   };
 };
@@ -209,8 +235,8 @@ export const buildApprovalZodErrorHtml = (
   if (group === null) {
     return null;
   }
-  const { homeUrl, homeLabel } = homeFooter();
-  const loc = localeFromRoute(group);
+  const { homeUrl, homeLabel } = homeFooterFromRequest(request);
+  const loc = localeFromRoute(group, request);
   const isPt = loc === "pt";
   return {
     html: renderApprovalErrorPage({
@@ -222,7 +248,7 @@ export const buildApprovalZodErrorHtml = (
         ? { detailsText: isPt ? `ID da solicitação: ${requestId}` : `Request ID: ${requestId}` }
         : {}),
       homeUrl,
-      homeLabel: isPt ? "Voltar ao início" : homeLabel,
+      homeLabel,
     }),
   };
 };
@@ -236,8 +262,9 @@ export const buildApprovalInternalErrorHtml = (
   if (group === null) {
     return null;
   }
-  const { homeUrl, homeLabel } = homeFooter();
-  const isPt = group === "client_access";
+  const { homeUrl, homeLabel } = homeFooterFromRequest(request);
+  const loc = localeFromRoute(group, request);
+  const isPt = loc === "pt";
   return {
     html: renderApprovalErrorPage({
       title: isPt ? "Erro no servidor" : "Error",
@@ -252,7 +279,7 @@ export const buildApprovalInternalErrorHtml = (
         ? { detailsText: isPt ? `ID da solicitação: ${requestId}` : `Request ID: ${requestId}` }
         : {}),
       homeUrl,
-      homeLabel: isPt ? "Voltar ao início" : homeLabel,
+      homeLabel,
     }),
   };
 };

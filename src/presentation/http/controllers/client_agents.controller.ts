@@ -3,6 +3,13 @@ import type { NextFunction, Request, Response } from "express";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import { getAuthClient } from "../middlewares/auth.middleware";
+import { negotiateApprovalHtmlLang } from "../helpers/approval_page_locale";
+import {
+  approvalDecisionEyebrow,
+  approvalHomeLabel,
+  clientAccessDecisionCopy,
+  clientAccessReviewCopy,
+} from "../helpers/approval_registration_i18n";
 import { renderApprovalDecisionPage, renderApprovalReviewPage } from "../helpers/approval_pages";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
@@ -22,23 +29,24 @@ import {
 } from "../../../shared/metrics/client_me_agents.metrics";
 import { toClientAgentDto } from "../mappers/client_agent.mapper";
 
-const clientAccessHome = (): { homeUrl: string; homeLabel: string } => {
+const clientAccessHome = (lang: ReturnType<typeof negotiateApprovalHtmlLang>): { homeUrl: string; homeLabel: string } => {
   const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
-  return { homeUrl, homeLabel: "Voltar ao início" };
+  return { homeUrl, homeLabel: approvalHomeLabel(lang) };
 };
 
 const clientAccessDecisionHtml = (
+  lang: ReturnType<typeof negotiateApprovalHtmlLang>,
   title: string,
   bodyText: string,
   tone: "success" | "danger" | "neutral",
 ): string => {
-  const { homeUrl, homeLabel } = clientAccessHome();
+  const { homeUrl, homeLabel } = clientAccessHome(lang);
   return renderApprovalDecisionPage({
     title,
     bodyText,
     tone,
-    lang: "pt-BR",
-    decisionEyebrow: "Decisão registrada",
+    lang,
+    decisionEyebrow: approvalDecisionEyebrow(lang),
     homeUrl,
     homeLabel,
   });
@@ -246,12 +254,14 @@ export const retryMyClientAgentAccessRequest = async (
 
 /** GET: read-only page with POST forms (no mutating GET). */
 export const clientAccessReviewPage = async (
-  _request: Request,
+  request: Request,
   response: Response,
 ): Promise<void> => {
+  const lang = negotiateApprovalHtmlLang(request);
+  const copy = clientAccessReviewCopy(lang);
   const { token } = getValidated<ClientAccessReviewTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
-  const { homeUrl, homeLabel } = clientAccessHome();
+  const { homeUrl, homeLabel } = clientAccessHome(lang);
   const approveAction = `${base}/api/v1/client-access/approve`;
   const rejectAction = `${base}/api/v1/client-access/reject`;
   const summary = await container.clientAgentAccessService.getReviewSummaryByToken(token);
@@ -260,50 +270,47 @@ export const clientAccessReviewPage = async (
   let readOnlyMessage: string | undefined;
   if (summary === null) {
     showActionForms = false;
-    readOnlyMessage =
-      "Este link é inválido, expirou ou já foi utilizado. Nenhuma ação é necessária nesta página.";
+    readOnlyMessage = copy.readOnlyInvalid;
   } else if (summary.tokenStatus === "expired") {
     showActionForms = false;
-    readOnlyMessage =
-      "Este link de aprovação expirou. Se o acesso ainda for necessário, o cliente pode solicitar novamente.";
+    readOnlyMessage = copy.readOnlyExpired;
   } else if (summary.requestStatus !== "pending") {
     showActionForms = false;
-    readOnlyMessage = `Este pedido de acesso já foi resolvido (status: ${summary.requestStatus}).`;
+    readOnlyMessage = copy.readOnlyResolved(summary.requestStatus);
   }
 
   const html = renderApprovalReviewPage({
-    title: "Revisar acesso do cliente",
-    eyebrow: "Aprovação de acesso ao agente",
-    description:
-      "Aprovar somente se o cliente deve acessar este agente. Requisições GET não alteram dados.",
+    title: copy.title,
+    eyebrow: copy.eyebrow,
+    description: copy.description,
     approveAction,
     rejectAction,
     token,
-    approveLabel: "Aprovar acesso",
-    rejectLabel: "Recusar acesso",
-    reasonLabel: "Mensagem opcional para o cliente (máx. 500 caracteres)",
+    approveLabel: copy.approveLabel,
+    rejectLabel: copy.rejectLabel,
+    reasonLabel: copy.reasonLabel,
     showActionForms,
     homeUrl,
     homeLabel,
-    lang: "pt-BR",
-    textareaPlaceholder: "Nota opcional",
-    actionsAriaLabel: "Ações de aprovação",
+    lang,
+    textareaPlaceholder: copy.textareaPlaceholder,
+    actionsAriaLabel: copy.actionsAriaLabel,
     ...(!showActionForms && readOnlyMessage !== undefined ? { readOnlyMessage } : {}),
     ...(summary === null
       ? {}
       : {
           summaryItems: [
-            { label: "Cliente", value: summary.clientName },
-            { label: "E-mail", value: summary.clientEmail },
+            { label: copy.summaryClient, value: summary.clientName },
+            { label: copy.summaryEmail, value: summary.clientEmail },
             {
-              label: "Agente",
+              label: copy.summaryAgent,
               value:
                 summary.agentName !== undefined
                   ? `${summary.agentName} (${summary.agentId})`
                   : summary.agentId,
             },
-            { label: "Status do pedido", value: summary.requestStatus },
-            { label: "Status do link", value: summary.tokenStatus },
+            { label: copy.summaryRequestStatus, value: summary.requestStatus },
+            { label: copy.summaryLinkStatus, value: summary.tokenStatus },
           ],
         }),
   });
@@ -312,10 +319,12 @@ export const clientAccessReviewPage = async (
 };
 
 export const approveClientAccess = async (
-  _request: Request,
+  request: Request,
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
+  const lang = negotiateApprovalHtmlLang(request);
+  const decision = clientAccessDecisionCopy(lang);
   const body = getValidated<ClientAccessApproveBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
   const result = await container.clientAgentAccessService.approveByToken(body.token, {
@@ -330,18 +339,21 @@ export const approveClientAccess = async (
     .type("html")
     .send(
       clientAccessDecisionHtml(
-        "Acesso aprovado",
-        `O cliente agora tem acesso ao agente ${result.value.agentId}.`,
+        lang,
+        decision.approvedTitle,
+        decision.approvedBody(result.value.agentId),
         "success",
       ),
     );
 };
 
 export const rejectClientAccess = async (
-  _request: Request,
+  request: Request,
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
+  const lang = negotiateApprovalHtmlLang(request);
+  const decision = clientAccessDecisionCopy(lang);
   const body = getValidated<ClientAccessRejectBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
   const result = await container.clientAgentAccessService.rejectByToken(body.token, body.reason, {
@@ -356,8 +368,9 @@ export const rejectClientAccess = async (
     .type("html")
     .send(
       clientAccessDecisionHtml(
-        "Acesso recusado",
-        `A solicitação de acesso ao agente ${result.value.agentId} foi recusada.`,
+        lang,
+        decision.rejectedTitle,
+        decision.rejectedBody(result.value.agentId),
         "danger",
       ),
     );

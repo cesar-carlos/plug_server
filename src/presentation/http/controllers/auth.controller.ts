@@ -6,6 +6,13 @@ import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import type { User } from "../../../domain/entities/user.entity";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { negotiateApprovalHtmlLang } from "../helpers/approval_page_locale";
+import {
+  approvalDecisionEyebrow,
+  approvalHomeLabel,
+  userRegistrationDecisionCopy,
+  userRegistrationReviewCopy,
+} from "../helpers/approval_registration_i18n";
 import { renderApprovalDecisionPage, renderApprovalReviewPage } from "../helpers/approval_pages";
 import { clearRefreshCookie, setRefreshCookie } from "../helpers/refresh_cookie";
 import { getValidated } from "../middlewares/validate.middleware";
@@ -63,23 +70,24 @@ const toCompatibleAuthPayload = <T extends AuthTokensDto>(payload: T): Compatibl
   };
 };
 
-const appHome = (): { homeUrl: string; homeLabel: string } => {
+const appHome = (lang: ReturnType<typeof negotiateApprovalHtmlLang>): { homeUrl: string; homeLabel: string } => {
   const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
-  return { homeUrl, homeLabel: "Back to the app" };
+  return { homeUrl, homeLabel: approvalHomeLabel(lang) };
 };
 
 const registrationDecisionHtml = (
+  lang: ReturnType<typeof negotiateApprovalHtmlLang>,
   title: string,
   bodyText: string,
   tone: "success" | "danger" | "neutral",
 ): string => {
-  const { homeUrl, homeLabel } = appHome();
+  const { homeUrl, homeLabel } = appHome(lang);
   return renderApprovalDecisionPage({
     title,
     bodyText,
     tone,
-    lang: "en",
-    decisionEyebrow: "Decision recorded",
+    lang,
+    decisionEyebrow: approvalDecisionEyebrow(lang),
     homeUrl,
     homeLabel,
   });
@@ -111,36 +119,39 @@ export const register = async (
 
 /** GET: read-only page with POST forms (no mutating GET). */
 export const registrationReviewPage = async (
-  _request: Request,
+  request: Request,
   response: Response,
 ): Promise<void> => {
+  const lang = negotiateApprovalHtmlLang(request);
+  const copy = userRegistrationReviewCopy(lang);
   const { token } = getValidated<RegistrationTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
-  const { homeUrl, homeLabel } = appHome();
+  const { homeUrl, homeLabel } = appHome(lang);
   const approveAction = `${base}/api/v1/auth/registration/approve`;
   const rejectAction = `${base}/api/v1/auth/registration/reject`;
   const summary = await container.authService.getRegistrationReviewSummary(token);
   const html = renderApprovalReviewPage({
-    title: "Review registration",
-    eyebrow: "User approval",
-    description:
-      "Approve the account only if this registration is expected. GET requests do not change data.",
+    title: copy.title,
+    eyebrow: copy.eyebrow,
+    description: copy.description,
     approveAction,
     rejectAction,
     token,
-    approveLabel: "Approve registration",
-    rejectLabel: "Reject registration",
-    reasonLabel: "Optional note to the user (max 500 characters)",
-    lang: "en",
+    approveLabel: copy.approveLabel,
+    rejectLabel: copy.rejectLabel,
+    reasonLabel: copy.reasonLabel,
+    lang,
+    textareaPlaceholder: copy.textareaPlaceholder,
+    actionsAriaLabel: copy.actionsAriaLabel,
     homeUrl,
     homeLabel,
     ...(summary === null
       ? {}
       : {
           summaryItems: [
-            { label: "User email", value: summary.email },
-            { label: "Account status", value: summary.status },
-            { label: "Link status", value: summary.tokenStatus },
+            { label: copy.summaryUserEmail, value: summary.email },
+            { label: copy.summaryAccountStatus, value: summary.status },
+            { label: copy.summaryLinkStatus, value: summary.tokenStatus },
           ],
         }),
   });
@@ -188,10 +199,12 @@ export const retryRegistration = async (
 };
 
 export const approveRegistration = async (
-  _request: Request,
+  request: Request,
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
+  const lang = negotiateApprovalHtmlLang(request);
+  const decision = userRegistrationDecisionCopy(lang);
   const body = getValidated<RegistrationApproveBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
   const result = await container.authService.approveRegistration(body.token, {
@@ -206,18 +219,21 @@ export const approveRegistration = async (
     .type("html")
     .send(
       registrationDecisionHtml(
-        "Registration approved",
-        `The account ${result.value.email} can now sign in.`,
+        lang,
+        decision.approvedTitle,
+        decision.approvedBody(result.value.email),
         "success",
       ),
     );
 };
 
 export const rejectRegistration = async (
-  _request: Request,
+  request: Request,
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
+  const lang = negotiateApprovalHtmlLang(request);
+  const decision = userRegistrationDecisionCopy(lang);
   const body = getValidated<RegistrationRejectBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
   const result = await container.authService.rejectRegistration(body.token, body.reason, {
@@ -232,8 +248,9 @@ export const rejectRegistration = async (
     .type("html")
     .send(
       registrationDecisionHtml(
-        "Registration rejected",
-        `The registration for ${result.value.email} was not approved.`,
+        lang,
+        decision.rejectedTitle,
+        decision.rejectedBody(result.value.email),
         "danger",
       ),
     );

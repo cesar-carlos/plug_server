@@ -34,8 +34,17 @@ describe("approval_error_html", () => {
     expect(isBrowserLikeApprovalErrorRequest(html)).toBe(true);
   });
 
-  it("returns HTML for client-access app errors in Portuguese", () => {
-    const req = mockRequest({ originalUrl: "/api/v1/client-access/reject" });
+  it("returns HTML for client-access app errors in Portuguese when Accept-Language prefers pt", () => {
+    const req = mockRequest({
+      originalUrl: "/api/v1/client-access/reject",
+      get: (name: string) => {
+        const l = name.toLowerCase();
+        if (l === "accept-language") {
+          return "pt-BR";
+        }
+        return undefined;
+      },
+    });
     const err = registrationTokenExpired("This approval link has expired");
     const built = buildApprovalErrorHtml(req, err, "req-approval-1");
     expect(built).not.toBeNull();

@@ -46,6 +46,7 @@ import { registerHttpRateLimits } from "./presentation/http/middlewares/rate_lim
 import { closeSocketServer, createSocketServer } from "./socket";
 import { container } from "./shared/di/container";
 import { env } from "./shared/config/env";
+import { logEnvWorldAlignmentHints } from "./shared/config/log_env_world_alignment";
 import { logSocketConsumerBootstrapHints } from "./shared/config/log_socket_consumer_bootstrap_hints";
 import { logger } from "./shared/utils/logger";
 
@@ -68,6 +69,7 @@ const bootstrap = async (): Promise<void> => {
   }
   io = createSocketServer(httpServer);
   logSocketConsumerBootstrapHints();
+  logEnvWorldAlignmentHints();
 
   startSocketAuditRetentionScheduler({
     retentionDays: env.socketAuditRetentionDays,
