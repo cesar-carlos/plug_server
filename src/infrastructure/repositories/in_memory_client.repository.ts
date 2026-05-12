@@ -22,8 +22,12 @@ export class InMemoryClientRepository implements IClientRepository {
   }
 
   async findByEmail(email: string): Promise<Client | null> {
+    const needle = email.trim().toLowerCase();
+    if (needle === "") {
+      return null;
+    }
     for (const client of this.store.values()) {
-      if (client.email === email) {
+      if (client.email.toLowerCase() === needle) {
         return client;
       }
     }

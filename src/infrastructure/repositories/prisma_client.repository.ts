@@ -45,7 +45,14 @@ export class PrismaClientRepository implements IClientRepository {
   }
 
   async findByEmail(email: string): Promise<Client | null> {
-    const client = await prismaClient.client.findUnique({ where: { email } });
+    const normalized = email.trim();
+    if (normalized === "") {
+      return null;
+    }
+
+    const client = await prismaClient.client.findFirst({
+      where: { email: { equals: normalized, mode: "insensitive" } },
+    });
     return client ? this.toDomain(client) : null;
   }
 

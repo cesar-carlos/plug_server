@@ -83,8 +83,8 @@ const printOwnerEligibility = async (prisma: PrismaClient, ownerEmail: string): 
   const normalized = ownerEmail.trim().toLowerCase();
   console.log("\n--- Owner eligibility (POST /api/v1/client-auth/register) ---");
   console.log("lookup (normalized like API):", normalized);
-  const u = await prisma.user.findUnique({
-    where: { email: normalized },
+  const u = await prisma.user.findFirst({
+    where: { email: { equals: normalized, mode: "insensitive" } },
     select: { email: true, status: true, role: true },
   });
   if (!u) {

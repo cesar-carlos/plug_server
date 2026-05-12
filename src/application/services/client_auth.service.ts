@@ -16,6 +16,7 @@ import type { IClientRefreshTokenRepository } from "../../domain/repositories/cl
 import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
 import type {
   ClientAuthResponseDto,
+  ClientRegistrationPollStatus,
   ClientRegistrationRequestResponseDto,
   ClientAuthTokensDto,
   ClientAuthUserDto,
@@ -188,7 +189,11 @@ export class ClientAuthService {
     }
 
     const owner = await this.userRepository.findById(client.userId);
-    if (!owner || owner.status !== "active" || owner.email !== input.ownerEmail) {
+    if (
+      !owner ||
+      owner.status !== "active" ||
+      owner.email.toLowerCase() !== input.ownerEmail.toLowerCase()
+    ) {
       return ok({ retried: false });
     }
 
@@ -712,10 +717,28 @@ export class ClientAuthService {
     return ok({ clientEmail: rejected.email });
   }
 
-  async getRegistrationStatus(tokenId: string): Promise<Result<{ status: "pending" | "expired" }>> {
+  async getRegistrationStatus(
+    tokenId: string,
+  ): Promise<Result<{ status: ClientRegistrationPollStatus }>> {
     const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
     if (!token) {
       return err(notFound("Registration token"));
+    }
+
+    const client = await this.clientRepository.findById(token.clientId);
+    if (!client) {
+      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+      return err(notFound("Registration token"));
+    }
+
+    if (client.status === "active") {
+      return ok({ status: "approved" });
+    }
+    if (client.status === "rejected") {
+      return ok({ status: "rejected" });
+    }
+    if (client.status === "blocked") {
+      return ok({ status: "blocked" });
     }
 
     if (isExpired(token.expiresAt)) {

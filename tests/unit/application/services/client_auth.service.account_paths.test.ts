@@ -252,6 +252,31 @@ describe("ClientAuthService account and approval paths", () => {
     }
   });
 
+  it("resolves owner email case-insensitively for register and retry", async () => {
+    const reg = await service.register({
+      ownerEmail: "OWNER@TEST.COM",
+      email: `case-owner-${Date.now()}@test.com`,
+      password: "ClientPwd1",
+      name: "Case",
+      lastName: "Owner",
+    });
+    expect(reg.ok).toBe(true);
+
+    const rejectedClient = createClient({
+      id: "case-retry-client",
+      email: `case-retry-${Date.now()}@test.com`,
+      userId: "owner-id",
+      status: "rejected",
+    });
+    await clientRepository.save(rejectedClient);
+    const retry = await service.retryRejectedRegistration({
+      ownerEmail: "Owner@Test.Com",
+      email: rejectedClient.email,
+      password: "ClientPwd1",
+    });
+    expect(retry).toEqual({ ok: true, value: { retried: true } });
+  });
+
   it("rolls back retry when re-dispatching the approval email fails", async () => {
     const client = createClient({
       id: "retry-client-id",
@@ -806,15 +831,22 @@ describe("ClientAuthService account and approval paths", () => {
   });
 
   it("handles registration status and password recovery branches", async () => {
+    const pendingRegPollClient = createClient({
+      id: "reg-poll-client-id",
+      email: "reg-poll@test.com",
+      status: "pending",
+    });
     const client = createClient({
       id: "recovery-client-id",
       email: "recovery@test.com",
+      status: "active",
     });
     const blockedClient = createClient({
       id: "blocked-recovery-client-id",
       email: "blocked-recovery@test.com",
       status: "blocked",
     });
+    await clientRepository.save(pendingRegPollClient);
     await clientRepository.save(client);
     await clientRepository.save(blockedClient);
 
@@ -823,12 +855,52 @@ describe("ClientAuthService account and approval paths", () => {
 
     await registrationApprovalTokenRepository.save({
       id: "expired-status-token",
-      clientId: client.id,
+      clientId: pendingRegPollClient.id,
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
     const expiredStatus = await service.getRegistrationStatus("expired-status-token");
     expect(expiredStatus).toEqual({ ok: true, value: { status: "expired" } });
+
+    const activeWithStaleToken = createClient({
+      id: "stale-token-client",
+      email: "stale-status@test.com",
+      status: "active",
+    });
+    await clientRepository.save(activeWithStaleToken);
+    await registrationApprovalTokenRepository.save({
+      id: "stale-but-active-token",
+      clientId: activeWithStaleToken.id,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const staleActiveStatus = await service.getRegistrationStatus("stale-but-active-token");
+    expect(staleActiveStatus).toEqual({ ok: true, value: { status: "approved" } });
+
+    const rejectedWithStaleToken = createClient({
+      id: "rej-stale-client",
+      email: "rej-stale@test.com",
+      status: "rejected",
+    });
+    await clientRepository.save(rejectedWithStaleToken);
+    await registrationApprovalTokenRepository.save({
+      id: "stale-rejected-token",
+      clientId: rejectedWithStaleToken.id,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const staleRejectedStatus = await service.getRegistrationStatus("stale-rejected-token");
+    expect(staleRejectedStatus).toEqual({ ok: true, value: { status: "rejected" } });
+
+    await registrationApprovalTokenRepository.save({
+      id: "orphan-status-token",
+      clientId: "missing-client-for-status",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const orphanStatusPoll = await service.getRegistrationStatus("orphan-status-token");
+    expect(orphanStatusPoll.ok).toBe(false);
+    expect(await registrationApprovalTokenRepository.findById("orphan-status-token")).toBeNull();
 
     const inactiveRecovery = await service.requestPasswordRecovery(blockedClient.email);
     expect(inactiveRecovery).toEqual({ ok: true, value: undefined });

@@ -38,10 +38,11 @@ Admin actions on `PATCH /api/v1/admin/users/:id/status` are **rate-limited per a
 Values: `pending`, `active`, `rejected`, `blocked`.
 
 - **Register (`POST /api/v1/client-auth/register`)**: creates `Client` in `pending` and sends owner approval flow.
-- **Public validation (`POST /api/v1/client-auth/register`)**: `ownerEmail` unavailable/inactive returns a generic **400** so the endpoint does not expose owner-account existence or status.
+- **Public validation (`POST /api/v1/client-auth/register`)**: `ownerEmail` must match an **`active`** `User`. Missing owner and inactive owner both yield the same **400** (`BAD_REQUEST`) and the same message (`Owner email is not eligible to approve client registration`), so the API does not distinguish the two cases.
 - **Approve (`POST /api/v1/client-auth/registration/approve`)**: transitions `pending -> active`.
 - **Reject (`POST /api/v1/client-auth/registration/reject`)**: transitions `pending -> rejected`.
-- **Retry (`POST /api/v1/client-auth/registration/retry`)**: may transition `rejected -> pending` only when the client email/password match, the submitted `ownerEmail` is the same active owner, and the retry is treated as a new approval request.
+- **Retry (`POST /api/v1/client-auth/registration/retry`)**: may transition `rejected -> pending` only when the client email/password match, the submitted `ownerEmail` matches the same active owner (case-insensitive), and the retry is treated as a new approval request.
+- **Poll (`GET /api/v1/client-auth/registration/status`)**: returns `pending` or `expired` while the client is still `pending`; if the client row is already `active`, `rejected`, or `blocked` but a token row still exists, returns `approved`, `rejected`, or `blocked` respectively. Missing client for the token yields **404** and the orphan token is removed.
 - **Owner governance (`PATCH /api/v1/me/clients/:id/status`)**: only reviewed clients may change between `active` and `blocked`; `pending` must stay on the registration approval flow.
 - **Login / refresh / protected routes / socket ops**: only `active` clients can operate.
 - **Historical compatibility**: legacy rows already stored as `blocked` are not backfilled automatically; older rejected registrations may still appear as `blocked` until they re-enter the registration flow.

@@ -26,3 +26,11 @@ export interface ClientRegistrationRequestResponseDto {
   readonly client: ClientAuthUserDto;
   readonly approvalToken?: string;
 }
+
+/** `GET /client-auth/registration/status` — reflects client row when token is still present. */
+export type ClientRegistrationPollStatus =
+  | "pending"
+  | "expired"
+  | "approved"
+  | "rejected"
+  | "blocked";

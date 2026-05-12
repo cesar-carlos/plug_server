@@ -34,8 +34,14 @@ export class InMemoryUserRepository implements IUserRepository {
   }
 
   async findByEmail(email: string): Promise<User | null> {
+    const needle = email.trim().toLowerCase();
+    if (needle === "") {
+      return null;
+    }
     for (const user of this.store.values()) {
-      if (user.email === email) return user;
+      if (user.email.toLowerCase() === needle) {
+        return user;
+      }
     }
     return null;
   }

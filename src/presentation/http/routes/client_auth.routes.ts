@@ -118,7 +118,18 @@ clientAuthRouter.get(
  *         schema: { type: string }
  *     responses:
  *       200:
- *         description: Status payload for current registration token
+ *         description: Registration poll status for the token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [status]
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [pending, expired, approved, rejected, blocked]
+ *       404:
+ *         description: Unknown token or orphaned token (client row missing)
  */
 clientAuthRouter.get(
   "/registration/status",
