@@ -7,6 +7,7 @@ import { createTestServer } from "../helpers/test_server";
 import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
+import { nextValidTestCnpj } from "./helpers/valid_test_cnpj";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
@@ -2406,6 +2407,7 @@ describe("Socket namespaces", () => {
         agentId: snapshotAgentId,
       });
       expect(snapshotLoginRes.status).toBe(200);
+      const validDocument = nextValidTestCnpj();
 
       const agentSocket = await connectAgent(baseUrl, snapshotLoginRes.body.accessToken as string);
       try {
@@ -2434,7 +2436,7 @@ describe("Socket namespaces", () => {
             profile: {
               name: "Register Snapshot Agent",
               trade_name: "Snapshot Store",
-              document: "55443322000111",
+              document: validDocument,
               document_type: "cnpj",
               mobile: "11977776666",
               email: "snapshot-agent@plug.local",
