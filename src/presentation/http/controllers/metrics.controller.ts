@@ -351,6 +351,18 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_agent_profile_sync_skipped_stale_session_total",
+      agentProfileReliabilityMetrics.profileSyncSkippedStaleSessionTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_profile_sync_failed_log_suppressed_total",
+      agentProfileReliabilityMetrics.profileSyncFailedLogSuppressedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_agent_profile_broadcast_emitted_total",
       agentProfileReliabilityMetrics.profileBroadcastEmittedTotal,
     ),

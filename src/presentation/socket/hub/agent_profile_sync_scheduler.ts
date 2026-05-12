@@ -13,6 +13,8 @@ export interface AgentProfileSyncSchedulerInput {
 export interface AgentProfileSyncSchedulerMetrics {
   profileSyncDedupedInFlightTotal: number;
   profileSyncSkippedRecentDuplicateTotal: number;
+  profileSyncSkippedStaleSessionTotal: number;
+  profileSyncFailedLogSuppressedTotal: number;
 }
 
 export interface AgentProfileSyncSchedulerLogger {
@@ -103,8 +105,10 @@ export class AgentProfileSyncScheduler {
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly recent = new Map<string, RecentProfileSync>();
   private readonly failedLogs = new Map<string, RateLimitedFailureLog>();
+  private readonly generations = new Map<string, number>();
 
   schedule(input: AgentProfileSyncSchedulerInput, delayMs = 1_200): void {
+    const generation = this.generationFor(input.agentId);
     const snapshotFingerprint =
       input.snapshot !== undefined ? profileSnapshotFingerprint(input.snapshot) : undefined;
     if (
@@ -132,7 +136,7 @@ export class AgentProfileSyncScheduler {
     const timer = setTimeout(
       () => {
         this.timers.delete(input.agentId);
-        void this.runScheduledSync(input, attempt, snapshotFingerprint);
+        void this.runScheduledSync(input, attempt, snapshotFingerprint, generation);
       },
       Math.max(0, delayMs),
     );
@@ -142,6 +146,7 @@ export class AgentProfileSyncScheduler {
   }
 
   clear(agentId: string): void {
+    this.bumpGeneration(agentId);
     const timer = this.timers.get(agentId);
     if (timer) {
       clearTimeout(timer);
@@ -151,6 +156,9 @@ export class AgentProfileSyncScheduler {
   }
 
   reset(): void {
+    for (const agentId of this.inFlight.keys()) {
+      this.bumpGeneration(agentId);
+    }
     for (const timer of this.timers.values()) {
       clearTimeout(timer);
     }
@@ -165,7 +173,11 @@ export class AgentProfileSyncScheduler {
     input: AgentProfileSyncSchedulerInput,
     attempt: number,
     snapshotFingerprint: string | undefined,
+    generation: number,
   ): Promise<void> {
+    if (this.isStaleGeneration(input.agentId, generation)) {
+      return;
+    }
     if (this.inFlight.has(input.agentId)) {
       this.metrics.profileSyncDedupedInFlightTotal += 1;
       this.logger.info("agent_profile_sync_skipped", {
@@ -205,7 +217,7 @@ export class AgentProfileSyncScheduler {
           reason: input.snapshot !== undefined ? "register_snapshot" : "fallback_rpc",
         });
       } catch (error: unknown) {
-        this.handleFailure(input, attempt, error);
+        this.handleFailure(input, attempt, error, generation);
       } finally {
         releaseSlot?.();
       }
@@ -223,7 +235,20 @@ export class AgentProfileSyncScheduler {
     input: AgentProfileSyncSchedulerInput,
     attempt: number,
     error: unknown,
+    generation: number,
   ): void {
+    if (this.isStaleGeneration(input.agentId, generation)) {
+      this.attempts.delete(input.agentId);
+      this.metrics.profileSyncSkippedStaleSessionTotal += 1;
+      this.logger.info("agent_profile_sync_skipped", {
+        agentId: input.agentId,
+        userId: input.userId,
+        attempt,
+        reason: "stale_session",
+      });
+      return;
+    }
+
     const appErrorDetails =
       error instanceof AppError && typeof error.details === "object" && error.details !== null
         ? (error.details as Record<string, unknown>)
@@ -274,6 +299,18 @@ export class AgentProfileSyncScheduler {
     this.schedule(input, nextDelay);
   }
 
+  private generationFor(agentId: string): number {
+    return this.generations.get(agentId) ?? 0;
+  }
+
+  private bumpGeneration(agentId: string): void {
+    this.generations.set(agentId, this.generationFor(agentId) + 1);
+  }
+
+  private isStaleGeneration(agentId: string, generation: number): boolean {
+    return this.generationFor(agentId) !== generation;
+  }
+
   private rememberRecent(agentId: string, fingerprint: string): void {
     const now = this.now();
     this.recent.set(agentId, {
@@ -315,6 +352,7 @@ export class AgentProfileSyncScheduler {
     }
 
     existing.suppressedCount += 1;
+    this.metrics.profileSyncFailedLogSuppressedTotal += 1;
     return { shouldLog: false, suppressedCount: 0 };
   }
 

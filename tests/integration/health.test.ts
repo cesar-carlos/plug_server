@@ -156,6 +156,8 @@ describe("GET /api/v1/health", () => {
     expect(response.text).toContain("plug_socket_audit_prune_runs_total");
     expect(response.text).toContain("plug_socket_audit_writes_dropped_overflow_total");
     expect(response.text).toContain("plug_agent_profile_maintenance_prune_runs_total");
+    expect(response.text).toContain("plug_agent_profile_sync_skipped_stale_session_total");
+    expect(response.text).toContain("plug_agent_profile_sync_failed_log_suppressed_total");
     expect(response.text).toContain("plug_client_agent_access_expiry_runs_total");
     expect(response.text).toContain("plug_client_me_agents_list_responses_total");
     expect(response.text).toContain("plug_client_me_agents_detail_responses_total");

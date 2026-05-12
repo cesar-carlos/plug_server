@@ -17,7 +17,11 @@ import {
   isPayloadFrameEnvelope,
   preencodePayloadFrameJson,
 } from "../../../shared/utils/payload_frame";
-import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
+import {
+  enqueueRelayOutbound,
+  encodeRelayOutboundFrame,
+  markRelayOutboundForceGzip,
+} from "./relay_outbound_queue";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import type { ActiveStreamRoute } from "./active_stream_registry";
 import {
@@ -780,7 +784,12 @@ export const createRpcBridgeAgentInboundHandlers = (
       enqueueRelayOutbound(responseId, async () => {
         let forwardedResponse = false;
         try {
-          const responseFrame = await encodeRelayOutboundFrame(decoded.data, responseId);
+          const decodedResponse = toRecord(decoded.data);
+          const outboundResponse =
+            decoded.frame.cmp === "gzip" && decodedResponse
+              ? markRelayOutboundForceGzip(decodedResponse)
+              : decoded.data;
+          const responseFrame = await encodeRelayOutboundFrame(outboundResponse, responseId);
           const tRelayForward = performance.now();
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
           forwardedResponse = true;
@@ -878,6 +887,9 @@ export const createRpcBridgeAgentInboundHandlers = (
       if (!data) {
         return;
       }
+      if (result.value.frame.cmp === "gzip") {
+        markRelayOutboundForceGzip(data);
+      }
 
       const route = resolveActiveStreamRoute(socketId, data);
       if (!route) {
@@ -923,6 +935,9 @@ export const createRpcBridgeAgentInboundHandlers = (
       const data = toRecord(result.value.data);
       if (!data) {
         return;
+      }
+      if (result.value.frame.cmp === "gzip") {
+        markRelayOutboundForceGzip(data);
       }
 
       const route = resolveActiveStreamRoute(socketId, data);

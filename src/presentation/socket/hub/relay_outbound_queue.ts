@@ -25,6 +25,7 @@ type TailEntry = {
 
 const tailByRequestId = new Map<string, TailEntry>();
 const durationSamplesSize = 256;
+const relayOutboundForceGzipSymbol = Symbol("relayOutboundForceGzip");
 
 const metrics = {
   jobsEnqueuedTotal: 0,
@@ -354,8 +355,31 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
   });
 };
 
+export const markRelayOutboundForceGzip = <T extends Record<string, unknown>>(payload: T): T => {
+  Object.defineProperty(payload, relayOutboundForceGzipSymbol, {
+    configurable: true,
+    enumerable: false,
+    value: true,
+  });
+  return payload;
+};
+
+const shouldForceRelayOutboundGzip = (data: unknown): boolean =>
+  typeof data === "object" &&
+  data !== null &&
+  (data as Record<symbol, unknown>)[relayOutboundForceGzipSymbol] === true;
+
 export const encodeRelayOutboundFrame = async (
   data: unknown,
   requestId: string,
 ): Promise<PayloadFrameEnvelope> =>
-  encodePayloadFrameBridge(data, { requestId, omitTraceId: true });
+  encodePayloadFrameBridge(data, {
+    requestId,
+    omitTraceId: true,
+    ...(shouldForceRelayOutboundGzip(data)
+      ? {
+          compressionThreshold: 1,
+          compressionPolicy: "always_gzip" as const,
+        }
+      : {}),
+  });

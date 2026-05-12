@@ -38,6 +38,8 @@ describe("AgentProfileSyncScheduler", () => {
     metrics = {
       profileSyncDedupedInFlightTotal: 0,
       profileSyncSkippedRecentDuplicateTotal: 0,
+      profileSyncSkippedStaleSessionTotal: 0,
+      profileSyncFailedLogSuppressedTotal: 0,
     };
     logger = {
       info: vi.fn(),
@@ -174,6 +176,7 @@ describe("AgentProfileSyncScheduler", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(metrics.profileSyncFailedLogSuppressedTotal).toBe(1);
 
     nowMs += 101;
     scheduler.schedule({ agentId: "agent-1", userId: "user-1" }, 0);
@@ -184,5 +187,42 @@ describe("AgentProfileSyncScheduler", () => {
       "agent_profile_sync_failed",
       expect.objectContaining({ suppressedCount: 1 }),
     );
+    expect(metrics.profileSyncFailedLogSuppressedTotal).toBe(1);
+  });
+
+  it("should not retry an in-flight sync after the agent state is cleared", async () => {
+    const deferred = createDeferred();
+    const syncFromConnectedAgent = vi.fn(async () => deferred.promise);
+    const scheduler = new AgentProfileSyncScheduler({
+      syncFromRegisterSnapshot: vi.fn(),
+      syncFromConnectedAgent,
+      acquireSlot: async () => releaseSlot,
+      metrics,
+      logger,
+      now: () => nowMs,
+    });
+
+    scheduler.schedule({ agentId: "agent-1", userId: "user-1" }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(syncFromConnectedAgent).toHaveBeenCalledTimes(1);
+
+    scheduler.clear("agent-1");
+    deferred.reject(
+      new AppError("Agent disconnected while waiting for response", {
+        statusCode: 503,
+        code: "SERVICE_UNAVAILABLE",
+      }),
+    );
+    await deferred.promise.catch(() => undefined);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(syncFromConnectedAgent).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      "agent_profile_sync_skipped",
+      expect.objectContaining({ agentId: "agent-1", reason: "stale_session" }),
+    );
+    expect(metrics.profileSyncSkippedStaleSessionTotal).toBe(1);
+    expect(logger.warn).not.toHaveBeenCalledWith("agent_profile_sync_failed", expect.any(Object));
   });
 });

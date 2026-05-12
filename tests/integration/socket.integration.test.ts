@@ -11,6 +11,7 @@ import { nextValidTestCnpj } from "./helpers/valid_test_cnpj";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
+import { agentProfileReliabilityMetrics } from "../../src/application/services/agent_profile_reliability_metrics.service";
 import { container, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { hasRestPendingCorrelationId } from "../../src/presentation/socket/hub/rest_pending_requests";
 import { agentsNamespace } from "../../src/socket";
@@ -1752,7 +1753,7 @@ describe("Socket namespaces", () => {
                   note: randomBytes(3200).toString("base64"),
                 },
               },
-              { compressionThreshold: 1 },
+              { compressionThreshold: 1, compressionPolicy: "always_gzip" },
             ),
           );
 
@@ -1765,7 +1766,7 @@ describe("Socket namespaces", () => {
                 chunk_index: 0,
                 rows: [{ row: 1, payload: randomBytes(3000).toString("base64") }],
               },
-              { compressionThreshold: 1 },
+              { compressionThreshold: 1, compressionPolicy: "always_gzip" },
             ),
           );
         });
@@ -1860,7 +1861,7 @@ describe("Socket namespaces", () => {
               chunk_index: 1,
               rows: [{ row: 2, payload: randomBytes(3000).toString("base64") }],
             },
-            { compressionThreshold: 1 },
+            { compressionThreshold: 1, compressionPolicy: "always_gzip" },
           ),
         );
         agentSocket.emit(
@@ -2572,6 +2573,66 @@ describe("Socket namespaces", () => {
         expect(catalogRes.body.agent.notes).toBe("fresh profile");
         expect(catalogRes.body.agent.lastLoginUserId).toBeDefined();
         expect(catalogRes.body.agent.profileUpdatedAt).toEqual(expect.any(String));
+      } finally {
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should not retry profile sync after disconnecting during agent.getProfile", async () => {
+      const disconnectAgentId = randomUUID();
+      const loginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+        email: "socket@test.com",
+        password: "SocketTest1",
+        agentId: disconnectAgentId,
+      });
+      expect(loginRes.status).toBe(200);
+
+      const fallbackBefore = agentProfileReliabilityMetrics.profileSyncFallbackRpcTotal;
+      const staleBefore = agentProfileReliabilityMetrics.profileSyncSkippedStaleSessionTotal;
+      const agentSocket = await connectAgent(baseUrl, loginRes.body.accessToken as string);
+      let profileRpcRequests = 0;
+
+      try {
+        const firstProfileRequest = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(
+            () => reject(new Error("Timed out waiting for disconnect profile sync RPC")),
+            6_000,
+          );
+          agentSocket.on("rpc:request", (rawPayload: unknown) => {
+            const decoded = decodePayloadFrame(rawPayload);
+            if (!decoded.ok || !isRecord(decoded.value.data)) {
+              clearTimeout(timeout);
+              reject(new Error("Invalid disconnect sync rpc:request payload"));
+              return;
+            }
+            if (decoded.value.data.method !== "agent.getProfile") {
+              return;
+            }
+
+            profileRpcRequests += 1;
+            clearTimeout(timeout);
+            agentSocket.disconnect();
+            resolve();
+          });
+        });
+
+        await registerAgentAndWaitReady(
+          agentSocket,
+          {
+            protocols: ["jsonrpc-v2"],
+            encodings: ["json"],
+            compressions: ["none"],
+          },
+          disconnectAgentId,
+        );
+        await firstProfileRequest;
+        await new Promise((resolve) => setTimeout(resolve, 1_700));
+
+        expect(profileRpcRequests).toBe(1);
+        expect(agentProfileReliabilityMetrics.profileSyncFallbackRpcTotal).toBe(fallbackBefore + 1);
+        expect(agentProfileReliabilityMetrics.profileSyncSkippedStaleSessionTotal).toBeGreaterThan(
+          staleBefore,
+        );
       } finally {
         agentSocket.disconnect();
       }

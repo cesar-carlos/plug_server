@@ -12,6 +12,8 @@ export const agentProfileReliabilityMetrics = {
   profileSyncFallbackRpcTotal: 0,
   profileSyncDedupedInFlightTotal: 0,
   profileSyncSkippedRecentDuplicateTotal: 0,
+  profileSyncSkippedStaleSessionTotal: 0,
+  profileSyncFailedLogSuppressedTotal: 0,
   profileBroadcastEmittedTotal: 0,
   profileBroadcastFailedTotal: 0,
 };
@@ -29,6 +31,8 @@ export const resetAgentProfileReliabilityMetricsForTests = (): void => {
   agentProfileReliabilityMetrics.profileSyncFallbackRpcTotal = 0;
   agentProfileReliabilityMetrics.profileSyncDedupedInFlightTotal = 0;
   agentProfileReliabilityMetrics.profileSyncSkippedRecentDuplicateTotal = 0;
+  agentProfileReliabilityMetrics.profileSyncSkippedStaleSessionTotal = 0;
+  agentProfileReliabilityMetrics.profileSyncFailedLogSuppressedTotal = 0;
   agentProfileReliabilityMetrics.profileBroadcastEmittedTotal = 0;
   agentProfileReliabilityMetrics.profileBroadcastFailedTotal = 0;
 };
