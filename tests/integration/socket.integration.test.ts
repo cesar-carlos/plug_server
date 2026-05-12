@@ -2398,6 +2398,69 @@ describe("Socket namespaces", () => {
       }
     });
 
+    it("should sync register snapshot without emitting agent.getProfile RPC", async () => {
+      const snapshotAgentId = randomUUID();
+      const snapshotLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
+        email: "socket@test.com",
+        password: "SocketTest1",
+        agentId: snapshotAgentId,
+      });
+      expect(snapshotLoginRes.status).toBe(200);
+
+      const agentSocket = await connectAgent(baseUrl, snapshotLoginRes.body.accessToken as string);
+      try {
+        const profileRpcRequests: unknown[] = [];
+        agentSocket.on("rpc:request", (rawPayload: unknown) => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (
+            decoded.ok &&
+            isRecord(decoded.value.data) &&
+            decoded.value.data.method === "agent.getProfile"
+          ) {
+            profileRpcRequests.push(decoded.value.data);
+          }
+        });
+
+        const capabilitiesPromise = waitForEvent<unknown>(agentSocket, "agent:capabilities");
+        agentSocket.emit(
+          "agent:register",
+          encodePayloadFrame({
+            agentId: snapshotAgentId,
+            capabilities: {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+            },
+            profile: {
+              name: "Register Snapshot Agent",
+              trade_name: "Snapshot Store",
+              document: "55443322000111",
+              document_type: "cnpj",
+              mobile: "11977776666",
+              email: "snapshot-agent@plug.local",
+            },
+            profile_version: 3,
+            profile_updated_at: "2026-05-12T10:30:00.000Z",
+            timestamp: new Date().toISOString(),
+          }),
+        );
+        await capabilitiesPromise;
+        await new Promise((resolve) => setTimeout(resolve, 1_700));
+
+        expect(profileRpcRequests).toHaveLength(0);
+        const catalogRes = await request(baseUrl)
+          .get(`/api/v1/agents/catalog/${snapshotAgentId}`)
+          .set("Authorization", `Bearer ${accessToken}`);
+        expect(catalogRes.status).toBe(200);
+        expect(catalogRes.body.agent.name).toBe("Register Snapshot Agent");
+        expect(catalogRes.body.agent.tradeName).toBe("Snapshot Store");
+        expect(catalogRes.body.agent.profileVersion).toBe(3);
+        expect(catalogRes.body.agent.profileUpdatedAt).toBe("2026-05-12T10:30:00.000Z");
+      } finally {
+        agentSocket.disconnect();
+      }
+    });
+
     it("should refresh an existing catalog agent from agent.getProfile on register", async () => {
       const existingAgentId = randomUUID();
       await seedAgent({

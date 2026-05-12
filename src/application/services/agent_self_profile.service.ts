@@ -325,6 +325,29 @@ export class AgentSelfProfileService {
       return existing;
     }
 
+    if (
+      input.source === "pull_sync" &&
+      input.remoteProfileVersion === undefined &&
+      existing !== null
+    ) {
+      const candidate = this.agentWithStoredDocumentNormalized(
+        existing.update({
+          ...input.patch,
+          profileUpdatedAt: effectiveProfileUpdatedAt,
+          ...(input.lastLoginUserId !== undefined ? { lastLoginUserId: input.lastLoginUserId } : {}),
+          profileVersion: existing.profileVersion,
+        }),
+      );
+      if (
+        agentsProfileCatalogContentEqual(existing, candidate) &&
+        sameOptionalTime(existing.profileUpdatedAt, candidate.profileUpdatedAt) &&
+        existing.lastLoginUserId === candidate.lastLoginUserId
+      ) {
+        agentProfileReliabilityMetrics.profileWritesIdempotentTotal += 1;
+        return existing;
+      }
+    }
+
     let nextProfileVersion: number;
     if (input.source === "pull_sync" && input.remoteProfileVersion !== undefined) {
       nextProfileVersion = input.remoteProfileVersion;
@@ -573,3 +596,8 @@ const describeUpdatedFields = (patch: AgentSelfProfilePatch): readonly string[] 
   }
   return fields;
 };
+
+const sameOptionalTime = (left: Date | undefined, right: Date | undefined): boolean =>
+  left === undefined && right === undefined
+    ? true
+    : left !== undefined && right !== undefined && left.getTime() === right.getTime();

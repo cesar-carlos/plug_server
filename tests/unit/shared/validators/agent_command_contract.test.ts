@@ -240,66 +240,21 @@ describe("agent_command contract (plug_agente compatibility)", () => {
     expect(parsed.success).toBe(false);
   });
 
-  it("should accept observer.register per plug_agente profile 2.10", () => {
-    const payload = {
-      agentId: "agent-01",
-      command: {
-        jsonrpc: "2.0",
-        method: "observer.register",
-        id: "req-observer-register",
-        params: {
-          sql: "SELECT 1",
-          client_token: "a1b2c3d4e5f6",
-          interval_seconds: 30,
-          condition: { type: "rows_present" },
-          run_immediately: true,
-          options: { timeout_ms: 1_000, max_rows: 10 },
-        },
-      },
-    };
-
-    const parsed = agentCommandBodySchema.safeParse(payload);
-    expect(parsed.success).toBe(true);
-  });
-
-  it("should reject observer.register idempotency_key", () => {
-    const payload = {
-      agentId: "agent-01",
-      command: {
-        jsonrpc: "2.0",
-        method: "observer.register",
-        id: "req-observer-register",
-        params: {
-          sql: "SELECT 1",
-          idempotency_key: "must-not-cache-periodic-work",
-        },
-      },
-    };
-
-    const parsed = agentCommandBodySchema.safeParse(payload);
-    expect(parsed.success).toBe(false);
-  });
-
-  it("should accept observer.unregister and observer.list", () => {
-    const batchPayload = {
-      agentId: "agent-01",
-      command: [
-        {
+  it.each(["observer.register", "observer.unregister", "observer.list"])(
+    "should reject unsupported %s until plug_agente publishes the method",
+    (method) => {
+      const payload = {
+        agentId: "agent-01",
+        command: {
           jsonrpc: "2.0",
-          method: "observer.unregister",
-          id: "req-observer-unregister",
-          params: { observer_id: "observer-01" },
+          method,
+          id: `req-${method}`,
+          params: {},
         },
-        {
-          jsonrpc: "2.0",
-          method: "observer.list",
-          id: "req-observer-list",
-          params: { client_token: "a1b2c3d4e5f6" },
-        },
-      ],
-    };
+      };
 
-    const parsed = agentCommandBodySchema.safeParse(batchPayload);
-    expect(parsed.success).toBe(true);
-  });
+      const parsed = agentCommandBodySchema.safeParse(payload);
+      expect(parsed.success).toBe(false);
+    },
+  );
 });

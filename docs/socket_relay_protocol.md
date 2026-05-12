@@ -165,12 +165,12 @@ nao deve ser tratado como contrato publico para SDKs.
 O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 `plug_agente/docs/communication/socket_communication_standard.md`.
 
-**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`, `observer.register`, `observer.unregister`, `observer.list`.
+**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`.
 
 **Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
 
-O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB em `sql.execute` e `observer.register`, `params` nomeado serializado ate 2 MiB, `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
+O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB em `sql.execute`, `params` nomeado serializado ate 2 MiB, `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
 
 - validacao barata de envelope JSON acontece antes do rate limit fixo
 - validacao profunda do `PayloadFrame` / JSON-RPC pode ocorrer depois do `allowRelayRpcRequest`
@@ -217,12 +217,12 @@ Campos relevantes do frame:
 Regras atuais no servidor:
 
 - validacao estrutural do envelope recebido (agente/consumer → hub) alinhada ao schema `payload-frame.schema.json` do plug_agente: `schemaVersion` **1.0**, `contentType` **application/json**, inteiros nao negativos, sem chaves desconhecidas no raiz; bloco `signature` sem propriedades extra (`isPayloadFrameEnvelope` em `payload_frame.ts`)
-- compressao de saida: acima do limiar, modo **automatico** (gzip so quando a economia supera `PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES`) no hub por defeito; `payloadFrameCompression: always` forca gzip como no agente “sempre GZIP”
+- compressao de saida: acima do limiar, modo **automatico** (gzip so quando a economia supera `PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES` e nao viola a razao maxima de inflacao) no hub por defeito; `payloadFrameCompression: always` prefere gzip como no agente “sempre GZIP”, mas cai para `cmp: none` se o frame violaria a guarda de inflacao
 - para JSON UTF-8 **acima do teto configuravel** (`PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **512 KiB**), o hub **nao tenta** gzip na codificacao interna (`preencodePayloadFrameJson` em `payload_frame.ts`); o frame segue com `cmp: none` ate ao limite de `10 MB` no fio
 - limites de despacho (`max_rows`, `max_batch_size`) seguem politica efetiva por agente: o hub aplica o minimo entre o contrato anunciado e limites declarados pelo agente nas capabilities, quando presentes. `max_concurrent_streams` permanece informativo no handshake nesta fase.
 - limite de payload comprimido: `10 MB`
 - limite de payload decodificado: `10 MB`
-- limite de inflacao gzip: `20x`
+- limite de inflacao gzip: `10x`
 - frames inbound **sem** `signature` continuam aceitos por defeito; a verificacao e
   aplicada apenas quando a assinatura vem presente no envelope
 - se `signature` vier no frame, o servidor valida com `PAYLOAD_SIGNING_KEY`

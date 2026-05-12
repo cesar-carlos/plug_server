@@ -344,4 +344,31 @@ describe("AgentSelfProfileService", () => {
     expect(newer.tradeName).toBe("Fresh Trade");
     expect(newer.profileVersion).toBe(5);
   });
+
+  it("should keep profileVersion unchanged for duplicate pull_sync without remoteProfileVersion", async () => {
+    await agentRepository.save(
+      Agent.create({
+        agentId,
+        name: "Synced Agent",
+        tradeName: "Synced Trade",
+        profileUpdatedAt: new Date("2026-04-08T10:00:00.000Z"),
+        profileVersion: 4,
+        lastLoginUserId: "user-1",
+      }),
+    );
+
+    const duplicate = await service.persistProfilePatch({
+      agentId,
+      patch: service.toPatchFromPulledProfile({
+        name: "Synced Agent",
+        trade_name: "Synced Trade",
+      }),
+      source: "pull_sync",
+      profileUpdatedAt: new Date("2026-04-08T10:00:00.000Z"),
+      lastLoginUserId: "user-1",
+    });
+
+    expect(duplicate.profileVersion).toBe(4);
+    expect(duplicate.profileUpdatedAt?.toISOString()).toBe("2026-04-08T10:00:00.000Z");
+  });
 });

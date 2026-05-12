@@ -154,12 +154,13 @@ Campos de arquivo diferentes de `files` sao rejeitados.
 
 ## Exemplo de encode/decode no cliente (Node.js)
 
-Alinhado ao modo **automatico** do hub / plug_agente: acima do limiar (1024 bytes UTF-8), usar **gzip so se** o bloco comprimido economizar bytes suficientes face ao JSON bruto (ver `PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES`); caso contrario `cmp: "none"`. (No REST/relay, `payloadFrameCompression: "always"` no envelope controla a re-encodacao **hub → agente** apos o servidor descodificar o teu frame.)
+Alinhado ao modo **automatico** do hub / plug_agente: acima do limiar (4096 bytes UTF-8), usar **gzip so se** o bloco comprimido economizar bytes suficientes face ao JSON bruto (ver `PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES`) e nao exceder a razao maxima de inflacao; caso contrario `cmp: "none"`. (No REST/relay, `payloadFrameCompression: "always"` no envelope controla a re-encodacao **hub → agente** apos o servidor descodificar o teu frame, ainda limitada pela guarda de inflacao.)
 
 ```ts
 import { gzipSync, gunzipSync } from "node:zlib";
 
-const COMPRESSION_THRESHOLD = 1024;
+const COMPRESSION_THRESHOLD = 4096;
+const MAX_INFLATION_RATIO = 10;
 
 const encodeFrame = (data: unknown): PayloadFrame => {
   const encoded = Buffer.from(JSON.stringify(data), "utf8");
@@ -167,7 +168,7 @@ const encodeFrame = (data: unknown): PayloadFrame => {
   let wire: Buffer = encoded;
   if (encoded.length >= COMPRESSION_THRESHOLD) {
     const gz = gzipSync(encoded);
-    if (gz.length < encoded.length) {
+    if (gz.length < encoded.length && encoded.length / gz.length <= MAX_INFLATION_RATIO) {
       wire = gz;
       cmp = "gzip";
     }
@@ -189,13 +190,16 @@ const decodeFrame = (frame: PayloadFrame) => {
       ? Buffer.from(frame.payload, "base64")
       : Buffer.from(frame.payload);
   const decoded = frame.cmp === "gzip" ? gunzipSync(bytes) : bytes;
+  if (bytes.length > 0 && decoded.length / bytes.length > MAX_INFLATION_RATIO) {
+    throw new Error("PayloadFrame inflation ratio exceeded");
+  }
   return JSON.parse(decoded.toString("utf8"));
 };
 ```
 
 **Producao:** o exemplo acima e didatico. Antes de `gunzip` / `JSON.parse`, um cliente robusto deve:
 validar `enc === "json"` e `cmp` em `gzip` \| `none`; conferir `bytes.length === compressedSize`;
-apos descompressao, `decoded.length === originalSize`; limitar tamanho maximo e **razao de inflacao** (ex.: 20x,
+apos descompressao, `decoded.length === originalSize`; limitar tamanho maximo e **razao de inflacao** (ex.: 10x,
 como o hub em `payload_frame.ts` / `decodePayloadFrame`); se existir `signature`, verificar HMAC com a chave
 negociada (ver `plug_agente/docs/communication/socketio_client_binary_transport.md`). Encode reutilizavel:
 [`docs/snippets/payload_frame_client_encode.ts`](snippets/payload_frame_client_encode.ts).
@@ -204,7 +208,7 @@ negociada (ver `plug_agente/docs/communication/socketio_client_binary_transport.
 
 1. `relay:conversation.start` com `{ agentId }`
 2. Recebe `relay:conversation.started` com `conversationId`
-3. Envia `relay:rpc.request` com `{ conversationId, frame }` (opcional: `payloadFrameCompression`: `default` \| `none` \| `always` — `default` = auto: gzip ao agente so se menor que JSON bruto; `always` = sempre gzip quando elegivel, alinhado ao plug_agente)
+3. Envia `relay:rpc.request` com `{ conversationId, frame }` (opcional: `payloadFrameCompression`: `default` \| `none` \| `always` — `default` = auto: gzip ao agente so se menor que JSON bruto e dentro da guarda de inflacao; `always` = prefere gzip quando elegivel, alinhado ao plug_agente, mas ainda respeita a guarda de inflacao)
 4. Recebe `relay:rpc.accepted` (JSON)
 5. Recebe dados (`relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`) em `PayloadFrame`
 6. Em streaming, envia `relay:rpc.stream.pull` com `{ conversationId, frame }`

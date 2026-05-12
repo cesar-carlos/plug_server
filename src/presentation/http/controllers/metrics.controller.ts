@@ -327,6 +327,30 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_agent_profile_sync_register_snapshot_total",
+      agentProfileReliabilityMetrics.profileSyncRegisterSnapshotTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_profile_sync_fallback_rpc_total",
+      agentProfileReliabilityMetrics.profileSyncFallbackRpcTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_profile_sync_deduped_in_flight_total",
+      agentProfileReliabilityMetrics.profileSyncDedupedInFlightTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_profile_sync_skipped_recent_duplicate_total",
+      agentProfileReliabilityMetrics.profileSyncSkippedRecentDuplicateTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_agent_profile_broadcast_emitted_total",
       agentProfileReliabilityMetrics.profileBroadcastEmittedTotal,
     ),
@@ -843,16 +867,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const recipientHist = consumerRuntime.publishRecipientsHistogram;
   for (const bucket of recipientHist.cumulativeBuckets) {
     lines.push(
-      metricLine(
-        "plug_socket_custom_event_publish_recipients_hist_bucket",
-        bucket.count,
-        { le: bucket.le },
-      ),
+      metricLine("plug_socket_custom_event_publish_recipients_hist_bucket", bucket.count, {
+        le: bucket.le,
+      }),
     );
   }
-  lines.push(
-    metricLine("plug_socket_custom_event_publish_recipients_hist_sum", recipientHist.sum),
-  );
+  lines.push(metricLine("plug_socket_custom_event_publish_recipients_hist_sum", recipientHist.sum));
   lines.push(
     metricLine("plug_socket_custom_event_publish_recipients_hist_count", recipientHist.count),
   );

@@ -183,10 +183,10 @@ agentsRouter.patch(
  *       Top-level `pagination` is supported only for single `sql.execute` and is injected into
  *       `command.params.options` before dispatch.
  *       Socket payload hardening is enabled in the bridge layer:
- *       compressed payload max 10MB, decoded payload max 10MB, max inflation ratio 20x,
+ *       compressed payload max 10MB, decoded payload max 10MB, max inflation ratio 10x,
  *       and optional HMAC signature verification when the frame includes `signature`.
  *       Optional `payloadFrameCompression` on the body selects gzip policy for PayloadFrames the hub
- *       emits on `rpc:request` toward the agent (`default` = auto above 1024 B, `none`, `always`).
+ *       emits on `rpc:request` toward the agent (`default` = auto above 4096 B, `none`, `always`).
  *       Rate limits: per JWT `sub` (`REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` / `_WINDOW_MS`); optional per-IP cap
  *       when `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX` > 0 (use `trust proxy` behind reverse proxies).
  *       See `components.schemas.SocketBridgeSecurityNotes` for the documented hardening profile.

@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import type { Agent } from "../../domain/entities/agent.entity";
 import type { AgentCommandDispatcher } from "../agent_commands/execute_agent_command";
+import { AppError } from "../../shared/errors/app_error";
 import { forbidden } from "../../shared/errors/http_errors";
 import { logger } from "../../shared/utils/logger";
 import type {
   AgentPulledProfilePayload,
   AgentSelfProfileService,
 } from "./agent_self_profile.service";
+import { agentProfileReliabilityMetrics } from "./agent_profile_reliability_metrics.service";
 
 export interface SyncAgentProfileInput {
   readonly agentId: string;
@@ -16,17 +18,62 @@ export interface SyncAgentProfileInput {
   readonly timeoutMs?: number;
 }
 
+export interface AgentRegisterProfileSnapshot {
+  readonly profile: unknown;
+  readonly profileVersion: number;
+  readonly profileUpdatedAt: Date;
+}
+
+export interface SyncAgentRegisterSnapshotInput {
+  readonly agentId: string;
+  readonly userId?: string;
+  readonly snapshot: AgentRegisterProfileSnapshot;
+}
+
+export interface AgentProfileSyncRpcErrorDetails {
+  readonly rpc_code?: number;
+  readonly rpc_message?: string;
+  readonly rpc_reason?: string;
+  readonly technical_message?: string;
+  readonly retryable?: boolean;
+  readonly retry_after_ms?: number;
+}
+
+export class AgentProfileSyncRpcError extends AppError {
+  constructor(message: string, details: AgentProfileSyncRpcErrorDetails) {
+    super(message, {
+      statusCode: 502,
+      code: "AGENT_PROFILE_SYNC_RPC_ERROR",
+      details,
+    });
+  }
+}
+
 export class AgentProfileSyncService {
   constructor(private readonly agentSelfProfileService: AgentSelfProfileService) {}
 
+  async syncFromRegisterSnapshot(input: SyncAgentRegisterSnapshotInput): Promise<Agent> {
+    const profile = parseProfile(input.snapshot.profile);
+    agentProfileReliabilityMetrics.profileSyncRegisterSnapshotTotal += 1;
+    return this.agentSelfProfileService.persistProfilePatch({
+      agentId: input.agentId,
+      patch: this.agentSelfProfileService.toPatchFromPulledProfile(profile),
+      source: "pull_sync",
+      profileUpdatedAt: input.snapshot.profileUpdatedAt,
+      remoteProfileVersion: input.snapshot.profileVersion,
+      ...(input.userId !== undefined ? { lastLoginUserId: input.userId } : {}),
+    });
+  }
+
   async syncFromConnectedAgent(input: SyncAgentProfileInput): Promise<Agent> {
+    agentProfileReliabilityMetrics.profileSyncFallbackRpcTotal += 1;
     const result = await input.dispatch({
       agentId: input.agentId,
       command: {
         jsonrpc: "2.0",
         method: "agent.getProfile",
         id: randomUUID(),
-        params: {},
+        params: { include_diagnostics: false },
       },
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     });
@@ -46,7 +93,7 @@ export class AgentProfileSyncService {
         typeof errorPayload.message === "string"
           ? errorPayload.message
           : "agent.getProfile returned RPC error";
-      throw new Error(message);
+      throw new AgentProfileSyncRpcError(message, buildRpcErrorDetails(errorPayload));
     }
 
     const rpcResult = toRecord(envelope.result);
@@ -88,6 +135,34 @@ const toRecord = (value: unknown): Record<string, unknown> | null =>
 
 const readString = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+
+const readNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const readBoolean = (value: unknown): boolean | undefined =>
+  typeof value === "boolean" ? value : undefined;
+
+const buildRpcErrorDetails = (
+  errorPayload: Record<string, unknown>,
+): AgentProfileSyncRpcErrorDetails => {
+  const data = toRecord(errorPayload.data);
+  const rpcCode = readNumber(errorPayload.code);
+  const rpcMessage = readString(errorPayload.message);
+  const rpcReason = readString(data?.reason);
+  const technicalMessage = readString(data?.technical_message);
+  const retryable = readBoolean(data?.retryable);
+  const retryAfterMs = readNumber(data?.retry_after_ms);
+  return {
+    ...(rpcCode !== undefined ? { rpc_code: rpcCode } : {}),
+    ...(rpcMessage !== undefined ? { rpc_message: rpcMessage } : {}),
+    ...(rpcReason !== undefined ? { rpc_reason: rpcReason } : {}),
+    ...(technicalMessage !== undefined ? { technical_message: technicalMessage } : {}),
+    ...(retryable !== undefined ? { retryable } : {}),
+    ...(retryAfterMs !== undefined
+      ? { retry_after_ms: Math.max(0, Math.floor(retryAfterMs)) }
+      : {}),
+  };
+};
 
 const parseOptionalDate = (value: unknown): Date | undefined => {
   if (typeof value !== "string" || value.trim() === "") {

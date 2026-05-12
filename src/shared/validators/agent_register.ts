@@ -67,6 +67,8 @@ export const agentRegisterPayloadSchema = z
     timestamp: isoTimestampSchema.optional(),
     capabilities: capabilitiesSchema,
     profile: profileSchema.optional(),
+    profile_version: z.number().int().min(0).optional(),
+    profile_updated_at: isoTimestampSchema.optional(),
   })
   .passthrough();
 

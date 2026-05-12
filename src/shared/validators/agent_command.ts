@@ -208,25 +208,6 @@ const sqlExecuteBatchOptionsSchema = z
   })
   .strict();
 
-const observerRegisterOptionsSchema = z
-  .object({
-    timeout_ms: z.number().int().positive().max(AGENT_TIMEOUT_MS_LIMIT).optional(),
-    max_rows: z.number().int().positive().max(AGENT_MAX_ROWS_LIMIT).optional(),
-    execution_mode: z.enum(["managed", "preserve"]).optional(),
-    preserve_sql: z.boolean().optional(),
-    multi_result: z.boolean().optional(),
-  })
-  .strict()
-  .superRefine((value, ctx) => {
-    if (value.execution_mode === "managed" && value.preserve_sql === true) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["execution_mode"],
-        message: "`execution_mode: managed` cannot be combined with `preserve_sql: true`",
-      });
-    }
-  });
-
 const sqlExecuteBatchParamsSchema = z
   .object({
     commands: z.array(sqlExecuteBatchCommandItemSchema).min(1).max(AGENT_MAX_BATCH_SIZE_LIMIT),
@@ -236,35 +217,6 @@ const sqlExecuteBatchParamsSchema = z
   })
   .merge(tokenCarrierSchema)
   .strict();
-
-const observerRegisterParamsSchema = z
-  .object({
-    sql: nonEmptyStringSchema,
-    params: z.record(z.string(), z.unknown()).optional(),
-    database: nonEmptyStringSchema.optional(),
-    interval_seconds: z.number().int().min(30).max(86_400).optional(),
-    condition: z
-      .object({
-        type: z.literal("rows_present"),
-      })
-      .strict()
-      .optional(),
-    run_immediately: z.boolean().optional(),
-    options: observerRegisterOptionsSchema.optional(),
-  })
-  .merge(tokenCarrierSchema)
-  .strict()
-  .superRefine((value, ctx) => {
-    refineSqlTextAndNamedParams(value.sql, value.params, ctx, []);
-  });
-
-const observerUnregisterParamsSchema = z
-  .object({
-    observer_id: nonEmptyStringSchema,
-  })
-  .strict();
-
-const observerListParamsSchema = tokenCarrierSchema.strict();
 
 const sqlCancelParamsSchema = z
   .object({
@@ -301,36 +253,6 @@ const sqlExecuteBatchCommandSchema = z
     method: z.literal("sql.executeBatch"),
     id: jsonRpcIdSchema.optional(),
     params: sqlExecuteBatchParamsSchema,
-  })
-  .merge(rpcEnvelopeExtensionsSchema)
-  .passthrough();
-
-const observerRegisterCommandSchema = z
-  .object({
-    jsonrpc: z.literal("2.0").default("2.0"),
-    method: z.literal("observer.register"),
-    id: jsonRpcIdSchema.optional(),
-    params: observerRegisterParamsSchema,
-  })
-  .merge(rpcEnvelopeExtensionsSchema)
-  .passthrough();
-
-const observerUnregisterCommandSchema = z
-  .object({
-    jsonrpc: z.literal("2.0").default("2.0"),
-    method: z.literal("observer.unregister"),
-    id: jsonRpcIdSchema.optional(),
-    params: observerUnregisterParamsSchema,
-  })
-  .merge(rpcEnvelopeExtensionsSchema)
-  .passthrough();
-
-const observerListCommandSchema = z
-  .object({
-    jsonrpc: z.literal("2.0").default("2.0"),
-    method: z.literal("observer.list"),
-    id: jsonRpcIdSchema.optional(),
-    params: observerListParamsSchema.optional(),
   })
   .merge(rpcEnvelopeExtensionsSchema)
   .passthrough();
@@ -379,6 +301,11 @@ const rpcDiscoverCommandSchema = z
   });
 
 const clientTokenCarrierParamsSchema = tokenCarrierSchema.strict();
+const agentGetProfileParamsSchema = tokenCarrierSchema
+  .extend({
+    include_diagnostics: z.boolean().optional(),
+  })
+  .strict();
 
 type ClientTokenCarrierParams = z.infer<typeof clientTokenCarrierParamsSchema>;
 
@@ -428,7 +355,7 @@ const agentGetProfileCommandSchema = z
     jsonrpc: z.literal("2.0").default("2.0"),
     method: z.literal("agent.getProfile"),
     id: jsonRpcIdSchema.optional(),
-    params: clientTokenCarrierParamsSchema.optional(),
+    params: agentGetProfileParamsSchema.optional(),
   })
   .merge(rpcEnvelopeExtensionsSchema)
   .passthrough()
@@ -453,9 +380,6 @@ export const supportedAgentRpcMethods = [
   "agent.getHealth",
   "agent.getProfile",
   "client_token.getPolicy",
-  "observer.list",
-  "observer.register",
-  "observer.unregister",
   "rpc.discover",
   "sql.cancel",
   "sql.execute",
@@ -466,9 +390,6 @@ export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
   agentGetHealthCommandSchema,
   agentGetProfileCommandSchema,
   clientTokenGetPolicyCommandSchema,
-  observerListCommandSchema,
-  observerRegisterCommandSchema,
-  observerUnregisterCommandSchema,
   sqlExecuteCommandSchema,
   sqlExecuteBatchCommandSchema,
   sqlCancelCommandSchema,
@@ -560,8 +481,9 @@ export const agentCommandBodySchema = z
     pagination: agentCommandPaginationSchema.optional(),
     /**
      * Optional gzip policy for `rpc:request` PayloadFrames emitted to the agent.
-     * Omitted or `default`: threshold 1024, **auto** — gzip only if strictly smaller than raw JSON (plug_agente OutboundCompressionMode.auto).
-     * `none`: never gzip. `always`: threshold 1, **always_gzip** — gzip even if larger (plug_agente “sempre GZIP”).
+     * Omitted or `default`: threshold 4096, **auto** — gzip only if strictly smaller than raw JSON (plug_agente OutboundCompressionMode.auto).
+     * `none`: never gzip. `always`: threshold 1, **always_gzip** — gzip even if larger,
+     * unless the frame would exceed the negotiated inflation-ratio guard.
      */
     payloadFrameCompression: payloadFrameCompressionSchema.optional(),
   })

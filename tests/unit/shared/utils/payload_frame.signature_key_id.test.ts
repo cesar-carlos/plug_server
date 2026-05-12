@@ -6,6 +6,8 @@ import type * as PayloadFrameModule from "../../../../src/shared/utils/payload_f
 
 const SIGNING_KEY = "test-shared-key-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const SIGNING_KEY_ID = "hub-key-2026";
+const SHARED_VECTOR_KEY = "server-shared-secret";
+const SHARED_VECTOR_KEY_ID = "shared-key-01";
 
 const baseEnv = {
   payloadSigningKey: undefined as string | undefined,
@@ -19,7 +21,7 @@ const baseEnv = {
 };
 
 const buildSignatureValue = (
-  metadata: {
+  frame: {
     schemaVersion: string;
     enc: string;
     cmp: string;
@@ -32,8 +34,17 @@ const buildSignatureValue = (
   binaryPayload: Buffer,
   key: string,
 ): string => {
-  const meta = JSON.stringify(metadata);
-  const input = Buffer.concat([Buffer.from(meta, "utf8"), Buffer.from([0]), binaryPayload]);
+  const input = JSON.stringify({
+    cmp: frame.cmp,
+    compressedSize: frame.compressedSize,
+    contentType: frame.contentType,
+    enc: frame.enc,
+    originalSize: frame.originalSize,
+    payload: binaryPayload.toString("base64"),
+    requestId: frame.requestId,
+    schemaVersion: frame.schemaVersion,
+    traceId: frame.traceId,
+  });
   return createHmac("sha256", key).update(input).digest("base64");
 };
 
@@ -176,6 +187,32 @@ describe("validateFrameSignature key_id enforcement (PAYLOAD_SIGNING_KEY_ID)", (
       signature: { alg: "hmac-sha256" as const, value, key_id: SIGNING_KEY_ID },
     };
     const decoded = mod.decodePayloadFrame(signedFrame);
+    expect(decoded.ok).toBe(true);
+  });
+
+  it("ACCEPTS the shared plug_agente transport-frame HMAC test vector", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SHARED_VECTOR_KEY,
+      payloadSigningKeyId: SHARED_VECTOR_KEY_ID,
+    });
+
+    const decoded = mod.decodePayloadFrame({
+      schemaVersion: "1.0",
+      enc: "json",
+      cmp: "none",
+      contentType: "application/json",
+      originalSize: 11,
+      compressedSize: 11,
+      payload: [123, 34, 111, 107, 34, 58, 116, 114, 117, 101, 125],
+      traceId: "trace-001",
+      requestId: "req-001",
+      signature: {
+        alg: "hmac-sha256",
+        value: "UpUVUNDM/kDYdffl79uJdmrE002MhtUdQ+KYLyiAYkE=",
+        key_id: SHARED_VECTOR_KEY_ID,
+      },
+    });
+
     expect(decoded.ok).toBe(true);
   });
 });

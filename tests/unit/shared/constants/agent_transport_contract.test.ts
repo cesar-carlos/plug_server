@@ -17,6 +17,11 @@ describe("agent_transport_contract", () => {
       expect(HUB_TRANSPORT_EXTENSIONS.protocolReadyAck).toBe(true);
       expect(HUB_TRANSPORT_EXTENSIONS.transportFrame).toBe("payload-frame/1.0");
     });
+
+    it("advertises PayloadFrame performance defaults aligned with plug_agente", () => {
+      expect(HUB_TRANSPORT_EXTENSIONS.compressionThreshold).toBe(4096);
+      expect(HUB_TRANSPORT_EXTENSIONS.maxInflationRatio).toBe(10);
+    });
   });
 
   describe("buildHubServerCapabilities", () => {

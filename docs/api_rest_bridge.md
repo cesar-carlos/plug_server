@@ -86,9 +86,6 @@ vale apenas para o bridge de comandos (`POST /api/v1/agents/commands`).
 | `agent.getHealth` | Sim | Sim | Sim |
 | `agent.getProfile` | Sim | Sim | Sim |
 | `client_token.getPolicy` | Sim | Sim | Sim |
-| `observer.register` | Sim | Sim | Sim |
-| `observer.unregister` | Sim | Sim | Sim |
-| `observer.list` | Sim | Sim | Sim |
 | Batch JSON-RPC (`command: []`) | Sim, ate 32 itens | Sim, mesmo schema | Nao, por desenho |
 | Notification (`id: null`) | Sim | Sim | Nao, por desenho |
 | `timeoutMs` | Sim | Sim | Usa timeout do relay por request |
@@ -241,7 +238,7 @@ O token e validado por `requireAuth` antes de qualquer processamento.
 
 ### OpenAPI (Swagger)
 
-Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch`/`observer.register` `options.timeout_ms` ate **300000** ms; `options.max_rows` (execute, batch e observer) ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel`, `rpc.discover` e `observer.*`.
+Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel` e `rpc.discover`.
 
 ## Request body
 
@@ -253,7 +250,7 @@ Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o 
 | `command`                 | object \| array                       | sim         | JSON-RPC 2.0      | Comando unico ou batch JSON-RPC (max 32)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `timeoutMs`               | number                                | nao         | 1..360000         | Espera do bridge (`computeBridgeWaitTimeoutMs`): `max` entre o valor do body (ou default **15000** ms) e, para `sql.execute` / `sql.executeBatch`, o maior `options.timeout_ms` do comando + **5000** ms; teto **360000** ms (`AGENT_TIMEOUT_MS_LIMIT` + **60000** ms; ver `command_transformers.ts`)                                                                                                                                                                                                                             |
 | `pagination`              | object                                | nao         | regras combinadas | Paginacao injetada em `command.params.options`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `payloadFrameCompression` | `"default"` \| `"none"` \| `"always"` | nao         | —                 | Politica de gzip do **PayloadFrame** que o hub emite no `rpc:request` para o agente (alinhado a `socket_communication_standard.md` / `socketio_client_binary_transport.md` do plug_agente). `default`: limiar 1024 bytes, modo **automatico** — gzip so se o bloco comprimido for **menor** que o JSON UTF-8 bruto; caso contrario `cmp: none`. `none`: nunca gzip. `always`: modo **sempre GZIP** — gzip sempre que o payload couber no limite de entrada (mesmo se o gzip nao reduzir tamanho). Nao altera respostas do agente. |
+| `payloadFrameCompression` | `"default"` \| `"none"` \| `"always"` | nao         | —                 | Politica de gzip do **PayloadFrame** que o hub emite no `rpc:request` para o agente (alinhado a `socket_communication_standard.md` / `socketio_client_binary_transport.md` do plug_agente). `default`: limiar 4096 bytes, modo **automatico** — gzip so se o bloco comprimido for **menor** que o JSON UTF-8 bruto e nao exceder a razao maxima de inflacao negociada; caso contrario `cmp: none`. `none`: nunca gzip. `always`: modo **sempre GZIP** — prefere gzip sempre que o payload couber no limite de entrada, mesmo se nao reduzir tamanho, mas cai para `cmp: none` quando o frame violaria a razao maxima de inflacao. Nao altera respostas do agente. |
 
 ### `command` (discriminated union por `method`)
 
@@ -329,7 +326,7 @@ Validacao no hub antes do `PayloadFrame` (constantes em `agent_command.ts`):
 
 | Campo                                                                       | Teto             |
 | --------------------------------------------------------------------------- | ---------------- |
-| `sql` (`sql.execute`, `observer.register` e cada item de `sql.executeBatch`) | **1 MiB** UTF-8  |
+| `sql` (`sql.execute` e cada item de `sql.executeBatch`) | **1 MiB** UTF-8  |
 | `params` nomeado (objeto serializado em JSON)                               | **2 MiB** UTF-8  |
 | `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` `params` (objeto serializado) | **64 KiB** UTF-8 |
 | `rpc.discover` `params` (objeto serializado)                                | **64 KiB** UTF-8 |
@@ -573,7 +570,7 @@ Regras:
 
 ### sql.execute com `payloadFrameCompression` (frame hub → agente)
 
-O campo opcional afeta apenas o `PayloadFrame` que o hub emite em `rpc:request` no `/agents` (nao o corpo HTTP em si). Mesmos valores que no relay: `default` (auto + limiar 1024), `none`, `always`.
+O campo opcional afeta apenas o `PayloadFrame` que o hub emite em `rpc:request` no `/agents` (nao o corpo HTTP em si). Mesmos valores que no relay: `default` (auto + limiar 4096 + guarda de inflacao), `none`, `always` (preferencia por gzip, ainda limitada pela guarda de inflacao).
 
 ```json
 {

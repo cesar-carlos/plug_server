@@ -17,12 +17,27 @@ describe("agentRegisterPayloadSchema (plug_agente agent.register.schema.json ali
       timestamp: "2026-04-18T12:00:00.000Z",
       capabilities: baseCapabilities,
       profile: { name: "Agente A", payload: { foo: "bar" } },
+      profile_version: 7,
+      profile_updated_at: "2026-04-18T11:59:00.000Z",
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.agentId).toBe("agent-uuid-123");
       expect(parsed.data.profile).toEqual({ name: "Agente A", payload: { foo: "bar" } });
+      expect(parsed.data.profile_version).toBe(7);
+      expect(parsed.data.profile_updated_at).toBe("2026-04-18T11:59:00.000Z");
     }
+  });
+
+  it("rejects invalid profile metadata", () => {
+    const parsed = agentRegisterPayloadSchema.safeParse({
+      agentId: "agent-profile-meta",
+      capabilities: baseCapabilities,
+      profile: { name: "Agente A" },
+      profile_version: -1,
+      profile_updated_at: "not-a-date",
+    });
+    expect(parsed.success).toBe(false);
   });
 
   it("trims agentId whitespace", () => {

@@ -6,6 +6,10 @@ import path from "node:path";
 import pkg from "../../../package.json";
 import { env } from "../../shared/config/env";
 import {
+  HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES,
+  HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO,
+} from "../../shared/constants/agent_transport_contract";
+import {
   AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES,
   AGENT_MAX_ROWS_LIMIT,
   AGENT_PAGE_SIZE_LIMIT,
@@ -360,7 +364,7 @@ const swaggerSpec = swaggerJSDoc({
             },
             maxInflationRatio: {
               type: "number",
-              example: 20,
+              example: HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO,
               description: "Maximum allowed decoded/compressed ratio for gzip frames.",
             },
             signatureVerification: {
@@ -504,64 +508,6 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: false,
         },
-        ObserverRegisterCondition: {
-          type: "object",
-          required: ["type"],
-          properties: {
-            type: { type: "string", enum: ["rows_present"] },
-          },
-          additionalProperties: false,
-        },
-        ObserverRegisterOptions: {
-          type: "object",
-          properties: {
-            timeout_ms: { type: "integer", minimum: 1, maximum: AGENT_TIMEOUT_MS_LIMIT },
-            max_rows: { type: "integer", minimum: 1, maximum: AGENT_MAX_ROWS_LIMIT },
-            execution_mode: { type: "string", enum: ["managed", "preserve"] },
-            preserve_sql: { type: "boolean" },
-            multi_result: { type: "boolean" },
-          },
-          additionalProperties: false,
-        },
-        ObserverRegisterParams: {
-          type: "object",
-          required: ["sql"],
-          description:
-            "Registers a session-scoped SQL observer. idempotency_key is intentionally rejected because periodic executions must not reuse cached SQL results.",
-          properties: {
-            sql: {
-              type: "string",
-              minLength: 1,
-              description: `Max ${AGENT_SQL_MAX_UTF8_BYTES} UTF-8 bytes (matches Zod).`,
-            },
-            params: {
-              type: "object",
-              additionalProperties: true,
-              description: `Named parameters; JSON max ${AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES} UTF-8 bytes when serialized.`,
-            },
-            client_token: { type: "string", minLength: 1 },
-            clientToken: { type: "string", minLength: 1 },
-            auth: { type: "string", minLength: 1 },
-            database: { type: "string", minLength: 1 },
-            interval_seconds: { type: "integer", minimum: 30, maximum: 86400, default: 300 },
-            condition: { $ref: "#/components/schemas/ObserverRegisterCondition" },
-            run_immediately: { type: "boolean", default: false },
-            options: { $ref: "#/components/schemas/ObserverRegisterOptions" },
-          },
-          additionalProperties: false,
-        },
-        ObserverUnregisterParams: {
-          type: "object",
-          required: ["observer_id"],
-          properties: {
-            observer_id: { type: "string", minLength: 1 },
-          },
-          additionalProperties: false,
-        },
-        ObserverListParams: {
-          allOf: [{ $ref: "#/components/schemas/RpcClientTokenCarrierParams" }],
-          description: "Optional client token aliases used to scope observer listing.",
-        },
         SqlCancelParams: {
           type: "object",
           properties: {
@@ -681,53 +627,11 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: true,
         },
-        RpcObserverRegisterCommand: {
-          type: "object",
-          required: ["method", "params"],
-          properties: {
-            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
-            method: { type: "string", enum: ["observer.register"] },
-            id: { $ref: "#/components/schemas/JsonRpcId" },
-            params: { $ref: "#/components/schemas/ObserverRegisterParams" },
-            api_version: { type: "string", minLength: 1 },
-            meta: { $ref: "#/components/schemas/RpcMeta" },
-          },
-          additionalProperties: true,
-        },
-        RpcObserverUnregisterCommand: {
-          type: "object",
-          required: ["method", "params"],
-          properties: {
-            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
-            method: { type: "string", enum: ["observer.unregister"] },
-            id: { $ref: "#/components/schemas/JsonRpcId" },
-            params: { $ref: "#/components/schemas/ObserverUnregisterParams" },
-            api_version: { type: "string", minLength: 1 },
-            meta: { $ref: "#/components/schemas/RpcMeta" },
-          },
-          additionalProperties: true,
-        },
-        RpcObserverListCommand: {
-          type: "object",
-          required: ["method"],
-          properties: {
-            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
-            method: { type: "string", enum: ["observer.list"] },
-            id: { $ref: "#/components/schemas/JsonRpcId" },
-            params: { $ref: "#/components/schemas/ObserverListParams" },
-            api_version: { type: "string", minLength: 1 },
-            meta: { $ref: "#/components/schemas/RpcMeta" },
-          },
-          additionalProperties: true,
-        },
         BridgeSingleCommand: {
           oneOf: [
             { $ref: "#/components/schemas/RpcAgentGetHealthCommand" },
             { $ref: "#/components/schemas/RpcAgentGetProfileCommand" },
             { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
-            { $ref: "#/components/schemas/RpcObserverListCommand" },
-            { $ref: "#/components/schemas/RpcObserverRegisterCommand" },
-            { $ref: "#/components/schemas/RpcObserverUnregisterCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteBatchCommand" },
             { $ref: "#/components/schemas/RpcSqlCancelCommand" },
@@ -782,7 +686,7 @@ const swaggerSpec = swaggerJSDoc({
               type: "string",
               enum: ["default", "none", "always"],
               description:
-                "Optional gzip for hub-originated PayloadFrames on `rpc:request` to the agent. `default`: above 1024 bytes, gzip only if smaller than raw JSON (auto, aligned with plug_agente). `none`: never gzip. `always`: gzip whenever eligible (always_gzip), even if compressed size is larger.",
+                `Optional gzip for hub-originated PayloadFrames on \`rpc:request\` to the agent. \`default\`: above ${HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES} bytes, gzip only if smaller than raw JSON (auto, aligned with plug_agente). \`none\`: never gzip. \`always\`: prefer gzip whenever eligible (always_gzip), even if compressed size is larger, but never emit a frame that exceeds the negotiated inflation-ratio guard.`,
             },
           },
           additionalProperties: false,

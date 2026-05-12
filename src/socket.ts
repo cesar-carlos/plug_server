@@ -65,6 +65,7 @@ import {
   acquireAgentProfileSyncSlot,
   resetAgentProfileSyncConcurrency,
 } from "./presentation/socket/hub/agent_profile_sync_concurrency";
+import { AgentProfileSyncScheduler } from "./presentation/socket/hub/agent_profile_sync_scheduler";
 import {
   getRelayOutboundQueueOverloadState,
   noteRelayOutboundQueueOverloadRejected,
@@ -92,6 +93,8 @@ import {
   type AgentProfileBroadcastEvent,
   registerAgentProfileBroadcastHandler,
 } from "./application/services/agent_profile_broadcast_sink";
+import type { AgentRegisterProfileSnapshot } from "./application/services/agent_profile_sync.service";
+import { agentProfileReliabilityMetrics } from "./application/services/agent_profile_reliability_metrics.service";
 import { registerAgentSocketControlHandler } from "./application/services/agent_socket_control_sink";
 import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
 import { registerConsumerSocketEventHandler } from "./application/services/consumer_socket_event_sink";
@@ -167,6 +170,7 @@ type SocketData = {
   user?: JwtAccessPayload;
   agentId?: string;
   capabilities?: Record<string, unknown>;
+  agentRegisterProfileSnapshot?: AgentRegisterProfileSnapshot;
 };
 
 type HubSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
@@ -461,102 +465,62 @@ const resolveCanonicalRegisteredAgentId = (
   return registeredAgentId;
 };
 
-const clearAgentProfileSyncState = (agentId: string): void => {
-  const timer = agentProfileSyncTimers.get(agentId);
-  if (timer) {
-    clearTimeout(timer);
-    agentProfileSyncTimers.delete(agentId);
+const resolveAgentRegisterProfileSnapshot = (payload: {
+  readonly profile: Record<string, unknown> | undefined;
+  readonly profile_version: number | undefined;
+  readonly profile_updated_at: string | undefined;
+}): AgentRegisterProfileSnapshot | undefined => {
+  if (
+    payload.profile === undefined ||
+    payload.profile_version === undefined ||
+    payload.profile_updated_at === undefined
+  ) {
+    return undefined;
   }
-  agentProfileSyncAttempts.delete(agentId);
+  const profileUpdatedAt = new Date(payload.profile_updated_at);
+  if (Number.isNaN(profileUpdatedAt.getTime())) {
+    return undefined;
+  }
+  return {
+    profile: payload.profile,
+    profileVersion: payload.profile_version,
+    profileUpdatedAt,
+  };
+};
+
+const agentProfileSyncScheduler = new AgentProfileSyncScheduler({
+  syncFromRegisterSnapshot: (input) =>
+    container.agentProfileSyncService.syncFromRegisterSnapshot(input),
+  syncFromConnectedAgent: (input) =>
+    container.agentProfileSyncService.syncFromConnectedAgent({
+      agentId: input.agentId,
+      ...(input.userId !== undefined ? { userId: input.userId } : {}),
+      dispatch: dispatchRpcCommandToAgent,
+      timeoutMs: input.timeoutMs,
+    }),
+  acquireSlot: acquireAgentProfileSyncSlot,
+  metrics: agentProfileReliabilityMetrics,
+  logger,
+});
+
+const clearAgentProfileSyncState = (agentId: string): void => {
+  agentProfileSyncScheduler.clear(agentId);
 };
 
 const scheduleAgentProfileSync = (
   input: {
     readonly agentId: string;
     readonly userId: string | null;
+    readonly snapshot?: AgentRegisterProfileSnapshot;
   },
   delayMs = 1_200,
 ): void => {
-  const attempt = (agentProfileSyncAttempts.get(input.agentId) ?? 0) + 1;
-  agentProfileSyncAttempts.set(input.agentId, attempt);
-
-  const existing = agentProfileSyncTimers.get(input.agentId);
-  if (existing) {
-    clearTimeout(existing);
-  }
-
-  const timer = setTimeout(
-    () => {
-      agentProfileSyncTimers.delete(input.agentId);
-      void (async (): Promise<void> => {
-        let releaseSlot: (() => void) | null = null;
-        try {
-          releaseSlot = await acquireAgentProfileSyncSlot();
-          await container.agentProfileSyncService.syncFromConnectedAgent({
-            agentId: input.agentId,
-            ...(input.userId !== null ? { userId: input.userId } : {}),
-            dispatch: dispatchRpcCommandToAgent,
-            timeoutMs: 10_000,
-          });
-          agentProfileSyncAttempts.delete(input.agentId);
-          logger.info("agent_profile_sync_success", {
-            agentId: input.agentId,
-            userId: input.userId,
-            attempt,
-          });
-        } catch (error: unknown) {
-          const retryAfterMs =
-            error instanceof AppError &&
-            typeof error.details === "object" &&
-            error.details !== null &&
-            "retry_after_ms" in error.details &&
-            typeof (error.details as { retry_after_ms?: unknown }).retry_after_ms === "number"
-              ? Math.max(
-                  0,
-                  Math.floor((error.details as { retry_after_ms: number }).retry_after_ms),
-                )
-              : 0;
-          const retryableProtocolWindow =
-            error instanceof AppError &&
-            error.code === "SERVICE_UNAVAILABLE" &&
-            typeof error.message === "string" &&
-            (error.message.includes("protocol negotiation is not ready") ||
-              error.message.includes("Agent disconnected while waiting for response"));
-          const shouldRetry = retryableProtocolWindow && attempt < 4;
-          logger.warn("agent_profile_sync_failed", {
-            agentId: input.agentId,
-            userId: input.userId,
-            attempt,
-            message: error instanceof Error ? error.message : String(error),
-            ...(error instanceof AppError
-              ? { code: error.code, statusCode: error.statusCode }
-              : {}),
-            retryAfterMs,
-            shouldRetry,
-          });
-          if (!shouldRetry) {
-            agentProfileSyncAttempts.delete(input.agentId);
-            return;
-          }
-          const nextDelay = retryAfterMs > 0 ? retryAfterMs : Math.min(8_000, 1_000 * attempt);
-          scheduleAgentProfileSync(input, nextDelay);
-        } finally {
-          releaseSlot?.();
-        }
-      })();
-    },
-    Math.max(0, delayMs),
-  );
-
-  timer.unref?.();
-  agentProfileSyncTimers.set(input.agentId, timer);
+  agentProfileSyncScheduler.schedule(input, delayMs);
 };
 
 export let agentsNamespace: ReturnType<Server["of"]> | null = null;
 let activeSocketServer: Server | null = null;
 let conversationSweepTimer: NodeJS.Timeout | null = null;
-const agentProfileSyncTimers = new Map<string, NodeJS.Timeout>();
-const agentProfileSyncAttempts = new Map<string, number>();
 
 const emitServerShutdownNotice = (io: Server, signal: string): void => {
   const payload = {
@@ -595,7 +559,8 @@ export const getSocketMetricsSnapshot = (): {
     relayRateLimit: getRelayRateLimitMetricsSnapshot(),
     socketRateLimitRedis: getSocketRateLimitRedisMetricsSnapshot(),
     agentsCommandSocketRateLimit: getAgentsCommandSocketRateLimitMetricsSnapshot(),
-    clientSocketEventPublishSocketRateLimit: getClientSocketEventPublishSocketRateLimitMetricsSnapshot(),
+    clientSocketEventPublishSocketRateLimit:
+      getClientSocketEventPublishSocketRateLimitMetricsSnapshot(),
     consumerRuntime: getSocketConsumerMetricsSnapshot(),
     agentRuntime: getSocketAgentMetricsSnapshot(),
   };
@@ -626,11 +591,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   resetRestBridgeMetrics();
   conversationRegistry.clear();
   agentRegistry.clear();
-  for (const timer of agentProfileSyncTimers.values()) {
-    clearTimeout(timer);
-  }
-  agentProfileSyncTimers.clear();
-  agentProfileSyncAttempts.clear();
+  agentProfileSyncScheduler.reset();
   if (activeSocketServer === io) {
     activeSocketServer = null;
   }
@@ -909,6 +870,16 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
 
       socket.data.agentId = agentId;
       socket.data.capabilities = capabilities;
+      const registerProfileSnapshot = resolveAgentRegisterProfileSnapshot({
+        profile: parsed.data.profile,
+        profile_version: parsed.data.profile_version,
+        profile_updated_at: parsed.data.profile_updated_at,
+      });
+      if (registerProfileSnapshot !== undefined) {
+        socket.data.agentRegisterProfileSnapshot = registerProfileSnapshot;
+      } else {
+        delete socket.data.agentRegisterProfileSnapshot;
+      }
       noteAgentCapabilityProfile(capabilities);
       const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
 
@@ -935,6 +906,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         scheduleAgentProfileSync({
           agentId,
           userId,
+          ...(socket.data.agentRegisterProfileSnapshot !== undefined
+            ? { snapshot: socket.data.agentRegisterProfileSnapshot }
+            : {}),
         });
       }
     });
@@ -995,6 +969,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         scheduleAgentProfileSync({
           agentId: currentAgentId,
           userId: getUserId(socket),
+          ...(socket.data.agentRegisterProfileSnapshot !== undefined
+            ? { snapshot: socket.data.agentRegisterProfileSnapshot }
+            : {}),
         });
       }
     });

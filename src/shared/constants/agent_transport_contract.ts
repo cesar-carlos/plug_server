@@ -3,6 +3,8 @@
  * Keep these values aligned with plug_agente docs and runtime enforcement.
  */
 
+import { env } from "../config/env";
+
 export const HUB_TRANSPORT_PROTOCOLS = ["jsonrpc-v2"] as const;
 export const HUB_TRANSPORT_ENCODINGS = ["json"] as const;
 export const HUB_TRANSPORT_COMPRESSIONS = ["gzip", "none"] as const;
@@ -10,6 +12,8 @@ export const HUB_TRANSPORT_COMPRESSIONS = ["gzip", "none"] as const;
 export const HUB_MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 export const HUB_MAX_COMPRESSED_PAYLOAD_BYTES = 10 * 1024 * 1024;
 export const HUB_MAX_DECODED_PAYLOAD_BYTES = 10 * 1024 * 1024;
+export const HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES = 4096;
+export const HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO = 10;
 
 /**
  * Max rows accepted by bridge validators and advertised by hub capabilities.
@@ -36,12 +40,12 @@ export const HUB_STREAMING_ROW_THRESHOLD = 500;
 export const HUB_TRANSPORT_EXTENSIONS = {
   batchSupport: true,
   binaryPayload: true,
-  compressionThreshold: 1024,
+  compressionThreshold: HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES,
   /** Aligned with plug_agente OutboundCompressionMode.auto: gzip only when smaller than raw UTF-8. */
   outboundCompressionMode: "auto",
   /** Optional explicit handshake completion sent by newer agents through `agent:ready`. */
   protocolReadyAck: true,
-  maxInflationRatio: 20,
+  maxInflationRatio: HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO,
   signatureRequired: false,
   signatureScope: "transport-frame",
   /** Aligned with plug_agente capabilities example (`hmac-sha256` transport-frame signing). */
@@ -114,6 +118,9 @@ export const buildHubServerCapabilities = (
   readonly limits: typeof HUB_TRANSPORT_LIMITS;
 } => {
   const extensions: Record<string, unknown> = { ...HUB_TRANSPORT_EXTENSIONS };
+  if (!env.payloadSigningKey || env.payloadSigningKey.trim() === "") {
+    extensions.signatureAlgorithms = [];
+  }
   if (hints) {
     const maxStreamPullWindowSize = Math.max(1, Math.floor(hints.maxStreamPullWindowSize));
     const recommendedStreamPullWindowSize = Math.min(

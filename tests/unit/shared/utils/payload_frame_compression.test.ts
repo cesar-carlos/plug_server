@@ -35,9 +35,31 @@ describe("payloadFrameEncodeOptionsFromPreference", () => {
 describe("encodePayloadFrame compression policy", () => {
   const small = { jsonrpc: "2.0", method: "rpc.discover", id: "a" };
 
-  it("default auto leaves small payload uncompressed (below 1024 threshold)", () => {
+  it("default auto leaves small payload uncompressed (below 4096 threshold)", () => {
     const frame = encodePayloadFrame(small, { requestId: "r1", traceId: "t1" });
     expect(frame.cmp).toBe("none");
+  });
+
+  it("default auto uses the hub 4096-byte threshold", () => {
+    const belowDefaultThreshold = {
+      jsonrpc: "2.0",
+      method: "sql.execute",
+      id: "below",
+      params: { sql: "SELECT 1 " + "x".repeat(2500), client_token: "t" },
+    };
+    const aboveDefaultThreshold = {
+      jsonrpc: "2.0",
+      method: "sql.execute",
+      id: "above",
+      params: { sql: "SELECT 1 " + "x".repeat(5000), client_token: "t" },
+    };
+
+    expect(encodePayloadFrame(belowDefaultThreshold).cmp).toBe("none");
+    expect(
+      encodePayloadFrame(aboveDefaultThreshold, {
+        maxInflationRatio: Number.POSITIVE_INFINITY,
+      }).cmp,
+    ).toBe("gzip");
   });
 
   it("omitTraceId skips envelope traceId when no explicit traceId", () => {
@@ -73,9 +95,28 @@ describe("encodePayloadFrame compression policy", () => {
         id: "q",
         params: { sql: largeSql, client_token: "t" },
       },
-      { compressionPolicy: "auto", compressionThreshold: 1024 },
+      {
+        compressionPolicy: "auto",
+        compressionThreshold: 1024,
+        maxInflationRatio: Number.POSITIVE_INFINITY,
+      },
     );
     expect(frame.cmp).toBe("gzip");
+  });
+
+  it("auto uses none when gzip would exceed the default inflation ratio", () => {
+    const largeSql = "SELECT 1 " + "x".repeat(5000);
+    const frame = encodePayloadFrame(
+      {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q",
+        params: { sql: largeSql, client_token: "t" },
+      },
+      { compressionPolicy: "auto", compressionThreshold: 1024 },
+    );
+    expect(frame.cmp).toBe("none");
+    expect(frame.compressedSize).toBe(frame.originalSize);
   });
 
   it("auto uses none when gzip does not shrink (high-entropy blob)", () => {
@@ -153,6 +194,7 @@ describe("encodePayloadFrameBridge", () => {
       omitTraceId: true,
       compressionPolicy: "auto",
       compressionThreshold: 1024,
+      maxInflationRatio: Number.POSITIVE_INFINITY,
       asyncGzipMinUtf8Bytes: 1024,
     });
     expect(frame.cmp).toBe("gzip");
@@ -179,6 +221,7 @@ describe("decodePayloadFrameAsync", () => {
     const frame = encodePayloadFrame(data, {
       compressionPolicy: "auto",
       compressionThreshold: 1024,
+      maxInflationRatio: Number.POSITIVE_INFINITY,
     });
     expect(frame.cmp).toBe("gzip");
     const sync = decodePayloadFrame(frame);
@@ -213,6 +256,7 @@ describe("preencodePayloadFrameJson maxGzipInputBytes", () => {
     const body = preencodePayloadFrameJson(data, {
       compressionThreshold: 1024,
       compressionPolicy: "auto",
+      maxInflationRatio: Number.POSITIVE_INFINITY,
       maxGzipInputBytes: 2 * 1024 * 1024,
     });
     expect(body.originalSize).toBeGreaterThan(512 * 1024);

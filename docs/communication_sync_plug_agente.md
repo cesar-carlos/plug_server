@@ -68,8 +68,9 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | `client_token.getPolicy` (introspecao de policy, introduzido no perfil 2.7) com **`Retry-After`** automatico em `-32013` | alinhado | `docs/api_rest_bridge.md` |
 | `meta.outbound_compression` aceito no schema (no-op no runtime atual, alinhado a v2.8) | tolerancia | `src/shared/validators/agent_command.ts` |
 | Teste de contrato contra OpenRPC/schemas do agente | alinhado | `docs/observability.md` |
-| `profile_version` no resultado de `agent.getProfile` | hub usa para *pull sync* / consistencia | `docs/client_agent_business_rules.md`, `docs/configuration.md`; o JSON Schema publicado em `plug_agente` pode ainda omitir o campo — o hub tolera extensao |
+| `profile_version` no resultado de `agent.getProfile` | hub usa para *pull sync* / consistencia | `docs/client_agent_business_rules.md`, `docs/configuration.md`; o JSON Schema publicado em `plug_agente` inclui o campo como opcional e o hub continua tolerando agentes legados que o omitem |
 | `agent:profile.update` para self-service do cadastro | alinhado no hub | `docs/client_agent_business_rules.md`; patch parcial por socket em `/agents`, com `snake_case` e ack `agent:profile.updated` |
+| `observer.*` | fora do contrato atual | reservado para profile futuro; o hub rejeita estes metodos ate o `plug_agente` publicar implementacao, OpenRPC e schemas |
 
 ## Diferencas intencionais
 

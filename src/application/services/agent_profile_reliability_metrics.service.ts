@@ -8,6 +8,10 @@ export const agentProfileReliabilityMetrics = {
   profileWritesSkippedMissingTimestampTotal: 0,
   profileWritesSkippedStaleTimestampTotal: 0,
   profileWritesLegacyNoExpectedVersionTotal: 0,
+  profileSyncRegisterSnapshotTotal: 0,
+  profileSyncFallbackRpcTotal: 0,
+  profileSyncDedupedInFlightTotal: 0,
+  profileSyncSkippedRecentDuplicateTotal: 0,
   profileBroadcastEmittedTotal: 0,
   profileBroadcastFailedTotal: 0,
 };
@@ -21,6 +25,10 @@ export const resetAgentProfileReliabilityMetricsForTests = (): void => {
   agentProfileReliabilityMetrics.profileWritesSkippedMissingTimestampTotal = 0;
   agentProfileReliabilityMetrics.profileWritesSkippedStaleTimestampTotal = 0;
   agentProfileReliabilityMetrics.profileWritesLegacyNoExpectedVersionTotal = 0;
+  agentProfileReliabilityMetrics.profileSyncRegisterSnapshotTotal = 0;
+  agentProfileReliabilityMetrics.profileSyncFallbackRpcTotal = 0;
+  agentProfileReliabilityMetrics.profileSyncDedupedInFlightTotal = 0;
+  agentProfileReliabilityMetrics.profileSyncSkippedRecentDuplicateTotal = 0;
   agentProfileReliabilityMetrics.profileBroadcastEmittedTotal = 0;
   agentProfileReliabilityMetrics.profileBroadcastFailedTotal = 0;
 };

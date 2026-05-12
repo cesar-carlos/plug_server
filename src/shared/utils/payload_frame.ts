@@ -3,11 +3,15 @@ import { promisify } from "node:util";
 import { gunzip as zlibGunzip, gunzipSync, gzip as zlibGzip, gzipSync } from "node:zlib";
 
 import { env } from "../config/env";
+import {
+  HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES,
+  HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO,
+} from "../constants/agent_transport_contract";
 import type { Result } from "../errors/result";
 import { err, ok } from "../errors/result";
 import { badRequest } from "../errors/http_errors";
 
-const defaultCompressionThreshold = 1024;
+const defaultCompressionThreshold = HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES;
 
 const gzipAsync = promisify(zlibGzip);
 const gunzipAsync = promisify(zlibGunzip);
@@ -19,22 +23,25 @@ export type PayloadFrameCompressionPreference = "default" | "none" | "always";
 /**
  * Aligned with plug_agente `OutboundCompressionMode`:
  * - `auto`: above threshold, gzip only if strictly smaller than raw UTF-8.
- * - `always_gzip`: above threshold, always gzip (even if larger).
+ * - `always_gzip`: above threshold, prefer gzip even if larger, but never emit
+ *   a frame that exceeds the negotiated inflation-ratio guard.
  */
 export type PayloadFrameOutboundCompressionPolicy = "auto" | "always_gzip";
 
 export interface PreencodePayloadFrameJsonOptions {
   readonly compressionThreshold?: number;
   readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
+  readonly maxInflationRatio?: number;
   /** Override max UTF-8 length eligible for gzip attempt (default: `env.payloadFrameMaxGzipInputBytes`). */
   readonly maxGzipInputBytes?: number;
 }
 
 /**
  * Maps API `payloadFrameCompression` to `encodePayloadFrame` options.
- * - `default` / `undefined`: threshold 1024, policy **auto** (gzip only if smaller than raw JSON).
+ * - `default` / `undefined`: threshold 4096, policy **auto** (gzip only if smaller than raw JSON).
  * - `none`: never gzip.
- * - `always`: threshold 1, policy **always_gzip** (matches agent "sempre GZIP").
+ * - `always`: threshold 1, policy **always_gzip** (matches agent "sempre GZIP",
+ *   bounded by the inflation-ratio guard).
  */
 export const payloadFrameEncodeOptionsFromPreference = (
   preference: PayloadFrameCompressionPreference | undefined,
@@ -49,7 +56,13 @@ export const payloadFrameEncodeOptionsFromPreference = (
 };
 const maxCompressedPayloadBytes = 10 * 1024 * 1024;
 const maxDecodedPayloadBytes = 10 * 1024 * 1024;
-const maxInflationRatio = 20;
+const maxInflationRatio = HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO;
+
+const exceedsMaxInflationRatio = (
+  originalSize: number,
+  compressedSize: number,
+  ratioLimit: number,
+): boolean => compressedSize > 0 && originalSize / compressedSize > ratioLimit;
 
 /** Aligned with `plug_agente` `docs/communication/schemas/payload-frame.schema.json`. */
 export const PAYLOAD_FRAME_SCHEMA_VERSION = "1.0" as const;
@@ -185,8 +198,33 @@ const toSignatureEnvelope = (value: unknown): SignatureEnvelope | null => {
   };
 };
 
+const canonicalJsonStringify = (value: unknown): string => {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "number" ||
+    typeof value === "string"
+  ) {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJsonStringify).join(",")}]`;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    const entries = Object.keys(record)
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => `${JSON.stringify(key)}:${canonicalJsonStringify(record[key] ?? null)}`);
+    return `{${entries.join(",")}}`;
+  }
+
+  return JSON.stringify(value ?? null);
+};
+
 const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer): Buffer => {
-  const metadata = JSON.stringify({
+  const canonicalFrame = canonicalJsonStringify({
     schemaVersion: frame.schemaVersion,
     enc: frame.enc,
     cmp: frame.cmp,
@@ -195,9 +233,10 @@ const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer)
     compressedSize: frame.compressedSize,
     traceId: frame.traceId ?? null,
     requestId: frame.requestId ?? null,
+    payload: binaryPayload.toString("base64"),
   });
 
-  return Buffer.concat([Buffer.from(metadata, "utf8"), Buffer.from([0]), binaryPayload]);
+  return Buffer.from(canonicalFrame, "utf8");
 };
 
 const signOutboundFrameIfConfigured = (
@@ -365,6 +404,7 @@ const preencodeUtf8Buffer = (
   const threshold = opts.compressionThreshold ?? defaultCompressionThreshold;
   const policy = opts.compressionPolicy ?? "auto";
   const maxGzipInputBytes = opts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
+  const inflationRatioLimit = opts.maxInflationRatio ?? maxInflationRatio;
 
   const belowThreshold = encoded.length < threshold;
   const aboveMaxInput = encoded.length > maxGzipInputBytes;
@@ -380,6 +420,13 @@ const preencodeUtf8Buffer = (
   const minSavingsBytes = env.payloadFrameAutoGzipMinSavingsBytes;
   const compressed =
     gzipLevel !== undefined ? gzipSync(encoded, { level: gzipLevel }) : gzipSync(encoded);
+  if (exceedsMaxInflationRatio(encoded.length, compressed.length, inflationRatioLimit)) {
+    return {
+      originalSize: encoded.length,
+      wireBytes: encoded,
+      cmp: "none",
+    };
+  }
   if (policy === "always_gzip") {
     return {
       originalSize: encoded.length,
@@ -410,6 +457,7 @@ const preencodeUtf8BufferAsync = async (
   const threshold = opts.compressionThreshold ?? defaultCompressionThreshold;
   const policy = opts.compressionPolicy ?? "auto";
   const maxGzipInputBytes = opts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
+  const inflationRatioLimit = opts.maxInflationRatio ?? maxInflationRatio;
 
   const belowThreshold = encoded.length < threshold;
   const aboveMaxInput = encoded.length > maxGzipInputBytes;
@@ -425,6 +473,13 @@ const preencodeUtf8BufferAsync = async (
   const minSavingsBytes = env.payloadFrameAutoGzipMinSavingsBytes;
   const zlibOpts = gzipLevel !== undefined ? { level: gzipLevel } : {};
   const compressed = await gzipAsync(encoded, zlibOpts);
+  if (exceedsMaxInflationRatio(encoded.length, compressed.length, inflationRatioLimit)) {
+    return {
+      originalSize: encoded.length,
+      wireBytes: encoded,
+      cmp: "none",
+    };
+  }
   if (policy === "always_gzip") {
     return {
       originalSize: encoded.length,
@@ -492,6 +547,7 @@ export const finishPayloadFrameEnvelope = (
 export type EncodePayloadFrameOptions = {
   readonly compressionThreshold?: number;
   readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
+  readonly maxInflationRatio?: number;
   readonly maxGzipInputBytes?: number;
   readonly requestId?: string;
   readonly traceId?: string;
@@ -513,6 +569,9 @@ export const encodePayloadFrame = (
       : {}),
     ...(options?.compressionPolicy !== undefined
       ? { compressionPolicy: options.compressionPolicy }
+      : {}),
+    ...(options?.maxInflationRatio !== undefined
+      ? { maxInflationRatio: options.maxInflationRatio }
       : {}),
     ...(options?.maxGzipInputBytes !== undefined
       ? { maxGzipInputBytes: options.maxGzipInputBytes }
@@ -540,6 +599,9 @@ export const encodePayloadFrameBridge = async (
       : {}),
     ...(options?.compressionPolicy !== undefined
       ? { compressionPolicy: options.compressionPolicy }
+      : {}),
+    ...(options?.maxInflationRatio !== undefined
+      ? { maxInflationRatio: options.maxInflationRatio }
       : {}),
     ...(options?.maxGzipInputBytes !== undefined
       ? { maxGzipInputBytes: options.maxGzipInputBytes }
