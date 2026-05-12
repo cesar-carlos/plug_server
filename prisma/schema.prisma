@@ -47,7 +47,7 @@ enum ClientAgentAccessRequestStatus {
 
 model User {
   id              String          @id @default(uuid())
-  email           String          @unique @db.VarChar(255)
+  email           String          @unique @db.Citext
   /// Brazilian mobile (E.164), optional; unique when set (PostgreSQL allows multiple NULL)
   celular         String?         @unique @map("celular") @db.VarChar(20)
   passwordHash    String          @map("password_hash")
@@ -68,7 +68,7 @@ model Client {
   id          String                   @id @default(uuid())
   userId      String                   @map("user_id")
   user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  email       String                   @unique @db.VarChar(255)
+  email       String                   @unique @db.Citext
   passwordHash String                  @map("password_hash")
   name        String                   @db.VarChar(120)
   lastName    String                   @map("last_name") @db.VarChar(120)

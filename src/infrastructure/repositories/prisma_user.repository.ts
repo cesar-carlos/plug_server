@@ -70,8 +70,8 @@ export class PrismaUserRepository implements IUserRepository {
       return null;
     }
 
-    const user = await prismaClient.user.findFirst({
-      where: { email: { equals: normalized, mode: "insensitive" } },
+    const user = await prismaClient.user.findUnique({
+      where: { email: normalized },
     });
 
     if (!user) {

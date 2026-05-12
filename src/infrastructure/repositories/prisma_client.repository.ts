@@ -50,8 +50,8 @@ export class PrismaClientRepository implements IClientRepository {
       return null;
     }
 
-    const client = await prismaClient.client.findFirst({
-      where: { email: { equals: normalized, mode: "insensitive" } },
+    const client = await prismaClient.client.findUnique({
+      where: { email: normalized },
     });
     return client ? this.toDomain(client) : null;
   }
