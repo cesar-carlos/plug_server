@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import request from "supertest";
 import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -1746,7 +1746,10 @@ describe("Socket namespaces", () => {
                 id: requestId,
                 result: {
                   stream_id: streamId,
-                  note: makeLargeText(2500),
+                  // Hub re-encodes with default threshold (4096) + auto gzip; payload must stay
+                  // below max inflation ratio (see HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO), so avoid
+                  // trivially compressible strings that gzip "too well" and fall back to cmp "none".
+                  note: randomBytes(3200).toString("base64"),
                 },
               },
               { compressionThreshold: 1 },
@@ -1760,7 +1763,7 @@ describe("Socket namespaces", () => {
                 stream_id: streamId,
                 request_id: requestId,
                 chunk_index: 0,
-                rows: [{ row: 1, payload: makeLargeText(2600) }],
+                rows: [{ row: 1, payload: randomBytes(3000).toString("base64") }],
               },
               { compressionThreshold: 1 },
             ),
@@ -1855,7 +1858,7 @@ describe("Socket namespaces", () => {
               stream_id: streamId,
               request_id: routedRequestId,
               chunk_index: 1,
-              rows: [{ row: 2, payload: makeLargeText(2200) }],
+              rows: [{ row: 2, payload: randomBytes(3000).toString("base64") }],
             },
             { compressionThreshold: 1 },
           ),
@@ -2447,7 +2450,8 @@ describe("Socket namespaces", () => {
           }),
         );
         await capabilitiesPromise;
-        await new Promise((resolve) => setTimeout(resolve, 1_700));
+        // Default profile sync delay is 1200ms; allow headroom under parallel Vitest workers + DB load.
+        await new Promise((resolve) => setTimeout(resolve, 2_200));
 
         expect(profileRpcRequests).toHaveLength(0);
         const catalogRes = await request(baseUrl)
