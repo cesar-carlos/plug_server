@@ -1,6 +1,11 @@
 import dotenv from "dotenv";
 import { z } from "zod";
 
+import {
+  defaultRestSocketEventHttpJsonBodyLimit,
+  socketEventPublishRawJsonUpperBound,
+} from "./client_socket_event_publish_limits";
+
 dotenv.config();
 
 /**
@@ -191,6 +196,14 @@ const envSchema = z.object({
     .min(0)
     .max(1_000_000)
     .default(0),
+  /**
+   * Express `express.json` limit for JSON-only `POST /api/v1/client/me/socket-events` (not global).
+   * Empty: derive ~110% of worst-case UTF-8 envelope from `REST_SOCKET_EVENT_*` payload + attachment caps.
+   */
+  REST_SOCKET_EVENT_HTTP_JSON_BODY_LIMIT: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
   /**
    * Optional fixed-window (ms) for `socket:event.publish` only. When unset/empty, mirrors
    * `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS` (same default, separate counter bucket).
@@ -981,21 +994,21 @@ export const env = {
     parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS,
   socketCustomEventPublishRateLimitMax:
     parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_MAX ?? parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_MAX,
+  restSocketEventHttpJsonBodyLimit:
+    parsedEnv.REST_SOCKET_EVENT_HTTP_JSON_BODY_LIMIT.trim() !== ""
+      ? parsedEnv.REST_SOCKET_EVENT_HTTP_JSON_BODY_LIMIT.trim()
+      : defaultRestSocketEventHttpJsonBodyLimit(
+          parsedEnv.REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES,
+          parsedEnv.REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES,
+        ),
   /**
    * Max UTF-8 bytes of `JSON.stringify(socket:event.publish)` envelope before Zod (defence in depth).
-   * Derived from REST attachment/payload limits so legitimate publishes fit while oversized JSON is rejected early.
+   * Derived from REST limits and capped by {@link SOCKET_IO_MAX_HTTP_BUFFER_BYTES} (Engine.IO packet size).
    */
-  socketEventPublishRawJsonMaxBytes: Math.min(
-    8 * 1024 * 1024,
-    Math.max(
-      256 * 1024,
-      parsedEnv.REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES +
-        Math.min(
-          6 * 1024 * 1024,
-          Math.ceil((parsedEnv.REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES * 4) / 3) + 512 * 1024,
-        ) +
-        64 * 1024,
-    ),
+  socketEventPublishRawJsonMaxBytes: socketEventPublishRawJsonUpperBound(
+    parsedEnv.REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES,
+    parsedEnv.REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES,
+    parsedEnv.SOCKET_IO_MAX_HTTP_BUFFER_BYTES,
   ),
   clientAgentAccessRequestEmailDebounceMs: parsedEnv.CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS,
   clientAgentAccessMaxRetries: parsedEnv.CLIENT_AGENT_ACCESS_MAX_RETRIES,

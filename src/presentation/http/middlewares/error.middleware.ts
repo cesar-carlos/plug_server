@@ -90,12 +90,15 @@ export const errorMiddleware = (
       }
     }
 
+    const exposeDetails =
+      shouldExposeDetails || error.code === "PAYLOAD_TOO_LARGE";
+
     response.status(error.statusCode).json(
       buildHttpErrorResponseBody({
         message: error.message,
         code: error.code,
         details: error.details,
-        exposeDetails: shouldExposeDetails,
+        exposeDetails,
         requestId,
       }),
     );

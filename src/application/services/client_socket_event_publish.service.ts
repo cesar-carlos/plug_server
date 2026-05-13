@@ -20,8 +20,8 @@ import {
 import type { ClientSocketEventPublishInput } from "../../shared/validators/custom_socket_event";
 import { jsonUtf8ByteLength } from "../../shared/validators/custom_socket_event";
 
-const payloadTooLarge = (message: string): AppError =>
-  new AppError(message, { statusCode: 413, code: "PAYLOAD_TOO_LARGE" });
+const payloadTooLarge = (message: string, details: Record<string, unknown>): AppError =>
+  new AppError(message, { statusCode: 413, code: "PAYLOAD_TOO_LARGE", details });
 
 /**
  * Enforces the same size/count limits as the REST publish path (JSON payload, inline attachments).
@@ -39,18 +39,26 @@ export const assertClientSocketEventPublishInputWithinLimits = (
     });
   }
   if (payloadSize > env.restSocketEventPayloadJsonMaxBytes) {
-    throw payloadTooLarge("socket event payload exceeds JSON size limit");
+    throw payloadTooLarge("socket event payload exceeds JSON size limit", {
+      maxPayloadUtf8Bytes: env.restSocketEventPayloadJsonMaxBytes,
+    });
   }
   if (body.attachments.length > env.restSocketEventMaxFiles) {
-    throw payloadTooLarge("socket event attachments exceed max file count");
+    throw payloadTooLarge("socket event attachments exceed max file count", {
+      maxFiles: env.restSocketEventMaxFiles,
+    });
   }
   const totalBytes = body.attachments.reduce((sum, attachment) => sum + attachment.sizeBytes, 0);
   if (totalBytes > env.restSocketEventTotalFilesMaxBytes) {
-    throw payloadTooLarge("socket event attachments exceed total size limit");
+    throw payloadTooLarge("socket event attachments exceed total size limit", {
+      maxTotalAttachmentBytes: env.restSocketEventTotalFilesMaxBytes,
+    });
   }
   for (const attachment of body.attachments) {
     if (attachment.sizeBytes > env.restSocketEventFileMaxBytes) {
-      throw payloadTooLarge("socket event attachment exceeds per-file size limit");
+      throw payloadTooLarge("socket event attachment exceeds per-file size limit", {
+        maxPerFileBytes: env.restSocketEventFileMaxBytes,
+      });
     }
     const decoded = Buffer.from(attachment.base64, "base64");
     if (decoded.length !== attachment.sizeBytes) {

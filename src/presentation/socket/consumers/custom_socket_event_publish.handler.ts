@@ -43,7 +43,7 @@ type PublishedAck =
         readonly idempotentReplay: boolean;
       };
     }
-  | {
+    | {
       readonly success: false;
       readonly requestId?: string;
       readonly error: {
@@ -51,6 +51,7 @@ type PublishedAck =
         readonly message: string;
         readonly statusCode?: number;
         readonly retryAfterMs?: number;
+        readonly details?: Record<string, unknown>;
       };
       readonly rateLimit?: {
         readonly limit: number;
@@ -115,6 +116,10 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
         code: "PAYLOAD_TOO_LARGE",
         message: "socket:event.publish JSON envelope exceeds raw size limit",
         statusCode: 413,
+        details: {
+          maxRawEnvelopeUtf8Bytes: env.socketEventPublishRawJsonMaxBytes,
+          maxEngineIoBufferBytes: env.socketIoMaxHttpBufferBytes,
+        },
       },
     });
     return;
@@ -192,6 +197,9 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
               code: error.code,
               message: error.message,
               statusCode: error.statusCode,
+              ...(error.details !== undefined && typeof error.details === "object"
+                ? { details: error.details as Record<string, unknown> }
+                : {}),
             },
           });
           return;
@@ -268,6 +276,9 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
               message: error.message,
               statusCode: error.statusCode,
               ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+              ...(error.details !== undefined && typeof error.details === "object"
+                ? { details: error.details as Record<string, unknown> }
+                : {}),
             },
           });
           return;

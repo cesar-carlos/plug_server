@@ -18,6 +18,7 @@ import {
   tokenRefreshRateLimit,
 } from "./presentation/http/middlewares/rate_limit.middleware";
 import { hubInstanceIdMiddleware } from "./presentation/http/middlewares/hub_instance_id.middleware";
+import { jsonBodyParserForRoute } from "./presentation/http/middlewares/client_socket_event_json_body.middleware";
 import { requestIdMiddleware } from "./presentation/http/middlewares/request_id.middleware";
 import { registerRootPublicRoutes } from "./presentation/http/routes/root_public.routes";
 import { authRouter } from "./presentation/http/routes/auth.routes";
@@ -56,7 +57,7 @@ export const createApp = (): Express => {
   app.use("/api/v1", globalRateLimit);
   /** Root auth compatibility alias should be throttled before JSON parsing as well. */
   app.use("/auth", globalRateLimit);
-  app.use(express.json({ limit: env.requestBodyLimit }));
+  app.use(jsonBodyParserForRoute);
   /**
    * `extended: false` uses the built-in querystring parser (no nested objects);
    * cuts attack surface vs `qs` since URL-encoded bodies are only used by the

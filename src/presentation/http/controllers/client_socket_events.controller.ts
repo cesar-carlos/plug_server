@@ -18,8 +18,8 @@ import { getAuthClient } from "../middlewares/auth.middleware";
 import { getValidated } from "../middlewares/validate.middleware";
 import { noteCustomSocketEventPublishRejected } from "../../../shared/metrics/socket_consumer.metrics";
 
-const payloadTooLarge = (message: string): AppError =>
-  new AppError(message, { statusCode: 413, code: "PAYLOAD_TOO_LARGE" });
+const payloadTooLarge = (message: string, details?: Record<string, unknown>): AppError =>
+  new AppError(message, { statusCode: 413, code: "PAYLOAD_TOO_LARGE", details });
 
 export const clientSocketEventUpload = multer({
   storage: multer.memoryStorage(),
@@ -39,7 +39,13 @@ export const wrapClientSocketEventMulterErrors = (handler: RequestHandler): Requ
       }
       if (error instanceof MulterError) {
         if (error.code === "LIMIT_FILE_SIZE" || error.code === "LIMIT_FILE_COUNT") {
-          next(payloadTooLarge(`socket event upload rejected: ${error.code}`));
+          next(
+            payloadTooLarge(`socket event upload rejected: ${error.code}`, {
+              multerCode: error.code,
+              maxFileBytes: env.restSocketEventFileMaxBytes,
+              maxFiles: env.restSocketEventMaxFiles,
+            }),
+          );
           return;
         }
         next(badRequest(`socket event upload rejected: ${error.code}`));
