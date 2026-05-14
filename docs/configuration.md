@@ -29,6 +29,12 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 | `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK` | `200` | OrÃ§amento de `clientId`s processados por tick. Excedente fica para o tick seguinte, com cursor rotativo estÃ¡vel. |
 | `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS` | `1000` | Jitter aleatÃ³rio aplicado sÃ³ ao primeiro tick do processo, para evitar sweeps sincronizados entre rÃ©plicas apÃ³s restart. |
 
+O handshake do consumidor entra primeiro apenas nas rooms base de identidade
+(`consumer:principal:*` e `consumer:client:*`) e envia `connection:ready`
+antes do custo de materializar `consumer:client-agent:*` e
+`consumer:agent-profile:*`. Esse backfill acontece de forma assÃ­ncrona logo
+apÃ³s o ready e usa o mesmo orÃ§amento/concurrency do reconcile periÃ³dico.
+
 ### `SOCKET_CONSUMER_ROLES` (opcional)
 
 | Variável                | Defeito             | Notas                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -36,6 +42,12 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 | `SOCKET_CONSUMER_ROLES` | `user,admin,client` | Lista separada por vírgulas de `role` JWT permitidas no handshake do namespace Socket.IO **`/consumers`**. O literal **`client`** é necessário para apps Colmeia (principal `Client`). Se a variável listar só `user,admin`, o processo **acrescenta** `client` no parse (ver `parseSocketConsumerRolesValue` em `env.ts`) e regista `INFO` `socket_consumer_roles_ensured_client` no arranque. |
 
 ### `SOCKET_AUTH_REQUIRED` (opcional)
+
+`socket:event.subscribe`, `socket:event.unsubscribe` e `socket:event.publish`
+tambem reaplicam a validacao de conta activa por evento. O custo dessa
+revalidacao segue `SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS`: com TTL `0`, cada
+evento consulta a fonte de verdade; com TTL > `0`, o hub reutiliza o snapshot
+activo do socket dentro da janela.
 
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
@@ -174,6 +186,12 @@ sem adapter distribuido do Socket.IO, a entrega alcanca somente sockets
 conectados a mesma replica que processou o pedido (REST ou Socket). Com
 `SOCKET_IO_REDIS_ADAPTER_URL`, o broadcast da room atravessa replicas; mantenha
 sticky sessions para relay/conversas e para estado de agente ainda local.
+
+Quando o adapter Redis esta activo mas a contagem distribuida de destinatarios
+falha, o hub nao derruba mais o publish de `client:custom.*`. Nesse caso ele
+emite em modo **best-effort**, regista metricas/logs dedicados e deixa de
+aplicar `REST_SOCKET_EVENT_MAX_RECIPIENTS` apenas naquele publish, porque a
+contagem deixou de ser confiavel.
 
 ## Client → Agent: bearer token armazenado por par
 
@@ -317,3 +335,24 @@ O ownership oficial do agente nasce em `agent:register`, depois de um `agent-log
 | Metricas e paineis                                            | `docs/observability.md`                                                 |
 | Estados de utilizador, bloqueio admin, metricas `plug_auth_*` | `docs/user_status.md`                                                   |
 | SSE, Redis, multi-instancia, OTel                             | `docs/scaling_and_roadmap.md`                                           |
+
+## Adendo: publish degradado de `client:custom.*`
+
+Esta rodada acrescentou tres controlos operacionais para o caminho
+`POST /api/v1/client/me/socket-events` e `socket:event.publish` quando o
+Socket.IO Redis adapter esta activo, mas a contagem distribuida da room falha:
+
+| Variavel | Defeito | Notas |
+| --- | --- | --- |
+| `REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS` | `256` | Teto local conservador para permitir emit em modo best-effort enquanto `fetchSockets()` falha. Acima disso, o hub responde `503` em vez de continuar fan-out sem controlo. |
+| `REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD` | `5` | Numero de falhas consecutivas de contagem distribuida antes de abrir o circuito local de degradacao. |
+| `REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS` | `30000` | Janela durante a qual o circuito permanece aberto; nesse periodo, novos publishes recebem `503` retryable. |
+
+Sem Redis adapter activo, o caminho continua a usar a contagem local da room e
+estes controlos nao entram em jogo. Com Redis adapter activo, o comportamento
+passa a ser:
+
+1. tentar contagem distribuida;
+2. se funcionar, aplicar `REST_SOCKET_EVENT_MAX_RECIPIENTS` normalmente;
+3. se falhar, permitir publish degradado apenas abaixo do teto local;
+4. se as falhas se repetirem, abrir o circuito e devolver `503` ate a janela expirar.

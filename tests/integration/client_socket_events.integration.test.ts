@@ -1,15 +1,20 @@
 import request from "supertest";
 import { io as ioClient } from "socket.io-client";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestServer, type TestServerResult } from "../helpers/test_server";
 import { registerOwnerAndClientSession } from "./helpers/client_sessions";
+import { emitAgentProfileBroadcastEvent } from "../../src/application/services/agent_profile_broadcast_sink";
+import { Client } from "../../src/domain/entities/client.entity";
+import { container, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { decodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { isRecord } from "../../src/shared/utils/rpc_types";
 import { resetClientSocketEventPublishIdempotencyStore } from "../../src/application/services/client_socket_event_idempotency_store";
 import { resetClientSocketEventPublishIdempotencySerializationQueues } from "../../src/application/services/client_socket_event_publish_idempotency_serialization";
 import { resetClientSocketEventPublishSocketRateLimitState } from "../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter";
+
+const repositories = getTestRepositoryAccess();
 
 const connectConsumer = (baseUrl: string, token: string): Promise<ReturnType<typeof ioClient>> =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
@@ -101,6 +106,71 @@ const decodeCustomEventFrame = (rawFrame: unknown): Record<string, unknown> => {
     throw new Error("Invalid custom event PayloadFrame");
   }
   return decoded.value.data;
+};
+
+const waitForDisconnect = (
+  socket: ReturnType<typeof ioClient>,
+  timeoutMs = 4_000,
+): Promise<string> =>
+  new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.off("disconnect", onDisconnect);
+      reject(new Error("Timed out waiting for disconnect"));
+    }, timeoutMs);
+
+    const onDisconnect = (reason: string): void => {
+      clearTimeout(timeout);
+      socket.off("disconnect", onDisconnect);
+      resolve(reason);
+    };
+
+    socket.on("disconnect", onDisconnect);
+  });
+
+const waitUntil = async (
+  assertion: () => void,
+  timeoutMs = 4_000,
+  intervalMs = 20,
+): Promise<void> => {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      assertion();
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+  assertion();
+};
+
+const setClientStatusDirectly = async (
+  clientId: string,
+  status: "active" | "blocked",
+): Promise<void> => {
+  const currentClient = await repositories.client.findById(clientId);
+  if (!currentClient) {
+    throw new Error(`Client not found: ${clientId}`);
+  }
+  await repositories.client.save(
+    new Client({
+      id: currentClient.id,
+      userId: currentClient.userId,
+      email: currentClient.email,
+      passwordHash: currentClient.passwordHash,
+      name: currentClient.name,
+      lastName: currentClient.lastName,
+      ...(currentClient.mobile !== undefined ? { mobile: currentClient.mobile } : {}),
+      ...(currentClient.thumbnailUrl !== undefined
+        ? { thumbnailUrl: currentClient.thumbnailUrl }
+        : {}),
+      credentialsUpdatedAt: currentClient.credentialsUpdatedAt,
+      status,
+      createdAt: currentClient.createdAt,
+      updatedAt: new Date(),
+    }),
+  );
+  container.clientAuthService.invalidateSnapshotCache(clientId);
 };
 
 describe("Client REST socket event pub/sub", () => {
@@ -516,5 +586,136 @@ describe("Client Socket socket:event.publish pub/sub", () => {
     const ack = await ackPromise;
     expect(ack.success).toBe(false);
     expect(ack.error?.code).toBe("FORBIDDEN");
+  });
+
+  it("should align REST and socket:event.publish when the client is blocked after handshake", async () => {
+    const session = await registerOwnerAndClientSession(server.httpServer, {
+      suffix: "socket-publish-blocked-after-connect",
+    });
+    const socket = await connectConsumer(server.getUrl(), session.client.accessToken);
+    sockets.push(socket);
+
+    await setClientStatusDirectly(session.client.clientId, "blocked");
+
+    const restResponse = await request(server.httpServer)
+      .post("/api/v1/client/me/socket-events")
+      .set("Authorization", `Bearer ${session.client.accessToken}`)
+      .send({
+        eventName: "client:custom.blocked.rest",
+        payload: { ok: false },
+      });
+    expect(restResponse.status).toBe(403);
+
+    const requestId = "blocked-after-connect";
+    const ackPromise = waitForPublishedAck(socket, requestId);
+    const appErrorPromise = waitForEvent<{ code?: string; message?: string }>(
+      socket,
+      socketEvents.appError,
+    );
+    const disconnectPromise = waitForDisconnect(socket);
+
+    socket.emit(socketEvents.socketEventPublish, {
+      requestId,
+      eventName: "client:custom.blocked.socket",
+      payload: { ok: false },
+    });
+
+    const ack = await ackPromise;
+    expect(ack.success).toBe(false);
+    expect(ack.error?.message).toContain("blocked");
+
+    const appError = await appErrorPromise;
+    expect(appError.code).toBe("FORBIDDEN");
+    expect(String(appError.message)).toContain("blocked");
+    await expect(disconnectPromise).resolves.toBeTruthy();
+  });
+
+  it("should deduplicate bootstrap room fetches for concurrent sockets of the same client", async () => {
+    const session = await registerOwnerAndClientSession(server.httpServer, {
+      suffix: "socket-bootstrap-dedupe",
+    });
+    const original = container.clientAgentAccessService.listApprovedAgentIds.bind(
+      container.clientAgentAccessService,
+    );
+    let releaseFetch: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const listSpy = vi
+      .spyOn(container.clientAgentAccessService, "listApprovedAgentIds")
+      .mockImplementation(async (clientId: string) => {
+        await gate;
+        return original(clientId);
+      });
+
+    try {
+      const [socketA, socketB] = await Promise.all([
+        connectConsumer(server.getUrl(), session.client.accessToken),
+        connectConsumer(server.getUrl(), session.client.accessToken),
+      ]);
+      sockets.push(socketA, socketB);
+
+      await waitUntil(() => {
+        expect(listSpy).toHaveBeenCalledTimes(1);
+      });
+
+      releaseFetch?.();
+
+      await waitUntil(() => {
+        expect(listSpy).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      releaseFetch?.();
+      listSpy.mockRestore();
+    }
+  });
+
+  it("should deduplicate profile push recipient fetches in flight for the same agent", async () => {
+    const agentId = "agent-profile-dedupe";
+    const original = container.clientAgentAccessService.listActiveApprovedClientIdsForAgent.bind(
+      container.clientAgentAccessService,
+    );
+    let releaseFetch: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const listSpy = vi
+      .spyOn(container.clientAgentAccessService, "listActiveApprovedClientIdsForAgent")
+      .mockImplementation(async (candidateAgentId: string) => {
+        await gate;
+        return original(candidateAgentId);
+      });
+
+    try {
+      await Promise.all([
+        emitAgentProfileBroadcastEvent({
+          agentId,
+          profileVersion: 1,
+          profileUpdatedAt: new Date().toISOString(),
+          source: "test",
+          changedFields: ["name"],
+        }),
+        emitAgentProfileBroadcastEvent({
+          agentId,
+          profileVersion: 2,
+          profileUpdatedAt: new Date().toISOString(),
+          source: "test",
+          changedFields: ["description"],
+        }),
+      ]);
+
+      await waitUntil(() => {
+        expect(listSpy).toHaveBeenCalledTimes(1);
+      });
+
+      releaseFetch?.();
+
+      await waitUntil(() => {
+        expect(listSpy).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      releaseFetch?.();
+      listSpy.mockRestore();
+    }
   });
 });

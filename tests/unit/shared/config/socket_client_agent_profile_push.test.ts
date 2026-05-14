@@ -13,6 +13,12 @@ const previousReconcileMaxClientsPerTick =
   process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK;
 const previousReconcileStartJitterMs =
   process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS;
+const previousBestEffortLocalMaxRecipients =
+  process.env.REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS;
+const previousDistributedCountFailureThreshold =
+  process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD;
+const previousDistributedCountFailureOpenMs =
+  process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS;
 
 const reloadEnv = async (): Promise<typeof EnvSnapshot> => {
   vi.resetModules();
@@ -29,6 +35,9 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
     delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY;
     delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK;
     delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS;
+    delete process.env.REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS;
+    delete process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD;
+    delete process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS;
   });
 
   afterEach(() => {
@@ -71,6 +80,24 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
       process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS =
         previousReconcileStartJitterMs;
     }
+    if (previousBestEffortLocalMaxRecipients === undefined) {
+      delete process.env.REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS;
+    } else {
+      process.env.REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS =
+        previousBestEffortLocalMaxRecipients;
+    }
+    if (previousDistributedCountFailureThreshold === undefined) {
+      delete process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD;
+    } else {
+      process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD =
+        previousDistributedCountFailureThreshold;
+    }
+    if (previousDistributedCountFailureOpenMs === undefined) {
+      delete process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS;
+    } else {
+      process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS =
+        previousDistributedCountFailureOpenMs;
+    }
     vi.resetModules();
   });
 
@@ -104,6 +131,9 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
     expect(env.socketConsumerClientAgentRoomReconcileConcurrency).toBe(8);
     expect(env.socketConsumerClientAgentRoomReconcileMaxClientsPerTick).toBe(200);
     expect(env.socketConsumerClientAgentRoomReconcileStartJitterMs).toBe(1000);
+    expect(env.restSocketEventBestEffortLocalMaxRecipients).toBe(256);
+    expect(env.restSocketEventDistributedCountFailureThreshold).toBe(5);
+    expect(env.restSocketEventDistributedCountFailureOpenMs).toBe(30000);
   });
 
   it("parses profile recipient cache bounds", async () => {
@@ -124,5 +154,15 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
     expect(env.socketConsumerClientAgentRoomReconcileConcurrency).toBe(4);
     expect(env.socketConsumerClientAgentRoomReconcileMaxClientsPerTick).toBe(25);
     expect(env.socketConsumerClientAgentRoomReconcileStartJitterMs).toBe(250);
+  });
+
+  it("parses the distributed recipient-count degradation controls", async () => {
+    process.env.REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS = "32";
+    process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD = "7";
+    process.env.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS = "45000";
+    const env = await reloadEnv();
+    expect(env.restSocketEventBestEffortLocalMaxRecipients).toBe(32);
+    expect(env.restSocketEventDistributedCountFailureThreshold).toBe(7);
+    expect(env.restSocketEventDistributedCountFailureOpenMs).toBe(45000);
   });
 });

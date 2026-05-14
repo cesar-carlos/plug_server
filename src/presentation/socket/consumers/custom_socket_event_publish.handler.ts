@@ -30,6 +30,12 @@ import {
   type SocketWithInflightCounter,
 } from "./per_socket_inflight_gate";
 import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
+import {
+  assertActiveClientCustomSocketEventPrincipal,
+  disconnectSocketAfterCustomSocketEventAuthFailure,
+  handleCustomSocketEventAuthFailure,
+  isTerminalCustomSocketEventAuthFailure,
+} from "./custom_socket_event_guard";
 
 type PublishedAck =
   | {
@@ -141,48 +147,32 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
   }
 
   const { requestId, idempotencyKey } = parsed.data;
-  const user = socket.data.user;
-
-  if (user?.principal_type !== "client" || typeof user.sub !== "string" || user.sub.trim() === "") {
-    noteCustomSocketEventPublishRejected();
-    emitPublishedIfConnected(socket, {
-      success: false,
-      requestId,
-      error: {
-        code: "FORBIDDEN",
-        message: "Only Client principals may publish custom socket events",
-        statusCode: 403,
-      },
-    });
-    return;
-  }
-
-  const clientSub = user.sub.trim();
   const publishInflightMax = env.socketCustomEventPublishMaxInflightPerSocket;
   const useDedicatedPublishInflight = publishInflightMax > 0;
   const inflightSocket = socket as SocketWithInflightCounter & SocketWithCustomPublishInflight;
 
-  const acquiredInflight = useDedicatedPublishInflight
-    ? tryAcquireCustomPublishInflightSlot(inflightSocket, publishInflightMax)
-    : tryAcquireSocketInflightSlot(inflightSocket, env.socketConsumerMaxInflightPerSocket);
-
-  if (!acquiredInflight) {
-    noteCustomSocketEventPublishRejected();
-    emitPublishedIfConnected(socket, {
-      success: false,
-      requestId,
-      error: {
-        code: "RATE_LIMITED",
-        message: useDedicatedPublishInflight
-          ? "Custom publish concurrent limit exceeded"
-          : "Per-socket inflight gate exceeded",
-        statusCode: 429,
-      },
-    });
-    return;
-  }
-
   void (async (): Promise<void> => {
+    const clientSub = await assertActiveClientCustomSocketEventPrincipal(socket);
+    const acquiredInflight = useDedicatedPublishInflight
+      ? tryAcquireCustomPublishInflightSlot(inflightSocket, publishInflightMax)
+      : tryAcquireSocketInflightSlot(inflightSocket, env.socketConsumerMaxInflightPerSocket);
+
+    if (!acquiredInflight) {
+      noteCustomSocketEventPublishRejected();
+      emitPublishedIfConnected(socket, {
+        success: false,
+        requestId,
+        error: {
+          code: "RATE_LIMITED",
+          message: useDedicatedPublishInflight
+            ? "Custom publish concurrent limit exceeded"
+            : "Per-socket inflight gate exceeded",
+          statusCode: 429,
+        },
+      });
+      return;
+    }
+
     try {
       const body = toClientSocketEventPublishInput(parsed.data);
       try {
@@ -299,12 +289,20 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
         releaseSocketInflightSlot(inflightSocket);
       }
     }
-  })().catch(() => {
+  })().catch((error: unknown) => {
     noteCustomSocketEventPublishRejected();
+    const appError = handleCustomSocketEventAuthFailure(error);
     emitPublishedIfConnected(socket, {
       success: false,
       requestId,
-      error: { code: "INTERNAL_SERVER_ERROR", message: "Unexpected error publishing event" },
+      error: {
+        code: appError.code,
+        message: appError.message,
+        ...(appError.statusCode !== undefined ? { statusCode: appError.statusCode } : {}),
+      },
     });
+    if (isTerminalCustomSocketEventAuthFailure(appError)) {
+      disconnectSocketAfterCustomSocketEventAuthFailure(socket, appError);
+    }
   });
 };

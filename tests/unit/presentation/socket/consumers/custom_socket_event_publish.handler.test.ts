@@ -31,6 +31,25 @@ vi.mock("../../../../../src/shared/utils/logger", () => ({
   },
 }));
 
+vi.mock("../../../../../src/presentation/socket/consumers/custom_socket_event_guard", () => ({
+  assertActiveClientCustomSocketEventPrincipal: vi.fn(async (socket: Socket) => {
+    const user = (socket as { data?: { user?: { sub?: string } } }).data?.user;
+    return user?.sub ?? "client-sub-xyz";
+  }),
+  handleCustomSocketEventAuthFailure: vi.fn((error: unknown) =>
+    error instanceof AppError
+      ? error
+      : new AppError("Authentication required", {
+          statusCode: 401,
+          code: "UNAUTHORIZED",
+        }),
+  ),
+  isTerminalCustomSocketEventAuthFailure: vi.fn((error: AppError) => {
+    return error.statusCode === 401 || error.statusCode === 403;
+  }),
+  disconnectSocketAfterCustomSocketEventAuthFailure: vi.fn(),
+}));
+
 import { executeClientSocketEventPublish } from "../../../../../src/application/services/client_socket_event_publish.service";
 import {
   allowClientSocketEventPublishSocketAsync,
@@ -57,9 +76,9 @@ const mockedNoteRejected = vi.mocked(noteCustomSocketEventPublishRejected);
 const mockedLoggerWarn = vi.mocked(logger.warn);
 
 const flushMicrotasks = async (): Promise<void> => {
-  await new Promise<void>((resolve) => {
-    queueMicrotask(() => resolve());
-  });
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 };
 
 const buildClientSocket = (): Socket =>
@@ -74,6 +93,7 @@ const buildClientSocket = (): Socket =>
       },
     },
     emit: vi.fn(),
+    disconnect: vi.fn(),
   }) as unknown as Socket;
 
 const validPublishPayload = {
@@ -259,7 +279,7 @@ describe("handleCustomSocketEventPublish dedicated inflight", () => {
     ).socketCustomEventPublishMaxInflightPerSocket = 0;
   });
 
-  it("should reject second publish when dedicated cap is 1 and first is still in flight", () => {
+  it("should reject second publish when dedicated cap is 1 and first is still in flight", async () => {
     (
       env as { socketCustomEventPublishMaxInflightPerSocket: number }
     ).socketCustomEventPublishMaxInflightPerSocket = 1;
@@ -273,6 +293,7 @@ describe("handleCustomSocketEventPublish dedicated inflight", () => {
     const socket = buildClientSocket();
     handleCustomSocketEventPublish(socket, validPublishPayload);
     handleCustomSocketEventPublish(socket, { ...validPublishPayload, requestId: "req-2" });
+    await flushMicrotasks();
 
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.socketEventPublished,

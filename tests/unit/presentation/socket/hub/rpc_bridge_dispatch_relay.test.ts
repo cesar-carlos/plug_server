@@ -27,7 +27,8 @@ afterEach(() => {
 describe("rpc_bridge_dispatch_relay", () => {
   it("rejects JSON-RPC notifications (`id: null`) in relay:rpc.request", async () => {
     const handlers = createRpcBridgeRelayDispatch({
-      getAgentsNamespace: () => null,
+      hasRegisteredAgentSocketBridge: () => false,
+      findAgentSocketById: () => null,
       emitToConsumer: () => {
         /* not reached in this test */
       },
@@ -96,10 +97,13 @@ describe("rpc_bridge_dispatch_relay", () => {
     }
 
     const handlers = createRpcBridgeRelayDispatch({
-      getAgentsNamespace: () =>
-        ({
-          sockets: new Map([[agentSocketId, { emit: agentEmit }]]),
-        }) as never,
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (socketId) =>
+        socketId === agentSocketId
+          ? {
+              emit: agentEmit,
+            }
+          : null,
       emitToConsumer: vi.fn(),
       prepareAgentStreamPull: () => ({
         requestId: "req-1",

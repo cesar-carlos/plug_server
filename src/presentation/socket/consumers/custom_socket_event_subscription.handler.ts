@@ -17,13 +17,13 @@ import {
   hasCustomSocketEventSubscription,
   removeCustomSocketEventSubscription,
 } from "../hub/custom_socket_event_subscription_registry";
-
-const isClientPrincipalForCustomSocketEvents = (socket: Socket): boolean => {
-  const user = socket.data.user;
-  return (
-    user?.principal_type === "client" && typeof user.sub === "string" && user.sub.trim() !== ""
-  );
-};
+import {
+  assertActiveClientCustomSocketEventPrincipal,
+  disconnectSocketAfterCustomSocketEventAuthFailure,
+  handleCustomSocketEventAuthFailure,
+  isNonClientCustomSocketEventPrincipalError,
+  isTerminalCustomSocketEventAuthFailure,
+} from "./custom_socket_event_guard";
 
 type SubscriptionResponse =
   | {
@@ -107,88 +107,86 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
 
   const { eventName, requestId } = parsed.value;
 
-  if (!isClientPrincipalForCustomSocketEvents(socket)) {
-    noteCustomSocketEventSubscriptionForbidden();
-    emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
-      success: false,
-      requestId,
-      error: {
-        code: "FORBIDDEN",
-        message: "Only Client principals may subscribe to custom socket events",
-        statusCode: 403,
-      },
-    });
-    return;
-  }
+  void (async (): Promise<void> => {
+    await assertActiveClientCustomSocketEventPrincipal(socket);
 
-  const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
-  if (!allowance.allowed) {
-    noteCustomSocketEventSubscriptionRejected();
-    emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
-      success: false,
-      requestId,
-      error: {
-        code: "RATE_LIMITED",
-        message: "Rate limit exceeded for socket:event.subscribe",
-        statusCode: 429,
-        ...(allowance.retryAfterMs !== undefined ? { retryAfterMs: allowance.retryAfterMs } : {}),
-      },
-      rateLimit: {
-        limit: allowance.limit,
-        remaining: allowance.remaining,
-        resetAtMs: allowance.resetAtMs,
-      },
-    });
-    return;
-  }
-
-  const isAlreadySubscribed = hasCustomSocketEventSubscription(socket.id, eventName);
-  if (
-    !isAlreadySubscribed &&
-    env.socketCustomEventMaxSubscriptionsPerSocket > 0 &&
-    countCustomSocketEventSubscriptionsBySocketId(socket.id) >=
-      env.socketCustomEventMaxSubscriptionsPerSocket
-  ) {
-    noteCustomSocketEventSubscriptionRejected();
-    emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
-      success: false,
-      requestId,
-      error: {
-        code: "SUBSCRIPTION_LIMIT_EXCEEDED",
-        message: "Custom socket event subscription limit exceeded for this socket",
-        statusCode: 429,
-      },
-    });
-    return;
-  }
-
-  void Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)))
-    .then(() => {
-      const addedNew = addCustomSocketEventSubscription(socket.id, eventName);
-      if (addedNew) {
-        noteCustomSocketEventSubscribed();
-      }
-      emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
-        success: true,
-        requestId,
-        data: {
-          eventName,
-          subscribed: true,
-          ...(addedNew ? {} : { alreadySubscribed: true as const }),
-        },
-      });
-    })
-    .catch((error: unknown) => {
+    const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
+    if (!allowance.allowed) {
       noteCustomSocketEventSubscriptionRejected();
       emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
         success: false,
         requestId,
         error: {
-          code: "SUBSCRIBE_FAILED",
-          message: error instanceof Error ? error.message : "Failed to subscribe to event",
+          code: "RATE_LIMITED",
+          message: "Rate limit exceeded for socket:event.subscribe",
+          statusCode: 429,
+          ...(allowance.retryAfterMs !== undefined ? { retryAfterMs: allowance.retryAfterMs } : {}),
+        },
+        rateLimit: {
+          limit: allowance.limit,
+          remaining: allowance.remaining,
+          resetAtMs: allowance.resetAtMs,
         },
       });
+      return;
+    }
+
+    const isAlreadySubscribed = hasCustomSocketEventSubscription(socket.id, eventName);
+    if (
+      !isAlreadySubscribed &&
+      env.socketCustomEventMaxSubscriptionsPerSocket > 0 &&
+      countCustomSocketEventSubscriptionsBySocketId(socket.id) >=
+        env.socketCustomEventMaxSubscriptionsPerSocket
+    ) {
+      noteCustomSocketEventSubscriptionRejected();
+      emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
+        success: false,
+        requestId,
+        error: {
+          code: "SUBSCRIPTION_LIMIT_EXCEEDED",
+          message: "Custom socket event subscription limit exceeded for this socket",
+          statusCode: 429,
+        },
+      });
+      return;
+    }
+
+    await Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)));
+    const addedNew = addCustomSocketEventSubscription(socket.id, eventName);
+    if (addedNew) {
+      noteCustomSocketEventSubscribed();
+    }
+    emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
+      success: true,
+      requestId,
+      data: {
+        eventName,
+        subscribed: true,
+        ...(addedNew ? {} : { alreadySubscribed: true as const }),
+      },
     });
+  })().catch((error: unknown) => {
+    const appError = handleCustomSocketEventAuthFailure(error);
+    if (isNonClientCustomSocketEventPrincipalError(appError)) {
+      noteCustomSocketEventSubscriptionForbidden();
+    } else {
+      noteCustomSocketEventSubscriptionRejected();
+    }
+    emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
+      success: false,
+      requestId,
+      error: {
+        code: isNonClientCustomSocketEventPrincipalError(appError) ? "FORBIDDEN" : appError.code,
+        message: isNonClientCustomSocketEventPrincipalError(appError)
+          ? "Only Client principals may subscribe to custom socket events"
+          : appError.message,
+        ...(appError.statusCode !== undefined ? { statusCode: appError.statusCode } : {}),
+      },
+    });
+    if (isTerminalCustomSocketEventAuthFailure(appError)) {
+      disconnectSocketAfterCustomSocketEventAuthFailure(socket, appError);
+    }
+  });
 };
 
 export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: unknown): void => {
@@ -205,62 +203,60 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
 
   const { eventName, requestId } = parsed.value;
 
-  if (!isClientPrincipalForCustomSocketEvents(socket)) {
-    noteCustomSocketEventSubscriptionForbidden();
-    emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
-      success: false,
-      requestId,
-      error: {
-        code: "FORBIDDEN",
-        message: "Only Client principals may unsubscribe from custom socket events",
-        statusCode: 403,
-      },
-    });
-    return;
-  }
+  void (async (): Promise<void> => {
+    await assertActiveClientCustomSocketEventPrincipal(socket);
 
-  const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
-  if (!allowance.allowed) {
-    noteCustomSocketEventSubscriptionRejected();
-    emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
-      success: false,
-      requestId,
-      error: {
-        code: "RATE_LIMITED",
-        message: "Rate limit exceeded for socket:event.unsubscribe",
-        statusCode: 429,
-        ...(allowance.retryAfterMs !== undefined ? { retryAfterMs: allowance.retryAfterMs } : {}),
-      },
-      rateLimit: {
-        limit: allowance.limit,
-        remaining: allowance.remaining,
-        resetAtMs: allowance.resetAtMs,
-      },
-    });
-    return;
-  }
-
-  void Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)))
-    .then(() => {
-      const wasSubscribed = removeCustomSocketEventSubscription(socket.id, eventName);
-      if (wasSubscribed) {
-        noteCustomSocketEventUnsubscribed();
-      }
-      emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
-        success: true,
-        requestId,
-        data: { eventName, subscribed: false, wasSubscribed },
-      });
-    })
-    .catch((error: unknown) => {
+    const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
+    if (!allowance.allowed) {
       noteCustomSocketEventSubscriptionRejected();
       emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
         success: false,
         requestId,
         error: {
-          code: "UNSUBSCRIBE_FAILED",
-          message: error instanceof Error ? error.message : "Failed to unsubscribe from event",
+          code: "RATE_LIMITED",
+          message: "Rate limit exceeded for socket:event.unsubscribe",
+          statusCode: 429,
+          ...(allowance.retryAfterMs !== undefined ? { retryAfterMs: allowance.retryAfterMs } : {}),
+        },
+        rateLimit: {
+          limit: allowance.limit,
+          remaining: allowance.remaining,
+          resetAtMs: allowance.resetAtMs,
         },
       });
+      return;
+    }
+
+    await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
+    const wasSubscribed = removeCustomSocketEventSubscription(socket.id, eventName);
+    if (wasSubscribed) {
+      noteCustomSocketEventUnsubscribed();
+    }
+    emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
+      success: true,
+      requestId,
+      data: { eventName, subscribed: false, wasSubscribed },
     });
+  })().catch((error: unknown) => {
+    const appError = handleCustomSocketEventAuthFailure(error);
+    if (isNonClientCustomSocketEventPrincipalError(appError)) {
+      noteCustomSocketEventSubscriptionForbidden();
+    } else {
+      noteCustomSocketEventSubscriptionRejected();
+    }
+    emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
+      success: false,
+      requestId,
+      error: {
+        code: isNonClientCustomSocketEventPrincipalError(appError) ? "FORBIDDEN" : appError.code,
+        message: isNonClientCustomSocketEventPrincipalError(appError)
+          ? "Only Client principals may unsubscribe from custom socket events"
+          : appError.message,
+        ...(appError.statusCode !== undefined ? { statusCode: appError.statusCode } : {}),
+      },
+    });
+    if (isTerminalCustomSocketEventAuthFailure(appError)) {
+      disconnectSocketAfterCustomSocketEventAuthFailure(socket, appError);
+    }
+  });
 };

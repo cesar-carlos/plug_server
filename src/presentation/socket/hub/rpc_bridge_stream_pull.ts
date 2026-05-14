@@ -1,5 +1,3 @@
-import type { Namespace } from "socket.io";
-
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -38,8 +36,13 @@ export interface RequestAgentStreamPullResult {
   readonly windowSize: number;
 }
 
+type AgentSocketEmitter = {
+  emit: (eventName: string, payload: unknown) => void;
+};
+
 export interface RpcBridgeStreamPullDeps {
-  readonly getAgentsNamespace: () => Namespace | null;
+  readonly hasRegisteredAgentSocketBridge: () => boolean;
+  readonly findAgentSocketById: (socketId: string) => AgentSocketEmitter | null;
   readonly emitToConsumer: EmitToConsumerFn;
 }
 
@@ -59,7 +62,7 @@ export interface PreparedAgentStreamPull {
 export const createPrepareAgentStreamPull = (
   deps: RpcBridgeStreamPullDeps,
 ): ((input: RequestAgentStreamPullInput) => PreparedAgentStreamPull) => {
-  const { getAgentsNamespace, emitToConsumer } = deps;
+  const { hasRegisteredAgentSocketBridge, findAgentSocketById, emitToConsumer } = deps;
 
   const cleanupMissingAgentSocketRoute = (route: ActiveStreamRoute): void => {
     const relayRoute = getRelayRequestRoute(route.requestId);
@@ -130,12 +133,11 @@ export const createPrepareAgentStreamPull = (
       throw badRequest("Stream id is not available yet for this request");
     }
 
-    const nsp = getAgentsNamespace();
-    if (!nsp) {
+    if (!hasRegisteredAgentSocketBridge()) {
       throw serviceUnavailable("Socket bridge is not initialized");
     }
 
-    const agentSocket = nsp.sockets.get(route.agentSocketId);
+    const agentSocket = findAgentSocketById(route.agentSocketId);
     if (!agentSocket) {
       cleanupMissingAgentSocketRoute(route);
       throw serviceUnavailable("Agent socket is unavailable");

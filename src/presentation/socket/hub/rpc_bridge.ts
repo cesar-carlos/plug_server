@@ -1,4 +1,4 @@
-import type { Namespace } from "socket.io";
+import type { Namespace, Socket } from "socket.io";
 
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../shared/utils/payload_frame";
@@ -54,8 +54,36 @@ export type {
   RequestAgentStreamPullResult,
 } from "./rpc_bridge_stream_pull";
 
-let agentsNamespace: Namespace | null = null;
-let consumersNamespace: Namespace | null = null;
+const agentNamespaces = new Set<Namespace>();
+const consumerNamespaces = new Set<Namespace>();
+const agentSocketNamespacesById = new Map<string, Namespace>();
+const consumerSocketNamespacesById = new Map<string, Namespace>();
+
+type HubNamespaceSocket = Socket;
+
+const findSocketInIndex = (
+  namespacesBySocketId: Map<string, Namespace>,
+  socketId: string,
+): HubNamespaceSocket | null => {
+  const namespace = namespacesBySocketId.get(socketId);
+  if (!namespace) {
+    return null;
+  }
+  const socket = namespace.sockets.get(socketId);
+  if (!socket) {
+    namespacesBySocketId.delete(socketId);
+    return null;
+  }
+  return socket;
+};
+
+const hasRegisteredAgentSocketBridge = (): boolean => agentNamespaces.size > 0;
+
+const findAgentSocketById = (socketId: string): HubNamespaceSocket | null =>
+  findSocketInIndex(agentSocketNamespacesById, socketId);
+
+const findConsumerSocketById = (socketId: string): HubNamespaceSocket | null =>
+  findSocketInIndex(consumerSocketNamespacesById, socketId);
 
 wireRestAgentDispatchQueueMetrics((reason) => {
   if (reason === "queue_full") {
@@ -74,12 +102,11 @@ export const getRelayMetricsSnapshot = (): RelayHubMetricsSnapshot =>
 export { stopRelayHubMetricsLogger as stopRelayMetricsLogger };
 
 const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number): void => {
-  const nsp = agentsNamespace;
-  if (!nsp || !route.streamId) {
+  if (!hasRegisteredAgentSocketBridge() || !route.streamId) {
     return;
   }
 
-  const agentSocket = nsp.sockets.get(route.agentSocketId);
+  const agentSocket = findAgentSocketById(route.agentSocketId);
   if (!agentSocket) {
     const relayRoute = getRelayRequestRoute(route.requestId);
     const agentId =
@@ -128,11 +155,11 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
 };
 
 export const registerSocketBridgeServer = (namespace: Namespace): void => {
-  agentsNamespace = namespace;
+  agentNamespaces.add(namespace);
 };
 
 export const registerConsumerBridgeServer = (namespace: Namespace): void => {
-  consumersNamespace = namespace;
+  consumerNamespaces.add(namespace);
   scheduleRelayHubMetricsLogger(() =>
     buildRelayHubMetricsSnapshot({
       activeStreams: getActiveStreamRouteCount(),
@@ -143,13 +170,46 @@ export const registerConsumerBridgeServer = (namespace: Namespace): void => {
   scheduleRelayIdempotencyCleanupTimer();
 };
 
+export const registerAgentBridgeSocket = (namespace: Namespace, socketId: string): void => {
+  agentSocketNamespacesById.set(socketId, namespace);
+};
+
+export const unregisterAgentBridgeSocket = (socketId: string): void => {
+  agentSocketNamespacesById.delete(socketId);
+};
+
+export const registerConsumerBridgeSocket = (namespace: Namespace, socketId: string): void => {
+  consumerSocketNamespacesById.set(socketId, namespace);
+};
+
+export const unregisterConsumerBridgeSocket = (socketId: string): void => {
+  consumerSocketNamespacesById.delete(socketId);
+};
+
+export const unregisterSocketBridgeServer = (namespace: Namespace): void => {
+  agentNamespaces.delete(namespace);
+  for (const [socketId, registeredNamespace] of agentSocketNamespacesById.entries()) {
+    if (registeredNamespace === namespace) {
+      agentSocketNamespacesById.delete(socketId);
+    }
+  }
+};
+
+export const unregisterConsumerBridgeServer = (namespace: Namespace): void => {
+  consumerNamespaces.delete(namespace);
+  for (const [socketId, registeredNamespace] of consumerSocketNamespacesById.entries()) {
+    if (registeredNamespace === namespace) {
+      consumerSocketNamespacesById.delete(socketId);
+    }
+  }
+};
+
 const emitToConsumer = (consumerSocketId: string, eventName: string, payload: unknown): void => {
-  const nsp = consumersNamespace;
-  if (!nsp) {
+  if (consumerNamespaces.size === 0) {
     return;
   }
 
-  const consumerSocket = nsp.sockets.get(consumerSocketId);
+  const consumerSocket = findConsumerSocketById(consumerSocketId);
   if (!consumerSocket) {
     relayMetrics.relayEmitDiscardedConsumerGone += 1;
     return;
@@ -158,22 +218,23 @@ const emitToConsumer = (consumerSocketId: string, eventName: string, payload: un
   consumerSocket.emit(eventName, payload);
 };
 
-const getAgentsNamespace = (): Namespace | null => agentsNamespace;
-
 const prepareAgentStreamPull = createPrepareAgentStreamPull({
-  getAgentsNamespace,
+  hasRegisteredAgentSocketBridge,
+  findAgentSocketById,
   emitToConsumer,
 });
 
 export const prepareLegacyAgentStreamPull = prepareAgentStreamPull;
 
 export const requestAgentStreamPull = createRequestAgentStreamPull({
-  getAgentsNamespace,
+  hasRegisteredAgentSocketBridge,
+  findAgentSocketById,
   emitToConsumer,
 });
 
 const relayRpcHandlers = createRpcBridgeRelayDispatch({
-  getAgentsNamespace,
+  hasRegisteredAgentSocketBridge,
+  findAgentSocketById,
   emitToConsumer,
   prepareAgentStreamPull,
 });
@@ -183,7 +244,8 @@ export const prepareRelayStreamPull = relayRpcHandlers.prepareRelayStreamPull;
 export const requestRelayStreamPull = relayRpcHandlers.requestRelayStreamPull;
 
 export const dispatchRpcCommandToAgent = createDispatchRpcCommandToAgent({
-  getAgentsNamespace,
+  hasRegisteredAgentSocketBridge,
+  findAgentSocketById,
 });
 
 const agentInboundHandlers = createRpcBridgeAgentInboundHandlers({
@@ -201,6 +263,8 @@ export const cleanupAgentInboundSocketState = agentInboundHandlers.cleanupSocket
 export const resetSocketBridgeState = (): void => {
   resetRpcBridgeMutableStores();
   agentInboundHandlers.resetInboundState();
-  agentsNamespace = null;
-  consumersNamespace = null;
+  agentNamespaces.clear();
+  consumerNamespaces.clear();
+  agentSocketNamespacesById.clear();
+  consumerSocketNamespacesById.clear();
 };

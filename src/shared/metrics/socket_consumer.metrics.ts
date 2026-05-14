@@ -52,6 +52,12 @@ const customEvents = {
   publishAttachmentBytesTotal: 0,
   publishViaSocketTotal: 0,
   publishIdempotencySerializationCapRejectedTotal: 0,
+  publishDistributedRecipientCountFailedTotal: 0,
+  publishDistributedRecipientCountCircuitOpenedTotal: 0,
+  publishDistributedRecipientCountCircuitRejectedTotal: 0,
+  publishDistributedRecipientCountCircuitOpen: 0,
+  publishRecipientCountBestEffortTotal: 0,
+  publishRecipientCapUnverifiedTotal: 0,
 };
 
 /** Live `grantClientAccess` on this process only (multi-replica: see docs). */
@@ -72,6 +78,25 @@ const consumerClientAgentRoomReconcile = {
   failuresTotal: 0,
   ticksSkippedTotal: 0,
   inFlight: 0,
+};
+
+const consumerClientAgentRoomBootstrap = {
+  startedTotal: 0,
+  completedTotal: 0,
+  failedTotal: 0,
+  pending: 0,
+  durationSumMs: 0,
+  durationMaxMs: 0,
+  fetchReusedTotal: 0,
+};
+
+const profilePushRecipientFetch = {
+  reusedInFlightTotal: 0,
+};
+
+const roomDisconnect = {
+  agentTriggeredTotal: 0,
+  consumerTriggeredTotal: 0,
 };
 
 /** Upper bounds for Prometheus-style cumulative histogram of publish recipient fan-out. */
@@ -208,6 +233,31 @@ export const noteClientSocketEventPublishIdempotencySerializationCapRejected = (
   customEvents.publishIdempotencySerializationCapRejectedTotal += 1;
 };
 
+export const noteCustomSocketEventPublishDistributedRecipientCountFailed = (): void => {
+  customEvents.publishDistributedRecipientCountFailedTotal += 1;
+};
+
+export const noteCustomSocketEventPublishDistributedRecipientCountCircuitOpened = (): void => {
+  customEvents.publishDistributedRecipientCountCircuitOpenedTotal += 1;
+  customEvents.publishDistributedRecipientCountCircuitOpen = 1;
+};
+
+export const noteCustomSocketEventPublishDistributedRecipientCountCircuitClosed = (): void => {
+  customEvents.publishDistributedRecipientCountCircuitOpen = 0;
+};
+
+export const noteCustomSocketEventPublishDistributedRecipientCountCircuitRejected = (): void => {
+  customEvents.publishDistributedRecipientCountCircuitRejectedTotal += 1;
+};
+
+export const noteCustomSocketEventPublishRecipientCountBestEffort = (): void => {
+  customEvents.publishRecipientCountBestEffortTotal += 1;
+};
+
+export const noteCustomSocketEventPublishRecipientCapUnverified = (): void => {
+  customEvents.publishRecipientCapUnverifiedTotal += 1;
+};
+
 export const noteConsumerClientAgentRoomGrantAttempt = (): void => {
   consumerClientAgentRoomGrant.attemptsTotal += 1;
 };
@@ -258,6 +308,50 @@ export const noteConsumerClientAgentRoomReconcileTickSkipped = (): void => {
   consumerClientAgentRoomReconcile.ticksSkippedTotal += 1;
 };
 
+export const noteConsumerClientAgentRoomBootstrapStarted = (): number => {
+  consumerClientAgentRoomBootstrap.startedTotal += 1;
+  consumerClientAgentRoomBootstrap.pending += 1;
+  return performance.now();
+};
+
+export const noteConsumerClientAgentRoomBootstrapCompleted = (startedAt: number): void => {
+  consumerClientAgentRoomBootstrap.completedTotal += 1;
+  consumerClientAgentRoomBootstrap.pending = Math.max(
+    0,
+    consumerClientAgentRoomBootstrap.pending - 1,
+  );
+  const elapsedMs = Math.max(0, performance.now() - startedAt);
+  consumerClientAgentRoomBootstrap.durationSumMs += elapsedMs;
+  consumerClientAgentRoomBootstrap.durationMaxMs = Math.max(
+    consumerClientAgentRoomBootstrap.durationMaxMs,
+    elapsedMs,
+  );
+};
+
+export const noteConsumerClientAgentRoomBootstrapFailed = (): void => {
+  consumerClientAgentRoomBootstrap.failedTotal += 1;
+  consumerClientAgentRoomBootstrap.pending = Math.max(
+    0,
+    consumerClientAgentRoomBootstrap.pending - 1,
+  );
+};
+
+export const noteConsumerClientAgentRoomBootstrapFetchReused = (): void => {
+  consumerClientAgentRoomBootstrap.fetchReusedTotal += 1;
+};
+
+export const noteConsumerProfilePushRecipientFetchReused = (): void => {
+  profilePushRecipientFetch.reusedInFlightTotal += 1;
+};
+
+export const noteAgentRoomDisconnectTriggered = (): void => {
+  roomDisconnect.agentTriggeredTotal += 1;
+};
+
+export const noteConsumerRoomDisconnectTriggered = (): void => {
+  roomDisconnect.consumerTriggeredTotal += 1;
+};
+
 export const getSocketConsumerMetricsSnapshot = (): {
   readonly activeConnections: typeof activeConnections;
   readonly authRejects: typeof authRejects;
@@ -272,6 +366,18 @@ export const getSocketConsumerMetricsSnapshot = (): {
   readonly customEvents: typeof customEvents;
   readonly consumerClientAgentRoomGrant: typeof consumerClientAgentRoomGrant;
   readonly consumerClientAgentRoomReconcile: typeof consumerClientAgentRoomReconcile;
+  readonly consumerClientAgentRoomBootstrap: {
+    readonly startedTotal: number;
+    readonly completedTotal: number;
+    readonly failedTotal: number;
+    readonly pending: number;
+    readonly durationSumMs: number;
+    readonly durationAvgMs: number;
+    readonly durationMaxMs: number;
+    readonly fetchReusedTotal: number;
+  };
+  readonly profilePushRecipientFetch: typeof profilePushRecipientFetch;
+  readonly roomDisconnect: typeof roomDisconnect;
   readonly publishRecipientsHistogram: {
     readonly cumulativeBuckets: readonly { readonly le: string; readonly count: number }[];
     readonly sum: number;
@@ -298,6 +404,26 @@ export const getSocketConsumerMetricsSnapshot = (): {
   customEvents: { ...customEvents },
   consumerClientAgentRoomGrant: { ...consumerClientAgentRoomGrant },
   consumerClientAgentRoomReconcile: { ...consumerClientAgentRoomReconcile },
+  consumerClientAgentRoomBootstrap: {
+    startedTotal: consumerClientAgentRoomBootstrap.startedTotal,
+    completedTotal: consumerClientAgentRoomBootstrap.completedTotal,
+    failedTotal: consumerClientAgentRoomBootstrap.failedTotal,
+    pending: consumerClientAgentRoomBootstrap.pending,
+    durationSumMs: consumerClientAgentRoomBootstrap.durationSumMs,
+    durationAvgMs:
+      consumerClientAgentRoomBootstrap.completedTotal > 0
+        ? Number(
+            (
+              consumerClientAgentRoomBootstrap.durationSumMs /
+              consumerClientAgentRoomBootstrap.completedTotal
+            ).toFixed(4),
+          )
+        : 0,
+    durationMaxMs: consumerClientAgentRoomBootstrap.durationMaxMs,
+    fetchReusedTotal: consumerClientAgentRoomBootstrap.fetchReusedTotal,
+  },
+  profilePushRecipientFetch: { ...profilePushRecipientFetch },
+  roomDisconnect: { ...roomDisconnect },
   publishRecipientsHistogram: {
     cumulativeBuckets: [
       ...PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS.map((b) => ({
@@ -351,6 +477,12 @@ export const resetSocketConsumerMetrics = (): void => {
   customEvents.publishAttachmentBytesTotal = 0;
   customEvents.publishViaSocketTotal = 0;
   customEvents.publishIdempotencySerializationCapRejectedTotal = 0;
+  customEvents.publishDistributedRecipientCountFailedTotal = 0;
+  customEvents.publishDistributedRecipientCountCircuitOpenedTotal = 0;
+  customEvents.publishDistributedRecipientCountCircuitRejectedTotal = 0;
+  customEvents.publishDistributedRecipientCountCircuitOpen = 0;
+  customEvents.publishRecipientCountBestEffortTotal = 0;
+  customEvents.publishRecipientCapUnverifiedTotal = 0;
   consumerClientAgentRoomGrant.attemptsTotal = 0;
   consumerClientAgentRoomGrant.socketsJoinedTotal = 0;
   consumerClientAgentRoomGrant.joinFailuresTotal = 0;
@@ -364,6 +496,16 @@ export const resetSocketConsumerMetrics = (): void => {
   consumerClientAgentRoomReconcile.failuresTotal = 0;
   consumerClientAgentRoomReconcile.ticksSkippedTotal = 0;
   consumerClientAgentRoomReconcile.inFlight = 0;
+  consumerClientAgentRoomBootstrap.startedTotal = 0;
+  consumerClientAgentRoomBootstrap.completedTotal = 0;
+  consumerClientAgentRoomBootstrap.failedTotal = 0;
+  consumerClientAgentRoomBootstrap.pending = 0;
+  consumerClientAgentRoomBootstrap.durationSumMs = 0;
+  consumerClientAgentRoomBootstrap.durationMaxMs = 0;
+  consumerClientAgentRoomBootstrap.fetchReusedTotal = 0;
+  profilePushRecipientFetch.reusedInFlightTotal = 0;
+  roomDisconnect.agentTriggeredTotal = 0;
+  roomDisconnect.consumerTriggeredTotal = 0;
   publishRecipientsHistSum = 0;
   publishRecipientsHistCount = 0;
   publishRecipientsHistBuckets.clear();

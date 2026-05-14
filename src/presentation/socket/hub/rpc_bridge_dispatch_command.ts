@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-import type { Namespace } from "socket.io";
-
 import {
   inferBridgeCommandMethod,
   type BridgeLatencyTraceSession,
@@ -84,14 +82,19 @@ export type DispatchRpcCommandResult =
   | DispatchRpcCommandResponseResult
   | DispatchRpcCommandNotificationResult;
 
+type AgentSocketEmitter = {
+  emit: (eventName: string, payload: unknown) => void;
+};
+
 export interface RpcBridgeCommandDispatchDeps {
-  readonly getAgentsNamespace: () => Namespace | null;
+  readonly hasRegisteredAgentSocketBridge: () => boolean;
+  readonly findAgentSocketById: (socketId: string) => AgentSocketEmitter | null;
 }
 
 export const createDispatchRpcCommandToAgent = (
   deps: RpcBridgeCommandDispatchDeps,
 ): ((input: DispatchRpcCommandInput) => Promise<DispatchRpcCommandResult>) => {
-  const { getAgentsNamespace } = deps;
+  const { hasRegisteredAgentSocketBridge, findAgentSocketById } = deps;
 
   return async (input: DispatchRpcCommandInput): Promise<DispatchRpcCommandResult> => {
     const dispatchWallStart = performance.now();
@@ -100,8 +103,7 @@ export const createDispatchRpcCommandToAgent = (
       throw serviceUnavailable("HTTP request aborted by client");
     }
 
-    const nsp = getAgentsNamespace();
-    if (!nsp) {
+    if (!hasRegisteredAgentSocketBridge()) {
       throw serviceUnavailable("Socket bridge is not initialized");
     }
 
@@ -114,7 +116,7 @@ export const createDispatchRpcCommandToAgent = (
       throw notFound(`Agent ${input.agentId}`);
     }
 
-    const agentSocket = nsp.sockets.get(registeredAgent.socketId);
+    const agentSocket = findAgentSocketById(registeredAgent.socketId);
     if (!agentSocket) {
       throw new AgentDisconnectedBeforeDispatchError(input.agentId, input.command);
     }

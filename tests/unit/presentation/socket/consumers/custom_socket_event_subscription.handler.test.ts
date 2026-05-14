@@ -32,6 +32,32 @@ vi.mock("../../../../../src/shared/metrics/socket_consumer.metrics", () => ({
   noteCustomSocketEventUnsubscribed: vi.fn(),
 }));
 
+vi.mock("../../../../../src/presentation/socket/consumers/custom_socket_event_guard", () => ({
+  assertActiveClientCustomSocketEventPrincipal: vi.fn(async (socket: Socket) => {
+    const user = (socket as { data?: { user?: { sub?: string } } }).data?.user;
+    if (!user?.sub) {
+      throw new Error("missing sub");
+    }
+    if (user.sub.startsWith("user-")) {
+      throw new Error("Only Client principals may use custom socket events");
+    }
+    return user.sub;
+  }),
+  handleCustomSocketEventAuthFailure: vi.fn((error: unknown) => {
+    if (error instanceof Error && error.message === "Only Client principals may use custom socket events") {
+      return { code: "FORBIDDEN", message: error.message, statusCode: 403 };
+    }
+    return { code: "UNAUTHORIZED", message: "Authentication required", statusCode: 401 };
+  }),
+  isTerminalCustomSocketEventAuthFailure: vi.fn(() => true),
+  isNonClientCustomSocketEventPrincipalError: vi.fn(
+    (error: { code?: string; message?: string }) =>
+      error.code === "FORBIDDEN" &&
+      error.message === "Only Client principals may use custom socket events",
+  ),
+  disconnectSocketAfterCustomSocketEventAuthFailure: vi.fn(),
+}));
+
 import { allowCustomSocketEventSubscriptionControl } from "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_limiter";
 import {
   handleCustomSocketEventSubscribe,
@@ -52,6 +78,12 @@ const mockedNoteForbidden = vi.mocked(noteCustomSocketEventSubscriptionForbidden
 const mockedAdd = vi.mocked(addCustomSocketEventSubscription);
 const mockedRemove = vi.mocked(removeCustomSocketEventSubscription);
 
+const flushMicrotasks = async (): Promise<void> => {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
 const buildSocket = (principalType: "client" | "user"): Socket => {
   const join = vi.fn().mockResolvedValue(undefined);
   const leave = vi.fn().mockResolvedValue(undefined);
@@ -66,6 +98,7 @@ const buildSocket = (principalType: "client" | "user"): Socket => {
     emit: vi.fn(),
     join,
     leave,
+    disconnect: vi.fn(),
   } as unknown as Socket;
 };
 
@@ -74,13 +107,14 @@ describe("custom_socket_event_subscription.handler", () => {
     vi.clearAllMocks();
   });
 
-  it("rejects subscribe for non-client principals before rate limit", () => {
+  it("rejects subscribe for non-client principals before rate limit", async () => {
     const socket = buildSocket("user");
     handleCustomSocketEventSubscribe(socket, {
       requestId: "r1",
       eventName: "client:custom.x",
     });
 
+    await flushMicrotasks();
     expect(mockedAllow).not.toHaveBeenCalled();
     expect(mockedNoteForbidden).toHaveBeenCalledTimes(1);
     expect(mockedNoteRejected).not.toHaveBeenCalled();
@@ -97,13 +131,14 @@ describe("custom_socket_event_subscription.handler", () => {
     );
   });
 
-  it("rejects unsubscribe for non-client principals before rate limit", () => {
+  it("rejects unsubscribe for non-client principals before rate limit", async () => {
     const socket = buildSocket("user");
     handleCustomSocketEventUnsubscribe(socket, {
       requestId: "r2",
       eventName: "client:custom.x",
     });
 
+    await flushMicrotasks();
     expect(mockedAllow).not.toHaveBeenCalled();
     expect(mockedNoteForbidden).toHaveBeenCalledTimes(1);
     expect(mockedNoteRejected).not.toHaveBeenCalled();
@@ -127,8 +162,8 @@ describe("custom_socket_event_subscription.handler", () => {
       eventName: "client:custom.ok",
     });
 
+    await flushMicrotasks();
     expect(mockedAllow).toHaveBeenCalled();
-    await Promise.resolve();
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.socketEventSubscribed,
       expect.objectContaining({
@@ -146,7 +181,7 @@ describe("custom_socket_event_subscription.handler", () => {
       requestId: "r-dup",
       eventName: "client:custom.dup",
     });
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.socketEventSubscribed,
       expect.objectContaining({
@@ -163,7 +198,7 @@ describe("custom_socket_event_subscription.handler", () => {
       requestId: "u1",
       eventName: "client:custom.leave",
     });
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.socketEventUnsubscribed,
       expect.objectContaining({
@@ -176,7 +211,7 @@ describe("custom_socket_event_subscription.handler", () => {
       requestId: "u2",
       eventName: "client:custom.leave",
     });
-    await Promise.resolve();
+    await flushMicrotasks();
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.socketEventUnsubscribed,
       expect.objectContaining({

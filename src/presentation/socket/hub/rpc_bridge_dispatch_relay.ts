@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-import type { Namespace } from "socket.io";
-
 import type { BridgeLatencyTraceSession } from "../../../application/services/bridge_latency_trace_builder";
 import { inferBridgeCommandMethod } from "../../../application/services/bridge_latency_trace_builder";
 import { normalizeCommandForAgent } from "../../../application/agent_commands/command_transformers";
@@ -110,8 +108,13 @@ export interface RequestRelayStreamPullInput {
   readonly rawFramePayload: unknown;
 }
 
+type AgentSocketEmitter = {
+  emit: (eventName: string, payload: unknown) => void;
+};
+
 export interface RpcBridgeRelayDispatchDeps {
-  readonly getAgentsNamespace: () => Namespace | null;
+  readonly hasRegisteredAgentSocketBridge: () => boolean;
+  readonly findAgentSocketById: (socketId: string) => AgentSocketEmitter | null;
   readonly emitToConsumer: EmitToConsumerFn;
   readonly prepareAgentStreamPull: (input: RequestAgentStreamPullInput) => PreparedAgentStreamPull;
 }
@@ -144,7 +147,7 @@ export type RpcBridgeRelayDispatchHandlers = {
 export const createRpcBridgeRelayDispatch = (
   deps: RpcBridgeRelayDispatchDeps,
 ): RpcBridgeRelayDispatchHandlers => {
-  const { getAgentsNamespace, emitToConsumer, prepareAgentStreamPull } = deps;
+  const { hasRegisteredAgentSocketBridge, findAgentSocketById, emitToConsumer, prepareAgentStreamPull } = deps;
 
   const dispatchRelayRpcToAgent = async (
     input: DispatchRelayRpcInput,
@@ -240,12 +243,11 @@ export const createRpcBridgeRelayDispatch = (
 
     ensureAgentCircuitClosed(conversation.agentId);
 
-    const nsp = getAgentsNamespace();
-    if (!nsp) {
+    if (!hasRegisteredAgentSocketBridge()) {
       throw serviceUnavailable("Socket bridge is not initialized");
     }
 
-    const agentSocket = nsp.sockets.get(conversation.agentSocketId);
+    const agentSocket = findAgentSocketById(conversation.agentSocketId);
     if (!agentSocket) {
       throw serviceUnavailable("Agent socket is unavailable");
     }

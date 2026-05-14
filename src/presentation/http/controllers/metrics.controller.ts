@@ -991,6 +991,42 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_socket_custom_event_publish_distributed_recipient_count_failed_total",
+      consumerRuntime.customEvents.publishDistributedRecipientCountFailedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_distributed_recipient_count_circuit_opened_total",
+      consumerRuntime.customEvents.publishDistributedRecipientCountCircuitOpenedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_distributed_recipient_count_circuit_rejected_total",
+      consumerRuntime.customEvents.publishDistributedRecipientCountCircuitRejectedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_distributed_recipient_count_circuit_open",
+      consumerRuntime.customEvents.publishDistributedRecipientCountCircuitOpen,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_recipient_count_best_effort_total",
+      consumerRuntime.customEvents.publishRecipientCountBestEffortTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_recipient_cap_unverified_total",
+      consumerRuntime.customEvents.publishRecipientCapUnverifiedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_socket_custom_event_publish_idempotency_serialization_tracked_keys",
       getClientSocketEventPublishIdempotencySerializationTrackedKeyCount(),
     ),
@@ -1071,6 +1107,72 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_consumer_client_agent_room_reconcile_in_flight",
       consumerRuntime.consumerClientAgentRoomReconcile.inFlight,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_bootstrap_started_total",
+      consumerRuntime.consumerClientAgentRoomBootstrap.startedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_bootstrap_completed_total",
+      consumerRuntime.consumerClientAgentRoomBootstrap.completedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_bootstrap_failed_total",
+      consumerRuntime.consumerClientAgentRoomBootstrap.failedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_bootstrap_pending",
+      consumerRuntime.consumerClientAgentRoomBootstrap.pending,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_bootstrap_duration_sum_ms",
+      consumerRuntime.consumerClientAgentRoomBootstrap.durationSumMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_bootstrap_duration_avg_ms",
+      consumerRuntime.consumerClientAgentRoomBootstrap.durationAvgMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_bootstrap_duration_max_ms",
+      consumerRuntime.consumerClientAgentRoomBootstrap.durationMaxMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_bootstrap_fetch_reused_total",
+      consumerRuntime.consumerClientAgentRoomBootstrap.fetchReusedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumers_profile_push_recipient_fetch_reused_total",
+      consumerRuntime.profilePushRecipientFetch.reusedInFlightTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agent_room_disconnect_triggered_total",
+      consumerRuntime.roomDisconnect.agentTriggeredTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_room_disconnect_triggered_total",
+      consumerRuntime.roomDisconnect.consumerTriggeredTotal,
     ),
   );
   const recipientHist = consumerRuntime.publishRecipientsHistogram;

@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Namespace } from "socket.io";
-
 import {
   resetActiveStreamRegistry,
   upsertActiveStreamRoute,
@@ -39,7 +37,8 @@ describe("rpc_bridge_stream_pull", () => {
   it("cleans up a relay stream and emits terminal complete when the agent socket is gone", async () => {
     const emitToConsumer = vi.fn();
     const prepare = createPrepareAgentStreamPull({
-      getAgentsNamespace: () => ({ sockets: new Map() }) as unknown as Namespace,
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: () => null,
       emitToConsumer,
     });
 
@@ -100,10 +99,13 @@ describe("rpc_bridge_stream_pull", () => {
 
   it("rejects stream pull payloads with mismatched streamId and requestId", () => {
     const prepare = createPrepareAgentStreamPull({
-      getAgentsNamespace: () =>
-        ({
-          sockets: new Map([["agent-socket-1", { emit: vi.fn() }]]),
-        }) as unknown as Namespace,
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (socketId) =>
+        socketId === "agent-socket-1"
+          ? {
+              emit: vi.fn(),
+            }
+          : null,
       emitToConsumer: vi.fn(),
     });
 

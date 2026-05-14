@@ -54,6 +54,11 @@ rate(plug_socket_custom_event_publish_idempotent_replay_total[5m])
 
 # Nota: `plug_socket_custom_event_publish_via_socket_total` sobe apenas em publicacoes Socket que levam a uma **nova** emissao ao sink (nao conta `idempotentReplay: true`). `plug_socket_custom_event_publish_accepted_total` inclui REST e Socket apos emissao bem-sucedida. `plug_socket_custom_event_publish_rejected_total` incrementa **uma vez** por falha de `executeClientSocketEventPublish` (REST ou Socket) e tambem em falhas pre-`execute` no Socket (validacao, `403`, etc.); o teto de serializacao de idempotencia incrementa `plug_socket_custom_event_publish_idempotency_serialization_cap_rejected_total` **e** `publish_rejected_total`.
 
+# Redis adapter activo, mas a contagem distribuida falhou e o hub emitiu mesmo assim (best-effort)
+rate(plug_socket_custom_event_publish_distributed_recipient_count_failed_total[5m])
+rate(plug_socket_custom_event_publish_recipient_count_best_effort_total[5m])
+rate(plug_socket_custom_event_publish_recipient_cap_unverified_total[5m])
+
 # Gauge: chaves distintas com cadeia de serializacao de idempotencia ainda activa neste processo (ver `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS`)
 plug_socket_custom_event_publish_idempotency_serialization_tracked_keys
 
@@ -74,6 +79,13 @@ rate(plug_socket_consumer_client_agent_room_reconcile_failures_total[5m])
 rate(plug_socket_consumer_client_agent_room_reconcile_clients_deferred_total[5m])
 rate(plug_socket_consumer_client_agent_room_reconcile_ticks_skipped_total[5m])
 plug_socket_consumer_client_agent_room_reconcile_in_flight
+
+# Bootstrap assÃ­ncrono das rooms derivadas apÃ³s `connection:ready`
+rate(plug_socket_consumer_client_agent_room_bootstrap_started_total[5m])
+rate(plug_socket_consumer_client_agent_room_bootstrap_completed_total[5m])
+rate(plug_socket_consumer_client_agent_room_bootstrap_failed_total[5m])
+plug_socket_consumer_client_agent_room_bootstrap_pending
+plug_socket_consumer_client_agent_room_bootstrap_duration_avg_ms
 
 # Subscricoes custom: 403 (principal nao-Client) vs outras rejeicoes
 rate(plug_socket_custom_event_subscription_forbidden_total[5m])
@@ -274,6 +286,9 @@ Regras de transicao e API: `docs/user_status.md`.
 Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos contadores expostos (podem evoluir com o CHANGELOG).
 
 ### Leituras novas para este pacote
+
+- `plug_socket_custom_event_publish_distributed_recipient_count_failed_total` > 0 indica falha de `fetchSockets()` no fan-out distribuido; cruze com `..._recipient_count_best_effort_total` para ver quantos publishes seguiram em degradacao controlada.
+- `plug_socket_consumer_client_agent_room_bootstrap_pending` e `..._duration_avg_ms` mostram o custo do backfill assÃ­ncrono das rooms derivadas depois de `connection:ready`.
 
 - `plug_prisma_transaction_retry_attempts_total` a subir sem erro final indica contenção transitória recuperada por retry.
 - `plug_prisma_transaction_retries_exhausted_total` > 0 exige olhar locks, `40001`, `40P01` e tamanho das transações.
@@ -531,3 +546,23 @@ npm run test:contract
 ```
 
 Quando o agente e encontrado, a suite valida metodos e versao minima no OpenRPC, existencia dos `schemas/*.json` publicados, compilacao **Ajv** (draft 2020-12) e payloads exemplo cruzados com os validadores Zod do hub.
+
+## Adendo: sinais da degradacao controlada e deduplicacao
+
+Esta rodada acrescentou sinais operacionais especificos para o endurecimento do
+fluxo Socket do cliente:
+
+- `plug_socket_custom_event_publish_distributed_recipient_count_circuit_opened_total`
+- `plug_socket_custom_event_publish_distributed_recipient_count_circuit_rejected_total`
+- `plug_socket_custom_event_publish_distributed_recipient_count_circuit_open`
+- `plug_socket_consumer_client_agent_room_bootstrap_fetch_reused_total`
+- `plug_socket_consumers_profile_push_recipient_fetch_reused_total`
+- `plug_socket_agent_room_disconnect_triggered_total`
+- `plug_socket_consumer_room_disconnect_triggered_total`
+
+Leitura recomendada:
+
+1. `..._distributed_recipient_count_failed_total` a subir com `..._circuit_opened_total` a zero indica degradacao curta, ainda dentro do cap local.
+2. `..._circuit_rejected_total` > 0 indica que a contagem distribuida falhou vezes suficientes para o hub parar de publicar temporariamente.
+3. `..._bootstrap_fetch_reused_total` e `..._profile_push_recipient_fetch_reused_total` devem crescer em reconnect storms ou rajadas de atualizacao de perfil; se ficarem sempre zerados, a deduplicacao nao esta a ser exercitada.
+4. `..._room_disconnect_triggered_total` ajuda a distinguir revogacoes/bloqueios reais de churn normal de socket.

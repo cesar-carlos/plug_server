@@ -163,6 +163,36 @@ const envSchema = z.object({
   /** `0` = do not cap local recipient fan-out for one custom socket event publish. */
   REST_SOCKET_EVENT_MAX_RECIPIENTS: z.coerce.number().int().min(0).max(1_000_000).default(0),
   /**
+   * When distributed recipient counting fails with Redis adapter active, still allow best-effort
+   * emits only while the local room size stays at or below this conservative cap.
+   */
+  REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(1_000_000)
+    .default(256),
+  /**
+   * Consecutive distributed count failures before the local best-effort circuit opens and the hub
+   * starts rejecting `client:custom.*` publishes with `503`.
+   */
+  REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10_000)
+    .default(5),
+  /**
+   * How long the local circuit for distributed room-count failures stays open after the threshold
+   * is reached. While open, publishes that require distributed counting fail fast with `503`.
+   */
+  REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3_600_000)
+    .default(30_000),
+  /**
    * Hint `retry_after_ms` when local fan-out exceeds {@link REST_SOCKET_EVENT_MAX_RECIPIENTS} (REST or Socket publish).
    * Independent from `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS` (rate limit window is unrelated to subscription churn).
    */
@@ -1066,6 +1096,12 @@ export const env = {
   restSocketEventTotalFilesMaxBytes: parsedEnv.REST_SOCKET_EVENT_TOTAL_FILES_MAX_BYTES,
   restSocketEventPayloadJsonMaxBytes: parsedEnv.REST_SOCKET_EVENT_PAYLOAD_JSON_MAX_BYTES,
   restSocketEventMaxRecipients: parsedEnv.REST_SOCKET_EVENT_MAX_RECIPIENTS,
+  restSocketEventBestEffortLocalMaxRecipients:
+    parsedEnv.REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS,
+  restSocketEventDistributedCountFailureThreshold:
+    parsedEnv.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD,
+  restSocketEventDistributedCountFailureOpenMs:
+    parsedEnv.REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS,
   restSocketEventFanoutRetryAfterMs: parsedEnv.REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS,
   restSocketEventIdempotencyTtlMs: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS,
   restSocketEventIdempotencyMaxEntries: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES,

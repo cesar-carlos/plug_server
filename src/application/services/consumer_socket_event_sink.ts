@@ -21,6 +21,7 @@ export interface PublishConsumerSocketEventInput {
 
 export interface PublishConsumerSocketEventResult {
   readonly recipients: number;
+  readonly recipientCountBestEffort?: boolean;
 }
 
 interface ConsumerSocketEventHandler {
