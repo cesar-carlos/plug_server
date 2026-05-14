@@ -2,7 +2,6 @@ import type { Server as HttpServer } from "node:http";
 
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import { Server, type Namespace, type Socket } from "socket.io";
-import { z } from "zod";
 
 import {
   authenticateAgentSocket,
@@ -166,6 +165,7 @@ import {
 } from "./shared/metrics/socket_consumer.metrics";
 import {
   getSocketAgentMetricsSnapshot,
+  noteAgentReadyInvalidPartialPayload,
   noteAgentReadyLegacyPayload,
   noteAgentCapabilityProfile,
   noteAgentRegisterRateLimited,
@@ -197,6 +197,7 @@ import {
 import { toAgentCatalogDto } from "./presentation/http/serializers/agent_catalog.serializer";
 import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
 import { isSocketIoRedisAdapterActive } from "./infrastructure/redis/socket_io_redis_adapter";
+import { parseAgentReadyPayload } from "./presentation/socket/hub/agent_ready_payload";
 
 type SocketData = {
   user?: JwtAccessPayload;
@@ -834,12 +835,6 @@ const scheduleAgentProfilePush = (
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
-
-const agentReadyPayloadSchema = z.object({
-  agent_id: z.string().min(1),
-  timestamp: z.string().datetime({ offset: true }),
-  protocol: z.string().min(1),
-}).strict();
 
 const resolveRequiresExplicitProtocolReadyAck = (
   capabilities: Record<string, unknown>,
@@ -1487,34 +1482,31 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      const readyPayload = isRecord(decoded.value.data) ? decoded.value.data : null;
-      const parsedReadyPayload = agentReadyPayloadSchema.safeParse(decoded.value.data);
-      const legacyReadyPayload =
-        readyPayload !== null &&
-        typeof readyPayload.agent_id === "string" &&
-        readyPayload.agent_id.trim() !== "" &&
-        (readyPayload.timestamp === undefined || readyPayload.protocol === undefined);
-      if (!parsedReadyPayload.success && !legacyReadyPayload) {
+      const parsedReadyPayload = parseAgentReadyPayload(decoded.value.data);
+      if (!parsedReadyPayload.ok) {
+        if (parsedReadyPayload.reason === "invalid_partial_payload") {
+          noteAgentReadyInvalidPartialPayload();
+          logger.warn("agent_ready_invalid_partial_payload", {
+            socketId: socket.id,
+          });
+        }
         emitAppError(socket, "agent:ready payload is invalid");
         return;
       }
-      if (!parsedReadyPayload.success) {
+      if (parsedReadyPayload.legacy) {
         noteAgentReadyLegacyPayload();
         logger.warn("agent_ready_legacy_payload", {
           socketId: socket.id,
-          agentId: readyPayload?.agent_id,
-          missingTimestamp: readyPayload?.timestamp === undefined,
-          missingProtocol: readyPayload?.protocol === undefined,
+          agentId: parsedReadyPayload.agentId,
+          missingTimestamp: true,
+          missingProtocol: true,
         });
       }
 
-      const payloadAgentId = parsedReadyPayload.success
-        ? parsedReadyPayload.data.agent_id
-        : readyPayload?.agent_id;
       const currentAgentId = resolveCanonicalRegisteredAgentId(
         socket,
         socketEvents.agentReady,
-        payloadAgentId,
+        parsedReadyPayload.agentId,
       );
       if (!currentAgentId) {
         return;
@@ -1818,7 +1810,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           return;
         }
 
-        await handleRelayConversationStart(socket, rawPayload, agentsNsp);
+        await handleRelayConversationStart(socket, rawPayload);
       })().catch((error: unknown) => {
         logger.warn("relay_conversation_start_handler_failed", {
           socketId: socket.id,

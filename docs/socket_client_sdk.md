@@ -29,17 +29,17 @@ acima de alguns MiB), preferir Socket/relay e sinalizar
 - **`SOCKET_CONSUMER_ROLES`**: o default em `env.ts` e `user,admin,client`. Se a env listar apenas `user,admin` (sem o literal `client`), o parse **acrescenta** `client` automaticamente (`parseSocketConsumerRolesValue`); o arranque pode registar `INFO` `socket_consumer_roles_ensured_client`. Para Colmeia, garantir que o JWT de `Client` usa `role=client` e que esse papel nao foi removido por configuracao anomala (o runtime nunca remove `client` apos o parse).
 - **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou omitido; `false` remove o push `client:agent.profile.updated`. O fan-out usa cache local limitado por `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS` (default `1000`) e `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE` (default `5000`).
 - **Handshake `/consumers`**: exige JWT valido mesmo que `SOCKET_AUTH_REQUIRED=false` noutros canais; nao existe modo anonimo suportado para operacao real do namespace.
-- **Capacidade ao conectar (principal `client`)**: o hub pode fazer `join` em muitas salas `consumer:client-agent:{clientId}:{agentId}` — uma por agente aprovado. Se o numero de aprovacoes for muito grande, o custo de handshake sobe (memoria Socket.IO + round-trip de salas). Se isto se tornar gargalo operacional, avaliar desenho de produto (menos aprovacoes simultaneas, lazy join no servidor, ou limites explicitos); nada disso substitui monitorizar latencia de `connection:ready` em producao.
+- **Capacidade ao conectar (principal `client`)**: `connection:ready` sai cedo, depois do hub entrar nas rooms base de identidade (`principal` e `client`). As rooms derivadas por acesso aprovado (`consumer:client-agent:*` e `consumer:agent-profile:*`) sao preenchidas de forma assincrona logo apos o ready, com dedupe por `clientId` para evitar rajadas em reconnect storm. Durante essa janela curta, `grantClientAccess` e o reconcile periodico garantem convergencia; clientes que precisam do catalogo completo devem usar os endpoints REST de listagem como fonte de verdade e tratar pushes iniciais como best-effort.
 - **REST offline**: `POST /api/v1/agents/commands` com `id` correlacionável e agente conhecido em memória mas sem socket → **HTTP 200** e `response.item.error` com `code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (não confundir com **503** de overload / notification-only / disconnect a meio de request).
 - **Multi-réplica**: validar sticky + `X-Hub-Instance-Id` — `docs/nginx_production.md` (secção **12) Sticky session para Socket.IO (multi-replica)**) e checklist em `docs/configuration.md` (*Checklist produção*).
 
 ## Eventos e formato
 
-- **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket_relay_protocol.md` -> *Handshake: `connection:ready`*). Quando esse evento chega para principal `client`, a room `client:<clientId>` ja foi associada e o push de perfil pode chegar imediatamente sem race adicional.
+- **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket_relay_protocol.md` -> *Handshake: `connection:ready`*). Quando esse evento chega para principal `client`, a room base `client:<clientId>` ja foi associada; rooms derivadas por agente aprovado convergem logo depois em backfill assincrono.
 - Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`
 - Dados em `PayloadFrame`: `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
 - **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/client_agent_business_rules.md`.
-- **Pub/sub customizado:** apenas tokens de **Client** no `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe` / `socket:event.unsubscribe`; publicacoes com o mesmo tipo de token chegam ao `eventName` em `PayloadFrame` via **`POST /api/v1/client/me/socket-events`** (REST) ou **`socket:event.publish`** (Socket; ack em `socket:event.published`).
+- **Pub/sub customizado:** apenas tokens de **Client** no `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe` / `socket:event.unsubscribe`; publicacoes com o mesmo tipo de token chegam ao `eventName` em `PayloadFrame` via **`POST /api/v1/client/me/socket-events`** (REST) ou **`socket:event.publish`** (Socket; ack em `socket:event.published`). `socket:event.*` revalida conta ativa por evento; conta bloqueada recebe erro no envelope atual e o socket e desconectado de forma controlada.
 
 ## Estrutura do PayloadFrame
 
@@ -138,6 +138,14 @@ A mesma chave e partilhada entre REST e Socket para o mesmo `Client` (JWT `sub`)
 Se o socket desligar antes do hub responder, o ack `socket:event.published` pode nao ser emitido (o servidor evita escrever num socket ja fechado).
 Opcional: `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` > 0 reserva um teto de publicacoes `socket:event.publish` em voo **separado** do teto partilhado `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET` usado por relay e comandos.
 
+Com `SOCKET_IO_REDIS_ADAPTER_URL`, a entrega de `client:custom.*` atravessa
+replicas. Se a contagem distribuida de destinatarios falhar, o hub so publica em
+modo degradado quando a sala local fica abaixo de
+`REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS`; apos falhas consecutivas,
+o circuito abre e novas publicacoes recebem `503` retryable. Portanto, trate
+`recipients` como melhor esforco em cenarios de degradacao e use retry com
+backoff quando o ack REST/Socket vier com `SERVICE_UNAVAILABLE`.
+
 Multipart tambem e aceito: envie o campo `event` com o JSON acima e campos
 `files` repetidos. Os anexos sao pequenos e inline, entregues como
 `attachments[]` com `originalName`, `mimeType`, `sizeBytes` e `base64`.
@@ -149,7 +157,7 @@ Campos de arquivo diferentes de `files` sao rejeitados.
 - **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`, creditos de `relay:rpc.stream.pull`), `agents:command`, `agents:stream_pull` e `agent:register` tem tetos por janela. Quando `SOCKET_RATE_LIMIT_REDIS_URL` esta configurado, esses limitadores Socket usam Redis com fallback fail-open para memoria; caso contrario ficam locais ao processo. Respostas **429** quando excedido. No relay, dedupe (`deduplicated: true`) e falhas profundas de validacao `400` nao devem consumir quota final da janela; o hub faz rollback do contador.
 - **Retry-After**: erros Socket de overload podem incluir `retryAfterMs`. Em `agents:command_response`, se o agente retornar erro JSON-RPC `-32013` com `error.data.retry_after_ms`, o hub adiciona `retryAfterSeconds`, espelhando o header `Retry-After` do REST. No relay, o frame JSON-RPC do agente continua sendo fonte de verdade; leia `error.data.retry_after_ms`.
 - **Helper recomendado**: clientes podem copiar a politica pura de `src/shared/utils/socket_retry_after_policy.ts` para normalizar todos os formatos publicos de retry em milissegundos antes de aplicar backoff com jitter.
-- **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`).
+- **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`). Se o agente abrir `stream_id` e nunca enviar `rpc:complete`, o hub encerra por idle timeout ou lifetime maximo com `relay:rpc.complete` (`terminal_status: "error"`, `error_code: "RELAY_STREAM_TIMEOUT"`).
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
 - **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; Redis adapter/idempotencia Redis ajudam `client:custom.*`, mas relay/pending/registry ainda precisam de afinidade — ver `docs/scaling_and_roadmap.md`.
 - **PayloadFrame signature**: quando o cliente assina frames com HMAC-SHA256, em deployments com `PAYLOAD_SIGNING_KEY_ID` configurado no hub o `signature.key_id` passa a ser **obrigatorio** e validado.
@@ -228,7 +236,7 @@ caminho recomendado para carga alta, streaming, idempotencia e backpressure.
 | Streaming em tempo real com controle de creditos | `relay:*` |
 | Retry idempotente pelo cliente | `relay:*` |
 | Consulta SQL grande, relatorio ou payload alto | `relay:*` com `prefer_db_streaming` |
-| `sql.bulkInsert` ou batch read-only sob carga | `agents:command` ou `relay:*` |
+| `sql.bulkInsert` ou batch read-only sob carga | `agents:command` ou `relay:*`; quebrar imports acima de `AGENT_SQL_BULK_INSERT_MAX_ROWS` ou `AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES` |
 | Comandos simples sem estado de conversa | REST ou `agents:command` |
 | Bootstrap, auth, catalogo, admin, health HTTP, metricas | REST |
 

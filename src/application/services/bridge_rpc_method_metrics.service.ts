@@ -1,6 +1,9 @@
 import { percentile } from "../../shared/utils/percentile";
 
 const latencySamplesMax = 256;
+const latencyHistogramBucketsMs = [
+  5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 15_000, 30_000,
+] as const;
 
 export type BridgeRpcMethodMetricChannel = "rest" | "consumer_socket" | "relay" | "unknown";
 export type BridgeRpcMethodMetricOutcome =
@@ -15,6 +18,7 @@ interface BridgeRpcMethodMetricState {
   latencyTotalMs: number;
   latencyMaxMs: number;
   latencySamples: number[];
+  latencyBucketCounts: number[];
 }
 
 export interface BridgeRpcMethodMetricSnapshot {
@@ -26,6 +30,11 @@ export interface BridgeRpcMethodMetricSnapshot {
   readonly latencyMaxMs: number;
   readonly latencyP95Ms: number;
   readonly latencyP99Ms: number;
+  readonly latencySumMs: number;
+  readonly latencyBuckets: readonly {
+    readonly le: string;
+    readonly count: number;
+  }[];
 }
 
 const states = new Map<string, BridgeRpcMethodMetricState>();
@@ -54,6 +63,7 @@ const getOrCreateState = (key: string): BridgeRpcMethodMetricState => {
     latencyTotalMs: 0,
     latencyMaxMs: 0,
     latencySamples: [],
+    latencyBucketCounts: latencyHistogramBucketsMs.map(() => 0),
   };
   states.set(key, created);
   return created;
@@ -70,6 +80,11 @@ export const observeBridgeRpcMethod = (input: {
   state.count += 1;
   state.latencyTotalMs += safeMs;
   state.latencyMaxMs = Math.max(state.latencyMaxMs, safeMs);
+  latencyHistogramBucketsMs.forEach((bucket, index) => {
+    if (safeMs <= bucket) {
+      state.latencyBucketCounts[index] = (state.latencyBucketCounts[index] ?? 0) + 1;
+    }
+  });
   state.latencySamples.push(safeMs);
   if (state.latencySamples.length > latencySamplesMax) {
     state.latencySamples.shift();
@@ -94,6 +109,14 @@ export const getBridgeRpcMethodMetricsSnapshot = (): BridgeRpcMethodMetricSnapsh
         latencyMaxMs: Number(state.latencyMaxMs.toFixed(2)),
         latencyP95Ms: Number(percentile(state.latencySamples, 95).toFixed(2)),
         latencyP99Ms: Number(percentile(state.latencySamples, 99).toFixed(2)),
+        latencySumMs: Number(state.latencyTotalMs.toFixed(2)),
+        latencyBuckets: [
+          ...latencyHistogramBucketsMs.map((bucket, index) => ({
+            le: String(bucket),
+            count: state.latencyBucketCounts[index] ?? 0,
+          })),
+          { le: "+Inf", count: state.count },
+        ],
       };
     })
     .sort((a, b) => {

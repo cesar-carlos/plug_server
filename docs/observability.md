@@ -99,6 +99,8 @@ rate(plug_rest_sql_stream_materialize_rows_merged_sum[5m])
 # Bridge por metodo RPC e canal
 sum by (channel, method, outcome) (rate(plug_bridge_rpc_method_requests_total[5m]))
 avg by (channel, method, outcome) (plug_bridge_rpc_method_latency_p95_ms)
+histogram_quantile(0.95, sum by (le, channel, method, outcome) (rate(plug_bridge_rpc_method_latency_bucket[5m])))
+sum by (channel, method, outcome) (rate(plug_bridge_rpc_method_latency_count[5m]))
 
 # Cortes por orçamento na materialização REST (streams grandes → preferir Socket)
 rate(plug_rest_sql_stream_materialize_row_limit_exceeded_total[5m])
@@ -190,6 +192,11 @@ rate(plug_socket_relay_dispatch_queue_wait_timeout_rejected_total[5m])
 rate(plug_socket_relay_outbound_queue_jobs_finished_total[5m])
 rate(plug_socket_relay_outbound_queue_jobs_failed_total[5m])
 
+# Streams relay abertos sem rpc:complete ou com vida longa demais
+rate(plug_socket_relay_stream_idle_timeouts_total[5m])
+rate(plug_socket_relay_stream_lifetime_timeouts_total[5m])
+rate(plug_socket_relay_stream_dispatch_slots_released_on_open_total[5m])
+
 # Custos do hot path relay (média por fase)
 plug_socket_relay_overload_check_avg_ms
 plug_socket_relay_frame_decode_avg_ms
@@ -214,6 +221,7 @@ rate(plug_agent_session_register_rate_limited_total[5m])
 rate(plug_socket_agents_capability_profiles_total[5m])
 rate(plug_socket_agents_capability_agent_get_health_capable_total[5m])
 rate(plug_socket_agents_ready_legacy_payload_total[5m])
+rate(plug_socket_agents_ready_invalid_partial_payload_total[5m])
 rate(plug_socket_agents_health_responses_total[5m])
 rate(plug_socket_agents_health_errors_total[5m])
 plug_socket_agents_health_last_healthy

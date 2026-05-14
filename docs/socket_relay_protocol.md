@@ -36,8 +36,14 @@ Autorizacao resumida do relay:
 Emitido imediatamente apÃ³s autenticacao bem-sucedida. **Desde versao mais recente, enviado como `PayloadFrame`** para consistencia com outros eventos RPC.
 No caso de principals `client`, o hub entra primeiro na room `client:<clientId>` e
 so depois emite `connection:ready`; ao receber esse evento, o cliente ja esta apto
-para receber `client:agent.profile.updated` sem race de room join.
-Para cada par `(clientId, agentId)` com acesso aprovado, o hub entra tambem na room `consumer:client-agent:{clientId}:{agentId}` no connect. Quando o acesso e **concedido** (aprovacao por token ou pelo dono) enquanto o cliente ja tem sessao `/consumers` aberta, o servidor repete esse `join` **sem exigir reconnect**.
+para eventos enviados a essa room base.
+As rooms derivadas por acesso aprovado (`consumer:client-agent:{clientId}:{agentId}`
+e a room agregada de profile por agente) sao preenchidas de forma assincrona logo
+apos o ready, com dedupe por `clientId` dentro da instancia do hub. Quando o
+acesso e **concedido** (aprovacao por token ou pelo dono) enquanto o cliente ja
+tem sessao `/consumers` aberta, o servidor faz o `join` no fast path **sem exigir
+reconnect**. O reconcile periodico corrige drift; clientes devem usar os
+endpoints REST de catalogo/acesso como fonte de verdade para estado completo.
 
 **Payload lÃ³gico apÃ³s decode**:
 
@@ -142,6 +148,10 @@ Regras:
   `idempotentReplay: true`, e reuso da chave com outro corpo retorna `409` (REST) ou `success: false` com `IDEMPOTENCY_KEY_CONFLICT` (Socket);
 - `REST_SOCKET_EVENT_MAX_RECIPIENTS` pode limitar fan-out e rejeitar com
   `503` quando houver inscritos demais; sem Redis adapter a contagem usa o mapa local de rooms, com `SOCKET_IO_REDIS_ADAPTER_URL` usa `fetchSockets()` para cobrir replicas remotas. `error.details.retry_after_ms` usa `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS` (por defeito `2000`), independentemente da janela `REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS`;
+- quando `fetchSockets()` falha com Redis adapter ativo, o hub so emite em modo
+  degradado se a contagem local estiver abaixo de
+  `REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS`; apos falhas consecutivas
+  o circuito abre e publicacoes novas retornam `503` retryable;
 - convencao de produto: nomes `client:custom.*` sao **globais** por hub para quem subscreve o mesmo `eventName`; prefira prefixar por tenant ou cliente (ex.: `client:custom.acme-tenant.notifications`) para evitar colisao entre tenants.
 
 Sem adapter distribuido do Socket.IO, o pub/sub e por processo: uma publicacao
@@ -178,6 +188,9 @@ O servidor valida o payload com o schema do bridge (mesmas regras por comando do
 - validacao barata de envelope JSON acontece antes do rate limit fixo
 - validacao profunda do `PayloadFrame` / JSON-RPC pode ocorrer depois do `allowRelayRpcRequest`
 - se essa validacao profunda falhar com erro `400`, ou se o pedido cair em dedupe (`deduplicated: true`), o hub **devolve a quota consumida** na janela do consumer
+- `sql.bulkInsert` valida antes do `PayloadFrame` os tetos
+  `AGENT_SQL_BULK_INSERT_MAX_ROWS` e `AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES`;
+  cargas maiores devem ser quebradas em lotes pelo cliente
 
 Payloads invalidos retornam erro `VALIDATION_ERROR` em `relay:rpc.accepted`. O relay **nao**
 suporta batch JSON-RPC (array); envie um unico request por `relay:rpc.request`.
@@ -298,6 +311,13 @@ Capacidade operacional:
   automatico de `rpc:request` se esses acks faltarem.
 - Timeout de relay request: quando o agente nao responde no prazo, o servidor
   devolve erro JSON-RPC no `relay:rpc.response`.
+- Timeout de stream aberta: quando `rpc:response` abre `stream_id`, o slot de
+  dispatch do agente e liberado e a stream passa a ser controlada pelos limites
+  de streams/buffer/creditos. Se nao houver atividade ate
+  `SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS`, ou se a stream ultrapassar
+  `SOCKET_RELAY_STREAM_MAX_LIFETIME_MS`, o hub remove rotas/flow state e emite
+  `relay:rpc.complete` com `terminal_status: "error"` e
+  `error_code: "RELAY_STREAM_TIMEOUT"`.
 - Circuit breaker por agente: falhas consecutivas abrem circuito por janela
   curta, bloqueando novas requests temporariamente.
 - Fila por agente no relay: `relay:rpc.request` passa por um gate FIFO por
@@ -333,6 +353,8 @@ Configuracao via variaveis de ambiente em `.env.example`.
 Variaveis principais do relay:
 
 - `SOCKET_RELAY_REQUEST_TIMEOUT_MS`
+- `SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS`
+- `SOCKET_RELAY_STREAM_MAX_LIFETIME_MS`
 - `SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS`
 - `SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS`
 - `SOCKET_RELAY_MAX_CONVERSATIONS`

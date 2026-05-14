@@ -1,4 +1,4 @@
-import type { Namespace, Socket } from "socket.io";
+import type { Socket } from "socket.io";
 import { z } from "zod";
 
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
@@ -15,6 +15,7 @@ import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consu
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
 import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
+import { findAgentBridgeSocketById } from "../hub/rpc_bridge";
 
 export const conversationStartPayloadSchema = z.object({
   agentId: agentIdSchema,
@@ -58,7 +59,6 @@ const emitConversationStarted = (
 export const handleRelayConversationStart = async (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
-  agentsNamespace: Namespace,
 ): Promise<void> => {
   const envelope = parseRelayConversationStartEnvelope(rawPayload);
   if (!envelope.success) {
@@ -90,7 +90,7 @@ export const handleRelayConversationStart = async (
       throw notFound(`Agent ${parsed.data.agentId}`);
     }
 
-    const agentSocket = agentsNamespace.sockets.get(registeredAgent.socketId);
+    const agentSocket = findAgentBridgeSocketById(registeredAgent.socketId);
     if (!agentSocket) {
       throw serviceUnavailable("Agent socket is unavailable");
     }

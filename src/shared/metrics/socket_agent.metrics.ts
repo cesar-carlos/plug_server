@@ -25,6 +25,7 @@ let sessionRejectedActiveTotal = 0;
 let sessionTakeoverDisconnectTotal = 0;
 let sessionRegisterRateLimitedTotal = 0;
 let agentReadyLegacyPayloadTotal = 0;
+let agentReadyInvalidPartialPayloadTotal = 0;
 
 const capabilityProfiles = {
   current: 0,
@@ -142,6 +143,10 @@ export const noteAgentReadyLegacyPayload = (): void => {
   agentReadyLegacyPayloadTotal += 1;
 };
 
+export const noteAgentReadyInvalidPartialPayload = (): void => {
+  agentReadyInvalidPartialPayloadTotal += 1;
+};
+
 export const noteAgentCapabilityProfile = (capabilities: Record<string, unknown>): void => {
   const version = readPlugProfileVersion(readProfileString(capabilities));
   if (!version || !currentPlugProfileVersion) {
@@ -214,6 +219,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   readonly sessionTakeoverDisconnectTotal: number;
   readonly sessionRegisterRateLimitedTotal: number;
   readonly agentReadyLegacyPayloadTotal: number;
+  readonly agentReadyInvalidPartialPayloadTotal: number;
   readonly capabilityProfiles: typeof capabilityProfiles;
   readonly capabilityAgentGetHealthCapableTotal: number;
   readonly agentHealth: typeof agentHealth;
@@ -223,6 +229,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   sessionTakeoverDisconnectTotal,
   sessionRegisterRateLimitedTotal,
   agentReadyLegacyPayloadTotal,
+  agentReadyInvalidPartialPayloadTotal,
   capabilityProfiles: { ...capabilityProfiles },
   capabilityAgentGetHealthCapableTotal,
   agentHealth: { ...agentHealth },
@@ -238,6 +245,7 @@ export const resetSocketAgentMetrics = (): void => {
   sessionTakeoverDisconnectTotal = 0;
   sessionRegisterRateLimitedTotal = 0;
   agentReadyLegacyPayloadTotal = 0;
+  agentReadyInvalidPartialPayloadTotal = 0;
   capabilityProfiles.current = 0;
   capabilityProfiles.older = 0;
   capabilityProfiles.unknown = 0;

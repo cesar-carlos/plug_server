@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 
+import { env } from "../config/env";
 import { HUB_MAX_BATCH_SIZE, HUB_MAX_ROWS } from "../constants/agent_transport_contract";
 import { nonEmptyStringSchema } from "./schemas";
 
@@ -61,6 +62,10 @@ export const AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES = 2 * 1024 * 1024;
 export const AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
 /** Max UTF-8 bytes for serialized token-carrier `params` (`agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`). */
 export const AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
+/** Max rows accepted by the hub for one `sql.bulkInsert` RPC. */
+export const AGENT_SQL_BULK_INSERT_MAX_ROWS = env.agentSqlBulkInsertMaxRows;
+/** Max UTF-8 bytes for serialized `sql.bulkInsert.params` before PayloadFrame encoding. */
+export const AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES = env.agentSqlBulkInsertMaxJsonBytes;
 
 /**
  * @deprecated Use {@link AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES} (same value).
@@ -239,7 +244,7 @@ const sqlBulkInsertParamsSchema = z
   .object({
     table: nonEmptyStringSchema,
     columns: z.array(sqlBulkInsertColumnSchema).min(1),
-    rows: z.array(z.array(z.unknown())).min(1),
+    rows: z.array(z.array(z.unknown())).min(1).max(AGENT_SQL_BULK_INSERT_MAX_ROWS),
     idempotency_key: nonEmptyStringSchema.optional(),
     options: sqlBulkInsertOptionsSchema.optional(),
     database: nonEmptyStringSchema.optional(),
@@ -247,6 +252,25 @@ const sqlBulkInsertParamsSchema = z
   .merge(tokenCarrierSchema)
   .strict()
   .superRefine((value, ctx) => {
+    let encoded: string;
+    try {
+      encoded = JSON.stringify(value);
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [],
+        message: "`sql.bulkInsert.params` must be JSON-serializable",
+      });
+      return;
+    }
+    if (utf8ByteLength(encoded) > AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [],
+        message: `sql.bulkInsert params exceed max UTF-8 size (${AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES} bytes); split rows into smaller batches`,
+      });
+    }
+
     const columnCount = value.columns.length;
     value.rows.forEach((row, index) => {
       if (row.length !== columnCount) {

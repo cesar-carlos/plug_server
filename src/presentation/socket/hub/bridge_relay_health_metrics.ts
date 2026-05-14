@@ -53,6 +53,9 @@ export const relayMetrics = {
   chunksBuffered: 0,
   chunksDropped: 0,
   streamTerminalCompletions: 0,
+  streamIdleTimeouts: 0,
+  streamLifetimeTimeouts: 0,
+  streamDispatchSlotsReleasedOnOpen: 0,
   streamPulls: 0,
   restSqlStreamMaterializePulls: 0,
   /** REST materialization finished successfully (HTTP resolved after merge). */
@@ -277,6 +280,9 @@ export type RelayHubMetricsSnapshot = {
     readonly chunksBuffered: number;
     readonly chunksDropped: number;
     readonly streamTerminalCompletions: number;
+    readonly streamIdleTimeouts: number;
+    readonly streamLifetimeTimeouts: number;
+    readonly streamDispatchSlotsReleasedOnOpen: number;
     readonly streamPulls: number;
     readonly restSqlStreamMaterializePulls: number;
     readonly restSqlStreamMaterializeCompleted: number;
@@ -415,6 +421,9 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.chunksBuffered = 0;
   relayMetrics.chunksDropped = 0;
   relayMetrics.streamTerminalCompletions = 0;
+  relayMetrics.streamIdleTimeouts = 0;
+  relayMetrics.streamLifetimeTimeouts = 0;
+  relayMetrics.streamDispatchSlotsReleasedOnOpen = 0;
   relayMetrics.streamPulls = 0;
   relayMetrics.restSqlStreamMaterializePulls = 0;
   relayMetrics.restSqlStreamMaterializeCompleted = 0;

@@ -13,6 +13,11 @@ import {
   resetRelayRequestRegistry,
 } from "../../../../../src/presentation/socket/hub/relay_request_registry";
 import {
+  relayMetrics,
+  resetRelayHubHealthAndMetrics,
+} from "../../../../../src/presentation/socket/hub/bridge_relay_health_metrics";
+import { env } from "../../../../../src/shared/config/env";
+import {
   getRestPendingRequestByCorrelationId,
   registerRestPendingRequest,
   resetRestPendingRequestsStore,
@@ -34,17 +39,21 @@ describe("rpc_bridge_agent_inbound", () => {
     resetRestPendingRequestsStore();
     resetActiveStreamRegistry();
     resetRelayRequestRegistry();
+    resetRelayHubHealthAndMetrics();
     resetSocketAgentMetrics();
+    vi.useRealTimers();
   });
 
   afterEach(() => {
     resetRestPendingRequestsStore();
     resetActiveStreamRegistry();
     resetRelayRequestRegistry();
+    resetRelayHubHealthAndMetrics();
     resetSocketAgentMetrics();
     for (const handle of timeoutHandles.splice(0)) {
       clearTimeout(handle);
     }
+    vi.useRealTimers();
   });
 
   const createTimeoutHandle = (): NodeJS.Timeout => {
@@ -359,6 +368,78 @@ describe("rpc_bridge_agent_inbound", () => {
     await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
     expect(getSocketAgentMetricsSnapshot().agentHealth.responsesTotal).toBe(1);
     expect(getSocketAgentMetricsSnapshot().agentHealth.lastQuerySuccessRate).toBe(100);
+  });
+
+  it("releases relay dispatch slot on stream open and terminates leaked streams on idle timeout", async () => {
+    vi.useFakeTimers();
+    const emitToConsumer = vi.fn();
+    const releaseInner = vi.fn();
+    const releaseAgentDispatchSlot = (() => {
+      let released = false;
+      return () => {
+        if (released) {
+          return;
+        }
+        released = true;
+        releaseInner();
+      };
+    })();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+
+    registerRelayRequestRoute({
+      requestId: "req-relay-stream-timeout",
+      conversationId: "conv-1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      jsonRpcMethod: "sql.execute",
+      releaseAgentDispatchSlot,
+    });
+
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id: "req-relay-stream-timeout",
+          result: { stream_id: "stream-timeout-1" },
+        },
+        { requestId: "req-relay-stream-timeout" },
+      ),
+    );
+
+    await vi.waitFor(() =>
+      expect(getActiveStreamRouteByRequestId("req-relay-stream-timeout")).toMatchObject({
+        streamId: "stream-timeout-1",
+      }),
+    );
+    expect(releaseInner).toHaveBeenCalledTimes(1);
+    expect(relayMetrics.streamDispatchSlotsReleasedOnOpen).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(env.socketRelayStreamIdleTimeoutMs + 1);
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(2));
+    const [, eventName, outboundFrame] = emitToConsumer.mock.calls[1] as [string, string, unknown];
+    expect(eventName).toBe(socketEvents.relayRpcComplete);
+    const decoded = decodePayloadFrame(outboundFrame);
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) {
+      expect(decoded.value.data).toMatchObject({
+        request_id: "req-relay-stream-timeout",
+        stream_id: "stream-timeout-1",
+        terminal_status: "error",
+        error_code: "RELAY_STREAM_TIMEOUT",
+      });
+    }
+    expect(relayMetrics.streamIdleTimeouts).toBe(1);
+    expect(getActiveStreamRouteByRequestId("req-relay-stream-timeout")).toBeUndefined();
+    expect(getRelayRequestRoute("req-relay-stream-timeout")).toBeUndefined();
+    expect(releaseInner).toHaveBeenCalledTimes(1);
   });
 
   it("should fail fast instead of leaking an unhandled rejection on unexpected relay processing errors", async () => {

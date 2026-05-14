@@ -244,7 +244,7 @@ O token e validado por `requireAuth` antes de qualquer processamento.
 
 ### OpenAPI (Swagger)
 
-Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `prefer_db_streaming`, `sql.bulkInsert`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel` e `rpc.discover`.
+Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**; `sql.bulkInsert` ate `AGENT_SQL_BULK_INSERT_MAX_ROWS` linhas e `AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES` bytes UTF-8 serializados em `params`. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `prefer_db_streaming`, `sql.bulkInsert`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel` e `rpc.discover`.
 
 ## Request body
 

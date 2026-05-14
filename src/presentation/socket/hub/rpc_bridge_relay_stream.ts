@@ -24,6 +24,10 @@ import {
 } from "./relay_stream_flow_state";
 import type { RelayRequestRoute } from "./relay_request_registry";
 import { removeRelayRequestRoute } from "./relay_request_registry";
+import {
+  registerRelayStreamTimeouts,
+  touchRelayStreamTimeout,
+} from "./relay_stream_timeout_registry";
 import type { StreamEventHandlers } from "./rest_pending_requests";
 
 const relayMaxBufferedChunksPerRequest = env.socketRelayMaxBufferedChunksPerRequest;
@@ -48,6 +52,7 @@ export const createRelayStreamHandlers = (
     terminalStatus: "aborted" | "error",
     reason: string,
     payload?: Record<string, unknown>,
+    errorCode?: string,
   ): void => {
     if (terminalEmitted) {
       return;
@@ -61,6 +66,7 @@ export const createRelayStreamHandlers = (
       total_rows: getRelayStreamForwardedRows(route.requestId),
       terminal_status: terminalStatus,
       ...(streamId ? { stream_id: streamId } : {}),
+      ...(errorCode ? { error_code: errorCode, reason } : {}),
     };
 
     logger.warn("relay_stream_terminated", {
@@ -75,7 +81,8 @@ export const createRelayStreamHandlers = (
       outcome: "error",
       httpStatus: 503,
       errorCode:
-        terminalStatus === "aborted" ? "RELAY_STREAM_ABORTED" : "RELAY_STREAM_FRAME_INVALID",
+        errorCode ??
+        (terminalStatus === "aborted" ? "RELAY_STREAM_ABORTED" : "RELAY_STREAM_FRAME_INVALID"),
     });
     observeBridgeRpcMethod({
       channel: "relay",
@@ -105,6 +112,20 @@ export const createRelayStreamHandlers = (
       });
     });
   };
+
+  registerRelayStreamTimeouts(route.requestId, (timeoutReason) => {
+    if (timeoutReason === "idle") {
+      relayMetrics.streamIdleTimeouts += 1;
+    } else {
+      relayMetrics.streamLifetimeTimeouts += 1;
+    }
+    emitRelayTerminalComplete(
+      "error",
+      timeoutReason === "idle" ? "relay_stream_idle_timeout" : "relay_stream_lifetime_timeout",
+      undefined,
+      "RELAY_STREAM_TIMEOUT",
+    );
+  });
 
   const scheduleDrainAndFlush = (): void => {
     if (drainScheduled) {
@@ -238,6 +259,7 @@ export const createRelayStreamHandlers = (
     conversationId: route.conversationId,
     mode: "relay",
     onChunk: (payload) => {
+      touchRelayStreamTimeout(route.requestId);
       const available = getRelayStreamFlowCredits(route.requestId);
       if (
         getRelayStreamBufferedChunkCount(route.requestId) >= relayMaxBufferedChunksPerRequest ||
@@ -255,6 +277,7 @@ export const createRelayStreamHandlers = (
       scheduleDrainAndFlush();
     },
     onComplete: (payload) => {
+      touchRelayStreamTimeout(route.requestId);
       setRelayStreamPendingComplete(route.requestId, payload);
       scheduleDrainAndFlush();
     },

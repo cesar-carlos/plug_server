@@ -20,6 +20,7 @@ import { agentRegistry } from "./agent_registry";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import { getRelayRequestRoute, removeRelayRequestRoute } from "./relay_request_registry";
 import { getRelayStreamForwardedRows } from "./relay_stream_flow_state";
+import { touchRelayStreamTimeout } from "./relay_stream_timeout_registry";
 import { wireRestAgentDispatchQueueMetrics } from "./rest_agent_dispatch_queue";
 import { scheduleRelayIdempotencyCleanupTimer } from "./relay_idempotency_store";
 import { createRpcBridgeAgentInboundHandlers } from "./rpc_bridge_agent_inbound";
@@ -84,6 +85,9 @@ const findAgentSocketById = (socketId: string): HubNamespaceSocket | null =>
 
 const findConsumerSocketById = (socketId: string): HubNamespaceSocket | null =>
   findSocketInIndex(consumerSocketNamespacesById, socketId);
+
+export const findAgentBridgeSocketById = (socketId: string): HubNamespaceSocket | null =>
+  findAgentSocketById(socketId);
 
 wireRestAgentDispatchQueueMetrics((reason) => {
   if (reason === "queue_full") {
@@ -151,6 +155,9 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
       { requestId: route.requestId, omitTraceId: true },
     ),
   );
+  if (route.mode === "relay") {
+    touchRelayStreamTimeout(route.requestId);
+  }
   relayMetrics.restSqlStreamMaterializePulls += 1;
 };
 

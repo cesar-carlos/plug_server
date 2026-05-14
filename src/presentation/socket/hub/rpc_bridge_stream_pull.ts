@@ -19,6 +19,7 @@ import {
   drainRelayStreamBuffer,
   getRelayStreamForwardedRows,
 } from "./relay_stream_flow_state";
+import { touchRelayStreamTimeout } from "./relay_stream_timeout_registry";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 
 const defaultStreamWindowSize = 1;
@@ -173,6 +174,7 @@ export const createPrepareAgentStreamPull = (
 
       if (route.mode === "relay") {
         relayMetrics.streamPulls += 1;
+        touchRelayStreamTimeout(route.requestId);
         const relayRouteForAudit = getRelayRequestRoute(route.requestId);
         addRelayStreamFlowCredits(route.requestId, windowSize);
 

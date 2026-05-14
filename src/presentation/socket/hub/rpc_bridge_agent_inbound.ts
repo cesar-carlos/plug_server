@@ -796,6 +796,8 @@ export const createRpcBridgeAgentInboundHandlers = (
           streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
           streamId,
         });
+        relayRoute.releaseAgentDispatchSlot?.();
+        relayMetrics.streamDispatchSlotsReleasedOnOpen += 1;
         setRelayStreamFlowCredits(responseId, 0);
       }
 

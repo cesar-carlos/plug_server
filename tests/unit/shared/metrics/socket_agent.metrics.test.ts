@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getSocketAgentMetricsSnapshot,
+  noteAgentReadyInvalidPartialPayload,
   noteAgentReadyLegacyPayload,
   noteAgentCapabilityProfile,
   noteAgentHealthRpcResponse,
@@ -44,6 +45,16 @@ describe("socket_agent.metrics", () => {
 
     resetSocketAgentMetrics();
     expect(getSocketAgentMetricsSnapshot().agentReadyLegacyPayloadTotal).toBe(0);
+  });
+
+  it("records invalid partial agent:ready payloads", () => {
+    resetSocketAgentMetrics();
+    noteAgentReadyInvalidPartialPayload();
+
+    expect(getSocketAgentMetricsSnapshot().agentReadyInvalidPartialPayloadTotal).toBe(1);
+
+    resetSocketAgentMetrics();
+    expect(getSocketAgentMetricsSnapshot().agentReadyInvalidPartialPayloadTotal).toBe(0);
   });
 
   it("records agent.getHealth responses and errors", () => {

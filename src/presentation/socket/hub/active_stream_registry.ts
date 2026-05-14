@@ -3,6 +3,10 @@ import { toRequestId } from "../../../shared/utils/rpc_types";
 import { registerAgentFailure } from "./bridge_relay_health_metrics";
 import type { StreamEventHandlers } from "./rest_pending_requests";
 import { restSqlStreamMaterializeClearRequest } from "./rest_sql_stream_materialize";
+import {
+  clearRelayStreamTimeouts,
+  resetRelayStreamTimeouts,
+} from "./relay_stream_timeout_registry";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -153,6 +157,7 @@ export const removeActiveStreamRoute = (
   route: ActiveStreamRoute,
   options?: RemoveActiveStreamRouteOptions,
 ): void => {
+  clearRelayStreamTimeouts(route.requestId);
   const restMode = options?.restMaterialize ?? "abort";
   if (restMode === "detach") {
     detachRestMaterializeIfPending(route);
@@ -257,6 +262,7 @@ export const resetActiveStreamRegistry = (): void => {
   for (const route of activeStreamsByRequestId.values()) {
     abortRestMaterializeIfPending(route);
   }
+  resetRelayStreamTimeouts();
   activeStreamsByRequestId.clear();
   activeStreamsByStreamId.clear();
   activeStreamRequestIdsByConversation.clear();

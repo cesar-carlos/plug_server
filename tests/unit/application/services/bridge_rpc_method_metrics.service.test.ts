@@ -32,7 +32,7 @@ describe("bridge_rpc_method_metrics", () => {
     });
 
     expect(getBridgeRpcMethodMetricsSnapshot()).toEqual([
-      {
+      expect.objectContaining({
         channel: "consumer_socket",
         method: "sql.bulkInsert",
         outcome: "error",
@@ -41,8 +41,14 @@ describe("bridge_rpc_method_metrics", () => {
         latencyMaxMs: 50,
         latencyP95Ms: 50,
         latencyP99Ms: 50,
-      },
-      {
+        latencySumMs: 50,
+        latencyBuckets: expect.arrayContaining([
+          { le: "25", count: 0 },
+          { le: "50", count: 1 },
+          { le: "+Inf", count: 1 },
+        ]),
+      }),
+      expect.objectContaining({
         channel: "rest",
         method: "sql.execute",
         outcome: "success",
@@ -51,7 +57,14 @@ describe("bridge_rpc_method_metrics", () => {
         latencyMaxMs: 30,
         latencyP95Ms: 30,
         latencyP99Ms: 30,
-      },
+        latencySumMs: 40,
+        latencyBuckets: expect.arrayContaining([
+          { le: "10", count: 1 },
+          { le: "25", count: 1 },
+          { le: "50", count: 2 },
+          { le: "+Inf", count: 2 },
+        ]),
+      }),
     ]);
   });
 });

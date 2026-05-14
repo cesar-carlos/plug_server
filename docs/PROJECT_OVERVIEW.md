@@ -109,7 +109,7 @@ namespace `/agents`, incluindo:
 | `agent:register_error` | hub -> agente | **JSON puro** (NAO `PayloadFrame`) com `{ code, reason, message, details? }`. `reason` `transient_failure`/`rate_limited` orienta o agente a reagendar `agent:register`; outros valores indicam reconexao. Ver `docs/migracao_plug_agente_namespaces.md` |
 | `agent:session.superseded` | hub -> agente (socket substituido) | **JSON puro** quando `SOCKET_AGENT_SESSION_POLICY=takeover_disconnect_previous`; antecede `disconnect` da sessao antiga |
 | `agent:capabilities` | hub -> agente | Inclui `extensions.recommendedStreamPullWindowSize` / `maxStreamPullWindowSize` para calibrar pulls |
-| `agent:ready` | agente -> hub | Opcional, quando o agente anuncia `extensions.protocolReadyAck` |
+| `agent:ready` | agente -> hub | Opcional, quando o agente anuncia `extensions.protocolReadyAck`; payload completo `{ agent_id, timestamp, protocol }`. Compat legado aceita apenas `{ agent_id }` sem `timestamp/protocol`; payload parcial e rejeitado. |
 | `agent:heartbeat` | agente -> hub | Periodico; `hub:heartbeat_ack` confirma |
 | `rpc:request` / `rpc:response` | bidirecional | Comando JSON-RPC 2.0 em `PayloadFrame` |
 | `rpc:request_ack` / `rpc:batch_ack` | agente -> hub | Confirmacao de recebimento; o hub observa/propaga esses acks, mas ainda nao reenvia `rpc:request` automaticamente quando faltam |

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES,
   AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES,
+  AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES,
+  AGENT_SQL_BULK_INSERT_MAX_ROWS,
   AGENT_SQL_MAX_UTF8_BYTES,
   AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES,
   agentCommandBodySchema,
@@ -656,6 +658,44 @@ describe("agentCommandBodySchema", () => {
             { name: "name", type: "text" },
           ],
           rows: [[1, "Ada"], [2]],
+          client_token: "t",
+        },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should reject sql.bulkInsert when rows exceed configured cap", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.bulkInsert",
+        id: "bulk-too-many-rows",
+        params: {
+          table: "target_table",
+          columns: [{ name: "id", type: "i64" }],
+          rows: Array.from({ length: AGENT_SQL_BULK_INSERT_MAX_ROWS + 1 }, (_, index) => [
+            index,
+          ]),
+          client_token: "t",
+        },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should reject sql.bulkInsert when serialized params exceed configured cap", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.bulkInsert",
+        id: "bulk-too-large",
+        params: {
+          table: "target_table",
+          columns: [{ name: "payload", type: "text" }],
+          rows: [["x".repeat(AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES + 1)]],
           client_token: "t",
         },
       },

@@ -97,6 +97,16 @@ export const getMetrics = (_request: Request, response: Response): void => {
     lines.push(metricLine("plug_bridge_rpc_method_latency_max_ms", item.latencyMaxMs, labels));
     lines.push(metricLine("plug_bridge_rpc_method_latency_p95_ms", item.latencyP95Ms, labels));
     lines.push(metricLine("plug_bridge_rpc_method_latency_p99_ms", item.latencyP99Ms, labels));
+    for (const bucket of item.latencyBuckets) {
+      lines.push(
+        metricLine("plug_bridge_rpc_method_latency_bucket", bucket.count, {
+          ...labels,
+          le: bucket.le,
+        }),
+      );
+    }
+    lines.push(metricLine("plug_bridge_rpc_method_latency_sum", item.latencySumMs, labels));
+    lines.push(metricLine("plug_bridge_rpc_method_latency_count", item.count, labels));
   }
 
   lines.push(
@@ -786,6 +796,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_socket_agents_ready_invalid_partial_payload_total",
+      agentRuntime.agentReadyInvalidPartialPayloadTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_socket_agents_capability_profiles_total",
       agentRuntime.capabilityProfiles.current,
       { status: "current" },
@@ -1253,6 +1269,24 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_relay_stream_terminal_completions_total",
       relay.counters.streamTerminalCompletions,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_stream_idle_timeouts_total",
+      relay.counters.streamIdleTimeouts,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_stream_lifetime_timeouts_total",
+      relay.counters.streamLifetimeTimeouts,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_stream_dispatch_slots_released_on_open_total",
+      relay.counters.streamDispatchSlotsReleasedOnOpen,
     ),
   );
   lines.push(metricLine("plug_socket_relay_stream_pulls_total", relay.counters.streamPulls));

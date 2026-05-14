@@ -464,6 +464,20 @@ const envSchema = z.object({
     .min(0)
     .max(10 * 1024 * 1024)
     .default(65_536),
+  /** Max rows accepted in one `sql.bulkInsert` RPC before the hub asks callers to chunk. */
+  AGENT_SQL_BULK_INSERT_MAX_ROWS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(1_000_000)
+    .default(50_000),
+  /** Max UTF-8 bytes for serialized `sql.bulkInsert.params` before PayloadFrame encoding. */
+  AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 * 1024)
+    .default(10 * 1024 * 1024),
   /**
    * Max entries in `agentRegistry` known-agent set (offline IDs retained for REST 503 vs 404). 0 = unlimited.
    * When exceeded, removes known IDs that are not currently connected until under the cap.
@@ -635,6 +649,8 @@ const envSchema = z.object({
     .max(60_000)
     .default(1_000),
   SOCKET_RELAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  SOCKET_RELAY_STREAM_MAX_LIFETIME_MS: z.coerce.number().int().positive().default(300_000),
   SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   SOCKET_RELAY_MAX_CONVERSATIONS: z.coerce.number().int().positive().default(5_000),
@@ -1156,6 +1172,8 @@ export const env = {
   payloadFrameAsyncGzipMinUtf8Bytes: parsedEnv.PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES,
   payloadFrameAsyncGunzipMinCompressedBytes:
     parsedEnv.PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES,
+  agentSqlBulkInsertMaxRows: parsedEnv.AGENT_SQL_BULK_INSERT_MAX_ROWS,
+  agentSqlBulkInsertMaxJsonBytes: parsedEnv.AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES,
   socketAgentKnownIdsMax: parsedEnv.SOCKET_AGENT_KNOWN_IDS_MAX,
   socketAgentProfileSyncMaxConcurrent: parsedEnv.SOCKET_AGENT_PROFILE_SYNC_MAX_CONCURRENT,
   socketAgentProtocolReadyGraceMs: parsedEnv.SOCKET_AGENT_PROTOCOL_READY_GRACE_MS,
@@ -1193,6 +1211,8 @@ export const env = {
   socketConsumerClientAgentRoomReconcileStartJitterMs:
     parsedEnv.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS,
   socketRelayRequestTimeoutMs: parsedEnv.SOCKET_RELAY_REQUEST_TIMEOUT_MS,
+  socketRelayStreamIdleTimeoutMs: parsedEnv.SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS,
+  socketRelayStreamMaxLifetimeMs: parsedEnv.SOCKET_RELAY_STREAM_MAX_LIFETIME_MS,
   socketRelayConversationIdleTimeoutMs: parsedEnv.SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS,
   socketRelayConversationSweepIntervalMs: parsedEnv.SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS,
   socketRelayMaxConversations: parsedEnv.SOCKET_RELAY_MAX_CONVERSATIONS,

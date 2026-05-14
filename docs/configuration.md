@@ -121,6 +121,10 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE`       | `256`                                | Limite máximo anunciado em `agent:capabilities.extensions.maxStreamPullWindowSize`; permite separar a recomendação operacional do teto aceito pelo hub. O valor recomendado publicado nunca ultrapassa este máximo. |
 | `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES`  | `268435456`                          | Teto agregado de bytes UTF-8 materializados no REST (resposta inicial + chunks). Complementa o limite por linhas para proteger contra payloads JSONB muito largos.                                                  |
 | `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `100000`                             | Teto de `rpc:chunk` aceites na materialização REST. `0` continua a significar ilimitado, mas deixou de ser o default.                                                                                               |
+| `SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS`           | `30000`                              | TTL de inatividade para streams relay ja abertos (`stream_id`). Reinicia em `rpc:chunk`, `rpc:complete` e `rpc:stream.pull`; ao estourar o hub emite `relay:rpc.complete` com erro e remove rotas/flow state.       |
+| `SOCKET_RELAY_STREAM_MAX_LIFETIME_MS`           | `300000`                             | Vida maxima absoluta de uma stream relay aberta. Nao reinicia com trafego; evita vazamento quando o agente nunca envia `rpc:complete`.                                                                                |
+| `AGENT_SQL_BULK_INSERT_MAX_ROWS`                | `50000`                              | Teto de linhas aceitas pelo hub em `sql.bulkInsert` antes de montar o `PayloadFrame`. Cargas maiores devem ser quebradas em lotes.                                                                                   |
+| `AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES`          | `10485760`                           | Teto UTF-8 do JSON serializado de `params` em `sql.bulkInsert`; protege memoria do hub antes de encaminhar ao agente.                                                                                                 |
 | `SOCKET_AUDIT_BATCH_MAX`                        | `48`                                 | Eventos por transação na auditoria Socket (1 = um INSERT por evento).                                                                                                                                               |
 | `SOCKET_AUDIT_BATCH_FLUSH_MS`                   | `200`                                | Intervalo máximo antes de flush do lote de auditoria.                                                                                                                                                               |
 | `SOCKET_AUDIT_MAX_QUEUE`                        | `50000`                              | Cap de eventos em memória antes de começar a descartar os mais antigos. Evita crescimento sem limite quando a BD atrasa.                                                                                            |
@@ -188,10 +192,9 @@ conectados a mesma replica que processou o pedido (REST ou Socket). Com
 sticky sessions para relay/conversas e para estado de agente ainda local.
 
 Quando o adapter Redis esta activo mas a contagem distribuida de destinatarios
-falha, o hub nao derruba mais o publish de `client:custom.*`. Nesse caso ele
-emite em modo **best-effort**, regista metricas/logs dedicados e deixa de
-aplicar `REST_SOCKET_EVENT_MAX_RECIPIENTS` apenas naquele publish, porque a
-contagem deixou de ser confiavel.
+falha, o hub so emite em modo **best-effort** se a sala local estiver abaixo do
+teto conservador configurado. Apos falhas consecutivas, o circuito de contagem
+distribuida abre e novos publishes retornam `503` durante uma janela curta.
 
 ## Client → Agent: bearer token armazenado por par
 

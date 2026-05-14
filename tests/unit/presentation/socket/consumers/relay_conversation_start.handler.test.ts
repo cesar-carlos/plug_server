@@ -21,6 +21,10 @@ vi.mock("../../../../../src/presentation/socket/hub/conversation_registry", () =
   },
 }));
 
+vi.mock("../../../../../src/presentation/socket/hub/rpc_bridge", () => ({
+  findAgentBridgeSocketById: vi.fn(),
+}));
+
 import { conflict } from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { handleRelayConversationStart } from "../../../../../src/presentation/socket/consumers/relay_conversation_start.handler";
@@ -28,10 +32,12 @@ import { abortPendingConsumerCommands } from "../../../../../src/presentation/so
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
+import { findAgentBridgeSocketById } from "../../../../../src/presentation/socket/hub/rpc_bridge";
 
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedFindByAgentId = vi.mocked(agentRegistry.findByAgentId);
 const mockedTryReserveAndCreate = vi.mocked(conversationRegistry.tryReserveAndCreate);
+const mockedFindAgentBridgeSocketById = vi.mocked(findAgentBridgeSocketById);
 
 const buildSocket = () =>
   ({
@@ -46,11 +52,6 @@ const buildSocket = () =>
     emit: vi.fn(),
   }) as const;
 
-const buildNamespace = () =>
-  ({
-    sockets: new Map([["agent-socket-1", { id: "agent-socket-1" }]]),
-  }) as const;
-
 describe("handleRelayConversationStart", () => {
   beforeEach(() => {
     mockedAssertAccess.mockReset();
@@ -62,6 +63,8 @@ describe("handleRelayConversationStart", () => {
       agentId: "agent-1",
       socketId: "agent-socket-1",
     } as never);
+    mockedFindAgentBridgeSocketById.mockReset();
+    mockedFindAgentBridgeSocketById.mockReturnValue({ id: "agent-socket-1" } as never);
     mockedTryReserveAndCreate.mockReturnValue({
       ok: true,
       conversation: {
@@ -78,7 +81,7 @@ describe("handleRelayConversationStart", () => {
   it("returns VALIDATION_ERROR on relay:conversation.started for invalid payloads", async () => {
     const socket = buildSocket();
 
-    await handleRelayConversationStart(socket as never, { agentId: "" }, buildNamespace() as never);
+    await handleRelayConversationStart(socket as never, { agentId: "" });
 
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,
@@ -93,11 +96,7 @@ describe("handleRelayConversationStart", () => {
       reason: "consumer_cap_reached",
     });
 
-    await handleRelayConversationStart(
-      socket as never,
-      { agentId: "agent-1" },
-      buildNamespace() as never,
-    );
+    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
 
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,
@@ -119,11 +118,7 @@ describe("handleRelayConversationStart", () => {
         }),
     );
 
-    const run = handleRelayConversationStart(
-      socket as never,
-      { agentId: "agent-1" },
-      buildNamespace() as never,
-    );
+    const run = handleRelayConversationStart(socket as never, { agentId: "agent-1" });
 
     await vi.waitFor(() => expect(mockedAssertAccess).toHaveBeenCalled());
     expect(abortPendingConsumerCommands("consumer-1")).toBe(1);
