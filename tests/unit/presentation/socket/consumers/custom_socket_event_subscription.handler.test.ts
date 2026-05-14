@@ -3,21 +3,27 @@ import type { Socket } from "socket.io";
 
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
-vi.mock("../../../../../src/presentation/socket/hub/custom_socket_event_subscription_limiter", () => ({
-  allowCustomSocketEventSubscriptionControl: vi.fn(() => ({
-    allowed: true,
-    limit: 240,
-    remaining: 239,
-    resetAtMs: Date.now() + 60_000,
-  })),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_limiter",
+  () => ({
+    allowCustomSocketEventSubscriptionControl: vi.fn(() => ({
+      allowed: true,
+      limit: 240,
+      remaining: 239,
+      resetAtMs: Date.now() + 60_000,
+    })),
+  }),
+);
 
-vi.mock("../../../../../src/presentation/socket/hub/custom_socket_event_subscription_registry", () => ({
-  addCustomSocketEventSubscription: vi.fn(() => true),
-  hasCustomSocketEventSubscription: vi.fn(() => false),
-  countCustomSocketEventSubscriptionsBySocketId: vi.fn(() => 0),
-  removeCustomSocketEventSubscription: vi.fn(() => true),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_registry",
+  () => ({
+    addCustomSocketEventSubscription: vi.fn(() => true),
+    hasCustomSocketEventSubscription: vi.fn(() => false),
+    countCustomSocketEventSubscriptionsBySocketId: vi.fn(() => 0),
+    removeCustomSocketEventSubscription: vi.fn(() => true),
+  }),
+);
 
 vi.mock("../../../../../src/shared/metrics/socket_consumer.metrics", () => ({
   noteCustomSocketEventSubscriptionForbidden: vi.fn(),

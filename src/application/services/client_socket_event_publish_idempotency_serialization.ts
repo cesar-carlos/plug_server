@@ -35,13 +35,8 @@ export const runWithClientSocketEventPublishIdempotencySerialization = async <T>
   options?: ClientSocketEventPublishIdempotencySerializationOptions,
 ): Promise<T> => {
   const key = buildSerializationKey(clientId, idempotencyKey);
-  const maxTracked =
-    options?.maxTrackedKeys ?? env.restSocketEventIdempotencySerializationMaxKeys;
-  if (
-    maxTracked > 0 &&
-    !serializationTails.has(key) &&
-    serializationTails.size >= maxTracked
-  ) {
+  const maxTracked = options?.maxTrackedKeys ?? env.restSocketEventIdempotencySerializationMaxKeys;
+  if (maxTracked > 0 && !serializationTails.has(key) && serializationTails.size >= maxTracked) {
     noteClientSocketEventPublishIdempotencySerializationCapRejected();
     noteCustomSocketEventPublishRejected();
     throw new AppError(

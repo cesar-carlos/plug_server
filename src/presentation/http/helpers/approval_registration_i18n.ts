@@ -149,7 +149,8 @@ export const clientAccessReviewCopy = (lang: ApprovalHtmlLang): ClientAccessRevi
   return {
     title: "Review client access",
     eyebrow: "Agent access approval",
-    description: "Approve only if this client should access this agent. GET requests do not change data.",
+    description:
+      "Approve only if this client should access this agent. GET requests do not change data.",
     approveLabel: "Approve access",
     rejectLabel: "Deny access",
     reasonLabel: "Optional message to the client (max 500 characters)",
@@ -201,7 +202,9 @@ export interface UserRegistrationDecisionCopy {
   readonly rejectedBody: (email: string) => string;
 }
 
-export const userRegistrationDecisionCopy = (lang: ApprovalHtmlLang): UserRegistrationDecisionCopy => {
+export const userRegistrationDecisionCopy = (
+  lang: ApprovalHtmlLang,
+): UserRegistrationDecisionCopy => {
   if (lang === "pt-BR") {
     return {
       approvedTitle: "Registo aprovado",
@@ -234,17 +237,14 @@ export const clientRegistrationDecisionCopy = (
       approvedBody: (clientEmail: string) =>
         `A conta de cliente ${clientEmail} já pode iniciar sessão.`,
       rejectedTitle: "Registo de cliente recusado",
-      rejectedBody: (clientEmail: string) =>
-        `O registo para ${clientEmail} não foi aprovado.`,
+      rejectedBody: (clientEmail: string) => `O registo para ${clientEmail} não foi aprovado.`,
     };
   }
   return {
     approvedTitle: "Client registration approved",
-    approvedBody: (clientEmail: string) =>
-      `The client account ${clientEmail} can now sign in.`,
+    approvedBody: (clientEmail: string) => `The client account ${clientEmail} can now sign in.`,
     rejectedTitle: "Client registration rejected",
-    rejectedBody: (clientEmail: string) =>
-      `The registration for ${clientEmail} was not approved.`,
+    rejectedBody: (clientEmail: string) => `The registration for ${clientEmail} was not approved.`,
   };
 };
 

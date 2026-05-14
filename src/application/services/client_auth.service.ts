@@ -4,6 +4,7 @@ import type { IFileStorage } from "../../domain/ports/file_storage.port";
 import { TtlCache } from "../../shared/utils/ttl_cache";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IEmailSender } from "../../domain/ports/email_sender.port";
+import type { IClientRegistrationDecisionTxn } from "../../domain/ports/client_registration_decision_txn.port";
 import { Client, type ClientStatus } from "../../domain/entities/client.entity";
 import { ClientRefreshToken } from "../../domain/entities/client_refresh_token.entity";
 import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
@@ -46,8 +47,6 @@ import {
   assertManagedClientStatusTransition,
   isClientRegistrationRetryEligible,
   reopenRejectedClientRegistration,
-  transitionClientRegistrationToApproved,
-  transitionClientRegistrationToRejected,
   type ManagedClientStatus,
 } from "../../domain/policies/client_registration_status.policy";
 
@@ -128,6 +127,7 @@ export class ClientAuthService {
     private readonly clientRefreshTokenRepository: IClientRefreshTokenRepository,
     private readonly clientPasswordRecoveryTokenRepository: IClientPasswordRecoveryTokenRepository,
     private readonly clientRegistrationApprovalTokenRepository: IClientRegistrationApprovalTokenRepository,
+    private readonly clientRegistrationDecisionTxn: IClientRegistrationDecisionTxn,
     private readonly userRepository: IUserRepository,
     private readonly passwordHasher: IPasswordHasher,
     private readonly emailSender: IEmailSender,
@@ -638,30 +638,21 @@ export class ClientAuthService {
   }
 
   async approveRegistration(tokenId: string): Promise<Result<{ clientEmail: string }>> {
-    const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
-    if (!token) {
+    const decision = await this.clientRegistrationDecisionTxn.approve(tokenId);
+    if (decision.status === "client_not_found") {
+      return err(notFound("Client"));
+    }
+    if (decision.status === "expired") {
+      return err(registrationTokenExpired("This approval link has expired"));
+    }
+    if (decision.status === "not_pending") {
+      return err(conflict("Client registration already processed"));
+    }
+    if (decision.status === "not_found") {
       return err(notFound("Approval link is invalid or has expired"));
     }
 
-    const client = await this.clientRepository.findById(token.clientId);
-    if (!client) {
-      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
-      return err(notFound("Client"));
-    }
-
-    if (isExpired(token.expiresAt)) {
-      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
-      return err(registrationTokenExpired("This approval link has expired"));
-    }
-
-    const approvedResult = transitionClientRegistrationToApproved(client);
-    if (!approvedResult.ok) {
-      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
-      return err(conflict(approvedResult.error.message));
-    }
-    const approved = approvedResult.value;
-    await this.clientRepository.save(approved);
-    await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+    const approved = decision.client;
     try {
       await this.emailSender.sendClientRegistrationApproved({ clientEmail: approved.email });
     } catch (error: unknown) {
@@ -678,30 +669,21 @@ export class ClientAuthService {
     tokenId: string,
     reason?: string,
   ): Promise<Result<{ clientEmail: string }>> {
-    const token = await this.clientRegistrationApprovalTokenRepository.findById(tokenId);
-    if (!token) {
+    const decision = await this.clientRegistrationDecisionTxn.reject(tokenId);
+    if (decision.status === "client_not_found") {
+      return err(notFound("Client"));
+    }
+    if (decision.status === "expired") {
+      return err(registrationTokenExpired("This rejection link has expired"));
+    }
+    if (decision.status === "not_pending") {
+      return err(conflict("Client registration already processed"));
+    }
+    if (decision.status === "not_found") {
       return err(notFound("Rejection link is invalid or has expired"));
     }
 
-    const client = await this.clientRepository.findById(token.clientId);
-    if (!client) {
-      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
-      return err(notFound("Client"));
-    }
-
-    if (isExpired(token.expiresAt)) {
-      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
-      return err(registrationTokenExpired("This rejection link has expired"));
-    }
-
-    const rejectedResult = transitionClientRegistrationToRejected(client);
-    if (!rejectedResult.ok) {
-      await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
-      return err(conflict(rejectedResult.error.message));
-    }
-    const rejected = rejectedResult.value;
-    await this.clientRepository.save(rejected);
-    await this.clientRegistrationApprovalTokenRepository.deleteById(tokenId);
+    const rejected = decision.client;
     try {
       await this.emailSender.sendClientRegistrationRejected({
         clientEmail: rejected.email,

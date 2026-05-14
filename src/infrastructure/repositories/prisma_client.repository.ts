@@ -64,6 +64,19 @@ export class PrismaClientRepository implements IClientRepository {
     return clients.map((item) => this.toDomain(item));
   }
 
+  async findActiveIdsByIds(ids: readonly string[]): Promise<string[]> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) {
+      return [];
+    }
+    const rows = await prismaClient.client.findMany({
+      where: { id: { in: unique }, status: "active" },
+      select: { id: true },
+    });
+    const active = new Set(rows.map((row) => row.id));
+    return unique.filter((id) => active.has(id));
+  }
+
   async save(client: Client): Promise<void> {
     try {
       await prismaClient.client.upsert({

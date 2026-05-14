@@ -97,6 +97,35 @@ describe("agent_command contract (plug_agente compatibility)", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("should accept sql.bulkInsert with columns and rows per plug_agente schema", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.bulkInsert",
+        id: "bulk-001",
+        params: {
+          table: "dbo.users",
+          columns: [
+            { name: "id", type: "i64" },
+            { name: "name", type: "text", nullable: false, max_len: 120 },
+          ],
+          rows: [
+            [1, "Ada"],
+            [2, "Linus"],
+          ],
+          client_token: "token",
+          idempotency_key: "bulk-key-001",
+          database: "main",
+          options: { timeout_ms: 30000 },
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+  });
+
   it("should accept sql.cancel with execution_id", () => {
     const payload = {
       agentId: "agent-01",

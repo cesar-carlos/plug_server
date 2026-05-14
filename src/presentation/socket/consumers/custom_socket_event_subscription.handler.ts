@@ -21,9 +21,7 @@ import {
 const isClientPrincipalForCustomSocketEvents = (socket: Socket): boolean => {
   const user = socket.data.user;
   return (
-    user?.principal_type === "client" &&
-    typeof user.sub === "string" &&
-    user.sub.trim() !== ""
+    user?.principal_type === "client" && typeof user.sub === "string" && user.sub.trim() !== ""
   );
 };
 

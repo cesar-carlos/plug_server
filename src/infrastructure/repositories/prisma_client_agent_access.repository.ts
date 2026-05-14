@@ -1,4 +1,9 @@
+import type { Prisma } from "@prisma/client";
+
+import { Agent } from "../../domain/entities/agent.entity";
 import type {
+  ClientApprovedAgentListFilter,
+  ClientApprovedAgentListPage,
   ClientAgentAccessRecord,
   IClientAgentAccessRepository,
 } from "../../domain/repositories/client_agent_access.repository.interface";
@@ -60,6 +65,60 @@ export class PrismaClientAgentAccessRepository implements IClientAgentAccessRepo
           [row.agentId, typeof row.clientToken === "string" && row.clientToken !== ""] as const,
       ),
     );
+  }
+
+  async listApprovedAgentsPageByClient(
+    clientId: string,
+    filter?: ClientApprovedAgentListFilter,
+  ): Promise<ClientApprovedAgentListPage> {
+    const page = Math.max(1, filter?.page ?? 1);
+    const pageSize = Math.max(1, filter?.pageSize ?? 20);
+    const agentWhere: Prisma.AgentWhereInput = {
+      ...(filter?.status !== undefined ? { status: filter.status } : {}),
+      ...(filter?.search !== undefined && filter.search.trim() !== ""
+        ? {
+            OR: [
+              { name: { contains: filter.search, mode: "insensitive" as const } },
+              { tradeName: { contains: filter.search, mode: "insensitive" as const } },
+              { document: { contains: filter.search } },
+            ],
+          }
+        : {}),
+    };
+    const where: Prisma.ClientAgentAccessWhereInput = {
+      clientId,
+      ...(Object.keys(agentWhere).length > 0 ? { agent: agentWhere } : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      prismaClient.clientAgentAccess.findMany({
+        where,
+        include: { agent: true },
+        orderBy: [{ agent: { name: "asc" } }, { agentId: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prismaClient.clientAgentAccess.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) => ({
+        agent: this.toAgentEntity(row.agent),
+        hasClientToken: typeof row.clientToken === "string" && row.clientToken !== "",
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async listActiveClientIdsByAgentId(agentId: string): Promise<string[]> {
+    const rows = await prismaClient.clientAgentAccess.findMany({
+      where: { agentId, client: { status: "active" } },
+      select: { clientId: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map((row) => row.clientId);
   }
 
   async listByAgentId(agentId: string): Promise<ClientAgentAccessRecord[]> {
@@ -152,6 +211,56 @@ export class PrismaClientAgentAccessRepository implements IClientAgentAccessRepo
         clientId,
         agentId: { in: uniqueAgentIds },
       },
+    });
+  }
+
+  private toAgentEntity(record: {
+    agentId: string;
+    name: string;
+    tradeName: string | null;
+    document: string | null;
+    documentType: "cpf" | "cnpj" | null;
+    phone: string | null;
+    mobile: string | null;
+    email: string | null;
+    street: string | null;
+    number: string | null;
+    district: string | null;
+    postalCode: string | null;
+    city: string | null;
+    state: string | null;
+    notes: string | null;
+    profileUpdatedAt: Date | null;
+    profileVersion: number;
+    lastLoginUserId: string | null;
+    status: "active" | "inactive";
+    createdAt: Date;
+    updatedAt: Date;
+  }): Agent {
+    return Agent.create({
+      agentId: record.agentId,
+      name: record.name,
+      ...(record.tradeName !== null ? { tradeName: record.tradeName } : {}),
+      ...(record.document !== null ? { document: record.document } : {}),
+      ...(record.documentType !== null ? { documentType: record.documentType } : {}),
+      ...(record.phone !== null ? { phone: record.phone } : {}),
+      ...(record.mobile !== null ? { mobile: record.mobile } : {}),
+      ...(record.email !== null ? { email: record.email } : {}),
+      ...(record.notes !== null ? { notes: record.notes } : {}),
+      ...(record.profileUpdatedAt !== null ? { profileUpdatedAt: record.profileUpdatedAt } : {}),
+      profileVersion: record.profileVersion,
+      ...(record.lastLoginUserId !== null ? { lastLoginUserId: record.lastLoginUserId } : {}),
+      address: {
+        ...(record.street !== null ? { street: record.street } : {}),
+        ...(record.number !== null ? { number: record.number } : {}),
+        ...(record.district !== null ? { district: record.district } : {}),
+        ...(record.postalCode !== null ? { postalCode: record.postalCode } : {}),
+        ...(record.city !== null ? { city: record.city } : {}),
+        ...(record.state !== null ? { state: record.state } : {}),
+      },
+      status: record.status,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     });
   }
 }

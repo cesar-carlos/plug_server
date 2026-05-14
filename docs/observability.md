@@ -124,6 +124,26 @@ plug_socket_rate_limit_redis_circuit_open
 rate(plug_socket_rate_limit_redis_fallback_events_total[5m])
 rate(plug_socket_rate_limit_redis_runtime_command_errors_total[5m])
 
+# Socket.IO Redis adapter (rooms/pubsub entre replicas)
+plug_socket_io_redis_adapter_url_configured
+plug_socket_io_redis_adapter_active
+rate(plug_socket_io_redis_adapter_connection_events_total[5m])
+rate(plug_socket_io_redis_adapter_fallback_events_total[5m])
+rate(plug_socket_io_redis_adapter_runtime_errors_total[5m])
+
+# Redis opcional da idempotencia de `client:custom.*`
+plug_socket_custom_event_idempotency_redis_url_configured
+plug_socket_custom_event_idempotency_redis_store_active
+rate(plug_socket_custom_event_idempotency_redis_connection_events_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_fallback_events_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_command_errors_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_replay_hits_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_conflicts_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_locks_acquired_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_lock_contention_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_lock_wait_timeouts_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_writes_total[5m])
+
 # Relay: pedidos aceites vs rejeitados por rate-limit
 rate(plug_socket_relay_rate_limit_request_allowed_total[5m])
 rate(plug_socket_relay_rate_limit_request_rejected_total[5m])

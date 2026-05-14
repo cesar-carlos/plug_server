@@ -11,7 +11,6 @@ import type { IAgentIdentityRepository } from "../../domain/repositories/agent_i
 import type {
   AgentListFilter,
   IAgentRepository,
-  PaginatedAgentList,
 } from "../../domain/repositories/agent.repository.interface";
 import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
 import type {
@@ -50,7 +49,10 @@ import {
 } from "../../shared/metrics/client_agent_access_public_decision.metrics";
 import { recordClientAgentAccessRequestPost } from "../../shared/metrics/client_agent_access_request.metrics";
 import { recordSocketAuditEvent } from "./socket_audit.service";
-import { revokeConsumerClientAccessSockets, grantConsumerClientAccessRooms } from "./consumer_socket_control_sink";
+import {
+  revokeConsumerClientAccessSockets,
+  grantConsumerClientAccessRooms,
+} from "./consumer_socket_control_sink";
 import {
   assertAgentEligibleForClientAccessGrant,
   assertClientEligibleForClientAccessGrant,
@@ -80,6 +82,18 @@ export interface ClientAgentAccessRequestRecord {
   readonly requestedAt: Date;
   readonly decidedAt?: Date;
   readonly decisionReason?: string;
+}
+
+export interface ApprovedClientAgentListItem {
+  readonly agent: Agent;
+  readonly hasClientToken: boolean;
+}
+
+export interface ApprovedClientAgentListPage {
+  readonly items: ApprovedClientAgentListItem[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
 }
 
 export interface ClientAgentAccessRequestListFilter {
@@ -176,12 +190,11 @@ export class ClientAgentAccessService {
 
   /** Active client IDs with approved access to this agent (for realtime fan-out). */
   async listActiveApprovedClientIdsForAgent(agentId: string): Promise<string[]> {
+    if (this.clientAgentAccessRepository.listActiveClientIdsByAgentId !== undefined) {
+      return this.clientAgentAccessRepository.listActiveClientIdsByAgentId(agentId);
+    }
     const accesses = await this.clientAgentAccessRepository.listByAgentId(agentId);
-    const clientsById = await this.loadClientsById(accesses.map((access) => access.clientId));
-    return accesses
-      .map((access) => clientsById.get(access.clientId))
-      .filter((client): client is Client => client !== undefined && client.status === "active")
-      .map((client) => client.id);
+    return this.clientRepository.findActiveIdsByIds(accesses.map((access) => access.clientId));
   }
 
   async listApprovedAgents(clientId: string): Promise<Agent[]> {
@@ -197,22 +210,54 @@ export class ClientAgentAccessService {
     clientId: string,
     filter?: AgentListFilter,
     options?: { readonly refreshOnline?: boolean },
-  ): Promise<PaginatedAgentList> {
+  ): Promise<ApprovedClientAgentListPage> {
+    if (this.clientAgentAccessRepository.listApprovedAgentsPageByClient !== undefined) {
+      const pageResult = await this.clientAgentAccessRepository.listApprovedAgentsPageByClient(
+        clientId,
+        filter,
+      );
+      if (options?.refreshOnline !== true) {
+        return pageResult;
+      }
+      return {
+        ...pageResult,
+        items: await Promise.all(
+          pageResult.items.map(async (item) => ({
+            ...item,
+            agent: await this.resolvePreferredAgentSnapshot(
+              clientId,
+              item.agent.agentId,
+              item.agent,
+            ),
+          })),
+        ),
+      };
+    }
+
     const agentIds = await this.clientAgentAccessRepository.listAgentIdsByClientId(clientId);
     const pageResult = await this.agentRepository.findAll({
       ...(filter ?? {}),
       agentIds,
     });
-    if (options?.refreshOnline !== true) {
-      return pageResult;
-    }
+    const pageAgents =
+      options?.refreshOnline !== true
+        ? pageResult.items
+        : await Promise.all(
+            pageResult.items.map((agent) =>
+              this.resolvePreferredAgentSnapshot(clientId, agent.agentId, agent),
+            ),
+          );
+    const tokenPresenceByAgent =
+      await this.clientAgentAccessRepository.listClientTokenPresenceForClientIn(
+        clientId,
+        pageAgents.map((agent) => agent.agentId),
+      );
     return {
       ...pageResult,
-      items: await Promise.all(
-        pageResult.items.map((agent) =>
-          this.resolvePreferredAgentSnapshot(clientId, agent.agentId, agent),
-        ),
-      ),
+      items: pageAgents.map((agent) => ({
+        agent,
+        hasClientToken: tokenPresenceByAgent.get(agent.agentId) === true,
+      })),
     };
   }
 

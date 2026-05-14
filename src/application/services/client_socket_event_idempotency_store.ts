@@ -11,7 +11,7 @@ export interface ClientSocketEventPublishIdempotencyResponse {
   readonly recipients: number;
 }
 
-interface ClientSocketEventPublishIdempotencyEntry {
+export interface ClientSocketEventPublishIdempotencyEntry {
   readonly fingerprint: string;
   readonly response: ClientSocketEventPublishIdempotencyResponse;
   readonly expiresAtMs: number;
@@ -34,10 +34,13 @@ export const buildClientSocketEventPublishFingerprint = (
       attachments: input.attachments,
     });
   } catch {
-    throw new AppError("socket event publish body cannot be fingerprinted (non-JSON-serializable)", {
-      statusCode: 400,
-      code: "VALIDATION_ERROR",
-    });
+    throw new AppError(
+      "socket event publish body cannot be fingerprinted (non-JSON-serializable)",
+      {
+        statusCode: 400,
+        code: "VALIDATION_ERROR",
+      },
+    );
   }
   return createHash("sha256").update(canonical).digest("hex");
 };

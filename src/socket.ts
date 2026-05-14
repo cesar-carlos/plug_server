@@ -145,6 +145,7 @@ import {
 } from "./shared/metrics/socket_agent.metrics";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
+import { TtlCache } from "./shared/utils/ttl_cache";
 import {
   decodePayloadFrameAsync,
   encodePayloadFrame,
@@ -165,6 +166,7 @@ import {
 } from "./presentation/socket/hub/agent_register_rate_limit";
 import { toAgentCatalogDto } from "./presentation/http/serializers/agent_catalog.serializer";
 import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
+import { isSocketIoRedisAdapterActive } from "./infrastructure/redis/socket_io_redis_adapter";
 
 type SocketData = {
   user?: JwtAccessPayload;
@@ -175,20 +177,17 @@ type SocketData = {
 
 type HubSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
 
-type CachedClientProfileRecipients = {
-  readonly clientIds: readonly string[];
-  readonly expiresAtMs: number;
-};
-
 type PendingAgentProfilePush = {
   event: AgentProfileBroadcastEvent;
   timeoutHandle: NodeJS.Timeout;
 };
 
-const clientProfileRecipientsCacheByAgentId = new Map<string, CachedClientProfileRecipients>();
+const clientProfileRecipientsCacheByAgentId = new TtlCache<string, readonly string[]>(
+  env.socketClientAgentProfileRecipientCacheTtlMs,
+  env.socketClientAgentProfileRecipientCacheMaxSize,
+);
 const pendingAgentProfilePushByAgentId = new Map<string, PendingAgentProfilePush>();
 const clientAgentProfilePushDebounceMs = 25;
-const clientAgentProfileRecipientsCacheTtlMs = 1_000;
 
 const emitAppError = (socket: HubSocket, message: string): void => {
   socket.emit(socketEvents.appError, {
@@ -302,6 +301,24 @@ const disconnectConsumerSocketsInRoom = async (
   return sockets.length;
 };
 
+const countSocketsInRoom = async (
+  namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
+  room: string,
+): Promise<number> => {
+  if (!isSocketIoRedisAdapterActive()) {
+    return namespace.adapter.rooms.get(room)?.size ?? 0;
+  }
+  try {
+    return (await namespace.in(room).fetchSockets()).length;
+  } catch (error: unknown) {
+    logger.warn("socket_room_distributed_count_failed_fallback_local", {
+      room,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return namespace.adapter.rooms.get(room)?.size ?? 0;
+  }
+};
+
 const clearConsumerProfilePushState = (): void => {
   for (const pending of pendingAgentProfilePushByAgentId.values()) {
     clearTimeout(pending.timeoutHandle);
@@ -320,16 +337,13 @@ const logSocketLifecycleInfo = (event: string, payload: Record<string, unknown>)
 
 const getCachedProfilePushRecipients = async (agentId: string): Promise<readonly string[]> => {
   const cached = clientProfileRecipientsCacheByAgentId.get(agentId);
-  if (cached && cached.expiresAtMs > Date.now()) {
-    return cached.clientIds;
+  if (cached !== undefined) {
+    return cached;
   }
 
   const clientIds =
     await container.clientAgentAccessService.listActiveApprovedClientIdsForAgent(agentId);
-  clientProfileRecipientsCacheByAgentId.set(agentId, {
-    clientIds,
-    expiresAtMs: Date.now() + clientAgentProfileRecipientsCacheTtlMs,
-  });
+  clientProfileRecipientsCacheByAgentId.set(agentId, clientIds);
   return clientIds;
 };
 
@@ -1490,7 +1504,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   registerConsumerSocketEventHandler({
     publish: async (event) => {
       const room = buildCustomSocketEventRoom(event.eventName);
-      const recipients = (await consumersNsp.in(room).fetchSockets()).length;
+      const recipients = await countSocketsInRoom(consumersNsp, room);
       if (recipients === 0) {
         return { recipients };
       }

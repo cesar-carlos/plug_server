@@ -7,7 +7,9 @@ import {
   getClientSocketEventPublishIdempotencyEntry,
   setClientSocketEventPublishIdempotencyEntry,
   type ClientSocketEventPublishIdempotencyResponse,
+  type ClientSocketEventPublishIdempotencyEntry,
 } from "./client_socket_event_idempotency_store";
+import { getClientSocketEventPublishDistributedIdempotencyStore } from "./client_socket_event_publish_distributed_idempotency";
 import { runWithClientSocketEventPublishIdempotencySerialization } from "./client_socket_event_publish_idempotency_serialization";
 import { env } from "../../shared/config/env";
 import { AppError } from "../../shared/errors/app_error";
@@ -17,6 +19,12 @@ import {
   noteCustomSocketEventPublishIdempotentReplay,
   noteCustomSocketEventPublishRejected,
 } from "../../shared/metrics/socket_consumer.metrics";
+import {
+  noteClientSocketEventIdempotencyRedisConflict,
+  noteClientSocketEventIdempotencyRedisLockContention,
+  noteClientSocketEventIdempotencyRedisLockWaitTimeout,
+  noteClientSocketEventIdempotencyRedisReplay,
+} from "./client_socket_event_idempotency_redis_metrics.service";
 import type { ClientSocketEventPublishInput } from "../../shared/validators/custom_socket_event";
 import { jsonUtf8ByteLength } from "../../shared/validators/custom_socket_event";
 
@@ -76,6 +84,18 @@ const idempotencyConflict = (): AppError =>
     code: "IDEMPOTENCY_KEY_CONFLICT",
   });
 
+const idempotencyBusy = (): AppError =>
+  new AppError("Idempotency-Key is currently being processed by another hub replica", {
+    statusCode: 503,
+    code: "SERVICE_UNAVAILABLE",
+    details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
+  });
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 export interface ClientSocketEventPublishOutcome {
   readonly success: true;
   readonly eventId: string;
@@ -84,6 +104,41 @@ export interface ClientSocketEventPublishOutcome {
   readonly idempotencyKey?: string;
   readonly idempotentReplay: boolean;
 }
+
+const replayOutcome = (
+  existing: ClientSocketEventPublishIdempotencyEntry,
+  idempotencyKey: string,
+): ClientSocketEventPublishOutcome => ({
+  success: true,
+  eventId: existing.response.eventId,
+  eventName: existing.response.eventName,
+  recipients: existing.response.recipients,
+  idempotencyKey,
+  idempotentReplay: true,
+});
+
+const resolveExistingIdempotencyEntry = (
+  existing: ClientSocketEventPublishIdempotencyEntry | undefined,
+  fingerprint: string,
+  idempotencyKey: string,
+  source: "local" | "redis" = "local",
+): ClientSocketEventPublishOutcome | undefined => {
+  if (!existing) {
+    return undefined;
+  }
+  if (existing.fingerprint !== fingerprint) {
+    noteCustomSocketEventPublishRejected();
+    if (source === "redis") {
+      noteClientSocketEventIdempotencyRedisConflict();
+    }
+    throw idempotencyConflict();
+  }
+  noteCustomSocketEventPublishIdempotentReplay();
+  if (source === "redis") {
+    noteClientSocketEventIdempotencyRedisReplay();
+  }
+  return replayOutcome(existing, idempotencyKey);
+};
 
 /**
  * Shared publish path for `client:custom.*` used by REST and `socket:event.publish`.
@@ -125,84 +180,189 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
 
   if (idempotencyKey !== undefined && fingerprint !== undefined) {
     const existing = getClientSocketEventPublishIdempotencyEntry(clientId, idempotencyKey);
-    if (existing) {
-      if (existing.fingerprint !== fingerprint) {
-        noteCustomSocketEventPublishRejected();
-        throw idempotencyConflict();
-      }
-      noteCustomSocketEventPublishIdempotentReplay();
-      return {
-        success: true,
-        eventId: existing.response.eventId,
-        eventName: existing.response.eventName,
-        recipients: existing.response.recipients,
+    const localReplay = resolveExistingIdempotencyEntry(existing, fingerprint, idempotencyKey);
+    if (localReplay !== undefined) {
+      return localReplay;
+    }
+  }
+
+  let distributedIdempotencyStore =
+    idempotencyKey !== undefined && fingerprint !== undefined
+      ? getClientSocketEventPublishDistributedIdempotencyStore()
+      : undefined;
+  let distributedLockToken: string | undefined;
+  if (
+    distributedIdempotencyStore !== undefined &&
+    idempotencyKey !== undefined &&
+    fingerprint !== undefined
+  ) {
+    const existing = await distributedIdempotencyStore.getEntry(clientId, idempotencyKey);
+    const distributedReplay = resolveExistingIdempotencyEntry(
+      existing,
+      fingerprint,
+      idempotencyKey,
+      "redis",
+    );
+    if (distributedReplay !== undefined) {
+      return distributedReplay;
+    }
+
+    try {
+      distributedLockToken = await distributedIdempotencyStore.acquireLock(
+        clientId,
         idempotencyKey,
-        idempotentReplay: true,
-      };
+        env.restSocketEventIdempotencyRedisLockTtlMs,
+      );
+    } catch (error: unknown) {
+      logger.warn("client_socket_event_distributed_idempotency_lock_unavailable_fallback_local", {
+        clientId,
+        eventName: body.eventName,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      distributedIdempotencyStore = undefined;
+    }
+    const releaseDistributedLock = async (): Promise<void> => {
+      if (distributedIdempotencyStore !== undefined && distributedLockToken !== undefined) {
+        await distributedIdempotencyStore.releaseLock(
+          clientId,
+          idempotencyKey,
+          distributedLockToken,
+        );
+        distributedLockToken = undefined;
+      }
+    };
+    if (distributedLockToken === undefined) {
+      if (distributedIdempotencyStore !== undefined) {
+        noteClientSocketEventIdempotencyRedisLockContention();
+        const deadlineMs = Date.now() + env.restSocketEventIdempotencyRedisWaitMs;
+        while (Date.now() < deadlineMs) {
+          await sleep(Math.min(50, Math.max(1, deadlineMs - Date.now())));
+          const waitedEntry = await distributedIdempotencyStore.getEntry(clientId, idempotencyKey);
+          const waitedReplay = resolveExistingIdempotencyEntry(
+            waitedEntry,
+            fingerprint,
+            idempotencyKey,
+            "redis",
+          );
+          if (waitedReplay !== undefined) {
+            return waitedReplay;
+          }
+        }
+        noteClientSocketEventIdempotencyRedisLockWaitTimeout();
+        noteCustomSocketEventPublishRejected();
+        throw idempotencyBusy();
+      }
+    }
+
+    if (distributedIdempotencyStore !== undefined) {
+      try {
+        const existingAfterLock = await distributedIdempotencyStore.getEntry(
+          clientId,
+          idempotencyKey,
+        );
+        const replayAfterLock = resolveExistingIdempotencyEntry(
+          existingAfterLock,
+          fingerprint,
+          idempotencyKey,
+          "redis",
+        );
+        if (replayAfterLock !== undefined) {
+          await releaseDistributedLock();
+          return replayAfterLock;
+        }
+      } catch (error: unknown) {
+        await releaseDistributedLock();
+        throw error;
+      }
     }
   }
 
   const eventId = randomUUID();
   const emittedAt = new Date().toISOString();
 
-  let result: Awaited<ReturnType<typeof publishConsumerSocketEvent>>;
   try {
-    result = await publishConsumerSocketEvent({
+    let result: Awaited<ReturnType<typeof publishConsumerSocketEvent>>;
+    try {
+      result = await publishConsumerSocketEvent({
+        eventId,
+        eventName: body.eventName,
+        emittedAt,
+        publisher: {
+          principalType: "client",
+          clientId,
+        },
+        payload: body.payload,
+        attachments: body.attachments,
+        ...(body.payloadFrameCompression !== undefined
+          ? { payloadFrameCompression: body.payloadFrameCompression }
+          : {}),
+        ...(publishRequestId !== undefined && publishRequestId.trim() !== ""
+          ? { publishRequestId: publishRequestId.trim() }
+          : {}),
+      });
+    } catch (error: unknown) {
+      noteCustomSocketEventPublishRejected();
+      throw error;
+    }
+
+    noteCustomSocketEventPublishAccepted({
+      recipients: result.recipients,
+      attachmentBytes: body.attachments.reduce((sum, attachment) => sum + attachment.sizeBytes, 0),
+    });
+
+    logger.debug("client_socket_custom_event_published", {
+      clientId,
       eventId,
       eventName: body.eventName,
-      emittedAt,
-      publisher: {
-        principalType: "client",
-        clientId,
-      },
-      payload: body.payload,
-      attachments: body.attachments,
-      ...(body.payloadFrameCompression !== undefined
-        ? { payloadFrameCompression: body.payloadFrameCompression }
-        : {}),
+      recipients: result.recipients,
       ...(publishRequestId !== undefined && publishRequestId.trim() !== ""
         ? { publishRequestId: publishRequestId.trim() }
         : {}),
     });
-  } catch (error: unknown) {
-    noteCustomSocketEventPublishRejected();
-    throw error;
+
+    const idempotencyResponse: ClientSocketEventPublishIdempotencyResponse = {
+      success: true,
+      eventId,
+      eventName: body.eventName,
+      recipients: result.recipients,
+    };
+    if (idempotencyKey !== undefined && fingerprint !== undefined) {
+      setClientSocketEventPublishIdempotencyEntry(clientId, idempotencyKey, {
+        fingerprint,
+        response: idempotencyResponse,
+      });
+      if (distributedIdempotencyStore !== undefined) {
+        try {
+          await distributedIdempotencyStore.setEntry(clientId, idempotencyKey, {
+            fingerprint,
+            response: idempotencyResponse,
+          });
+        } catch (error: unknown) {
+          logger.warn("client_socket_event_distributed_idempotency_set_failed_after_emit", {
+            clientId,
+            eventId,
+            eventName: body.eventName,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      eventId,
+      eventName: body.eventName,
+      recipients: result.recipients,
+      ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
+      idempotentReplay: false,
+    };
+  } finally {
+    if (
+      distributedIdempotencyStore !== undefined &&
+      idempotencyKey !== undefined &&
+      distributedLockToken !== undefined
+    ) {
+      await distributedIdempotencyStore.releaseLock(clientId, idempotencyKey, distributedLockToken);
+    }
   }
-
-  noteCustomSocketEventPublishAccepted({
-    recipients: result.recipients,
-    attachmentBytes: body.attachments.reduce((sum, attachment) => sum + attachment.sizeBytes, 0),
-  });
-
-  logger.debug("client_socket_custom_event_published", {
-    clientId,
-    eventId,
-    eventName: body.eventName,
-    recipients: result.recipients,
-    ...(publishRequestId !== undefined && publishRequestId.trim() !== ""
-      ? { publishRequestId: publishRequestId.trim() }
-      : {}),
-  });
-
-  const idempotencyResponse: ClientSocketEventPublishIdempotencyResponse = {
-    success: true,
-    eventId,
-    eventName: body.eventName,
-    recipients: result.recipients,
-  };
-  if (idempotencyKey !== undefined && fingerprint !== undefined) {
-    setClientSocketEventPublishIdempotencyEntry(clientId, idempotencyKey, {
-      fingerprint,
-      response: idempotencyResponse,
-    });
-  }
-
-  return {
-    success: true,
-    eventId,
-    eventName: body.eventName,
-    recipients: result.recipients,
-    ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
-    idempotentReplay: false,
-  };
 };

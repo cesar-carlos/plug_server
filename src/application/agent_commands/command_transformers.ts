@@ -118,7 +118,7 @@ const REST_BRIDGE_TIMEOUT_BUFFER_MS = 5_000;
 const REST_BRIDGE_TIMEOUT_CEILING_MS = AGENT_TIMEOUT_MS_LIMIT + 60_000;
 
 /**
- * Largest `options.timeout_ms` declared on `sql.execute` / `sql.executeBatch` in a command (batch = max per item).
+ * Largest `options.timeout_ms` declared on SQL commands in a command (batch = max per item).
  */
 export const extractSqlStatementTimeoutMs = (
   command: AgentCommandBody["command"],
@@ -126,7 +126,11 @@ export const extractSqlStatementTimeoutMs = (
   if (Array.isArray(command)) {
     let max: number | undefined;
     for (const item of command) {
-      if (item.method === "sql.execute" || item.method === "sql.executeBatch") {
+      if (
+        item.method === "sql.execute" ||
+        item.method === "sql.executeBatch" ||
+        item.method === "sql.bulkInsert"
+      ) {
         const t = item.params.options?.timeout_ms;
         if (typeof t === "number" && Number.isFinite(t)) {
           max = max === undefined ? t : Math.max(max, t);
@@ -136,7 +140,11 @@ export const extractSqlStatementTimeoutMs = (
     return max;
   }
 
-  if (command.method === "sql.execute" || command.method === "sql.executeBatch") {
+  if (
+    command.method === "sql.execute" ||
+    command.method === "sql.executeBatch" ||
+    command.method === "sql.bulkInsert"
+  ) {
     const t = command.params.options?.timeout_ms;
     return typeof t === "number" && Number.isFinite(t) ? t : undefined;
   }

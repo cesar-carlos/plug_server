@@ -43,7 +43,7 @@ type PublishedAck =
         readonly idempotentReplay: boolean;
       };
     }
-    | {
+  | {
       readonly success: false;
       readonly requestId?: string;
       readonly error: {
@@ -251,7 +251,10 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
             eventName: outcome.eventName,
             recipients: outcome.recipients,
             ...(outcome.idempotencyKey !== undefined
-              ? { idempotencyKey: outcome.idempotencyKey, idempotentReplay: outcome.idempotentReplay }
+              ? {
+                  idempotencyKey: outcome.idempotencyKey,
+                  idempotentReplay: outcome.idempotentReplay,
+                }
               : { idempotentReplay: outcome.idempotentReplay }),
           },
         });

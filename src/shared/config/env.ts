@@ -197,6 +197,31 @@ const envSchema = z.object({
     .max(1_000_000)
     .default(0),
   /**
+   * Optional Redis URL for distributed idempotency of `client:custom.*` publishes.
+   * Empty = local in-memory replay/serialization only.
+   */
+  REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
+  /** TTL for the Redis SET NX lock protecting one distributed idempotency key while publish is in-flight. */
+  REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_LOCK_TTL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(60_000)
+    .default(5_000),
+  /**
+   * How long a contender waits for another replica to write the idempotent response
+   * before returning retryable 503. `0` = fail fast.
+   */
+  REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_WAIT_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(30_000)
+    .default(750),
+  /**
    * Express `express.json` limit for JSON-only `POST /api/v1/client/me/socket-events` (not global).
    * Empty: derive ~110% of worst-case UTF-8 envelope from `REST_SOCKET_EVENT_*` payload + attachment caps.
    */
@@ -255,6 +280,10 @@ const envSchema = z.object({
     .max(10_000_000)
     .default(10),
   DATABASE_URL: z.string().min(1),
+  /** Max attempts for transient Prisma transaction conflicts/deadlocks. `1` disables retry. */
+  DATABASE_TRANSACTION_RETRY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  /** Initial backoff in ms for transaction retries. Later attempts use exponential backoff with small jitter. */
+  DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(0).max(1_000).default(25),
   JWT_ACCESS_SECRET: z.string().min(16).default("change-me-access-development"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
   JWT_REFRESH_SECRET: z.string().min(16).default("change-me-refresh-development"),
@@ -530,6 +559,20 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((v) => v === "true"),
+  /** TTL for the approved active client recipient cache used by client profile pushes. */
+  SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(600_000)
+    .default(1_000),
+  /** Max agent entries retained in the client profile push recipient cache. */
+  SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(1_000_000)
+    .default(5_000),
   SOCKET_RELAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
@@ -743,6 +786,14 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  /**
+   * Optional Redis adapter for Socket.IO rooms/pubsub across hub replicas.
+   * Empty keeps the default in-memory adapter.
+   */
+  SOCKET_IO_REDIS_ADAPTER_URL: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
   /**
    * Engine.IO compression for long-polling responses. If unset: `false` when NODE_ENV=production (saves CPU with websocket-only default).
    */
@@ -989,11 +1040,16 @@ export const env = {
   restSocketEventIdempotencyMaxEntries: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES,
   restSocketEventIdempotencySerializationMaxKeys:
     parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS,
+  restSocketEventIdempotencyRedisUrl: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL,
+  restSocketEventIdempotencyRedisLockTtlMs:
+    parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_LOCK_TTL_MS,
+  restSocketEventIdempotencyRedisWaitMs: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_WAIT_MS,
   socketCustomEventPublishRateLimitWindowMs:
     parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_WINDOW_MS ??
     parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS,
   socketCustomEventPublishRateLimitMax:
-    parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_MAX ?? parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_MAX,
+    parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_MAX ??
+    parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_MAX,
   restSocketEventHttpJsonBodyLimit:
     parsedEnv.REST_SOCKET_EVENT_HTTP_JSON_BODY_LIMIT.trim() !== ""
       ? parsedEnv.REST_SOCKET_EVENT_HTTP_JSON_BODY_LIMIT.trim()
@@ -1016,6 +1072,8 @@ export const env = {
     parsedEnv.REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_WINDOW_MS,
   restClientPasswordRecoveryRateLimitMax: parsedEnv.REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_MAX,
   databaseUrl: parsedEnv.DATABASE_URL,
+  databaseTransactionRetryMaxAttempts: parsedEnv.DATABASE_TRANSACTION_RETRY_MAX_ATTEMPTS,
+  databaseTransactionRetryBaseDelayMs: parsedEnv.DATABASE_TRANSACTION_RETRY_BASE_DELAY_MS,
   jwtAccessSecret: parsedEnv.JWT_ACCESS_SECRET,
   jwtAccessExpiresIn: parsedEnv.JWT_ACCESS_EXPIRES_IN,
   jwtRefreshSecret: parsedEnv.JWT_REFRESH_SECRET,
@@ -1055,6 +1113,10 @@ export const env = {
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES.roles,
   socketConsumerRolesClientAppended: parsedEnv.SOCKET_CONSUMER_ROLES.clientAppended,
   socketClientAgentProfilePushEnabled: parsedEnv.SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED,
+  socketClientAgentProfileRecipientCacheTtlMs:
+    parsedEnv.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS,
+  socketClientAgentProfileRecipientCacheMaxSize:
+    parsedEnv.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE,
   socketRelayRequestTimeoutMs: parsedEnv.SOCKET_RELAY_REQUEST_TIMEOUT_MS,
   socketRelayConversationIdleTimeoutMs: parsedEnv.SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS,
   socketRelayConversationSweepIntervalMs: parsedEnv.SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS,
@@ -1107,6 +1169,7 @@ export const env = {
   socketIoPerMessageDeflate: parsedEnv.SOCKET_IO_PER_MESSAGE_DEFLATE,
   socketIoTransports: parsedEnv.SOCKET_IO_TRANSPORTS as ("websocket" | "polling")[],
   socketIoServeClient: parsedEnv.SOCKET_IO_SERVE_CLIENT,
+  socketIoRedisAdapterUrl: parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL,
   socketIoHttpCompression: parsedEnv.SOCKET_IO_HTTP_COMPRESSION,
   socketIoPingIntervalMs: parsedEnv.SOCKET_IO_PING_INTERVAL_MS,
   socketIoPingTimeoutMs: parsedEnv.SOCKET_IO_PING_TIMEOUT_MS,

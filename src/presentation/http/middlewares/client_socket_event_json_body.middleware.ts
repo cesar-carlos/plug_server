@@ -11,7 +11,9 @@ const socketEventsJsonParser: RequestHandler = express.json({
 const defaultJsonParser: RequestHandler = express.json({ limit: env.requestBodyLimit });
 
 const isApplicationJson = (request: Request): boolean =>
-  String(request.headers["content-type"] ?? "").toLowerCase().includes("application/json");
+  String(request.headers["content-type"] ?? "")
+    .toLowerCase()
+    .includes("application/json");
 
 /**
  * Applies a larger JSON body limit only for JSON `POST /api/v1/client/me/socket-events`.

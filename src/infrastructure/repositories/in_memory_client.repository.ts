@@ -38,6 +38,17 @@ export class InMemoryClientRepository implements IClientRepository {
     return [...this.store.values()].filter((client) => client.userId === userId);
   }
 
+  async findActiveIdsByIds(ids: readonly string[]): Promise<string[]> {
+    const out: string[] = [];
+    for (const id of new Set(ids)) {
+      const client = this.store.get(id);
+      if (client?.status === "active") {
+        out.push(id);
+      }
+    }
+    return out;
+  }
+
   async save(client: Client): Promise<void> {
     this.store.set(client.id, client);
   }

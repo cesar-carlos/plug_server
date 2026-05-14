@@ -41,6 +41,14 @@ import {
   closeSocketRateLimitRedis,
   initSocketRateLimitRedis,
 } from "./infrastructure/redis/socket_rate_limit_redis";
+import {
+  closeSocketIoRedisAdapter,
+  initSocketIoRedisAdapter,
+} from "./infrastructure/redis/socket_io_redis_adapter";
+import {
+  closeClientSocketEventPublishIdempotencyRedis,
+  initClientSocketEventPublishIdempotencyRedis,
+} from "./infrastructure/redis/client_socket_event_publish_idempotency_redis";
 import { prismaClient } from "./infrastructure/database/prisma/client";
 import { registerHttpRateLimits } from "./presentation/http/middlewares/rate_limit.middleware";
 import { closeSocketServer, createSocketServer } from "./socket";
@@ -59,6 +67,7 @@ let shutdownInProgress = false;
 const bootstrap = async (): Promise<void> => {
   await initRestHttpRateLimitRedis();
   await initSocketRateLimitRedis();
+  await initClientSocketEventPublishIdempotencyRedis();
   registerHttpRateLimits();
 
   const { createApp } = await import("./app");
@@ -69,6 +78,7 @@ const bootstrap = async (): Promise<void> => {
     httpServer.requestTimeout = env.httpRequestTimeoutMs;
   }
   io = createSocketServer(httpServer);
+  await initSocketIoRedisAdapter(io);
   logSocketConsumerBootstrapHints();
   logEnvWorldAlignmentHints();
   logEnvRestSocketEventHints();
@@ -174,6 +184,8 @@ const shutdown = async (signal: string): Promise<void> => {
       await closeSocketServer(io, signal);
     }
     await closeHttpServer();
+    await closeSocketIoRedisAdapter();
+    await closeClientSocketEventPublishIdempotencyRedis();
     await closeRestHttpRateLimitRedis();
     await closeSocketRateLimitRedis();
     await prismaClient.$disconnect();

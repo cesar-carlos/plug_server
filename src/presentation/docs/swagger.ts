@@ -508,6 +508,57 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: false,
         },
+        SqlBulkInsertColumn: {
+          type: "object",
+          required: ["name", "type"],
+          properties: {
+            name: { type: "string", minLength: 1 },
+            type: {
+              type: "string",
+              enum: ["i32", "i64", "text", "decimal", "binary", "timestamp"],
+            },
+            nullable: { type: "boolean" },
+            max_len: { type: "integer", minimum: 0 },
+          },
+          additionalProperties: false,
+        },
+        SqlBulkInsertOptions: {
+          type: "object",
+          description: `timeout_ms max ${AGENT_TIMEOUT_MS_LIMIT}, same as sql.execute options.`,
+          properties: {
+            timeout_ms: { type: "integer", minimum: 1, maximum: AGENT_TIMEOUT_MS_LIMIT },
+          },
+          additionalProperties: false,
+        },
+        SqlBulkInsertParams: {
+          type: "object",
+          required: ["table", "columns", "rows"],
+          description:
+            "Native ODBC bulk insert params. Each row must have the same length and order as columns.",
+          properties: {
+            table: { type: "string", minLength: 1 },
+            columns: {
+              type: "array",
+              minItems: 1,
+              items: { $ref: "#/components/schemas/SqlBulkInsertColumn" },
+            },
+            rows: {
+              type: "array",
+              minItems: 1,
+              items: {
+                type: "array",
+                items: {},
+              },
+            },
+            client_token: { type: "string", minLength: 1 },
+            clientToken: { type: "string", minLength: 1 },
+            auth: { type: "string", minLength: 1 },
+            idempotency_key: { type: "string", minLength: 1 },
+            database: { type: "string", minLength: 1 },
+            options: { $ref: "#/components/schemas/SqlBulkInsertOptions" },
+          },
+          additionalProperties: false,
+        },
         SqlCancelParams: {
           type: "object",
           properties: {
@@ -557,6 +608,19 @@ const swaggerSpec = swaggerJSDoc({
             method: { type: "string", enum: ["sql.executeBatch"] },
             id: { $ref: "#/components/schemas/JsonRpcId" },
             params: { $ref: "#/components/schemas/SqlExecuteBatchParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
+        RpcSqlBulkInsertCommand: {
+          type: "object",
+          required: ["method", "params"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["sql.bulkInsert"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/SqlBulkInsertParams" },
             api_version: { type: "string", minLength: 1 },
             meta: { $ref: "#/components/schemas/RpcMeta" },
           },
@@ -634,6 +698,7 @@ const swaggerSpec = swaggerJSDoc({
             { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteBatchCommand" },
+            { $ref: "#/components/schemas/RpcSqlBulkInsertCommand" },
             { $ref: "#/components/schemas/RpcSqlCancelCommand" },
             { $ref: "#/components/schemas/RpcDiscoverCommand" },
           ],
@@ -678,15 +743,14 @@ const swaggerSpec = swaggerJSDoc({
               maximum: 360_000,
               example: 15000,
               description:
-                "Max wait for agent response (ms). Raised automatically toward sql.execute/sql.executeBatch options.timeout_ms when higher.",
+                "Max wait for agent response (ms). Raised automatically toward SQL command options.timeout_ms when higher.",
             },
             pagination: { $ref: "#/components/schemas/AgentCommandPagination" },
             command: { $ref: "#/components/schemas/BridgeCommand" },
             payloadFrameCompression: {
               type: "string",
               enum: ["default", "none", "always"],
-              description:
-                `Optional gzip for hub-originated PayloadFrames on \`rpc:request\` to the agent. \`default\`: above ${HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES} bytes, gzip only if smaller than raw JSON (auto, aligned with plug_agente). \`none\`: never gzip. \`always\`: prefer gzip whenever eligible (always_gzip), even if compressed size is larger, but never emit a frame that exceeds the negotiated inflation-ratio guard.`,
+              description: `Optional gzip for hub-originated PayloadFrames on \`rpc:request\` to the agent. \`default\`: above ${HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES} bytes, gzip only if smaller than raw JSON (auto, aligned with plug_agente). \`none\`: never gzip. \`always\`: prefer gzip whenever eligible (always_gzip), even if compressed size is larger, but never emit a frame that exceeds the negotiated inflation-ratio guard.`,
             },
           },
           additionalProperties: false,

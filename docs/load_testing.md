@@ -1,19 +1,20 @@
 # Load testing
 
-Este repositório não inclui um runner de carga fixo. Use ferramentas externas para
-validar o hub e combine este guia com `docs/performance_hub_agent.md`,
-`docs/observability.md` e `docs/e2e_benchmark_hub_agent.md`.
+Use este guia junto de `docs/performance_hub_agent.md`,
+`docs/observability.md` e `docs/e2e_benchmark_hub_agent.md`. O repositorio inclui
+um probe Socket leve (`npm run load:socket-bridge`) para smoke/capacidade do hub;
+para benchmark profundo de SQL/ODBC, mantenha a carga no repositorio do agente.
 
 ## Escopo
 
 - **Hub (`plug_server`)**: mede inflight, fila por agente, relay, encode/decode de
-  `PayloadFrame`, auditoria e overload.
+  `PayloadFrame`, auditoria, pub/sub `client:custom.*` e overload.
 - **Agente (`plug_agente`)**: benchmark ODBC, `multi_result` e carga SQL real vivem
-  no repositório do agente; ver `docs/e2e_benchmark_hub_agent.md`.
+  no repositorio do agente; ver `docs/e2e_benchmark_hub_agent.md`.
 
 ## HTTP (REST bridge)
 
-Com token de utilizador válido:
+Com token de utilizador valido:
 
 ```bash
 # Exemplo: autocannon (npm i -g autocannon)
@@ -34,19 +35,20 @@ Cenarios realistas precisam de **dois lados**:
 1. um agente ligado em `/agents`;
 2. consumidores ligados em `/consumers`.
 
-Para smoke de latencia, um unico cliente pode stressar `agents:command` ou relay
-apos login HTTP. Para carga representativa, use:
+Para smoke de latencia, um unico cliente pode stressar `agents:command`, relay ou
+pub/sub custom. Para carga representativa, use:
 
 - 200 a 500 sockets em `/consumers`;
 - mistura aproximada de `60% client` e `40% user`;
 - 30% com conversa relay ativa;
 - bursts de `relay:conversation.start`;
-- `relay:rpc.request` com requests únicas e retries deduplicados;
+- `relay:rpc.request` com requests unicas e retries deduplicados;
 - streams com `relay:rpc.chunk` + `relay:rpc.stream.pull`;
-- rajadas de `client:agent.profile.updated` para o mesmo `agentId`.
+- rajadas de `client:agent.profile.updated` para o mesmo `agentId`;
+- fan-out de `client:custom.*` com sala vazia, sala media e sala acima de
+  `REST_SOCKET_EVENT_MAX_RECIPIENTS`.
 
-O repositorio tambem inclui um probe leve para o bridge Socket quando ja existe
-um hub em execucao e um agente real registado:
+O probe leve assume um hub em execucao e tokens ja obtidos:
 
 ```bash
 HUB_URL=http://localhost:3000 \
@@ -60,6 +62,31 @@ npm run load:socket-bridge
 
 MODE=relay npm run load:socket-bridge
 ```
+
+Para `client:custom.*`, `AGENT_ID` nao e necessario. Todos os sockets subscrevem
+`CUSTOM_EVENT_NAME`; cada job publica e espera `socket:event.published`:
+
+```bash
+HUB_URL=http://localhost:3000 \
+CONSUMER_TOKEN=YOUR_CLIENT_ACCESS_TOKEN \
+CONSUMERS=100 \
+REQUESTS_PER_CONSUMER=20 \
+CONCURRENCY=25 \
+MODE=custom-event \
+CUSTOM_EVENT_NAME=client:custom.load.demo \
+IDEMPOTENCY_MODE=unique \
+npm run load:socket-bridge
+```
+
+`IDEMPOTENCY_MODE` aceita:
+
+- `none`: sem chave, mede fan-out bruto.
+- `unique`: uma chave por publicacao, mede lock/escrita idempotente sem replay.
+- `shared`: mesma chave para todas as publicacoes, valida replay/conflito sob concorrencia.
+
+Em multi-replica, rode o mesmo teste com e sem `SOCKET_IO_REDIS_ADAPTER_URL` e,
+para retries, com `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL` ligado. Compare
+`recipients`, taxa de replay, timeouts de lock e latencia p95/p99.
 
 O script reporta sucesso/falha e p50/p95/p99. Ele foi desenhado para smoke de
 capacidade do bridge; para benchmark de banco/ODBC, manter os testes de carga no
@@ -76,6 +103,9 @@ capacidade do bridge; para benchmark de banco/ODBC, manter os testes de carga no
 - `plug_socket_consumers_profile_push_*`.
 - `plug_socket_consumers_commands_aborted_on_disconnect_total`.
 - `plug_socket_agents_command_rate_limit_weighted_costs_enabled`.
+- `plug_socket_custom_event_publish_*` para pub/sub `client:custom.*`.
+- `plug_socket_io_redis_adapter_*` quando usar adapter distribuido.
+- `plug_socket_custom_event_idempotency_redis_*` quando usar idempotencia Redis.
 
 ## Sinais de regressao
 
@@ -83,13 +113,17 @@ capacidade do bridge; para benchmark de banco/ODBC, manter os testes de carga no
 - `commands_aborted_on_disconnect_total` cresce com pending preso;
 - `guard_db_max_ms` sobe muito durante bursts;
 - `profile_push_fanout_max` explode sem aumento proporcional de recipients;
-- `503 SERVICE_UNAVAILABLE` por overload fora de picos esperados.
-- `plug_socket_relay_dispatch_total_queued_waiters` nao retorna a zero depois
-  de encerrado o burst.
+- `503 SERVICE_UNAVAILABLE` por overload fora de picos esperados;
+- `plug_socket_relay_dispatch_total_queued_waiters` nao retorna a zero depois de encerrado o burst;
+- `plug_socket_custom_event_idempotency_redis_lock_wait_timeouts_total` sobe de forma sustentada;
+- `plug_socket_io_redis_adapter_runtime_errors_total` cresce durante carga normal.
 
 ## Validacoes operacionais
 
 - bloquear um `User` e um `Client` durante o teste e confirmar desconexao ativa;
 - revogar um `ClientAgentAccess` durante stream ativo e confirmar corte da sessao;
 - repetir `relay:rpc.request` com o mesmo `client_request_id` e confirmar `deduplicated`;
-- comparar o comportamento com sticky sessions habilitado e desabilitado.
+- repetir `socket:event.publish` com mesma chave/corpo e confirmar `idempotentReplay`;
+- repetir `socket:event.publish` com mesma chave/corpo diferente e confirmar `IDEMPOTENCY_KEY_CONFLICT`;
+- comparar o comportamento com sticky sessions habilitado e desabilitado;
+- comparar `client:custom.*` com Redis adapter ligado e desligado quando houver mais de uma replica.

@@ -1,50 +1,31 @@
 import type { User } from "../entities/user.entity";
-import type { IRegistrationApprovalTokenRepository } from "../repositories/registration_approval_token.repository.interface";
-import type { IUserRepository } from "../repositories/user.repository.interface";
+import type { IRegistrationDecisionTxn } from "../ports/registration_decision_txn.port";
 import { conflict, notFound, registrationTokenExpired } from "../../shared/errors/http_errors";
 import {
   incrementRegistrationRejected,
   incrementRegistrationTokenExpired,
 } from "../../shared/metrics/registration_flow.metrics";
 import { type Result, ok, err } from "../../shared/errors/result";
-import { isExpired } from "../../shared/utils/date";
-import { transitionUserRegistrationToRejected } from "../policies/user_registration_status.policy";
 
 export class RejectRegistrationUseCase {
-  constructor(
-    private readonly approvalTokenRepository: IRegistrationApprovalTokenRepository,
-    private readonly userRepository: IUserRepository,
-  ) {}
+  constructor(private readonly registrationDecisionTxn: IRegistrationDecisionTxn) {}
 
   async execute(tokenId: string): Promise<Result<User>> {
-    const token = await this.approvalTokenRepository.findById(tokenId);
-    if (!token) {
-      return err(notFound("Rejection link is invalid or has expired"));
+    const result = await this.registrationDecisionTxn.reject(tokenId);
+    if (result.status === "rejected") {
+      incrementRegistrationRejected();
+      return ok(result.user);
     }
-
-    if (isExpired(token.expiresAt)) {
-      await this.approvalTokenRepository.deleteById(tokenId);
+    if (result.status === "expired") {
       incrementRegistrationTokenExpired();
       return err(registrationTokenExpired("This rejection link has expired"));
     }
-
-    const user = await this.userRepository.findById(token.userId);
-    if (!user) {
-      await this.approvalTokenRepository.deleteById(tokenId);
+    if (result.status === "user_not_found") {
       return err(notFound("User"));
     }
-
-    const rejectedUserResult = transitionUserRegistrationToRejected(user);
-    if (!rejectedUserResult.ok) {
-      await this.approvalTokenRepository.deleteById(tokenId);
-      return err(conflict(rejectedUserResult.error.message));
+    if (result.status === "not_pending") {
+      return err(conflict("Registration already processed"));
     }
-    const rejectedUser = rejectedUserResult.value;
-
-    await this.userRepository.save(rejectedUser);
-    await this.approvalTokenRepository.deleteById(tokenId);
-
-    incrementRegistrationRejected();
-    return ok(rejectedUser);
+    return err(notFound("Rejection link is invalid or has expired"));
   }
 }

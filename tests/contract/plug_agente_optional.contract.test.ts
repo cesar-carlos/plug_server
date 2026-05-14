@@ -19,9 +19,11 @@ const SCHEMA_FILES = [
   "rpc.batch.response.schema.json",
   "rpc.params.sql-execute.schema.json",
   "rpc.params.sql-execute-batch.schema.json",
+  "rpc.params.sql-bulk-insert.schema.json",
   "rpc.params.sql-cancel.schema.json",
   "rpc.result.sql-execute.schema.json",
   "rpc.result.sql-execute-batch.schema.json",
+  "rpc.result.sql-bulk-insert.schema.json",
   "rpc.stream.chunk.schema.json",
   "rpc.stream.complete.schema.json",
   "rpc.stream.pull.schema.json",
@@ -134,6 +136,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     const names = new Set((doc.methods ?? []).map((m) => m.name));
     expect(names.has("sql.execute")).toBe(true);
     expect(names.has("sql.executeBatch")).toBe(true);
+    expect(names.has("sql.bulkInsert")).toBe(true);
     expect(names.has("sql.cancel")).toBe(true);
     expect(names.has("rpc.discover")).toBe(true);
     expect(names.has("agent.getProfile")).toBe(true);
@@ -170,6 +173,9 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     const validateSqlBatchParams = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.params.sql-execute-batch.v1.json",
     );
+    const validateSqlBulkInsertParams = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.params.sql-bulk-insert.v1.json",
+    );
     const validateSqlCancelParams = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.params.sql-cancel.v1.json",
     );
@@ -179,6 +185,9 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     );
     const validateSqlResult = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.result.sql-execute.v1.json",
+    );
+    const validateSqlBulkInsertResult = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.result.sql-bulk-insert.v1.json",
     );
     const validateAgentGetProfileParams = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.params.agent-get-profile.v1.json",
@@ -207,10 +216,12 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
 
     expect(validateSqlExecuteParams).toBeDefined();
     expect(validateSqlBatchParams).toBeDefined();
+    expect(validateSqlBulkInsertParams).toBeDefined();
     expect(validateSqlCancelParams).toBeDefined();
     expect(validateRpcRequest).toBeDefined();
     expect(validatePayloadFrame).toBeDefined();
     expect(validateSqlResult).toBeDefined();
+    expect(validateSqlBulkInsertResult).toBeDefined();
     expect(validateAgentGetProfileParams).toBeDefined();
     expect(validateAgentGetProfileResult).toBeDefined();
     expect(validateAgentGetHealthParams).toBeDefined();
@@ -257,6 +268,28 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       method: "sql.executeBatch",
       id: "contract-batch-1",
       params: batchParams,
+    });
+
+    const bulkInsertParams = {
+      table: "dbo.bulk_target",
+      columns: [
+        { name: "id", type: "i64" },
+        { name: "payload", type: "text", nullable: false, max_len: 255 },
+      ],
+      rows: [
+        [1, "alpha"],
+        [2, "beta"],
+      ],
+      client_token: "a1b2c3d4",
+      idempotency_key: "contract-bulk-1",
+      options: { timeout_ms: 10000 },
+    };
+    expect(validateSqlBulkInsertParams!(bulkInsertParams)).toBe(true);
+    assertZodAcceptsCommand({
+      jsonrpc: "2.0",
+      method: "sql.bulkInsert",
+      id: "contract-bulk-1",
+      params: bulkInsertParams,
     });
 
     const cancelParams = { execution_id: "exec-1", request_id: "req-1" };

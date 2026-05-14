@@ -36,6 +36,23 @@ const sampleCommandByMethod = {
     method: "rpc.discover",
     params: {},
   },
+  "sql.bulkInsert": {
+    jsonrpc: "2.0",
+    id: "bulk-1",
+    method: "sql.bulkInsert",
+    params: {
+      table: "target_table",
+      columns: [
+        { name: "id", type: "i64" },
+        { name: "name", type: "text" },
+      ],
+      rows: [
+        [1, "Ada"],
+        [2, "Linus"],
+      ],
+      client_token: "token",
+    },
+  },
   "sql.cancel": {
     jsonrpc: "2.0",
     id: "cancel-1",

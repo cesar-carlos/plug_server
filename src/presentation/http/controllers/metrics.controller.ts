@@ -5,6 +5,8 @@ import { getAgentDataMaintenanceMetricsSnapshot } from "../../../application/ser
 import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { getRestRateLimitRedisMetricsSnapshot } from "../../../application/services/rest_rate_limit_redis_metrics.service";
+import { getSocketIoRedisAdapterMetricsSnapshot } from "../../../application/services/socket_io_redis_adapter_metrics.service";
+import { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../../application/services/client_socket_event_idempotency_redis_metrics.service";
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
 import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
@@ -60,6 +62,8 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const agentDataMaintenance = getAgentDataMaintenanceMetricsSnapshot();
   const restHttpRl = getRestHttpRateLimitMetricsSnapshot();
   const restRateLimitRedis = getRestRateLimitRedisMetricsSnapshot();
+  const socketIoRedisAdapter = getSocketIoRedisAdapterMetricsSnapshot();
+  const customEventIdempotencyRedis = getClientSocketEventIdempotencyRedisMetricsSnapshot();
   const registrationFlow = getRegistrationFlowMetricsSnapshot();
   const authAccount = getAuthAccountMetricsSnapshot();
   const clientMeAgents = getClientMeAgentsMetricsSnapshot();
@@ -256,6 +260,111 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_rate_limit_redis_last_connection_timestamp_ms",
       socketRateLimitRedis.lastConnectionAtMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_io_redis_adapter_url_configured",
+      socketIoRedisAdapter.redisUrlConfigured,
+    ),
+  );
+  lines.push(
+    metricLine("plug_socket_io_redis_adapter_active", socketIoRedisAdapter.redisAdapterActive),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_io_redis_adapter_connection_events_total",
+      socketIoRedisAdapter.connectionEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_io_redis_adapter_fallback_events_total",
+      socketIoRedisAdapter.fallbackEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_io_redis_adapter_runtime_errors_total",
+      socketIoRedisAdapter.runtimeErrorEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_io_redis_adapter_last_connection_timestamp_ms",
+      socketIoRedisAdapter.lastConnectionAtMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_io_redis_adapter_last_fallback_timestamp_ms",
+      socketIoRedisAdapter.lastFallbackAtMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_url_configured",
+      customEventIdempotencyRedis.redisUrlConfigured,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_store_active",
+      customEventIdempotencyRedis.redisStoreActive,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_connection_events_total",
+      customEventIdempotencyRedis.connectionEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_fallback_events_total",
+      customEventIdempotencyRedis.fallbackEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_command_errors_total",
+      customEventIdempotencyRedis.runtimeCommandErrorEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_replay_hits_total",
+      customEventIdempotencyRedis.replayHitsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_conflicts_total",
+      customEventIdempotencyRedis.conflictsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_locks_acquired_total",
+      customEventIdempotencyRedis.locksAcquiredTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_lock_contention_total",
+      customEventIdempotencyRedis.lockContentionTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_lock_wait_timeouts_total",
+      customEventIdempotencyRedis.lockWaitTimeoutsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_writes_total",
+      customEventIdempotencyRedis.writesTotal,
     ),
   );
 

@@ -34,7 +34,9 @@ export const restSocketEventHttpJsonBodyMinBytes = (
   payloadJsonMaxBytes: number,
   totalFilesMaxBytes: number,
 ): number =>
-  Math.ceil(clientSocketEventPublishEnvelopeUtf8UpperBound(payloadJsonMaxBytes, totalFilesMaxBytes) * 1.05);
+  Math.ceil(
+    clientSocketEventPublishEnvelopeUtf8UpperBound(payloadJsonMaxBytes, totalFilesMaxBytes) * 1.05,
+  );
 
 /** Whole MiB string for Express / body-parser (`"12mb"`). */
 export const formatExpressJsonBodyLimitMb = (minBytes: number): string => {
@@ -47,5 +49,7 @@ export const defaultRestSocketEventHttpJsonBodyLimit = (
   totalFilesMaxBytes: number,
 ): string =>
   formatExpressJsonBodyLimitMb(
-    Math.ceil(clientSocketEventPublishEnvelopeUtf8UpperBound(payloadJsonMaxBytes, totalFilesMaxBytes) * 1.1),
+    Math.ceil(
+      clientSocketEventPublishEnvelopeUtf8UpperBound(payloadJsonMaxBytes, totalFilesMaxBytes) * 1.1,
+    ),
   );

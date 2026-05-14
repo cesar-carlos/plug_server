@@ -334,7 +334,9 @@ export class AgentSelfProfileService {
         existing.update({
           ...input.patch,
           profileUpdatedAt: effectiveProfileUpdatedAt,
-          ...(input.lastLoginUserId !== undefined ? { lastLoginUserId: input.lastLoginUserId } : {}),
+          ...(input.lastLoginUserId !== undefined
+            ? { lastLoginUserId: input.lastLoginUserId }
+            : {}),
           profileVersion: existing.profileVersion,
         }),
       );

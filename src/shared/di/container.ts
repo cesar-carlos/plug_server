@@ -15,6 +15,8 @@ import type { IClientRefreshTokenRepository } from "../../domain/repositories/cl
 import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
 import type { IPendingClientAgentAccessWriter } from "../../domain/ports/pending_client_agent_access_writer.port";
 import type { IClientAgentAccessApprovalTxn } from "../../domain/ports/client_agent_access_approval_txn.port";
+import type { IClientRegistrationDecisionTxn } from "../../domain/ports/client_registration_decision_txn.port";
+import type { IRegistrationDecisionTxn } from "../../domain/ports/registration_decision_txn.port";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
@@ -62,6 +64,10 @@ import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_u
 import { PrismaPendingClientAgentAccessWriter } from "../../infrastructure/persistence/prisma_pending_client_agent_access.writer";
 import { PrismaClientAgentAccessApprovalTxn } from "../../infrastructure/persistence/prisma_client_agent_access_approval_txn";
 import { InMemoryClientAgentAccessApprovalTxn } from "../../infrastructure/persistence/in_memory_client_agent_access_approval_txn";
+import { InMemoryClientRegistrationDecisionTxn } from "../../infrastructure/persistence/in_memory_client_registration_decision_txn";
+import { InMemoryRegistrationDecisionTxn } from "../../infrastructure/persistence/in_memory_registration_decision_txn";
+import { PrismaClientRegistrationDecisionTxn } from "../../infrastructure/persistence/prisma_client_registration_decision_txn";
+import { PrismaRegistrationDecisionTxn } from "../../infrastructure/persistence/prisma_registration_decision_txn";
 import { SequentialPendingClientAgentAccessWriter } from "../../infrastructure/persistence/sequential_pending_client_agent_access.writer";
 import { isAgentConnectedToHub } from "../../presentation/socket/hub/agent_hub_connection";
 import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/rpc_bridge";
@@ -127,6 +133,17 @@ const clientAgentAccessApprovalTxn: IClientAgentAccessApprovalTxn = shouldUseInM
     )
   : new PrismaClientAgentAccessApprovalTxn();
 
+const registrationDecisionTxn: IRegistrationDecisionTxn = shouldUseInMemoryPersistence
+  ? new InMemoryRegistrationDecisionTxn(registrationApprovalTokenRepository, userRepository)
+  : new PrismaRegistrationDecisionTxn();
+
+const clientRegistrationDecisionTxn: IClientRegistrationDecisionTxn = shouldUseInMemoryPersistence
+  ? new InMemoryClientRegistrationDecisionTxn(
+      clientRegistrationApprovalTokenRepository,
+      clientRepository,
+    )
+  : new PrismaClientRegistrationDecisionTxn();
+
 const emailSender = shouldUseNoopEmailSender
   ? new NoopEmailSender()
   : new NodemailerEmailSender({
@@ -152,14 +169,8 @@ const healthReadinessService = new HealthReadinessService(new PrismaDatabaseRead
 });
 
 const registerUseCase = new RegisterUseCase(userRepository, registrationApprovalTokenRepository);
-const approveRegistrationUseCase = new ApproveRegistrationUseCase(
-  registrationApprovalTokenRepository,
-  userRepository,
-);
-const rejectRegistrationUseCase = new RejectRegistrationUseCase(
-  registrationApprovalTokenRepository,
-  userRepository,
-);
+const approveRegistrationUseCase = new ApproveRegistrationUseCase(registrationDecisionTxn);
+const rejectRegistrationUseCase = new RejectRegistrationUseCase(registrationDecisionTxn);
 const getRegistrationStatusUseCase = new GetRegistrationStatusUseCase(
   registrationApprovalTokenRepository,
 );
@@ -189,6 +200,7 @@ const clientAuthService = new ClientAuthService(
   clientRefreshTokenRepository,
   clientPasswordRecoveryTokenRepository,
   clientRegistrationApprovalTokenRepository,
+  clientRegistrationDecisionTxn,
   userRepository,
   passwordHasher,
   emailSender,

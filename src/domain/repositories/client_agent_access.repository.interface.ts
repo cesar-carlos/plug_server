@@ -1,3 +1,5 @@
+import type { Agent, AgentStatus } from "../entities/agent.entity";
+
 export interface ClientAgentAccessRecord {
   readonly clientId: string;
   readonly agentId: string;
@@ -8,6 +10,25 @@ export interface ClientAgentAccessRecord {
    * a token (e.g. agent does not require auth or the client cleared it).
    */
   readonly clientToken: string | null;
+}
+
+export interface ClientApprovedAgentListFilter {
+  readonly status?: AgentStatus;
+  readonly search?: string;
+  readonly page?: number;
+  readonly pageSize?: number;
+}
+
+export interface ClientApprovedAgentListItem {
+  readonly agent: Agent;
+  readonly hasClientToken: boolean;
+}
+
+export interface ClientApprovedAgentListPage {
+  readonly items: ClientApprovedAgentListItem[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
 }
 
 export interface IClientAgentAccessRepository {
@@ -24,6 +45,13 @@ export interface IClientAgentAccessRepository {
     clientId: string,
     agentIds: readonly string[],
   ): Promise<Map<string, boolean>>;
+  /** Optimized approved-agent page for `GET /client/me/agents` when backed by SQL. */
+  listApprovedAgentsPageByClient?(
+    clientId: string,
+    filter?: ClientApprovedAgentListFilter,
+  ): Promise<ClientApprovedAgentListPage>;
+  /** Optimized active-client ID projection for realtime fan-out when backed by SQL. */
+  listActiveClientIdsByAgentId?(agentId: string): Promise<string[]>;
   listByAgentId(agentId: string): Promise<ClientAgentAccessRecord[]>;
   /** Returns the per-(client, agent) record (including its `client_token`) when access exists. */
   findByClientAndAgent(clientId: string, agentId: string): Promise<ClientAgentAccessRecord | null>;

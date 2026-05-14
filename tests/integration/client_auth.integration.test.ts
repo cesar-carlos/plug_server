@@ -89,6 +89,70 @@ describe("Client auth registration approval flow", () => {
     expect(loginRes.body.accessToken).toBeDefined();
   });
 
+  it("concurrent client registration approve/approve has one winner", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-client-concurrent-approve`,
+      emailPrefix: "client-owner",
+    });
+    const email = `client-concurrent-approve-${Date.now()}@test.com`;
+    const password = "ClientRegPwd1";
+
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+      name: "Concurrent",
+      lastName: "Approve",
+    });
+    expect(registerRes.status).toBe(201);
+    const token = registerRes.body.approvalToken as string;
+
+    const [first, second] = await Promise.all([
+      request(app).post("/api/v1/client-auth/registration/approve").send({ token }),
+      request(app).post("/api/v1/client-auth/registration/approve").send({ token }),
+    ]);
+
+    const statuses = [first.status, second.status];
+    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+    expect(statuses).toContain(404);
+    expect(await repositories.clientRegistrationApprovalToken.findById(token)).toBeNull();
+
+    const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
+    expect(loginRes.status).toBe(200);
+  });
+
+  it("concurrent client registration approve/reject has one winner", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-client-concurrent-decision`,
+      emailPrefix: "client-owner",
+    });
+    const email = `client-concurrent-decision-${Date.now()}@test.com`;
+    const password = "ClientRegPwd1";
+
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+      name: "Concurrent",
+      lastName: "Decision",
+    });
+    expect(registerRes.status).toBe(201);
+    const token = registerRes.body.approvalToken as string;
+    const clientId = registerRes.body.client.id as string;
+
+    const [approve, reject] = await Promise.all([
+      request(app).post("/api/v1/client-auth/registration/approve").send({ token }),
+      request(app).post("/api/v1/client-auth/registration/reject").send({ token, reason: "race" }),
+    ]);
+
+    const statuses = [approve.status, reject.status];
+    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+    expect(statuses).toContain(404);
+    expect(await repositories.clientRegistrationApprovalToken.findById(token)).toBeNull();
+    const stored = await repositories.client.findById(clientId);
+    expect(["active", "rejected"]).toContain(stored?.status);
+  });
+
   it("POST /api/v1/client-auth/registration/approve allows opaque Origin (email webviews)", async () => {
     const owner = await registerOwnerSession(app, {
       suffix: `${Date.now()}-origin-null`,

@@ -29,7 +29,9 @@ import {
 } from "../../../shared/metrics/client_me_agents.metrics";
 import { toClientAgentDto } from "../mappers/client_agent.mapper";
 
-const clientAccessHome = (lang: ReturnType<typeof negotiateApprovalHtmlLang>): { homeUrl: string; homeLabel: string } => {
+const clientAccessHome = (
+  lang: ReturnType<typeof negotiateApprovalHtmlLang>,
+): { homeUrl: string; homeLabel: string } => {
   const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
   return { homeUrl, homeLabel: approvalHomeLabel(lang) };
 };
@@ -67,22 +69,17 @@ export const listMyClientAgents = async (_request: Request, response: Response):
       refreshOnline: query.refresh === true,
     },
   );
-  const tokenPresenceByAgent =
-    await container.clientAgentAccessService.getClientTokenPresenceForAgents(
-      authClient.sub,
-      pageResult.items.map((agent) => agent.agentId),
-    );
-  const agents = pageResult.items.map((agent) =>
+  const agents = pageResult.items.map((item) =>
     toClientAgentDto(
-      agent,
-      container.isAgentConnectedToHub(agent.agentId),
-      tokenPresenceByAgent.get(agent.agentId) === true,
+      item.agent,
+      container.isAgentConnectedToHub(item.agent.agentId),
+      item.hasClientToken,
     ),
   );
   recordClientMeAgentsListResponse(agents.filter((a) => a.isHubConnected).length);
   response.status(200).json({
     agents,
-    agentIds: pageResult.items.map((agent) => agent.agentId),
+    agentIds: pageResult.items.map((item) => item.agent.agentId),
     count: pageResult.items.length,
     total: pageResult.total,
     page: pageResult.page,

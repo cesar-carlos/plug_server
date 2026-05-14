@@ -32,7 +32,11 @@ describe("runWithClientSocketEventPublishIdempotencySerialization", () => {
   it("drops the map entry when the chain for a key finishes", async () => {
     resetClientSocketEventPublishIdempotencySerializationQueues();
     expect(getClientSocketEventPublishIdempotencySerializationTrackedKeyCount()).toBe(0);
-    await runWithClientSocketEventPublishIdempotencySerialization("client", "idem-1", async () => "done");
+    await runWithClientSocketEventPublishIdempotencySerialization(
+      "client",
+      "idem-1",
+      async () => "done",
+    );
     expect(getClientSocketEventPublishIdempotencySerializationTrackedKeyCount()).toBe(0);
   });
 
@@ -54,18 +58,12 @@ describe("runWithClientSocketEventPublishIdempotencySerialization", () => {
     };
 
     const maxTrackedKeys = 2;
-    const first = runWithClientSocketEventPublishIdempotencySerialization(
-      "c",
-      "k1",
-      hang,
-      { maxTrackedKeys },
-    );
-    const second = runWithClientSocketEventPublishIdempotencySerialization(
-      "c",
-      "k2",
-      hang,
-      { maxTrackedKeys },
-    );
+    const first = runWithClientSocketEventPublishIdempotencySerialization("c", "k1", hang, {
+      maxTrackedKeys,
+    });
+    const second = runWithClientSocketEventPublishIdempotencySerialization("c", "k2", hang, {
+      maxTrackedKeys,
+    });
 
     await new Promise<void>((resolve) => {
       queueMicrotask(resolve);

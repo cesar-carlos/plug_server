@@ -9,10 +9,13 @@ vi.mock("../../../../../src/application/services/client_socket_event_publish.ser
   assertClientSocketEventPublishInputWithinLimits: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter", () => ({
-  allowClientSocketEventPublishSocketAsync: vi.fn(),
-  refundClientSocketEventPublishSocketAsync: vi.fn(),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter",
+  () => ({
+    allowClientSocketEventPublishSocketAsync: vi.fn(),
+    refundClientSocketEventPublishSocketAsync: vi.fn(),
+  }),
+);
 
 vi.mock("../../../../../src/shared/metrics/socket_consumer.metrics", () => ({
   noteCustomSocketEventPublishRejected: vi.fn(),
@@ -251,11 +254,15 @@ describe("handleCustomSocketEventPublish dedicated inflight", () => {
   });
 
   afterEach(() => {
-    (env as { socketCustomEventPublishMaxInflightPerSocket: number }).socketCustomEventPublishMaxInflightPerSocket = 0;
+    (
+      env as { socketCustomEventPublishMaxInflightPerSocket: number }
+    ).socketCustomEventPublishMaxInflightPerSocket = 0;
   });
 
   it("should reject second publish when dedicated cap is 1 and first is still in flight", () => {
-    (env as { socketCustomEventPublishMaxInflightPerSocket: number }).socketCustomEventPublishMaxInflightPerSocket = 1;
+    (
+      env as { socketCustomEventPublishMaxInflightPerSocket: number }
+    ).socketCustomEventPublishMaxInflightPerSocket = 1;
     mockedExecute.mockImplementation(
       () =>
         new Promise(() => {

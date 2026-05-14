@@ -210,6 +210,52 @@ describe("Auth API", () => {
       expect(second.status).toBe(404);
     });
 
+    it("concurrent approve/approve for the same registration token has one winner", async () => {
+      const credentials = {
+        email: `concurrent-approve-${Date.now()}@test.com`,
+        password: "Concurrent1",
+      };
+      const reg = await request(app).post("/api/v1/auth/register").send(credentials);
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+
+      const [first, second] = await Promise.all([
+        request(app).post("/api/v1/auth/registration/approve").send({ token }),
+        request(app).post("/api/v1/auth/registration/approve").send({ token }),
+      ]);
+
+      const statuses = [first.status, second.status];
+      expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+      expect(statuses).toContain(404);
+      expect(await repositories.registrationApprovalToken.findById(token)).toBeNull();
+
+      const login = await request(app).post("/api/v1/auth/login").send(credentials);
+      expect(login.status).toBe(200);
+    });
+
+    it("concurrent approve/reject for the same registration token has one winner", async () => {
+      const credentials = {
+        email: `concurrent-decision-${Date.now()}@test.com`,
+        password: "Concurrent2",
+      };
+      const reg = await request(app).post("/api/v1/auth/register").send(credentials);
+      expect(reg.status).toBe(201);
+      const token = reg.body.approvalToken as string;
+      const userId = reg.body.user.id as string;
+
+      const [approve, reject] = await Promise.all([
+        request(app).post("/api/v1/auth/registration/approve").send({ token }),
+        request(app).post("/api/v1/auth/registration/reject").send({ token, reason: "race" }),
+      ]);
+
+      const statuses = [approve.status, reject.status];
+      expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+      expect(statuses).toContain(404);
+      expect(await repositories.registrationApprovalToken.findById(token)).toBeNull();
+      const stored = await repositories.user.findById(userId);
+      expect(["active", "rejected"]).toContain(stored?.status);
+    });
+
     it("POST /api/v1/auth/registration/reject rejects the registration and blocks login", async () => {
       const rejectedUser = { email: `rejected-${Date.now()}@test.com`, password: "Rejected1" };
       const reg = await request(app).post("/api/v1/auth/register").send(rejectedUser);

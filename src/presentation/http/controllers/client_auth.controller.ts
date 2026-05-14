@@ -108,7 +108,9 @@ const clearRefreshTokenCookie = (response: Response): void => {
   clearRefreshCookie(response, refreshTokenCookieName);
 };
 
-const appHome = (lang: ReturnType<typeof negotiateApprovalHtmlLang>): { homeUrl: string; homeLabel: string } => {
+const appHome = (
+  lang: ReturnType<typeof negotiateApprovalHtmlLang>,
+): { homeUrl: string; homeLabel: string } => {
   const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
   return { homeUrl, homeLabel: approvalHomeLabel(lang) };
 };

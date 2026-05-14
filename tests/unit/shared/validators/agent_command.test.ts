@@ -601,4 +601,25 @@ describe("agentCommandBodySchema", () => {
     });
     expect(parsed.success).toBe(false);
   });
+
+  it("should reject sql.bulkInsert when a row length differs from columns", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.bulkInsert",
+        id: "bulk-1",
+        params: {
+          table: "target_table",
+          columns: [
+            { name: "id", type: "i64" },
+            { name: "name", type: "text" },
+          ],
+          rows: [[1, "Ada"], [2]],
+          client_token: "t",
+        },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
 });

@@ -3,6 +3,7 @@ export const bridgeParityMethods = [
   "agent.getProfile",
   "client_token.getPolicy",
   "rpc.discover",
+  "sql.bulkInsert",
   "sql.cancel",
   "sql.execute",
   "sql.executeBatch",

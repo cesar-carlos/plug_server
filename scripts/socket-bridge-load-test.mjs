@@ -9,13 +9,15 @@
  * Required:
  * - HUB_URL=http://localhost:3000
  * - CONSUMER_TOKEN=<user/client access token>
- * - AGENT_ID=<registered agent id>
+ * - AGENT_ID=<registered agent id> (agents-command/relay only)
  *
  * Optional:
  * - CONSUMERS=50
  * - REQUESTS_PER_CONSUMER=20
  * - CONCURRENCY=10
- * - MODE=agents-command|relay
+ * - MODE=agents-command|relay|custom-event
+ * - CUSTOM_EVENT_NAME=client:custom.load.test
+ * - IDEMPOTENCY_MODE=none|unique|shared
  */
 
 import { io } from "socket.io-client";
@@ -33,11 +35,18 @@ const required = (name) => {
 
 const hubUrl = process.env.HUB_URL?.trim() || "http://localhost:3000";
 const token = required("CONSUMER_TOKEN");
-const agentId = required("AGENT_ID");
 const consumers = Number.parseInt(process.env.CONSUMERS || "50", 10);
 const requestsPerConsumer = Number.parseInt(process.env.REQUESTS_PER_CONSUMER || "20", 10);
 const concurrency = Number.parseInt(process.env.CONCURRENCY || "10", 10);
-const mode = process.env.MODE === "relay" ? "relay" : "agents-command";
+const mode = ["agents-command", "relay", "custom-event"].includes(process.env.MODE)
+  ? process.env.MODE
+  : "agents-command";
+const agentId = mode === "custom-event" ? process.env.AGENT_ID?.trim() || "" : required("AGENT_ID");
+const customEventName =
+  process.env.CUSTOM_EVENT_NAME?.trim() || `client:custom.load.${randomUUID()}`;
+const idempotencyMode = ["none", "unique", "shared"].includes(process.env.IDEMPOTENCY_MODE)
+  ? process.env.IDEMPOTENCY_MODE
+  : "none";
 
 const percentile = (values, p) => {
   if (values.length === 0) return 0;
@@ -66,6 +75,30 @@ const waitForEvent = (socket, event, timeoutMs = 10000) =>
       reject(error);
     };
     socket.once(event, onEvent);
+    socket.once("connect_error", onError);
+  });
+
+const waitForAckByRequestId = (socket, event, requestId, timeoutMs = 10000) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`timeout waiting for ${event} requestId=${requestId}`));
+    }, timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.off(event, onEvent);
+      socket.off("connect_error", onError);
+    };
+    const onEvent = (payload) => {
+      if (payload?.requestId !== requestId) return;
+      cleanup();
+      resolve(payload);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    socket.on(event, onEvent);
     socket.once("connect_error", onError);
   });
 
@@ -147,6 +180,45 @@ const runRelay = async (socket) => {
   };
 };
 
+const subscribeCustomEvent = async (socket) => {
+  const requestId = randomUUID();
+  const ackPromise = waitForAckByRequestId(socket, "socket:event.subscribed", requestId, 10000);
+  socket.emit("socket:event.subscribe", { requestId, eventName: customEventName });
+  const ack = await ackPromise;
+  if (!ack?.success) {
+    throw new Error(`custom event subscribe failed: ${ack?.error?.code || "UNKNOWN"}`);
+  }
+};
+
+const runCustomEventPublish = async (socket) => {
+  const requestId = randomUUID();
+  const started = performance.now();
+  const responsePromise = waitForAckByRequestId(socket, "socket:event.published", requestId, 30000);
+  socket.emit("socket:event.publish", {
+    requestId,
+    eventName: customEventName,
+    payload:
+      idempotencyMode === "shared"
+        ? { mode: "load", shared: true }
+        : {
+            requestId,
+            sentAt: new Date().toISOString(),
+            mode: "load",
+          },
+    ...(idempotencyMode === "unique"
+      ? { idempotencyKey: `load-${requestId}` }
+      : idempotencyMode === "shared"
+        ? { idempotencyKey: "load-shared-idempotency-key" }
+        : {}),
+  });
+  const payload = await responsePromise;
+  return {
+    ok: payload?.success === true,
+    elapsedMs: performance.now() - started,
+    code: payload?.error?.code,
+  };
+};
+
 const runPool = async (items, workerCount, worker) => {
   let index = 0;
   await Promise.all(
@@ -166,12 +238,23 @@ const main = async () => {
   );
 
   const sockets = await Promise.all(Array.from({ length: consumers }, connectConsumer));
+  if (mode === "custom-event") {
+    console.log(
+      `[socket-load] subscribing ${sockets.length} sockets to ${customEventName} idempotency=${idempotencyMode}`,
+    );
+    await Promise.all(sockets.map(subscribeCustomEvent));
+  }
   const jobs = sockets.flatMap((socket) => Array.from({ length: requestsPerConsumer }, () => socket));
   const latencies = [];
   const failures = new Map();
 
   await runPool(jobs, concurrency, async (socket) => {
-    const result = mode === "relay" ? await runRelay(socket) : await runAgentsCommand(socket);
+    const result =
+      mode === "relay"
+        ? await runRelay(socket)
+        : mode === "custom-event"
+          ? await runCustomEventPublish(socket)
+          : await runAgentsCommand(socket);
     if (result.ok) {
       latencies.push(result.elapsedMs);
     } else {
@@ -193,6 +276,7 @@ const main = async () => {
         succeeded: total - failed,
         failed,
         failures: Object.fromEntries(failures),
+        ...(mode === "custom-event" ? { eventName: customEventName, idempotencyMode } : {}),
         latencyMs: {
           p50: Math.round(percentile(latencies, 50)),
           p95: Math.round(percentile(latencies, 95)),

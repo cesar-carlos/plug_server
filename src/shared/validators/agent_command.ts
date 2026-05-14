@@ -218,6 +218,45 @@ const sqlExecuteBatchParamsSchema = z
   .merge(tokenCarrierSchema)
   .strict();
 
+const sqlBulkInsertColumnSchema = z
+  .object({
+    name: nonEmptyStringSchema,
+    type: z.enum(["i32", "i64", "text", "decimal", "binary", "timestamp"]),
+    nullable: z.boolean().optional(),
+    max_len: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+const sqlBulkInsertOptionsSchema = z
+  .object({
+    timeout_ms: z.number().int().positive().max(AGENT_TIMEOUT_MS_LIMIT).optional(),
+  })
+  .strict();
+
+const sqlBulkInsertParamsSchema = z
+  .object({
+    table: nonEmptyStringSchema,
+    columns: z.array(sqlBulkInsertColumnSchema).min(1),
+    rows: z.array(z.array(z.unknown())).min(1),
+    idempotency_key: nonEmptyStringSchema.optional(),
+    options: sqlBulkInsertOptionsSchema.optional(),
+    database: nonEmptyStringSchema.optional(),
+  })
+  .merge(tokenCarrierSchema)
+  .strict()
+  .superRefine((value, ctx) => {
+    const columnCount = value.columns.length;
+    value.rows.forEach((row, index) => {
+      if (row.length !== columnCount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["rows", index],
+          message: "Each row must have the same length as `columns`",
+        });
+      }
+    });
+  });
+
 const sqlCancelParamsSchema = z
   .object({
     execution_id: nonEmptyStringSchema.optional(),
@@ -253,6 +292,16 @@ const sqlExecuteBatchCommandSchema = z
     method: z.literal("sql.executeBatch"),
     id: jsonRpcIdSchema.optional(),
     params: sqlExecuteBatchParamsSchema,
+  })
+  .merge(rpcEnvelopeExtensionsSchema)
+  .passthrough();
+
+const sqlBulkInsertCommandSchema = z
+  .object({
+    jsonrpc: z.literal("2.0").default("2.0"),
+    method: z.literal("sql.bulkInsert"),
+    id: jsonRpcIdSchema.optional(),
+    params: sqlBulkInsertParamsSchema,
   })
   .merge(rpcEnvelopeExtensionsSchema)
   .passthrough();
@@ -381,6 +430,7 @@ export const supportedAgentRpcMethods = [
   "agent.getProfile",
   "client_token.getPolicy",
   "rpc.discover",
+  "sql.bulkInsert",
   "sql.cancel",
   "sql.execute",
   "sql.executeBatch",
@@ -392,6 +442,7 @@ export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
   clientTokenGetPolicyCommandSchema,
   sqlExecuteCommandSchema,
   sqlExecuteBatchCommandSchema,
+  sqlBulkInsertCommandSchema,
   sqlCancelCommandSchema,
   rpcDiscoverCommandSchema,
 ]);

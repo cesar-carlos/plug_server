@@ -11,6 +11,7 @@ import { InMemoryClientPasswordRecoveryTokenRepository } from "../../../../src/i
 import { InMemoryClientRefreshTokenRepository } from "../../../../src/infrastructure/repositories/in_memory_client_refresh_token.repository";
 import { InMemoryClientRepository } from "../../../../src/infrastructure/repositories/in_memory_client.repository";
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
+import { InMemoryClientRegistrationDecisionTxn } from "../../../../src/infrastructure/persistence/in_memory_client_registration_decision_txn";
 import { env } from "../../../../src/shared/config/env";
 
 class FakePasswordHasher {
@@ -92,6 +93,10 @@ describe("ClientAuthService registration flow", () => {
       new InMemoryClientRefreshTokenRepository(),
       new InMemoryClientPasswordRecoveryTokenRepository(),
       clientRegistrationApprovalTokenRepository,
+      new InMemoryClientRegistrationDecisionTxn(
+        clientRegistrationApprovalTokenRepository,
+        clientRepository,
+      ),
       userRepository,
       new FakePasswordHasher(),
       {

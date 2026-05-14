@@ -618,7 +618,9 @@ const maybeLogRegistrationEmailOutboxHealth = async (): Promise<void> => {
       outboxTableState = "missing";
       return;
     }
-    logger.warn("registration_email_outbox_health_probe_failed", { message: toErrorMessage(error) });
+    logger.warn("registration_email_outbox_health_probe_failed", {
+      message: toErrorMessage(error),
+    });
   }
 };
 
