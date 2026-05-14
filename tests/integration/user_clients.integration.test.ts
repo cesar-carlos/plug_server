@@ -429,4 +429,121 @@ describe("User client governance API", () => {
     expect(approvedAgentsAfterRevoke.status).toBe(200);
     expect(approvedAgentsAfterRevoke.body.agentIds).not.toContain(agent.agentId);
   });
+
+  it("lists owner-managed agent clients with db-backed filters, pagination and stable order", async () => {
+    const suffix = `agent-client-page-${Date.now()}`;
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients", suffix });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
+    const firstClientRegister = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `alpha-${suffix}@test.com`,
+        password: "ClientPwd1",
+        name: "Alpha",
+        lastName: "Viewer",
+      });
+    expect(firstClientRegister.status).toBe(201);
+    await approveClientRegistrationByToken(app, firstClientRegister.body.approvalToken as string);
+    const firstClientLogin = await request(app)
+      .post("/api/v1/client-auth/login")
+      .send({
+        email: firstClientRegister.body.client.email as string,
+        password: "ClientPwd1",
+      });
+    expect(firstClientLogin.status).toBe(200);
+
+    const secondClientRegister = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `beta-${suffix}@test.com`,
+        password: "ClientPwd1",
+        name: "Beta",
+        lastName: "Viewer",
+      });
+    expect(secondClientRegister.status).toBe(201);
+    await approveClientRegistrationByToken(app, secondClientRegister.body.approvalToken as string);
+    const secondClientLogin = await request(app)
+      .post("/api/v1/client-auth/login")
+      .send({
+        email: secondClientRegister.body.client.email as string,
+        password: "ClientPwd1",
+      });
+    expect(secondClientLogin.status).toBe(200);
+
+    const agent = await seedAgent({
+      name: `Paged Agent ${suffix}`,
+      cnpjCpf: `paged-agent-${suffix}`,
+    });
+    await seedAgentBinding(owner.userId, agent.agentId);
+
+    for (const accessToken of [
+      firstClientLogin.body.accessToken as string,
+      secondClientLogin.body.accessToken as string,
+    ]) {
+      const requestAccess = await request(app)
+        .post("/api/v1/client/me/agents")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ agentIds: [agent.agentId] });
+      expect(requestAccess.status).toBe(200);
+    }
+
+    const ownerRequests = await request(app)
+      .get("/api/v1/me/client-access-requests")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .query({ status: "pending", agentId: agent.agentId, pageSize: 10 });
+    expect(ownerRequests.status).toBe(200);
+    const requestIds = (ownerRequests.body.requests as Array<{ id: string }>).map((item) => item.id);
+    expect(requestIds).toHaveLength(2);
+
+    for (const requestId of requestIds) {
+      const approve = await request(app)
+        .post(`/api/v1/me/client-access-requests/${requestId}/approve`)
+        .set("Authorization", `Bearer ${owner.accessToken}`)
+        .send({});
+      expect(approve.status).toBe(200);
+    }
+
+    const blockedStatus = await request(app)
+      .patch(`/api/v1/me/clients/${secondClientRegister.body.client.id as string}/status`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ status: "blocked" });
+    expect(blockedStatus.status).toBe(200);
+
+    const blockedOnly = await request(app)
+      .get(`/api/v1/me/agents/${agent.agentId}/clients`)
+      .query({ status: "blocked", search: "beta", page: 1, pageSize: 1 })
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(blockedOnly.status).toBe(200);
+    expect(blockedOnly.body.total).toBe(1);
+    expect(blockedOnly.body.count).toBe(1);
+    expect(blockedOnly.body.page).toBe(1);
+    expect(blockedOnly.body.pageSize).toBe(1);
+    expect(blockedOnly.body.clients[0]).toMatchObject({
+      clientId: secondClientRegister.body.client.id,
+      email: secondClientRegister.body.client.email,
+      name: "Beta",
+      status: "blocked",
+    });
+
+    const firstPage = await request(app)
+      .get(`/api/v1/me/agents/${agent.agentId}/clients`)
+      .query({ page: 1, pageSize: 1 })
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    const secondPage = await request(app)
+      .get(`/api/v1/me/agents/${agent.agentId}/clients`)
+      .query({ page: 2, pageSize: 1 })
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(firstPage.status).toBe(200);
+    expect(secondPage.status).toBe(200);
+    expect(firstPage.body.total).toBe(2);
+    expect(secondPage.body.total).toBe(2);
+    expect(firstPage.body.clients[0]?.clientId).not.toBe(secondPage.body.clients[0]?.clientId);
+  });
 });

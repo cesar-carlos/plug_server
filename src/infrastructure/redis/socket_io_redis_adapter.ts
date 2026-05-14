@@ -3,6 +3,7 @@ import { createClient } from "redis";
 import type { Server } from "socket.io";
 
 import {
+  noteSocketIoRedisAdapterAttachedServer,
   noteSocketIoRedisAdapterConnected,
   noteSocketIoRedisAdapterDisconnected,
   noteSocketIoRedisAdapterFallback,
@@ -52,6 +53,8 @@ export async function initSocketIoRedisAdapter(io: Server): Promise<void> {
   }
 
   if (pubClient !== undefined && subClient !== undefined && redisUrlInUse === url) {
+    io.adapter(createAdapter(pubClient, subClient));
+    noteSocketIoRedisAdapterAttachedServer();
     return;
   }
 
@@ -93,6 +96,7 @@ export async function initSocketIoRedisAdapter(io: Server): Promise<void> {
 
     await Promise.all([pub.connect(), sub.connect()]);
     io.adapter(createAdapter(pub, sub));
+    noteSocketIoRedisAdapterAttachedServer();
     noteSocketIoRedisAdapterConnected();
     logger.info("socket_io_redis_adapter_connected");
   } catch (error: unknown) {

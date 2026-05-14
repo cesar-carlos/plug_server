@@ -27,13 +27,16 @@ const minimalPublishInput = () =>
   }) as const;
 
 describe("publishConsumerSocketEvent", () => {
+  const disposers: Array<() => void> = [];
+
   beforeEach(() => {
     warnMock.mockClear();
-    registerConsumerSocketEventHandler(undefined);
   });
 
   afterEach(() => {
-    registerConsumerSocketEventHandler(undefined);
+    while (disposers.length > 0) {
+      disposers.pop()?.();
+    }
   });
 
   it("returns zero recipients and logs warn once when handler is not registered", async () => {
@@ -55,23 +58,41 @@ describe("publishConsumerSocketEvent", () => {
   });
 
   it("delegates to handler and does not warn when registered", async () => {
-    registerConsumerSocketEventHandler({
-      publish: async () => ({ recipients: 4 }),
-    });
+    disposers.push(
+      registerConsumerSocketEventHandler({
+        publish: async () => ({ recipients: 4 }),
+      }),
+    );
     warnMock.mockClear();
     const r = await publishConsumerSocketEvent(minimalPublishInput());
     expect(r.recipients).toBe(4);
     expect(warnMock).not.toHaveBeenCalled();
   });
 
+  it("fans out across all registered handlers and sums recipients", async () => {
+    disposers.push(
+      registerConsumerSocketEventHandler({
+        publish: async () => ({ recipients: 2 }),
+      }),
+    );
+    disposers.push(
+      registerConsumerSocketEventHandler({
+        publish: async () => ({ recipients: 3 }),
+      }),
+    );
+
+    const r = await publishConsumerSocketEvent(minimalPublishInput());
+    expect(r.recipients).toBe(5);
+  });
+
   it("warns again after handler was registered then cleared", async () => {
     await publishConsumerSocketEvent(minimalPublishInput());
     expect(warnMock).toHaveBeenCalledTimes(1);
 
-    registerConsumerSocketEventHandler({
+    const dispose = registerConsumerSocketEventHandler({
       publish: async () => ({ recipients: 1 }),
     });
-    registerConsumerSocketEventHandler(undefined);
+    dispose();
 
     warnMock.mockClear();
     await publishConsumerSocketEvent(minimalPublishInput());

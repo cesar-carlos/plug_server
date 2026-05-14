@@ -5,6 +5,14 @@ import type { env as EnvSnapshot } from "../../../../src/shared/config/env";
 const previousEnabled = process.env.SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED;
 const previousTtl = process.env.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS;
 const previousMaxSize = process.env.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE;
+const previousReconcileInterval =
+  process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS;
+const previousReconcileConcurrency =
+  process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY;
+const previousReconcileMaxClientsPerTick =
+  process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK;
+const previousReconcileStartJitterMs =
+  process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS;
 
 const reloadEnv = async (): Promise<typeof EnvSnapshot> => {
   vi.resetModules();
@@ -17,6 +25,10 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
     delete process.env.SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED;
     delete process.env.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS;
     delete process.env.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE;
+    delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS;
+    delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY;
+    delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK;
+    delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS;
   });
 
   afterEach(() => {
@@ -34,6 +46,30 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
       delete process.env.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE;
     } else {
       process.env.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE = previousMaxSize;
+    }
+    if (previousReconcileInterval === undefined) {
+      delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS;
+    } else {
+      process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS =
+        previousReconcileInterval;
+    }
+    if (previousReconcileConcurrency === undefined) {
+      delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY;
+    } else {
+      process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY =
+        previousReconcileConcurrency;
+    }
+    if (previousReconcileMaxClientsPerTick === undefined) {
+      delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK;
+    } else {
+      process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK =
+        previousReconcileMaxClientsPerTick;
+    }
+    if (previousReconcileStartJitterMs === undefined) {
+      delete process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS;
+    } else {
+      process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS =
+        previousReconcileStartJitterMs;
     }
     vi.resetModules();
   });
@@ -64,6 +100,10 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
     const env = await reloadEnv();
     expect(env.socketClientAgentProfileRecipientCacheTtlMs).toBe(1000);
     expect(env.socketClientAgentProfileRecipientCacheMaxSize).toBe(5000);
+    expect(env.socketConsumerClientAgentRoomReconcileIntervalMs).toBe(30000);
+    expect(env.socketConsumerClientAgentRoomReconcileConcurrency).toBe(8);
+    expect(env.socketConsumerClientAgentRoomReconcileMaxClientsPerTick).toBe(200);
+    expect(env.socketConsumerClientAgentRoomReconcileStartJitterMs).toBe(1000);
   });
 
   it("parses profile recipient cache bounds", async () => {
@@ -72,5 +112,17 @@ describe("env.socketClientAgentProfilePushEnabled", () => {
     const env = await reloadEnv();
     expect(env.socketClientAgentProfileRecipientCacheTtlMs).toBe(2500);
     expect(env.socketClientAgentProfileRecipientCacheMaxSize).toBe(42);
+  });
+
+  it("parses the client-agent room reconciliation interval", async () => {
+    process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS = "7500";
+    process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY = "4";
+    process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK = "25";
+    process.env.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS = "250";
+    const env = await reloadEnv();
+    expect(env.socketConsumerClientAgentRoomReconcileIntervalMs).toBe(7500);
+    expect(env.socketConsumerClientAgentRoomReconcileConcurrency).toBe(4);
+    expect(env.socketConsumerClientAgentRoomReconcileMaxClientsPerTick).toBe(25);
+    expect(env.socketConsumerClientAgentRoomReconcileStartJitterMs).toBe(250);
   });
 });

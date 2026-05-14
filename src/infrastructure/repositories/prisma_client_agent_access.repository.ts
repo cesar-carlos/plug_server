@@ -6,6 +6,8 @@ import type {
   ClientApprovedAgentListPage,
   ClientAgentAccessRecord,
   IClientAgentAccessRepository,
+  OwnerManagedAgentClientListFilter,
+  OwnerManagedAgentClientListPage,
 } from "../../domain/repositories/client_agent_access.repository.interface";
 import { prismaClient } from "../database/prisma/client";
 
@@ -119,6 +121,69 @@ export class PrismaClientAgentAccessRepository implements IClientAgentAccessRepo
       orderBy: { createdAt: "asc" },
     });
     return rows.map((row) => row.clientId);
+  }
+
+  async listOwnerManagedClientsPageByAgentId(
+    agentId: string,
+    filter?: OwnerManagedAgentClientListFilter,
+  ): Promise<OwnerManagedAgentClientListPage> {
+    const page = Math.max(1, filter?.page ?? 1);
+    const pageSize = Math.max(1, filter?.pageSize ?? 20);
+    const normalizedSearch = filter?.search?.trim();
+    const clientWhere: Prisma.ClientWhereInput = {
+      ...(filter?.status !== undefined
+        ? { status: filter.status }
+        : { status: { in: ["active", "blocked"] } }),
+      ...(normalizedSearch
+        ? {
+            OR: [
+              { id: { contains: normalizedSearch } },
+              { email: { contains: normalizedSearch, mode: "insensitive" as const } },
+              { name: { contains: normalizedSearch, mode: "insensitive" as const } },
+              { lastName: { contains: normalizedSearch, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+    };
+    const where: Prisma.ClientAgentAccessWhereInput = {
+      agentId,
+      ...(Object.keys(clientWhere).length > 0 ? { client: clientWhere } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      prismaClient.clientAgentAccess.findMany({
+        where,
+        select: {
+          clientId: true,
+          approvedAt: true,
+          client: {
+            select: {
+              email: true,
+              name: true,
+              lastName: true,
+              status: true,
+            },
+          },
+        },
+        orderBy: [{ approvedAt: "asc" }, { clientId: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prismaClient.clientAgentAccess.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) => ({
+        clientId: row.clientId,
+        email: row.client.email,
+        name: row.client.name,
+        lastName: row.client.lastName,
+        status: row.client.status === "blocked" ? "blocked" : "active",
+        approvedAt: row.approvedAt,
+      })),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async listByAgentId(agentId: string): Promise<ClientAgentAccessRecord[]> {

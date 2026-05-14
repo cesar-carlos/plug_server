@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 
 import { getBridgeLatencyTraceMetricsSnapshot } from "../../../application/services/bridge_latency_trace.service";
 import { getAgentDataMaintenanceMetricsSnapshot } from "../../../application/services/agent_data_maintenance.service";
+import { getPrismaTransactionRetryMetricsSnapshot } from "../../../application/services/prisma_transaction_retry_metrics.service";
 import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import { getRestRateLimitRedisMetricsSnapshot } from "../../../application/services/rest_rate_limit_redis_metrics.service";
@@ -64,6 +65,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const restRateLimitRedis = getRestRateLimitRedisMetricsSnapshot();
   const socketIoRedisAdapter = getSocketIoRedisAdapterMetricsSnapshot();
   const customEventIdempotencyRedis = getClientSocketEventIdempotencyRedisMetricsSnapshot();
+  const prismaTransactionRetry = getPrismaTransactionRetryMetricsSnapshot();
   const registrationFlow = getRegistrationFlowMetricsSnapshot();
   const authAccount = getAuthAccountMetricsSnapshot();
   const clientMeAgents = getClientMeAgentsMetricsSnapshot();
@@ -303,6 +305,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_socket_io_redis_adapter_attached_servers_total",
+      socketIoRedisAdapter.attachedServersTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_socket_custom_event_idempotency_redis_url_configured",
       customEventIdempotencyRedis.redisUrlConfigured,
     ),
@@ -367,6 +375,32 @@ export const getMetrics = (_request: Request, response: Response): void => {
       customEventIdempotencyRedis.writesTotal,
     ),
   );
+  lines.push(
+    metricLine(
+      "plug_prisma_transaction_retry_attempts_total",
+      prismaTransactionRetry.retryAttemptsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_prisma_transaction_retries_exhausted_total",
+      prismaTransactionRetry.retriesExhaustedTotal,
+    ),
+  );
+  for (const [operation, value] of prismaTransactionRetry.retryAttemptsByOperation.entries()) {
+    lines.push(
+      metricLine("plug_prisma_transaction_retry_attempts_total", value, {
+        operation,
+      }),
+    );
+  }
+  for (const [operation, value] of prismaTransactionRetry.retriesExhaustedByOperation.entries()) {
+    lines.push(
+      metricLine("plug_prisma_transaction_retries_exhausted_total", value, {
+        operation,
+      }),
+    );
+  }
 
   lines.push(
     metricLine("plug_registration_approved_total", registrationFlow.registrationApprovedTotal),
@@ -983,6 +1017,60 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_consumer_client_agent_room_grant_fetch_failures_total",
       consumerRuntime.consumerClientAgentRoomGrant.fetchFailuresTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_runs_total",
+      consumerRuntime.consumerClientAgentRoomReconcile.runsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_clients_evaluated_total",
+      consumerRuntime.consumerClientAgentRoomReconcile.clientsEvaluatedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_clients_deferred_total",
+      consumerRuntime.consumerClientAgentRoomReconcile.clientsDeferredTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_sockets_evaluated_total",
+      consumerRuntime.consumerClientAgentRoomReconcile.socketsEvaluatedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_rooms_joined_total",
+      consumerRuntime.consumerClientAgentRoomReconcile.roomsJoinedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_rooms_left_total",
+      consumerRuntime.consumerClientAgentRoomReconcile.roomsLeftTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_failures_total",
+      consumerRuntime.consumerClientAgentRoomReconcile.failuresTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_ticks_skipped_total",
+      consumerRuntime.consumerClientAgentRoomReconcile.ticksSkippedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_consumer_client_agent_room_reconcile_in_flight",
+      consumerRuntime.consumerClientAgentRoomReconcile.inFlight,
     ),
   );
   const recipientHist = consumerRuntime.publishRecipientsHistogram;

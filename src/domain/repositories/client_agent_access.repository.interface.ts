@@ -31,6 +31,29 @@ export interface ClientApprovedAgentListPage {
   readonly pageSize: number;
 }
 
+export interface OwnerManagedAgentClientListFilter {
+  readonly status?: "active" | "blocked";
+  readonly search?: string;
+  readonly page?: number;
+  readonly pageSize?: number;
+}
+
+export interface OwnerManagedAgentClientListItem {
+  readonly clientId: string;
+  readonly email: string;
+  readonly name: string;
+  readonly lastName: string;
+  readonly status: "active" | "blocked";
+  readonly approvedAt: Date;
+}
+
+export interface OwnerManagedAgentClientListPage {
+  readonly items: OwnerManagedAgentClientListItem[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
 export interface IClientAgentAccessRepository {
   hasAccess(clientId: string, agentId: string): Promise<boolean>;
   /** Agent IDs among `agentIds` that currently have an approved access row for this client. */
@@ -50,6 +73,11 @@ export interface IClientAgentAccessRepository {
     clientId: string,
     filter?: ClientApprovedAgentListFilter,
   ): Promise<ClientApprovedAgentListPage>;
+  /** Optimized owner-managed client page for `GET /me/agents/{agentId}/clients` when backed by SQL. */
+  listOwnerManagedClientsPageByAgentId?(
+    agentId: string,
+    filter?: OwnerManagedAgentClientListFilter,
+  ): Promise<OwnerManagedAgentClientListPage>;
   /** Optimized active-client ID projection for realtime fan-out when backed by SQL. */
   listActiveClientIdsByAgentId?(agentId: string): Promise<string[]>;
   listByAgentId(agentId: string): Promise<ClientAgentAccessRecord[]>;

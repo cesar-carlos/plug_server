@@ -7,16 +7,21 @@ interface AgentSocketControlHandler {
   disconnectPrincipal(input: AgentSocketDisconnectPrincipalEvent): Promise<void>;
 }
 
-let handler: AgentSocketControlHandler | undefined;
+type AgentSocketControlHandlerDisposer = () => void;
+
+const handlers = new Set<AgentSocketControlHandler>();
 
 export const registerAgentSocketControlHandler = (
-  next: AgentSocketControlHandler | undefined,
-): void => {
-  handler = next;
+  next: AgentSocketControlHandler,
+): AgentSocketControlHandlerDisposer => {
+  handlers.add(next);
+  return () => {
+    handlers.delete(next);
+  };
 };
 
 export const disconnectAgentPrincipalSockets = async (
   event: AgentSocketDisconnectPrincipalEvent,
 ): Promise<void> => {
-  await handler?.disconnectPrincipal(event);
+  await Promise.all([...handlers].map((handler) => handler.disconnectPrincipal(event)));
 };

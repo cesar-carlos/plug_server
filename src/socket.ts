@@ -99,6 +99,7 @@ import { registerAgentSocketControlHandler } from "./application/services/agent_
 import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
 import { registerConsumerSocketEventHandler } from "./application/services/consumer_socket_event_sink";
 import {
+  buildConsumerAgentProfileRoom,
   buildConsumerClientAgentRoom,
   buildConsumerClientRoom as buildClientRoomName,
   buildConsumerPrincipalRoom as buildPrincipalRoomName,
@@ -127,6 +128,13 @@ import {
   noteConsumerClientAgentRoomGrantFetchFailed,
   noteConsumerClientAgentRoomGrantJoinFailed,
   noteConsumerClientAgentRoomGrantSocketsJoined,
+  noteConsumerClientAgentRoomReconcileDeferred,
+  noteConsumerClientAgentRoomReconcileFailed,
+  noteConsumerClientAgentRoomReconcileFinished,
+  noteConsumerClientAgentRoomReconcileRoomsJoined,
+  noteConsumerClientAgentRoomReconcileRoomsLeft,
+  noteConsumerClientAgentRoomReconcileStarted,
+  noteConsumerClientAgentRoomReconcileTickSkipped,
   noteCustomSocketEventSubscriptionsRemoved,
   noteConsumerPendingCommandsAborted,
   noteConsumerProfilePushBatch,
@@ -182,6 +190,8 @@ type PendingAgentProfilePush = {
   timeoutHandle: NodeJS.Timeout;
 };
 
+type SocketSinkDisposer = () => void;
+
 const clientProfileRecipientsCacheByAgentId = new TtlCache<string, readonly string[]>(
   env.socketClientAgentProfileRecipientCacheTtlMs,
   env.socketClientAgentProfileRecipientCacheMaxSize,
@@ -222,6 +232,23 @@ const buildConsumerClientRoom = (user: JwtAccessPayload | undefined): string | n
   return user?.principal_type === "client" && typeof user.sub === "string" && user.sub.trim() !== ""
     ? buildClientRoomName(user.sub)
     : null;
+};
+
+const listConsumerApprovedAgentRooms = (
+  clientId: string,
+  approvedAgentIds: readonly string[],
+): string[] => {
+  const rooms = new Set<string>();
+  for (const agentId of approvedAgentIds) {
+    rooms.add(
+      buildConsumerClientAgentRoom({
+        clientId,
+        agentId,
+      }),
+    );
+    rooms.add(buildConsumerAgentProfileRoom(agentId));
+  }
+  return [...rooms];
 };
 
 const buildAgentPrincipalRoom = (user: JwtAccessPayload | undefined): string | null => {
@@ -265,19 +292,181 @@ const joinConsumerIdentityRooms = async (socket: HubSocket): Promise<void> => {
   );
   if (user?.principal_type === "client" && typeof user.sub === "string" && user.sub.trim() !== "") {
     const agentIds = await container.clientAgentAccessService.listApprovedAgentIds(user.sub);
-    rooms.push(
-      ...agentIds.map((agentId) =>
-        buildConsumerClientAgentRoom({
-          clientId: user.sub,
-          agentId,
-        }),
-      ),
-    );
+    rooms.push(...listConsumerApprovedAgentRooms(user.sub, agentIds));
   }
   if (rooms.length === 0) {
     return;
   }
   await socket.join(rooms);
+};
+
+const buildConsumerClientAgentRoomPrefix = (clientId: string): string =>
+  `consumer:client-agent:${clientId}:`;
+
+const buildConsumerAgentProfileRoomPrefix = (): string => "consumer:agent-profile:";
+
+export const selectReconcileClientEntries = <T>(
+  entries: readonly T[],
+  cursor: number,
+  maxClientsPerTick: number,
+): {
+  readonly selected: readonly T[];
+  readonly nextCursor: number;
+  readonly deferredCount: number;
+} => {
+  if (entries.length === 0) {
+    return { selected: [], nextCursor: 0, deferredCount: 0 };
+  }
+
+  const size = Math.min(entries.length, Math.max(1, maxClientsPerTick));
+  const normalizedCursor = ((cursor % entries.length) + entries.length) % entries.length;
+  const ordered = [...entries.slice(normalizedCursor), ...entries.slice(0, normalizedCursor)];
+  return {
+    selected: ordered.slice(0, size),
+    nextCursor: (normalizedCursor + size) % entries.length,
+    deferredCount: entries.length - size,
+  };
+};
+
+export const resolveConsumerClientAgentRoomReconcileStartDelayMs = (
+  maxJitterMs: number,
+  randomValue = Math.random(),
+): number => {
+  if (maxJitterMs <= 0) {
+    return 0;
+  }
+  const normalizedRandom = Number.isFinite(randomValue)
+    ? Math.min(1, Math.max(0, randomValue))
+    : 0;
+  return Math.floor(normalizedRandom * (maxJitterMs + 1));
+};
+
+const forEachWithConcurrencyLimit = async <T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> => {
+  const maxConcurrency = Math.max(1, Math.min(concurrency, items.length));
+  let index = 0;
+
+  await Promise.all(
+    Array.from({ length: maxConcurrency }, async () => {
+      while (index < items.length) {
+        const currentIndex = index;
+        index += 1;
+        await worker(items[currentIndex]!);
+      }
+    }),
+  );
+};
+
+const reconcileConsumerClientAgentRoomsForSocket = async (
+  socket: HubSocket,
+  clientId: string,
+  approvedAgentIds: readonly string[],
+): Promise<{ joined: number; left: number }> => {
+  if (!socket.connected) {
+    return { joined: 0, left: 0 };
+  }
+
+  const expectedRooms = new Set(listConsumerApprovedAgentRooms(clientId, approvedAgentIds));
+  const currentRooms = [...socket.rooms].filter((room) =>
+    room.startsWith(buildConsumerClientAgentRoomPrefix(clientId)) ||
+    room.startsWith(buildConsumerAgentProfileRoomPrefix()),
+  );
+
+  let joined = 0;
+  let left = 0;
+
+  for (const room of currentRooms) {
+    if (!expectedRooms.has(room)) {
+      await socket.leave(room);
+      left += 1;
+    }
+  }
+
+  for (const room of expectedRooms) {
+    if (!socket.rooms.has(room)) {
+      await socket.join(room);
+      joined += 1;
+    }
+  }
+
+  return { joined, left };
+};
+
+const reconcileConsumerClientAgentRooms = async (
+  namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
+): Promise<void> => {
+  const socketsByClientId = new Map<string, HubSocket[]>();
+  for (const socket of namespace.sockets.values()) {
+    if (socket.data.user?.principal_type !== "client") {
+      continue;
+    }
+    const clientId = socket.data.user.sub?.trim();
+    if (!clientId) {
+      continue;
+    }
+    const existing = socketsByClientId.get(clientId);
+    if (existing !== undefined) {
+      existing.push(socket);
+      continue;
+    }
+    socketsByClientId.set(clientId, [socket]);
+  }
+
+  if (socketsByClientId.size === 0) {
+    return;
+  }
+
+  const selectedBatch = selectReconcileClientEntries(
+    [...socketsByClientId.entries()].sort(([leftClientId], [rightClientId]) =>
+      leftClientId.localeCompare(rightClientId),
+    ),
+    consumerClientAgentRoomReconcileCursor,
+    env.socketConsumerClientAgentRoomReconcileMaxClientsPerTick,
+  );
+  consumerClientAgentRoomReconcileCursor = selectedBatch.nextCursor;
+  if (selectedBatch.deferredCount > 0) {
+    noteConsumerClientAgentRoomReconcileDeferred(selectedBatch.deferredCount);
+  }
+
+  const socketCount = selectedBatch.selected.reduce((sum, [, sockets]) => sum + sockets.length, 0);
+  noteConsumerClientAgentRoomReconcileStarted(selectedBatch.selected.length, socketCount);
+
+  try {
+    await forEachWithConcurrencyLimit(
+      selectedBatch.selected,
+      env.socketConsumerClientAgentRoomReconcileConcurrency,
+      async ([clientId, sockets]) => {
+        try {
+          const approvedAgentIds =
+            await container.clientAgentAccessService.listApprovedAgentIds(clientId);
+          for (const socket of sockets) {
+            const result = await reconcileConsumerClientAgentRoomsForSocket(
+              socket,
+              clientId,
+              approvedAgentIds,
+            );
+            if (result.joined > 0) {
+              noteConsumerClientAgentRoomReconcileRoomsJoined(result.joined);
+            }
+            if (result.left > 0) {
+              noteConsumerClientAgentRoomReconcileRoomsLeft(result.left);
+            }
+          }
+        } catch (error: unknown) {
+          noteConsumerClientAgentRoomReconcileFailed();
+          logger.warn("consumer_socket_client_agent_room_reconcile_failed", {
+            clientId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    );
+  } finally {
+    noteConsumerClientAgentRoomReconcileFinished();
+  }
 };
 
 const disconnectConsumerSocketsInRoom = async (
@@ -319,6 +508,11 @@ const countSocketsInRoom = async (
   }
 };
 
+const countLocalSocketsInRoom = (
+  namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
+  room: string,
+): number => namespace.adapter.rooms.get(room)?.size ?? 0;
+
 const clearConsumerProfilePushState = (): void => {
   for (const pending of pendingAgentProfilePushByAgentId.values()) {
     clearTimeout(pending.timeoutHandle);
@@ -357,11 +551,9 @@ const flushAgentProfilePush = async (
   }
   pendingAgentProfilePushByAgentId.delete(agentId);
 
-  const clientIds = await getCachedProfilePushRecipients(agentId);
-  if (clientIds.length === 0) {
-    return;
-  }
-  noteConsumerProfilePushBatch(clientIds.length);
+  const recipientRoom = buildConsumerAgentProfileRoom(agentId);
+  const cachedRecipients = clientProfileRecipientsCacheByAgentId.get(agentId);
+  noteConsumerProfilePushBatch(cachedRecipients?.length ?? countLocalSocketsInRoom(consumersNamespace, recipientRoom));
 
   const frame = encodePayloadFrame(
     {
@@ -374,9 +566,7 @@ const flushAgentProfilePush = async (
     },
     { omitTraceId: true },
   );
-  for (const clientId of clientIds) {
-    consumersNamespace.to(`client:${clientId}`).emit(socketEvents.clientAgentProfileUpdated, frame);
-  }
+  consumersNamespace.to(recipientRoom).emit(socketEvents.clientAgentProfileUpdated, frame);
 };
 
 const scheduleAgentProfilePush = (
@@ -388,6 +578,15 @@ const scheduleAgentProfilePush = (
     existing.event = event;
     noteConsumerProfilePushCoalesced();
     return;
+  }
+
+  if (clientProfileRecipientsCacheByAgentId.get(event.agentId) === undefined) {
+    void getCachedProfilePushRecipients(event.agentId).catch((error: unknown) => {
+      logger.warn("client_agent_profile_push_recipient_cache_prime_failed", {
+        agentId: event.agentId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   const timeoutHandle = setTimeout(() => {
@@ -535,6 +734,11 @@ const scheduleAgentProfileSync = (
 export let agentsNamespace: ReturnType<Server["of"]> | null = null;
 let activeSocketServer: Server | null = null;
 let conversationSweepTimer: NodeJS.Timeout | null = null;
+let consumerClientAgentRoomReconcileTimer: NodeJS.Timeout | null = null;
+let consumerClientAgentRoomReconcileStartTimeout: NodeJS.Timeout | null = null;
+let consumerClientAgentRoomReconcileInFlight: Promise<void> | null = null;
+let consumerClientAgentRoomReconcileCursor = 0;
+const socketServerSinkDisposers = new WeakMap<Server, SocketSinkDisposer[]>();
 
 const emitServerShutdownNotice = (io: Server, signal: string): void => {
   const payload = {
@@ -580,6 +784,58 @@ export const getSocketMetricsSnapshot = (): {
   };
 };
 
+const clearSocketServerSinkDisposers = (io: Server): void => {
+  const disposers = socketServerSinkDisposers.get(io);
+  if (!disposers) {
+    return;
+  }
+  socketServerSinkDisposers.delete(io);
+  for (const dispose of disposers) {
+    dispose();
+  }
+};
+
+const scheduleConsumerClientAgentRoomReconcile = (
+  namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
+): void => {
+  const runTick = (): void => {
+    if (consumerClientAgentRoomReconcileInFlight !== null) {
+      noteConsumerClientAgentRoomReconcileTickSkipped();
+      return;
+    }
+    consumerClientAgentRoomReconcileInFlight = reconcileConsumerClientAgentRooms(namespace)
+      .catch((error: unknown) => {
+        logger.warn("consumer_socket_client_agent_room_reconcile_tick_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        consumerClientAgentRoomReconcileInFlight = null;
+      });
+  };
+
+  const startInterval = (): void => {
+    runTick();
+    consumerClientAgentRoomReconcileTimer = setInterval(
+      runTick,
+      env.socketConsumerClientAgentRoomReconcileIntervalMs,
+    );
+    consumerClientAgentRoomReconcileTimer.unref?.();
+  };
+
+  const jitterMs = env.socketConsumerClientAgentRoomReconcileStartJitterMs;
+  if (jitterMs <= 0) {
+    startInterval();
+    return;
+  }
+
+  consumerClientAgentRoomReconcileStartTimeout = setTimeout(
+    startInterval,
+    resolveConsumerClientAgentRoomReconcileStartDelayMs(jitterMs),
+  );
+  consumerClientAgentRoomReconcileStartTimeout.unref?.();
+};
+
 export const closeSocketServer = async (io: Server, signal = "shutdown"): Promise<void> => {
   emitServerShutdownNotice(io, signal);
   await new Promise((resolve) => setTimeout(resolve, 50));
@@ -588,6 +844,16 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
     clearInterval(conversationSweepTimer);
     conversationSweepTimer = null;
   }
+  if (consumerClientAgentRoomReconcileTimer) {
+    clearInterval(consumerClientAgentRoomReconcileTimer);
+    consumerClientAgentRoomReconcileTimer = null;
+  }
+  if (consumerClientAgentRoomReconcileStartTimeout) {
+    clearTimeout(consumerClientAgentRoomReconcileStartTimeout);
+    consumerClientAgentRoomReconcileStartTimeout = null;
+  }
+  consumerClientAgentRoomReconcileInFlight = null;
+  consumerClientAgentRoomReconcileCursor = 0;
 
   resetRelayRateLimiterState();
   resetAgentsCommandSocketRateLimitState();
@@ -611,10 +877,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
   }
   agentsNamespace = null;
 
-  registerAgentProfileBroadcastHandler(undefined);
-  registerAgentSocketControlHandler(undefined);
-  registerConsumerSocketControlHandler(undefined);
-  registerConsumerSocketEventHandler(undefined);
+  clearSocketServerSinkDisposers(io);
 
   await new Promise<void>((resolve) => {
     io.close(() => resolve());
@@ -652,6 +915,8 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   agentsNamespace = agentsNsp;
   activeSocketServer = io;
   const consumersNsp = io.of(SOCKET_NAMESPACES.consumers);
+  const sinkDisposers: SocketSinkDisposer[] = [];
+  socketServerSinkDisposers.set(io, sinkDisposers);
 
   const defaultNsp = io.of("/");
   defaultNsp.on("connection", (socket: Socket) => {
@@ -699,6 +964,20 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     }
   }, env.socketRelayConversationSweepIntervalMs);
   conversationSweepTimer.unref?.();
+  if (consumerClientAgentRoomReconcileTimer) {
+    clearInterval(consumerClientAgentRoomReconcileTimer);
+    consumerClientAgentRoomReconcileTimer = null;
+  }
+  if (consumerClientAgentRoomReconcileStartTimeout) {
+    clearTimeout(consumerClientAgentRoomReconcileStartTimeout);
+    consumerClientAgentRoomReconcileStartTimeout = null;
+  }
+  if (env.socketConsumerClientAgentRoomReconcileIntervalMs > 0) {
+    scheduleConsumerClientAgentRoomReconcile(consumersNsp);
+  } else {
+    consumerClientAgentRoomReconcileTimer = null;
+    consumerClientAgentRoomReconcileStartTimeout = null;
+  }
 
   agentsNsp.on("connection", async (socket: HubSocket) => {
     logSocketLifecycleInfo("Socket client connected", {
@@ -1404,148 +1683,151 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   });
 
   if (env.socketClientAgentProfilePushEnabled) {
-    registerAgentProfileBroadcastHandler(async (event) => {
-      scheduleAgentProfilePush(consumersNsp, event);
-    });
-  } else {
-    // Operational kill-switch: keeps the consumer namespace healthy while the
-    // client-agent profile push is disabled. `agent_profile_broadcast_sink`
-    // becomes a no-op until the next boot with the env enabled.
-    registerAgentProfileBroadcastHandler(undefined);
+    sinkDisposers.push(
+      registerAgentProfileBroadcastHandler(async (event) => {
+        scheduleAgentProfilePush(consumersNsp, event);
+      }),
+    );
   }
 
-  registerAgentSocketControlHandler({
-    disconnectPrincipal: async (event) => {
-      await disconnectAgentSocketsInRoom(
-        agentsNsp,
-        `agent:principal:${event.userId}`,
-        {
-          code: "ACCOUNT_BLOCKED",
-          message: "Account is blocked",
-        },
-        {
-          userId: event.userId,
-          reason: event.reason,
-        },
-      );
-    },
-  });
-
-  registerConsumerSocketControlHandler({
-    disconnectPrincipal: async (event) => {
-      const room = `consumer:principal:${event.principalType}:${event.principalId}`;
-      await disconnectConsumerSocketsInRoom(
-        consumersNsp,
-        room,
-        {
-          code: "ACCOUNT_BLOCKED",
-          message:
-            event.principalType === "client" ? "Client account is blocked" : "Account is blocked",
-        },
-        {
-          principalType: event.principalType,
-          principalId: event.principalId,
-          reason: event.reason,
-        },
-      );
-    },
-    revokeClientAccess: async (event) => {
-      clientProfileRecipientsCacheByAgentId.delete(event.agentId);
-      await disconnectConsumerSocketsInRoom(
-        consumersNsp,
-        buildConsumerClientAgentRoom({
-          clientId: event.clientId,
-          agentId: event.agentId,
-        }),
-        {
-          code: "AGENT_ACCESS_REVOKED",
-          message: `Client access to agent ${event.agentId} was revoked`,
-        },
-        {
-          clientId: event.clientId,
-          agentId: event.agentId,
-          reason: event.reason,
-        },
-      );
-    },
-    grantClientAccess: async (event) => {
-      noteConsumerClientAgentRoomGrantAttempt();
-      const clientRoom = buildClientRoomName(event.clientId);
-      try {
-        const sockets = await consumersNsp.in(clientRoom).fetchSockets();
-        for (const remote of sockets) {
-          try {
-            await joinConsumerClientAgentRoom(remote, {
-              clientId: event.clientId,
-              agentId: event.agentId,
-            });
-            noteConsumerClientAgentRoomGrantSocketsJoined(1);
-          } catch (error: unknown) {
-            noteConsumerClientAgentRoomGrantJoinFailed();
-            logger.warn("consumer_socket_client_agent_room_grant_failed", {
-              clientId: event.clientId,
-              agentId: event.agentId,
-              socketId: remote.id,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-      } catch (error: unknown) {
-        noteConsumerClientAgentRoomGrantFetchFailed();
-        logger.warn("consumer_socket_client_agent_room_grant_fetch_failed", {
-          clientId: event.clientId,
-          agentId: event.agentId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    },
-  });
-
-  registerConsumerSocketEventHandler({
-    publish: async (event) => {
-      const room = buildCustomSocketEventRoom(event.eventName);
-      const recipients = await countSocketsInRoom(consumersNsp, room);
-      if (recipients === 0) {
-        return { recipients };
-      }
-      if (env.restSocketEventMaxRecipients > 0 && recipients > env.restSocketEventMaxRecipients) {
-        throw new AppError("socket event recipient fan-out limit exceeded", {
-          statusCode: 503,
-          code: "SERVICE_UNAVAILABLE",
-          details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
-        });
-      }
-      let frame;
-      try {
-        frame = await encodePayloadFrameBridge(
+  sinkDisposers.push(
+    registerAgentSocketControlHandler({
+      disconnectPrincipal: async (event) => {
+        await disconnectAgentSocketsInRoom(
+          agentsNsp,
+          `agent:principal:${event.userId}`,
           {
-            eventId: event.eventId,
-            eventName: event.eventName,
-            emittedAt: event.emittedAt,
-            publisher: event.publisher,
-            payload: event.payload,
-            attachments: event.attachments,
+            code: "ACCOUNT_BLOCKED",
+            message: "Account is blocked",
           },
           {
-            ...payloadFrameEncodeOptionsFromPreference(event.payloadFrameCompression),
-            requestId:
-              typeof event.publishRequestId === "string" && event.publishRequestId.trim() !== ""
-                ? event.publishRequestId.trim()
-                : event.eventId,
-            omitTraceId: true,
+            userId: event.userId,
+            reason: event.reason,
           },
         );
-      } catch {
-        throw new AppError("Failed to encode custom socket event PayloadFrame", {
-          statusCode: 503,
-          code: "SERVICE_UNAVAILABLE",
-          details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
-        });
-      }
-      consumersNsp.to(room).emit(event.eventName, frame);
-      return { recipients };
-    },
-  });
+      },
+    }),
+  );
+
+  sinkDisposers.push(
+    registerConsumerSocketControlHandler({
+      disconnectPrincipal: async (event) => {
+        const room = `consumer:principal:${event.principalType}:${event.principalId}`;
+        await disconnectConsumerSocketsInRoom(
+          consumersNsp,
+          room,
+          {
+            code: "ACCOUNT_BLOCKED",
+            message:
+              event.principalType === "client" ? "Client account is blocked" : "Account is blocked",
+          },
+          {
+            principalType: event.principalType,
+            principalId: event.principalId,
+            reason: event.reason,
+          },
+        );
+      },
+      revokeClientAccess: async (event) => {
+        clientProfileRecipientsCacheByAgentId.delete(event.agentId);
+        await disconnectConsumerSocketsInRoom(
+          consumersNsp,
+          buildConsumerClientAgentRoom({
+            clientId: event.clientId,
+            agentId: event.agentId,
+          }),
+          {
+            code: "AGENT_ACCESS_REVOKED",
+            message: `Client access to agent ${event.agentId} was revoked`,
+          },
+          {
+            clientId: event.clientId,
+            agentId: event.agentId,
+            reason: event.reason,
+          },
+        );
+      },
+      grantClientAccess: async (event) => {
+        noteConsumerClientAgentRoomGrantAttempt();
+        const clientRoom = buildClientRoomName(event.clientId);
+        try {
+          const sockets = await consumersNsp.in(clientRoom).fetchSockets();
+          for (const remote of sockets) {
+            try {
+              await joinConsumerClientAgentRoom(remote, {
+                clientId: event.clientId,
+                agentId: event.agentId,
+              });
+              noteConsumerClientAgentRoomGrantSocketsJoined(1);
+            } catch (error: unknown) {
+              noteConsumerClientAgentRoomGrantJoinFailed();
+              logger.warn("consumer_socket_client_agent_room_grant_failed", {
+                clientId: event.clientId,
+                agentId: event.agentId,
+                socketId: remote.id,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+        } catch (error: unknown) {
+          noteConsumerClientAgentRoomGrantFetchFailed();
+          logger.warn("consumer_socket_client_agent_room_grant_fetch_failed", {
+            clientId: event.clientId,
+            agentId: event.agentId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    }),
+  );
+
+  sinkDisposers.push(
+    registerConsumerSocketEventHandler({
+      publish: async (event) => {
+        const room = buildCustomSocketEventRoom(event.eventName);
+        const recipients = await countSocketsInRoom(consumersNsp, room);
+        if (recipients === 0) {
+          return { recipients };
+        }
+        if (env.restSocketEventMaxRecipients > 0 && recipients > env.restSocketEventMaxRecipients) {
+          throw new AppError("socket event recipient fan-out limit exceeded", {
+            statusCode: 503,
+            code: "SERVICE_UNAVAILABLE",
+            details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
+          });
+        }
+        let frame;
+        try {
+          frame = await encodePayloadFrameBridge(
+            {
+              eventId: event.eventId,
+              eventName: event.eventName,
+              emittedAt: event.emittedAt,
+              publisher: event.publisher,
+              payload: event.payload,
+              attachments: event.attachments,
+            },
+            {
+              ...payloadFrameEncodeOptionsFromPreference(event.payloadFrameCompression),
+              requestId:
+                typeof event.publishRequestId === "string" && event.publishRequestId.trim() !== ""
+                  ? event.publishRequestId.trim()
+                  : event.eventId,
+              omitTraceId: true,
+            },
+          );
+        } catch {
+          throw new AppError("Failed to encode custom socket event PayloadFrame", {
+            statusCode: 503,
+            code: "SERVICE_UNAVAILABLE",
+            details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
+          });
+        }
+        consumersNsp.to(room).emit(event.eventName, frame);
+        return { recipients };
+      },
+    }),
+  );
 
   return io;
 };

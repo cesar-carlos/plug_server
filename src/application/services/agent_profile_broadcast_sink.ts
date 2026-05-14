@@ -8,16 +8,21 @@ export interface AgentProfileBroadcastEvent {
 
 type AgentProfileBroadcastHandler = (event: AgentProfileBroadcastEvent) => Promise<void>;
 
-let handler: AgentProfileBroadcastHandler | undefined;
+type AgentProfileBroadcastHandlerDisposer = () => void;
+
+const handlers = new Set<AgentProfileBroadcastHandler>();
 
 export const registerAgentProfileBroadcastHandler = (
-  next: AgentProfileBroadcastHandler | undefined,
-): void => {
-  handler = next;
+  next: AgentProfileBroadcastHandler,
+): AgentProfileBroadcastHandlerDisposer => {
+  handlers.add(next);
+  return () => {
+    handlers.delete(next);
+  };
 };
 
 export const emitAgentProfileBroadcastEvent = async (
   event: AgentProfileBroadcastEvent,
 ): Promise<void> => {
-  await handler?.(event);
+  await Promise.all([...handlers].map((handler) => handler(event)));
 };

@@ -181,10 +181,10 @@ describe("ClientAuthService account and approval paths", () => {
   let emailSender: ReturnType<typeof createEmailSender>;
   let fileStorage: TestFileStorage;
   let service: ClientAuthService;
+  const socketControlDisposers: Array<() => void> = [];
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    registerConsumerSocketControlHandler(undefined);
     userRepository = new InMemoryUserRepository();
     clientRepository = new TestClientRepository();
     refreshTokenRepository = new InMemoryClientRefreshTokenRepository();
@@ -221,6 +221,12 @@ describe("ClientAuthService account and approval paths", () => {
         status: "active",
       }),
     );
+  });
+
+  afterEach(() => {
+    while (socketControlDisposers.length > 0) {
+      socketControlDisposers.pop()?.();
+    }
   });
 
   it("uses queued registration email path when async outbox accepts the request", async () => {
@@ -415,11 +421,13 @@ describe("ClientAuthService account and approval paths", () => {
 
   it("blocks and unblocks managed clients with session revocation and socket disconnect", async () => {
     const disconnectPrincipal = vi.fn().mockResolvedValue(undefined);
-    registerConsumerSocketControlHandler({
-      disconnectPrincipal,
-      revokeClientAccess: vi.fn().mockResolvedValue(undefined),
-      grantClientAccess: vi.fn(),
-    });
+    socketControlDisposers.push(
+      registerConsumerSocketControlHandler({
+        disconnectPrincipal,
+        revokeClientAccess: vi.fn().mockResolvedValue(undefined),
+        grantClientAccess: vi.fn(),
+      }),
+    );
 
     const activeClient = createClient({ id: "managed-client-id", email: "managed@test.com" });
     await clientRepository.save(activeClient);

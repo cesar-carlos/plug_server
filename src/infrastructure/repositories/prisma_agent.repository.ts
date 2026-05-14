@@ -94,7 +94,7 @@ export class PrismaAgentRepository implements IAgentRepository {
     const [records, total] = await Promise.all([
       prismaClient.agent.findMany({
         where,
-        orderBy: { name: "asc" },
+        orderBy: [{ name: "asc" }, { agentId: "asc" }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

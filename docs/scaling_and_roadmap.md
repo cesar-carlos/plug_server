@@ -116,10 +116,13 @@ via `fetchSockets()`.
 **Salas `consumer:client-agent:*` apos aprovacao de acesso:** o handler
 `grantClientAccess` corre no processo que executa `approveByToken` / `approveByOwner`.
 Com `SOCKET_IO_REDIS_ADAPTER_URL`, o `fetchSockets` na room `client:{clientId}`
-tambem encontra sockets remotos e tenta o `join` distribuido. Sem adapter Redis,
-clientes com socket noutra replica continuam sem a nova room ate **reconnect** (ou
-ate o proximo evento que passe por esse no). Mitigacao operacional: **sticky
-sessions** para `/consumers` ou tolerar um reconnect apos aprovacao.
+tambem encontra sockets remotos e tenta o `join` distribuido. Alem disso, cada
+replica pode reconciliar periodicamente as rooms dos clients ligados com
+`SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS` (defeito `30000`):
+o sweep consulta acessos aprovados no backend e corrige joins/leaves perdidos.
+Sem adapter Redis, a reconciliacao continua util para drift local, mas nao
+enxerga sockets noutra replica; nessa topologia, clients noutra replica seguem
+dependendo de **reconnect** ou sticky sessions.
 
 **Proximos passos:** manter fail-open quando o Redis cair (politica conservadora:
 se store indisponivel, deixar passar e logar) para evitar transformar uma falha de

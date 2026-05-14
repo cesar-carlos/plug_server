@@ -62,6 +62,18 @@ const consumerClientAgentRoomGrant = {
   fetchFailuresTotal: 0,
 };
 
+const consumerClientAgentRoomReconcile = {
+  runsTotal: 0,
+  clientsEvaluatedTotal: 0,
+  clientsDeferredTotal: 0,
+  socketsEvaluatedTotal: 0,
+  roomsJoinedTotal: 0,
+  roomsLeftTotal: 0,
+  failuresTotal: 0,
+  ticksSkippedTotal: 0,
+  inFlight: 0,
+};
+
 /** Upper bounds for Prometheus-style cumulative histogram of publish recipient fan-out. */
 const PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS = [
   0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536, 131_072,
@@ -212,6 +224,40 @@ export const noteConsumerClientAgentRoomGrantFetchFailed = (): void => {
   consumerClientAgentRoomGrant.fetchFailuresTotal += 1;
 };
 
+export const noteConsumerClientAgentRoomReconcileStarted = (
+  clientCount: number,
+  socketCount: number,
+): void => {
+  consumerClientAgentRoomReconcile.runsTotal += 1;
+  consumerClientAgentRoomReconcile.clientsEvaluatedTotal += Math.max(0, clientCount);
+  consumerClientAgentRoomReconcile.socketsEvaluatedTotal += Math.max(0, socketCount);
+  consumerClientAgentRoomReconcile.inFlight = 1;
+};
+
+export const noteConsumerClientAgentRoomReconcileDeferred = (count: number): void => {
+  consumerClientAgentRoomReconcile.clientsDeferredTotal += Math.max(0, count);
+};
+
+export const noteConsumerClientAgentRoomReconcileFinished = (): void => {
+  consumerClientAgentRoomReconcile.inFlight = 0;
+};
+
+export const noteConsumerClientAgentRoomReconcileRoomsJoined = (count: number): void => {
+  consumerClientAgentRoomReconcile.roomsJoinedTotal += Math.max(0, count);
+};
+
+export const noteConsumerClientAgentRoomReconcileRoomsLeft = (count: number): void => {
+  consumerClientAgentRoomReconcile.roomsLeftTotal += Math.max(0, count);
+};
+
+export const noteConsumerClientAgentRoomReconcileFailed = (): void => {
+  consumerClientAgentRoomReconcile.failuresTotal += 1;
+};
+
+export const noteConsumerClientAgentRoomReconcileTickSkipped = (): void => {
+  consumerClientAgentRoomReconcile.ticksSkippedTotal += 1;
+};
+
 export const getSocketConsumerMetricsSnapshot = (): {
   readonly activeConnections: typeof activeConnections;
   readonly authRejects: typeof authRejects;
@@ -225,6 +271,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   readonly retryAfter: typeof retryAfter;
   readonly customEvents: typeof customEvents;
   readonly consumerClientAgentRoomGrant: typeof consumerClientAgentRoomGrant;
+  readonly consumerClientAgentRoomReconcile: typeof consumerClientAgentRoomReconcile;
   readonly publishRecipientsHistogram: {
     readonly cumulativeBuckets: readonly { readonly le: string; readonly count: number }[];
     readonly sum: number;
@@ -250,6 +297,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   retryAfter: { ...retryAfter },
   customEvents: { ...customEvents },
   consumerClientAgentRoomGrant: { ...consumerClientAgentRoomGrant },
+  consumerClientAgentRoomReconcile: { ...consumerClientAgentRoomReconcile },
   publishRecipientsHistogram: {
     cumulativeBuckets: [
       ...PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS.map((b) => ({
@@ -307,6 +355,15 @@ export const resetSocketConsumerMetrics = (): void => {
   consumerClientAgentRoomGrant.socketsJoinedTotal = 0;
   consumerClientAgentRoomGrant.joinFailuresTotal = 0;
   consumerClientAgentRoomGrant.fetchFailuresTotal = 0;
+  consumerClientAgentRoomReconcile.runsTotal = 0;
+  consumerClientAgentRoomReconcile.clientsEvaluatedTotal = 0;
+  consumerClientAgentRoomReconcile.clientsDeferredTotal = 0;
+  consumerClientAgentRoomReconcile.socketsEvaluatedTotal = 0;
+  consumerClientAgentRoomReconcile.roomsJoinedTotal = 0;
+  consumerClientAgentRoomReconcile.roomsLeftTotal = 0;
+  consumerClientAgentRoomReconcile.failuresTotal = 0;
+  consumerClientAgentRoomReconcile.ticksSkippedTotal = 0;
+  consumerClientAgentRoomReconcile.inFlight = 0;
   publishRecipientsHistSum = 0;
   publishRecipientsHistCount = 0;
   publishRecipientsHistBuckets.clear();

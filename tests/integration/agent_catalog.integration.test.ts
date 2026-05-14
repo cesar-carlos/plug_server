@@ -242,4 +242,41 @@ describe("Agent catalog API", () => {
     expect(ids).toContain(linkedInactive.agentId);
     expect(ids).not.toContain(unlinkedInactive.agentId);
   });
+
+  it("GET /api/v1/agents/catalog â€” keeps pagination stable when names are duplicated", async () => {
+    const duplicateName = `Stable Duplicate ${Date.now()}`;
+    const seeded = await Promise.all([
+      seedAgent({ name: duplicateName, cnpjCpf: `stable-duplicate-a-${Date.now()}` }),
+      seedAgent({ name: duplicateName, cnpjCpf: `stable-duplicate-b-${Date.now()}` }),
+      seedAgent({ name: duplicateName, cnpjCpf: `stable-duplicate-c-${Date.now()}` }),
+    ]);
+    const expectedOrder = [...seeded].map((agent) => agent.agentId).sort((left, right) =>
+      left.localeCompare(right),
+    );
+
+    const pageOne = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ search: duplicateName, page: 1, pageSize: 1 })
+      .set("Authorization", `Bearer ${adminToken}`);
+    const pageTwo = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ search: duplicateName, page: 2, pageSize: 1 })
+      .set("Authorization", `Bearer ${adminToken}`);
+    const pageThree = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ search: duplicateName, page: 3, pageSize: 1 })
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(pageOne.status).toBe(200);
+    expect(pageTwo.status).toBe(200);
+    expect(pageThree.status).toBe(200);
+    expect(pageOne.body.total).toBe(3);
+    expect(pageTwo.body.total).toBe(3);
+    expect(pageThree.body.total).toBe(3);
+    expect([
+      pageOne.body.agents[0]?.agentId,
+      pageTwo.body.agents[0]?.agentId,
+      pageThree.body.agents[0]?.agentId,
+    ]).toEqual(expectedOrder);
+  });
 });

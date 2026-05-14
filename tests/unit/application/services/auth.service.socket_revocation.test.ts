@@ -26,9 +26,12 @@ const makeService = (adminSetUserStatusResult: unknown): AuthService =>
   );
 
 describe("AuthService socket revocation", () => {
+  const disposers: Array<() => void> = [];
+
   afterEach(() => {
-    registerAgentSocketControlHandler(undefined);
-    registerConsumerSocketControlHandler(undefined);
+    while (disposers.length > 0) {
+      disposers.pop()?.();
+    }
   });
 
   it("disconnects both consumer and agent sockets when a user is blocked", async () => {
@@ -42,12 +45,14 @@ describe("AuthService socket revocation", () => {
     });
     const disconnectAgent = vi.fn().mockResolvedValue(undefined);
     const disconnectConsumer = vi.fn().mockResolvedValue(undefined);
-    registerAgentSocketControlHandler({ disconnectPrincipal: disconnectAgent });
-    registerConsumerSocketControlHandler({
-      disconnectPrincipal: disconnectConsumer,
-      revokeClientAccess: vi.fn(),
-      grantClientAccess: vi.fn(),
-    });
+    disposers.push(registerAgentSocketControlHandler({ disconnectPrincipal: disconnectAgent }));
+    disposers.push(
+      registerConsumerSocketControlHandler({
+        disconnectPrincipal: disconnectConsumer,
+        revokeClientAccess: vi.fn(),
+        grantClientAccess: vi.fn(),
+      }),
+    );
 
     const service = makeService({ ok: true, value: blockedUser });
     const result = await service.adminSetUserStatus({

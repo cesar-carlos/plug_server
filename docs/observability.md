@@ -66,6 +66,15 @@ rate(plug_socket_consumer_client_agent_room_grant_attempts_total[5m])
 rate(plug_socket_consumer_client_agent_room_grant_join_failures_total[5m])
 rate(plug_socket_consumer_client_agent_room_grant_fetch_failures_total[5m])
 
+# Reconciliacao periodica dessas rooms (repara drift apos falha de join/leave ou churn entre replicas)
+rate(plug_socket_consumer_client_agent_room_reconcile_runs_total[5m])
+rate(plug_socket_consumer_client_agent_room_reconcile_rooms_joined_total[5m])
+rate(plug_socket_consumer_client_agent_room_reconcile_rooms_left_total[5m])
+rate(plug_socket_consumer_client_agent_room_reconcile_failures_total[5m])
+rate(plug_socket_consumer_client_agent_room_reconcile_clients_deferred_total[5m])
+rate(plug_socket_consumer_client_agent_room_reconcile_ticks_skipped_total[5m])
+plug_socket_consumer_client_agent_room_reconcile_in_flight
+
 # Subscricoes custom: 403 (principal nao-Client) vs outras rejeicoes
 rate(plug_socket_custom_event_subscription_forbidden_total[5m])
 rate(plug_socket_custom_event_subscription_rejected_total[5m])
@@ -127,9 +136,16 @@ rate(plug_socket_rate_limit_redis_runtime_command_errors_total[5m])
 # Socket.IO Redis adapter (rooms/pubsub entre replicas)
 plug_socket_io_redis_adapter_url_configured
 plug_socket_io_redis_adapter_active
+plug_socket_io_redis_adapter_attached_servers_total
 rate(plug_socket_io_redis_adapter_connection_events_total[5m])
 rate(plug_socket_io_redis_adapter_fallback_events_total[5m])
 rate(plug_socket_io_redis_adapter_runtime_errors_total[5m])
+
+# Retries de transacoes Prisma (serializacao/deadlock) em caminhos criticos
+rate(plug_prisma_transaction_retry_attempts_total[5m])
+rate(plug_prisma_transaction_retries_exhausted_total[5m])
+rate(plug_prisma_transaction_retry_attempts_total{operation="client_registration_decision"}[5m])
+rate(plug_prisma_transaction_retry_attempts_total{operation="user_registration_decision"}[5m])
 
 # Redis opcional da idempotencia de `client:custom.*`
 plug_socket_custom_event_idempotency_redis_url_configured
@@ -256,6 +272,13 @@ plug_agent_data_maintenance_pending_operations
 Regras de transicao e API: `docs/user_status.md`.
 
 Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos contadores expostos (podem evoluir com o CHANGELOG).
+
+### Leituras novas para este pacote
+
+- `plug_prisma_transaction_retry_attempts_total` a subir sem erro final indica contenção transitória recuperada por retry.
+- `plug_prisma_transaction_retries_exhausted_total` > 0 exige olhar locks, `40001`, `40P01` e tamanho das transações.
+- `plug_socket_consumer_client_agent_room_reconcile_rooms_joined_total` / `rooms_left_total` mostram drift real corrigido pelo sweep.
+- `plug_socket_io_redis_adapter_attached_servers_total` ajuda a confirmar em testes locais se mais de um hub do mesmo processo anexou o adapter distribuído.
 
 ## Snapshot minimo para tuning hub ↔ agente
 

@@ -6,6 +6,7 @@
 - **Exemplo local**: [`.env.example`](../.env.example) (copiar para `.env`).
 - **Documentacao narrativa**: `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md`, `docs/performance_hub_agent.md`, `docs/user_status.md` (estados de utilizador e bloqueio).
 - **Mapa da documentacao**: `docs/README.md`.
+- **Runtime alvo**: Node `22.13.x` LTS (`.nvmrc`, `package.json.engines` e CI).
 
 Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, confira o ficheiro de env ou `.env.example`.
 
@@ -22,6 +23,11 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 | `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`                 | `true`  | Gateia o registro do handler de broadcast `client:agent.profile.updated` no namespace `/consumers`. Default mantém o comportamento sempre-ativo (clientes aprovados recebem push em mudanças do catálogo do agente). Setar `false` é um kill-switch operacional: o resto do `/consumers` (relay, consultas, agents:command) segue funcionando, e os clientes caem em modo polling para ler `profileVersion`. Mudança requer restart (Zod parseia `process.env` no boot). |
 | `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS`       | `1000`  | TTL do cache em memória que guarda, por agente, os IDs de clients ativos com acesso aprovado para fan-out de perfil. Mantém o push barato em rajadas de atualização de catálogo sem reter listas por muito tempo. |
 | `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE`     | `5000`  | Teto de entradas desse cache por processo. Quando enche, a entrada mais antiga é removida, evitando crescimento sem limite em bases com muitos agentes. |
+| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS`  | `30000` | Sweep periódico best-effort que reconcilia rooms `consumer:client-agent:{clientId}:{agentId}` para sockets `/consumers` já ligados. Fecha a lacuna entre aprovação/revogação e membership real quando um join/leave ao vivo falha ou quando uma réplica perde timing. `0` desativa. |
+
+| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY`  | `8`     | Limite de concorrÃªncia por tick para leituras `listApprovedAgentIds(...)` e ajustes de room. Evita rajadas de banco em bases com muitos clients ligados. |
+| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK` | `200` | OrÃ§amento de `clientId`s processados por tick. Excedente fica para o tick seguinte, com cursor rotativo estÃ¡vel. |
+| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS` | `1000` | Jitter aleatÃ³rio aplicado sÃ³ ao primeiro tick do processo, para evitar sweeps sincronizados entre rÃ©plicas apÃ³s restart. |
 
 ### `SOCKET_CONSUMER_ROLES` (opcional)
 
@@ -41,9 +47,10 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 2. **Outbox de e-mails de registo**: monitorizar o log `registration_email_outbox_health` (agregado a cada ~10 min quando há fila, erros ou dead letters). Acúmulo persistente indica falha de SMTP ou fila bloqueada.
 3. **`SOCKET_CONSUMER_ROLES`**: no PID, confirmar o valor; se faltar o literal `client` na string, o runtime acrescenta (ver tabela acima) e o efeito final inclui `client`.
 4. **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou ausente; `false` desliga push de catálogo (polling no app). Manter `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS=1000` e `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE=5000` como ponto inicial; subir apenas se métricas mostrarem churn excessivo.
-5. **`POST /api/v1/agents/commands`** com agente offline mas **já** registado nesse worker: resposta **200** com `response.item.error.code === -32000` e `data.reason === agent_disconnected_at_dispatch` quando o JSON-RPC tem `id` correlacionável (ver tabela _Erros HTTP_ em `docs/api_rest_bridge.md`).
-6. **Multi-réplica**: `HUB_INSTANCE_ID` + header `X-Hub-Instance-Id` estável entre pedidos do mesmo cliente; sticky no nginx — `docs/nginx_production.md` § 12.
-7. **Duplicados só por maiúsculas** (antes de migrar para `citext`): correr `npm run db:email:dup-scan` na base alvo; corrigir duplicados antes de `prisma migrate deploy`.
+5. **`SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS`**: usar `30000` como baseline. Reduza para `5000`-`10000` apenas se a operação exigir convergência mais rápida e as métricas `plug_socket_consumer_client_agent_room_reconcile_*` mostrarem custo aceitável.
+6. **`POST /api/v1/agents/commands`** com agente offline mas **já** registado nesse worker: resposta **200** com `response.item.error.code === -32000` e `data.reason === agent_disconnected_at_dispatch` quando o JSON-RPC tem `id` correlacionável (ver tabela _Erros HTTP_ em `docs/api_rest_bridge.md`).
+7. **Multi-réplica**: `HUB_INSTANCE_ID` + header `X-Hub-Instance-Id` estável entre pedidos do mesmo cliente; sticky no nginx — `docs/nginx_production.md` § 12.
+8. **Duplicados só por maiúsculas** (antes de migrar para `citext`): correr `npm run db:email:dup-scan` na base alvo; corrigir duplicados antes de `prisma migrate deploy`.
 
 ### `NODE_ENV=production` sem variável definida
 
@@ -238,6 +245,19 @@ teste ou quando a tabela não existe, o código cai para envio direto.
 | `SOCKET_IO_TRANSPORTS`                                     | ver tabela _production_; senão `websocket,polling` | Produção sem variável: só `websocket` (menos CPU/handshake).          |
 | `SOCKET_IO_PER_MESSAGE_DEFLATE`                            | `false`                                            | Evita deflate WS duplicado com `PayloadFrame`.                        |
 | `SOCKET_IO_MAX_HTTP_BUFFER_BYTES`                          | `10485760`                                         | Teto alinhado a frames de 10 MiB.                                     |
+
+## Rollout de indices grandes
+
+Quando uma migration adicionar índices novos em tabelas quentes ou grandes,
+trate o rollout como operação separada da entrega da aplicação:
+
+1. use `CREATE INDEX CONCURRENTLY` fora de transação no Postgres de produção;
+2. crie um índice de cada vez e acompanhe locks, I/O e `pg_stat_progress_create_index`;
+3. só depois aplique a migration final do Prisma ou marque a etapa como já executada, conforme o teu playbook;
+4. mantenha rollback simples: a app nova deve funcionar antes e depois do índice existir.
+
+O objetivo é evitar lock pesado de escrita durante deploy e reduzir risco em
+bases com cardinalidade alta.
 
 ## Metricas especificas de `/consumers`
 

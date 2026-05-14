@@ -1140,6 +1140,13 @@ export class ClientAgentAccessService {
     }
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, filter?.pageSize ?? 20);
+    if (this.clientAgentAccessRepository.listOwnerManagedClientsPageByAgentId !== undefined) {
+      const result = await this.clientAgentAccessRepository.listOwnerManagedClientsPageByAgentId(
+        agentId,
+        filter,
+      );
+      return ok(result);
+    }
     const accesses = await this.clientAgentAccessRepository.listByAgentId(agentId);
     const clientsById = await this.loadClientsById(accesses.map((access) => access.clientId));
     let items: OwnerManagedAgentClientRecord[] = accesses
@@ -1172,6 +1179,12 @@ export class ClientAgentAccessService {
           item.lastName.toLowerCase().includes(query),
       );
     }
+
+    items = items.sort(
+      (left, right) =>
+        left.approvedAt.getTime() - right.approvedAt.getTime() ||
+        left.clientId.localeCompare(right.clientId),
+    );
 
     const total = items.length;
     const start = (page - 1) * pageSize;

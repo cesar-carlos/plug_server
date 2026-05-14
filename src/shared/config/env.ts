@@ -573,6 +573,37 @@ const envSchema = z.object({
     .positive()
     .max(1_000_000)
     .default(5_000),
+  /**
+   * Periodic reconciliation of `consumer:client-agent:*` rooms for connected client sockets.
+   * `0` disables the sweep. Useful to converge room membership after distributed approvals.
+   */
+  SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3_600_000)
+    .default(30_000),
+  /** Max concurrent `listApprovedAgentIds` reads / room updates per reconcile tick. */
+  SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1_000)
+    .default(8),
+  /** Max distinct client IDs processed per reconcile tick. Remaining clients roll to the next tick. */
+  SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1_000_000)
+    .default(200),
+  /** Random delay before the first reconcile tick to avoid synchronized multi-replica sweeps. */
+  SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(60_000)
+    .default(1_000),
   SOCKET_RELAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
@@ -1117,6 +1148,14 @@ export const env = {
     parsedEnv.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS,
   socketClientAgentProfileRecipientCacheMaxSize:
     parsedEnv.SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE,
+  socketConsumerClientAgentRoomReconcileIntervalMs:
+    parsedEnv.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS,
+  socketConsumerClientAgentRoomReconcileConcurrency:
+    parsedEnv.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY,
+  socketConsumerClientAgentRoomReconcileMaxClientsPerTick:
+    parsedEnv.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK,
+  socketConsumerClientAgentRoomReconcileStartJitterMs:
+    parsedEnv.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS,
   socketRelayRequestTimeoutMs: parsedEnv.SOCKET_RELAY_REQUEST_TIMEOUT_MS,
   socketRelayConversationIdleTimeoutMs: parsedEnv.SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS,
   socketRelayConversationSweepIntervalMs: parsedEnv.SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS,

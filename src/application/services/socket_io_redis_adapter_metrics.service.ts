@@ -10,6 +10,7 @@ let fallbackEventsTotal = 0;
 let runtimeErrorEventsTotal = 0;
 let lastConnectionAtMs = 0;
 let lastFallbackAtMs = 0;
+let attachedServersTotal = 0;
 
 export const noteSocketIoRedisAdapterSkippedEmptyUrl = (): void => {
   redisUrlConfigured = 0;
@@ -39,6 +40,10 @@ export const noteSocketIoRedisAdapterDisconnected = (): void => {
   redisAdapterActive = 0;
 };
 
+export const noteSocketIoRedisAdapterAttachedServer = (): void => {
+  attachedServersTotal += 1;
+};
+
 export const getSocketIoRedisAdapterMetricsSnapshot = (): {
   readonly redisUrlConfigured: 0 | 1;
   readonly redisAdapterActive: 0 | 1;
@@ -47,6 +52,7 @@ export const getSocketIoRedisAdapterMetricsSnapshot = (): {
   readonly runtimeErrorEventsTotal: number;
   readonly lastConnectionAtMs: number;
   readonly lastFallbackAtMs: number;
+  readonly attachedServersTotal: number;
 } => ({
   redisUrlConfigured,
   redisAdapterActive,
@@ -55,6 +61,7 @@ export const getSocketIoRedisAdapterMetricsSnapshot = (): {
   runtimeErrorEventsTotal,
   lastConnectionAtMs,
   lastFallbackAtMs,
+  attachedServersTotal,
 });
 
 export const resetSocketIoRedisAdapterMetricsForTests = (): void => {
@@ -65,4 +72,5 @@ export const resetSocketIoRedisAdapterMetricsForTests = (): void => {
   runtimeErrorEventsTotal = 0;
   lastConnectionAtMs = 0;
   lastFallbackAtMs = 0;
+  attachedServersTotal = 0;
 };

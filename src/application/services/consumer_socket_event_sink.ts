@@ -27,22 +27,25 @@ interface ConsumerSocketEventHandler {
   publish(input: PublishConsumerSocketEventInput): Promise<PublishConsumerSocketEventResult>;
 }
 
-let handler: ConsumerSocketEventHandler | undefined;
+type ConsumerSocketEventHandlerDisposer = () => void;
+
+const handlers = new Set<ConsumerSocketEventHandler>();
 let warnedMissingConsumerSocketEventHandler = false;
 
 export const registerConsumerSocketEventHandler = (
-  next: ConsumerSocketEventHandler | undefined,
-): void => {
-  handler = next;
-  if (next !== undefined) {
-    warnedMissingConsumerSocketEventHandler = false;
-  }
+  next: ConsumerSocketEventHandler,
+): ConsumerSocketEventHandlerDisposer => {
+  handlers.add(next);
+  warnedMissingConsumerSocketEventHandler = false;
+  return () => {
+    handlers.delete(next);
+  };
 };
 
 export const publishConsumerSocketEvent = async (
   input: PublishConsumerSocketEventInput,
 ): Promise<PublishConsumerSocketEventResult> => {
-  if (!handler) {
+  if (handlers.size === 0) {
     if (!warnedMissingConsumerSocketEventHandler) {
       warnedMissingConsumerSocketEventHandler = true;
       logger.warn("consumer_socket_event_publish_sink_missing", {
@@ -52,5 +55,6 @@ export const publishConsumerSocketEvent = async (
     }
     return { recipients: 0 };
   }
-  return handler.publish(input);
+  const results = await Promise.all([...handlers].map((handler) => handler.publish(input)));
+  return { recipients: results.reduce((sum, result) => sum + result.recipients, 0) };
 };

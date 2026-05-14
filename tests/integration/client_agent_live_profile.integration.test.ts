@@ -5,7 +5,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { io as ioClient } from "socket.io-client";
 
 import { env } from "../../src/shared/config/env";
-import { Client } from "../../src/domain/entities/client.entity";
 import { getTestRepositoryAccess } from "../../src/shared/di/container";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { socketEvents } from "../../src/shared/constants/socket_events";
@@ -548,15 +547,15 @@ describe("Client agent live profile API", () => {
 
     const clientSocket = await connectConsumer(baseUrl, session.client.accessToken);
     try {
-      const persistedClient = await repositories.client.findById(session.client.clientId);
-      expect(persistedClient).not.toBeNull();
-      await repositories.client.save(
-        new Client({
-          ...persistedClient!,
-          status: "blocked",
-          updatedAt: new Date(),
-        }),
-      );
+      const disconnectPromise = new Promise<string>((resolve) => {
+        clientSocket.once("disconnect", (reason) => resolve(reason));
+      });
+      const blockClient = await request(baseUrl)
+        .patch(`/api/v1/me/clients/${session.client.clientId}/status`)
+        .set("Authorization", `Bearer ${session.owner.accessToken}`)
+        .send({ status: "blocked" });
+      expect(blockClient.status).toBe(200);
+      expect(await disconnectPromise).toBeTruthy();
 
       const patchResponse = await request(baseUrl)
         .patch(`/api/v1/agents/${agentId}/profile`)
@@ -567,15 +566,7 @@ describe("Client agent live profile API", () => {
         });
 
       expect(patchResponse.status).toBe(200);
-
-      const receivedBroadcast = await waitForEvent<unknown>(
-        clientSocket,
-        socketEvents.clientAgentProfileUpdated,
-        1_500,
-      )
-        .then(() => true)
-        .catch(() => false);
-      expect(receivedBroadcast).toBe(false);
+      expect(clientSocket.connected).toBe(false);
     } finally {
       clientSocket.disconnect();
     }

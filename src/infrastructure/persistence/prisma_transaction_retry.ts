@@ -1,5 +1,9 @@
 import { Prisma } from "@prisma/client";
 
+import {
+  notePrismaTransactionRetryAttempt,
+  notePrismaTransactionRetryExhausted,
+} from "../../application/services/prisma_transaction_retry_metrics.service";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
@@ -56,6 +60,9 @@ export const runPrismaTransactionWithRetry = async <T>(
     } catch (error: unknown) {
       lastError = error;
       if (attempt >= maxAttempts || !isPrismaTransientTransactionError(error)) {
+        if (attempt >= maxAttempts && isPrismaTransientTransactionError(error)) {
+          notePrismaTransactionRetryExhausted(operation);
+        }
         throw error;
       }
       const baseDelayMs = env.databaseTransactionRetryBaseDelayMs;
@@ -63,6 +70,7 @@ export const runPrismaTransactionWithRetry = async <T>(
         baseDelayMs === 0
           ? 0
           : Math.min(1_000, baseDelayMs * 2 ** (attempt - 1) + Math.floor(Math.random() * 10));
+      notePrismaTransactionRetryAttempt(operation);
       logger.warn("prisma_transaction_retry", {
         operation,
         attempt,

@@ -68,7 +68,9 @@ export class InMemoryAgentRepository implements IAgentRepository {
       );
     }
 
-    const sorted = agents.sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = agents.sort(
+      (a, b) => a.name.localeCompare(b.name) || a.agentId.localeCompare(b.agentId),
+    );
     const start = (page - 1) * pageSize;
 
     return {

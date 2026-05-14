@@ -92,6 +92,7 @@ describe("ClientAgentAccessService", () => {
   let emailSender: FakeEmailSender;
   let approvalTxn: InMemoryClientAgentAccessApprovalTxn;
   let service: ClientAgentAccessService;
+  const socketControlDisposers: Array<() => void> = [];
 
   beforeEach(async () => {
     (
@@ -176,7 +177,9 @@ describe("ClientAgentAccessService", () => {
   });
 
   afterEach(() => {
-    registerConsumerSocketControlHandler(undefined);
+    while (socketControlDisposers.length > 0) {
+      socketControlDisposers.pop()?.();
+    }
   });
 
   it("should reject request when agent does not exist", async () => {
@@ -218,11 +221,13 @@ describe("ClientAgentAccessService", () => {
 
   it("notifies hub to join client-agent room after token approval", async () => {
     const grantClientAccess = vi.fn().mockResolvedValue(undefined);
-    registerConsumerSocketControlHandler({
-      disconnectPrincipal: vi.fn(),
-      revokeClientAccess: vi.fn(),
-      grantClientAccess,
-    });
+    socketControlDisposers.push(
+      registerConsumerSocketControlHandler({
+        disconnectPrincipal: vi.fn(),
+        revokeClientAccess: vi.fn(),
+        grantClientAccess,
+      }),
+    );
 
     const requestResult = await service.requestAccess(clientId, [agentId]);
     expect(requestResult.ok).toBe(true);
@@ -285,13 +290,15 @@ describe("ClientAgentAccessService", () => {
 
   it("notifies sockets only for accesses that existed before client removal", async () => {
     const revokedEvents: Array<{ clientId: string; agentId: string }> = [];
-    registerConsumerSocketControlHandler({
-      disconnectPrincipal: vi.fn(),
-      revokeClientAccess: async (event) => {
-        revokedEvents.push({ clientId: event.clientId, agentId: event.agentId });
-      },
-      grantClientAccess: vi.fn(),
-    });
+    socketControlDisposers.push(
+      registerConsumerSocketControlHandler({
+        disconnectPrincipal: vi.fn(),
+        revokeClientAccess: async (event) => {
+          revokedEvents.push({ clientId: event.clientId, agentId: event.agentId });
+        },
+        grantClientAccess: vi.fn(),
+      }),
+    );
 
     await accessRepository.addAccess(clientId, agentId);
 
@@ -304,11 +311,13 @@ describe("ClientAgentAccessService", () => {
 
   it("does not notify sockets when client removal is idempotent and no access exists", async () => {
     const revokeClientAccess = vi.fn();
-    registerConsumerSocketControlHandler({
-      disconnectPrincipal: vi.fn(),
-      revokeClientAccess,
-      grantClientAccess: vi.fn(),
-    });
+    socketControlDisposers.push(
+      registerConsumerSocketControlHandler({
+        disconnectPrincipal: vi.fn(),
+        revokeClientAccess,
+        grantClientAccess: vi.fn(),
+      }),
+    );
 
     const remove = await service.removeApprovedAccess(clientId, [agentId]);
 
@@ -686,6 +695,33 @@ describe("ClientAgentAccessService", () => {
     if (page.ok) {
       expect(page.value.total).toBe(1);
       expect(page.value.items[0]?.email).toBe("client@example.com");
+    }
+  });
+
+  it("lists clients connected to an agent with stable approvedAt/clientId ordering", async () => {
+    const approvedAt = new Date("2026-05-14T12:00:00.000Z");
+    await accessRepository.addAccess(otherClientId, agentId, approvedAt);
+    await accessRepository.addAccess(clientId, agentId, approvedAt);
+
+    const firstPage = await service.listAgentClientsByOwnerPage(ownerUserId, agentId, {
+      page: 1,
+      pageSize: 1,
+    });
+    const secondPage = await service.listAgentClientsByOwnerPage(ownerUserId, agentId, {
+      page: 2,
+      pageSize: 1,
+    });
+
+    expect(firstPage.ok).toBe(true);
+    expect(secondPage.ok).toBe(true);
+    if (firstPage.ok && secondPage.ok) {
+      const expectedOrder = [clientId, otherClientId].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      expect(firstPage.value.total).toBe(2);
+      expect(secondPage.value.total).toBe(2);
+      expect(firstPage.value.items[0]?.clientId).toBe(expectedOrder[0]);
+      expect(secondPage.value.items[0]?.clientId).toBe(expectedOrder[1]);
     }
   });
 
