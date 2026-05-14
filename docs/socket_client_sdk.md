@@ -17,8 +17,10 @@ rotas HTTP e payloads compartilhados com o bridge REST, use o OpenAPI em
 
 **Canal alternativo (REST):** os mesmos comandos JSON-RPC podem ser enviados por
 `POST /api/v1/agents/commands` sem Socket no consumer; o REST **nao** expoe
-streaming progressivo (resultado agregado num unico JSON). Para chunks em tempo
-real, usar este guia / `agents:command` / relay. Ver `docs/PROJECT_OVERVIEW.md`.
+streaming progressivo (resultado agregado num unico JSON). Para consultas grandes
+(`max_rows`/`page_size` altos, relatorios, CTEs, joins largos ou payload esperado
+acima de alguns MiB), preferir Socket/relay e sinalizar
+`options.prefer_db_streaming=true` para o agente. Ver `docs/PROJECT_OVERVIEW.md`.
 
 **Catalogo de metodos RPC no bridge** (`sql.execute`, `client_token.getPolicy`, `rpc.discover`, etc.), limites UTF-8 e exemplos: `docs/api_rest_bridge.md` (fonte normativa partilhada com o REST).
 
@@ -225,8 +227,12 @@ caminho recomendado para carga alta, streaming, idempotencia e backpressure.
 | Mesmo contrato do REST, incluindo batch, notification, `timeoutMs`, `pagination` e `payloadFrameCompression` | `agents:command` |
 | Streaming em tempo real com controle de creditos | `relay:*` |
 | Retry idempotente pelo cliente | `relay:*` |
+| Consulta SQL grande, relatorio ou payload alto | `relay:*` com `prefer_db_streaming` |
+| `sql.bulkInsert` ou batch read-only sob carga | `agents:command` ou `relay:*` |
 | Comandos simples sem estado de conversa | REST ou `agents:command` |
 | Bootstrap, auth, catalogo, admin, health HTTP, metricas | REST |
+
+Helper de referencia para clientes TypeScript: [`docs/snippets/agent_command_performance_options.ts`](snippets/agent_command_performance_options.ts).
 
 ### Resposta de `relay:rpc.stream.pull`
 
@@ -348,7 +354,7 @@ Espelha o mesmo objeto que enviarias no body do `POST /api/v1/agents/commands` (
     "jsonrpc": "2.0",
     "method": "sql.execute",
     "id": "req-socket-1",
-    "api_version": "2.9",
+    "api_version": "2.10",
     "meta": {
       "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
     },

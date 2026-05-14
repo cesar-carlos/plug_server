@@ -42,7 +42,7 @@ Historico detalhado de mudancas: `CHANGELOG.md`.
 
 ## Versao do profile
 
-O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.9"` em
+O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.10"` em
 `agent:capabilities` (`HUB_TRANSPORT_EXTENSIONS` em
 `src/shared/constants/agent_transport_contract.ts`). A versao acompanha o
 OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
@@ -63,7 +63,9 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | `rpc:complete.terminal_status` no REST materializado | alinhado | `docs/api_rest_bridge.md` |
 | Backpressure relay com encerramento explicito | alinhado | `docs/socket_relay_protocol.md` |
 | Pull capability-aware (`recommendedStreamPullWindowSize`, `maxStreamPullWindowSize`) | publicado pelo hub e clampado por agente | `docs/socket_relay_protocol.md`, `docs/api_rest_bridge.md` |
-| `execution_mode`, `preserve_sql`, `effective_max_rows` | alinhado | `docs/api_rest_bridge.md` |
+| `execution_mode`, `preserve_sql`, `prefer_db_streaming`, `effective_max_rows` | alinhado | `docs/api_rest_bridge.md` |
+| `sql.bulkInsert` (introduzido no perfil 2.10) | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
+| `max_parallel_read_only_batch_items` em `sql.executeBatch` | pass-through validado | `src/shared/validators/agent_command.ts` |
 | `id` omitido vs `id: null` no bridge | alinhado | `docs/api_rest_bridge.md`, `docs/socket_client_sdk.md` |
 | `client_token.getPolicy` (introspecao de policy, introduzido no perfil 2.7) com **`Retry-After`** automatico em `-32013` | alinhado | `docs/api_rest_bridge.md` |
 | `meta.outbound_compression` aceito no schema (no-op no runtime atual, alinhado a v2.8) | tolerancia | `src/shared/validators/agent_command.ts` |

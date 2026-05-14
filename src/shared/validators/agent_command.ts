@@ -20,7 +20,7 @@ const rpcMetaSchema = z
     timestamp: rpcTimestampSchema.optional(),
     /**
      * Accepted on bridge ingress for backward compatibility, but stripped before
-     * forwarding to the agent. `socket_communication_standard.md` (v2.9,
+     * forwarding to the agent. `socket_communication_standard.md` (v2.10,
      * "Nota operacional (largura de banda)" and "Limitacoes e observacoes do
      * estado atual") states the agent does NOT support per-request compression
      * overrides via `meta`; outbound `PayloadFrame` compression follows the
@@ -117,6 +117,7 @@ export const sqlExecuteOptionsSchema = z
     execution_mode: z.enum(["managed", "preserve"]).optional(),
     preserve_sql: z.boolean().optional(),
     multi_result: z.boolean().optional(),
+    prefer_db_streaming: z.boolean().optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -205,6 +206,7 @@ const sqlExecuteBatchOptionsSchema = z
     timeout_ms: z.number().int().positive().max(AGENT_TIMEOUT_MS_LIMIT).optional(),
     max_rows: z.number().int().positive().max(AGENT_MAX_ROWS_LIMIT).optional(),
     transaction: z.boolean().optional(),
+    max_parallel_read_only_batch_items: z.number().int().positive().optional(),
   })
   .strict();
 

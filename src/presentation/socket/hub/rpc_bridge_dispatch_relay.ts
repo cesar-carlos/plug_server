@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { BridgeLatencyTraceSession } from "../../../application/services/bridge_latency_trace_builder";
 import { inferBridgeCommandMethod } from "../../../application/services/bridge_latency_trace_builder";
+import { observeBridgeRpcMethod } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { normalizeCommandForAgent } from "../../../application/agent_commands/command_transformers";
 import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";
@@ -359,6 +360,12 @@ export const createRpcBridgeRelayDispatch = (
           errorCode: "RELAY_REQUEST_TIMEOUT",
         });
       }
+      observeBridgeRpcMethod({
+        channel: "relay",
+        method: route.jsonRpcMethod ?? "unknown",
+        outcome: "timeout",
+        elapsedMs: Date.now() - route.createdAtMs,
+      });
       emitRelayTimeoutResponse(route, emitToConsumer);
     }, relayRequestTimeoutMs);
 
@@ -440,6 +447,12 @@ export const createRpcBridgeRelayDispatch = (
           errorCode: appErr?.code ?? "BRIDGE_ERROR",
         });
       }
+      observeBridgeRpcMethod({
+        channel: "relay",
+        method: relayRoute.jsonRpcMethod ?? "unknown",
+        outcome: aborted ? "abort" : "error",
+        elapsedMs: Date.now() - relayRoute.createdAtMs,
+      });
       if (clientRequestId) {
         const idempotencyMap = getRelayIdempotencyMap(conversation.conversationId);
         const entry = idempotencyMap?.get(clientRequestId);

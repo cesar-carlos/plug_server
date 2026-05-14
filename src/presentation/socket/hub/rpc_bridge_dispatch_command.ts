@@ -4,6 +4,10 @@ import {
   inferBridgeCommandMethod,
   type BridgeLatencyTraceSession,
 } from "../../../application/services/bridge_latency_trace_builder";
+import {
+  observeBridgeRpcMethod,
+  type BridgeRpcMethodMetricOutcome,
+} from "../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../shared/config/env";
 import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../shared/errors/app_error";
@@ -98,10 +102,15 @@ export const createDispatchRpcCommandToAgent = (
 
   return async (input: DispatchRpcCommandInput): Promise<DispatchRpcCommandResult> => {
     const dispatchWallStart = performance.now();
+    const method = inferBridgeCommandMethod(input.command);
+    const channel = input.latencyTrace?.channel ?? "unknown";
+    let metricOutcome: BridgeRpcMethodMetricOutcome = "error";
 
-    if (input.signal?.aborted) {
-      throw serviceUnavailable("HTTP request aborted by client");
-    }
+    try {
+      if (input.signal?.aborted) {
+        metricOutcome = "abort";
+        throw serviceUnavailable("HTTP request aborted by client");
+      }
 
     if (!hasRegisteredAgentSocketBridge()) {
       throw serviceUnavailable("Socket bridge is not initialized");
@@ -221,6 +230,7 @@ export const createDispatchRpcCommandToAgent = (
         const emitEnded = performance.now();
         input.latencyTrace?.addPhaseMs("emit_to_socket_ms", emitEnded - tEmit);
 
+        metricOutcome = "notification";
         return {
           requestId,
           notification: true,
@@ -417,12 +427,31 @@ export const createDispatchRpcCommandToAgent = (
         noteAgentHealthRpcResponse(response);
       }
 
+      metricOutcome = "success";
       return {
         requestId,
         response,
       };
     } finally {
       releaseAgentSlot();
+    }
+    } catch (error: unknown) {
+      if (metricOutcome === "error") {
+        const message = error instanceof Error ? error.message : "";
+        if (input.signal?.aborted === true || message.includes("aborted")) {
+          metricOutcome = "abort";
+        } else if (message.includes("Timed out") || message.includes("timed out")) {
+          metricOutcome = "timeout";
+        }
+      }
+      throw error;
+    } finally {
+      observeBridgeRpcMethod({
+        channel,
+        method,
+        outcome: metricOutcome,
+        elapsedMs: performance.now() - dispatchWallStart,
+      });
     }
   };
 };

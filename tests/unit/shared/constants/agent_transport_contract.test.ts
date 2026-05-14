@@ -8,8 +8,8 @@ import {
 
 describe("agent_transport_contract", () => {
   describe("HUB_TRANSPORT_EXTENSIONS", () => {
-    it("advertises plug-jsonrpc-profile/2.9 (aligned with plug_agente OpenRPC 2.9.0)", () => {
-      expect(HUB_TRANSPORT_EXTENSIONS.plugProfile).toBe("plug-jsonrpc-profile/2.9");
+    it("advertises plug-jsonrpc-profile/2.10 (aligned with plug_agente OpenRPC 2.10.0)", () => {
+      expect(HUB_TRANSPORT_EXTENSIONS.plugProfile).toBe("plug-jsonrpc-profile/2.10");
     });
 
     it("keeps the binary PayloadFrame and protocolReadyAck flags on", () => {

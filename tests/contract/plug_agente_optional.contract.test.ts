@@ -10,6 +10,7 @@ import {
   bridgeCommandSchema,
 } from "../../src/shared/validators/agent_command";
 import { withBridgeMeta } from "../../src/presentation/socket/hub/rpc_bridge_command_helpers";
+import { HUB_TRANSPORT_EXTENSIONS } from "../../src/shared/constants/agent_transport_contract";
 
 const SCHEMA_FILES = [
   "rpc.request.schema.json",
@@ -126,6 +127,21 @@ function assertZodAcceptsCommand(command: unknown): void {
   ).toBe(true);
 }
 
+function readOpenRpcMajorMinor(version: string): string {
+  const parts = version.split(".");
+  const major = Number.parseInt(parts[0] ?? "", 10);
+  const minor = Number.parseInt(parts[1] ?? "", 10);
+  expect(Number.isFinite(major)).toBe(true);
+  expect(Number.isFinite(minor)).toBe(true);
+  return `${major}.${minor}`;
+}
+
+function readHubPlugProfileMajorMinor(profile: string): string {
+  const match = /^plug-jsonrpc-profile\/(\d+\.\d+)$/u.exec(profile);
+  expect(match).not.toBeNull();
+  return match?.[1] ?? "";
+}
+
 contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () => {
   it("exposes expected OpenRPC methods and a parsable semver-like version", () => {
     const raw = readFileSync(openRpcPath, "utf8");
@@ -153,6 +169,9 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     expect(Number.isFinite(parts[1])).toBe(true);
     const pack = (parts[0] ?? 0) * 1000 + (parts[1] ?? 0);
     expect(pack).toBeGreaterThanOrEqual(2005);
+    expect(readHubPlugProfileMajorMinor(HUB_TRANSPORT_EXTENSIONS.plugProfile)).toBe(
+      readOpenRpcMajorMinor(String(version)),
+    );
   });
 
   it("includes all published schema files under docs/communication/schemas", () => {
@@ -234,7 +253,12 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     const sqlParams = {
       sql: "SELECT 1",
       client_token: "a1b2c3d4",
-      options: { timeout_ms: 30000, max_rows: 1000, execution_mode: "managed" as const },
+      options: {
+        timeout_ms: 30000,
+        max_rows: 1000,
+        execution_mode: "managed" as const,
+        prefer_db_streaming: true,
+      },
     };
     expect(validateSqlExecuteParams!(sqlParams)).toBe(true);
     assertZodAcceptsCommand({
@@ -260,7 +284,11 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     const batchParams = {
       client_token: "a1b2c3d4",
       commands: [{ sql: "SELECT 1", execution_order: 1 }, { sql: "SELECT 2" }],
-      options: { transaction: false, timeout_ms: 10000 },
+      options: {
+        transaction: false,
+        timeout_ms: 10000,
+        max_parallel_read_only_batch_items: 2,
+      },
     };
     expect(validateSqlBatchParams!(batchParams)).toBe(true);
     assertZodAcceptsCommand({
@@ -377,7 +405,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       jsonrpc: "2.0",
       method: "sql.execute",
       id: "rpc-meta",
-      api_version: "2.9",
+      api_version: "2.10",
       meta: {
         traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
       },

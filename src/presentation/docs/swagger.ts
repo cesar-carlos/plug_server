@@ -434,6 +434,11 @@ const swaggerSpec = swaggerJSDoc({
                 "Deprecated alias for execution_mode=preserve. Cannot be combined with page, page_size or cursor.",
             },
             multi_result: { type: "boolean" },
+            prefer_db_streaming: {
+              type: "boolean",
+              description:
+                "Pass-through preference for plug_agente direct DB streaming on eligible unpaginated SELECTs; final routing remains agent-side.",
+            },
           },
           additionalProperties: false,
         },
@@ -486,6 +491,12 @@ const swaggerSpec = swaggerJSDoc({
             timeout_ms: { type: "integer", minimum: 1, maximum: AGENT_TIMEOUT_MS_LIMIT },
             max_rows: { type: "integer", minimum: 1, maximum: AGENT_MAX_ROWS_LIMIT },
             transaction: { type: "boolean" },
+            max_parallel_read_only_batch_items: {
+              type: "integer",
+              minimum: 1,
+              description:
+                "Pass-through opt-in parallelism for non-transactional read-only SELECT batches; plug_agente applies its own safety cap.",
+            },
           },
           additionalProperties: false,
         },

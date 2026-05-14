@@ -1,4 +1,5 @@
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
+import { observeBridgeRpcMethod } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { logger } from "../../../shared/utils/logger";
@@ -76,6 +77,12 @@ export const createRelayStreamHandlers = (
       errorCode:
         terminalStatus === "aborted" ? "RELAY_STREAM_ABORTED" : "RELAY_STREAM_FRAME_INVALID",
     });
+    observeBridgeRpcMethod({
+      channel: "relay",
+      method: route.jsonRpcMethod ?? "unknown",
+      outcome: "error",
+      elapsedMs: Date.now() - route.createdAtMs,
+    });
 
     removeRelayRequestRoute(route.requestId);
     const activeRoute = getActiveStreamRouteByRequestId(route.requestId);
@@ -139,6 +146,12 @@ export const createRelayStreamHandlers = (
               },
               onComplete: (_streamId) => {
                 route.latencyTrace?.finalizeRelayStreamComplete();
+                observeBridgeRpcMethod({
+                  channel: "relay",
+                  method: route.jsonRpcMethod ?? "unknown",
+                  outcome: "success",
+                  elapsedMs: Date.now() - route.createdAtMs,
+                });
                 removeRelayRequestRoute(route.requestId);
                 const existingStream = getActiveStreamRouteByRequestId(route.requestId);
                 if (existingStream) {

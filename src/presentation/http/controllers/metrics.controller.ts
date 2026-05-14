@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 
 import { getBridgeLatencyTraceMetricsSnapshot } from "../../../application/services/bridge_latency_trace.service";
+import { getBridgeRpcMethodMetricsSnapshot } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { getAgentDataMaintenanceMetricsSnapshot } from "../../../application/services/agent_data_maintenance.service";
 import { getPrismaTransactionRetryMetricsSnapshot } from "../../../application/services/prisma_transaction_retry_metrics.service";
 import { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
@@ -51,6 +52,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
 
   const socket = getSocketMetricsSnapshot();
   const restBridge = getRestBridgeMetricsSnapshot();
+  const bridgeRpcMethods = getBridgeRpcMethodMetricsSnapshot();
   const relay = socket.relay;
   const rateLimit = socket.relayRateLimit;
   const socketRateLimitRedis = socket.socketRateLimitRedis;
@@ -84,6 +86,18 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(metricLine("plug_rest_bridge_latency_max_ms", restBridge.latencyMaxMs));
   lines.push(metricLine("plug_rest_bridge_latency_p95_ms", restBridge.latencyP95Ms));
   lines.push(metricLine("plug_rest_bridge_latency_p99_ms", restBridge.latencyP99Ms));
+  for (const item of bridgeRpcMethods) {
+    const labels = {
+      channel: item.channel,
+      method: item.method,
+      outcome: item.outcome,
+    };
+    lines.push(metricLine("plug_bridge_rpc_method_requests_total", item.count, labels));
+    lines.push(metricLine("plug_bridge_rpc_method_latency_avg_ms", item.latencyAvgMs, labels));
+    lines.push(metricLine("plug_bridge_rpc_method_latency_max_ms", item.latencyMaxMs, labels));
+    lines.push(metricLine("plug_bridge_rpc_method_latency_p95_ms", item.latencyP95Ms, labels));
+    lines.push(metricLine("plug_bridge_rpc_method_latency_p99_ms", item.latencyP99Ms, labels));
+  }
 
   lines.push(
     metricLine("plug_rest_http_rate_limit_global_rejected_total", restHttpRl.globalRejectedTotal),
@@ -762,6 +776,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_agent_session_register_rate_limited_total",
       agentRuntime.sessionRegisterRateLimitedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_ready_legacy_payload_total",
+      agentRuntime.agentReadyLegacyPayloadTotal,
     ),
   );
   lines.push(

@@ -6,6 +6,10 @@ import {
   mergeSqlStreamRpcResponseWithAppendedRows,
 } from "../../../application/agent_commands/merge_sql_stream_rpc_response";
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
+import {
+  observeBridgeRpcMethod,
+  type BridgeRpcMethodMetricOutcome,
+} from "../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { serviceUnavailable } from "../../../shared/errors/http_errors";
@@ -61,6 +65,7 @@ import { setRelayStreamFlowCredits, getRelayStreamForwardedRows } from "./relay_
 import {
   findRelayRequestRouteForAgentSocket,
   getRelayRequestRoute,
+  type RelayRequestRoute,
   removeRelayRequestRoute,
 } from "./relay_request_registry";
 import { createRelayStreamHandlers, type EmitToConsumerFn } from "./rpc_bridge_relay_stream";
@@ -71,6 +76,18 @@ const relayMaxActiveStreams = env.socketRelayMaxActiveStreams;
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
+
+const observeRelayRouteOutcome = (
+  route: RelayRequestRoute,
+  outcome: BridgeRpcMethodMetricOutcome,
+): void => {
+  observeBridgeRpcMethod({
+    channel: "relay",
+    method: route.jsonRpcMethod ?? "unknown",
+    outcome,
+    elapsedMs: Date.now() - route.createdAtMs,
+  });
+};
 
 export interface RpcBridgeAgentInboundDeps {
   readonly emitToConsumer: EmitToConsumerFn;
@@ -757,6 +774,7 @@ export const createRpcBridgeAgentInboundHandlers = (
             httpStatus: 503,
             errorCode,
           });
+          observeRelayRouteOutcome(relayRoute, "error");
           enqueueRelayOutbound(responseId, async () => {
             try {
               const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
@@ -835,6 +853,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           if (!streamId) {
             relayRoute.latencyTrace?.recordPendingResolveEnd();
             relayRoute.latencyTrace?.finalizeOnce({ outcome: "success" });
+            observeRelayRouteOutcome(relayRoute, "success");
           }
         } catch (error: unknown) {
           relayRoute.latencyTrace?.finalizeOnce({
@@ -842,6 +861,7 @@ export const createRpcBridgeAgentInboundHandlers = (
             httpStatus: 503,
             errorCode: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
           });
+          observeRelayRouteOutcome(relayRoute, "error");
           throw error;
         } finally {
           if (streamId && forwardedResponse) {

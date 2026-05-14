@@ -25,6 +25,7 @@ describe("agent_command contract (plug_agente compatibility)", () => {
             max_rows: 50000,
             page: 1,
             page_size: 100,
+            prefer_db_streaming: false,
           },
         },
       },
@@ -88,7 +89,11 @@ describe("agent_command contract (plug_agente compatibility)", () => {
             { sql: "SELECT * FROM products" },
           ],
           client_token: "token",
-          options: { transaction: true, timeout_ms: 30000 },
+          options: {
+            transaction: true,
+            timeout_ms: 30000,
+            max_parallel_read_only_batch_items: 2,
+          },
         },
       },
     };

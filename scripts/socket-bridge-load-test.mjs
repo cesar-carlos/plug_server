@@ -15,7 +15,11 @@
  * - CONSUMERS=50
  * - REQUESTS_PER_CONSUMER=20
  * - CONCURRENCY=10
- * - MODE=agents-command|relay|custom-event
+ * - MODE=rest|agents-command|relay|custom-event
+ * - RPC_METHOD=rpc.discover|sql.execute|sql.executeBatch|sql.bulkInsert
+ * - PREFER_DB_STREAMING=true|false
+ * - BATCH_PARALLELISM=1|2|4|8
+ * - BULK_INSERT_TABLE=<table> BULK_INSERT_ROW_COUNT=1000
  * - CUSTOM_EVENT_NAME=client:custom.load.test
  * - IDEMPOTENCY_MODE=none|unique|shared
  */
@@ -38,10 +42,18 @@ const token = required("CONSUMER_TOKEN");
 const consumers = Number.parseInt(process.env.CONSUMERS || "50", 10);
 const requestsPerConsumer = Number.parseInt(process.env.REQUESTS_PER_CONSUMER || "20", 10);
 const concurrency = Number.parseInt(process.env.CONCURRENCY || "10", 10);
-const mode = ["agents-command", "relay", "custom-event"].includes(process.env.MODE)
+const mode = ["rest", "agents-command", "relay", "custom-event"].includes(process.env.MODE)
   ? process.env.MODE
   : "agents-command";
 const agentId = mode === "custom-event" ? process.env.AGENT_ID?.trim() || "" : required("AGENT_ID");
+const rpcMethod = [
+  "rpc.discover",
+  "sql.execute",
+  "sql.executeBatch",
+  "sql.bulkInsert",
+].includes(process.env.RPC_METHOD)
+  ? process.env.RPC_METHOD
+  : "rpc.discover";
 const customEventName =
   process.env.CUSTOM_EVENT_NAME?.trim() || `client:custom.load.${randomUUID()}`;
 const idempotencyMode = ["none", "unique", "shared"].includes(process.env.IDEMPOTENCY_MODE)
@@ -53,6 +65,139 @@ const percentile = (values, p) => {
   const sorted = [...values].sort((a, b) => a - b);
   const index = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
   return sorted[index];
+};
+
+const parseBool = (value, fallback = false) => {
+  if (value === undefined) return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+};
+
+const parseJsonEnv = (name, fallback) => {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`${name} must be valid JSON: ${error.message}`);
+  }
+};
+
+const maybeClientToken = () => {
+  const value = process.env.AGENT_CLIENT_TOKEN?.trim();
+  return value ? { client_token: value } : {};
+};
+
+const buildBulkInsertRows = (columns, rowCount) =>
+  Array.from({ length: rowCount }, (_, index) =>
+    columns.map((column) => {
+      if (column.type === "i32" || column.type === "i64") return index + 1;
+      if (column.type === "decimal") return `${index + 1}.00`;
+      if (column.type === "timestamp") return new Date(1_700_000_000_000 + index).toISOString();
+      if (column.type === "binary") return Buffer.from(`row-${index + 1}`).toString("base64");
+      return `load-row-${index + 1}`;
+    }),
+  );
+
+const buildBridgeCommand = () => {
+  const id = randomUUID();
+  if (rpcMethod === "sql.execute") {
+    const options = {
+      ...(parseBool(process.env.PREFER_DB_STREAMING)
+        ? { prefer_db_streaming: true }
+        : {}),
+      ...(process.env.SQL_MAX_ROWS ? { max_rows: Number.parseInt(process.env.SQL_MAX_ROWS, 10) } : {}),
+      ...(process.env.SQL_PAGE && process.env.SQL_PAGE_SIZE
+        ? {
+            page: Number.parseInt(process.env.SQL_PAGE, 10),
+            page_size: Number.parseInt(process.env.SQL_PAGE_SIZE, 10),
+          }
+        : {}),
+    };
+    return {
+      requestId: id,
+      command: {
+        jsonrpc: "2.0",
+        id,
+        api_version: "2.10",
+        method: "sql.execute",
+        params: {
+          sql: process.env.SQL_TEXT || "SELECT 1",
+          ...maybeClientToken(),
+          ...(Object.keys(options).length > 0 ? { options } : {}),
+        },
+      },
+    };
+  }
+
+  if (rpcMethod === "sql.executeBatch") {
+    const batchItems = Number.parseInt(process.env.BATCH_ITEMS || "4", 10);
+    const options = {
+      ...(process.env.BATCH_PARALLELISM
+        ? {
+            max_parallel_read_only_batch_items: Number.parseInt(
+              process.env.BATCH_PARALLELISM,
+              10,
+            ),
+          }
+        : {}),
+      ...(process.env.SQL_MAX_ROWS ? { max_rows: Number.parseInt(process.env.SQL_MAX_ROWS, 10) } : {}),
+    };
+    return {
+      requestId: id,
+      command: {
+        jsonrpc: "2.0",
+        id,
+        api_version: "2.10",
+        method: "sql.executeBatch",
+        params: {
+          commands: Array.from({ length: batchItems }, (_, index) => ({
+            sql: process.env.BATCH_SQL_TEXT || "SELECT 1",
+            execution_order: index,
+          })),
+          ...maybeClientToken(),
+          ...(Object.keys(options).length > 0 ? { options } : {}),
+        },
+      },
+    };
+  }
+
+  if (rpcMethod === "sql.bulkInsert") {
+    const table = process.env.BULK_INSERT_TABLE?.trim();
+    if (!table) {
+      throw new Error("BULK_INSERT_TABLE is required when RPC_METHOD=sql.bulkInsert");
+    }
+    const columns = parseJsonEnv("BULK_INSERT_COLUMNS_JSON", [
+      { name: "id", type: "i64" },
+      { name: "payload", type: "text" },
+    ]);
+    const rowCount = Number.parseInt(process.env.BULK_INSERT_ROW_COUNT || "1000", 10);
+    return {
+      requestId: id,
+      command: {
+        jsonrpc: "2.0",
+        id,
+        api_version: "2.10",
+        method: "sql.bulkInsert",
+        params: {
+          table,
+          columns,
+          rows: buildBulkInsertRows(columns, rowCount),
+          ...maybeClientToken(),
+        },
+      },
+    };
+  }
+
+  return {
+    requestId: id,
+    command: {
+      jsonrpc: "2.0",
+      id,
+      api_version: "2.10",
+      method: "rpc.discover",
+      params: {},
+    },
+  };
 };
 
 const waitForEvent = (socket, event, timeoutMs = 10000) =>
@@ -113,17 +258,12 @@ const connectConsumer = async () => {
 };
 
 const runAgentsCommand = async (socket) => {
-  const requestId = randomUUID();
+  const { command } = buildBridgeCommand();
   const started = performance.now();
   const responsePromise = waitForEvent(socket, "agents:command_response", 30000);
   socket.emit("agents:command", {
     agentId,
-    command: {
-      jsonrpc: "2.0",
-      id: requestId,
-      method: "rpc.discover",
-      params: {},
-    },
+    command,
     timeoutMs: 30000,
   });
   const payload = await responsePromise;
@@ -142,13 +282,7 @@ const runRelay = async (socket) => {
     return { ok: false, elapsedMs: 0, code: startedConversation?.error?.code };
   }
 
-  const requestId = randomUUID();
-  const command = {
-    jsonrpc: "2.0",
-    id: requestId,
-    method: "rpc.discover",
-    params: {},
-  };
+  const { requestId, command } = buildBridgeCommand();
   const encoded = Buffer.from(JSON.stringify(command), "utf8");
   const frame = {
     schemaVersion: "1.0",
@@ -177,6 +311,34 @@ const runRelay = async (socket) => {
     ok: response !== undefined,
     elapsedMs: performance.now() - started,
     code: response?.error?.code,
+  };
+};
+
+const runRestBridge = async () => {
+  const { command } = buildBridgeCommand();
+  const started = performance.now();
+  const response = await fetch(`${hubUrl}/api/v1/agents/commands`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      agentId,
+      command,
+      timeoutMs: 30000,
+    }),
+  });
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = undefined;
+  }
+  return {
+    ok: response.ok,
+    elapsedMs: performance.now() - started,
+    code: payload?.code || payload?.response?.item?.error?.data?.code || response.status,
   };
 };
 
@@ -234,23 +396,29 @@ const runPool = async (items, workerCount, worker) => {
 
 const main = async () => {
   console.log(
-    `[socket-load] mode=${mode} consumers=${consumers} requestsPerConsumer=${requestsPerConsumer} concurrency=${concurrency}`,
+    `[socket-load] mode=${mode} rpcMethod=${rpcMethod} consumers=${consumers} requestsPerConsumer=${requestsPerConsumer} concurrency=${concurrency}`,
   );
 
-  const sockets = await Promise.all(Array.from({ length: consumers }, connectConsumer));
+  const sockets =
+    mode === "rest" ? [] : await Promise.all(Array.from({ length: consumers }, connectConsumer));
   if (mode === "custom-event") {
     console.log(
       `[socket-load] subscribing ${sockets.length} sockets to ${customEventName} idempotency=${idempotencyMode}`,
     );
     await Promise.all(sockets.map(subscribeCustomEvent));
   }
-  const jobs = sockets.flatMap((socket) => Array.from({ length: requestsPerConsumer }, () => socket));
+  const jobs =
+    mode === "rest"
+      ? Array.from({ length: consumers * requestsPerConsumer }, () => null)
+      : sockets.flatMap((socket) => Array.from({ length: requestsPerConsumer }, () => socket));
   const latencies = [];
   const failures = new Map();
 
   await runPool(jobs, concurrency, async (socket) => {
     const result =
-      mode === "relay"
+      mode === "rest"
+        ? await runRestBridge()
+        : mode === "relay"
         ? await runRelay(socket)
         : mode === "custom-event"
           ? await runCustomEventPublish(socket)

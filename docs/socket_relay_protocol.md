@@ -166,10 +166,12 @@ nao deve ser tratado como contrato publico para SDKs.
 O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 `plug_agente/docs/communication/socket_communication_standard.md`.
 
-**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`.
+**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.bulkInsert`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`.
 
 **Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
-`preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`, etc.
+`preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`,
+`prefer_db_streaming`, etc. Em `sql.executeBatch`, o hub tambem aceita
+`max_parallel_read_only_batch_items` como pass-through para o agente.
 
 O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB em `sql.execute`, `params` nomeado serializado ate 2 MiB, `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB â€” ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
 

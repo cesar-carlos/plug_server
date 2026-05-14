@@ -336,6 +336,46 @@ describe("agentCommandBodySchema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("should accept prefer_db_streaming on sql.execute options", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q-prefer-db-streaming",
+        params: {
+          sql: "SELECT * FROM large_table",
+          client_token: "token-value",
+          options: {
+            prefer_db_streaming: true,
+          },
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("should accept max_parallel_read_only_batch_items on sql.executeBatch options", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.executeBatch",
+        id: "batch-parallel-read",
+        params: {
+          commands: [{ sql: "SELECT 1" }, { sql: "SELECT 2" }],
+          client_token: "token-value",
+          options: {
+            max_parallel_read_only_batch_items: 2,
+          },
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
   it("should reject execution_mode preserve combined with pagination", () => {
     const parsed = agentCommandBodySchema.safeParse({
       agentId: "agent-1",

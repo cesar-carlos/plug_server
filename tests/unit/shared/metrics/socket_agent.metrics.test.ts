@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getSocketAgentMetricsSnapshot,
+  noteAgentReadyLegacyPayload,
   noteAgentCapabilityProfile,
   noteAgentHealthRpcResponse,
   noteAgentSocketAuthRejected,
@@ -24,15 +25,25 @@ describe("socket_agent.metrics", () => {
 
   it("classifies registered agent plug profiles and health capability", () => {
     resetSocketAgentMetrics();
+    noteAgentCapabilityProfile({ extensions: { plugProfile: "plug-jsonrpc-profile/2.10" } });
     noteAgentCapabilityProfile({ extensions: { plugProfile: "plug-jsonrpc-profile/2.9" } });
-    noteAgentCapabilityProfile({ extensions: { plugProfile: "plug-jsonrpc-profile/2.8" } });
     noteAgentCapabilityProfile({ extensions: { plugProfile: "unknown" } });
 
     const snap = getSocketAgentMetricsSnapshot();
     expect(snap.capabilityProfiles.current).toBe(1);
     expect(snap.capabilityProfiles.older).toBe(1);
     expect(snap.capabilityProfiles.unknown).toBe(1);
-    expect(snap.capabilityAgentGetHealthCapableTotal).toBe(1);
+    expect(snap.capabilityAgentGetHealthCapableTotal).toBe(2);
+  });
+
+  it("records legacy agent:ready payloads", () => {
+    resetSocketAgentMetrics();
+    noteAgentReadyLegacyPayload();
+
+    expect(getSocketAgentMetricsSnapshot().agentReadyLegacyPayloadTotal).toBe(1);
+
+    resetSocketAgentMetrics();
+    expect(getSocketAgentMetricsSnapshot().agentReadyLegacyPayloadTotal).toBe(0);
   });
 
   it("records agent.getHealth responses and errors", () => {

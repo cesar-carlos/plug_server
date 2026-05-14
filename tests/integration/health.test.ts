@@ -2,6 +2,10 @@ import request from "supertest";
 import { describe, it, expect } from "vitest";
 
 import { createApp } from "../../src/app";
+import {
+  observeBridgeRpcMethod,
+  resetBridgeRpcMethodMetrics,
+} from "../../src/application/services/bridge_rpc_method_metrics.service";
 import { User } from "../../src/domain/entities/user.entity";
 import { getTestRepositoryAccess } from "../../src/shared/di/container";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
@@ -135,15 +139,23 @@ describe("GET /api/v1/health", () => {
     });
     expect(loginResponse.status).toBe(200);
     const accessToken = loginResponse.body.accessToken as string;
+    observeBridgeRpcMethod({
+      channel: "rest",
+      method: "sql.execute",
+      outcome: "success",
+      elapsedMs: 12,
+    });
 
     const response = await request(app)
       .get("/metrics")
       .set("Authorization", `Bearer ${accessToken}`);
+    resetBridgeRpcMethodMetrics();
 
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toContain("text/plain");
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.text).toContain("plug_socket_relay_requests_accepted_total");
+    expect(response.text).toContain("plug_bridge_rpc_method_requests_total");
     expect(response.text).toContain("plug_socket_relay_rest_pending_rejected_total");
     expect(response.text).toContain("plug_socket_relay_rpc_frame_decode_failed_total");
     expect(response.text).toContain(

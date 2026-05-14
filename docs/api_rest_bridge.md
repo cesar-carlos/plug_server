@@ -64,12 +64,17 @@ Isto e independente da [matriz oficial de paridade do bridge](#matriz-oficial-de
 | Cenario                                         | Canal recomendado            | Motivo                                                    |
 | ----------------------------------------------- | ---------------------------- | --------------------------------------------------------- |
 | Consulta curta/ocasional, cliente sem Socket    | REST `POST /agents/commands` | Integracao simples, custo operacional menor               |
-| Resultado grande (`stream_id`) e baixa latencia | `relay:rpc.request`          | Evita materializacao REST e reduz RAM no hub              |
+| Resultado grande (`stream_id`) e baixa latencia | `relay:rpc.request` com `prefer_db_streaming` | Evita materializacao REST e reduz RAM no hub              |
 | Necessidade de progresso em tempo real          | `relay:*` ou `agents:*`      | Chunks e `stream_pull` no consumer                        |
 | Carga alta e continua por consumer              | `relay:*`                    | Melhor controle de backpressure e isolamento por conversa |
+| Inserts em massa                                | `sql.bulkInsert` por Socket ou REST controlado | Mede throughput real sem simular linha a linha            |
 
 Regra pratica: se o mesmo fluxo gera streams grandes repetidamente, migre para
 Socket/relay em vez de aumentar apenas limites de materializacao no REST.
+Clientes/SDKs podem usar o helper de referencia em
+[`docs/snippets/agent_command_performance_options.ts`](snippets/agent_command_performance_options.ts)
+para ativar `prefer_db_streaming` e `max_parallel_read_only_batch_items` sem
+espalhar heuristicas inconsistentes.
 
 #### Matriz oficial de paridade do bridge
 
@@ -81,6 +86,7 @@ vale apenas para o bridge de comandos (`POST /api/v1/agents/commands`).
 | ----------------- | ---------------------------- | ----------------------- | ---------------- |
 | `sql.execute` | Sim | Sim | Sim |
 | `sql.executeBatch` | Sim | Sim | Sim, apenas request unico que pode chamar o metodo; nao batch JSON-RPC no envelope relay |
+| `sql.bulkInsert` | Sim | Sim | Sim |
 | `sql.cancel` | Sim | Sim | Sim |
 | `rpc.discover` | Sim | Sim | Sim |
 | `agent.getHealth` | Sim | Sim | Sim |
@@ -238,7 +244,7 @@ O token e validado por `requireAuth` antes de qualquer processamento.
 
 ### OpenAPI (Swagger)
 
-Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel` e `rpc.discover`.
+Os schemas em `src/presentation/docs/swagger.ts` usam os **mesmos tetos** que o validador Zod (`agent_command.ts`): `options.timeout_ms` e `sql.executeBatch` `options.timeout_ms` ate **300000** ms; `options.max_rows` ate **1000000**; `options.page_size` e `pagination.pageSize` ate **50000**. A rota `POST /api/v1/agents/commands` inclui exemplos para paginacao no body, `execution_mode: preserve`, `prefer_db_streaming`, `sql.bulkInsert`, `agent.getProfile`, `client_token.getPolicy`, `sql.cancel` e `rpc.discover`.
 
 ## Request body
 
@@ -345,6 +351,7 @@ O limite HTTP total continua a ser `REQUEST_BODY_LIMIT`; estes tetos evitam carg
 | `execution_mode` | string  | nao         | `managed` \| `preserve`            | Modo de tratamento da SQL. `managed` (default) permite reescrita gerenciada para paginacao. `preserve` executa a SQL exatamente como enviada, sem reescrita. Nao pode ser combinado com `page`, `page_size` ou `cursor` |
 | `preserve_sql`   | boolean | nao         | exclusivo com paginacao            | Alias legado para `execution_mode: "preserve"`. Nao pode ser combinado com `page`, `page_size` ou `cursor`                                                                                                              |
 | `multi_result`   | boolean | nao         | exclusivo com paginacao e `params` | Habilita retorno de multiplos result sets                                                                                                                                                                               |
+| `prefer_db_streaming` | boolean | nao    | preferencia apenas                 | Preferencia para streaming direto do banco em `SELECT` elegivel; o hub valida e repassa, e a decisao final fica no runtime do agente                                                                                   |
 
 Regras de combinacao:
 
@@ -389,11 +396,12 @@ Executa multiplos comandos SQL em sequencia.
 
 #### `command.params.options`
 
-| Campo         | Tipo    | Obrigatorio | Descricao                                  |
-| ------------- | ------- | ----------- | ------------------------------------------ |
-| `timeout_ms`  | integer | nao         | Timeout de execucao total do batch (ms)    |
-| `max_rows`    | integer | nao         | Maximo de linhas por comando               |
-| `transaction` | boolean | nao         | Envolve os comandos em uma transacao unica |
+| Campo                                | Tipo    | Obrigatorio | Descricao                                                                                     |
+| ------------------------------------ | ------- | ----------- | --------------------------------------------------------------------------------------------- |
+| `timeout_ms`                         | integer | nao         | Timeout de execucao total do batch (ms)                                                       |
+| `max_rows`                           | integer | nao         | Maximo de linhas por comando                                                                  |
+| `transaction`                        | boolean | nao         | Envolve os comandos em uma transacao unica                                                    |
+| `max_parallel_read_only_batch_items` | integer | nao         | Opt-in de paralelismo para SELECTs read-only; o agente aplica safety cap conforme pool interno |
 
 #### Campos opcionais validados e encaminhados ao agente
 
@@ -1343,6 +1351,7 @@ deste arquivo e em `docs/socket_relay_protocol.md`.
 | ---------------------------------------------------------------------- | -------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sql.execute`                                                          | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
 | `sql.executeBatch`                                                     | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
+| `sql.bulkInsert`                                                       | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
 | `sql.cancel`                                                           | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
 | `rpc.discover`                                                         | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
 | `client_token.getPolicy`                                               | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                             |
@@ -1358,8 +1367,10 @@ deste arquivo e em `docs/socket_relay_protocol.md`.
 | `options.timeout_ms` / `options.max_rows`                              | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
 | `options.execution_mode` (managed/preserve)                            | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
 | `options.preserve_sql` (alias legado)                                  | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
+| `options.prefer_db_streaming` (`sql.execute`)                          | implementado               | validado          | pass-through; elegibilidade, feature flag e roteamento final sao do agente                                                                                                                                                                                                                                    |
 | `options.transaction` (batch)                                          | implementado               | validado          | -                                                                                                                                                                                                                                                                                                             |
-| `api_version` no request                                               | implementado               | exposto           | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.9"` como fallback, alinhado ao profile anunciado em `agent:capabilities` (`plug-jsonrpc-profile/2.9`)                                                                                                                                |
+| `options.max_parallel_read_only_batch_items` (batch)                   | implementado               | validado          | pass-through; o agente aplica safety cap conforme pool/limites internos                                                                                                                                                                                                                                       |
+| `api_version` no request                                               | implementado               | exposto           | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.10"` como fallback, alinhado ao profile anunciado em `agent:capabilities` (`plug-jsonrpc-profile/2.10`)                                                                                                                             |
 | `meta` no request (trace_id, traceparent)                              | implementado               | exposto           | hub preserva apenas os campos publicados pelo schema do `plug_agente` (`trace_id`, `traceparent`, `tracestate`, `request_id`, `agent_id`, `timestamp`); campos extras aceitos na entrada sao **stripados** antes do envio ao agente; o hub injeta/reescreve `request_id`, `agent_id`, `timestamp`, `trace_id` |
 | `meta.outbound_compression` (`none` / `gzip` / `auto`)                 | **no-op** no runtime atual | aceito + OpenAPI  | aceito por compatibilidade na entrada, mas **nao e encaminhado** ao agente; o `socket_communication_standard.md` (v2.8, _Nota operacional_) declara explicitamente que o agente **nao** suporta override de compressao por request                                                                            |
 | `api_version` na response                                              | implementado               | exposto           | serializer preserva `api_version` e `meta` do agente                                                                                                                                                                                                                                                          |

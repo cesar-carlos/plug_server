@@ -4,6 +4,8 @@ Use este guia junto de `docs/performance_hub_agent.md`,
 `docs/observability.md` e `docs/e2e_benchmark_hub_agent.md`. O repositorio inclui
 um probe Socket leve (`npm run load:socket-bridge`) para smoke/capacidade do hub;
 para benchmark profundo de SQL/ODBC, mantenha a carga no repositorio do agente.
+O probe tambem cobre os campos do profile 2.10 para medir o custo do transporte
+no hub antes de comparar o runtime ODBC do agente.
 
 ## Escopo
 
@@ -25,8 +27,8 @@ autocannon -m POST -H "Authorization=Bearer YOUR_ACCESS_TOKEN" \
 ```
 
 Durante o teste, acompanhe `plug_rest_bridge_*`,
-`plug_socket_relay_rest_dispatch_*` e `plug_rest_http_rate_limit_*` em
-`GET /metrics`.
+`plug_bridge_rpc_method_*`, `plug_socket_relay_rest_dispatch_*` e
+`plug_rest_http_rate_limit_*` em `GET /metrics`.
 
 ## Socket.IO
 
@@ -63,6 +65,59 @@ npm run load:socket-bridge
 MODE=relay npm run load:socket-bridge
 ```
 
+### Metodos RPC 2.10
+
+O probe aceita `RPC_METHOD=sql.execute|sql.executeBatch|sql.bulkInsert` para
+comparar REST materializado, `agents:command` e relay com o mesmo payload.
+
+Consulta grande com preferencia por streaming no agente:
+
+```bash
+HUB_URL=http://localhost:3000 \
+CONSUMER_TOKEN=YOUR_ACCESS_TOKEN \
+AGENT_ID=YOUR_AGENT \
+MODE=relay \
+RPC_METHOD=sql.execute \
+PREFER_DB_STREAMING=true \
+SQL_TEXT="SELECT * FROM heavy_report" \
+CONSUMERS=25 \
+REQUESTS_PER_CONSUMER=10 \
+CONCURRENCY=10 \
+npm run load:socket-bridge
+```
+
+Comparacao REST materializado vs Socket/relay para o mesmo SQL:
+
+```bash
+MODE=rest RPC_METHOD=sql.execute PREFER_DB_STREAMING=true npm run load:socket-bridge
+MODE=relay RPC_METHOD=sql.execute PREFER_DB_STREAMING=true npm run load:socket-bridge
+```
+
+Batch read-only com paralelismo opt-in. Rode a mesma carga com `1`, `2`, `4` e
+`8`, observando p95/p99, erros de pool no agente e saturacao de fila:
+
+```bash
+MODE=agents-command \
+RPC_METHOD=sql.executeBatch \
+BATCH_ITEMS=8 \
+BATCH_PARALLELISM=4 \
+BATCH_SQL_TEXT="SELECT 1" \
+npm run load:socket-bridge
+```
+
+Bulk insert deve ser medido com tabelas de teste descartaveis. Use tamanhos como
+`1000`, `10000` e `50000` linhas por request para comparar contra inserts
+tradicionais em batch no agente:
+
+```bash
+MODE=agents-command \
+RPC_METHOD=sql.bulkInsert \
+BULK_INSERT_TABLE=load_test_bulk_insert \
+BULK_INSERT_ROW_COUNT=1000 \
+BULK_INSERT_COLUMNS_JSON='[{"name":"id","type":"i64"},{"name":"payload","type":"text"}]' \
+npm run load:socket-bridge
+```
+
 Para `client:custom.*`, `AGENT_ID` nao e necessario. Todos os sockets subscrevem
 `CUSTOM_EVENT_NAME`; cada job publica e espera `socket:event.published`:
 
@@ -97,6 +152,8 @@ capacidade do bridge; para benchmark de banco/ODBC, manter os testes de carga no
 - CPU do processo Node e event-loop lag.
 - RSS / heap durante streams SQL grandes no REST materializado.
 - `plug_rest_bridge_*` para throughput e falhas REST.
+- `plug_bridge_rpc_method_*` para latencia e erro por `channel`, `method` e
+  `outcome` (`sql.execute`, `sql.executeBatch`, `sql.bulkInsert`, etc.).
 - `plug_socket_relay_outbound_queue_*` para backlog e latencia da fila outbound.
 - `plug_socket_relay_chunks_dropped_total` e `plug_socket_relay_circuit_open_rejects_total`.
 - `plug_socket_consumers_guard_db_*`.

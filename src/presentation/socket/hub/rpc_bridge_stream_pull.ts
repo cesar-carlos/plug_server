@@ -1,4 +1,5 @@
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
+import { observeBridgeRpcMethod } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../shared/utils/payload_frame";
@@ -203,6 +204,14 @@ export const createPrepareAgentStreamPull = (
             onComplete: (_streamId) => {
               const relayRt = getRelayRequestRoute(route.requestId);
               relayRt?.latencyTrace?.finalizeRelayStreamComplete();
+              if (relayRt) {
+                observeBridgeRpcMethod({
+                  channel: "relay",
+                  method: relayRt.jsonRpcMethod ?? "unknown",
+                  outcome: "success",
+                  elapsedMs: Date.now() - relayRt.createdAtMs,
+                });
+              }
               removeRelayRequestRoute(route.requestId);
               const activeRoute = getActiveStreamRouteByRequestId(route.requestId);
               if (activeRoute) {

@@ -96,6 +96,10 @@ rate(plug_rest_sql_stream_materialize_pulls_total[5m])
 rate(plug_rest_sql_stream_materialize_completed_total[5m])
 rate(plug_rest_sql_stream_materialize_rows_merged_sum[5m])
 
+# Bridge por metodo RPC e canal
+sum by (channel, method, outcome) (rate(plug_bridge_rpc_method_requests_total[5m]))
+avg by (channel, method, outcome) (plug_bridge_rpc_method_latency_p95_ms)
+
 # Cortes por orçamento na materialização REST (streams grandes → preferir Socket)
 rate(plug_rest_sql_stream_materialize_row_limit_exceeded_total[5m])
 rate(plug_rest_sql_stream_materialize_chunk_limit_exceeded_total[5m])
@@ -209,6 +213,7 @@ rate(plug_agent_session_register_rate_limited_total[5m])
 # Perfil/capacidade dos agentes e respostas de `agent.getHealth`
 rate(plug_socket_agents_capability_profiles_total[5m])
 rate(plug_socket_agents_capability_agent_get_health_capable_total[5m])
+rate(plug_socket_agents_ready_legacy_payload_total[5m])
 rate(plug_socket_agents_health_responses_total[5m])
 rate(plug_socket_agents_health_errors_total[5m])
 plug_socket_agents_health_last_healthy

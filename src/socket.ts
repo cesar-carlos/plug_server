@@ -2,6 +2,7 @@ import type { Server as HttpServer } from "node:http";
 
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import { Server, type Namespace, type Socket } from "socket.io";
+import { z } from "zod";
 
 import {
   authenticateAgentSocket,
@@ -121,6 +122,7 @@ import {
   resetCustomSocketEventSubscriptions,
 } from "./presentation/socket/hub/custom_socket_event_subscription_registry";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
+import { resetBridgeRpcMethodMetrics } from "./application/services/bridge_rpc_method_metrics.service";
 import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
 import { AppError } from "./shared/errors/app_error";
@@ -164,6 +166,7 @@ import {
 } from "./shared/metrics/socket_consumer.metrics";
 import {
   getSocketAgentMetricsSnapshot,
+  noteAgentReadyLegacyPayload,
   noteAgentCapabilityProfile,
   noteAgentRegisterRateLimited,
   noteAgentSessionRejectedActive,
@@ -832,6 +835,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
+const agentReadyPayloadSchema = z.object({
+  agent_id: z.string().min(1),
+  timestamp: z.string().datetime({ offset: true }),
+  protocol: z.string().min(1),
+}).strict();
+
 const resolveRequiresExplicitProtocolReadyAck = (
   capabilities: Record<string, unknown>,
 ): boolean => {
@@ -1114,8 +1123,9 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
     resetSocketAgentMetrics();
     resetAgentRegisterRateLimitState();
     resetAgentProfileSyncConcurrency();
-    resetSocketBridgeState();
-    resetRestBridgeMetrics();
+  resetSocketBridgeState();
+  resetRestBridgeMetrics();
+  resetBridgeRpcMethodMetrics();
     conversationRegistry.clear();
     agentRegistry.clear();
     agentProfileSyncScheduler.reset();
@@ -1477,7 +1487,30 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         return;
       }
 
-      const payloadAgentId = isRecord(decoded.value.data) ? decoded.value.data.agent_id : undefined;
+      const readyPayload = isRecord(decoded.value.data) ? decoded.value.data : null;
+      const parsedReadyPayload = agentReadyPayloadSchema.safeParse(decoded.value.data);
+      const legacyReadyPayload =
+        readyPayload !== null &&
+        typeof readyPayload.agent_id === "string" &&
+        readyPayload.agent_id.trim() !== "" &&
+        (readyPayload.timestamp === undefined || readyPayload.protocol === undefined);
+      if (!parsedReadyPayload.success && !legacyReadyPayload) {
+        emitAppError(socket, "agent:ready payload is invalid");
+        return;
+      }
+      if (!parsedReadyPayload.success) {
+        noteAgentReadyLegacyPayload();
+        logger.warn("agent_ready_legacy_payload", {
+          socketId: socket.id,
+          agentId: readyPayload?.agent_id,
+          missingTimestamp: readyPayload?.timestamp === undefined,
+          missingProtocol: readyPayload?.protocol === undefined,
+        });
+      }
+
+      const payloadAgentId = parsedReadyPayload.success
+        ? parsedReadyPayload.data.agent_id
+        : readyPayload?.agent_id;
       const currentAgentId = resolveCanonicalRegisteredAgentId(
         socket,
         socketEvents.agentReady,
