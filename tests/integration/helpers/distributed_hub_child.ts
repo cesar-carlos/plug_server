@@ -2,7 +2,6 @@ import { createServer, type Server as HttpServer } from "node:http";
 
 import type { Namespace, Server as SocketIoServer, Socket } from "socket.io";
 
-import { createApp } from "../../../src/app";
 import { prismaClient } from "../../../src/infrastructure/database/prisma/client";
 import {
   closeClientSocketEventPublishIdempotencyRedis,
@@ -54,6 +53,11 @@ const closeHttpServer = async (): Promise<void> => {
   await new Promise<void>((resolve, reject) => {
     httpServer?.close((error) => {
       if (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ERR_SERVER_NOT_RUNNING" || error.message?.includes("not running")) {
+          resolve();
+          return;
+        }
         reject(error);
         return;
       }
@@ -89,6 +93,7 @@ const bootstrap = async (): Promise<void> => {
   registerHttpRateLimits();
   await initClientSocketEventPublishIdempotencyRedis();
 
+  const { createApp } = await import("../../../src/app");
   const app = createApp();
   httpServer = createServer(app);
   io = createSocketServer(httpServer);
