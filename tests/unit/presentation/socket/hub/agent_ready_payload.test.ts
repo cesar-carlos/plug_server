@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 import { parseAgentReadyPayload } from "../../../../../src/presentation/socket/hub/agent_ready_payload";
 
 describe("parseAgentReadyPayload", () => {
-  it("accepts complete Communication 2.10 agent:ready payloads", () => {
+  it("accepts complete Communication 2.11 agent:ready payloads", () => {
     expect(
       parseAgentReadyPayload({
         agent_id: "agent-1",
         timestamp: "2026-05-14T12:00:00.000Z",
-        protocol: "plug-jsonrpc-profile/2.10",
+        protocol: "plug-jsonrpc-profile/2.11",
       }),
     ).toEqual({
       ok: true,

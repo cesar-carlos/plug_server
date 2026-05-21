@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AGENT_ACTION_GET_EXECUTION_MAX_OUTPUT_BYTES,
   AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES,
   AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES,
   AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES,
@@ -700,6 +701,122 @@ describe("agentCommandBodySchema", () => {
         },
       },
     });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should accept agent.action.run with published params and token aliases", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.run",
+        id: "action-run-1",
+        params: {
+          action_id: "action-1",
+          idempotency_key: "idem-run-1",
+          trigger_id: "remote-trigger-1",
+          trace_id: "trace-run-1",
+          requested_by: "hub-user",
+          clientToken: "token-value",
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("should reject agent.action.run when inline context is sent", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.run",
+        id: "action-run-context",
+        params: {
+          action_id: "action-1",
+          idempotency_key: "idem-run-1",
+          context: { unsafe: true },
+          client_token: "token-value",
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should accept agent.action.validateRun with published params", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.validateRun",
+        id: "action-validate-1",
+        params: {
+          action_id: "action-1",
+          idempotency_key: "idem-validate-1",
+          requested_by: "hub-user",
+          auth: "token-value",
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("should reject agent.action.cancel without execution_id", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.cancel",
+        id: "action-cancel-1",
+        params: {
+          trace_id: "trace-cancel-1",
+          client_token: "token-value",
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("should accept agent.action.getExecution with output paging fields", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.getExecution",
+        id: "action-get-1",
+        params: {
+          execution_id: "exec-1",
+          include_output: true,
+          stdout_cursor: 0,
+          output_offset: 16,
+          stderr_offset: 32,
+          max_output_bytes: 4096,
+          client_token: "token-value",
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("should reject agent.action.getExecution when max_output_bytes exceeds the published cap", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.getExecution",
+        id: "action-get-too-large",
+        params: {
+          execution_id: "exec-1",
+          max_output_bytes: AGENT_ACTION_GET_EXECUTION_MAX_OUTPUT_BYTES + 1,
+          client_token: "token-value",
+        },
+      },
+    });
+
     expect(parsed.success).toBe(false);
   });
 });

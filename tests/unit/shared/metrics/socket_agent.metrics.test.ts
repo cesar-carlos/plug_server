@@ -26,7 +26,7 @@ describe("socket_agent.metrics", () => {
 
   it("classifies registered agent plug profiles and health capability", () => {
     resetSocketAgentMetrics();
-    noteAgentCapabilityProfile({ extensions: { plugProfile: "plug-jsonrpc-profile/2.10" } });
+    noteAgentCapabilityProfile({ extensions: { plugProfile: "plug-jsonrpc-profile/2.11" } });
     noteAgentCapabilityProfile({ extensions: { plugProfile: "plug-jsonrpc-profile/2.9" } });
     noteAgentCapabilityProfile({ extensions: { plugProfile: "unknown" } });
 

@@ -24,6 +24,51 @@ const sampleCommandByMethod = {
     method: "agent.getProfile",
     params: { client_token: "token" },
   },
+  "agent.action.run": {
+    jsonrpc: "2.0",
+    id: "action-run-1",
+    method: "agent.action.run",
+    params: {
+      action_id: "action-1",
+      idempotency_key: "idem-run-1",
+      trigger_id: "remote-trigger-1",
+      client_token: "token",
+    },
+  },
+  "agent.action.validateRun": {
+    jsonrpc: "2.0",
+    id: "action-validate-1",
+    method: "agent.action.validateRun",
+    params: {
+      action_id: "action-1",
+      idempotency_key: "idem-validate-1",
+      requested_by: "hub-user",
+      client_token: "token",
+    },
+  },
+  "agent.action.cancel": {
+    jsonrpc: "2.0",
+    id: "action-cancel-1",
+    method: "agent.action.cancel",
+    params: {
+      execution_id: "exec-1",
+      trace_id: "trace-1",
+      client_token: "token",
+    },
+  },
+  "agent.action.getExecution": {
+    jsonrpc: "2.0",
+    id: "action-get-1",
+    method: "agent.action.getExecution",
+    params: {
+      execution_id: "exec-1",
+      include_output: true,
+      stdout_offset: 0,
+      stderr_offset: 32,
+      max_output_bytes: 4096,
+      client_token: "token",
+    },
+  },
   "client_token.getPolicy": {
     jsonrpc: "2.0",
     id: "policy-1",

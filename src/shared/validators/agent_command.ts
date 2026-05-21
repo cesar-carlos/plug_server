@@ -62,6 +62,8 @@ export const AGENT_SQL_NAMED_PARAMS_JSON_MAX_BYTES = 2 * 1024 * 1024;
 export const AGENT_RPC_DISCOVER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
 /** Max UTF-8 bytes for serialized token-carrier `params` (`agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`). */
 export const AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES = 64 * 1024;
+/** Max UTF-8 bytes exposed per output stream in `agent.action.getExecution`. */
+export const AGENT_ACTION_GET_EXECUTION_MAX_OUTPUT_BYTES = 524_288;
 /** Max rows accepted by the hub for one `sql.bulkInsert` RPC. */
 export const AGENT_SQL_BULK_INSERT_MAX_ROWS = env.agentSqlBulkInsertMaxRows;
 /** Max UTF-8 bytes for serialized `sql.bulkInsert.params` before PayloadFrame encoding. */
@@ -381,6 +383,46 @@ const agentGetProfileParamsSchema = tokenCarrierSchema
     include_diagnostics: z.boolean().optional(),
   })
   .strict();
+const agentActionCorrelationSchema = z.object({
+  trace_id: nonEmptyStringSchema.optional(),
+  requested_by: nonEmptyStringSchema.optional(),
+});
+const agentActionTokenCarrierSchema = tokenCarrierSchema.merge(agentActionCorrelationSchema);
+const agentActionRunParamsSchema = agentActionTokenCarrierSchema
+  .extend({
+    action_id: nonEmptyStringSchema,
+    idempotency_key: nonEmptyStringSchema,
+    trigger_id: nonEmptyStringSchema.optional(),
+  })
+  .strict();
+const agentActionValidateRunParamsSchema = agentActionTokenCarrierSchema
+  .extend({
+    action_id: nonEmptyStringSchema,
+    idempotency_key: nonEmptyStringSchema,
+  })
+  .strict();
+const agentActionCancelParamsSchema = agentActionTokenCarrierSchema
+  .extend({
+    execution_id: nonEmptyStringSchema,
+  })
+  .strict();
+const agentActionGetExecutionParamsSchema = agentActionTokenCarrierSchema
+  .extend({
+    execution_id: nonEmptyStringSchema,
+    include_output: z.boolean().optional(),
+    stdout_offset: z.number().int().min(0).optional(),
+    stdout_cursor: z.number().int().min(0).optional(),
+    output_offset: z.number().int().min(0).optional(),
+    stderr_offset: z.number().int().min(0).optional(),
+    stderr_cursor: z.number().int().min(0).optional(),
+    max_output_bytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(AGENT_ACTION_GET_EXECUTION_MAX_OUTPUT_BYTES)
+      .optional(),
+  })
+  .strict();
 
 type ClientTokenCarrierParams = z.infer<typeof clientTokenCarrierParamsSchema>;
 
@@ -451,9 +493,53 @@ const clientTokenGetPolicyCommandSchema = z
     refineClientTokenCarrierParamsSize(value, ctx, "client_token.getPolicy");
   });
 
+const agentActionRunCommandSchema = z
+  .object({
+    jsonrpc: z.literal("2.0").default("2.0"),
+    method: z.literal("agent.action.run"),
+    id: jsonRpcIdSchema.optional(),
+    params: agentActionRunParamsSchema,
+  })
+  .merge(rpcEnvelopeExtensionsSchema)
+  .passthrough();
+
+const agentActionValidateRunCommandSchema = z
+  .object({
+    jsonrpc: z.literal("2.0").default("2.0"),
+    method: z.literal("agent.action.validateRun"),
+    id: jsonRpcIdSchema.optional(),
+    params: agentActionValidateRunParamsSchema,
+  })
+  .merge(rpcEnvelopeExtensionsSchema)
+  .passthrough();
+
+const agentActionCancelCommandSchema = z
+  .object({
+    jsonrpc: z.literal("2.0").default("2.0"),
+    method: z.literal("agent.action.cancel"),
+    id: jsonRpcIdSchema.optional(),
+    params: agentActionCancelParamsSchema,
+  })
+  .merge(rpcEnvelopeExtensionsSchema)
+  .passthrough();
+
+const agentActionGetExecutionCommandSchema = z
+  .object({
+    jsonrpc: z.literal("2.0").default("2.0"),
+    method: z.literal("agent.action.getExecution"),
+    id: jsonRpcIdSchema.optional(),
+    params: agentActionGetExecutionParamsSchema,
+  })
+  .merge(rpcEnvelopeExtensionsSchema)
+  .passthrough();
+
 export const supportedAgentRpcMethods = [
   "agent.getHealth",
   "agent.getProfile",
+  "agent.action.run",
+  "agent.action.validateRun",
+  "agent.action.cancel",
+  "agent.action.getExecution",
   "client_token.getPolicy",
   "rpc.discover",
   "sql.bulkInsert",
@@ -465,6 +551,10 @@ export const supportedAgentRpcMethods = [
 export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
   agentGetHealthCommandSchema,
   agentGetProfileCommandSchema,
+  agentActionRunCommandSchema,
+  agentActionValidateRunCommandSchema,
+  agentActionCancelCommandSchema,
+  agentActionGetExecutionCommandSchema,
   clientTokenGetPolicyCommandSchema,
   sqlExecuteCommandSchema,
   sqlExecuteBatchCommandSchema,

@@ -1,6 +1,10 @@
 export const bridgeParityMethods = [
   "agent.getHealth",
   "agent.getProfile",
+  "agent.action.run",
+  "agent.action.validateRun",
+  "agent.action.cancel",
+  "agent.action.getExecution",
   "client_token.getPolicy",
   "rpc.discover",
   "sql.bulkInsert",

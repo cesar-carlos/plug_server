@@ -112,7 +112,7 @@ const emitAgentReady = (socket: ReturnType<typeof ioClient>, agentId: string): v
     encodePayloadFrame({
       agent_id: agentId,
       timestamp: new Date().toISOString(),
-      protocol: "plug-jsonrpc-profile/2.10",
+      protocol: "plug-jsonrpc-profile/2.11",
     }),
   );
 };

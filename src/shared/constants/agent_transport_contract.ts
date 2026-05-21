@@ -52,10 +52,11 @@ export const HUB_TRANSPORT_EXTENSIONS = {
   signatureAlgorithms: ["hmac-sha256"] as const,
   streamingResults: true,
   /**
-   * Aligned with plug_agente OpenRPC `info.version` 2.10.0 (`sql.bulkInsert`
-   * plus the 2.9 health diagnostics contract). Bump in lockstep with agent profile.
+   * Aligned with plug_agente OpenRPC `info.version` 2.11.2 (major/minor profile `2.11`:
+   * agent actions plus health/bulk insert remain in the published contract). Bump in
+   * lockstep with the agent profile.
    */
-  plugProfile: "plug-jsonrpc-profile/2.10",
+  plugProfile: "plug-jsonrpc-profile/2.11",
   orderedBatchResponses: true,
   notificationNullIdCompatibility: true,
   paginationModes: ["page-offset", "cursor-keyset"] as const,

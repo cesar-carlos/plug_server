@@ -257,6 +257,89 @@ describe("agent_command contract (plug_agente compatibility)", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("should accept agent.action.run with published remote params", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.run",
+        id: "req-action-run",
+        params: {
+          action_id: "action-1",
+          idempotency_key: "idem-run-1",
+          trigger_id: "remote-trigger-1",
+          trace_id: "trace-run-1",
+          requested_by: "hub-user",
+          client_token: "token",
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("should accept agent.action.validateRun with published remote params", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.validateRun",
+        id: "req-action-validate",
+        params: {
+          action_id: "action-1",
+          idempotency_key: "idem-validate-1",
+          requested_by: "hub-user",
+          clientToken: "token",
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("should accept agent.action.cancel with execution id", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.cancel",
+        id: "req-action-cancel",
+        params: {
+          execution_id: "exec-1",
+          trace_id: "trace-cancel-1",
+          auth: "token",
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("should accept agent.action.getExecution with output paging params", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.getExecution",
+        id: "req-action-get-exec",
+        params: {
+          execution_id: "exec-1",
+          include_output: true,
+          stdout_offset: 0,
+          stderr_cursor: 16,
+          max_output_bytes: 4096,
+          client_token: "token",
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+  });
+
   it("should reject agent.getHealth with unpublished params", () => {
     const payload = {
       agentId: "agent-01",

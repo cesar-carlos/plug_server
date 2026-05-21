@@ -10,6 +10,7 @@ import {
   HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO,
 } from "../../shared/constants/agent_transport_contract";
 import {
+  AGENT_ACTION_GET_EXECUTION_MAX_OUTPUT_BYTES,
   AGENT_CLIENT_TOKEN_CARRIER_PARAMS_JSON_MAX_BYTES,
   AGENT_MAX_ROWS_LIMIT,
   AGENT_PAGE_SIZE_LIMIT,
@@ -598,6 +599,85 @@ const swaggerSpec = swaggerJSDoc({
           allOf: [{ $ref: "#/components/schemas/RpcClientTokenCarrierParams" }],
           description: "Deprecated OpenAPI alias for RpcClientTokenCarrierParams.",
         },
+        RpcAgentActionCorrelationParams: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            trace_id: { type: "string", minLength: 1 },
+            requested_by: { type: "string", minLength: 1 },
+            client_token: { type: "string", minLength: 1 },
+            clientToken: { type: "string", minLength: 1 },
+            auth: { type: "string", minLength: 1 },
+          },
+          description:
+            "Published correlation and token aliases for agent.action.* remote calls.",
+        },
+        AgentActionRunParams: {
+          allOf: [
+            { $ref: "#/components/schemas/RpcAgentActionCorrelationParams" },
+            {
+              type: "object",
+              required: ["action_id", "idempotency_key"],
+              properties: {
+                action_id: { type: "string", minLength: 1 },
+                idempotency_key: { type: "string", minLength: 1 },
+                trigger_id: { type: "string", minLength: 1 },
+              },
+              additionalProperties: false,
+            },
+          ],
+        },
+        AgentActionValidateRunParams: {
+          allOf: [
+            { $ref: "#/components/schemas/RpcAgentActionCorrelationParams" },
+            {
+              type: "object",
+              required: ["action_id", "idempotency_key"],
+              properties: {
+                action_id: { type: "string", minLength: 1 },
+                idempotency_key: { type: "string", minLength: 1 },
+              },
+              additionalProperties: false,
+            },
+          ],
+        },
+        AgentActionCancelParams: {
+          allOf: [
+            { $ref: "#/components/schemas/RpcAgentActionCorrelationParams" },
+            {
+              type: "object",
+              required: ["execution_id"],
+              properties: {
+                execution_id: { type: "string", minLength: 1 },
+              },
+              additionalProperties: false,
+            },
+          ],
+        },
+        AgentActionGetExecutionParams: {
+          allOf: [
+            { $ref: "#/components/schemas/RpcAgentActionCorrelationParams" },
+            {
+              type: "object",
+              required: ["execution_id"],
+              properties: {
+                execution_id: { type: "string", minLength: 1 },
+                include_output: { type: "boolean" },
+                stdout_offset: { type: "integer", minimum: 0 },
+                stdout_cursor: { type: "integer", minimum: 0 },
+                output_offset: { type: "integer", minimum: 0 },
+                stderr_offset: { type: "integer", minimum: 0 },
+                stderr_cursor: { type: "integer", minimum: 0 },
+                max_output_bytes: {
+                  type: "integer",
+                  minimum: 1,
+                  maximum: AGENT_ACTION_GET_EXECUTION_MAX_OUTPUT_BYTES,
+                },
+              },
+              additionalProperties: false,
+            },
+          ],
+        },
         RpcSqlExecuteCommand: {
           type: "object",
           required: ["method", "params"],
@@ -689,6 +769,58 @@ const swaggerSpec = swaggerJSDoc({
           },
           additionalProperties: true,
         },
+        RpcAgentActionRunCommand: {
+          type: "object",
+          required: ["method", "params"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["agent.action.run"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/AgentActionRunParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
+        RpcAgentActionValidateRunCommand: {
+          type: "object",
+          required: ["method", "params"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["agent.action.validateRun"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/AgentActionValidateRunParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
+        RpcAgentActionCancelCommand: {
+          type: "object",
+          required: ["method", "params"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["agent.action.cancel"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/AgentActionCancelParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
+        RpcAgentActionGetExecutionCommand: {
+          type: "object",
+          required: ["method", "params"],
+          properties: {
+            jsonrpc: { type: "string", enum: ["2.0"], default: "2.0" },
+            method: { type: "string", enum: ["agent.action.getExecution"] },
+            id: { $ref: "#/components/schemas/JsonRpcId" },
+            params: { $ref: "#/components/schemas/AgentActionGetExecutionParams" },
+            api_version: { type: "string", minLength: 1 },
+            meta: { $ref: "#/components/schemas/RpcMeta" },
+          },
+          additionalProperties: true,
+        },
         RpcClientTokenGetPolicyCommand: {
           type: "object",
           required: ["method"],
@@ -706,6 +838,10 @@ const swaggerSpec = swaggerJSDoc({
           oneOf: [
             { $ref: "#/components/schemas/RpcAgentGetHealthCommand" },
             { $ref: "#/components/schemas/RpcAgentGetProfileCommand" },
+            { $ref: "#/components/schemas/RpcAgentActionRunCommand" },
+            { $ref: "#/components/schemas/RpcAgentActionValidateRunCommand" },
+            { $ref: "#/components/schemas/RpcAgentActionCancelCommand" },
+            { $ref: "#/components/schemas/RpcAgentActionGetExecutionCommand" },
             { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteCommand" },
             { $ref: "#/components/schemas/RpcSqlExecuteBatchCommand" },
