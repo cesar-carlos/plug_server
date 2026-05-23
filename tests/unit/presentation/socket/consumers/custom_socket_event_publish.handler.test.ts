@@ -66,6 +66,7 @@ import {
 import { logger } from "../../../../../src/shared/utils/logger";
 import { assertClientSocketEventPublishInputWithinLimits } from "../../../../../src/application/services/client_socket_event_publish.service";
 import { env } from "../../../../../src/shared/config/env";
+import { disconnectSocketAfterCustomSocketEventAuthFailure } from "../../../../../src/presentation/socket/consumers/custom_socket_event_guard";
 
 const mockedExecute = vi.mocked(executeClientSocketEventPublish);
 const mockedAssertLimits = vi.mocked(assertClientSocketEventPublishInputWithinLimits);
@@ -74,6 +75,7 @@ const mockedRefund = vi.mocked(refundClientSocketEventPublishSocketAsync);
 const mockedNoteViaSocket = vi.mocked(noteCustomSocketEventPublishViaSocket);
 const mockedNoteRejected = vi.mocked(noteCustomSocketEventPublishRejected);
 const mockedLoggerWarn = vi.mocked(logger.warn);
+const mockedDisconnect = vi.mocked(disconnectSocketAfterCustomSocketEventAuthFailure);
 
 const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
@@ -261,6 +263,30 @@ describe("handleCustomSocketEventPublish", () => {
       expect.objectContaining({
         success: false,
         error: expect.objectContaining({ code: "SERVICE_UNAVAILABLE", statusCode: 503 }),
+      }),
+    );
+  });
+
+  it("should emit INTERNAL_SERVER_ERROR and not disconnect when rate limit check throws", async () => {
+    mockedAllow.mockRejectedValue(new Error("redis unavailable"));
+
+    const socket = buildClientSocket();
+    handleCustomSocketEventPublish(socket, validPublishPayload);
+
+    await flushMicrotasks();
+
+    expect(mockedDisconnect).not.toHaveBeenCalled();
+    expect(mockedNoteRejected).toHaveBeenCalled();
+    expect(mockedLoggerWarn).toHaveBeenCalledWith(
+      "client_socket_event_publish_rate_limit_check_failed",
+      expect.objectContaining({ clientSub: "client-sub-xyz", message: "redis unavailable" }),
+    );
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventPublished,
+      expect.objectContaining({
+        success: false,
+        requestId: "req-handler-1",
+        error: expect.objectContaining({ code: "INTERNAL_SERVER_ERROR" }),
       }),
     );
   });

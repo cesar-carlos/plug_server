@@ -74,6 +74,7 @@ describe("socket relay public contract", () => {
     const emitted: Array<{ event: string; payload: unknown }> = [];
     const socket = {
       id: "consumer-1",
+      connected: true,
       data: { user: { sub: "user-1", role: "user" } },
       emit: (event: string, payload: unknown) => {
         emitted.push({ event, payload });

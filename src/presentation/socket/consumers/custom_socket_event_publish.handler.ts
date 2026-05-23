@@ -152,7 +152,27 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
   const inflightSocket = socket as SocketWithInflightCounter & SocketWithCustomPublishInflight;
 
   void (async (): Promise<void> => {
-    const clientSub = await assertActiveClientCustomSocketEventPrincipal(socket);
+    let clientSub: string;
+    try {
+      clientSub = await assertActiveClientCustomSocketEventPrincipal(socket);
+    } catch (error: unknown) {
+      noteCustomSocketEventPublishRejected();
+      const appError = handleCustomSocketEventAuthFailure(error);
+      emitPublishedIfConnected(socket, {
+        success: false,
+        requestId,
+        error: {
+          code: appError.code,
+          message: appError.message,
+          ...(appError.statusCode !== undefined ? { statusCode: appError.statusCode } : {}),
+        },
+      });
+      if (isTerminalCustomSocketEventAuthFailure(appError)) {
+        disconnectSocketAfterCustomSocketEventAuthFailure(socket, appError);
+      }
+      return;
+    }
+
     const acquiredInflight = useDedicatedPublishInflight
       ? tryAcquireCustomPublishInflightSlot(inflightSocket, publishInflightMax)
       : tryAcquireSocketInflightSlot(inflightSocket, env.socketConsumerMaxInflightPerSocket);
@@ -202,7 +222,25 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
         return;
       }
 
-      const allowed = await allowClientSocketEventPublishSocketAsync(clientSub);
+      let allowed: boolean;
+      try {
+        allowed = await allowClientSocketEventPublishSocketAsync(clientSub);
+      } catch (error: unknown) {
+        noteCustomSocketEventPublishRejected();
+        logger.warn("client_socket_event_publish_rate_limit_check_failed", {
+          clientSub,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        emitPublishedIfConnected(socket, {
+          success: false,
+          requestId,
+          error: {
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Unexpected error publishing event",
+          },
+        });
+        return;
+      }
       if (!allowed) {
         noteCustomSocketEventPublishRejected();
         emitPublishedIfConnected(socket, {
@@ -291,18 +329,16 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
     }
   })().catch((error: unknown) => {
     noteCustomSocketEventPublishRejected();
-    const appError = handleCustomSocketEventAuthFailure(error);
+    logger.warn("client_socket_event_publish_unhandled_rejection", {
+      message: error instanceof Error ? error.message : String(error),
+    });
     emitPublishedIfConnected(socket, {
       success: false,
       requestId,
       error: {
-        code: appError.code,
-        message: appError.message,
-        ...(appError.statusCode !== undefined ? { statusCode: appError.statusCode } : {}),
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Unexpected error publishing event",
       },
     });
-    if (isTerminalCustomSocketEventAuthFailure(appError)) {
-      disconnectSocketAfterCustomSocketEventAuthFailure(socket, appError);
-    }
   });
 };

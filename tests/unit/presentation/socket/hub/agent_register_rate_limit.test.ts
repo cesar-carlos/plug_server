@@ -3,11 +3,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   resetAgentRegisterRateLimitState,
   tryConsumeAgentRegisterRateLimit,
+  tryConsumeAgentRegisterRateLimitAsync,
 } from "../../../../../src/presentation/socket/hub/agent_register_rate_limit";
+
+vi.mock("../../../../../src/infrastructure/redis/socket_rate_limit_redis", () => ({
+  consumeSocketRateLimitRedis: vi.fn(),
+}));
+
+import { consumeSocketRateLimitRedis } from "../../../../../src/infrastructure/redis/socket_rate_limit_redis";
+
+const mockedConsumeSocketRateLimitRedis = vi.mocked(consumeSocketRateLimitRedis);
 
 describe("agent_register_rate_limit", () => {
   afterEach(() => {
     resetAgentRegisterRateLimitState();
+    mockedConsumeSocketRateLimitRedis.mockReset();
   });
 
   it("allows bursts within max inside the window", () => {
@@ -52,5 +62,38 @@ describe("agent_register_rate_limit", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("uses Redis decision when available", async () => {
+    mockedConsumeSocketRateLimitRedis.mockResolvedValue({
+      allowed: false,
+      remaining: 0,
+      limit: 3,
+      used: 4,
+    });
+
+    await expect(
+      tryConsumeAgentRegisterRateLimitAsync("u1", "a1", { windowMs: 60_000, max: 3 }),
+    ).resolves.toEqual({ ok: false });
+    expect(mockedConsumeSocketRateLimitRedis).toHaveBeenCalledWith({
+      scope: "agent_register",
+      key: "u1:a1",
+      windowMs: 60_000,
+      max: 3,
+    });
+  });
+
+  it("falls back to in-memory limiter when Redis returns null", async () => {
+    mockedConsumeSocketRateLimitRedis.mockResolvedValue(null);
+
+    for (let i = 0; i < 2; i += 1) {
+      await expect(
+        tryConsumeAgentRegisterRateLimitAsync("u2", "a2", { windowMs: 60_000, max: 2 }),
+      ).resolves.toEqual({ ok: true });
+    }
+
+    await expect(
+      tryConsumeAgentRegisterRateLimitAsync("u2", "a2", { windowMs: 60_000, max: 2 }),
+    ).resolves.toEqual({ ok: false });
   });
 });

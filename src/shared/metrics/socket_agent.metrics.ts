@@ -27,6 +27,11 @@ let sessionRegisterRateLimitedTotal = 0;
 let agentReadyLegacyPayloadTotal = 0;
 let agentReadyInvalidPartialPayloadTotal = 0;
 
+const inboundContractValidation = {
+  failedTotal: 0,
+  warnTotal: 0,
+};
+
 const capabilityProfiles = {
   current: 0,
   older: 0,
@@ -147,6 +152,13 @@ export const noteAgentReadyInvalidPartialPayload = (): void => {
   agentReadyInvalidPartialPayloadTotal += 1;
 };
 
+export const noteAgentInboundContractValidationFailed = (mode: "strict" | "warn"): void => {
+  inboundContractValidation.failedTotal += 1;
+  if (mode === "warn") {
+    inboundContractValidation.warnTotal += 1;
+  }
+};
+
 export const noteAgentCapabilityProfile = (capabilities: Record<string, unknown>): void => {
   const version = readPlugProfileVersion(readProfileString(capabilities));
   if (!version || !currentPlugProfileVersion) {
@@ -220,6 +232,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   readonly sessionRegisterRateLimitedTotal: number;
   readonly agentReadyLegacyPayloadTotal: number;
   readonly agentReadyInvalidPartialPayloadTotal: number;
+  readonly inboundContractValidation: typeof inboundContractValidation;
   readonly capabilityProfiles: typeof capabilityProfiles;
   readonly capabilityAgentGetHealthCapableTotal: number;
   readonly agentHealth: typeof agentHealth;
@@ -230,6 +243,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   sessionRegisterRateLimitedTotal,
   agentReadyLegacyPayloadTotal,
   agentReadyInvalidPartialPayloadTotal,
+  inboundContractValidation: { ...inboundContractValidation },
   capabilityProfiles: { ...capabilityProfiles },
   capabilityAgentGetHealthCapableTotal,
   agentHealth: { ...agentHealth },
@@ -246,6 +260,8 @@ export const resetSocketAgentMetrics = (): void => {
   sessionRegisterRateLimitedTotal = 0;
   agentReadyLegacyPayloadTotal = 0;
   agentReadyInvalidPartialPayloadTotal = 0;
+  inboundContractValidation.failedTotal = 0;
+  inboundContractValidation.warnTotal = 0;
   capabilityProfiles.current = 0;
   capabilityProfiles.older = 0;
   capabilityProfiles.unknown = 0;

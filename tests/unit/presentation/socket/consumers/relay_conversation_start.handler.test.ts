@@ -25,19 +25,28 @@ vi.mock("../../../../../src/presentation/socket/hub/rpc_bridge", () => ({
   findAgentBridgeSocketById: vi.fn(),
 }));
 
-import { conflict } from "../../../../../src/shared/errors/http_errors";
+vi.mock("../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => ({
+  refundRelayConversationStartAsync: vi.fn(),
+}));
+
+import { conflict, notFound, serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
-import { handleRelayConversationStart } from "../../../../../src/presentation/socket/consumers/relay_conversation_start.handler";
+import {
+  handleRelayConversationStart,
+  shouldRefundRelayConversationStartRateLimit,
+} from "../../../../../src/presentation/socket/consumers/relay_conversation_start.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
 import { findAgentBridgeSocketById } from "../../../../../src/presentation/socket/hub/rpc_bridge";
+import { refundRelayConversationStartAsync } from "../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter";
 
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedFindByAgentId = vi.mocked(agentRegistry.findByAgentId);
 const mockedTryReserveAndCreate = vi.mocked(conversationRegistry.tryReserveAndCreate);
 const mockedFindAgentBridgeSocketById = vi.mocked(findAgentBridgeSocketById);
+const mockedRefundRelayConversationStart = vi.mocked(refundRelayConversationStartAsync);
 
 const buildSocket = () =>
   ({
@@ -52,11 +61,28 @@ const buildSocket = () =>
     emit: vi.fn(),
   }) as const;
 
+describe("shouldRefundRelayConversationStartRateLimit", () => {
+  it("does not refund 4xx client errors", () => {
+    expect(shouldRefundRelayConversationStartRateLimit(notFound("Agent agent-1"))).toBe(false);
+    expect(shouldRefundRelayConversationStartRateLimit(conflict("Consumer cap"))).toBe(false);
+  });
+
+  it("refunds transient and unexpected failures", () => {
+    expect(
+      shouldRefundRelayConversationStartRateLimit(
+        serviceUnavailable("Agent socket is unavailable"),
+      ),
+    ).toBe(true);
+    expect(shouldRefundRelayConversationStartRateLimit(new Error("boom"))).toBe(true);
+  });
+});
+
 describe("handleRelayConversationStart", () => {
   beforeEach(() => {
     mockedAssertAccess.mockReset();
     mockedFindByAgentId.mockReset();
     mockedTryReserveAndCreate.mockReset();
+    mockedRefundRelayConversationStart.mockReset();
 
     mockedAssertAccess.mockResolvedValue({ type: "user", id: "user-1", role: "user" });
     mockedFindByAgentId.mockReturnValue({
@@ -98,6 +124,7 @@ describe("handleRelayConversationStart", () => {
 
     await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
 
+    expect(mockedRefundRelayConversationStart).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,
       error: {
@@ -105,6 +132,38 @@ describe("handleRelayConversationStart", () => {
         message: "Consumer reached max active relay conversations",
         statusCode: 409,
       },
+    });
+  });
+
+  it("refunds quota on 503 when the agent bridge socket is unavailable", async () => {
+    const socket = buildSocket();
+    mockedFindAgentBridgeSocketById.mockReturnValue(undefined);
+
+    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
+
+    expect(mockedRefundRelayConversationStart).toHaveBeenCalledWith("user-1", "consumer-1");
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
+      success: false,
+      error: expect.objectContaining({
+        code: "SERVICE_UNAVAILABLE",
+        statusCode: 503,
+      }),
+    });
+  });
+
+  it("does not refund quota when the agent is not registered", async () => {
+    const socket = buildSocket();
+    mockedFindByAgentId.mockReturnValue(undefined);
+
+    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
+
+    expect(mockedRefundRelayConversationStart).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
+      success: false,
+      error: expect.objectContaining({
+        code: "NOT_FOUND",
+        statusCode: 404,
+      }),
     });
   });
 
@@ -125,6 +184,7 @@ describe("handleRelayConversationStart", () => {
     resolveAccess();
     await run;
 
+    expect(mockedRefundRelayConversationStart).toHaveBeenCalledWith("user-1", "consumer-1");
     expect(mockedTryReserveAndCreate).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,

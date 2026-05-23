@@ -39,7 +39,7 @@ export const assertConsumerSocketAgentAccess = async (
   agentId: string,
   socket?: GuardSocket,
 ): Promise<AgentAccessPrincipal> => {
-  await assertJwtUserAccountActive(user, socket);
+  await assertJwtUserAccountActive(user, socket, { recordConsumerBlockedMetric: true });
 
   const principal = resolveConsumerAgentAccessPrincipal(user);
   if (!principal) {

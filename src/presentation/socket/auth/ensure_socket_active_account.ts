@@ -6,7 +6,7 @@ import { env } from "../../../shared/config/env";
 import { incrementAuthSocketBlocked } from "../../../shared/metrics/auth_account.metrics";
 import {
   noteConsumerSocketAuthRejected,
-  observeConsumerGuardDbValidation,
+  observeSocketAuthAccountDbValidation,
 } from "../../../shared/metrics/socket_consumer.metrics";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
@@ -33,6 +33,14 @@ type SocketWithSnapshot = Socket & {
   };
 };
 
+/** Coalesces concurrent DB validations on the same socket before `authSnapshot` is written. */
+const inFlightValidationBySocketId = new Map<string, Promise<JwtAccessPayload>>();
+
+export type AssertJwtUserAccountActiveOptions = {
+  /** When true, increments consumer handshake/guard blocked-account metrics. */
+  readonly recordConsumerBlockedMetric?: boolean;
+};
+
 const buildSnapshot = (user: JwtAccessPayload): SocketAccountSnapshot => ({
   subjectId: user.sub,
   principalType: user.principal_type === "client" ? "client" : "user",
@@ -46,6 +54,7 @@ const buildSnapshot = (user: JwtAccessPayload): SocketAccountSnapshot => ({
  */
 const validateActiveAccountAgainstDb = async (
   user: JwtAccessPayload,
+  options?: AssertJwtUserAccountActiveOptions,
 ): Promise<JwtAccessPayload> => {
   const startedAt = performance.now();
   const result =
@@ -58,11 +67,13 @@ const validateActiveAccountAgainstDb = async (
           user.sub,
           user.credentials_version,
         );
-  observeConsumerGuardDbValidation(performance.now() - startedAt);
+  observeSocketAuthAccountDbValidation(performance.now() - startedAt);
   if (!result.ok) {
     if (result.error.code === "FORBIDDEN" && result.error.message === "Account is blocked") {
       incrementAuthSocketBlocked();
-      noteConsumerSocketAuthRejected("blocked_account");
+      if (options?.recordConsumerBlockedMetric === true) {
+        noteConsumerSocketAuthRejected("blocked_account");
+      }
     }
     throw result.error;
   }
@@ -83,6 +94,7 @@ const validateActiveAccountAgainstDb = async (
 export const assertJwtUserAccountActive = async (
   user: JwtAccessPayload | undefined,
   socket?: SocketWithSnapshot,
+  options?: AssertJwtUserAccountActiveOptions,
 ): Promise<JwtAccessPayload> => {
   if (!user?.sub) {
     throw unauthorized("Authentication required");
@@ -102,12 +114,41 @@ export const assertJwtUserAccountActive = async (
     }
   }
 
-  const validated = await validateActiveAccountAgainstDb(user);
+  if (socket?.id) {
+    const inflight = inFlightValidationBySocketId.get(socket.id);
+    if (inflight) {
+      return inflight;
+    }
 
+    let resolveValidation!: (value: JwtAccessPayload) => void;
+    let rejectValidation!: (reason?: unknown) => void;
+    const validationPromise = new Promise<JwtAccessPayload>((resolve, reject) => {
+      resolveValidation = resolve;
+      rejectValidation = reject;
+    });
+    inFlightValidationBySocketId.set(socket.id, validationPromise);
+
+    void (async () => {
+      try {
+        const validated = await validateActiveAccountAgainstDb(user, options);
+        socket.data.authSnapshot = buildSnapshot(user);
+        resolveValidation(validated);
+      } catch (error: unknown) {
+        rejectValidation(error);
+      } finally {
+        if (inFlightValidationBySocketId.get(socket.id) === validationPromise) {
+          inFlightValidationBySocketId.delete(socket.id);
+        }
+      }
+    })();
+
+    return validationPromise;
+  }
+
+  const validated = await validateActiveAccountAgainstDb(user, options);
   if (socket) {
     socket.data.authSnapshot = buildSnapshot(user);
   }
-
   return validated;
 };
 
@@ -115,9 +156,10 @@ export const ensureJwtUserAccountActive = async (
   user: JwtAccessPayload,
   next: (error?: Error) => void,
   socket?: SocketWithSnapshot,
+  options?: AssertJwtUserAccountActiveOptions,
 ): Promise<boolean> => {
   try {
-    await assertJwtUserAccountActive(user, socket);
+    await assertJwtUserAccountActive(user, socket, options);
   } catch (error: unknown) {
     next(error instanceof Error ? error : unauthorized("Authentication required"));
     return false;

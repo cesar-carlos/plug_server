@@ -71,12 +71,14 @@ import {
   noteCustomSocketEventSubscriptionForbidden,
   noteCustomSocketEventSubscriptionRejected,
 } from "../../../../../src/shared/metrics/socket_consumer.metrics";
+import { disconnectSocketAfterCustomSocketEventAuthFailure } from "../../../../../src/presentation/socket/consumers/custom_socket_event_guard";
 
 const mockedAllow = vi.mocked(allowCustomSocketEventSubscriptionControl);
 const mockedNoteRejected = vi.mocked(noteCustomSocketEventSubscriptionRejected);
 const mockedNoteForbidden = vi.mocked(noteCustomSocketEventSubscriptionForbidden);
 const mockedAdd = vi.mocked(addCustomSocketEventSubscription);
 const mockedRemove = vi.mocked(removeCustomSocketEventSubscription);
+const mockedDisconnect = vi.mocked(disconnectSocketAfterCustomSocketEventAuthFailure);
 
 const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
@@ -89,6 +91,7 @@ const buildSocket = (principalType: "client" | "user"): Socket => {
   const leave = vi.fn().mockResolvedValue(undefined);
   return {
     id: "sock-sub-1",
+    connected: true,
     data: {
       user:
         principalType === "client"
@@ -174,6 +177,43 @@ describe("custom_socket_event_subscription.handler", () => {
     );
   });
 
+  it("should reject subscribe when rate limit is exceeded", async () => {
+    mockedAllow.mockReturnValueOnce({
+      allowed: false,
+      limit: 240,
+      remaining: 0,
+      resetAtMs: Date.now() + 60_000,
+      retryAfterMs: 5_000,
+    });
+    const socket = buildSocket("client");
+
+    handleCustomSocketEventSubscribe(socket, {
+      requestId: "r-rate",
+      eventName: "client:custom.rate",
+    });
+
+    await flushMicrotasks();
+    expect(mockedNoteRejected).toHaveBeenCalledTimes(1);
+    expect(mockedAdd).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventSubscribed,
+      expect.objectContaining({
+        success: false,
+        requestId: "r-rate",
+        error: expect.objectContaining({
+          code: "RATE_LIMITED",
+          message: "Rate limit exceeded for socket:event.subscribe",
+          statusCode: 429,
+          retryAfterMs: 5_000,
+        }),
+        rateLimit: expect.objectContaining({
+          limit: 240,
+          remaining: 0,
+        }),
+      }),
+    );
+  });
+
   it("includes alreadySubscribed when join succeeds but registry already had the event", async () => {
     mockedAdd.mockReturnValue(false);
     const socket = buildSocket("client");
@@ -189,6 +229,42 @@ describe("custom_socket_event_subscription.handler", () => {
         data: { eventName: "client:custom.dup", subscribed: true, alreadySubscribed: true },
       }),
     );
+  });
+
+  it("should emit INTERNAL_SERVER_ERROR and not disconnect when room join fails", async () => {
+    const socket = buildSocket("client");
+    (socket.join as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("join failed"));
+
+    handleCustomSocketEventSubscribe(socket, {
+      requestId: "r-join-fail",
+      eventName: "client:custom.join-fail",
+    });
+
+    await flushMicrotasks();
+
+    expect(mockedDisconnect).not.toHaveBeenCalled();
+    expect(mockedNoteRejected).toHaveBeenCalled();
+    expect(mockedAdd).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventSubscribed,
+      expect.objectContaining({
+        success: false,
+        requestId: "r-join-fail",
+        error: expect.objectContaining({ code: "INTERNAL_SERVER_ERROR", message: "join failed" }),
+      }),
+    );
+  });
+
+  it("should not emit subscribe ack when socket is disconnected", async () => {
+    const socket = buildSocket("client");
+    handleCustomSocketEventSubscribe(socket, {
+      requestId: "r-disconnected",
+      eventName: "client:custom.offline",
+    });
+    (socket as { connected: boolean }).connected = false;
+    await flushMicrotasks();
+
+    expect(socket.emit).not.toHaveBeenCalled();
   });
 
   it("includes wasSubscribed on unsubscribe ack from registry removal", async () => {

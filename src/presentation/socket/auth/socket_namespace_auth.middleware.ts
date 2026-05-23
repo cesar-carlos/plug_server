@@ -146,7 +146,9 @@ export const authenticateConsumerSocket = async (
     return;
   }
 
-  const okActive = await ensureJwtUserAccountActive(user, next, socket);
+  const okActive = await ensureJwtUserAccountActive(user, next, socket, {
+    recordConsumerBlockedMetric: true,
+  });
   if (!okActive) {
     return;
   }

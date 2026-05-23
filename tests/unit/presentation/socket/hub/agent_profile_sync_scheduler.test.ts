@@ -225,4 +225,53 @@ describe("AgentProfileSyncScheduler", () => {
     expect(metrics.profileSyncSkippedStaleSessionTotal).toBe(1);
     expect(logger.warn).not.toHaveBeenCalledWith("agent_profile_sync_failed", expect.any(Object));
   });
+
+  it("should not run a pending timer after the scheduler is reset", async () => {
+    const syncFromConnectedAgent = vi.fn().mockResolvedValue(undefined);
+    const scheduler = new AgentProfileSyncScheduler({
+      syncFromRegisterSnapshot: vi.fn(),
+      syncFromConnectedAgent,
+      acquireSlot: async () => releaseSlot,
+      metrics,
+      logger,
+      now: () => nowMs,
+    });
+
+    scheduler.schedule({ agentId: "agent-1", userId: "user-1" }, 1_000);
+    scheduler.reset();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(syncFromConnectedAgent).not.toHaveBeenCalled();
+  });
+
+  it("should skip success bookkeeping when sync completes after the agent state is cleared", async () => {
+    const deferred = createDeferred();
+    const syncFromRegisterSnapshot = vi.fn(async () => deferred.promise);
+    const scheduler = new AgentProfileSyncScheduler({
+      syncFromRegisterSnapshot,
+      syncFromConnectedAgent: vi.fn(),
+      acquireSlot: async () => releaseSlot,
+      metrics,
+      logger,
+      now: () => nowMs,
+    });
+
+    scheduler.schedule({ agentId: "agent-1", userId: "user-1", snapshot }, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    scheduler.clear("agent-1");
+
+    deferred.resolve();
+    await deferred.promise.catch(() => undefined);
+    await Promise.resolve();
+
+    expect(logger.info).not.toHaveBeenCalledWith(
+      "agent_profile_sync_success",
+      expect.objectContaining({ agentId: "agent-1" }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "agent_profile_sync_skipped",
+      expect.objectContaining({ agentId: "agent-1", reason: "stale_session" }),
+    );
+    expect(metrics.profileSyncSkippedStaleSessionTotal).toBe(1);
+  });
 });

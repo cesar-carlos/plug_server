@@ -17,6 +17,7 @@ import { closeSocketServer, createSocketServer } from "../../../src/socket";
 let httpServer: HttpServer | undefined;
 let io: SocketIoServer | undefined;
 let shuttingDown = false;
+let injectFetchSocketsFailure = false;
 
 const writeStdoutLine = (line: string): void => {
   process.stdout.write(`${line}\n`);
@@ -31,6 +32,29 @@ const getTestNamespace = (
 ): Namespace<Record<string, never>, Record<string, never>, Record<string, never>, never> =>
   socketServer.of("/__test");
 
+const patchConsumersFetchSockets = (socketServer: SocketIoServer): void => {
+  const adapter = socketServer.of("/consumers").adapter as object;
+  const prototype = Object.getPrototypeOf(adapter) as {
+    fetchSockets?: (...args: unknown[]) => Promise<unknown[]>;
+    __integrationFetchSocketsPatched?: boolean;
+  };
+  if (prototype.__integrationFetchSocketsPatched || typeof prototype.fetchSockets !== "function") {
+    return;
+  }
+
+  const originalFetchSockets = prototype.fetchSockets;
+  prototype.fetchSockets = async function (
+    this: unknown,
+    ...args: unknown[]
+  ): Promise<unknown[]> {
+    if (injectFetchSocketsFailure) {
+      throw new Error("integration_test_fetch_sockets_injected_failure");
+    }
+    return originalFetchSockets.apply(this, args);
+  };
+  Object.defineProperty(prototype, "__integrationFetchSocketsPatched", { value: true });
+};
+
 const bindTestNamespace = (socketServer: SocketIoServer): void => {
   getTestNamespace(socketServer).on("connection", (socket: Socket) => {
     socket.on(
@@ -40,6 +64,13 @@ const bindTestNamespace = (socketServer: SocketIoServer): void => {
         const count =
           room === "" ? 0 : (socketServer.of("/consumers").adapter.rooms.get(room)?.size ?? 0);
         ack?.({ count });
+      },
+    );
+    socket.on(
+      "set-fetch-sockets-failure",
+      (payload: { enabled?: unknown }, ack?: (response: { enabled: boolean }) => void) => {
+        injectFetchSocketsFailure = payload?.enabled === true;
+        ack?.({ enabled: injectFetchSocketsFailure });
       },
     );
   });
@@ -99,6 +130,7 @@ const bootstrap = async (): Promise<void> => {
   io = createSocketServer(httpServer);
   bindTestNamespace(io);
   await initSocketIoRedisAdapter(io);
+  patchConsumersFetchSockets(io);
 
   await new Promise<void>((resolve, reject) => {
     httpServer?.listen(0, "127.0.0.1", () => resolve());

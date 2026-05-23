@@ -156,7 +156,7 @@ export class AgentProfileSyncScheduler {
   }
 
   reset(): void {
-    for (const agentId of this.inFlight.keys()) {
+    for (const agentId of this.pendingAgentIds()) {
       this.bumpGeneration(agentId);
     }
     for (const timer of this.timers.values()) {
@@ -205,6 +205,17 @@ export class AgentProfileSyncScheduler {
             ...(input.userId !== null ? { userId: input.userId } : {}),
             timeoutMs: this.fallbackTimeoutMs,
           });
+        }
+        if (this.isStaleGeneration(input.agentId, generation)) {
+          this.attempts.delete(input.agentId);
+          this.metrics.profileSyncSkippedStaleSessionTotal += 1;
+          this.logger.info("agent_profile_sync_skipped", {
+            agentId: input.agentId,
+            userId: input.userId,
+            attempt,
+            reason: "stale_session",
+          });
+          return;
         }
         if (snapshotFingerprint !== undefined) {
           this.rememberRecent(input.agentId, snapshotFingerprint);
@@ -297,6 +308,10 @@ export class AgentProfileSyncScheduler {
     }
     const nextDelay = retryAfterMs > 0 ? retryAfterMs : Math.min(8_000, 1_000 * attempt);
     this.schedule(input, nextDelay);
+  }
+
+  private pendingAgentIds(): Iterable<string> {
+    return new Set([...this.inFlight.keys(), ...this.timers.keys(), ...this.attempts.keys()]);
   }
 
   private generationFor(agentId: string): number {

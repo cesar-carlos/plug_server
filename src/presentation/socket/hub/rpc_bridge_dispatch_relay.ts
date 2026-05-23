@@ -22,6 +22,7 @@ import {
   decodePayloadFrameAsync,
   encodePayloadFrameBridge,
   payloadFrameEncodeOptionsFromPreference,
+  type PayloadFrameEnvelope,
 } from "../../../shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { getActiveStreamRouteByRequestId, removeActiveStreamRoute } from "./active_stream_registry";
@@ -75,6 +76,8 @@ const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
+
+const isRouteAcked = (route: RelayRequestRoute): boolean => route.acked === true;
 
 const supportedMethodSet = new Set<string>(supportedAgentRpcMethods);
 
@@ -360,6 +363,14 @@ export const createRpcBridgeRelayDispatch = (
           errorCode: "RELAY_REQUEST_TIMEOUT",
         });
       }
+      if (
+        !isRouteAcked(route) &&
+        clientRequestId !== null &&
+        env.socketAgentAckRetryEnabled &&
+        (route.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries
+      ) {
+        relayMetrics.ackRetryExhausted += 1;
+      }
       observeBridgeRpcMethod({
         channel: "relay",
         method: route.jsonRpcMethod ?? "unknown",
@@ -381,6 +392,51 @@ export const createRpcBridgeRelayDispatch = (
       ...(clientRequestId !== null ? { clientRequestId } : {}),
       ...(trace ? { latencyTrace: trace } : {}),
       releaseAgentDispatchSlot,
+      acked: false,
+      ackRetriesAttempted: 0,
+    };
+
+    const scheduleAckRetry = (wireFrame: PayloadFrameEnvelope): void => {
+      if (
+        !env.socketAgentAckRetryEnabled ||
+        env.socketAgentAckMaxRetries <= 0 ||
+        clientRequestId === null
+      ) {
+        return;
+      }
+
+      relayRoute.ackRetryTimer = setTimeout(() => {
+        delete relayRoute.ackRetryTimer;
+        const activeRoute = getRelayRequestRoute(requestId);
+        if (
+          activeRoute !== relayRoute ||
+          isRouteAcked(relayRoute) ||
+          relayRoute.timedOut === true ||
+          input.signal?.aborted === true
+        ) {
+          return;
+        }
+        if ((relayRoute.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries) {
+          return;
+        }
+
+        const liveAgentSocket = findAgentSocketById(conversation.agentSocketId);
+        if (!liveAgentSocket) {
+          return;
+        }
+
+        relayRoute.ackRetriesAttempted = (relayRoute.ackRetriesAttempted ?? 0) + 1;
+        relayMetrics.ackRetryAttempts += 1;
+        liveAgentSocket.emit(socketEvents.rpcRequest, wireFrame);
+        if (
+          !isRouteAcked(relayRoute) &&
+          (relayRoute.ackRetriesAttempted ?? 0) < env.socketAgentAckMaxRetries &&
+          getRelayRequestRoute(requestId) === relayRoute
+        ) {
+          scheduleAckRetry(wireFrame);
+        }
+      }, env.socketAgentAckTimeoutMs);
+      relayRoute.ackRetryTimer.unref?.();
     };
 
     registerRelayRequestRoute(relayRoute);
@@ -428,6 +484,7 @@ export const createRpcBridgeRelayDispatch = (
       agentSocket.emit(socketEvents.rpcRequest, wireFrame);
       const emitEnd = performance.now();
       trace?.markEmitComplete(emitEnd - tEmit, emitEnd);
+      scheduleAckRetry(wireFrame);
     } catch (error: unknown) {
       removeRelayRequestRoute(requestId);
       const existingStream = getActiveStreamRouteByRequestId(requestId);

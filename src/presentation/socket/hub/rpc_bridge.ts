@@ -33,10 +33,12 @@ import {
 import { resetRpcBridgeMutableStores } from "./rpc_bridge_lifecycle";
 
 export {
+  buildRelayConversationEndedPayload,
   cleanupAgentStreamSubscriptions,
   cleanupConsumerStreamSubscriptions,
   cleanupConversationStreamSubscriptions,
   cleanupPendingRequestsForAgentSocket,
+  finalizeConversationsClosedByConsumerDisconnect,
 } from "./rpc_bridge_lifecycle";
 
 export type {

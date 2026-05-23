@@ -90,7 +90,39 @@ const emitSubscriptionResponse = (
   eventName: string,
   payload: SubscriptionResponse,
 ): void => {
+  if (!socket.connected) {
+    return;
+  }
   socket.emit(eventName, payload);
+};
+
+const emitCustomSocketEventSubscriptionAuthFailure = (
+  socket: Socket,
+  responseEventName: string,
+  requestId: string,
+  error: unknown,
+  forbiddenMessage: string,
+): void => {
+  const appError = handleCustomSocketEventAuthFailure(error);
+  if (isNonClientCustomSocketEventPrincipalError(appError)) {
+    noteCustomSocketEventSubscriptionForbidden();
+  } else {
+    noteCustomSocketEventSubscriptionRejected();
+  }
+  emitSubscriptionResponse(socket, responseEventName, {
+    success: false,
+    requestId,
+    error: {
+      code: isNonClientCustomSocketEventPrincipalError(appError) ? "FORBIDDEN" : appError.code,
+      message: isNonClientCustomSocketEventPrincipalError(appError)
+        ? forbiddenMessage
+        : appError.message,
+      ...(appError.statusCode !== undefined ? { statusCode: appError.statusCode } : {}),
+    },
+  });
+  if (isTerminalCustomSocketEventAuthFailure(appError)) {
+    disconnectSocketAfterCustomSocketEventAuthFailure(socket, appError);
+  }
 };
 
 export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unknown): void => {
@@ -108,7 +140,18 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
   const { eventName, requestId } = parsed.value;
 
   void (async (): Promise<void> => {
-    await assertActiveClientCustomSocketEventPrincipal(socket);
+    try {
+      await assertActiveClientCustomSocketEventPrincipal(socket);
+    } catch (error: unknown) {
+      emitCustomSocketEventSubscriptionAuthFailure(
+        socket,
+        socketEvents.socketEventSubscribed,
+        requestId,
+        error,
+        "Only Client principals may subscribe to custom socket events",
+      );
+      return;
+    }
 
     const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
     if (!allowance.allowed) {
@@ -151,7 +194,20 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
       return;
     }
 
-    await Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)));
+    try {
+      await Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)));
+    } catch (error: unknown) {
+      noteCustomSocketEventSubscriptionRejected();
+      emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
+        success: false,
+        requestId,
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: error instanceof Error ? error.message : "Failed to join custom socket event room",
+        },
+      });
+      return;
+    }
     const addedNew = addCustomSocketEventSubscription(socket.id, eventName);
     if (addedNew) {
       noteCustomSocketEventSubscribed();
@@ -166,26 +222,15 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
       },
     });
   })().catch((error: unknown) => {
-    const appError = handleCustomSocketEventAuthFailure(error);
-    if (isNonClientCustomSocketEventPrincipalError(appError)) {
-      noteCustomSocketEventSubscriptionForbidden();
-    } else {
-      noteCustomSocketEventSubscriptionRejected();
-    }
+    noteCustomSocketEventSubscriptionRejected();
     emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
       success: false,
       requestId,
       error: {
-        code: isNonClientCustomSocketEventPrincipalError(appError) ? "FORBIDDEN" : appError.code,
-        message: isNonClientCustomSocketEventPrincipalError(appError)
-          ? "Only Client principals may subscribe to custom socket events"
-          : appError.message,
-        ...(appError.statusCode !== undefined ? { statusCode: appError.statusCode } : {}),
+        code: "INTERNAL_SERVER_ERROR",
+        message: error instanceof Error ? error.message : "Unexpected subscribe error",
       },
     });
-    if (isTerminalCustomSocketEventAuthFailure(appError)) {
-      disconnectSocketAfterCustomSocketEventAuthFailure(socket, appError);
-    }
   });
 };
 
@@ -204,7 +249,18 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
   const { eventName, requestId } = parsed.value;
 
   void (async (): Promise<void> => {
-    await assertActiveClientCustomSocketEventPrincipal(socket);
+    try {
+      await assertActiveClientCustomSocketEventPrincipal(socket);
+    } catch (error: unknown) {
+      emitCustomSocketEventSubscriptionAuthFailure(
+        socket,
+        socketEvents.socketEventUnsubscribed,
+        requestId,
+        error,
+        "Only Client principals may unsubscribe from custom socket events",
+      );
+      return;
+    }
 
     const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
     if (!allowance.allowed) {
@@ -227,7 +283,21 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
       return;
     }
 
-    await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
+    try {
+      await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
+    } catch (error: unknown) {
+      noteCustomSocketEventSubscriptionRejected();
+      emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
+        success: false,
+        requestId,
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error ? error.message : "Failed to leave custom socket event room",
+        },
+      });
+      return;
+    }
     const wasSubscribed = removeCustomSocketEventSubscription(socket.id, eventName);
     if (wasSubscribed) {
       noteCustomSocketEventUnsubscribed();
@@ -238,25 +308,14 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
       data: { eventName, subscribed: false, wasSubscribed },
     });
   })().catch((error: unknown) => {
-    const appError = handleCustomSocketEventAuthFailure(error);
-    if (isNonClientCustomSocketEventPrincipalError(appError)) {
-      noteCustomSocketEventSubscriptionForbidden();
-    } else {
-      noteCustomSocketEventSubscriptionRejected();
-    }
+    noteCustomSocketEventSubscriptionRejected();
     emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
       success: false,
       requestId,
       error: {
-        code: isNonClientCustomSocketEventPrincipalError(appError) ? "FORBIDDEN" : appError.code,
-        message: isNonClientCustomSocketEventPrincipalError(appError)
-          ? "Only Client principals may unsubscribe from custom socket events"
-          : appError.message,
-        ...(appError.statusCode !== undefined ? { statusCode: appError.statusCode } : {}),
+        code: "INTERNAL_SERVER_ERROR",
+        message: error instanceof Error ? error.message : "Unexpected unsubscribe error",
       },
     });
-    if (isTerminalCustomSocketEventAuthFailure(appError)) {
-      disconnectSocketAfterCustomSocketEventAuthFailure(socket, appError);
-    }
   });
 };

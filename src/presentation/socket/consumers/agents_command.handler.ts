@@ -13,6 +13,7 @@ import { buildAgentOfflineNormalizedResponse } from "../../http/serializers/agen
 import { normalizeAgentRpcResponse } from "../../http/serializers/agent_rpc_response.serializer";
 import { env } from "../../../shared/config/env";
 import { agentCommandBodySchema } from "../../../shared/validators/agent_command";
+import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
@@ -34,6 +35,28 @@ import {
   noteSocketErrorRetryAfterMsPropagated,
 } from "../../../shared/metrics/socket_consumer.metrics";
 
+const extractAgentsCommandRequestId = (rawPayload: unknown): string | undefined => {
+  if (!isRecord(rawPayload)) {
+    return undefined;
+  }
+  const command = rawPayload.command;
+  if (Array.isArray(command)) {
+    for (const item of command) {
+      if (isRecord(item)) {
+        const id = toRequestId(item.id);
+        if (id) {
+          return id;
+        }
+      }
+    }
+    return undefined;
+  }
+  if (isRecord(command)) {
+    return toRequestId(command.id) ?? undefined;
+  }
+  return undefined;
+};
+
 const emitCommandResponse = (
   socket: Socket,
   payload:
@@ -50,11 +73,14 @@ const emitCommandResponse = (
         error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
       },
 ): void => {
+  if (socket.connected === false) {
+    return;
+  }
   socket.emit(socketEvents.agentsCommandResponse, payload);
 };
 
 const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_ERROR"): void => {
-  socket.emit(socketEvents.appError, { message, code });
+  socket.emit(socketEvents.appError, buildLegacySocketAppErrorPayload(code, message));
 };
 
 export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void => {
@@ -69,8 +95,10 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     const message = firstIssue
       ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
       : "Validation failed";
+    const requestIdFallback = extractAgentsCommandRequestId(rawPayload);
     emitCommandResponse(socket, {
       success: false,
+      ...(requestIdFallback !== undefined ? { requestId: requestIdFallback } : {}),
       error: { code: "VALIDATION_ERROR", message },
     });
     return;
@@ -78,9 +106,11 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
 
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   const body = parsed.data;
+  const correlationRequestId = toCorrelationIds(body.command)[0];
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
     emitCommandResponse(socket, {
       success: false,
+      ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
       error: {
         code: "RATE_LIMITED",
         message: "Per-socket inflight gate exceeded",
@@ -115,6 +145,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       if (!(await allowAgentsCommandSocketAsync(userSub, socket.id, rateLimitCost))) {
         emitCommandResponse(socket, {
           success: false,
+          ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
           error: {
             code: "TOO_MANY_REQUESTS",
             message: "Too many agent commands, please try again later.",

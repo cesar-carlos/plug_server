@@ -72,6 +72,9 @@ const emitRelayStreamPullResponse = (
   socket: Socket,
   payload: RelayStreamPullResponsePayload,
 ): void => {
+  if (socket.connected === false) {
+    return;
+  }
   socket.emit(socketEvents.relayRpcStreamPullResponse, payload);
 };
 

@@ -18,6 +18,8 @@ import {
   cleanupConversationStreamSubscriptions,
   cleanupConsumerStreamSubscriptions,
   cleanupPendingRequestsForAgentSocket,
+  finalizeConversationsClosedByConsumerDisconnect,
+  buildRelayConversationEndedPayload,
   dispatchRpcCommandToAgent,
   getRelayMetricsSnapshot,
   handleAgentBatchAck,
@@ -111,6 +113,11 @@ import {
   buildConsumerPrincipalRoom as buildPrincipalRoomName,
   joinConsumerClientAgentRoom,
 } from "./presentation/socket/hub/consumer_identity_rooms";
+import {
+  resolveCustomSocketEventRoomRecipientCountStrategy,
+  shouldSkipCustomSocketEventZeroRecipientEarlyReturn,
+  toRoomRecipientCountFromStrategy,
+} from "./presentation/socket/hub/custom_socket_event_room_recipient_count";
 import { buildCustomSocketEventRoom } from "./presentation/socket/hub/custom_socket_event_rooms";
 import {
   clearCustomSocketEventSubscriptionRateLimitState,
@@ -128,6 +135,10 @@ import { AppError } from "./shared/errors/app_error";
 import { badRequest, forbidden, tooManyRequests } from "./shared/errors/http_errors";
 import { buildHubServerCapabilities } from "./shared/constants/agent_transport_contract";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
+import {
+  buildLegacySocketAppErrorPayload,
+  type LegacySocketAppErrorPayload,
+} from "./shared/constants/socket_app_error";
 import { container } from "./shared/di/container";
 import {
   getSocketConsumerMetricsSnapshot,
@@ -151,6 +162,7 @@ import {
   noteCustomSocketEventPublishDistributedRecipientCountCircuitClosed,
   noteCustomSocketEventPublishDistributedRecipientCountCircuitOpened,
   noteCustomSocketEventPublishDistributedRecipientCountCircuitRejected,
+  noteCustomSocketEventPublishDistributedRecipientCountSkipped,
   noteCustomSocketEventPublishRecipientCapUnverified,
   noteCustomSocketEventPublishRecipientCountBestEffort,
   noteCustomSocketEventSubscriptionsRemoved,
@@ -221,6 +233,7 @@ type DistributedCountCircuitState = {
 type RoomRecipientCount = {
   readonly recipients: number;
   readonly recipientCountBestEffort: boolean;
+  readonly recipientCountLocalOnly: boolean;
 };
 
 type SocketSinkDisposer = () => void;
@@ -240,6 +253,8 @@ type SocketServerState = {
   consumerClientAgentRoomReconcileStartTimeout: NodeJS.Timeout | null;
   consumerClientAgentRoomReconcileInFlight: Promise<void> | null;
   consumerClientAgentRoomReconcileCursor: number;
+  shuttingDown: boolean;
+  profilePushFlushInFlight: Set<Promise<void>>;
 };
 
 const clientAgentProfilePushDebounceMs = 25;
@@ -271,13 +286,15 @@ const createSocketServerState = (
   consumerClientAgentRoomReconcileStartTimeout: null,
   consumerClientAgentRoomReconcileInFlight: null,
   consumerClientAgentRoomReconcileCursor: 0,
+  shuttingDown: false,
+  profilePushFlushInFlight: new Set<Promise<void>>(),
 });
 
 const emitAppError = (socket: HubSocket, message: string): void => {
-  socket.emit(socketEvents.appError, {
-    message,
-    code: "SOCKET_PROTOCOL_ERROR",
-  });
+  socket.emit(
+    socketEvents.appError,
+    buildLegacySocketAppErrorPayload("SOCKET_PROTOCOL_ERROR", message),
+  );
 };
 
 const buildConsumerOverloadError = (
@@ -415,7 +432,7 @@ const enforceCustomEventDistributedCountCircuit = (
 const disconnectAgentSocketsInRoom = async (
   namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
   room: string,
-  payload: { code: string; message: string },
+  payload: LegacySocketAppErrorPayload,
   logContext: Record<string, unknown>,
 ): Promise<number> => {
   const localRecipients = countLocalSocketsInRoom(namespace, room);
@@ -542,6 +559,10 @@ const reconcileConsumerClientAgentRooms = async (
   namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
   state: SocketServerState,
 ): Promise<void> => {
+  if (state.shuttingDown) {
+    return;
+  }
+
   const socketsByClientId = new Map<string, HubSocket[]>();
   for (const socket of namespace.sockets.values()) {
     if (socket.data.user?.principal_type !== "client") {
@@ -616,7 +637,7 @@ const reconcileConsumerClientAgentRooms = async (
 const disconnectConsumerSocketsInRoom = async (
   namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
   room: string,
-  payload: { code: string; message: string },
+  payload: LegacySocketAppErrorPayload,
   logContext: Record<string, unknown>,
 ): Promise<number> => {
   const localRecipients = countLocalSocketsInRoom(namespace, room);
@@ -638,18 +659,29 @@ const countSocketsInRoom = async (
   namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
   room: string,
 ): Promise<RoomRecipientCount> => {
-  if (!isSocketIoRedisAdapterActive()) {
+  const localRecipients = countLocalSocketsInRoom(namespace, room);
+  const redisAdapterActive = isSocketIoRedisAdapterActive();
+  const strategy = resolveCustomSocketEventRoomRecipientCountStrategy({
+    redisAdapterActive,
+    localRecipients,
+    maxRecipients: env.restSocketEventMaxRecipients,
+  });
+
+  if (strategy.kind !== "fetch_distributed") {
     resetCustomEventDistributedCountCircuit(state);
-    return {
-      recipients: namespace.adapter.rooms.get(room)?.size ?? 0,
-      recipientCountBestEffort: false,
-    };
+    if (redisAdapterActive) {
+      noteCustomSocketEventPublishDistributedRecipientCountSkipped();
+    }
+    return toRoomRecipientCountFromStrategy(strategy);
   }
+
   try {
+    const recipients = (await namespace.in(room).fetchSockets()).length;
     resetCustomEventDistributedCountCircuit(state);
     return {
-      recipients: (await namespace.in(room).fetchSockets()).length,
+      recipients,
       recipientCountBestEffort: false,
+      recipientCountLocalOnly: false,
     };
   } catch (error: unknown) {
     noteCustomSocketEventPublishDistributedRecipientCountFailed();
@@ -659,8 +691,9 @@ const countSocketsInRoom = async (
       message: error instanceof Error ? error.message : String(error),
     });
     return {
-      recipients: namespace.adapter.rooms.get(room)?.size ?? 0,
+      recipients: localRecipients,
       recipientCountBestEffort: true,
+      recipientCountLocalOnly: false,
     };
   }
 };
@@ -693,6 +726,10 @@ const backfillConsumerApprovedAgentRooms = async (
   state: SocketServerState,
   socket: HubSocket,
 ): Promise<void> => {
+  if (state.shuttingDown) {
+    return;
+  }
+
   const user = socket.data.user;
   if (user?.principal_type !== "client" || typeof user.sub !== "string" || user.sub.trim() === "") {
     return;
@@ -771,6 +808,10 @@ const flushAgentProfilePush = async (
   state: SocketServerState,
   agentId: string,
 ): Promise<void> => {
+  if (state.shuttingDown) {
+    return;
+  }
+
   const pending = state.pendingAgentProfilePushByAgentId.get(agentId);
   if (!pending) {
     return;
@@ -801,6 +842,10 @@ const scheduleAgentProfilePush = (
   state: SocketServerState,
   event: AgentProfileBroadcastEvent,
 ): void => {
+  if (state.shuttingDown) {
+    return;
+  }
+
   const existing = state.pendingAgentProfilePushByAgentId.get(event.agentId);
   if (existing) {
     existing.event = event;
@@ -818,11 +863,15 @@ const scheduleAgentProfilePush = (
   }
 
   const timeoutHandle = setTimeout(() => {
-    void flushAgentProfilePush(state, event.agentId).catch((error: unknown) => {
+    const flushPromise = flushAgentProfilePush(state, event.agentId).catch((error: unknown) => {
       logger.warn("client_agent_profile_push_failed", {
         agentId: event.agentId,
         message: error instanceof Error ? error.message : String(error),
       });
+    });
+    state.profilePushFlushInFlight.add(flushPromise);
+    void flushPromise.finally(() => {
+      state.profilePushFlushInFlight.delete(flushPromise);
     });
   }, clientAgentProfilePushDebounceMs);
   timeoutHandle.unref?.();
@@ -959,6 +1008,76 @@ const scheduleAgentProfileSync = (
   agentProfileSyncScheduler.schedule(input, delayMs);
 };
 
+type ConsumersNamespace = ReturnType<Server["of"]>;
+
+export const runAgentSocketDisconnectCleanup = (
+  socket: HubSocket,
+  consumersNsp: ConsumersNamespace,
+): void => {
+  unregisterAgentBridgeSocket(socket.id);
+  const cleanedPendingRequests = cleanupPendingRequestsForAgentSocket(socket.id);
+  cleanupAgentInboundSocketState(socket.id);
+  cleanupAgentStreamSubscriptions(socket.id);
+  clearAgentProfileSocketRateLimitStateForSocketId(socket.id);
+  const endedConversations = conversationRegistry.removeByAgentSocketId(socket.id);
+  for (const conversation of endedConversations) {
+    cleanupConversationStreamSubscriptions(conversation.conversationId);
+    const consumerSocket = consumersNsp.sockets.get(conversation.consumerSocketId);
+    consumerSocket?.emit(socketEvents.relayConversationEnded, {
+      success: true,
+      conversationId: conversation.conversationId,
+      reason: "agent_disconnected",
+    });
+  }
+
+  const removedAgent = agentRegistry.removeBySocketId(socket.id);
+  if (removedAgent) {
+    clearAgentProfileSyncState(removedAgent.agentId);
+    clearAgentProfileSocketRateLimitStateForAgentId(removedAgent.agentId);
+    logSocketLifecycleInfo("Agent disconnected from hub", {
+      socketId: socket.id,
+      agentId: removedAgent.agentId,
+      userId: removedAgent.userId,
+      cleanedPendingRequests,
+    });
+  }
+};
+
+export const runConsumerSocketDisconnectCleanup = (
+  socket: HubSocket,
+  agentsNsp: ConsumersNamespace,
+): void => {
+  unregisterConsumerBridgeSocket(socket.id);
+  const abortedCommands = abortPendingConsumerCommands(socket.id);
+  const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(
+    socket.id,
+  );
+  clearCustomSocketEventSubscriptionRateLimitState(socket.id);
+  if (removedCustomEventSubscriptions > 0) {
+    noteCustomSocketEventSubscriptionsRemoved(removedCustomEventSubscriptions);
+  }
+  noteConsumerSocketDisconnected(socket.data.user?.principal_type ?? null);
+  cleanupConsumerStreamSubscriptions(socket.id);
+  clearRelayRateLimitStateByConsumerSocket(socket.id);
+  clearAgentsCommandSocketRateLimitStateForSocketId(socket.id);
+  clearAgentProfileSocketRateLimitStateForSocketId(socket.id);
+  const endedConversations = conversationRegistry.removeByConsumerSocketId(socket.id);
+  finalizeConversationsClosedByConsumerDisconnect(endedConversations, (conversation) => {
+    const agentSocket = agentsNsp.sockets.get(conversation.agentSocketId);
+    agentSocket?.emit(
+      socketEvents.relayConversationEnded,
+      buildRelayConversationEndedPayload(conversation.conversationId, "consumer_disconnected"),
+    );
+  });
+  if (abortedCommands > 0) {
+    noteConsumerPendingCommandsAborted(abortedCommands);
+    logger.info("consumer_socket_pending_commands_aborted", {
+      socketId: socket.id,
+      abortedCommands,
+    });
+  }
+};
+
 export let agentsNamespace: ReturnType<Server["of"]> | null = null;
 const resolveCurrentSocketServer = (): Server | null =>
   activeSocketServers.length > 0 ? activeSocketServers[activeSocketServers.length - 1]! : null;
@@ -978,10 +1097,10 @@ const unregisterActiveSocketServer = (io: Server): void => {
 };
 
 const emitServerShutdownNotice = (io: Server, signal: string): void => {
-  const payload = {
-    message: `Server is shutting down (${signal}). Reconnect after a few seconds.`,
-    code: "SERVER_SHUTDOWN",
-  };
+  const payload = buildLegacySocketAppErrorPayload(
+    "SERVER_SHUTDOWN",
+    `Server is shutting down (${signal}). Reconnect after a few seconds.`,
+  );
 
   io.of(SOCKET_NAMESPACES.agents).emit(socketEvents.appError, payload);
   io.of(SOCKET_NAMESPACES.consumers).emit(socketEvents.appError, payload);
@@ -1032,11 +1151,78 @@ const clearSocketServerSinkDisposers = (io: Server): void => {
   state.sinkDisposers.length = 0;
 };
 
+const awaitInFlightPromises = async (
+  promises: readonly Promise<unknown>[],
+  logEvent: string,
+): Promise<void> => {
+  if (promises.length === 0) {
+    return;
+  }
+  await Promise.all(
+    promises.map((promise) =>
+      promise.catch((error: unknown) => {
+        logger.warn(logEvent, {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }),
+    ),
+  );
+};
+
+const stopSocketServerLifecycleTasks = async (state: SocketServerState): Promise<void> => {
+  state.shuttingDown = true;
+
+  if (state.conversationSweepTimer) {
+    clearInterval(state.conversationSweepTimer);
+    state.conversationSweepTimer = null;
+  }
+  if (state.consumerClientAgentRoomReconcileTimer) {
+    clearInterval(state.consumerClientAgentRoomReconcileTimer);
+    state.consumerClientAgentRoomReconcileTimer = null;
+  }
+  if (state.consumerClientAgentRoomReconcileStartTimeout) {
+    clearTimeout(state.consumerClientAgentRoomReconcileStartTimeout);
+    state.consumerClientAgentRoomReconcileStartTimeout = null;
+  }
+
+  const reconcileInFlight = state.consumerClientAgentRoomReconcileInFlight;
+  if (reconcileInFlight !== null) {
+    await reconcileInFlight.catch((error: unknown) => {
+      logger.warn("consumer_socket_client_agent_room_reconcile_shutdown_drain_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+  state.consumerClientAgentRoomReconcileInFlight = null;
+  state.consumerClientAgentRoomReconcileCursor = 0;
+
+  await awaitInFlightPromises(
+    [...state.profilePushFlushInFlight],
+    "client_agent_profile_push_shutdown_drain_failed",
+  );
+  state.profilePushFlushInFlight.clear();
+  await awaitInFlightPromises(
+    [...state.profilePushRecipientsInFlightByAgentId.values()],
+    "client_agent_profile_push_recipient_shutdown_drain_failed",
+  );
+  await awaitInFlightPromises(
+    [...state.pendingApprovedAgentIdsByClientId.values()],
+    "consumer_socket_client_agent_room_bootstrap_shutdown_drain_failed",
+  );
+
+  clearConsumerProfilePushState(state);
+};
+
+export const stopSocketServerLifecycleTasksForTests = stopSocketServerLifecycleTasks;
+
 const scheduleConsumerClientAgentRoomReconcile = (
   state: SocketServerState,
   namespace: Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>,
 ): void => {
   const runTick = (): void => {
+    if (state.shuttingDown) {
+      return;
+    }
     if (state.consumerClientAgentRoomReconcileInFlight !== null) {
       noteConsumerClientAgentRoomReconcileTickSkipped();
       return;
@@ -1083,21 +1269,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
 
   const state = socketServerStates.get(io);
   if (state) {
-    if (state.conversationSweepTimer) {
-      clearInterval(state.conversationSweepTimer);
-      state.conversationSweepTimer = null;
-    }
-    if (state.consumerClientAgentRoomReconcileTimer) {
-      clearInterval(state.consumerClientAgentRoomReconcileTimer);
-      state.consumerClientAgentRoomReconcileTimer = null;
-    }
-    if (state.consumerClientAgentRoomReconcileStartTimeout) {
-      clearTimeout(state.consumerClientAgentRoomReconcileStartTimeout);
-      state.consumerClientAgentRoomReconcileStartTimeout = null;
-    }
-    state.consumerClientAgentRoomReconcileInFlight = null;
-    state.consumerClientAgentRoomReconcileCursor = 0;
-    clearConsumerProfilePushState(state);
+    await stopSocketServerLifecycleTasks(state);
   }
 
   clearSocketServerSinkDisposers(io);
@@ -1170,11 +1342,13 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       socketId: socket.id,
       message: "Use /agents or /consumers instead",
     });
-    socket.emit(socketEvents.appError, {
-      message:
+    socket.emit(
+      socketEvents.appError,
+      buildLegacySocketAppErrorPayload(
+        "NAMESPACE_DEPRECATED",
         "Default namespace (/) is deprecated. Connect to /agents (for agents) or /consumers (for consumers). See docs/migracao_plug_agente_namespaces.md",
-      code: "NAMESPACE_DEPRECATED",
-    });
+      ),
+    );
     socket.disconnect(true);
   });
 
@@ -1230,10 +1404,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         message: error instanceof Error ? error.message : String(error),
       });
       unregisterAgentBridgeSocket(socket.id);
-      socket.emit(socketEvents.appError, {
-        code: "ROOM_JOIN_FAILED",
-        message: "Failed to join agent identity room",
-      });
+      socket.emit(
+        socketEvents.appError,
+        buildLegacySocketAppErrorPayload("ROOM_JOIN_FAILED", "Failed to join agent identity room"),
+      );
       socket.disconnect(true);
       return;
     }
@@ -1698,33 +1872,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on("disconnect", () => {
-      unregisterAgentBridgeSocket(socket.id);
-      const cleanedPendingRequests = cleanupPendingRequestsForAgentSocket(socket.id);
-      cleanupAgentInboundSocketState(socket.id);
-      cleanupAgentStreamSubscriptions(socket.id);
-      clearAgentProfileSocketRateLimitStateForSocketId(socket.id);
-      const endedConversations = conversationRegistry.removeByAgentSocketId(socket.id);
-      for (const conversation of endedConversations) {
-        cleanupConversationStreamSubscriptions(conversation.conversationId);
-        const consumerSocket = consumersNsp.sockets.get(conversation.consumerSocketId);
-        consumerSocket?.emit(socketEvents.relayConversationEnded, {
-          success: true,
-          conversationId: conversation.conversationId,
-          reason: "agent_disconnected",
-        });
-      }
-
-      const removedAgent = agentRegistry.removeBySocketId(socket.id);
-      if (removedAgent) {
-        clearAgentProfileSyncState(removedAgent.agentId);
-        clearAgentProfileSocketRateLimitStateForAgentId(removedAgent.agentId);
-        logSocketLifecycleInfo("Agent disconnected from hub", {
-          socketId: socket.id,
-          agentId: removedAgent.agentId,
-          userId: removedAgent.userId,
-          cleanedPendingRequests,
-        });
-      }
+      runAgentSocketDisconnectCleanup(socket, consumersNsp);
     });
   });
 
@@ -1745,10 +1893,13 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         message: error instanceof Error ? error.message : String(error),
       });
       unregisterConsumerBridgeSocket(socket.id);
-      socket.emit(socketEvents.appError, {
-        code: "CONSUMER_SOCKET_INITIALIZATION_FAILED",
-        message: "Consumer socket initialization failed",
-      });
+      socket.emit(
+        socketEvents.appError,
+        buildLegacySocketAppErrorPayload(
+          "CONSUMER_SOCKET_INITIALIZATION_FAILED",
+          "Consumer socket initialization failed",
+        ),
+      );
       noteConsumerSocketDisconnected(socket.data.user?.principal_type ?? null);
       socket.disconnect(true);
       return;
@@ -1916,31 +2067,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     });
 
     socket.on("disconnect", () => {
-      unregisterConsumerBridgeSocket(socket.id);
-      const abortedCommands = abortPendingConsumerCommands(socket.id);
-      const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(
-        socket.id,
-      );
-      clearCustomSocketEventSubscriptionRateLimitState(socket.id);
-      if (removedCustomEventSubscriptions > 0) {
-        noteCustomSocketEventSubscriptionsRemoved(removedCustomEventSubscriptions);
-      }
-      noteConsumerSocketDisconnected(socket.data.user?.principal_type ?? null);
-      cleanupConsumerStreamSubscriptions(socket.id);
-      clearRelayRateLimitStateByConsumerSocket(socket.id);
-      clearAgentsCommandSocketRateLimitStateForSocketId(socket.id);
-      clearAgentProfileSocketRateLimitStateForSocketId(socket.id);
-      const endedConversations = conversationRegistry.removeByConsumerSocketId(socket.id);
-      for (const conversation of endedConversations) {
-        cleanupConversationStreamSubscriptions(conversation.conversationId);
-      }
-      if (abortedCommands > 0) {
-        noteConsumerPendingCommandsAborted(abortedCommands);
-        logger.info("consumer_socket_pending_commands_aborted", {
-          socketId: socket.id,
-          abortedCommands,
-        });
-      }
+      runConsumerSocketDisconnectCleanup(socket, agentsNsp);
     });
   });
 
@@ -1958,10 +2085,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         await disconnectAgentSocketsInRoom(
           agentsNsp,
           `agent:principal:${event.userId}`,
-          {
-            code: "ACCOUNT_BLOCKED",
-            message: "Account is blocked",
-          },
+          buildLegacySocketAppErrorPayload("ACCOUNT_BLOCKED", "Account is blocked"),
           {
             userId: event.userId,
             reason: event.reason,
@@ -1978,11 +2102,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         await disconnectConsumerSocketsInRoom(
           consumersNsp,
           room,
-          {
-            code: "ACCOUNT_BLOCKED",
-            message:
-              event.principalType === "client" ? "Client account is blocked" : "Account is blocked",
-          },
+          buildLegacySocketAppErrorPayload(
+            "ACCOUNT_BLOCKED",
+            event.principalType === "client" ? "Client account is blocked" : "Account is blocked",
+          ),
           {
             principalType: event.principalType,
             principalId: event.principalId,
@@ -1998,10 +2121,10 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
             clientId: event.clientId,
             agentId: event.agentId,
           }),
-          {
-            code: "AGENT_ACCESS_REVOKED",
-            message: `Client access to agent ${event.agentId} was revoked`,
-          },
+          buildLegacySocketAppErrorPayload(
+            "AGENT_ACCESS_REVOKED",
+            `Client access to agent ${event.agentId} was revoked`,
+          ),
           {
             clientId: event.clientId,
             agentId: event.agentId,
@@ -2049,7 +2172,11 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         const room = buildCustomSocketEventRoom(event.eventName);
         enforceCustomEventDistributedCountCircuit(state, event.eventName);
         const recipientCount = await countSocketsInRoom(state, consumersNsp, room);
-        if (!recipientCount.recipientCountBestEffort && recipientCount.recipients === 0) {
+        if (
+          !recipientCount.recipientCountBestEffort &&
+          !shouldSkipCustomSocketEventZeroRecipientEarlyReturn(recipientCount) &&
+          recipientCount.recipients === 0
+        ) {
           return { recipients: 0 };
         }
         if (

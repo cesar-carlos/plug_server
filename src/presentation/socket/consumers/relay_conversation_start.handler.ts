@@ -17,6 +17,23 @@ import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
 import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
 import { findAgentBridgeSocketById } from "../hub/rpc_bridge";
 
+/**
+ * Rate-limit refund policy for `relay:conversation.start` after quota was consumed:
+ * - **Refund**: non-`AppError` (unexpected / transient) and `AppError` outside the 4xx range (e.g. 503).
+ * - **No refund**: any **4xx** (404 agent missing, 409 per-consumer cap, auth/forbidden, etc.).
+ *
+ * Envelope `VALIDATION_ERROR` is rejected before quota consumption in `socket.ts`.
+ */
+export const shouldRefundRelayConversationStartRateLimit = (error: unknown): boolean => {
+  if (!(error instanceof AppError)) {
+    return true;
+  }
+  if (error.statusCode !== undefined && error.statusCode >= 400 && error.statusCode < 500) {
+    return false;
+  }
+  return true;
+};
+
 export const conversationStartPayloadSchema = z.object({
   agentId: agentIdSchema,
 });
@@ -131,7 +148,9 @@ export const handleRelayConversationStart = async (
       payload: { createdAt: conversation.createdAt },
     });
   } catch (err: unknown) {
-    await refundRelayConversationStartAsync(socket.data.user?.sub, socket.id);
+    if (shouldRefundRelayConversationStartRateLimit(err)) {
+      await refundRelayConversationStartAsync(socket.data.user?.sub, socket.id);
+    }
     const appError = err instanceof AppError ? err : undefined;
     const retryAfterMs = resolveAppErrorRetryAfterMs(err);
     if (retryAfterMs !== undefined) {

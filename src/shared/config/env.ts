@@ -33,6 +33,50 @@ const isProductionNodeEnv = (): boolean => nodeEnvForDefaults === "production";
 /** Language policy for the HTML page served at `GET /` (root landing). */
 export type RootLandingLangConfig = "pt" | "en" | "auto";
 
+const payloadSigningPreviousKeysSchema = z
+  .string()
+  .default("")
+  .transform((raw, ctx): Record<string, string> => {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      return {};
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON must be valid JSON",
+      });
+      return z.NEVER;
+    }
+
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON must be a JSON object",
+      });
+      return z.NEVER;
+    }
+
+    const out: Record<string, string> = {};
+    for (const [keyId, secret] of Object.entries(parsed)) {
+      const normalizedKeyId = keyId.trim();
+      if (normalizedKeyId === "" || typeof secret !== "string" || secret.trim() === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON entries must use non-empty key ids and string secrets",
+        });
+        return z.NEVER;
+      }
+      out[normalizedKeyId] = secret;
+    }
+    return out;
+  });
+
 const envSchema = z.object({
   APP_NAME: z.string().default("plug_server"),
   /**
@@ -407,6 +451,7 @@ const envSchema = z.object({
     .default(1440),
   PAYLOAD_SIGNING_KEY: z.string().optional(),
   PAYLOAD_SIGNING_KEY_ID: z.string().optional(),
+  PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON: payloadSigningPreviousKeysSchema,
   PAYLOAD_SIGN_OUTBOUND: z
     .enum(["true", "false"])
     .default("false")
@@ -478,6 +523,15 @@ const envSchema = z.object({
     .positive()
     .max(10 * 1024 * 1024)
     .default(10 * 1024 * 1024),
+  SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION: z
+    .enum(["strict", "warn", "off"])
+    .default("strict"),
+  SOCKET_AGENT_ACK_RETRY_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  SOCKET_AGENT_ACK_TIMEOUT_MS: z.coerce.number().int().min(1).max(60_000).default(1_000),
+  SOCKET_AGENT_ACK_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(1),
   /**
    * Max entries in `agentRegistry` known-agent set (offline IDs retained for REST 503 vs 404). 0 = unlimited.
    * When exceeded, removes known IDs that are not currently connected until under the cap.
@@ -872,6 +926,14 @@ const envSchema = z.object({
     z.string(),
   ),
   /**
+   * When true, initial Redis adapter connect failure aborts bootstrap whenever
+   * `SOCKET_IO_REDIS_ADAPTER_URL` is set (even outside production).
+   */
+  SOCKET_IO_REDIS_ADAPTER_REQUIRED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /**
    * Engine.IO compression for long-polling responses. If unset: `false` when NODE_ENV=production (saves CPU with websocket-only default).
    */
   SOCKET_IO_HTTP_COMPRESSION: z.preprocess(
@@ -1165,6 +1227,7 @@ export const env = {
   jwtAudience: parsedEnv.JWT_AUDIENCE,
   payloadSigningKey: parsedEnv.PAYLOAD_SIGNING_KEY,
   payloadSigningKeyId: parsedEnv.PAYLOAD_SIGNING_KEY_ID,
+  payloadSigningPreviousKeys: parsedEnv.PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON,
   payloadSignOutbound: parsedEnv.PAYLOAD_SIGN_OUTBOUND,
   payloadFrameMaxGzipInputBytes: parsedEnv.PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES,
   payloadFrameGzipLevel: parsedEnv.PAYLOAD_FRAME_GZIP_LEVEL,
@@ -1174,6 +1237,10 @@ export const env = {
     parsedEnv.PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES,
   agentSqlBulkInsertMaxRows: parsedEnv.AGENT_SQL_BULK_INSERT_MAX_ROWS,
   agentSqlBulkInsertMaxJsonBytes: parsedEnv.AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES,
+  socketAgentInboundContractValidation: parsedEnv.SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION,
+  socketAgentAckRetryEnabled: parsedEnv.SOCKET_AGENT_ACK_RETRY_ENABLED,
+  socketAgentAckTimeoutMs: parsedEnv.SOCKET_AGENT_ACK_TIMEOUT_MS,
+  socketAgentAckMaxRetries: parsedEnv.SOCKET_AGENT_ACK_MAX_RETRIES,
   socketAgentKnownIdsMax: parsedEnv.SOCKET_AGENT_KNOWN_IDS_MAX,
   socketAgentProfileSyncMaxConcurrent: parsedEnv.SOCKET_AGENT_PROFILE_SYNC_MAX_CONCURRENT,
   socketAgentProtocolReadyGraceMs: parsedEnv.SOCKET_AGENT_PROTOCOL_READY_GRACE_MS,
@@ -1265,6 +1332,7 @@ export const env = {
   socketIoTransports: parsedEnv.SOCKET_IO_TRANSPORTS as ("websocket" | "polling")[],
   socketIoServeClient: parsedEnv.SOCKET_IO_SERVE_CLIENT,
   socketIoRedisAdapterUrl: parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL,
+  socketIoRedisAdapterRequired: parsedEnv.SOCKET_IO_REDIS_ADAPTER_REQUIRED,
   socketIoHttpCompression: parsedEnv.SOCKET_IO_HTTP_COMPRESSION,
   socketIoPingIntervalMs: parsedEnv.SOCKET_IO_PING_INTERVAL_MS,
   socketIoPingTimeoutMs: parsedEnv.SOCKET_IO_PING_TIMEOUT_MS,

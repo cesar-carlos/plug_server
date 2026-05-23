@@ -8,10 +8,37 @@ on:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: plug_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d plug_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       NODE_ENV: test
       DATABASE_URL: postgresql://ci:ci@localhost:5432/plug_test
+      INTEGRATION_REDIS_TESTS_ENABLED: "true"
+      SOCKET_IO_REDIS_ADAPTER_URL: redis://127.0.0.1:6379
+      REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL: redis://127.0.0.1:6379
+      SOCKET_RATE_LIMIT_REDIS_URL: redis://127.0.0.1:6379
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,6 +51,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Migrate test database
+        run: npm run db:migrate:deploy
 
       - name: Typecheck
         run: npm run typecheck

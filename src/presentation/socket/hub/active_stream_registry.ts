@@ -112,9 +112,14 @@ export const countStreamRoutesForAgent = (agentSocketId: string): number =>
   streamRequestIdsByAgent.get(agentSocketId)?.size ?? 0;
 
 export const countOpenStreamRoutesForAgent = (agentSocketId: string): number => {
+  const requestIds = streamRequestIdsByAgent.get(agentSocketId);
+  if (!requestIds) {
+    return 0;
+  }
   let total = 0;
-  for (const route of activeStreamsByRequestId.values()) {
-    if (route.agentSocketId === agentSocketId && route.streamId) {
+  for (const requestId of requestIds) {
+    const route = activeStreamsByRequestId.get(requestId);
+    if (route?.streamId) {
       total += 1;
     }
   }

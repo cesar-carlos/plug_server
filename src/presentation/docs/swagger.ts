@@ -31,7 +31,7 @@ const swaggerSpec = swaggerJSDoc({
     info: {
       title: `${env.appName} API`,
       version: pkg.version,
-      description: `REST API documentation for ${env.appName}. The HTTP API fronts a dual-namespace Socket.IO architecture: agents connect to /agents, consumers to /consumers. The default namespace (/) is deprecated and rejects connections with app:error (code NAMESPACE_DEPRECATED). Compatibility aliases /auth/* and /metrics are also mounted at the root.`,
+      description: `REST API documentation for ${env.appName}. The HTTP API fronts a dual-namespace Socket.IO architecture: agents connect to /agents, consumers to /consumers. The default namespace (/) is deprecated and rejects connections with app:error (code NAMESPACE_DEPRECATED). Compatibility aliases /auth/* and /metrics are also mounted at the root. Multi-replica: configure SOCKET_IO_REDIS_ADAPTER_URL for cross-replica room broadcasts (client:custom.*); sticky sessions remain required for relay, agent presence, and pending bridge state — see docs/configuration.md.`,
     },
     servers: [
       {

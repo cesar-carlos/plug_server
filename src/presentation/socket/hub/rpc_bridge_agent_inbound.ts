@@ -26,6 +26,7 @@ import {
   encodeRelayOutboundFrame,
   markRelayOutboundForceGzip,
 } from "./relay_outbound_queue";
+import { jsonUtf8ByteLengthOrNull } from "../../../shared/validators/custom_socket_event";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import type { ActiveStreamRoute } from "./active_stream_registry";
 import {
@@ -45,6 +46,7 @@ import {
   relayMetrics,
 } from "./bridge_relay_health_metrics";
 import { agentRegistry } from "./agent_registry";
+import { validateAgentInboundContract } from "./agent_inbound_contract_validation";
 import { conversationRegistry } from "./conversation_registry";
 import {
   REST_STREAM_AGGREGATE_CONSUMER_ID,
@@ -480,6 +482,21 @@ export const createRpcBridgeAgentInboundHandlers = (
       }
 
       const decoded = result.value;
+      const contractValidation = validateAgentInboundContract({
+        eventName: socketEvents.rpcResponse,
+        payload: decoded.data,
+        socketId,
+      });
+      if (!contractValidation.shouldProcess) {
+        const reason = `Inbound contract invalid: ${contractValidation.message}`;
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcResponse,
+          socketId,
+          reason,
+        });
+        failFastInvalidAgentResponseFrame(socketId, rawPayload, reason);
+        return;
+      }
       const frameRequestId = toRequestId(decoded.frame.requestId);
       const responseIds = pickResponseIds(decoded.data);
       const candidateIds = Array.from(
@@ -531,11 +548,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           let aggregatedByteCount = 0;
           let chunkFramesSeen = 0;
           if (materializeMaxBytes > 0) {
-            try {
-              aggregatedByteCount = Buffer.byteLength(JSON.stringify(initialJson), "utf8");
-            } catch {
-              aggregatedByteCount = 0;
-            }
+            aggregatedByteCount = jsonUtf8ByteLengthOrNull(initialJson) ?? 0;
           }
 
           if (materializeMaxRows > 0 && aggregatedRowCount > materializeMaxRows) {
@@ -595,12 +608,7 @@ export const createRpcBridgeAgentInboundHandlers = (
               }
 
               if (materializeMaxBytes > 0) {
-                let chunkBytes = 0;
-                try {
-                  chunkBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
-                } catch {
-                  chunkBytes = 0;
-                }
+                const chunkBytes = jsonUtf8ByteLengthOrNull(payload) ?? 0;
                 if (aggregatedByteCount + chunkBytes > materializeMaxBytes) {
                   relayMetrics.restMaterializeByteLimitExceeded += 1;
                   registerAgentFailure(pendingRequest.agentId);
@@ -905,6 +913,22 @@ export const createRpcBridgeAgentInboundHandlers = (
         return;
       }
 
+      const contractValidation = validateAgentInboundContract({
+        eventName: socketEvents.rpcChunk,
+        payload: result.value.data,
+        socketId,
+      });
+      if (!contractValidation.shouldProcess) {
+        const reason = `Inbound contract invalid: ${contractValidation.message}`;
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcChunk,
+          socketId,
+          reason,
+        });
+        failFastInvalidAgentStreamFrame(socketEvents.rpcChunk, socketId, rawPayload, reason);
+        return;
+      }
+
       const data = toRecord(result.value.data);
       if (!data) {
         return;
@@ -954,6 +978,22 @@ export const createRpcBridgeAgentInboundHandlers = (
         return;
       }
 
+      const contractValidation = validateAgentInboundContract({
+        eventName: socketEvents.rpcComplete,
+        payload: result.value.data,
+        socketId,
+      });
+      if (!contractValidation.shouldProcess) {
+        const reason = `Inbound contract invalid: ${contractValidation.message}`;
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcComplete,
+          socketId,
+          reason,
+        });
+        failFastInvalidAgentStreamFrame(socketEvents.rpcComplete, socketId, rawPayload, reason);
+        return;
+      }
+
       const data = toRecord(result.value.data);
       if (!data) {
         return;
@@ -995,6 +1035,20 @@ export const createRpcBridgeAgentInboundHandlers = (
         return;
       }
 
+      const contractValidation = validateAgentInboundContract({
+        eventName: socketEvents.rpcRequestAck,
+        payload: result.value.data,
+        socketId,
+      });
+      if (!contractValidation.shouldProcess) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcRequestAck,
+          socketId,
+          reason: `Inbound contract invalid: ${contractValidation.message}`,
+        });
+        return;
+      }
+
       const data = toRecord(result.value.data);
       if (!data) {
         return;
@@ -1008,11 +1062,20 @@ export const createRpcBridgeAgentInboundHandlers = (
       const pending = getRestPendingRequestByCorrelationId(requestId);
       if (pending && pending.socketId === socketId) {
         pending.acked = true;
+        if (pending.ackRetryTimer !== undefined) {
+          clearTimeout(pending.ackRetryTimer);
+          delete pending.ackRetryTimer;
+        }
         logger.debug("rpc_ack_received", { requestId, socketId });
       }
 
       const relayRoute = getRelayRequestRoute(requestId);
       if (relayRoute && relayRoute.agentSocketId === socketId) {
+        relayRoute.acked = true;
+        if (relayRoute.ackRetryTimer !== undefined) {
+          clearTimeout(relayRoute.ackRetryTimer);
+          delete relayRoute.ackRetryTimer;
+        }
         enqueueRelayOutbound(requestId, async () => {
           const frame = await encodeRelayOutboundFrame(data, requestId);
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcRequestAck, frame);
@@ -1028,6 +1091,20 @@ export const createRpcBridgeAgentInboundHandlers = (
           eventName: socketEvents.rpcBatchAck,
           socketId,
           reason: result.error.message,
+        });
+        return;
+      }
+
+      const contractValidation = validateAgentInboundContract({
+        eventName: socketEvents.rpcBatchAck,
+        payload: result.value.data,
+        socketId,
+      });
+      if (!contractValidation.shouldProcess) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcBatchAck,
+          socketId,
+          reason: `Inbound contract invalid: ${contractValidation.message}`,
         });
         return;
       }
@@ -1054,6 +1131,10 @@ export const createRpcBridgeAgentInboundHandlers = (
         const pending = getRestPendingRequestByCorrelationId(requestId);
         if (pending && pending.socketId === socketId) {
           pending.acked = true;
+          if (pending.ackRetryTimer !== undefined) {
+            clearTimeout(pending.ackRetryTimer);
+            delete pending.ackRetryTimer;
+          }
           ackedCount++;
         }
 

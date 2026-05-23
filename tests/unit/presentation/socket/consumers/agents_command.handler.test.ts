@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentDisconnectedBeforeDispatchError } from "../../../../../src/shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../../../src/shared/errors/app_error";
+import { buildLegacySocketAppErrorPayload } from "../../../../../src/shared/constants/socket_app_error";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
 vi.mock("../../../../../src/application/agent_commands/execute_authorized_agent_command", () => ({
@@ -21,20 +22,32 @@ vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard"
   assertConsumerSocketAgentAccess: vi.fn(),
 }));
 
+vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_gate", () => ({
+  tryAcquireSocketInflightSlot: vi.fn(() => true),
+  releaseSocketInflightSlot: vi.fn(),
+}));
+
 import { executeAuthorizedAgentCommand } from "../../../../../src/application/agent_commands/execute_authorized_agent_command";
 import { createBridgeLatencyTraceIfSampled } from "../../../../../src/application/services/bridge_latency_trace_builder";
 import { handleAgentsCommand } from "../../../../../src/presentation/socket/consumers/agents_command.handler";
 import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
+import {
+  releaseSocketInflightSlot,
+  tryAcquireSocketInflightSlot,
+} from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
 
 const mockedExecuteAuthorizedAgentCommand = vi.mocked(executeAuthorizedAgentCommand);
 const mockedCreateBridgeLatencyTraceIfSampled = vi.mocked(createBridgeLatencyTraceIfSampled);
 const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocketAsync);
 const mockedAssertConsumerSocketAgentAccess = vi.mocked(assertConsumerSocketAgentAccess);
+const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
+const mockedReleaseInflight = vi.mocked(releaseSocketInflightSlot);
 
 const buildSocket = () =>
   ({
     id: "consumer-socket-1",
+    connected: true,
     data: {
       user: {
         sub: "user-1",
@@ -63,6 +76,10 @@ describe("handleAgentsCommand", () => {
     mockedCreateBridgeLatencyTraceIfSampled.mockReset();
     mockedAllowAgentsCommandSocket.mockReset();
     mockedAssertConsumerSocketAgentAccess.mockReset();
+    mockedTryAcquire.mockReset();
+    mockedReleaseInflight.mockReset();
+
+    mockedTryAcquire.mockReturnValue(true);
 
     mockedAllowAgentsCommandSocket.mockResolvedValue(true);
     mockedAssertConsumerSocketAgentAccess.mockResolvedValue({
@@ -82,10 +99,13 @@ describe("handleAgentsCommand", () => {
 
     handleAgentsCommand(socket as never, "invalid");
 
-    expect(socket.emit).toHaveBeenCalledWith(socketEvents.appError, {
-      message: "agents:command payload must be an object",
-      code: "SOCKET_PROTOCOL_ERROR",
-    });
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.appError,
+      buildLegacySocketAppErrorPayload(
+        "SOCKET_PROTOCOL_ERROR",
+        "agents:command payload must be an object",
+      ),
+    );
   });
 
   it("emits validation error response when payload schema is invalid", () => {
@@ -104,6 +124,58 @@ describe("handleAgentsCommand", () => {
     );
   });
 
+  it("returns RATE_LIMITED when the per-socket inflight gate is full", () => {
+    mockedTryAcquire.mockReturnValue(false);
+    const socket = buildSocket();
+
+    handleAgentsCommand(socket as never, validPayload);
+
+    expect(mockedAllowAgentsCommandSocket).not.toHaveBeenCalled();
+    expect(mockedReleaseInflight).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+      success: false,
+      requestId: "req-1",
+      error: {
+        code: "RATE_LIMITED",
+        message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
+    });
+  });
+
+  it("includes command id as requestId on validation errors when present", () => {
+    const socket = buildSocket();
+
+    handleAgentsCommand(socket as never, {
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        id: "partial-req-1",
+        method: "sql.execute",
+      },
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.agentsCommandResponse,
+      expect.objectContaining({
+        success: false,
+        requestId: "partial-req-1",
+        error: expect.objectContaining({
+          code: "VALIDATION_ERROR",
+        }),
+      }),
+    );
+  });
+
+  it("does not emit command response when socket is disconnected", async () => {
+    mockedTryAcquire.mockReturnValue(false);
+    const socket = { ...buildSocket(), connected: false };
+
+    handleAgentsCommand(socket as never, validPayload);
+
+    expect(socket.emit).not.toHaveBeenCalled();
+  });
+
   it("rejects when socket command rate limit is exceeded", async () => {
     const socket = buildSocket();
     mockedAllowAgentsCommandSocket.mockResolvedValue(false);
@@ -113,6 +185,7 @@ describe("handleAgentsCommand", () => {
     await vi.waitFor(() => {
       expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
         success: false,
+        requestId: "req-1",
         error: {
           code: "TOO_MANY_REQUESTS",
           message: "Too many agent commands, please try again later.",

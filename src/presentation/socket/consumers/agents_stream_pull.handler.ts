@@ -8,6 +8,7 @@ import {
 } from "../hub/active_stream_registry";
 import { agentRegistry } from "../hub/agent_registry";
 import { env } from "../../../shared/config/env";
+import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
@@ -18,6 +19,7 @@ import {
   allowAgentsStreamPullCredits,
   refundAgentsStreamPullCredits,
 } from "../hub/consumer_relay_rate_limiter";
+import { logger } from "../../../shared/utils/logger";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
@@ -66,11 +68,14 @@ type StreamPullResponsePayload =
     };
 
 const emitStreamPullResponse = (socket: Socket, payload: StreamPullResponsePayload): void => {
+  if (socket.connected === false) {
+    return;
+  }
   socket.emit(socketEvents.agentsStreamPullResponse, payload);
 };
 
 const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_ERROR"): void => {
-  socket.emit(socketEvents.appError, { message, code });
+  socket.emit(socketEvents.appError, buildLegacySocketAppErrorPayload(code, message));
 };
 
 const resolveStreamRouteAgentId = (payload: {
@@ -211,7 +216,16 @@ export const handleAgentsStreamPull = (
       });
     } catch (err: unknown) {
       if (grantedCredits > 0) {
-        await refundAgentsStreamPullCredits(userSub, socket.id, grantedCredits);
+        try {
+          await refundAgentsStreamPullCredits(userSub, socket.id, grantedCredits);
+        } catch (refundError: unknown) {
+          logger.warn("agents_stream_pull_credit_refund_failed", {
+            socketId: socket.id,
+            userSub,
+            grantedCredits,
+            message: refundError instanceof Error ? refundError.message : String(refundError),
+          });
+        }
       }
       const appError = err instanceof AppError ? err : undefined;
       const code = appError?.code ?? "STREAM_PULL_FAILED";

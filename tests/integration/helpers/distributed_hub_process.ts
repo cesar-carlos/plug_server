@@ -7,10 +7,15 @@ export interface DistributedHubProcess {
   readonly baseUrl: string;
   close(): Promise<void>;
   getConsumerRoomCount(room: string): Promise<number>;
+  setFetchSocketsFailure(enabled: boolean): Promise<void>;
 }
 
 interface SpawnDistributedHubProcessOptions {
+  readonly restSocketEventBestEffortLocalMaxRecipients?: number;
+  readonly restSocketEventDistributedCountFailureOpenMs?: number;
+  readonly restSocketEventDistributedCountFailureThreshold?: number;
   readonly restSocketEventIdempotencyRedisUrl?: string;
+  readonly restSocketEventMaxRecipients?: number;
   readonly socketConsumerClientAgentRoomReconcileStartJitterMs?: number;
   readonly socketConsumerClientAgentRoomReconcileIntervalMs?: number;
   readonly socketIoRedisAdapterUrl?: string;
@@ -99,6 +104,30 @@ export const spawnDistributedHubProcess = async (
           ),
         }
       : {}),
+    ...(options?.restSocketEventMaxRecipients !== undefined
+      ? { REST_SOCKET_EVENT_MAX_RECIPIENTS: String(options.restSocketEventMaxRecipients) }
+      : {}),
+    ...(options?.restSocketEventDistributedCountFailureThreshold !== undefined
+      ? {
+          REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_THRESHOLD: String(
+            options.restSocketEventDistributedCountFailureThreshold,
+          ),
+        }
+      : {}),
+    ...(options?.restSocketEventDistributedCountFailureOpenMs !== undefined
+      ? {
+          REST_SOCKET_EVENT_DISTRIBUTED_COUNT_FAILURE_OPEN_MS: String(
+            options.restSocketEventDistributedCountFailureOpenMs,
+          ),
+        }
+      : {}),
+    ...(options?.restSocketEventBestEffortLocalMaxRecipients !== undefined
+      ? {
+          REST_SOCKET_EVENT_BEST_EFFORT_LOCAL_MAX_RECIPIENTS: String(
+            options.restSocketEventBestEffortLocalMaxRecipients,
+          ),
+        }
+      : {}),
   };
 
   const child = spawn(process.execPath, [tsxCliPath, childScriptPath], {
@@ -183,6 +212,32 @@ export const spawnDistributedHubProcess = async (
             });
         });
         return count;
+      } finally {
+        socket.disconnect();
+      }
+    },
+    setFetchSocketsFailure: async (enabled: boolean) => {
+      const socket = await connectTestNamespace(baseUrl);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          socket
+            .timeout(2_000)
+            .emit(
+              "set-fetch-sockets-failure",
+              { enabled },
+              (error: Error | null, response?: { enabled?: unknown }) => {
+                if (error) {
+                  reject(error);
+                  return;
+                }
+                if (response?.enabled !== enabled) {
+                  reject(new Error("set-fetch-sockets-failure ack mismatch"));
+                  return;
+                }
+                resolve();
+              },
+            );
+        });
       } finally {
         socket.disconnect();
       }

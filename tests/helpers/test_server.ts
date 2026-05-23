@@ -12,6 +12,7 @@ import { closeSocketServer, createSocketServer } from "../../src/socket";
 
 export interface TestServerResult {
   readonly httpServer: HttpServer;
+  readonly socketIo: SocketServer;
   readonly close: () => Promise<void>;
   readonly getUrl: () => string;
 }
@@ -34,6 +35,7 @@ export const createTestServer = (): Promise<TestServerResult> => {
 
       resolve({
         httpServer,
+        socketIo: io,
         getUrl: () => baseUrl,
         close: () =>
           new Promise<void>((closeResolve) => {

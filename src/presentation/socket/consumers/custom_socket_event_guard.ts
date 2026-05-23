@@ -1,6 +1,7 @@
 import type { Socket } from "socket.io";
 
 import { AppError } from "../../../shared/errors/app_error";
+import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import {
@@ -22,10 +23,10 @@ export const disconnectSocketAfterCustomSocketEventAuthFailure = (
   if (!socket.connected) {
     return;
   }
-  socket.emit(socketEvents.appError, {
-    code: error.code,
-    message: error.message,
-  });
+  socket.emit(
+    socketEvents.appError,
+    buildLegacySocketAppErrorPayload(error.code, error.message, error.statusCode),
+  );
   socket.disconnect(true);
 };
 
@@ -33,7 +34,7 @@ export const assertActiveClientCustomSocketEventPrincipal = async (
   socket: GuardSocket,
 ): Promise<string> => {
   const user = socket.data.user;
-  await assertJwtUserAccountActive(user, socket);
+  await assertJwtUserAccountActive(user, socket, { recordConsumerBlockedMetric: true });
   if (user?.principal_type !== "client" || typeof user.sub !== "string" || user.sub.trim() === "") {
     throw new AppError("Only Client principals may use custom socket events", {
       statusCode: 403,

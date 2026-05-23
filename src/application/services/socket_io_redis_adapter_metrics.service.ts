@@ -33,7 +33,7 @@ export const noteSocketIoRedisAdapterFallback = (): void => {
 
 export const noteSocketIoRedisAdapterRuntimeError = (): void => {
   runtimeErrorEventsTotal += 1;
-  noteSocketIoRedisAdapterFallback();
+  redisAdapterActive = 0;
 };
 
 export const noteSocketIoRedisAdapterDisconnected = (): void => {

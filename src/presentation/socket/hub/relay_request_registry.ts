@@ -14,6 +14,9 @@ export interface RelayRequestRoute {
   readonly clientRequestId?: string;
   readonly latencyTrace?: BridgeLatencyTraceSession;
   readonly releaseAgentDispatchSlot?: () => void;
+  acked?: boolean;
+  ackRetryTimer?: NodeJS.Timeout;
+  ackRetriesAttempted?: number;
   timedOut?: boolean;
 }
 
@@ -115,6 +118,10 @@ export const removeRelayRequestRoute = (requestId: string): RelayRequestRoute | 
     return null;
   }
 
+  if (route.ackRetryTimer !== undefined) {
+    clearTimeout(route.ackRetryTimer);
+    delete route.ackRetryTimer;
+  }
   clearTimeout(route.timeoutHandle);
   route.releaseAgentDispatchSlot?.();
   relayRequestsByRequestId.delete(requestId);
@@ -129,6 +136,10 @@ export const removeRelayRequestRoute = (requestId: string): RelayRequestRoute | 
 
 export const resetRelayRequestRegistry = (): void => {
   for (const route of relayRequestsByRequestId.values()) {
+    if (route.ackRetryTimer !== undefined) {
+      clearTimeout(route.ackRetryTimer);
+      delete route.ackRetryTimer;
+    }
     clearTimeout(route.timeoutHandle);
     route.releaseAgentDispatchSlot?.();
     clearRelayStreamFlowState(route.requestId);

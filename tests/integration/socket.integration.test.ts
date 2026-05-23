@@ -1733,7 +1733,7 @@ describe("Socket namespaces", () => {
             encodePayloadFrame(
               {
                 request_id: requestId,
-                status: "accepted",
+                received_at: new Date().toISOString(),
               },
               { compressionThreshold: 1 },
             ),

@@ -67,6 +67,8 @@ export const relayMetrics = {
   restMaterializeByteLimitExceeded: 0,
   restMaterializeActiveStreamLimitExceeded: 0,
   requestTimeouts: 0,
+  ackRetryAttempts: 0,
+  ackRetryExhausted: 0,
   circuitOpenRejects: 0,
   /** `SOCKET_REST_MAX_PENDING_REQUESTS` cap before dispatch. */
   restGlobalPendingCapRejected: 0,
@@ -292,6 +294,8 @@ export type RelayHubMetricsSnapshot = {
     readonly restMaterializeByteLimitExceeded: number;
     readonly restMaterializeActiveStreamLimitExceeded: number;
     readonly requestTimeouts: number;
+    readonly ackRetryAttempts: number;
+    readonly ackRetryExhausted: number;
     readonly circuitOpenRejects: number;
     readonly restGlobalPendingCapRejected: number;
     readonly restAgentQueueFullRejected: number;
@@ -433,6 +437,8 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.restMaterializeByteLimitExceeded = 0;
   relayMetrics.restMaterializeActiveStreamLimitExceeded = 0;
   relayMetrics.requestTimeouts = 0;
+  relayMetrics.ackRetryAttempts = 0;
+  relayMetrics.ackRetryExhausted = 0;
   relayMetrics.circuitOpenRejects = 0;
   relayMetrics.restGlobalPendingCapRejected = 0;
   relayMetrics.restAgentQueueFullRejected = 0;

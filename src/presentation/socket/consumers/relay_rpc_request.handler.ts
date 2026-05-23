@@ -21,6 +21,24 @@ import {
 import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
 import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
 
+/**
+ * Rate-limit refund policy for `relay:rpc.request` after quota was consumed:
+ * - **Refund**: non-`AppError` (unexpected / transient) and `AppError` outside the 4xx range (e.g. 503).
+ * - **No refund**: any **4xx** (404 conversation missing, auth/forbidden, etc.).
+ *
+ * Envelope `VALIDATION_ERROR` is rejected before quota consumption in `socket.ts`.
+ * Idempotent dedupe (`deduplicated: true`) refunds on the success path separately.
+ */
+export const shouldRefundRelayRpcRequestRateLimit = (error: unknown): boolean => {
+  if (!(error instanceof AppError)) {
+    return true;
+  }
+  if (error.statusCode !== undefined && error.statusCode >= 400 && error.statusCode < 500) {
+    return false;
+  }
+  return true;
+};
+
 export const relayRpcEnvelopeSchema = z.object({
   conversationId: conversationIdSchema,
   frame: z.unknown(),
@@ -45,6 +63,9 @@ type RelayRpcAcceptedPayload =
     };
 
 const emitRelayRpcAccepted = (socket: Socket, payload: RelayRpcAcceptedPayload): void => {
+  if (socket.connected === false) {
+    return;
+  }
   socket.emit(socketEvents.relayRpcAccepted, payload);
 };
 
@@ -78,7 +99,6 @@ export const handleRelayRpcRequest = (
   const parsed = { success: true as const, data: envelope.data };
 
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
-    void refundRelayRpcRequestAsync(userSub, socket.id);
     emitRelayRpcAccepted(socket, {
       success: false,
       error: {
@@ -151,7 +171,7 @@ export const handleRelayRpcRequest = (
       });
     } catch (err: unknown) {
       const appError = err instanceof AppError ? err : undefined;
-      if (appError?.statusCode === 400 || abortController.signal.aborted) {
+      if (shouldRefundRelayRpcRequestRateLimit(err)) {
         await refundRelayRpcRequestAsync(userSub, socket.id);
       }
       const retryAfterMs = resolveAppErrorRetryAfterMs(err);

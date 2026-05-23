@@ -32,8 +32,24 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 O handshake do consumidor entra primeiro apenas nas rooms base de identidade
 (`consumer:principal:*` e `consumer:client:*`) e envia `connection:ready`
 antes do custo de materializar `consumer:client-agent:*` e
-`consumer:agent-profile:*`. Esse backfill acontece de forma assÃ­ncrona logo
-apÃ³s o ready e usa o mesmo orÃ§amento/concurrency do reconcile periÃ³dico.
+`consumer:agent-profile:*`. Esse backfill acontece de forma assíncrona logo
+após o ready e usa o mesmo orçamento/concurrency do reconcile periôdico.
+
+**`grantClientAccess` e atraso cross-replica:** quando um acesso e aprovado
+(`approveByToken` / `approveByOwner`), o fast path `grantClientAccess` corre no
+processo que tratou a aprovacao e tenta `join` imediato nas rooms
+`consumer:client-agent:{clientId}:{agentId}` (e derivadas) para sockets ja
+ligados em `client:{clientId}`. Com `SOCKET_IO_REDIS_ADAPTER_URL`, o
+`fetchSockets` na room base inclui sockets noutras replicas e o join e
+distribuido; sem adapter, so sockets **locais** recebem o join imediato. Se o
+fast path falhar (erro de join/fetch) ou o cliente estiver noutra replica sem
+visibilidade, o **reconcile periodico** corrige drift: pior caso, ate
+`SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS` (defeito `30000`) mais
+jitter de arranque (`SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS`).
+Clientes multi-replica devem tratar pushes iniciais como best-effort e usar REST
+para catalogo/acesso completo; metricas `plug_socket_consumer_client_agent_room_grant_*`
+e `plug_socket_consumer_client_agent_room_reconcile_*` ajudam a dimensionar convergencia.
+Ver tambem `docs/scaling_and_roadmap.md` (salas apos aprovacao).
 
 ### `SOCKET_CONSUMER_ROLES` (opcional)
 
@@ -138,7 +154,8 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`               | `32`     | Teto de operações assíncronas simultâneas por socket consumer (`agents:command`, `relay:rpc.request`, `agents:stream_pull`, `relay:rpc.stream.pull`). Quando `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` é `0`, `socket:event.publish` **partilha** este teto. |
 | `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET`   | `0`      | Quando `> 0`, `socket:event.publish` usa um contador **próprio** (não conta para o teto acima), evitando que relay/comandos monopolizem publicações custom ou o inverso. `0` = publicação custom partilha `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`. Quando **ambos** `> 0`, os dois contadores são independentes: no pior caso o socket pode ter até **soma** dos dois valores de operações em voo (relay/comandos + publicações custom). |
 | `SOCKET_RATE_LIMIT_REDIS_URL`                           | _(vazio)_ | Redis opcional para rate limits Socket (`agents:command`, `agents:stream_pull`, `relay:*`, `agent:register`). Vazio = memoria por processo. Quando configurado, falha de Redis e fail-open com fallback local; sticky sessions continuam obrigatorias para estado Socket. |
-| `SOCKET_IO_REDIS_ADAPTER_URL`                           | _(vazio)_ | Redis adapter opcional do Socket.IO para rooms/pubsub entre replicas. Quando configurado, broadcasts de rooms (`client:custom.*`, rooms de client/principal etc.) atravessam replicas. Falha de conexao cai para adapter em memoria. Sticky sessions ainda sao recomendadas para relay, pending requests e presenca de agentes. |
+| `SOCKET_IO_REDIS_ADAPTER_URL`                           | _(vazio)_ | Redis adapter opcional do Socket.IO para rooms/pubsub entre replicas. Quando configurado, broadcasts de rooms (`client:custom.*`, rooms de client/principal etc.) atravessam replicas. Falha de conexao inicial em `NODE_ENV=production` **ou** com `SOCKET_IO_REDIS_ADAPTER_REQUIRED=true` aborta o bootstrap; falhas runtime ou em dev/test (sem a flag) caem para adapter em memoria na instancia e disparam reconnect com backoff. Sticky sessions ainda sao recomendadas para relay, pending requests e presenca de agentes. |
+| `SOCKET_IO_REDIS_ADAPTER_REQUIRED`                      | `false`  | Quando `true`, falha de conexao inicial ao Redis adapter aborta o bootstrap sempre que `SOCKET_IO_REDIS_ADAPTER_URL` estiver definido, mesmo fora de producao (util em staging multi-replica). |
 | `SOCKET_RELAY_AGENT_MAX_INFLIGHT`                       | `32`     | Requests `relay:rpc.request` simultaneas por agente antes de enfileirar. `0` desativa o gate por agente.                                                                                                                                                                                                                         |
 | `SOCKET_RELAY_AGENT_MAX_QUEUE`                          | `64`     | Profundidade da fila FIFO por agente para relay. `0` = fila ilimitada (ainda sujeita a timeout).                                                                                                                                                                                                                                  |
 | `SOCKET_RELAY_AGENT_QUEUE_WAIT_MS`                      | `200`    | Tempo maximo aguardando slot na fila por agente; rejeita com `SERVICE_UNAVAILABLE` e `retryAfterMs` quando estoura.                                                                                                                                                                                                               |

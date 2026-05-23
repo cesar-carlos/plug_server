@@ -35,16 +35,23 @@ import { conversationRegistry } from "../../../../../src/presentation/socket/hub
 import { handleRelayRpcStreamPull } from "../../../../../src/presentation/socket/consumers/relay_rpc_stream_pull.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
+import {
+  releaseSocketInflightSlot,
+  tryAcquireSocketInflightSlot,
+} from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
 const mockedPrepareRelayStreamPull = vi.mocked(prepareRelayStreamPull);
 const mockedAllowRelayStreamPull = vi.mocked(allowRelayStreamPullAsync);
 const mockedFindConversation = vi.mocked(conversationRegistry.findInternalByConversationId);
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
+const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
+const mockedReleaseInflight = vi.mocked(releaseSocketInflightSlot);
 
 const buildSocket = () =>
   ({
     id: "consumer-1",
+    connected: true,
     data: {
       user: {
         sub: "user-1",
@@ -61,6 +68,9 @@ describe("handleRelayRpcStreamPull", () => {
     mockedAllowRelayStreamPull.mockReset();
     mockedFindConversation.mockReset();
     mockedAssertAccess.mockReset();
+    mockedTryAcquire.mockReset();
+    mockedReleaseInflight.mockReset();
+    mockedTryAcquire.mockReturnValue(true);
 
     mockedFindConversation.mockReturnValue({
       conversationId: "conv-1",
@@ -88,6 +98,28 @@ describe("handleRelayRpcStreamPull", () => {
       requestedCredits: 16,
       grantedCredits: 16,
       remainingCredits: 84,
+    });
+  });
+
+  it("returns RATE_LIMITED when the per-socket inflight gate is full", () => {
+    mockedTryAcquire.mockReturnValue(false);
+    const socket = buildSocket();
+
+    handleRelayRpcStreamPull(socket as never, {
+      conversationId: "conv-1",
+      frame: { schemaVersion: "1.0" },
+    });
+
+    expect(mockedPrepareRelayStreamPull).not.toHaveBeenCalled();
+    expect(mockedAllowRelayStreamPull).not.toHaveBeenCalled();
+    expect(mockedReleaseInflight).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayRpcStreamPullResponse, {
+      success: false,
+      error: {
+        code: "RATE_LIMITED",
+        message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
     });
   });
 

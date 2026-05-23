@@ -45,6 +45,7 @@ import { acquireRestAgentDispatchSlot } from "./rest_agent_dispatch_queue";
 import type { PendingRequest, StreamEventHandlers } from "./rest_pending_requests";
 import {
   clearRestPendingRequest,
+  getRestPendingRequestByCorrelationId,
   getRestPendingRequestCount,
   hasRestPendingCorrelationId,
   registerRestPendingRequest,
@@ -53,6 +54,7 @@ import { hasRelayRequestRoute } from "./relay_request_registry";
 import {
   clampCommandMaxRows,
   countBatchItems,
+  isAckRetryEligibleCommand,
   isBatchCommand,
   toCorrelationIds,
   withBridgeMeta,
@@ -251,23 +253,240 @@ export const createDispatchRpcCommandToAgent = (
         env.socketRestAgentQueueWaitMs,
       );
     }
+    const ackRetryEligible =
+      env.socketAgentAckRetryEnabled &&
+      env.socketAgentAckMaxRetries > 0 &&
+      isAckRetryEligibleCommand(command);
 
     input.latencyTrace?.addPhaseMs("dispatch_preflight_ms", performance.now() - dispatchWallStart);
-    const tQueuePending = performance.now();
-    const rawReleaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
+
     // Idempotent release: callable both early (when the response is promoted to
     // a streaming materialization, see PendingRequest.onStreamMaterializeStarted)
     // and from the outer `finally`. Subsequent calls are no-ops, so we never
     // over-decrement the per-agent inflight counter.
     let agentSlotReleased = false;
+    let rawReleaseAgentSlot: (() => void) | null = null;
     const releaseAgentSlot = (): void => {
-      if (agentSlotReleased) {
+      if (agentSlotReleased || rawReleaseAgentSlot === null) {
         return;
       }
       agentSlotReleased = true;
       rawReleaseAgentSlot();
     };
+
+    let pendingRegistered = false;
+    let pendingRequest!: PendingRequest;
+    let pendingSignalListener: (() => void) | null = null;
+    let pendingSettled = false;
+
+    const finalizePendingLatencyTrace = (error: Error): void => {
+      if (!input.latencyTrace || input.latencyTrace.isFinalized()) {
+        return;
+      }
+      const appErr = error instanceof AppError ? error : null;
+      const msg = error.message;
+      const outcome =
+        msg.includes("Timed out waiting") || msg.includes("Timed out")
+          ? "timeout"
+          : msg.includes("aborted")
+            ? "abort"
+            : "error";
+      input.latencyTrace.finalizeOnce({
+        outcome,
+        httpStatus: appErr?.statusCode ?? 503,
+        errorCode: appErr?.code ?? "BRIDGE_ERROR",
+      });
+    };
+
+    const clearPendingRegistration = (): void => {
+      if (!pendingRegistered) {
+        return;
+      }
+      clearTimeout(pendingRequest.timeoutHandle);
+      clearRestPendingRequest(pendingRequest);
+      pendingRegistered = false;
+    };
+
+    const isPendingRequestStillRegistered = (): boolean =>
+      pendingRequest.correlationIds.some(
+        (correlationId) => getRestPendingRequestByCorrelationId(correlationId) === pendingRequest,
+      );
+
+    const scheduleAckRetry = (wireFrame: PayloadFrameEnvelope): void => {
+      if (!ackRetryEligible) {
+        return;
+      }
+
+      pendingRequest.ackRetryTimer = setTimeout(() => {
+        delete pendingRequest.ackRetryTimer;
+        if (
+          pendingSettled ||
+          pendingRequest.acked ||
+          !isPendingRequestStillRegistered() ||
+          input.signal?.aborted === true
+        ) {
+          return;
+        }
+        if ((pendingRequest.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries) {
+          return;
+        }
+
+        const liveAgentSocket = findAgentSocketById(registeredAgent.socketId);
+        if (!liveAgentSocket) {
+          return;
+        }
+
+        pendingRequest.ackRetriesAttempted = (pendingRequest.ackRetriesAttempted ?? 0) + 1;
+        relayMetrics.ackRetryAttempts += 1;
+        logger.info("rpc_request_ack_retry_emit", {
+          requestId: pendingRequest.primaryRequestId,
+          attempt: pendingRequest.ackRetriesAttempted,
+          socketId: registeredAgent.socketId,
+        });
+        liveAgentSocket.emit(socketEvents.rpcRequest, wireFrame);
+
+        if (
+          !pendingRequest.acked &&
+          (pendingRequest.ackRetriesAttempted ?? 0) < env.socketAgentAckMaxRetries &&
+          isPendingRequestStillRegistered()
+        ) {
+          scheduleAckRetry(wireFrame);
+        }
+      }, env.socketAgentAckTimeoutMs);
+      pendingRequest.ackRetryTimer.unref?.();
+    };
+
+    const responsePromise = new Promise<unknown>((resolve, reject) => {
+      const rejectOnce = (error: Error): void => {
+        if (pendingSettled) {
+          return;
+        }
+        pendingSettled = true;
+        if (pendingSignalListener) {
+          input.signal?.removeEventListener("abort", pendingSignalListener);
+        }
+        finalizePendingLatencyTrace(error);
+        reject(error);
+      };
+
+      const resolveOnce = (payload: unknown): void => {
+        if (pendingSettled) {
+          return;
+        }
+        pendingSettled = true;
+        if (pendingSignalListener) {
+          input.signal?.removeEventListener("abort", pendingSignalListener);
+        }
+        resolve(payload);
+      };
+
+      const timeoutHandle = setTimeout(() => {
+        // Current hub-side delivery guarantee is observational: we track
+        // `rpc:request_ack` / `rpc:batch_ack` and Socket.IO response acks for
+        // troubleshooting, but we do not automatically resend `rpc:request`
+        // when an ack is missing. Timeout remains the terminal safeguard.
+        const hadAck = pendingRequest.acked;
+        clearPendingRegistration();
+        const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
+        if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
+        }
+        if (!hadAck) {
+          if (
+            ackRetryEligible &&
+            (pendingRequest.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries
+          ) {
+            relayMetrics.ackRetryExhausted += 1;
+          }
+          logger.info("rpc_timeout_without_ack", {
+            requestId: pendingRequest.primaryRequestId,
+            socketId: registeredAgent.socketId,
+          });
+        }
+        registerAgentFailure(input.agentId);
+        rejectOnce(serviceUnavailable("Timed out waiting for agent response"));
+      }, timeoutMs);
+
+      const restStreamAggregate =
+        input.streamHandlers === undefined &&
+        !isBatchCommand(command) &&
+        command.method === "sql.execute" &&
+        correlationIds.length === 1;
+
+      pendingRequest = {
+        primaryRequestId: requestId,
+        correlationIds,
+        socketId: registeredAgent.socketId,
+        agentId: input.agentId,
+        createdAtMs: Date.now(),
+        resolve: resolveOnce,
+        reject: rejectOnce,
+        timeoutHandle,
+        ...(!isBatchCommand(command) &&
+        command.method === "sql.execute" &&
+        input.streamHandlers &&
+        correlationIds.length === 1
+          ? { streamHandlers: input.streamHandlers }
+          : {}),
+        ...(restStreamAggregate ? { restStreamAggregate: true } : {}),
+        ...(restStreamAggregate ? { onStreamMaterializeStarted: releaseAgentSlot } : {}),
+        ...(input.latencyTrace ? { latencyTrace: input.latencyTrace } : {}),
+        acked: false,
+        ackRetriesAttempted: 0,
+      };
+
+      for (const correlationId of correlationIds) {
+        if (
+          hasRestPendingCorrelationId(correlationId) ||
+          hasActiveStreamRouteForRequestId(correlationId) ||
+          hasRelayRequestRoute(correlationId)
+        ) {
+          clearTimeout(timeoutHandle);
+          rejectOnce(badRequest("A request with this JSON-RPC id is already pending"));
+          return;
+        }
+      }
+
+      pendingSignalListener = () => {
+        clearPendingRegistration();
+        const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
+        if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
+        }
+        rejectOnce(serviceUnavailable("HTTP request aborted by client"));
+      };
+
+      if (input.signal) {
+        input.signal.addEventListener("abort", pendingSignalListener, { once: true });
+        if (input.signal.aborted) {
+          pendingSignalListener();
+          return;
+        }
+      }
+
+      registerRestPendingRequest(pendingRequest);
+      pendingRegistered = true;
+    });
+
+    if (pendingSettled) {
+      await responsePromise;
+      throw serviceUnavailable("HTTP request aborted by client");
+    }
+
+    const tQueuePending = performance.now();
+    try {
+      rawReleaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
+    } catch (error: unknown) {
+      clearPendingRegistration();
+      if (!pendingSettled) {
+        pendingRequest.reject(
+          error instanceof Error ? error : serviceUnavailable("Failed to acquire agent dispatch slot"),
+        );
+      }
+      throw error;
+    }
     input.latencyTrace?.addPhaseMs("queue_wait_ms", performance.now() - tQueuePending);
+
     try {
       let wireFrame: PayloadFrameEnvelope;
       try {
@@ -279,149 +498,47 @@ export const createDispatchRpcCommandToAgent = (
         });
         input.latencyTrace?.addPhaseMs("encode_ms", performance.now() - tEncPending);
       } catch (error: unknown) {
+        clearPendingRegistration();
         registerAgentFailure(input.agentId);
+        if (!pendingSettled) {
+          pendingRequest.reject(
+            error instanceof Error ? error : serviceUnavailable("Failed to encode rpc:request"),
+          );
+        }
         throw error instanceof Error ? error : serviceUnavailable("Failed to encode rpc:request");
       }
 
-      const response = await new Promise<unknown>((resolve, reject) => {
-        let settled = false;
-        let signalListener: (() => void) | null = null;
-
-        const rejectOnce = (error: Error): void => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          if (signalListener) {
-            input.signal?.removeEventListener("abort", signalListener);
-          }
-          if (input.latencyTrace && !input.latencyTrace.isFinalized()) {
-            const appErr = error instanceof AppError ? error : null;
-            const msg = error.message;
-            const outcome =
-              msg.includes("Timed out waiting") || msg.includes("Timed out")
-                ? "timeout"
-                : msg.includes("aborted")
-                  ? "abort"
-                  : "error";
-            input.latencyTrace.finalizeOnce({
-              outcome,
-              httpStatus: appErr?.statusCode ?? 503,
-              errorCode: appErr?.code ?? "BRIDGE_ERROR",
-            });
-          }
-          reject(error);
-        };
-
-        const resolveOnce = (payload: unknown): void => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          if (signalListener) {
-            input.signal?.removeEventListener("abort", signalListener);
-          }
-          resolve(payload);
-        };
-
-        const timeoutHandle = setTimeout(() => {
-          // Current hub-side delivery guarantee is observational: we track
-          // `rpc:request_ack` / `rpc:batch_ack` and Socket.IO response acks for
-          // troubleshooting, but we do not automatically resend `rpc:request`
-          // when an ack is missing. Timeout remains the terminal safeguard.
-          const hadAck = pendingRequest.acked;
-          clearRestPendingRequest(pendingRequest);
-          const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
-          if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
-            removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
-          }
-          if (!hadAck) {
-            logger.info("rpc_timeout_without_ack", {
-              requestId: pendingRequest.primaryRequestId,
-              socketId: registeredAgent.socketId,
-            });
-          }
-          registerAgentFailure(input.agentId);
-          rejectOnce(serviceUnavailable("Timed out waiting for agent response"));
-        }, timeoutMs);
-
-        const restStreamAggregate =
-          input.streamHandlers === undefined &&
-          !isBatchCommand(command) &&
-          command.method === "sql.execute" &&
-          correlationIds.length === 1;
-
-        const pendingRequest: PendingRequest = {
-          primaryRequestId: requestId,
-          correlationIds,
-          socketId: registeredAgent.socketId,
-          agentId: input.agentId,
-          createdAtMs: Date.now(),
-          resolve: resolveOnce,
-          reject: rejectOnce,
-          timeoutHandle,
-          ...(!isBatchCommand(command) &&
-          command.method === "sql.execute" &&
-          input.streamHandlers &&
-          correlationIds.length === 1
-            ? { streamHandlers: input.streamHandlers }
-            : {}),
-          ...(restStreamAggregate ? { restStreamAggregate: true } : {}),
-          ...(restStreamAggregate ? { onStreamMaterializeStarted: releaseAgentSlot } : {}),
-          ...(input.latencyTrace ? { latencyTrace: input.latencyTrace } : {}),
-          acked: false,
-        };
-
-        for (const correlationId of correlationIds) {
-          if (
-            hasRestPendingCorrelationId(correlationId) ||
-            hasActiveStreamRouteForRequestId(correlationId) ||
-            hasRelayRequestRoute(correlationId)
-          ) {
-            clearTimeout(timeoutHandle);
-            rejectOnce(badRequest("A request with this JSON-RPC id is already pending"));
-            return;
-          }
+      if (input.signal?.aborted) {
+        clearPendingRegistration();
+        const abortError = serviceUnavailable("HTTP request aborted by client");
+        if (!pendingSettled) {
+          pendingRequest.reject(abortError);
         }
+        throw abortError;
+      }
 
-        signalListener = () => {
-          clearTimeout(timeoutHandle);
-          clearRestPendingRequest(pendingRequest);
-          const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
-          if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
-            removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
-          }
-          rejectOnce(serviceUnavailable("HTTP request aborted by client"));
-        };
-
-        if (input.signal) {
-          input.signal.addEventListener("abort", signalListener, { once: true });
-          if (input.signal.aborted) {
-            signalListener();
-            return;
-          }
+      try {
+        const tEmitPending = performance.now();
+        agentSocket.emit(socketEvents.rpcRequest, wireFrame);
+        const emitEndedPending = performance.now();
+        input.latencyTrace?.markEmitComplete(emitEndedPending - tEmitPending, emitEndedPending);
+        scheduleAckRetry(wireFrame);
+      } catch (error: unknown) {
+        clearPendingRegistration();
+        const existingStream = getActiveStreamRouteByRequestId(requestId);
+        if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
         }
-
-        registerRestPendingRequest(pendingRequest);
-
-        try {
-          const tEmitPending = performance.now();
-          agentSocket.emit(socketEvents.rpcRequest, wireFrame);
-          const emitEndedPending = performance.now();
-          input.latencyTrace?.markEmitComplete(emitEndedPending - tEmitPending, emitEndedPending);
-        } catch (error: unknown) {
-          clearTimeout(timeoutHandle);
-          clearRestPendingRequest(pendingRequest);
-          const existingStream = getActiveStreamRouteByRequestId(requestId);
-          if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
-            removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
-          }
-          registerAgentFailure(input.agentId);
-          rejectOnce(
-            error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request"),
-          );
+        registerAgentFailure(input.agentId);
+        const emitError =
+          error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
+        if (!pendingSettled) {
+          pendingRequest.reject(emitError);
         }
-      });
+        throw emitError;
+      }
+
+      const response = await responsePromise;
 
       if (!isBatchCommand(command) && command.method === "agent.getHealth") {
         noteAgentHealthRpcResponse(response);

@@ -160,6 +160,55 @@ configure `SOCKET_IO_REDIS_ADAPTER_URL` para broadcast entre replicas e
 `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL` para idempotencia distribuida de
 publicacoes custom.
 
+## Modelo multi-replica (P1)
+
+O hub combina **estado local por processo** com um **adapter Redis apenas para
+rooms/broadcast** do Socket.IO. Nao confunda os dois planos.
+
+### Process-local (nao atravessa replicas)
+
+Estes mapas e lookups vivem na memoria de cada processo Node; lookups como
+`findAgentBridgeSocketById` / `findConsumerSocketById` devolvem apenas sockets
+ligados **a essa instancia**:
+
+- `agentRegistry` e presenca/readiness do agente
+- `rpc_bridge`: pending requests REST/legacy, filas relay por agente, buffers
+  de stream, circuit breaker local
+- `conversationRegistry` e idempotencia relay por conversa
+- rate limits Socket quando `SOCKET_RATE_LIMIT_REDIS_URL` esta vazio (com Redis
+  de rate limit, o contador e partilhado, mas conversas/pending continuam locais)
+
+Consequencia: `/consumers` e `/agents` exigem **sticky sessions** (ou afinidade
+equivalente) enquanto esse estado nao for externalizado. Um `relay:rpc.request`
+sempre e despachado para o socket do agente **no mesmo processo** que detem a
+conversa.
+
+### Redis adapter (rooms-only)
+
+Com `SOCKET_IO_REDIS_ADAPTER_URL`, o Socket.IO usa `@socket.io/redis-adapter`
+para sincronizar **rooms e broadcast** entre replicas:
+
+- entrega de `client:custom.*` a subscritores em qualquer replica
+- `fetchSockets()` e contagens de recipients distribuidas para fan-out REST/Socket
+- joins em rooms (`client:<id>`, `consumer:principal:*`, etc.) visiveis cluster-wide
+
+O adapter **nao** replica registry de agentes, conversas relay nem pending RPC.
+Em falha de Redis apos ligacao inicial, o hub volta ao adapter **em memoria** na
+instancia afectada, regista metricas (`plug_socket_io_redis_adapter_*`) e tenta
+reconectar com backoff. Em `NODE_ENV=production` com URL configurada, falha na
+**ligacao inicial** aborta o bootstrap (fail-hard); falhas runtime degradam para
+memoria + reconnect.
+
+Metricas relevantes em `GET /metrics`:
+
+- `plug_socket_io_redis_adapter_url_configured` / `_active`
+- `plug_socket_io_redis_adapter_connection_events_total`
+- `plug_socket_io_redis_adapter_fallback_events_total`
+- `plug_socket_io_redis_adapter_runtime_errors_total`
+- `plug_socket_io_redis_adapter_attached_servers_total`
+
+Ver tambem `docs/scaling_and_roadmap.md` e `docs/configuration.md`.
+
 ### `relay:conversation.ended.reason`
 
 Valores publicos documentados:
@@ -397,6 +446,28 @@ Metricas adicionais: `plug_socket_rate_limit_redis_*` para Redis/fallback,
 `plug_socket_relay_dispatch_*` para a fila por agente e
 `plug_socket_consumers_retry_after_ms_propagated_total` para propagacao de
 `retryAfterMs`.
+
+### Refund de quota apos consumo (`relay:conversation.start`, `relay:rpc.request`)
+
+Depois de a quota da janela fixa ser consumida (em `socket.ts`, apos validacao
+barata do envelope), falhas no handler podem **devolver** o hit na janela
+(best-effort via `refundRelayConversationStartAsync` / `refundRelayRpcRequestAsync`;
+com Redis, scope `relay_conversation_start` / `relay_rpc_request`):
+
+- **Devolve quota**: erros **transientes** ou inesperados (nao-`AppError`) e
+  `AppError` fora do intervalo 4xx (ex.: `503` / `SERVICE_UNAVAILABLE`, agente
+  indisponivel, fila cheia, disconnect do consumer antes de concluir).
+- **Nao devolve**: qualquer **4xx** (404 agente/conversa inexistente, 409 teto
+  por consumer, forbidden, etc.).
+- **Antes do consumo**: `VALIDATION_ERROR` no envelope e `429` do proprio
+  limitador (`allow === false`) **nao** consomem quota.
+- **`relay:rpc.request` — casos extra**: `429` por inflight partilhado por socket
+  (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) **mantem** a quota (4xx); aceite
+  idempotente (`deduplicated: true`) **devolve** no caminho de sucesso porque
+  nao houve novo dispatch.
+
+Paridade com `socket:event.publish` (refund so em falhas nao-4xx) e com o REST
+(`skipFailedRequests` / `statusCode < 500`).
 
 ### Fila por agente no relay
 

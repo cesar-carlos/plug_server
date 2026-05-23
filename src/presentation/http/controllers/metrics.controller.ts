@@ -14,6 +14,7 @@ import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_acco
 import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
 import { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/metrics/client_agent_access_request.metrics";
 import { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
+import { getPayloadFrameMetricsSnapshot } from "../../../shared/metrics/payload_frame.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getClientSocketEventPublishIdempotencySerializationTrackedKeyCount } from "../../../application/services/client_socket_event_publish_idempotency_serialization";
@@ -73,6 +74,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const clientMeAgents = getClientMeAgentsMetricsSnapshot();
   const clientAccessRequestPost = getClientAgentAccessRequestPostMetricsSnapshot();
   const clientAccessPublicDecision = getClientAgentAccessPublicDecisionMetricsSnapshot();
+  const payloadFrame = getPayloadFrameMetricsSnapshot();
 
   const lines: string[] = [];
 
@@ -802,6 +804,18 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_socket_agents_inbound_contract_validation_failed_total",
+      agentRuntime.inboundContractValidation.failedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_inbound_contract_validation_warn_total",
+      agentRuntime.inboundContractValidation.warnTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_socket_agents_capability_profiles_total",
       agentRuntime.capabilityProfiles.current,
       { status: "current" },
@@ -827,6 +841,16 @@ export const getMetrics = (_request: Request, response: Response): void => {
       agentRuntime.capabilityAgentGetHealthCapableTotal,
     ),
   );
+  for (const [keyKind, value] of Object.entries(payloadFrame.signatureAccepted)) {
+    lines.push(
+      metricLine("plug_payload_frame_signature_accepted_total", value, { key_kind: keyKind }),
+    );
+  }
+  for (const [reason, value] of Object.entries(payloadFrame.signatureRejected)) {
+    lines.push(
+      metricLine("plug_payload_frame_signature_rejected_total", value, { reason }),
+    );
+  }
   lines.push(
     metricLine(
       "plug_socket_agents_health_responses_total",
@@ -1029,6 +1053,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
     metricLine(
       "plug_socket_custom_event_publish_distributed_recipient_count_failed_total",
       consumerRuntime.customEvents.publishDistributedRecipientCountFailedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_distributed_recipient_count_skipped_total",
+      consumerRuntime.customEvents.publishDistributedRecipientCountSkippedTotal,
     ),
   );
   lines.push(
@@ -1334,6 +1364,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine("plug_socket_relay_request_timeouts_total", relay.counters.requestTimeouts),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_ack_retry_attempts_total", relay.counters.ackRetryAttempts),
+  );
+  lines.push(
+    metricLine("plug_socket_relay_ack_retry_exhausted_total", relay.counters.ackRetryExhausted),
   );
   lines.push(
     metricLine("plug_socket_relay_circuit_open_rejects_total", relay.counters.circuitOpenRejects),

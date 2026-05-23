@@ -1,4 +1,5 @@
 import { serviceUnavailable } from "../../../shared/errors/http_errors";
+import type { ConversationCloseReason, RelayConversation } from "./conversation_registry";
 import {
   getActiveStreamRouteByRequestId,
   listActiveStreamRequestIdsForConversation,
@@ -103,6 +104,25 @@ export const cleanupPendingRequestsForAgentSocket = (agentSocketId: string): num
   }
 
   return cleaned;
+};
+
+export const buildRelayConversationEndedPayload = (
+  conversationId: string,
+  reason: ConversationCloseReason,
+): { success: true; conversationId: string; reason: ConversationCloseReason } => ({
+  success: true,
+  conversationId,
+  reason,
+});
+
+export const finalizeConversationsClosedByConsumerDisconnect = (
+  conversations: readonly Pick<RelayConversation, "conversationId" | "agentSocketId">[],
+  notifyAgent?: (conversation: Pick<RelayConversation, "conversationId" | "agentSocketId">) => void,
+): void => {
+  for (const conversation of conversations) {
+    cleanupConversationStreamSubscriptions(conversation.conversationId);
+    notifyAgent?.(conversation);
+  }
 };
 
 export const cleanupConversationStreamSubscriptions = (conversationId: string): void => {

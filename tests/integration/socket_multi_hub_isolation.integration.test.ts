@@ -2,6 +2,9 @@ import request from "supertest";
 import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { isSocketIoRedisAdapterActive } from "../../src/infrastructure/redis/socket_io_redis_adapter";
+import { agentsNamespace } from "../../src/socket";
+import { SOCKET_NAMESPACES } from "../../src/shared/constants/socket_events";
 import { createTestServer, type TestServerResult } from "../helpers/test_server";
 import { registerOwnerAndClientSession } from "./helpers/client_sessions";
 import { decodePayloadFrame } from "../../src/shared/utils/payload_frame";
@@ -91,6 +94,20 @@ describe("socket server instance isolation", () => {
     if (!serverAClosed) {
       await serverA.close();
     }
+  });
+
+  it("reports Redis adapter inactive without explicit init in test servers", () => {
+    expect(isSocketIoRedisAdapterActive()).toBe(false);
+  });
+
+  it("keeps agentsNamespace pointing at the surviving hub after the first hub closes", async () => {
+    const survivingAgentsNamespace = serverB.socketIo.of(SOCKET_NAMESPACES.agents);
+    expect(agentsNamespace).toBe(survivingAgentsNamespace);
+
+    await serverA.close();
+    serverAClosed = true;
+
+    expect(agentsNamespace).toBe(survivingAgentsNamespace);
   });
 
   it("keeps the second hub functional after the first hub is closed", async () => {

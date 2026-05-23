@@ -12,6 +12,7 @@ const SHARED_VECTOR_KEY_ID = "shared-key-01";
 const baseEnv = {
   payloadSigningKey: undefined as string | undefined,
   payloadSigningKeyId: undefined as string | undefined,
+  payloadSigningPreviousKeys: {} as Record<string, string>,
   payloadSignOutbound: false,
   payloadFrameMaxGzipInputBytes: 1_048_576,
   payloadFrameGzipLevel: undefined as number | undefined,
@@ -156,7 +157,7 @@ describe("validateFrameSignature key_id enforcement (PAYLOAD_SIGNING_KEY_ID)", (
     const decoded = mod.decodePayloadFrame(signedFrame);
     expect(decoded.ok).toBe(false);
     if (!decoded.ok) {
-      expect(decoded.error.message).toMatch(/key_id mismatch/i);
+      expect(decoded.error.message).toMatch(/key_id is not recognized/i);
     }
   });
 

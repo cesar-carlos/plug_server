@@ -255,3 +255,87 @@ export const hasNotificationCommand = (command: BridgeCommand): boolean => {
   }
   return command.id === null;
 };
+
+const READ_ONLY_SQL_PREFIXES = [
+  "select",
+  "with",
+  "show",
+  "describe",
+  "desc",
+  "explain",
+] as const;
+
+const normalizeSqlPrefix = (sql: string): string => sql.trimStart().toLowerCase();
+
+const isReadOnlySql = (sql: string): boolean => {
+  const normalized = normalizeSqlPrefix(sql);
+  return READ_ONLY_SQL_PREFIXES.some(
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix} `),
+  );
+};
+
+const hasRpcParamsIdempotencyKey = (command: Record<string, unknown>): boolean => {
+  const params = toRecord(command.params);
+  return typeof params?.idempotency_key === "string" && params.idempotency_key.trim() !== "";
+};
+
+const isReadSafeRpcCommand = (command: Record<string, unknown>): boolean => {
+  const method = command.method;
+  if (
+    method === "agent.getHealth" ||
+    method === "agent.getProfile" ||
+    method === "agent.action.getExecution" ||
+    method === "agent.action.validateRun" ||
+    method === "client_token.getPolicy" ||
+    method === "rpc.discover"
+  ) {
+    return true;
+  }
+
+  const params = toRecord(command.params);
+  if (!params) {
+    return false;
+  }
+
+  if (method === "sql.execute") {
+    return typeof params.sql === "string" && isReadOnlySql(params.sql);
+  }
+
+  if (method === "sql.executeBatch") {
+    const commands = Array.isArray(params.commands) ? params.commands : [];
+    return (
+      commands.length > 0 &&
+      commands.every((item) => {
+        const itemRecord = toRecord(item);
+        return (
+          itemRecord !== null &&
+          typeof itemRecord.sql === "string" &&
+          isReadOnlySql(itemRecord.sql)
+        );
+      })
+    );
+  }
+
+  return false;
+};
+
+export const isAckRetryEligibleCommand = (command: BridgeCommand): boolean => {
+  if (isBatchCommand(command)) {
+    if (command.length === 0 || command.some((item) => item.id === null || item.id === undefined)) {
+      return false;
+    }
+
+    const items = command.map((item) => item as unknown as Record<string, unknown>);
+    return (
+      items.every(hasRpcParamsIdempotencyKey) ||
+      items.every((item) => isReadSafeRpcCommand(item))
+    );
+  }
+
+  if (command.id === null || command.id === undefined) {
+    return false;
+  }
+
+  const commandRecord = command as unknown as Record<string, unknown>;
+  return hasRpcParamsIdempotencyKey(commandRecord) || isReadSafeRpcCommand(commandRecord);
+};

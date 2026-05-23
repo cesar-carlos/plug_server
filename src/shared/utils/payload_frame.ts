@@ -10,6 +10,12 @@ import {
 import type { Result } from "../errors/result";
 import { err, ok } from "../errors/result";
 import { badRequest } from "../errors/http_errors";
+import {
+  notePayloadFrameSignatureAccepted,
+  notePayloadFrameSignatureRejected,
+  type PayloadFrameSignatureAcceptedKeyKind,
+  type PayloadFrameSignatureRejectReason,
+} from "../metrics/payload_frame.metrics";
 
 const defaultCompressionThreshold = HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES;
 
@@ -177,6 +183,11 @@ interface SignatureEnvelope {
   readonly key_id?: string;
 }
 
+interface PayloadFrameSigningKey {
+  readonly secret: string;
+  readonly kind: PayloadFrameSignatureAcceptedKeyKind;
+}
+
 const toSignatureEnvelope = (value: unknown): SignatureEnvelope | null => {
   if (typeof value !== "object" || value === null) {
     return null;
@@ -268,6 +279,57 @@ const signOutboundFrameIfConfigured = (
   };
 };
 
+const rejectSignature = (
+  message: string,
+  reason: PayloadFrameSignatureRejectReason,
+): Result<never> => {
+  notePayloadFrameSignatureRejected(reason);
+  return err(badRequest(message));
+};
+
+const resolveSignatureVerificationKey = (
+  signature: SignatureEnvelope,
+): Result<PayloadFrameSigningKey> => {
+  const activeKey =
+    env.payloadSigningKey && env.payloadSigningKey.trim() !== "" ? env.payloadSigningKey : null;
+  const activeKeyId =
+    env.payloadSigningKeyId && env.payloadSigningKeyId.trim() !== ""
+      ? env.payloadSigningKeyId.trim()
+      : null;
+  const previousKeys = env.payloadSigningPreviousKeys;
+  const hasPreviousKeys = Object.keys(previousKeys).length > 0;
+
+  if (signature.key_id !== undefined && signature.key_id.trim() !== "") {
+    const keyId = signature.key_id.trim();
+    if (activeKey !== null && activeKeyId !== null && keyId === activeKeyId) {
+      return ok({ secret: activeKey, kind: "active" });
+    }
+
+    const previousKey = previousKeys[keyId];
+    if (previousKey !== undefined && previousKey.trim() !== "") {
+      return ok({ secret: previousKey, kind: "previous" });
+    }
+
+    return rejectSignature("PayloadFrame signature key_id is not recognized", "unknown_key_id");
+  }
+
+  if (activeKeyId !== null || hasPreviousKeys) {
+    return rejectSignature(
+      "PayloadFrame signature is missing key_id but key rotation is configured",
+      "missing_key_id",
+    );
+  }
+
+  if (activeKey !== null) {
+    return ok({ secret: activeKey, kind: "single_key" });
+  }
+
+  return rejectSignature(
+    "PayloadFrame signature provided but no signing key is configured",
+    "no_key_configured",
+  );
+};
+
 const validateFrameSignature = (
   frame: PayloadFrameEnvelope,
   binaryPayload: Buffer,
@@ -278,44 +340,25 @@ const validateFrameSignature = (
 
   const signature = toSignatureEnvelope(frame.signature);
   if (!signature) {
-    return err(badRequest("PayloadFrame signature is invalid"));
+    return rejectSignature("PayloadFrame signature is invalid", "invalid_block");
   }
 
   if (signature.alg !== "hmac-sha256") {
-    return err(badRequest("Unsupported PayloadFrame signature algorithm"));
+    return rejectSignature("Unsupported PayloadFrame signature algorithm", "unsupported_alg");
   }
 
-  if (!env.payloadSigningKey || env.payloadSigningKey.trim() === "") {
-    return err(
-      badRequest("PayloadFrame signature provided but PAYLOAD_SIGNING_KEY is not configured"),
-    );
+  const resolvedKey = resolveSignatureVerificationKey(signature);
+  if (!resolvedKey.ok) {
+    return resolvedKey;
   }
 
-  // When the hub is configured with a signing key id, peers MUST identify the
-  // key they used. This matches `payload-frame.schema.json` (key_id required)
-  // and protects against silent ambiguity during key rotation. We still accept
-  // missing key_id when the hub itself runs without `PAYLOAD_SIGNING_KEY_ID`,
-  // for backwards compatibility with single-key deployments.
-  if (env.payloadSigningKeyId && env.payloadSigningKeyId.trim() !== "") {
-    if (!signature.key_id || signature.key_id.trim() === "") {
-      return err(
-        badRequest(
-          "PayloadFrame signature is missing key_id but PAYLOAD_SIGNING_KEY_ID is configured",
-        ),
-      );
-    }
-    if (signature.key_id !== env.payloadSigningKeyId) {
-      return err(badRequest("PayloadFrame signature key_id mismatch"));
-    }
-  }
-
-  const expectedSignature = createHmac("sha256", env.payloadSigningKey)
+  const expectedSignature = createHmac("sha256", resolvedKey.value.secret)
     .update(buildSignatureInput(frame, binaryPayload))
     .digest("base64");
 
   const providedSignature = signature.value.trim();
   if (providedSignature === "") {
-    return err(badRequest("PayloadFrame signature value is empty"));
+    return rejectSignature("PayloadFrame signature value is empty", "empty_value");
   }
 
   const expectedBuffer = Buffer.from(expectedSignature, "utf8");
@@ -325,9 +368,10 @@ const validateFrameSignature = (
     expectedBuffer.length !== providedBuffer.length ||
     !timingSafeEqual(expectedBuffer, providedBuffer)
   ) {
-    return err(badRequest("PayloadFrame signature verification failed"));
+    return rejectSignature("PayloadFrame signature verification failed", "invalid_signature");
   }
 
+  notePayloadFrameSignatureAccepted(resolvedKey.value.kind);
   return ok(undefined);
 };
 

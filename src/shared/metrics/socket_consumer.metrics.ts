@@ -53,6 +53,7 @@ const customEvents = {
   publishViaSocketTotal: 0,
   publishIdempotencySerializationCapRejectedTotal: 0,
   publishDistributedRecipientCountFailedTotal: 0,
+  publishDistributedRecipientCountSkippedTotal: 0,
   publishDistributedRecipientCountCircuitOpenedTotal: 0,
   publishDistributedRecipientCountCircuitRejectedTotal: 0,
   publishDistributedRecipientCountCircuitOpen: 0,
@@ -154,12 +155,16 @@ export const noteConsumerSocketAuthRejected = (reason: ConsumerAuthRejectReason)
   authRejects[reason] += 1;
 };
 
-export const observeConsumerGuardDbValidation = (elapsedMs: number): void => {
+/** DB round-trip latency for JWT account snapshot validation (handshake + per-event guards). */
+export const observeSocketAuthAccountDbValidation = (elapsedMs: number): void => {
   const safeElapsedMs = Math.max(0, elapsedMs);
   guardDb.count += 1;
   guardDb.sumMs += safeElapsedMs;
   guardDb.maxMs = Math.max(guardDb.maxMs, safeElapsedMs);
 };
+
+/** @deprecated Use {@link observeSocketAuthAccountDbValidation}. */
+export const observeConsumerGuardDbValidation = observeSocketAuthAccountDbValidation;
 
 export const noteConsumerPendingCommandsAborted = (count: number): void => {
   commandAbort.abortedCommandsTotal += Math.max(0, count);
@@ -235,6 +240,10 @@ export const noteClientSocketEventPublishIdempotencySerializationCapRejected = (
 
 export const noteCustomSocketEventPublishDistributedRecipientCountFailed = (): void => {
   customEvents.publishDistributedRecipientCountFailedTotal += 1;
+};
+
+export const noteCustomSocketEventPublishDistributedRecipientCountSkipped = (): void => {
+  customEvents.publishDistributedRecipientCountSkippedTotal += 1;
 };
 
 export const noteCustomSocketEventPublishDistributedRecipientCountCircuitOpened = (): void => {
@@ -478,6 +487,7 @@ export const resetSocketConsumerMetrics = (): void => {
   customEvents.publishViaSocketTotal = 0;
   customEvents.publishIdempotencySerializationCapRejectedTotal = 0;
   customEvents.publishDistributedRecipientCountFailedTotal = 0;
+  customEvents.publishDistributedRecipientCountSkippedTotal = 0;
   customEvents.publishDistributedRecipientCountCircuitOpenedTotal = 0;
   customEvents.publishDistributedRecipientCountCircuitRejectedTotal = 0;
   customEvents.publishDistributedRecipientCountCircuitOpen = 0;

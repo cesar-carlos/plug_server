@@ -87,7 +87,9 @@ const deriveBacklog = (): number =>
   );
 
 const isTailEntryOrphaned = (entry: TailEntry, nowMs: number): boolean =>
-  entry.pendingJobs === 0 && nowMs - entry.lastActivityAtMs >= env.socketRelayOutboundTailStaleMs;
+  entry.pendingJobs === 0 &&
+  entry.activeJobs === 0 &&
+  nowMs - entry.lastActivityAtMs >= env.socketRelayOutboundTailStaleMs;
 
 const countOrphanedRequestIds = (nowMs: number): number => {
   let total = 0;

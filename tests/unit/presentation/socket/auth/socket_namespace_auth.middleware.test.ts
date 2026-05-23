@@ -8,6 +8,7 @@ import { env } from "../../../../../src/shared/config/env";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { forbidden } from "../../../../../src/shared/errors/http_errors";
 import { err, ok } from "../../../../../src/shared/errors/result";
+import * as socketConsumerMetrics from "../../../../../src/shared/metrics/socket_consumer.metrics";
 import { verifyAccessToken } from "../../../../../src/shared/utils/jwt";
 
 vi.mock("../../../../../src/shared/utils/jwt", () => ({
@@ -49,6 +50,7 @@ describe("authenticateAgentSocket", () => {
   beforeEach(() => {
     mockedVerifyAccessToken.mockReset();
     mockedGetActiveAccountUserSnapshot.mockReset();
+    socketConsumerMetrics.resetSocketConsumerMetrics();
     mockedGetActiveAccountUserSnapshot.mockImplementation(async (userId: string) =>
       ok(activeUserSnapshot(userId, userId === "agent-1" ? "agent" : "user")),
     );
@@ -136,6 +138,40 @@ describe("authenticateAgentSocket", () => {
     expect(socket.data.user).toMatchObject({ sub: "agent-1", role: "agent" });
   });
 
+  it("prefers handshake.auth.token over Authorization Bearer header", async () => {
+    mockedVerifyAccessToken.mockImplementation((token: string) => {
+      if (token === "handshake-token") {
+        return {
+          ok: true,
+          value: {
+            sub: "agent-1",
+            role: "agent",
+            tokenType: "access",
+          },
+        };
+      }
+      return {
+        ok: false,
+        error: new AppError("Wrong token", { statusCode: 401, code: "INVALID_TOKEN" }),
+      };
+    });
+
+    const socket = {
+      handshake: {
+        headers: { authorization: "Bearer header-token" },
+        auth: { token: "handshake-token" },
+      },
+      data: {},
+    };
+    const next = vi.fn();
+
+    await authenticateAgentSocket(socket as never, next);
+
+    expect(mockedVerifyAccessToken).toHaveBeenCalledWith("handshake-token");
+    expect(next).toHaveBeenCalledWith();
+    expect(socket.data.user).toMatchObject({ sub: "agent-1", role: "agent" });
+  });
+
   it("rejects blocked account for /agents", async () => {
     mockedVerifyAccessToken.mockReturnValue({
       ok: true,
@@ -160,6 +196,9 @@ describe("authenticateAgentSocket", () => {
     expect(error.code).toBe("FORBIDDEN");
     expect(error.message).toBe("Account is blocked");
     expect(socket.data.user).toBeUndefined();
+    expect(
+      socketConsumerMetrics.getSocketConsumerMetricsSnapshot().authRejects.blocked_account,
+    ).toBe(0);
   });
 });
 
@@ -167,6 +206,7 @@ describe("authenticateConsumerSocket", () => {
   beforeEach(() => {
     mockedVerifyAccessToken.mockReset();
     mockedGetActiveAccountUserSnapshot.mockReset();
+    socketConsumerMetrics.resetSocketConsumerMetrics();
     mockedGetActiveAccountUserSnapshot.mockImplementation(async (userId: string) =>
       ok(activeUserSnapshot(userId, "user")),
     );
@@ -277,5 +317,8 @@ describe("authenticateConsumerSocket", () => {
     expect(next).toHaveBeenCalledOnce();
     const error = next.mock.calls[0]?.[0] as AppError;
     expect(error.message).toBe("Account is blocked");
+    expect(
+      socketConsumerMetrics.getSocketConsumerMetricsSnapshot().authRejects.blocked_account,
+    ).toBe(1);
   });
 });

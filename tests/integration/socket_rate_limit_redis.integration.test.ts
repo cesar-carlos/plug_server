@@ -1,22 +1,41 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type * as SocketRedisModule from "../../src/infrastructure/redis/socket_rate_limit_redis";
 
-const redisUrl = process.env.SOCKET_RATE_LIMIT_REDIS_URL;
-const describeIfRedis = redisUrl && redisUrl.trim() !== "" ? describe : describe.skip;
+import {
+  assertInfrastructureOrSkip,
+  integrationHookTimeoutMs,
+  probeSocketRateLimitRedisInfrastructure,
+  type InfrastructureProbeResult,
+} from "./helpers/integration_infrastructure";
 
-describeIfRedis("socket Redis rate-limit integration", () => {
+describe("socket Redis rate-limit integration", () => {
   let redisModule: typeof SocketRedisModule;
+  let infrastructureProbe: InfrastructureProbeResult = {
+    ok: false,
+    reason: "probe not started",
+  };
 
   beforeAll(async () => {
+    const infrastructure = await probeSocketRateLimitRedisInfrastructure();
+    infrastructureProbe = infrastructure.probe;
+    if (!infrastructureProbe.ok) {
+      return;
+    }
+
+    process.env.SOCKET_RATE_LIMIT_REDIS_URL = infrastructure.redisUrl;
     redisModule = await import("../../src/infrastructure/redis/socket_rate_limit_redis");
     await redisModule.initSocketRateLimitRedis();
-  });
+  }, integrationHookTimeoutMs);
 
   afterAll(async () => {
-    await redisModule.closeSocketRateLimitRedis();
+    if (infrastructureProbe.ok) {
+      await redisModule.closeSocketRateLimitRedis();
+    }
   });
 
-  it("shares fixed-window budget and refund semantics through Redis", async () => {
+  it("shares fixed-window budget and refund semantics through Redis", async (ctx) => {
+    assertInfrastructureOrSkip(ctx, infrastructureProbe);
+
     const key = `integration:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 
     const first = await redisModule.consumeSocketRateLimitRedis({
