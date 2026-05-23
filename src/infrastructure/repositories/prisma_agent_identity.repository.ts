@@ -1,6 +1,8 @@
 import type {
   BindAgentIdentityStatus,
   IAgentIdentityRepository,
+  UserAgentIdListPage,
+  UserAgentListFilter,
 } from "../../domain/repositories/agent_identity.repository.interface";
 import { prismaClient } from "../database/prisma/client";
 
@@ -66,6 +68,33 @@ export class PrismaAgentIdentityRepository implements IAgentIdentityRepository {
       select: { agentId: true },
       orderBy: { createdAt: "asc" },
     });
-    return identities.map((i) => i.agentId);
+    return identities.map((identity) => identity.agentId);
+  }
+
+  async listAgentIdsPageByUserId(
+    userId: string,
+    filter?: UserAgentListFilter,
+  ): Promise<UserAgentIdListPage> {
+    const page = Math.max(1, filter?.page ?? 1);
+    const pageSize = Math.max(1, Math.min(100, filter?.pageSize ?? 20));
+    const where = { userId };
+
+    const [identities, total] = await Promise.all([
+      prismaClient.agentIdentity.findMany({
+        where,
+        select: { agentId: true },
+        orderBy: { createdAt: "asc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prismaClient.agentIdentity.count({ where }),
+    ]);
+
+    return {
+      agentIds: identities.map((identity) => identity.agentId),
+      total,
+      page,
+      pageSize,
+    };
   }
 }

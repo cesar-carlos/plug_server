@@ -11,9 +11,6 @@ import {
 import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../shared/errors/app_error";
 import { forbidden, serviceUnavailable } from "../../../shared/errors/http_errors";
-import { agentRegistry } from "../../socket/hub/agent_registry";
-import { agentsNamespace } from "../../../socket";
-import { dispatchRpcCommandToAgent } from "../../socket/hub/rpc_bridge";
 import { buildAgentOfflineNormalizedResponse } from "../serializers/agent_offline_bridge_response";
 import { normalizeAgentRpcResponse } from "../serializers/agent_rpc_response.serializer";
 import { resolveAgentRpcRetryAfterSeconds } from "../serializers/agent_rpc_retry_after";
@@ -23,8 +20,8 @@ import {
 } from "../serializers/agent_registry.serializer";
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
-import { toCorrelationIds } from "../../socket/hub/rpc_bridge_command_helpers";
-import type { AgentCommandBody } from "../validators/agents.validator";
+import { toCorrelationIds } from "../../../shared/utils/bridge_command_correlation";
+import type { AgentCommandBody, ListConnectedAgentsQuery } from "../validators/agents.validator";
 import type {
   AgentSelfProfileHttpBody,
   AgentSelfProfileParams,
@@ -48,9 +45,13 @@ const resolveAgentAccessPrincipal = (
     ? { type: "client", id: sub }
     : { type: "user", id: sub, ...(role !== undefined ? { role } : {}) };
 
+const hasConnectedAgentsPagination = (query: ListConnectedAgentsQuery): boolean =>
+  query.page !== undefined || query.pageSize !== undefined;
+
 export const listConnectedAgents = async (_request: Request, response: Response): Promise<void> => {
   const authUser = getAuthUser(response);
-  let agents = agentRegistry.listAll();
+  const query = getValidated<ListConnectedAgentsQuery>(response, "query");
+  let agents = container.restAgentBridgeService.listConnectedAgents();
 
   const visibleAgentIds = await resolveVisibleAgentIds(authUser, (userId) =>
     container.userAgentService.listAgentIdsByUserId(userId),
@@ -60,21 +61,43 @@ export const listConnectedAgents = async (_request: Request, response: Response)
     agents = agents.filter((a) => allowed.has(a.agentId));
   }
 
+  const total = agents.length;
+  if (hasConnectedAgentsPagination(query)) {
+    const page = Math.max(1, query.page ?? 1);
+    const pageSize = Math.max(1, Math.min(100, query.pageSize ?? 20));
+    const start = (page - 1) * pageSize;
+    agents = agents.slice(start, start + pageSize);
+  }
+
   const publicAgents: PublicConnectedAgent[] = toPublicConnectedAgents(agents);
 
   const payload: {
     agents: PublicConnectedAgent[];
     count: number;
+    total?: number;
+    page?: number;
+    pageSize?: number;
     _diagnostic?: { socketConnectionsInAgentsNamespace: number };
   } = {
     agents: publicAgents,
     count: publicAgents.length,
+    ...(hasConnectedAgentsPagination(query)
+      ? {
+          total,
+          page: Math.max(1, query.page ?? 1),
+          pageSize: Math.max(1, Math.min(100, query.pageSize ?? 20)),
+        }
+      : {}),
   };
 
-  if (isJwtAdmin(authUser) && env.nodeEnv !== "production" && agentsNamespace) {
-    payload._diagnostic = {
-      socketConnectionsInAgentsNamespace: agentsNamespace.sockets.size,
-    };
+  if (isJwtAdmin(authUser) && env.nodeEnv !== "production") {
+    const socketConnectionsInAgentsNamespace =
+      container.restAgentBridgeService.getAgentsNamespaceConnectionCount();
+    if (socketConnectionsInAgentsNamespace !== undefined) {
+      payload._diagnostic = {
+        socketConnectionsInAgentsNamespace,
+      };
+    }
   }
 
   response.status(200).json(payload);
@@ -202,7 +225,7 @@ export const proxyCommandToAgent = async (
         ...(latencyTrace ? { latencyTrace } : {}),
       },
       container.agentAccessService,
-      dispatchRpcCommandToAgent,
+      container.restAgentBridgeService.getDispatchCommand(),
       normalizeAgentRpcResponse,
     );
 

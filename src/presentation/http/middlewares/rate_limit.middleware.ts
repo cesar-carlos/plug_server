@@ -167,8 +167,10 @@ const passthrough: RequestHandler = (_req, _res, next) => {
 };
 
 /**
- * Builds all `express-rate-limit` middlewares. Must run once before `createApp()` (after optional
- * {@link initRestHttpRateLimitRedis} in production). Vitest setup calls this from `tests/setup/vitest.rate_limits.ts`.
+ * Builds all `express-rate-limit` middlewares. Called from {@link createApp} on
+ * every app bootstrap (and from Vitest setup for early init). In production,
+ * call {@link initRestHttpRateLimitRedis} before the first `createApp()` so
+ * Redis-backed stores are wired when `REST_RATE_LIMIT_REDIS_URL` is set.
  *
  * For each `REST_*_RATE_LIMIT_MAX` (and related `REST_CLIENT_*` limits), **`0` means unlimited**
  * (middleware becomes a no-op for that route group).

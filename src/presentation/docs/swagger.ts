@@ -191,9 +191,39 @@ const swaggerSpec = swaggerJSDoc({
             role: { type: "string", example: "user" },
           },
         },
+        HttpSuccessEnvelope: {
+          type: "object",
+          required: ["success", "data"],
+          description:
+            "Canonical success envelope for new JSON endpoints. Auth login/refresh/logout keep the legacy flat `AuthTokens` shape documented below.",
+          properties: {
+            success: { type: "boolean", enum: [true], example: true },
+            data: { description: "Endpoint-specific payload." },
+            meta: {
+              type: "object",
+              additionalProperties: true,
+              description: "Optional pagination or diagnostic metadata.",
+            },
+            requestId: { type: "string", example: "0d2a9475-ccf8-4f03-a64c-ef75f9b2f5c6" },
+          },
+        },
+        RefreshTokenTransport: {
+          type: "object",
+          description:
+            "Refresh token transport for `/auth/refresh`, `/auth/logout`, `/client-auth/refresh`, and `/client-auth/logout`. Accepts `refreshToken` in the JSON body and/or an HttpOnly cookie (`refresh_token` for user auth, `client_refresh_token` for client auth). **Precedence when both are present: body > cookie** — a non-empty body value wins even if the cookie differs.",
+          properties: {
+            refreshToken: {
+              type: "string",
+              description:
+                "Optional in JSON body. When present and non-empty, takes precedence over the HttpOnly cookie.",
+            },
+          },
+        },
         AuthTokens: {
           type: "object",
           required: ["accessToken", "refreshToken", "success", "token"],
+          description:
+            "Legacy flat success shape for auth token endpoints (not wrapped in `{ success, data }`). Includes `token` as an alias for `accessToken` for plug_agente compatibility.",
           properties: {
             accessToken: { type: "string" },
             refreshToken: { type: "string" },

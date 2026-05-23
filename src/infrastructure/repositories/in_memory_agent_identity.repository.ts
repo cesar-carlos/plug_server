@@ -1,6 +1,8 @@
 import type {
   BindAgentIdentityStatus,
   IAgentIdentityRepository,
+  UserAgentIdListPage,
+  UserAgentListFilter,
 } from "../../domain/repositories/agent_identity.repository.interface";
 
 interface IdentityRecord {
@@ -52,7 +54,30 @@ export class InMemoryAgentIdentityRepository implements IAgentIdentityRepository
       }
     }
     result.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-    return result.map((r) => r.agentId);
+    return result.map((entry) => entry.agentId);
+  }
+
+  async listAgentIdsPageByUserId(
+    userId: string,
+    filter?: UserAgentListFilter,
+  ): Promise<UserAgentIdListPage> {
+    const page = Math.max(1, filter?.page ?? 1);
+    const pageSize = Math.max(1, Math.min(100, filter?.pageSize ?? 20));
+    const result: Array<{ agentId: string; createdAt: Date }> = [];
+    for (const [agentId, record] of this.ownerByAgentId.entries()) {
+      if (record.userId === userId) {
+        result.push({ agentId, createdAt: record.createdAt });
+      }
+    }
+    result.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const total = result.length;
+    const start = (page - 1) * pageSize;
+    return {
+      agentIds: result.slice(start, start + pageSize).map((entry) => entry.agentId),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   clear(): void {

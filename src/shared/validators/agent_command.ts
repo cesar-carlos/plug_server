@@ -21,7 +21,7 @@ const rpcMetaSchema = z
     timestamp: rpcTimestampSchema.optional(),
     /**
      * Accepted on bridge ingress for backward compatibility, but stripped before
-     * forwarding to the agent. `socket_communication_standard.md` (v2.10,
+     * forwarding to the agent. `socket_communication_standard.md` (v2.11,
      * "Nota operacional (largura de banda)" and "Limitacoes e observacoes do
      * estado atual") states the agent does NOT support per-request compression
      * overrides via `meta`; outbound `PayloadFrame` compression follows the

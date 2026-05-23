@@ -162,6 +162,64 @@ describe("User client governance API", () => {
     expect(detailResponse.body.client.status).toBe("rejected");
   });
 
+  it("lists managed clients with db-backed filters, pagination and stable order", async () => {
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients-page" });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(ownerProfile.status).toBe(200);
+    const ownerEmail = ownerProfile.body.user.email as string;
+    const suffix = Date.now();
+
+    for (const [name, status] of [
+      ["Alpha", "active"],
+      ["Beta", "blocked"],
+      ["Gamma", "active"],
+    ] as const) {
+      const registerClient = await request(app)
+        .post("/api/v1/client-auth/register")
+        .send({
+          ownerEmail,
+          email: `${name.toLowerCase()}-page-${suffix}@test.com`,
+          password: "ClientPwd1",
+          name,
+          lastName: "Paged",
+        });
+      expect(registerClient.status).toBe(201);
+      await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
+      if (status === "blocked") {
+        const blockResponse = await request(app)
+          .patch(`/api/v1/me/clients/${registerClient.body.client.id as string}/status`)
+          .set("Authorization", `Bearer ${owner.accessToken}`)
+          .send({ status: "blocked" });
+        expect(blockResponse.status).toBe(200);
+      }
+    }
+
+    const blockedOnly = await request(app)
+      .get("/api/v1/me/clients")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .query({ status: "blocked", search: "beta", page: 1, pageSize: 1 });
+    expect(blockedOnly.status).toBe(200);
+    expect(blockedOnly.body.count).toBe(1);
+    expect(blockedOnly.body.total).toBe(1);
+    expect(blockedOnly.body.page).toBe(1);
+    expect(blockedOnly.body.pageSize).toBe(1);
+    expect(blockedOnly.body.clients[0]?.name).toBe("Beta");
+
+    const pageOne = await request(app)
+      .get("/api/v1/me/clients")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .query({ page: 1, pageSize: 1 });
+    const pageTwo = await request(app)
+      .get("/api/v1/me/clients")
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .query({ page: 2, pageSize: 1 });
+    expect(pageOne.status).toBe(200);
+    expect(pageTwo.status).toBe(200);
+    expect(pageOne.body.clients[0]?.id).not.toBe(pageTwo.body.clients[0]?.id);
+  });
+
   it("lets owner review and approve access requests from managed clients", async () => {
     const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
     const ownerProfile = await request(app)

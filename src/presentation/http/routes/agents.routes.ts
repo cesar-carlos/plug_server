@@ -17,7 +17,7 @@ import {
   agentsCommandsUserRateLimit,
 } from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
-import { agentCommandBodySchema } from "../validators/agents.validator";
+import { agentCommandBodySchema, listConnectedAgentsQuerySchema } from "../validators/agents.validator";
 import {
   agentSelfProfileHttpBodySchema,
   agentSelfProfileParamsSchema,
@@ -33,11 +33,26 @@ export const agentsRouter = Router();
  *     description: >
  *       Returns agents that have successfully emitted agent:register in the /agents Socket.IO namespace.
  *       Admins see all connected agents. Non-admin users only see agents whose agentId is linked to their account.
+ *       The list is sourced from the in-memory registry of the current hub process (not paginated at the database layer).
+ *       Optional `page` and `pageSize` query parameters slice the filtered in-memory result after visibility rules;
+ *       when omitted, the full visible set is returned. Practical scale is bounded by connected agents on this instance.
  *       Requires Bearer token. In non-production, admins receive _diagnostic.socketConnectionsInAgentsNamespace
  *       (raw socket count) for debugging; non-admins do not receive this field.
  *     tags: [Agents]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
  *     responses:
  *       200:
  *         description: List of registered agents
@@ -79,7 +94,12 @@ export const agentsRouter = Router();
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-agentsRouter.get("/", ...requireAuthAndActiveAccountSnapshot, asyncHandler(listConnectedAgents));
+agentsRouter.get(
+  "/",
+  ...requireAuthAndActiveAccountSnapshot,
+  validateRequest({ query: listConnectedAgentsQuerySchema }),
+  asyncHandler(listConnectedAgents),
+);
 
 /**
  * @openapi

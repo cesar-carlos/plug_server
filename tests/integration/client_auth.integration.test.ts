@@ -605,6 +605,41 @@ describe("Client auth authenticated session flow", () => {
     expect(response.headers["set-cookie"]).toBeDefined();
   });
 
+  it("prefers body refresh token over a conflicting cookie (body > cookie)", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-refresh-precedence`,
+    });
+    const staleToken = client.refreshToken;
+
+    const rotateResponse = await request(app)
+      .post("/api/v1/client-auth/refresh")
+      .send({ refreshToken: staleToken });
+    expect(rotateResponse.status).toBe(200);
+    const currentToken = rotateResponse.body.refreshToken as string;
+
+    const response = await request(app)
+      .post("/api/v1/client-auth/refresh")
+      .set("Cookie", [`client_refresh_token=${staleToken}`])
+      .send({ refreshToken: currentToken });
+
+    expect(response.status).toBe(200);
+    expect(response.body.accessToken).toBeDefined();
+    expect(response.body.refreshToken).toBeDefined();
+  });
+
+  it("rejects when body refresh token is invalid even if cookie is valid", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-refresh-body-invalid`,
+    });
+
+    const response = await request(app)
+      .post("/api/v1/client-auth/refresh")
+      .set("Cookie", [`client_refresh_token=${client.refreshToken}`])
+      .send({ refreshToken: "not-a-valid-token" });
+
+    expect(response.status).toBe(401);
+  });
+
   it("revokes client refresh token on logout", async () => {
     const { client } = await registerOwnerAndClientSession(app, {
       suffix: `${Date.now()}-logout`,

@@ -1,7 +1,63 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import type { Request, Response } from "express";
 import { z } from "zod";
 
-import { normalizeZodIssues } from "../../../../src/presentation/http/middlewares/validate.middleware";
+import {
+  getValidated,
+  normalizeZodIssues,
+  validateRequest,
+} from "../../../../src/presentation/http/middlewares/validate.middleware";
+
+describe("validateRequest", () => {
+  const mockResponse = (): Response => {
+    const locals: Record<string, unknown> = {};
+    return { locals } as Response;
+  };
+
+  it("should call next() and store validated body on success", () => {
+    const schema = z.object({ email: z.string().email() });
+    const middleware = validateRequest({ body: schema });
+    const request = { body: { email: "user@example.com" } } as Request;
+    const response = mockResponse();
+    const next = vi.fn();
+
+    middleware(request, response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(getValidated<{ email: string }>(response, "body")).toEqual({
+      email: "user@example.com",
+    });
+    expect(request.body).toEqual({ email: "user@example.com" });
+  });
+
+  it("should call next(error) with ZodError instead of throwing on invalid body", () => {
+    const schema = z.object({ email: z.string().email() });
+    const middleware = validateRequest({ body: schema });
+    const request = { body: { email: "not-an-email" } } as Request;
+    const response = mockResponse();
+    const next = vi.fn();
+
+    middleware(request, response, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const error = next.mock.calls[0]?.[0];
+    expect(error).toBeInstanceOf(z.ZodError);
+    expect(response.locals.validated).toBeUndefined();
+  });
+
+  it("should call next(error) when params validation fails", () => {
+    const schema = z.object({ id: z.string().uuid() });
+    const middleware = validateRequest({ params: schema });
+    const request = { params: { id: "not-a-uuid" } } as unknown as Request;
+    const response = mockResponse();
+    const next = vi.fn();
+
+    middleware(request, response, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(next.mock.calls[0]?.[0]).toBeInstanceOf(z.ZodError);
+  });
+});
 
 describe("normalizeZodIssues", () => {
   it("should normalize a nested field path", () => {

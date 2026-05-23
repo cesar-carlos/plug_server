@@ -100,7 +100,7 @@ Detalhes normativos:
 
 ### Socket em `/agents`
 
-O agente usa o protocolo do `plug_agente` (perfil `plug-jsonrpc-profile/2.10`) no
+O agente usa o protocolo do `plug_agente` (perfil `plug-jsonrpc-profile/2.11`) no
 namespace `/agents`, incluindo:
 
 | Evento | Direcao | Notas |
@@ -156,7 +156,7 @@ O projeto ja contem:
 - `POST /api/v1/auth/agent-login` para agentes
 - ownership automatica de agente no fluxo `agent-login` + `agent:register`
 - registry de agentes e negociacao de capabilities
-  (`HUB_TRANSPORT_EXTENSIONS.plugProfile = "plug-jsonrpc-profile/2.10"`)
+  (`HUB_TRANSPORT_EXTENSIONS.plugProfile = "plug-jsonrpc-profile/2.11"`)
 - validacao zod do payload `agent:register` alinhada ao schema do agente, com
   resposta de rejeicao em `agent:register_error` (JSON puro)
 - readiness explicito com `agent:ready` e fallback por grace window
@@ -168,8 +168,8 @@ O projeto ja contem:
 - streaming, backpressure e `rpc:stream.pull`
   (hints `recommendedStreamPullWindowSize` / `maxStreamPullWindowSize`
   publicados em `agent:capabilities`)
-- `PayloadFrame` com gzip e assinatura HMAC-SHA256 opcional, com enforcement de
-  `signature.key_id` quando `PAYLOAD_SIGNING_KEY_ID` esta configurado
+- `PayloadFrame` com gzip e assinatura HMAC-SHA256 opcional, com keyring por env
+  (`PAYLOAD_SIGNING_KEY_ID` ativo e `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON` inbound)
 - auditoria Socket e metricas Prometheus
 
 ## Persistencia

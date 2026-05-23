@@ -440,16 +440,15 @@ authRouter.post(
  *     description: >
  *       Rate-limited separately from password login (`REST_TOKEN_REFRESH_RATE_LIMIT_*`),
  *       not the stricter credential-auth limiter used on `/auth/login` and `/auth/agent-login`.
+ *       Refresh token transport follows `RefreshTokenTransport`: JSON body and/or HttpOnly
+ *       `refresh_token` cookie. When both are sent, **body > cookie** (non-empty body wins).
  *     tags: [Auth]
  *     requestBody:
  *       required: false
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               refreshToken:
- *                 type: string
+ *             $ref: '#/components/schemas/RefreshTokenTransport'
  *     responses:
  *       200:
  *         description: New tokens issued
@@ -472,16 +471,17 @@ authRouter.post(
  * /auth/logout:
  *   post:
  *     summary: Revoke the refresh token
+ *     description: >
+ *       Accepts the refresh token via JSON body and/or HttpOnly `refresh_token` cookie.
+ *       When both are sent, **body > cookie** (non-empty body wins). The cookie is always
+ *       cleared in the response even when revocation fails or no token is supplied.
  *     tags: [Auth]
  *     requestBody:
  *       required: false
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               refreshToken:
- *                 type: string
+ *             $ref: '#/components/schemas/RefreshTokenTransport'
  *     responses:
  *       204:
  *         description: Logged out successfully

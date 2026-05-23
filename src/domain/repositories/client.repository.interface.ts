@@ -10,10 +10,25 @@ export interface ClientActiveSnapshot {
   readonly credentialsUpdatedAt: Date;
 }
 
+export interface ManagedClientListFilter {
+  readonly status?: ClientStatus;
+  readonly search?: string;
+  readonly page?: number;
+  readonly pageSize?: number;
+}
+
+export interface ManagedClientListPage {
+  readonly items: Client[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
 export interface IClientRepository {
   findById(id: string): Promise<Client | null>;
   findByEmail(email: string): Promise<Client | null>;
   listByUserId(userId: string): Promise<Client[]>;
+  listByUserIdPage(userId: string, filter?: ManagedClientListFilter): Promise<ManagedClientListPage>;
   /** Active client IDs among `ids`, preserving the input order after de-duplication. */
   findActiveIdsByIds(ids: readonly string[]): Promise<string[]>;
   /** Lightweight projection for hot-path active-account checks (auth handshake, consumer guard). */

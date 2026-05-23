@@ -4,7 +4,7 @@ import { listMyAgents, listUserAgents } from "../controllers/user_agents.control
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuthAndActiveAccountSnapshot, requireRole } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
-import { userIdParamSchema } from "../validators/user_agents.validator";
+import { userIdParamSchema, userListAgentsQuerySchema } from "../validators/user_agents.validator";
 
 export const userAgentsRouter = Router();
 
@@ -17,6 +17,18 @@ export const userAgentsRouter = Router();
  *     tags: [User agents]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
  *     responses:
  *       200:
  *         description: Managed agents for the authenticated user
@@ -38,6 +50,7 @@ export const userAgentsRouter = Router();
 userAgentsRouter.get(
   "/me/agents",
   ...requireAuthAndActiveAccountSnapshot,
+  validateRequest({ query: userListAgentsQuerySchema }),
   asyncHandler(listMyAgents),
 );
 
@@ -56,6 +69,17 @@ userAgentsRouter.get(
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
  *     responses:
  *       200:
  *         description: Managed agents for the given user
@@ -80,6 +104,6 @@ userAgentsRouter.get(
   "/users/:userId/agents",
   ...requireAuthAndActiveAccountSnapshot,
   requireRole("admin"),
-  validateRequest({ params: userIdParamSchema }),
+  validateRequest({ params: userIdParamSchema, query: userListAgentsQuerySchema }),
   asyncHandler(listUserAgents),
 );

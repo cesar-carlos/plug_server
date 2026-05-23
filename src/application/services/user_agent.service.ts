@@ -15,6 +15,18 @@ export interface EnrichedAgent {
   readonly status: Agent["status"];
 }
 
+export interface UserAgentListFilter {
+  readonly page?: number;
+  readonly pageSize?: number;
+}
+
+export interface UserAgentsPage {
+  readonly agents: EnrichedAgent[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
 export class UserAgentService {
   constructor(
     private readonly agentRepository: IAgentRepository,
@@ -32,7 +44,22 @@ export class UserAgentService {
 
   async listByUserId(userId: string): Promise<EnrichedAgent[]> {
     const agentIds = await this.agentIdentityRepository.listAgentIdsByUserId(userId);
-    const agents = await this.agentRepository.findByIds(agentIds);
+    return this.enrichAgents(agentIds);
+  }
+
+  async listByUserIdPage(userId: string, filter?: UserAgentListFilter): Promise<UserAgentsPage> {
+    const pageResult = await this.agentIdentityRepository.listAgentIdsPageByUserId(userId, filter);
+    const agents = await this.enrichAgents(pageResult.agentIds);
+    return {
+      agents,
+      total: pageResult.total,
+      page: pageResult.page,
+      pageSize: pageResult.pageSize,
+    };
+  }
+
+  private async enrichAgents(agentIds: readonly string[]): Promise<EnrichedAgent[]> {
+    const agents = await this.agentRepository.findByIds([...agentIds]);
     const agentsById = new Map(agents.map((agent) => [agent.agentId, agent] as const));
 
     return agentIds

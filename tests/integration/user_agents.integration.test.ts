@@ -9,7 +9,7 @@ import { env } from "../../src/shared/config/env";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { createTestServer } from "../helpers/test_server";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
-import { seedAdminUser, seedAgent } from "./helpers/seed_agent";
+import { seedAdminUser, seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
 const app = createApp();
 
@@ -124,6 +124,38 @@ describe("User agents API", () => {
       .set("Authorization", `Bearer ${regularToken}`);
 
     expect(res.status).toBe(403);
+  });
+
+  it("GET /api/v1/me/agents supports optional db-backed pagination", async () => {
+    const suffix = Date.now();
+    const agentA = await seedAgent({
+      name: `Paged Agent A ${suffix}`,
+      cnpjCpf: `paged-a-${suffix}`,
+    });
+    const agentB = await seedAgent({
+      name: `Paged Agent B ${suffix}`,
+      cnpjCpf: `paged-b-${suffix}`,
+    });
+    await seedAgentBinding(regularUserId, agentA.agentId);
+    await seedAgentBinding(regularUserId, agentB.agentId);
+
+    const pageOne = await request(app)
+      .get("/api/v1/me/agents")
+      .set("Authorization", `Bearer ${regularToken}`)
+      .query({ page: 1, pageSize: 1 });
+    expect(pageOne.status).toBe(200);
+    expect(pageOne.body.count).toBe(1);
+    expect(pageOne.body.total).toBeGreaterThanOrEqual(2);
+    expect(pageOne.body.page).toBe(1);
+    expect(pageOne.body.pageSize).toBe(1);
+
+    const pageTwo = await request(app)
+      .get("/api/v1/me/agents")
+      .set("Authorization", `Bearer ${regularToken}`)
+      .query({ page: 2, pageSize: 1 });
+    expect(pageTwo.status).toBe(200);
+    expect(pageTwo.body.count).toBe(1);
+    expect(pageTwo.body.agents[0]?.agentId).not.toBe(pageOne.body.agents[0]?.agentId);
   });
 
   it("legacy ownership mutation endpoints are no longer exposed", async () => {

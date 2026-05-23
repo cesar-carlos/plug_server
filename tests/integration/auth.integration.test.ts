@@ -550,6 +550,34 @@ describe("Auth API", () => {
       refreshToken = response.body.refreshToken as string;
     });
 
+    it("should prefer body refresh token over a conflicting cookie (body > cookie)", async () => {
+      const staleToken = refreshToken;
+      const rotateResponse = await request(app)
+        .post("/api/v1/auth/refresh")
+        .send({ refreshToken: staleToken });
+      expect(rotateResponse.status).toBe(200);
+      const currentToken = rotateResponse.body.refreshToken as string;
+
+      const response = await request(app)
+        .post("/api/v1/auth/refresh")
+        .set("Cookie", [`refresh_token=${staleToken}`])
+        .send({ refreshToken: currentToken });
+
+      expect(response.status).toBe(200);
+      expect(response.body.accessToken).toBeDefined();
+      expect(response.body.refreshToken).toBeDefined();
+      refreshToken = response.body.refreshToken as string;
+    });
+
+    it("should reject when body refresh token is invalid even if cookie is valid", async () => {
+      const response = await request(app)
+        .post("/api/v1/auth/refresh")
+        .set("Cookie", [`refresh_token=${refreshToken}`])
+        .send({ refreshToken: "not-a-valid-token" });
+
+      expect(response.status).toBe(401);
+    });
+
     it("should return 401 when the used refresh token is presented again (rotation)", async () => {
       const firstRefreshToken = refreshToken;
 

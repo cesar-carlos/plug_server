@@ -2,6 +2,8 @@ import type { Client } from "../../domain/entities/client.entity";
 import type {
   ClientActiveSnapshot,
   IClientRepository,
+  ManagedClientListFilter,
+  ManagedClientListPage,
 } from "../../domain/repositories/client.repository.interface";
 
 export class InMemoryClientRepository implements IClientRepository {
@@ -36,6 +38,38 @@ export class InMemoryClientRepository implements IClientRepository {
 
   async listByUserId(userId: string): Promise<Client[]> {
     return [...this.store.values()].filter((client) => client.userId === userId);
+  }
+
+  async listByUserIdPage(
+    userId: string,
+    filter?: ManagedClientListFilter,
+  ): Promise<ManagedClientListPage> {
+    const page = Math.max(1, filter?.page ?? 1);
+    const pageSize = Math.max(1, Math.min(100, filter?.pageSize ?? 20));
+    let clients = [...this.store.values()].filter((client) => client.userId === userId);
+
+    if (filter?.status !== undefined) {
+      clients = clients.filter((client) => client.status === filter.status);
+    }
+    if (filter?.search !== undefined && filter.search.trim() !== "") {
+      const query = filter.search.trim().toLowerCase();
+      clients = clients.filter(
+        (client) =>
+          client.email.toLowerCase().includes(query) ||
+          client.name.toLowerCase().includes(query) ||
+          client.lastName.toLowerCase().includes(query),
+      );
+    }
+
+    clients.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const total = clients.length;
+    const start = (page - 1) * pageSize;
+    return {
+      items: clients.slice(start, start + pageSize),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async findActiveIdsByIds(ids: readonly string[]): Promise<string[]> {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { getHealth, getHealthLive, getHealthReady } from "../controllers/health.controller";
+import { attachHttpRequestId } from "../helpers/http_success_response";
 import { getMetrics } from "../controllers/metrics.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuthAndActiveAccount, requireRole } from "../middlewares/auth.middleware";
@@ -48,9 +49,14 @@ httpRouter.use("/", userClientsRouter);
  *                 message:
  *                   type: string
  *                   example: pong
+ *                 requestId:
+ *                   type: string
+ *                   example: 0d2a9475-ccf8-4f03-a64c-ef75f9b2f5c6
  */
 httpRouter.get("/ping", (_request, response) => {
-  response.status(200).json({ message: "pong" });
+  response
+    .status(200)
+    .json(attachHttpRequestId({ message: "pong" }, response.locals.requestId as string | undefined));
 });
 
 /**

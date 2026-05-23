@@ -301,15 +301,15 @@ clientAuthRouter.post(
  *     description: >
  *       Rate-limited with `REST_TOKEN_REFRESH_RATE_LIMIT_*` (same as `/auth/refresh`),
  *       separate from the credential limiter used on `/client-auth/login`.
+ *       Refresh token transport follows `RefreshTokenTransport`: JSON body and/or HttpOnly
+ *       `client_refresh_token` cookie. When both are sent, **body > cookie** (non-empty body wins).
  *     tags: [Client Auth]
  *     requestBody:
  *       required: false
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               refreshToken: { type: string }
+ *             $ref: '#/components/schemas/RefreshTokenTransport'
  *     responses:
  *       200:
  *         description: New access/refresh tokens issued
@@ -330,15 +330,17 @@ clientAuthRouter.post(
  * /client-auth/logout:
  *   post:
  *     summary: Logout client (refresh token revoke)
+ *     description: >
+ *       Accepts the refresh token via JSON body and/or HttpOnly `client_refresh_token` cookie.
+ *       When both are sent, **body > cookie** (non-empty body wins). The cookie is always
+ *       cleared in the response even when revocation fails or no token is supplied.
  *     tags: [Client Auth]
  *     requestBody:
  *       required: false
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               refreshToken: { type: string }
+ *             $ref: '#/components/schemas/RefreshTokenTransport'
  *     responses:
  *       204:
  *         description: Logged out

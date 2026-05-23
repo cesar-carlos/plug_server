@@ -18,7 +18,8 @@ import { getPayloadFrameMetricsSnapshot } from "../../../shared/metrics/payload_
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getClientSocketEventPublishIdempotencySerializationTrackedKeyCount } from "../../../application/services/client_socket_event_publish_idempotency_serialization";
-import { getSocketMetricsSnapshot } from "../../../socket";
+import type { SocketHubMetricsSnapshot } from "../../adapters/socket_metrics_snapshot.adapter";
+import { container } from "../../../shared/di/container";
 
 const escapePrometheusLabelValue = (value: string): string =>
   value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
@@ -51,7 +52,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
     return;
   }
 
-  const socket = getSocketMetricsSnapshot();
+  const socket = container.socketMetricsSnapshotProvider.getSnapshot() as SocketHubMetricsSnapshot;
   const restBridge = getRestBridgeMetricsSnapshot();
   const bridgeRpcMethods = getBridgeRpcMethodMetricsSnapshot();
   const relay = socket.relay;

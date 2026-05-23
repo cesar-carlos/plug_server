@@ -101,6 +101,36 @@ describe("REST hardening", () => {
       });
       expect(response.body.requestId).toEqual(expect.any(String));
     });
+
+    it("returns VALIDATION_ERROR for invalid login body via validateRequest safeParse", async () => {
+      const response = await request(app).post("/auth/login").send({ email: "not-an-email" });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toMatchObject({
+        success: false,
+        code: "VALIDATION_ERROR",
+        message: "Validation failed",
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Validation failed",
+        },
+      });
+      expect(response.body.error.details).toEqual({
+        issues: expect.arrayContaining([
+          expect.objectContaining({ field: "email", message: expect.any(String) }),
+        ]),
+      });
+      expect(response.body.requestId).toEqual(expect.any(String));
+    });
+  });
+
+  describe("createApp rate limit bootstrap", () => {
+    it("serves /api/v1 without RATE_LIMIT_NOT_INITIALIZED", async () => {
+      const response = await request(app).get("/api/v1/health/live");
+
+      expect(response.status).toBe(200);
+      expect(response.body.code).not.toBe("RATE_LIMIT_NOT_INITIALIZED");
+    });
   });
 
   // ─── F1.A1: socketId leak in GET /agents ─────────────────────────────────

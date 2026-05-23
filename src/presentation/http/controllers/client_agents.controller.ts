@@ -72,7 +72,7 @@ export const listMyClientAgents = async (_request: Request, response: Response):
   const agents = pageResult.items.map((item) =>
     toClientAgentDto(
       item.agent,
-      container.isAgentConnectedToHub(item.agent.agentId),
+      container.restAgentBridgeService.isAgentConnected(item.agent.agentId),
       item.hasClientToken,
     ),
   );
@@ -102,7 +102,7 @@ export const getMyClientAgent = async (
     next(result.error);
     return;
   }
-  const isHubConnected = container.isAgentConnectedToHub(agentId);
+  const isHubConnected = container.restAgentBridgeService.isAgentConnected(agentId);
   const hasClientToken = await container.clientAgentAccessService.hasClientTokenForAgent(
     authClient.sub,
     agentId,

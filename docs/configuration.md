@@ -111,7 +111,12 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_AGENT_PROFILE_SYNC_MAX_CONCURRENT`        | `8`                                              | Máximo de syncs `agent.getProfile` em paralelo após `agent:register` (reduz rajada quando muitos agentes reconectam).                                                                                                                                                                                                                                           |
 | `PAYLOAD_SIGN_OUTBOUND`                           | `false`                                          | Assina frames de saída com `PAYLOAD_SIGNING_KEY` (HMAC-SHA256 sobre JSON canônico do `PayloadFrame` sem `signature`, com `payload` em base64 e chaves ordenadas).                                                                                                                                                                                                                              |
 | `PAYLOAD_SIGNING_KEY`                             | _(vazio)_                                        | Chave compartilhada para assinar/verificar `PayloadFrame.signature`. Quando ausente e um frame chega assinado, a verificação **falha**.                                                                                                                                                                                                                                                          |
-| `PAYLOAD_SIGNING_KEY_ID`                          | _(vazio)_                                        | Identificador da chave (ex.: `hub-2026-q2`). Quando definida, frames recebidos **devem** trazer `signature.key_id` igual ao configurado — ausente ou divergente → `-32001` (`invalid_signature`). Sem essa env, o hub aceita assinaturas sem `key_id` (modo single-key, mais permissivo que o `payload-frame.schema.json` do agente). Use sempre que houver rotação ou múltiplas chaves activas. |
+| `PAYLOAD_SIGNING_KEY_ID`                          | _(vazio)_                                        | Identificador da chave ativa de saída/verificação (ex.: `hub-2026-q2`). Quando definida, frames recebidos assinados **devem** trazer `signature.key_id` conhecido. Sem essa env e sem chaves anteriores, o hub aceita assinaturas sem `key_id` (modo single-key). |
+| `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON`              | `{}`                                             | Objeto JSON `{ "old-key-id": "secret" }` aceito apenas para verificar frames inbound durante rotação. Chave anterior nunca é usada para assinar saída. Ao configurar chaves anteriores, frames assinados sem `key_id` passam a falhar. |
+| `SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION`        | `strict`                                         | Validação lógica depois do `PayloadFrame`: `strict` rejeita `rpc:response`, chunks, completes e ACKs fora do contrato; `warn` registra métrica/log e continua; `off` desliga. |
+| `SOCKET_AGENT_ACK_RETRY_ENABLED`                  | `true`                                           | Habilita retry por falta de `rpc:request_ack`/`rpc:batch_ack` somente para requests elegíveis e idempotentes/seguras. |
+| `SOCKET_AGENT_ACK_TIMEOUT_MS`                     | `1000`                                           | Janela para aguardar ACK antes de reenviar o mesmo frame elegível. |
+| `SOCKET_AGENT_ACK_MAX_RETRIES`                    | `1`                                              | Número máximo de reenvios por falta de ACK. `0` desativa o retry mesmo com a flag ligada. |
 
 ## Client thumbnail e password recovery
 
@@ -250,9 +255,39 @@ dedicado se for usado em UI com edição contínua.
 | Cookie `refresh_token` / `client_refresh_token` | `HttpOnly`, `Secure` em prod, `SameSite=Strict`, `Path=/`, `Max-Age` = `JWT_REFRESH_EXPIRES_IN` correspondente | `Max-Age` usa o mesmo env do JWT para evitar cookie órfão após revogação. Logout sempre limpa o cookie; change-password de `User` e `Client` também limpa para refletir invalidação de sessão. |
 | `/metrics` (root e `/api/v1/metrics`) | exige `requireAuthAndActiveAccount` + role `admin` | Restrito a admin. Use `HUB_INSTANCE_ID` para distinguir réplicas em scrape. |
 | `/health/ready` | probe `SELECT 1` no Postgres com timeout `1500 ms` | Retorna `503` + `status: "degraded"` quando o probe falha; `200` caso contrário. Em `NODE_ENV=test` o probe é omitido. `/health/live` continua sempre `200`. |
-| `/uploads` (estático) | `etag: true`, `maxAge: 7d`, `immutable`, `dotfiles: deny`, `fallthrough: false`, `index: false` | Endurece o `express.static` para evitar listagem, dotfiles e relisten ao 404. |
+| `/uploads` (estático) | `etag: true`, `maxAge: 7d`, `immutable`, `dotfiles: deny`, `fallthrough: false`, `index: false` | Endurece o `express.static` para evitar listagem, dotfiles e relisten ao 404. Ver **Política pública de thumbnails** abaixo. |
 | `express.urlencoded` | `extended: false` | Usa o parser `querystring` nativo; só os formulários HTML de aprovação dependem dele e carregam `{ token, reason? }`. |
 | Upload de thumbnail | multer + validação magic-bytes via `sharp().metadata()` | Allowlist: `image/png`, `image/jpeg`, `image/webp`, `image/gif`. `MulterError` (size limit e afins) é convertido para `400 BAD_REQUEST`, não `500`. |
+
+### Política pública de thumbnails (`/uploads`)
+
+O mount estático `/uploads` serve ficheiros do diretório `UPLOADS_DIR` **sem autenticação**. Isto é intencional: as URLs de thumbnail de client (`UPLOADS_PUBLIC_BASE_URL`, tipicamente `{APP_BASE_URL}/uploads/client-thumbnails/...`) são referenciadas em respostas JSON e carregadas por browsers ou apps Colmeia como imagens públicas.
+
+Implicações de segurança (comportamento actual, sem breaking change):
+
+- **Confidencialidade**: qualquer pessoa com a URL completa pode obter o ficheiro; os nomes incluem UUID + timestamp + sufixo aleatório (dificulta adivinhação, mas não substitui controlo de acesso).
+- **Escopo**: apenas ficheiros gravados pelo hub sob `client-thumbnails/` (e outros segmentos futuros documentados) entram neste volume; `dotfiles: deny` e recusa de paths fora de `UPLOADS_DIR` no adapter de storage impedem traversal.
+- **Cache**: `maxAge: 7d` + `immutable` — após substituir uma thumbnail, a URL muda; clientes não devem assumir invalidação imediata da URL antiga.
+- **Operação**: em produção, `UPLOADS_DIR` deve ser volume persistente; reverse proxy pode cachear `/uploads/*` como estático público.
+
+Upload continua protegido: `POST /api/v1/client-auth/me/thumbnail` exige JWT de `Client`, rate limit dedicado e validação de tipo/tamanho.
+
+### CORS sem header `Origin` e cookies
+
+Com `CORS_ORIGIN` listando origens específicas (não `*`), `buildCorsOptions` define `credentials: true` e valida o header `Origin` contra a lista.
+
+Pedidos **sem** header `Origin` (ou com `Origin: null`, ex.: iframes sandbox, alguns in-app browsers) são **aceites** pelo middleware CORS — reflectem como same-origin do ponto de vista do pacote `cors`. Isto cobre:
+
+- **curl**, **Postman**, health probes e outros clientes não-browser;
+- scripts server-side com refresh token no body/header (transporte documentado para non-browser).
+
+Para endpoints que definem cookies (`refresh_token`, `client_refresh_token`):
+
+- Browsers enviam `Origin` em cross-site XHR/fetch; origens não listadas recebem erro CORS antes de chegar ao handler.
+- Pedidos same-origin (UI servida pelo mesmo host da API) podem omitir `Origin`; cookies `SameSite=Strict` continuam restritos ao site da API.
+- Com `CORS_ORIGIN=*` (só dev/test), `credentials: false` — cookies **não** são expostos cross-origin; use lista explícita em staging/produção quando a UI estiver noutro host.
+
+Não confundir CORS com CSRF: métodos inseguros que aceitam cookies mantêm `SameSite=Strict` e validação de conta activa; formulários HTML de aprovação usam tokens opacos, não cookies de sessão.
 
 ## Email outbox
 

@@ -164,6 +164,15 @@ interface ClientAccessTokenDecisionOptions {
 }
 
 export class ClientAgentAccessService {
+  private static readonly LIST_REFRESH_CONCURRENCY = 4;
+  private static readonly LIST_REFRESH_RECENT_TTL_MS = 30_000;
+
+  private readonly refreshInFlight = new Map<string, Promise<Agent>>();
+  private readonly recentlyRefreshedAgents = new Map<
+    string,
+    { readonly agent: Agent; readonly refreshedAtMs: number }
+  >();
+
   constructor(
     private readonly agentRepository: IAgentRepository,
     private readonly agentIdentityRepository: IAgentIdentityRepository,
@@ -221,16 +230,7 @@ export class ClientAgentAccessService {
       }
       return {
         ...pageResult,
-        items: await Promise.all(
-          pageResult.items.map(async (item) => ({
-            ...item,
-            agent: await this.resolvePreferredAgentSnapshot(
-              clientId,
-              item.agent.agentId,
-              item.agent,
-            ),
-          })),
-        ),
+        items: await this.refreshApprovedAgentListItems(clientId, pageResult.items),
       };
     }
 
@@ -242,11 +242,12 @@ export class ClientAgentAccessService {
     const pageAgents =
       options?.refreshOnline !== true
         ? pageResult.items
-        : await Promise.all(
-            pageResult.items.map((agent) =>
-              this.resolvePreferredAgentSnapshot(clientId, agent.agentId, agent),
-            ),
-          );
+        : (
+            await this.refreshApprovedAgentListItems(
+              clientId,
+              pageResult.items.map((agent) => ({ agent, hasClientToken: false })),
+            )
+          ).map((item) => item.agent);
     const tokenPresenceByAgent =
       await this.clientAgentAccessRepository.listClientTokenPresenceForClientIn(
         clientId,
@@ -1335,6 +1336,83 @@ export class ClientAgentAccessService {
       expiresAt: parseExpiryToDate(env.approvalTokenExpiresIn),
       createdAt: new Date(),
     };
+  }
+
+  private async refreshApprovedAgentListItems(
+    clientId: string,
+    items: readonly ApprovedClientAgentListItem[],
+  ): Promise<ApprovedClientAgentListItem[]> {
+    if (items.length === 0) {
+      return [];
+    }
+
+    const refreshedByAgentId = new Map<string, Agent>();
+    const candidates = items.filter(
+      (item) => this.liveProfileDeps?.isAgentOnline?.(item.agent.agentId) === true,
+    );
+
+    let nextIndex = 0;
+    const concurrency = Math.max(
+      1,
+      Math.min(ClientAgentAccessService.LIST_REFRESH_CONCURRENCY, candidates.length),
+    );
+    await Promise.all(
+      Array.from({ length: concurrency }, async () => {
+        while (nextIndex < candidates.length) {
+          const item = candidates[nextIndex];
+          nextIndex += 1;
+          if (!item) {
+            continue;
+          }
+          const refreshed = await this.resolvePreferredAgentSnapshotWithDedup(
+            clientId,
+            item.agent.agentId,
+            item.agent,
+          );
+          refreshedByAgentId.set(item.agent.agentId, refreshed);
+        }
+      }),
+    );
+
+    return items.map((item) => ({
+      ...item,
+      agent: refreshedByAgentId.get(item.agent.agentId) ?? item.agent,
+    }));
+  }
+
+  private async resolvePreferredAgentSnapshotWithDedup(
+    clientId: string,
+    agentId: string,
+    persistedAgent: Agent,
+  ): Promise<Agent> {
+    const nowMs = Date.now();
+    const recent = this.recentlyRefreshedAgents.get(agentId);
+    if (
+      recent !== undefined &&
+      nowMs - recent.refreshedAtMs < ClientAgentAccessService.LIST_REFRESH_RECENT_TTL_MS
+    ) {
+      return recent.agent;
+    }
+
+    const inFlight = this.refreshInFlight.get(agentId);
+    if (inFlight !== undefined) {
+      return inFlight;
+    }
+
+    const refreshPromise = this.resolvePreferredAgentSnapshot(
+      clientId,
+      agentId,
+      persistedAgent,
+    )
+      .then((agent) => {
+        this.recentlyRefreshedAgents.set(agentId, { agent, refreshedAtMs: Date.now() });
+        return agent;
+      })
+      .finally(() => {
+        this.refreshInFlight.delete(agentId);
+      });
+    this.refreshInFlight.set(agentId, refreshPromise);
+    return refreshPromise;
   }
 
   private async resolvePreferredAgentSnapshot(

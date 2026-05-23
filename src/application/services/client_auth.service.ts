@@ -302,29 +302,19 @@ export class ClientAuthService {
 
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, Math.min(100, filter?.pageSize ?? 20));
-    let clients = await this.clientRepository.listByUserId(ownerUserId);
 
-    if (filter?.status !== undefined) {
-      clients = clients.filter((client) => client.status === filter.status);
-    }
-    if (filter?.search !== undefined && filter.search.trim() !== "") {
-      const query = filter.search.trim().toLowerCase();
-      clients = clients.filter(
-        (client) =>
-          client.email.toLowerCase().includes(query) ||
-          client.name.toLowerCase().includes(query) ||
-          client.lastName.toLowerCase().includes(query),
-      );
-    }
-
-    const total = clients.length;
-    const start = (page - 1) * pageSize;
-    const items = clients.slice(start, start + pageSize).map((client) => this.toClientDto(client));
-    return ok({
-      items,
-      total,
+    const pageResult = await this.clientRepository.listByUserIdPage(ownerUserId, {
+      ...(filter?.status !== undefined ? { status: filter.status } : {}),
+      ...(filter?.search !== undefined ? { search: filter.search } : {}),
       page,
       pageSize,
+    });
+
+    return ok({
+      items: pageResult.items.map((client) => this.toClientDto(client)),
+      total: pageResult.total,
+      page: pageResult.page,
+      pageSize: pageResult.pageSize,
     });
   }
 

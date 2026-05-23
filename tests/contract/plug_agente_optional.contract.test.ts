@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentCommandBodySchema,
   bridgeCommandSchema,
+  supportedAgentRpcMethods,
 } from "../../src/shared/validators/agent_command";
 import { withBridgeMeta } from "../../src/presentation/socket/hub/rpc_bridge_command_helpers";
 import { HUB_TRANSPORT_EXTENSIONS } from "../../src/shared/constants/agent_transport_contract";
@@ -156,30 +157,11 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       methods?: { name: string }[];
       info?: { version?: string };
     };
-    const names = new Set((doc.methods ?? []).map((m) => m.name));
-    expect(names.has("sql.execute")).toBe(true);
-    expect(names.has("sql.executeBatch")).toBe(true);
-    expect(names.has("sql.bulkInsert")).toBe(true);
-    expect(names.has("sql.cancel")).toBe(true);
-    expect(names.has("rpc.discover")).toBe(true);
-    expect(names.has("agent.getProfile")).toBe(true);
-    expect(names.has("agent.getHealth")).toBe(true);
-    expect(names.has("agent.action.run")).toBe(true);
-    expect(names.has("agent.action.validateRun")).toBe(true);
-    expect(names.has("agent.action.cancel")).toBe(true);
-    expect(names.has("agent.action.getExecution")).toBe(true);
-    expect(names.has("client_token.getPolicy")).toBe(true);
+    const names = [...new Set((doc.methods ?? []).map((m) => m.name))].sort();
+    expect(names).toEqual([...supportedAgentRpcMethods].sort());
 
     const version = doc.info?.version;
-    expect(typeof version).toBe("string");
-    const parts = String(version)
-      .split(".")
-      .map((p) => Number.parseInt(p, 10));
-    expect(parts.length).toBeGreaterThanOrEqual(2);
-    expect(Number.isFinite(parts[0])).toBe(true);
-    expect(Number.isFinite(parts[1])).toBe(true);
-    const pack = (parts[0] ?? 0) * 1000 + (parts[1] ?? 0);
-    expect(pack).toBeGreaterThanOrEqual(2005);
+    expect(version).toBe("2.11.2");
     expect(readHubPlugProfileMajorMinor(HUB_TRANSPORT_EXTENSIONS.plugProfile)).toBe(
       readOpenRpcMajorMinor(String(version)),
     );

@@ -1,4 +1,4 @@
-import type { RegisteredAgent } from "../../socket/hub/agent_registry";
+import type { ConnectedAgentSnapshot } from "../../../domain/ports/connected_agents_registry.port";
 
 /**
  * Public-facing projection of a connected agent for HTTP responses.
@@ -15,7 +15,7 @@ export interface PublicConnectedAgent {
   readonly lastSeenAt: string;
 }
 
-export const toPublicConnectedAgent = (agent: RegisteredAgent): PublicConnectedAgent => ({
+export const toPublicConnectedAgent = (agent: ConnectedAgentSnapshot): PublicConnectedAgent => ({
   agentId: agent.agentId,
   userId: agent.userId,
   capabilities: agent.capabilities,
@@ -24,5 +24,5 @@ export const toPublicConnectedAgent = (agent: RegisteredAgent): PublicConnectedA
 });
 
 export const toPublicConnectedAgents = (
-  agents: readonly RegisteredAgent[],
+  agents: readonly ConnectedAgentSnapshot[],
 ): PublicConnectedAgent[] => agents.map(toPublicConnectedAgent);

@@ -22,8 +22,8 @@ export const getValidated = <T>(response: Response, key: keyof RequestSchemas): 
 
 /**
  * Middleware factory that validates request body, params, and/or query against
- * Zod schemas. Throws a ZodError on failure, which is caught by the global
- * error middleware and mapped to a 400 response.
+ * Zod schemas. On failure, propagates the `ZodError` via `next(error)` so the
+ * centralized error middleware maps it to a 400 response.
  *
  * Validated data is stored in `response.locals.validated` and accessible
  * through `getValidated()` in downstream controllers.
@@ -33,16 +33,31 @@ export const validateRequest = (schemas: RequestSchemas) => {
     const validated: Record<string, unknown> = {};
 
     if (schemas.body) {
-      validated.body = schemas.body.parse(request.body);
-      request.body = validated.body;
+      const bodyResult = schemas.body.safeParse(request.body);
+      if (!bodyResult.success) {
+        next(bodyResult.error);
+        return;
+      }
+      validated.body = bodyResult.data;
+      request.body = bodyResult.data;
     }
 
     if (schemas.params) {
-      validated.params = schemas.params.parse(request.params);
+      const paramsResult = schemas.params.safeParse(request.params);
+      if (!paramsResult.success) {
+        next(paramsResult.error);
+        return;
+      }
+      validated.params = paramsResult.data;
     }
 
     if (schemas.query) {
-      validated.query = schemas.query.parse(request.query);
+      const queryResult = schemas.query.safeParse(request.query);
+      if (!queryResult.success) {
+        next(queryResult.error);
+        return;
+      }
+      validated.query = queryResult.data;
     }
 
     response.locals.validated = validated;

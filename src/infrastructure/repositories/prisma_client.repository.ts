@@ -8,6 +8,8 @@ import { Client, type ClientStatus } from "../../domain/entities/client.entity";
 import type {
   ClientActiveSnapshot,
   IClientRepository,
+  ManagedClientListFilter,
+  ManagedClientListPage,
 } from "../../domain/repositories/client.repository.interface";
 import { conflict } from "../../shared/errors/http_errors";
 import { prismaClient } from "../database/prisma/client";
@@ -62,6 +64,45 @@ export class PrismaClientRepository implements IClientRepository {
       orderBy: { createdAt: "asc" },
     });
     return clients.map((item) => this.toDomain(item));
+  }
+
+  async listByUserIdPage(
+    userId: string,
+    filter?: ManagedClientListFilter,
+  ): Promise<ManagedClientListPage> {
+    const page = Math.max(1, filter?.page ?? 1);
+    const pageSize = Math.max(1, Math.min(100, filter?.pageSize ?? 20));
+    const trimmedSearch = filter?.search?.trim();
+    const where: Prisma.ClientWhereInput = {
+      userId,
+      ...(filter?.status !== undefined ? { status: filter.status } : {}),
+      ...(trimmedSearch !== undefined && trimmedSearch !== ""
+        ? {
+            OR: [
+              { email: { contains: trimmedSearch, mode: "insensitive" as const } },
+              { name: { contains: trimmedSearch, mode: "insensitive" as const } },
+              { lastName: { contains: trimmedSearch, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [clients, total] = await Promise.all([
+      prismaClient.client.findMany({
+        where,
+        orderBy: { createdAt: "asc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prismaClient.client.count({ where }),
+    ]);
+
+    return {
+      items: clients.map((item) => this.toDomain(item)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async findActiveIdsByIds(ids: readonly string[]): Promise<string[]> {

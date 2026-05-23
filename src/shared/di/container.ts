@@ -69,6 +69,12 @@ import { InMemoryRegistrationDecisionTxn } from "../../infrastructure/persistenc
 import { PrismaClientRegistrationDecisionTxn } from "../../infrastructure/persistence/prisma_client_registration_decision_txn";
 import { PrismaRegistrationDecisionTxn } from "../../infrastructure/persistence/prisma_registration_decision_txn";
 import { SequentialPendingClientAgentAccessWriter } from "../../infrastructure/persistence/sequential_pending_client_agent_access.writer";
+import { RestAgentBridgeService } from "../../application/services/rest_agent_bridge.service";
+import {
+  agentsHubDiagnosticsAdapter,
+  connectedAgentsRegistryAdapter,
+} from "../../presentation/adapters/rest_agent_bridge.adapters";
+import { createSocketMetricsSnapshotProvider } from "../../presentation/adapters/socket_metrics_snapshot.adapter";
 import { isAgentConnectedToHub } from "../../presentation/socket/hub/agent_hub_connection";
 import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/rpc_bridge";
 import { env } from "../config/env";
@@ -206,6 +212,13 @@ const clientAuthService = new ClientAuthService(
   emailSender,
   fileStorage,
 );
+const restAgentBridgeService = new RestAgentBridgeService(
+  connectedAgentsRegistryAdapter,
+  agentsHubDiagnosticsAdapter,
+  dispatchRpcCommandToAgent,
+);
+const socketMetricsSnapshotProvider = createSocketMetricsSnapshotProvider();
+
 const clientAgentAccessService = new ClientAgentAccessService(
   agentRepository,
   agentIdentityRepository,
@@ -259,6 +272,8 @@ export const container = {
   clientAgentAccessService,
   healthReadinessService,
   isAgentConnectedToHub,
+  restAgentBridgeService,
+  socketMetricsSnapshotProvider,
 };
 
 export const getTestRepositoryAccess = (): {

@@ -15,6 +15,7 @@ import {
 import {
   credentialAuthRateLimit,
   globalRateLimit,
+  registerHttpRateLimits,
   tokenRefreshRateLimit,
 } from "./presentation/http/middlewares/rate_limit.middleware";
 import { hubInstanceIdMiddleware } from "./presentation/http/middlewares/hub_instance_id.middleware";
@@ -28,6 +29,8 @@ import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
 
 export const createApp = (): Express => {
+  registerHttpRateLimits();
+
   const app = express();
   /**
    * Disable weak ETag generation to avoid leaking response shape and to keep

@@ -73,6 +73,14 @@ describe("GET /api/v1/health", () => {
     expect(response.body.requestId).toBe(customId);
   });
 
+  it("should include requestId in ping responses", async () => {
+    const customId = "test-ping-request-id";
+    const response = await request(app).get("/api/v1/ping").set("x-request-id", customId);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ message: "pong", requestId: customId });
+  });
+
   it("should return 404 for unknown routes", async () => {
     const response = await request(app).get("/api/v1/unknown-route");
 
