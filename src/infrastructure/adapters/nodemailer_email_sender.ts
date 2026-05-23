@@ -21,19 +21,24 @@ const normalizeBaseUrl = (url: string): string => url.replace(/\/+$/, "");
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+const wrapEmailHtml = (bodyHtml: string): string =>
+  `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/></head><body style="font-family: sans-serif;">
+${bodyHtml}
+</body></html>`;
+
 const buildActionEmailHtml = (params: {
   readonly introHtml: string;
   readonly actionLabel: string;
   readonly actionUrl: string;
-}): string => `
-<!DOCTYPE html>
-<html><body style="font-family: sans-serif;">
+}): string =>
+  wrapEmailHtml(`
   ${params.introHtml}
   <p>
     <a href="${escapeHtml(params.actionUrl)}" style="display:inline-block;padding:10px 16px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:6px;">${escapeHtml(params.actionLabel)}</a>
   </p>
   <p style="font-size:12px;color:#666;">If the button does not work, copy this link:<br/>${escapeHtml(params.actionUrl)}</p>
-</body></html>`;
+`);
 
 export class NodemailerEmailSender implements IEmailSender {
   private transporter: Transporter | null = null;
@@ -138,7 +143,9 @@ export class NodemailerEmailSender implements IEmailSender {
       to: params.email,
       subject: `[${this.config.appName}] Registration received`,
       text: "We received your registration. An administrator will review it; you will get another email when it is approved or not approved.",
-      html: `<p>We received your registration. An administrator will review it; you will get another email when it is approved or not approved.</p>`,
+      html: wrapEmailHtml(
+        `<p>We received your registration. An administrator will review it; you will get another email when it is approved or not approved.</p>`,
+      ),
     });
   }
 
@@ -157,7 +164,7 @@ export class NodemailerEmailSender implements IEmailSender {
       to: params.email,
       subject: `[${this.config.appName}] Your account was approved`,
       text: "Your account has been approved. You can sign in now.",
-      html: `<p>Your account has been approved. You can sign in now.</p>`,
+      html: wrapEmailHtml(`<p>Your account has been approved. You can sign in now.</p>`),
     });
   }
 
@@ -187,7 +194,9 @@ export class NodemailerEmailSender implements IEmailSender {
         typeof params.reason === "string" && params.reason.trim() !== ""
           ? `Your registration was not approved. Note: ${params.reason.trim()}`
           : "Your registration was not approved. If you believe this is a mistake, contact support.",
-      html: `<p>Your registration was not approved. If you believe this is a mistake, contact support.</p>${reasonBlock}`,
+      html: wrapEmailHtml(
+        `<p>Your registration was not approved. If you believe this is a mistake, contact support.</p>${reasonBlock}`,
+      ),
     });
   }
 
@@ -241,7 +250,9 @@ export class NodemailerEmailSender implements IEmailSender {
       to: params.clientEmail,
       subject: `[${this.config.appName}] Access approved to agent ${params.agentId}`,
       text: `Your access request to agent ${params.agentId} was approved.`,
-      html: `<p>Your access request to agent <strong>${escapeHtml(params.agentId)}</strong> was approved.</p>`,
+      html: wrapEmailHtml(
+        `<p>Your access request to agent <strong>${escapeHtml(params.agentId)}</strong> was approved.</p>`,
+      ),
     });
   }
 
@@ -271,7 +282,9 @@ export class NodemailerEmailSender implements IEmailSender {
         typeof params.reason === "string" && params.reason.trim() !== ""
           ? `Your access request to agent ${params.agentId} was rejected. Reason: ${params.reason.trim()}`
           : `Your access request to agent ${params.agentId} was rejected.`,
-      html: `<p>Your access request to agent <strong>${escapeHtml(params.agentId)}</strong> was rejected.</p>${reasonBlock}`,
+      html: wrapEmailHtml(
+        `<p>Your access request to agent <strong>${escapeHtml(params.agentId)}</strong> was rejected.</p>${reasonBlock}`,
+      ),
     });
   }
 
@@ -321,7 +334,9 @@ export class NodemailerEmailSender implements IEmailSender {
       to: params.clientEmail,
       subject: `[${this.config.appName}] Client registration approved`,
       text: "Your client account registration was approved. You can sign in now.",
-      html: "<p>Your client account registration was approved. You can sign in now.</p>",
+      html: wrapEmailHtml(
+        "<p>Your client account registration was approved. You can sign in now.</p>",
+      ),
     });
   }
 
@@ -350,7 +365,9 @@ export class NodemailerEmailSender implements IEmailSender {
         typeof params.reason === "string" && params.reason.trim() !== ""
           ? `Your client registration was not approved. Reason: ${params.reason.trim()}`
           : "Your client registration was not approved. If you believe this is a mistake, contact support.",
-      html: `<p>Your client registration was not approved. If you believe this is a mistake, contact support.</p>${reasonBlock}`,
+      html: wrapEmailHtml(
+        `<p>Your client registration was not approved. If you believe this is a mistake, contact support.</p>${reasonBlock}`,
+      ),
     });
   }
 

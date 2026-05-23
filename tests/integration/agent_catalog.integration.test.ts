@@ -243,7 +243,7 @@ describe("Agent catalog API", () => {
     expect(ids).not.toContain(unlinkedInactive.agentId);
   });
 
-  it("GET /api/v1/agents/catalog â€” keeps pagination stable when names are duplicated", async () => {
+  it("GET /api/v1/agents/catalog — keeps pagination stable when names are duplicated", async () => {
     const duplicateName = `Stable Duplicate ${Date.now()}`;
     const seeded = await Promise.all([
       seedAgent({ name: duplicateName, cnpjCpf: `stable-duplicate-a-${Date.now()}` }),

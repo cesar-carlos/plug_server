@@ -80,7 +80,7 @@ rate(plug_socket_consumer_client_agent_room_reconcile_clients_deferred_total[5m]
 rate(plug_socket_consumer_client_agent_room_reconcile_ticks_skipped_total[5m])
 plug_socket_consumer_client_agent_room_reconcile_in_flight
 
-# Bootstrap assÃ­ncrono das rooms derivadas apÃ³s `connection:ready`
+# Bootstrap assíncrono das rooms derivadas após `connection:ready`
 rate(plug_socket_consumer_client_agent_room_bootstrap_started_total[5m])
 rate(plug_socket_consumer_client_agent_room_bootstrap_completed_total[5m])
 rate(plug_socket_consumer_client_agent_room_bootstrap_failed_total[5m])
@@ -313,7 +313,7 @@ Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos c
 ### Leituras novas para este pacote
 
 - `plug_socket_custom_event_publish_distributed_recipient_count_failed_total` > 0 indica falha de `fetchSockets()` no fan-out distribuido; cruze com `..._recipient_count_best_effort_total` para ver quantos publishes seguiram em degradacao controlada.
-- `plug_socket_consumer_client_agent_room_bootstrap_pending` e `..._duration_avg_ms` mostram o custo do backfill assÃ­ncrono das rooms derivadas depois de `connection:ready`.
+- `plug_socket_consumer_client_agent_room_bootstrap_pending` e `..._duration_avg_ms` mostram o custo do backfill assíncrono das rooms derivadas depois de `connection:ready`.
 
 - `plug_prisma_transaction_retry_attempts_total` a subir sem erro final indica contenção transitória recuperada por retry.
 - `plug_prisma_transaction_retries_exhausted_total` > 0 exige olhar locks, `40001`, `40P01` e tamanho das transações.

@@ -25,9 +25,9 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 | `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE`     | `5000`  | Teto de entradas desse cache por processo. Quando enche, a entrada mais antiga é removida, evitando crescimento sem limite em bases com muitos agentes. |
 | `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS`  | `30000` | Sweep periódico best-effort que reconcilia rooms `consumer:client-agent:{clientId}:{agentId}` para sockets `/consumers` já ligados. Fecha a lacuna entre aprovação/revogação e membership real quando um join/leave ao vivo falha ou quando uma réplica perde timing. `0` desativa. |
 
-| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY`  | `8`     | Limite de concorrÃªncia por tick para leituras `listApprovedAgentIds(...)` e ajustes de room. Evita rajadas de banco em bases com muitos clients ligados. |
-| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK` | `200` | OrÃ§amento de `clientId`s processados por tick. Excedente fica para o tick seguinte, com cursor rotativo estÃ¡vel. |
-| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS` | `1000` | Jitter aleatÃ³rio aplicado sÃ³ ao primeiro tick do processo, para evitar sweeps sincronizados entre rÃ©plicas apÃ³s restart. |
+| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_CONCURRENCY`  | `8`     | Limite de concorrência por tick para leituras `listApprovedAgentIds(...)` e ajustes de room. Evita rajadas de banco em bases com muitos clients ligados. |
+| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK` | `200` | Orçamento de `clientId`s processados por tick. Excedente fica para o tick seguinte, com cursor rotativo estável. |
+| `SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS` | `1000` | Jitter aleatório aplicado só ao primeiro tick do processo, para evitar sweeps sincronizados entre réplicas após restart. |
 
 O handshake do consumidor entra primeiro apenas nas rooms base de identidade
 (`consumer:principal:*` e `consumer:client:*`) e envia `connection:ready`

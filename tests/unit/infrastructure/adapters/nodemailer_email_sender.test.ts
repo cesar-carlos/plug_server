@@ -39,6 +39,7 @@ describe("NodemailerEmailSender", () => {
     expect(mail.html).toContain(
       "https://app.example.com/api/v1/auth/registration/review?token=token%20with%20spaces%2F%26%3F%3C%3E%22",
     );
+    expect(mail.html).toContain('<meta charset="utf-8"/>');
     expect(mail.html).toContain("user+&quot;danger&quot;@example.com");
   });
 
