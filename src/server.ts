@@ -50,7 +50,6 @@ import {
   initClientSocketEventPublishIdempotencyRedis,
 } from "./infrastructure/redis/client_socket_event_publish_idempotency_redis";
 import { prismaClient } from "./infrastructure/database/prisma/client";
-import { registerHttpRateLimits } from "./presentation/http/middlewares/rate_limit.middleware";
 import { closeSocketServer, createSocketServer } from "./socket";
 import { container } from "./shared/di/container";
 import { env } from "./shared/config/env";
@@ -68,6 +67,10 @@ const bootstrap = async (): Promise<void> => {
   await initRestHttpRateLimitRedis();
   await initSocketRateLimitRedis();
   await initClientSocketEventPublishIdempotencyRedis();
+
+  const { registerHttpRateLimits } = await import(
+    "./presentation/http/middlewares/rate_limit.middleware"
+  );
   registerHttpRateLimits();
 
   const { createApp } = await import("./app");

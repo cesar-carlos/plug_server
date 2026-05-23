@@ -14,10 +14,10 @@ export interface RelayRequestRoute {
   readonly clientRequestId?: string;
   readonly latencyTrace?: BridgeLatencyTraceSession;
   readonly releaseAgentDispatchSlot?: () => void;
-  acked?: boolean;
-  ackRetryTimer?: NodeJS.Timeout;
-  ackRetriesAttempted?: number;
-  timedOut?: boolean;
+  acked?: boolean | undefined;
+  ackRetryTimer?: NodeJS.Timeout | undefined;
+  ackRetriesAttempted?: number | undefined;
+  timedOut?: boolean | undefined;
 }
 
 const relayRequestsByRequestId = new Map<string, RelayRequestRoute>();

@@ -11,7 +11,6 @@ import {
   closeSocketIoRedisAdapter,
   initSocketIoRedisAdapter,
 } from "../../../src/infrastructure/redis/socket_io_redis_adapter";
-import { registerHttpRateLimits } from "../../../src/presentation/http/middlewares/rate_limit.middleware";
 import { closeSocketServer, createSocketServer } from "../../../src/socket";
 
 let httpServer: HttpServer | undefined;
@@ -121,8 +120,12 @@ const shutdown = async (): Promise<void> => {
 };
 
 const bootstrap = async (): Promise<void> => {
-  registerHttpRateLimits();
   await initClientSocketEventPublishIdempotencyRedis();
+
+  const { registerHttpRateLimits } = await import(
+    "../../../src/presentation/http/middlewares/rate_limit.middleware"
+  );
+  registerHttpRateLimits();
 
   const { createApp } = await import("../../../src/app");
   const app = createApp();

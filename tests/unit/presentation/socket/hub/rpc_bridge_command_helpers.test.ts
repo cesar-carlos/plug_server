@@ -6,6 +6,7 @@ import {
   countBatchItems,
   extractStreamIdFromRpcResponse,
   hasNotificationCommand,
+  isAckRetryEligibleCommand,
   isBatchCommand,
   pickResponseIds,
   resolveOutboundApiVersion,
@@ -170,5 +171,76 @@ describe("rpc_bridge_command_helpers", () => {
     expect(countBatchItems(batch)).toBe(2);
     expect(hasNotificationCommand(singleNotification)).toBe(true);
     expect(hasNotificationCommand(batch)).toBe(true);
+  });
+
+  it("identifies commands eligible for ACK retry", () => {
+    expect(
+      isAckRetryEligibleCommand({
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "read-safe",
+        params: { sql: "SELECT * FROM users" },
+      }),
+    ).toBe(true);
+    expect(
+      isAckRetryEligibleCommand({
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "write-no-idem",
+        params: { sql: "UPDATE users SET name = 'x'" },
+      }),
+    ).toBe(false);
+    expect(
+      isAckRetryEligibleCommand({
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "write-idem",
+        params: { sql: "UPDATE users SET name = 'x'", idempotency_key: "idem-1" },
+      }),
+    ).toBe(true);
+    expect(
+      isAckRetryEligibleCommand([
+        {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "b1",
+          params: { sql: "SELECT 1" },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "b2",
+          params: { sql: "UPDATE t SET x = 1" },
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      isAckRetryEligibleCommand([
+        {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "b1",
+          params: { sql: "UPDATE t SET x = 1", idempotency_key: "idem-b1" },
+        },
+        {
+          jsonrpc: "2.0",
+          method: "sql.bulkInsert",
+          id: "b2",
+          params: {
+            table: "target",
+            columns: [{ name: "id", type: "i64" }],
+            rows: [[1]],
+            idempotency_key: "idem-b2",
+          },
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      isAckRetryEligibleCommand({
+        jsonrpc: "2.0",
+        method: "rpc.discover",
+        id: null,
+      }),
+    ).toBe(false);
   });
 });

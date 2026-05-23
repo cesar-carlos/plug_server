@@ -13,7 +13,20 @@ import {
 } from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
 import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
 import { env } from "../../../../../src/shared/config/env";
+import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
+
+const originalAckRetryConfig = {
+  enabled: env.socketAgentAckRetryEnabled,
+  timeoutMs: env.socketAgentAckTimeoutMs,
+  maxRetries: env.socketAgentAckMaxRetries,
+};
+
+const enableFastAckRetry = (): void => {
+  env.socketAgentAckRetryEnabled = true;
+  env.socketAgentAckTimeoutMs = 10;
+  env.socketAgentAckMaxRetries = 1;
+};
 
 afterEach(() => {
   agentRegistry.clear();
@@ -21,6 +34,11 @@ afterEach(() => {
   resetRelayRequestRegistry();
   resetRelayIdempotencyStore();
   resetRelayStreamFlowState();
+  env.socketAgentAckRetryEnabled = originalAckRetryConfig.enabled;
+  env.socketAgentAckTimeoutMs = originalAckRetryConfig.timeoutMs;
+  env.socketAgentAckMaxRetries = originalAckRetryConfig.maxRetries;
+  vi.clearAllTimers();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -132,5 +150,145 @@ describe("rpc_bridge_dispatch_relay", () => {
 
     expect(getRelayRegisteredRouteCount()).toBe(0);
     expect(agentEmit).not.toHaveBeenCalled();
+  });
+
+  it("retries a relay request with client_request_id once when the ACK is missing", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-relay-retry";
+    const agentSocketId = "agent-socket-relay-retry";
+    const consumerSocketId = "consumer-relay-retry";
+    const conversationId = "conversation-relay-retry";
+    const agentEmit = vi.fn();
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (socketId) =>
+        socketId === agentSocketId
+          ? {
+              emit: agentEmit,
+            }
+          : null,
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    const result = await handlers.dispatchRelayRpcToAgent({
+      conversationId,
+      consumerSocketId,
+      rawFramePayload: encodePayloadFrame({
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "client-request-retry",
+        params: {},
+      }),
+    });
+
+    expect(result.clientRequestId).toBe("client-request-retry");
+    expect(agentEmit).toHaveBeenCalledTimes(1);
+    expect(agentEmit.mock.calls[0]?.[0]).toBe(socketEvents.rpcRequest);
+    const firstFrame = agentEmit.mock.calls[0]?.[1];
+
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+
+    expect(agentEmit).toHaveBeenCalledTimes(2);
+    expect(agentEmit.mock.calls[1]?.[1]).toBe(firstFrame);
+  });
+
+  it("does not retry relay when the agent socket disappears before the ACK timeout", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-relay-disconnect";
+    const agentSocketId = "agent-socket-relay-disconnect";
+    const consumerSocketId = "consumer-relay-disconnect";
+    const conversationId = "conversation-relay-disconnect";
+    const agentEmit = vi.fn();
+    let socketAvailable = true;
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (socketId) =>
+        socketId === agentSocketId && socketAvailable
+          ? {
+              emit: agentEmit,
+            }
+          : null,
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    await handlers.dispatchRelayRpcToAgent({
+      conversationId,
+      consumerSocketId,
+      rawFramePayload: encodePayloadFrame({
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "client-request-disconnect",
+        params: {},
+      }),
+    });
+
+    expect(agentEmit).toHaveBeenCalledTimes(1);
+    socketAvailable = false;
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+    expect(agentEmit).toHaveBeenCalledTimes(1);
   });
 });

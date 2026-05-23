@@ -38,6 +38,8 @@ import {
 } from "./active_stream_registry";
 import {
   ensureAgentCircuitClosed,
+  noteBridgeAckRetryAttempt,
+  noteBridgeAckRetryExhausted,
   registerAgentFailure,
   relayMetrics,
 } from "./bridge_relay_health_metrics";
@@ -337,7 +339,7 @@ export const createDispatchRpcCommandToAgent = (
         }
 
         pendingRequest.ackRetriesAttempted = (pendingRequest.ackRetriesAttempted ?? 0) + 1;
-        relayMetrics.ackRetryAttempts += 1;
+        noteBridgeAckRetryAttempt("rest");
         logger.info("rpc_request_ack_retry_emit", {
           requestId: pendingRequest.primaryRequestId,
           attempt: pendingRequest.ackRetriesAttempted,
@@ -396,7 +398,7 @@ export const createDispatchRpcCommandToAgent = (
             ackRetryEligible &&
             (pendingRequest.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries
           ) {
-            relayMetrics.ackRetryExhausted += 1;
+            noteBridgeAckRetryExhausted("rest");
           }
           logger.info("rpc_timeout_without_ack", {
             requestId: pendingRequest.primaryRequestId,
@@ -467,6 +469,7 @@ export const createDispatchRpcCommandToAgent = (
       registerRestPendingRequest(pendingRequest);
       pendingRegistered = true;
     });
+    void responsePromise.catch(() => undefined);
 
     if (pendingSettled) {
       await responsePromise;

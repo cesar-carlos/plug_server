@@ -12,9 +12,29 @@ import { resetRelayRequestRegistry } from "../../../../../src/presentation/socke
 import { resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/active_stream_registry";
 import { resetRelayHubHealthAndMetrics } from "../../../../../src/presentation/socket/hub/bridge_relay_health_metrics";
 import { AgentDisconnectedBeforeDispatchError } from "../../../../../src/shared/errors/agent_disconnected_before_dispatch.error";
+import { env } from "../../../../../src/shared/config/env";
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { decodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
+
+const originalAckRetryConfig = {
+  enabled: env.socketAgentAckRetryEnabled,
+  timeoutMs: env.socketAgentAckTimeoutMs,
+  maxRetries: env.socketAgentAckMaxRetries,
+};
+
+const enableFastAckRetry = (): void => {
+  env.socketAgentAckRetryEnabled = true;
+  env.socketAgentAckTimeoutMs = 10;
+  env.socketAgentAckMaxRetries = 1;
+};
+
+const waitForInitialEmit = async (emit: ReturnType<typeof vi.fn>): Promise<void> => {
+  for (let attempt = 0; attempt < 10 && emit.mock.calls.length === 0; attempt += 1) {
+    await Promise.resolve();
+  }
+  expect(emit).toHaveBeenCalledTimes(1);
+};
 
 const registerReadyAgent = (agentId: string, socketId: string): void => {
   agentRegistry.registerAgentSession({
@@ -40,6 +60,11 @@ describe("rpc_bridge_dispatch_command", () => {
     resetRelayRequestRegistry();
     resetActiveStreamRegistry();
     resetRelayHubHealthAndMetrics();
+    env.socketAgentAckRetryEnabled = originalAckRetryConfig.enabled;
+    env.socketAgentAckTimeoutMs = originalAckRetryConfig.timeoutMs;
+    env.socketAgentAckMaxRetries = originalAckRetryConfig.maxRetries;
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -179,6 +204,227 @@ describe("rpc_bridge_dispatch_command", () => {
       requestId: "req-resolve",
       response: responsePayload,
     });
+  });
+
+  it("does not retry a non-idempotent command when the ACK is missing", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-no-retry";
+    const socketId = "socket-no-retry";
+    const emit = vi.fn();
+    registerReadyAgent(agentId, socketId);
+
+    const dispatch = createDispatchRpcCommandToAgent({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (id) => (id === socketId ? { emit } : null),
+    });
+
+    const pendingPromise = dispatch({
+      agentId,
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "write-no-retry",
+        params: { sql: "UPDATE users SET name = 'x'" },
+      },
+      timeoutMs: 60_000,
+    });
+
+    await waitForInitialEmit(emit);
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+    expect(emit).toHaveBeenCalledTimes(1);
+
+    getRestPendingRequestByCorrelationId("write-no-retry")?.resolve({
+      jsonrpc: "2.0",
+      id: "write-no-retry",
+      result: {},
+    });
+    await expect(pendingPromise).resolves.toMatchObject({ requestId: "write-no-retry" });
+  });
+
+  it("retries an eligible command once using the same frame when the ACK is missing", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-retry";
+    const socketId = "socket-retry";
+    const emit = vi.fn();
+    registerReadyAgent(agentId, socketId);
+
+    const dispatch = createDispatchRpcCommandToAgent({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (id) => (id === socketId ? { emit } : null),
+    });
+
+    const pendingPromise = dispatch({
+      agentId,
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "read-retry",
+        params: {},
+      },
+      timeoutMs: 60_000,
+    });
+
+    await waitForInitialEmit(emit);
+    const firstFrame = emit.mock.calls[0]?.[1];
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[1]?.[1]).toBe(firstFrame);
+
+    getRestPendingRequestByCorrelationId("read-retry")?.resolve({
+      jsonrpc: "2.0",
+      id: "read-retry",
+      result: { status: "healthy" },
+    });
+    await expect(pendingPromise).resolves.toMatchObject({ requestId: "read-retry" });
+  });
+
+  it("does not retry after the ACK is received", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-acked";
+    const socketId = "socket-acked";
+    const emit = vi.fn();
+    registerReadyAgent(agentId, socketId);
+
+    const dispatch = createDispatchRpcCommandToAgent({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (id) => (id === socketId ? { emit } : null),
+    });
+
+    const pendingPromise = dispatch({
+      agentId,
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "read-acked",
+        params: {},
+      },
+      timeoutMs: 60_000,
+    });
+
+    await waitForInitialEmit(emit);
+    const pending = getRestPendingRequestByCorrelationId("read-acked");
+    expect(pending).toBeDefined();
+    pending!.acked = true;
+
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+    expect(emit).toHaveBeenCalledTimes(1);
+
+    pending?.resolve({ jsonrpc: "2.0", id: "read-acked", result: { status: "healthy" } });
+    await expect(pendingPromise).resolves.toMatchObject({ requestId: "read-acked" });
+  });
+
+  it("does not retry after the response settles the pending request", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-responded";
+    const socketId = "socket-responded";
+    const emit = vi.fn();
+    registerReadyAgent(agentId, socketId);
+
+    const dispatch = createDispatchRpcCommandToAgent({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (id) => (id === socketId ? { emit } : null),
+    });
+
+    const pendingPromise = dispatch({
+      agentId,
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "read-responded",
+        params: {},
+      },
+      timeoutMs: 60_000,
+    });
+
+    await waitForInitialEmit(emit);
+    getRestPendingRequestByCorrelationId("read-responded")?.resolve({
+      jsonrpc: "2.0",
+      id: "read-responded",
+      result: { status: "healthy" },
+    });
+    await expect(pendingPromise).resolves.toMatchObject({ requestId: "read-responded" });
+
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry after the agent socket disappears", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-disconnect";
+    const socketId = "socket-disconnect";
+    const emit = vi.fn();
+    let socketAvailable = true;
+    registerReadyAgent(agentId, socketId);
+
+    const dispatch = createDispatchRpcCommandToAgent({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (id) => (id === socketId && socketAvailable ? { emit } : null),
+    });
+
+    const pendingPromise = dispatch({
+      agentId,
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "read-disconnect",
+        params: {},
+      },
+      timeoutMs: 60_000,
+    });
+
+    await waitForInitialEmit(emit);
+    socketAvailable = false;
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+    expect(emit).toHaveBeenCalledTimes(1);
+
+    getRestPendingRequestByCorrelationId("read-disconnect")?.resolve({
+      jsonrpc: "2.0",
+      id: "read-disconnect",
+      result: { status: "healthy" },
+    });
+    await expect(pendingPromise).resolves.toMatchObject({ requestId: "read-disconnect" });
+  });
+
+  it("does not retry after the request timeout removes the pending request", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    env.socketAgentAckTimeoutMs = 20;
+    const agentId = "agent-timeout";
+    const socketId = "socket-timeout";
+    const emit = vi.fn();
+    registerReadyAgent(agentId, socketId);
+
+    const dispatch = createDispatchRpcCommandToAgent({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (id) => (id === socketId ? { emit } : null),
+    });
+
+    const pendingPromise = dispatch({
+      agentId,
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "read-timeout",
+        params: {},
+      },
+      timeoutMs: 5,
+    });
+
+    await waitForInitialEmit(emit);
+    const rejection = expect(pendingPromise).rejects.toThrow(
+      /Timed out waiting for agent response/i,
+    );
+    await vi.advanceTimersByTimeAsync(5);
+    await rejection;
+
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+    expect(emit).toHaveBeenCalledTimes(1);
   });
 
   it("rejects immediately when the abort signal is already set", async () => {

@@ -1,6 +1,12 @@
 import type { BridgeBatchCommand, BridgeCommand } from "../../../shared/validators/agent_command";
 import { HUB_DEFAULT_API_VERSION } from "../../../shared/constants/agent_transport_contract";
+import {
+  isBatchCommand,
+  toCorrelationIds,
+} from "../../../shared/utils/bridge_command_correlation";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
+
+export { isBatchCommand, toCorrelationIds };
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
@@ -29,26 +35,6 @@ export const pickResponseIds = (payload: unknown): readonly string[] => {
 
   const id = toRequestId(record.id);
   return id ? [id] : [];
-};
-
-export const isBatchCommand = (command: BridgeCommand): command is BridgeBatchCommand => {
-  return Array.isArray(command);
-};
-
-export const toCorrelationIds = (command: BridgeCommand): readonly string[] => {
-  if (isBatchCommand(command)) {
-    const ids: string[] = [];
-    for (const item of command) {
-      const id = toRequestId(item.id);
-      if (id) {
-        ids.push(id);
-      }
-    }
-    return ids;
-  }
-
-  const singleId = toRequestId(command.id);
-  return singleId ? [singleId] : [];
 };
 
 export const resolveOutboundApiVersion = (record: Record<string, unknown>): string => {

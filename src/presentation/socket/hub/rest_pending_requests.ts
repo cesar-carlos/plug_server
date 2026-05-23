@@ -30,8 +30,8 @@ export interface PendingRequest {
   readonly onStreamMaterializeStarted?: () => void;
   readonly latencyTrace?: BridgeLatencyTraceSession;
   acked: boolean;
-  ackRetryTimer?: NodeJS.Timeout;
-  ackRetriesAttempted?: number;
+  ackRetryTimer?: NodeJS.Timeout | undefined;
+  ackRetriesAttempted?: number | undefined;
 }
 
 const pendingByCorrelationId = new Map<string, PendingRequest>();
@@ -110,6 +110,13 @@ export const forEachUniqueRestPendingRequest = (fn: (pending: PendingRequest) =>
 };
 
 export const resetRestPendingRequestsStore = (): void => {
+  forEachUniqueRestPendingRequest((pending) => {
+    if (pending.ackRetryTimer !== undefined) {
+      clearTimeout(pending.ackRetryTimer);
+      pending.ackRetryTimer = undefined;
+    }
+    clearTimeout(pending.timeoutHandle);
+  });
   pendingByCorrelationId.clear();
   logicalPendingCount = 0;
 };
