@@ -1,8 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import Ajv2020 from "ajv/dist/2020";
-import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,115 +8,24 @@ import {
   bridgeCommandSchema,
   supportedAgentRpcMethods,
 } from "../../src/shared/validators/agent_command";
+import { validateAgentInboundContract } from "../../src/presentation/socket/hub/agent_inbound_contract_validation";
 import { withBridgeMeta } from "../../src/presentation/socket/hub/rpc_bridge_command_helpers";
 import { HUB_TRANSPORT_EXTENSIONS } from "../../src/shared/constants/agent_transport_contract";
+import { env } from "../../src/shared/config/env";
+import { socketEvents } from "../../src/shared/constants/socket_events";
+import { resetSocketAgentMetrics } from "../../src/shared/metrics/socket_agent.metrics";
+import {
+  createPlugAgenteAjv,
+  getPlugAgenteContractPaths,
+  PLUG_AGENTE_SCHEMA_FILES,
+} from "../helpers/plug_agente_contract";
 
-const SCHEMA_FILES = [
-  "rpc.request.schema.json",
-  "rpc.response.schema.json",
-  "rpc.error.schema.json",
-  "rpc.batch.request.schema.json",
-  "rpc.batch.response.schema.json",
-  "rpc.params.sql-execute.schema.json",
-  "rpc.params.sql-execute-batch.schema.json",
-  "rpc.params.sql-bulk-insert.schema.json",
-  "rpc.params.sql-cancel.schema.json",
-  "rpc.result.sql-execute.schema.json",
-  "rpc.result.sql-execute-batch.schema.json",
-  "rpc.result.sql-bulk-insert.schema.json",
-  "rpc.stream.chunk.schema.json",
-  "rpc.stream.complete.schema.json",
-  "rpc.stream.pull.schema.json",
-  "payload-frame.schema.json",
-  "agent.register.schema.json",
-  "agent.capabilities.schema.json",
-  "agent.profile.schema.json",
-  "agent.ready.schema.json",
-  "rpc.params.agent-get-health.schema.json",
-  "rpc.result.agent-get-health.schema.json",
-  "rpc.params.agent-action-run.schema.json",
-  "rpc.params.agent-action-validate-run.schema.json",
-  "rpc.params.agent-action-cancel.schema.json",
-  "rpc.params.agent-action-get-execution.schema.json",
-  "rpc.result.agent-action-validate-run.schema.json",
-  "rpc.result.agent-action-cancel.schema.json",
-  "rpc.result.agent-action-get-execution.schema.json",
-  "rpc.params.agent-get-profile.schema.json",
-  "rpc.result.agent-get-profile.schema.json",
-  "rpc.params.client-token-get-policy.schema.json",
-  "rpc.result.client-token-get-policy.schema.json",
-] as const;
+const plugAgentePaths = getPlugAgenteContractPaths();
+const openRpcPath = plugAgentePaths?.openRpcPath ?? "";
+const schemasDir = plugAgentePaths?.schemasDir ?? "";
 
-function resolvePlugAgenteRoot(): string | null {
-  const env = process.env.PLUG_AGENTE_ROOT?.trim();
-  const candidates = [
-    env,
-    join(process.cwd(), "..", "plug_agente"),
-    "D:/Developer/plug_database/plug_agente",
-  ].filter((c): c is string => typeof c === "string" && c.length > 0);
-
-  for (const root of candidates) {
-    const openrpc = join(root, "docs", "communication", "openrpc.json");
-    if (existsSync(openrpc)) {
-      return root;
-    }
-  }
-  return null;
-}
-
-const plugAgenteRoot = resolvePlugAgenteRoot();
-const openRpcPath =
-  plugAgenteRoot !== null ? join(plugAgenteRoot, "docs", "communication", "openrpc.json") : "";
-const schemasDir =
-  plugAgenteRoot !== null ? join(plugAgenteRoot, "docs", "communication", "schemas") : "";
-
-const contractDescribe = plugAgenteRoot !== null ? describe : describe.skip;
-
-function readJson(path: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-}
-
-function withId(schema: Record<string, unknown>, $id: string): Record<string, unknown> {
-  return { ...schema, $id };
-}
-
-/**
- * Registers plug_agente JSON Schemas. Relative `$ref` in the repo use `*.schema.json` filenames
- * while canonical `$id` URIs use `*.v1.json`; Ajv resolves refs from the parent path of `$id`.
- */
-function registerPlugAgenteSchemas(ajv: InstanceType<typeof Ajv2020>): void {
-  const read = (name: string): Record<string, unknown> => readJson(join(schemasDir, name));
-
-  const error = read("rpc.error.schema.json");
-  ajv.addSchema(error);
-  ajv.addSchema(withId(error, "https://plugagente.dev/schemas/rpc.error.schema.json"));
-
-  const request = read("rpc.request.schema.json");
-  ajv.addSchema(request);
-  ajv.addSchema(withId(request, "https://plugagente.dev/schemas/rpc.request.schema.json"));
-
-  const response = read("rpc.response.schema.json");
-  ajv.addSchema(response);
-  ajv.addSchema(withId(response, "https://plugagente.dev/schemas/rpc.response.schema.json"));
-
-  ajv.addSchema(read("rpc.batch.request.schema.json"));
-  ajv.addSchema(read("rpc.batch.response.schema.json"));
-
-  for (const name of SCHEMA_FILES) {
-    if (
-      name.startsWith("rpc.error") ||
-      name.startsWith("rpc.request") ||
-      name.startsWith("rpc.response") ||
-      name === "rpc.batch.request.schema.json" ||
-      name === "rpc.batch.response.schema.json"
-    ) {
-      continue;
-    }
-    const schema = read(name);
-    ajv.addSchema(schema);
-    ajv.addSchema(withId(schema, `https://plugagente.dev/schemas/${name}`));
-  }
-}
+const contractDescribe = plugAgentePaths !== null ? describe : describe.skip;
+const originalInboundValidationMode = env.socketAgentInboundContractValidation;
 
 function assertZodAcceptsCommand(command: unknown): void {
   const asBody = { agentId: "contract-test-agent", command };
@@ -168,16 +75,159 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
   });
 
   it("includes all published schema files under docs/communication/schemas", () => {
-    for (const name of SCHEMA_FILES) {
+    for (const name of PLUG_AGENTE_SCHEMA_FILES) {
       const p = join(schemasDir, name);
       expect(existsSync(p), `missing schema ${name}`).toBe(true);
     }
   });
 
+  it("keeps hub inbound validation aligned with published response and stream schemas", () => {
+    const ajv = createPlugAgenteAjv(schemasDir);
+    const validateRpcResponse = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.response.v1.json",
+    );
+    const validateBatchResponse = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.batch.response.v1.json",
+    );
+    const validateChunk = ajv.getSchema("https://plugagente.dev/schemas/rpc.stream.chunk.v1.json");
+    const validateComplete = ajv.getSchema(
+      "https://plugagente.dev/schemas/rpc.stream.complete.v1.json",
+    );
+
+    expect(validateRpcResponse).toBeDefined();
+    expect(validateBatchResponse).toBeDefined();
+    expect(validateChunk).toBeDefined();
+    expect(validateComplete).toBeDefined();
+
+    const validResponse = {
+      jsonrpc: "2.0",
+      id: "schema-response",
+      result: { rows: [], row_count: 0 },
+      api_version: "2.11",
+      meta: {
+        trace_id: "trace-1",
+        request_id: "schema-response",
+        agent_id: "agent-1",
+        timestamp: "2026-05-23T12:00:00.000Z",
+      },
+    };
+    const validBatchResponse = [
+      validResponse,
+      { jsonrpc: "2.0", id: "schema-error", error: { code: -32000, message: "failed" } },
+    ];
+    const validChunk = {
+      stream_id: "stream-1",
+      request_id: "schema-response",
+      chunk_index: 0,
+      rows: [{ id: 1 }],
+      total_chunks: 1,
+      column_metadata: [{ name: "id" }],
+    };
+    const validComplete = {
+      stream_id: "stream-1",
+      request_id: "schema-response",
+      total_rows: 1,
+      affected_rows: 0,
+      execution_id: "exec-1",
+      started_at: "2026-05-23T12:00:00.000Z",
+      finished_at: "2026-05-23T12:00:01.000Z",
+    };
+
+    env.socketAgentInboundContractValidation = "strict";
+    try {
+      expect(validateRpcResponse!(validResponse)).toBe(true);
+      expect(
+        validateAgentInboundContract({
+          eventName: socketEvents.rpcResponse,
+          socketId: "agent-socket",
+          payload: validResponse,
+        }).ok,
+      ).toBe(true);
+
+      expect(validateBatchResponse!(validBatchResponse)).toBe(true);
+      expect(
+        validateAgentInboundContract({
+          eventName: socketEvents.rpcResponse,
+          socketId: "agent-socket",
+          payload: validBatchResponse,
+        }).ok,
+      ).toBe(true);
+
+      expect(validateChunk!(validChunk)).toBe(true);
+      expect(
+        validateAgentInboundContract({
+          eventName: socketEvents.rpcChunk,
+          socketId: "agent-socket",
+          payload: validChunk,
+        }).ok,
+      ).toBe(true);
+
+      expect(validateComplete!(validComplete)).toBe(true);
+      expect(
+        validateAgentInboundContract({
+          eventName: socketEvents.rpcComplete,
+          socketId: "agent-socket",
+          payload: validComplete,
+        }).ok,
+      ).toBe(true);
+
+      const invalidResponseMeta = {
+        ...validResponse,
+        meta: { ...validResponse.meta, extra: "not-published" },
+      };
+      expect(validateRpcResponse!(invalidResponseMeta)).toBe(false);
+      expect(
+        validateAgentInboundContract({
+          eventName: socketEvents.rpcResponse,
+          socketId: "agent-socket",
+          payload: invalidResponseMeta,
+        }).ok,
+      ).toBe(false);
+
+      const invalidBatchResponse = [
+        {
+          jsonrpc: "2.0",
+          id: "schema-batch-invalid",
+          result: {},
+          error: { code: -32000, message: "failed" },
+        },
+      ];
+      expect(validateBatchResponse!(invalidBatchResponse)).toBe(false);
+      expect(
+        validateAgentInboundContract({
+          eventName: socketEvents.rpcResponse,
+          socketId: "agent-socket",
+          payload: invalidBatchResponse,
+        }).ok,
+      ).toBe(false);
+
+      const invalidChunk = { ...validChunk, extra: true };
+      expect(validateChunk!(invalidChunk)).toBe(false);
+      expect(
+        validateAgentInboundContract({
+          eventName: socketEvents.rpcChunk,
+          socketId: "agent-socket",
+          payload: invalidChunk,
+        }).ok,
+      ).toBe(false);
+
+      const invalidComplete = { ...validComplete, total_rows: -1 };
+      expect(validateComplete!(invalidComplete)).toBe(false);
+      expect(
+        validateAgentInboundContract({
+          eventName: socketEvents.rpcComplete,
+          socketId: "agent-socket",
+          payload: invalidComplete,
+        }).ok,
+      ).toBe(false);
+    } finally {
+      env.socketAgentInboundContractValidation = originalInboundValidationMode;
+      resetSocketAgentMetrics();
+    }
+  });
+
   it("compiles JSON Schemas and accepts representative payloads; Zod accepts the same commands", () => {
-    const ajv = new Ajv2020({ strict: false, allErrors: true });
-    addFormats(ajv);
-    registerPlugAgenteSchemas(ajv);
+    const ajv = createPlugAgenteAjv(schemasDir);
 
     const validateSqlExecuteParams = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.params.sql-execute.v1.json",
@@ -603,9 +653,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
   });
 
   it("rejects invalid sql.execute options per plug_agente schema (preserve + page)", () => {
-    const ajv = new Ajv2020({ strict: false, allErrors: true });
-    addFormats(ajv);
-    registerPlugAgenteSchemas(ajv);
+    const ajv = createPlugAgenteAjv(schemasDir);
     const validateSqlExecuteParams = ajv.getSchema(
       "https://plugagente.dev/schemas/rpc.params.sql-execute.v1.json",
     );
