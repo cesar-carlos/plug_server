@@ -130,13 +130,21 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_AGENT_ACK_TIMEOUT_MS`                     | `1000`                                           | Janela para aguardar ACK antes de reenviar o mesmo frame elegível. |
 | `SOCKET_AGENT_ACK_MAX_RETRIES`                    | `1`                                              | Número máximo de reenvios por falta de ACK. `0` desativa o retry mesmo com a flag ligada. |
 
+### `SOCKET_CONNECTION_READY_COMPAT_MODE` (opcional)
+
+Migração do wire format de `connection:ready` nos namespaces **`/agents`** e **`/consumers`** (plain JSON legado → `PayloadFrame`).
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `SOCKET_CONNECTION_READY_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `connection:ready`. `payload_frame` (defeito) usa `PayloadFrame`; `raw_json` restaura plain JSON legado **apenas na saída**. Remoção prevista `2026-09-30` (`warnIfConnectionReadyLegacyCompatExpired` no arranque). Em **`NODE_ENV=production`**, o bootstrap **aborta** se a flag estiver em `raw_json` (mesmo padrão que `SOCKET_AUTH_REQUIRED`). Ver `docs/socket_client_sdk.md`. |
+
 ### `SOCKET_AGENTS_COMMAND_COMPAT_MODE` (opcional)
 
 Migração do wire format de `agents:command` no namespace **`/consumers`** (plain JSON legado → `PayloadFrame`).
 
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
-| `SOCKET_AGENTS_COMMAND_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `agents:command_response` e `agents:command_stream_*`. `payload_frame` (defeito) usa `PayloadFrame`; `raw_json` restaura plain JSON legado **apenas na saída**. Inbound `agents:command` aceita plain JSON e `PayloadFrame` durante a transição. Remoção prevista `2026-09-30` (`warnIfAgentsCommandLegacyCompatExpired` no arranque). Ver `agentsCommandWireMigration` em `src/shared/constants/agent_bridge_parity.ts`. |
+| `SOCKET_AGENTS_COMMAND_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `agents:command_response` e `agents:command_stream_*`. `payload_frame` (defeito) usa `PayloadFrame`; `raw_json` restaura plain JSON legado **apenas na saída**. Inbound `agents:command` aceita plain JSON e `PayloadFrame` durante a transição. Remoção prevista `2026-09-30` (`warnIfAgentsCommandLegacyCompatExpired` no arranque). Em **`NODE_ENV=production`**, o bootstrap **aborta** se a flag estiver em `raw_json`. Ver `agentsCommandWireMigration` em `src/shared/constants/agent_bridge_parity.ts`. |
 
 ### `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` (opcional)
 
@@ -144,7 +152,7 @@ Migração do wire format de `agents:stream_pull` no namespace **`/consumers`** 
 
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
-| `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `agents:stream_pull_response`. `payload_frame` (defeito) usa `PayloadFrame` via hot-path encode; `raw_json` restaura plain JSON legado **apenas na saída**. Inbound `agents:stream_pull` aceita plain JSON e `PayloadFrame` durante a transição. Env **independente** de `SOCKET_AGENTS_COMMAND_COMPAT_MODE`. Remoção prevista `2026-09-30` (`warnIfAgentsStreamPullLegacyCompatExpired` no arranque). Ver `agentsStreamPullWireMigration` em `src/shared/constants/agent_bridge_parity.ts`. |
+| `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `agents:stream_pull_response`. `payload_frame` (defeito) usa `PayloadFrame` via hot-path encode; `raw_json` restaura plain JSON legado **apenas na saída**. Inbound `agents:stream_pull` aceita plain JSON e `PayloadFrame` durante a transição. Env **independente** de `SOCKET_AGENTS_COMMAND_COMPAT_MODE`. Remoção prevista `2026-09-30` (`warnIfAgentsStreamPullLegacyCompatExpired` no arranque). Em **`NODE_ENV=production`**, o bootstrap **aborta** se a flag estiver em `raw_json`. Ver `agentsStreamPullWireMigration` em `src/shared/constants/agent_bridge_parity.ts`. |
 
 ## Client thumbnail e password recovery
 
@@ -174,6 +182,7 @@ Migração do wire format de `agents:stream_pull` no namespace **`/consumers`** 
 | `SOCKET_RELAY_STREAM_MAX_LIFETIME_MS`           | `300000`                             | Vida maxima absoluta de uma stream relay aberta. Nao reinicia com trafego; evita vazamento quando o agente nunca envia `rpc:complete`. Metrica: `plug_socket_relay_stream_lifetime_timeouts_total`.                                                                                |
 | `SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS`     | `300000`                             | TTL de inatividade para conversas relay abertas sem trafego. Ao expirar o sweep emite `relay:conversation.ended` com `reason: expired` ao consumer **e** ao agente ligado, limpa idempotencia e estado associado. Metrica: `plug_socket_relay_conversations_expired_total`. |
 | `SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS`   | `60000`                              | Cadencia do sweep em background para conversas relay inactivas (`SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS`).                                                                                                        |
+| `SOCKET_METRICS_SAMPLE_RATE`                    | `1`                                  | Taxa de amostragem (0–1) para contadores de alta frequencia no relay/stream hub (`plug_socket_relay_chunks_forwarded_total`, `plug_socket_relay_chunks_buffered_total`, `plug_socket_relay_stream_pulls_total`). `1` = contagem exacta; `0.1` ≈ 10% dos eventos com escalonamento para totais sem vies. Erros, seguranca e limites continuam exactos. |
 | `AGENT_SQL_BULK_INSERT_MAX_ROWS`                | `50000`                              | Teto de linhas aceitas pelo hub em `sql.bulkInsert` antes de montar o `PayloadFrame`. Cargas maiores devem ser quebradas em lotes.                                                                                   |
 | `AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES`          | `10485760`                           | Teto UTF-8 do JSON serializado de `params` em `sql.bulkInsert`; protege memoria do hub antes de encaminhar ao agente.                                                                                                 |
 | `SOCKET_AUDIT_BATCH_MAX`                        | `48`                                 | Eventos por transação na auditoria Socket (1 = um INSERT por evento).                                                                                                                                               |
@@ -192,6 +201,12 @@ Migração do wire format de `agents:stream_pull` no namespace **`/consumers`** 
 | `SOCKET_RATE_LIMIT_REDIS_URL`                           | _(vazio)_ | Redis opcional para rate limits Socket (`agents:command`, `agents:stream_pull`, `relay:*`, `agent:register`). Vazio = memoria por processo. Quando configurado, falha de Redis e fail-open com fallback local; sticky sessions continuam obrigatorias para estado Socket. |
 | `SOCKET_IO_REDIS_ADAPTER_URL`                           | _(vazio)_ | Redis adapter opcional do Socket.IO para rooms/pubsub entre replicas. Quando configurado, broadcasts de rooms (`client:custom.*`, rooms de client/principal etc.) atravessam replicas. Falha de conexao inicial em `NODE_ENV=production` **ou** com `SOCKET_IO_REDIS_ADAPTER_REQUIRED=true` aborta o bootstrap; falhas runtime ou em dev/test (sem a flag) caem para adapter em memoria na instancia e disparam reconnect com backoff. Sticky sessions ainda sao recomendadas para relay, pending requests e presenca de agentes. |
 | `SOCKET_IO_REDIS_ADAPTER_REQUIRED`                      | `false`  | Quando `true`, falha de conexao inicial ao Redis adapter aborta o bootstrap sempre que `SOCKET_IO_REDIS_ADAPTER_URL` estiver definido, mesmo fora de producao (util em staging multi-replica). |
+| `SOCKET_IO_REDIS_ADAPTER_KEY`                           | `socket.io` | Prefixo Redis pub/sub do `@socket.io/redis-adapter`. Use chave distinta quando partilhar Redis com outros clusters Socket.IO. |
+| `SOCKET_IO_REDIS_ADAPTER_REQUESTS_TIMEOUT_MS`           | `5000`   | Timeout (ms) de pedidos cross-node do adapter (`fetchSockets`, `allRooms`, etc.). |
+| `SOCKET_IO_REDIS_ADAPTER_PUBLISH_ON_SPECIFIC_RESPONSE_CHANNEL` | `false` | Quando `true`, respostas do adapter publicam num canal Redis especifico do no (comportamento futuro recomendado pela biblioteca). |
+| `SOCKET_IO_REDIS_ADAPTER_CONNECT_TIMEOUT_MS`            | `5000`   | Timeout (ms) de ligacao TCP do cliente `node-redis` usado pelo adapter. |
+| `SOCKET_IO_REDIS_ADAPTER_RECONNECT_BASE_MS`             | `1000`   | Atraso base (ms) do backoff exponencial de reconnect do hub apos falha runtime do adapter. |
+| `SOCKET_IO_REDIS_ADAPTER_RECONNECT_MAX_MS`              | `30000`  | Atraso maximo (ms) do backoff de reconnect do adapter. |
 | `SOCKET_RELAY_AGENT_MAX_INFLIGHT`                       | `32`     | Requests `relay:rpc.request` simultaneas por agente antes de enfileirar. `0` desativa o gate por agente.                                                                                                                                                                                                                         |
 | `SOCKET_RELAY_AGENT_MAX_QUEUE`                          | `64`     | Profundidade da fila FIFO por agente para relay. `0` = fila ilimitada (ainda sujeita a timeout).                                                                                                                                                                                                                                  |
 | `SOCKET_RELAY_AGENT_QUEUE_WAIT_MS`                      | `200`    | Tempo maximo aguardando slot na fila por agente; rejeita com `SERVICE_UNAVAILABLE` e `retryAfterMs` quando estoura.                                                                                                                                                                                                               |
@@ -359,9 +374,23 @@ teste ou quando a tabela não existe, o código cai para envio direto.
 | `SOCKET_IO_SERVE_CLIENT`                                   | `false`                                            | Não servir o bundle `socket.io` a partir deste servidor (hub API).    |
 | `SOCKET_IO_HTTP_COMPRESSION`                               | ver tabela _production_; senão `true`              | Compressão nas respostas **polling**; `false` se só usas `websocket`. |
 | `SOCKET_IO_PING_INTERVAL_MS` / `SOCKET_IO_PING_TIMEOUT_MS` | _(omitido)_                                        | Heartbeat Engine.IO (defaults 25000 / 20000 ms).                      |
+| `SOCKET_IO_UPGRADE_TIMEOUT_MS`                             | _(omitido)_                                        | Timeout de upgrade polling→WebSocket (default Engine.IO 10000 ms).    |
 | `SOCKET_IO_TRANSPORTS`                                     | ver tabela _production_; senão `websocket,polling` | Produção sem variável: só `websocket` (menos CPU/handshake).          |
 | `SOCKET_IO_PER_MESSAGE_DEFLATE`                            | `false`                                            | Evita deflate WS duplicado com `PayloadFrame`.                        |
 | `SOCKET_IO_MAX_HTTP_BUFFER_BYTES`                          | `10485760`                                         | Teto alinhado a frames de 10 MiB.                                     |
+
+### Redis adapter (`@socket.io/redis-adapter`)
+
+Requer `SOCKET_IO_REDIS_ADAPTER_URL`. As variaveis abaixo ajustam o adapter e o cliente Redis subjacente; os defaults preservam o comportamento historico do hub e da biblioteca.
+
+| Variável                                                   | Defeito     | Notas                                                                 |
+| ---------------------------------------------------------- | ----------- | --------------------------------------------------------------------- |
+| `SOCKET_IO_REDIS_ADAPTER_KEY`                              | `socket.io` | Prefixo dos canais Redis pub/sub.                                     |
+| `SOCKET_IO_REDIS_ADAPTER_REQUESTS_TIMEOUT_MS`              | `5000`      | Timeout de pedidos cross-node (`fetchSockets`, contagens distribuidas). |
+| `SOCKET_IO_REDIS_ADAPTER_PUBLISH_ON_SPECIFIC_RESPONSE_CHANNEL` | `false` | Canal de resposta por no (opt-in; alinha com proximo major da biblioteca). |
+| `SOCKET_IO_REDIS_ADAPTER_CONNECT_TIMEOUT_MS`               | `5000`      | Timeout TCP do `node-redis`.                                          |
+| `SOCKET_IO_REDIS_ADAPTER_RECONNECT_BASE_MS`                  | `1000`      | Backoff exponencial apos falha runtime (primeira tentativa).          |
+| `SOCKET_IO_REDIS_ADAPTER_RECONNECT_MAX_MS`                   | `30000`     | Teto do backoff de reconnect do hub.                                  |
 
 ## Rollout de indices grandes
 

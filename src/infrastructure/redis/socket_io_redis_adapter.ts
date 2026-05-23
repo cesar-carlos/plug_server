@@ -16,8 +16,25 @@ import { logger } from "../../shared/utils/logger";
 
 type RedisClient = ReturnType<typeof createClient>;
 
-const RECONNECT_BASE_MS = 1_000;
-const RECONNECT_MAX_MS = 30_000;
+export const buildSocketIoRedisAdapterClientOptions = (): {
+  readonly url: string;
+  readonly socket: { readonly connectTimeout: number };
+} => ({
+  url: env.socketIoRedisAdapterUrl.trim(),
+  socket: {
+    connectTimeout: env.socketIoRedisAdapterConnectTimeoutMs,
+  },
+});
+
+export const buildSocketIoRedisAdapterOptions = (): {
+  readonly key: string;
+  readonly requestsTimeout: number;
+  readonly publishOnSpecificResponseChannel: boolean;
+} => ({
+  key: env.socketIoRedisAdapterKey,
+  requestsTimeout: env.socketIoRedisAdapterRequestsTimeoutMs,
+  publishOnSpecificResponseChannel: env.socketIoRedisAdapterPublishOnSpecificResponseChannel,
+});
 
 let pubClient: RedisClient | undefined;
 let subClient: RedisClient | undefined;
@@ -65,7 +82,10 @@ const scheduleReconnect = (): void => {
   }
 
   clearReconnectTimer();
-  const delayMs = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempt, RECONNECT_MAX_MS);
+  const delayMs = Math.min(
+    env.socketIoRedisAdapterReconnectBaseMs * 2 ** reconnectAttempt,
+    env.socketIoRedisAdapterReconnectMaxMs,
+  );
   reconnectAttempt += 1;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = undefined;
@@ -121,7 +141,7 @@ export async function initSocketIoRedisAdapter(io: Server): Promise<void> {
   }
 
   if (pubClient !== undefined && subClient !== undefined && redisUrlInUse === url) {
-    io.adapter(createAdapter(pubClient, subClient));
+    io.adapter(createAdapter(pubClient, subClient, buildSocketIoRedisAdapterOptions()));
     if (!attachedForCurrentGeneration) {
       noteSocketIoRedisAdapterAttachedServer();
       attachedForCurrentGeneration = true;
@@ -132,7 +152,7 @@ export async function initSocketIoRedisAdapter(io: Server): Promise<void> {
   await closeSocketIoRedisAdapter({ preserveRegistration: true });
 
   try {
-    const pub = createClient({ url });
+    const pub = createClient(buildSocketIoRedisAdapterClientOptions());
     const sub = pub.duplicate();
     pubClient = pub;
     subClient = sub;
@@ -167,7 +187,7 @@ export async function initSocketIoRedisAdapter(io: Server): Promise<void> {
     });
 
     await Promise.all([pub.connect(), sub.connect()]);
-    io.adapter(createAdapter(pub, sub));
+    io.adapter(createAdapter(pub, sub, buildSocketIoRedisAdapterOptions()));
     if (!attachedForCurrentGeneration) {
       noteSocketIoRedisAdapterAttachedServer();
       attachedForCurrentGeneration = true;

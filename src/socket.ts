@@ -747,6 +747,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
       ? { pingInterval: env.socketIoPingIntervalMs }
       : {}),
     ...(env.socketIoPingTimeoutMs !== undefined ? { pingTimeout: env.socketIoPingTimeoutMs } : {}),
+    ...(env.socketIoUpgradeTimeoutMs !== undefined
+      ? { upgradeTimeout: env.socketIoUpgradeTimeoutMs }
+      : {}),
   });
 
   if (env.socketEventPublishRawJsonMaxBytes > env.socketIoMaxHttpBufferBytes) {

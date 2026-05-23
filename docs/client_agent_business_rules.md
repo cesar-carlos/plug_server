@@ -125,6 +125,7 @@ Importante:
 - `AgentIdentity` continua sendo a unica fonte de verdade de ownership
 - `GET /api/v1/agents/catalog` e `GET /api/v1/agents/catalog/{agentId}` sao leitura
 - `DELETE /api/v1/agents/catalog/{agentId}` e apenas desativacao administrativa, nao criacao/edicao de cadastro
+- **nao existe endpoint HTTP de unbind** `User -> Agent`: o ownership em `AgentIdentity` e permanente apos o primeiro `agent:register` valido. Para invalidar operacao, usar **desativacao administrativa** do agente (`DELETE /api/v1/agents/catalog/{agentId}`) e/ou **bloqueio de conta** do `User` owner (`PATCH /api/v1/admin/users/{id}/status` com `status: blocked`), que revogam tokens, limpam caches de acesso e impedem novos handshakes/registos sem remover a linha historica de ownership
 
 ### Perfil no catalogo: versao, pull sync e tempo real
 

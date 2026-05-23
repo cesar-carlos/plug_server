@@ -1,6 +1,7 @@
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { observeBridgeRpcMethod } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
+import { sampledMetricDelta } from "../../../shared/metrics/metrics_sample";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { encodePayloadFrameHotPath } from "../../../shared/utils/payload_frame";
 import { toRequestId } from "../../../shared/utils/rpc_types";
@@ -170,7 +171,7 @@ export const createPrepareAgentStreamPull = (
       );
 
       if (route.mode === "relay") {
-        relayMetrics.streamPulls += 1;
+        relayMetrics.streamPulls += sampledMetricDelta(1);
         touchRelayStreamTimeout(route.requestId);
         const relayRouteForAudit = getRelayRequestRoute(route.requestId);
         addRelayStreamFlowCredits(route.requestId, windowSize);

@@ -1,6 +1,7 @@
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { observeBridgeRpcMethod } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../shared/config/env";
+import { sampledMetricDelta } from "../../../shared/metrics/metrics_sample";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { logger } from "../../../shared/utils/logger";
 import { toRequestId } from "../../../shared/utils/rpc_types";
@@ -181,7 +182,7 @@ export const createRelayStreamHandlers = (
               },
             });
             if (result.chunksDrained > 0) {
-              relayMetrics.chunksForwarded += result.chunksDrained;
+              relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
               observeRelayChunkForwardJob(performance.now() - tDrain);
             }
           } finally {
@@ -238,7 +239,7 @@ export const createRelayStreamHandlers = (
           },
         });
         if (result.chunksDrained > 0) {
-          relayMetrics.chunksForwarded += result.chunksDrained;
+          relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
           observeRelayChunkForwardJob(performance.now() - tDrain);
         }
       } finally {
@@ -272,7 +273,7 @@ export const createRelayStreamHandlers = (
 
       addRelayStreamBufferedChunk(route.requestId, payload);
       if (available <= 0) {
-        relayMetrics.chunksBuffered += 1;
+        relayMetrics.chunksBuffered += sampledMetricDelta(1);
       }
       scheduleDrainAndFlush();
     },

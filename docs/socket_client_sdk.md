@@ -1,5 +1,7 @@
 # Socket Client SDK Minimo (Relay)
 
+> **Action required by 2026-09-30:** Este repositorio nao publica pacote npm/SDK cliente separado. Aplicacoes que consomem Socket devem decodificar `PayloadFrame` em todos os eventos outbound listados abaixo (incluindo `connection:ready`) antes da remocao dos shims `raw_json`. Ver secao *Shims de compatibilidade* e `docs/configuration.md`.
+
 Data: 2026-05-11
 
 Guia rapido para cliente Socket no modo relay (`/consumers`), com tratamento de

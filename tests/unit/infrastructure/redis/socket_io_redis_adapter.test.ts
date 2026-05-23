@@ -4,10 +4,28 @@ import type { Server } from "socket.io";
 import type * as SocketIoRedisAdapterModule from "../../../../src/infrastructure/redis/socket_io_redis_adapter";
 import type * as SocketIoRedisAdapterMetricsModule from "../../../../src/application/services/socket_io_redis_adapter_metrics.service";
 
+const defaultSocketIoRedisAdapterEnv = {
+  nodeEnv: "test" as const,
+  socketIoRedisAdapterUrl: "redis://127.0.0.1:6379",
+  socketIoRedisAdapterRequired: false,
+  socketIoRedisAdapterKey: "socket.io",
+  socketIoRedisAdapterRequestsTimeoutMs: 5_000,
+  socketIoRedisAdapterPublishOnSpecificResponseChannel: false,
+  socketIoRedisAdapterConnectTimeoutMs: 5_000,
+  socketIoRedisAdapterReconnectBaseMs: 1_000,
+  socketIoRedisAdapterReconnectMaxMs: 30_000,
+};
+
 const setupAdapterModule = async (options?: {
   readonly nodeEnv?: "development" | "test" | "production";
   readonly redisUrl?: string;
   readonly redisAdapterRequired?: boolean;
+  readonly redisAdapterKey?: string;
+  readonly redisAdapterRequestsTimeoutMs?: number;
+  readonly redisAdapterPublishOnSpecificResponseChannel?: boolean;
+  readonly redisAdapterConnectTimeoutMs?: number;
+  readonly redisAdapterReconnectBaseMs?: number;
+  readonly redisAdapterReconnectMaxMs?: number;
 }): Promise<{
   readonly pubClient: {
     readonly on: ReturnType<typeof vi.fn>;
@@ -46,9 +64,28 @@ const setupAdapterModule = async (options?: {
 
   vi.doMock("../../../../src/shared/config/env", () => ({
     env: {
-      nodeEnv: options?.nodeEnv ?? "test",
-      socketIoRedisAdapterUrl: options?.redisUrl ?? "redis://127.0.0.1:6379",
-      socketIoRedisAdapterRequired: options?.redisAdapterRequired ?? false,
+      ...defaultSocketIoRedisAdapterEnv,
+      nodeEnv: options?.nodeEnv ?? defaultSocketIoRedisAdapterEnv.nodeEnv,
+      socketIoRedisAdapterUrl: options?.redisUrl ?? defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterUrl,
+      socketIoRedisAdapterRequired:
+        options?.redisAdapterRequired ?? defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterRequired,
+      socketIoRedisAdapterKey:
+        options?.redisAdapterKey ?? defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterKey,
+      socketIoRedisAdapterRequestsTimeoutMs:
+        options?.redisAdapterRequestsTimeoutMs ??
+        defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterRequestsTimeoutMs,
+      socketIoRedisAdapterPublishOnSpecificResponseChannel:
+        options?.redisAdapterPublishOnSpecificResponseChannel ??
+        defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterPublishOnSpecificResponseChannel,
+      socketIoRedisAdapterConnectTimeoutMs:
+        options?.redisAdapterConnectTimeoutMs ??
+        defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterConnectTimeoutMs,
+      socketIoRedisAdapterReconnectBaseMs:
+        options?.redisAdapterReconnectBaseMs ??
+        defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterReconnectBaseMs,
+      socketIoRedisAdapterReconnectMaxMs:
+        options?.redisAdapterReconnectMaxMs ??
+        defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterReconnectMaxMs,
     },
   }));
   vi.doMock("redis", () => ({ createClient: createClientMock }));
@@ -88,6 +125,7 @@ describe("socket_io_redis_adapter", () => {
   it("connects Redis adapter and marks metrics active", async () => {
     const {
       io,
+      createClientMock,
       createAdapterMock,
       module: { closeSocketIoRedisAdapter, initSocketIoRedisAdapter, isSocketIoRedisAdapterActive },
       metrics,
@@ -95,6 +133,19 @@ describe("socket_io_redis_adapter", () => {
 
     await initSocketIoRedisAdapter(io);
 
+    expect(createClientMock).toHaveBeenCalledWith({
+      url: "redis://127.0.0.1:6379",
+      socket: { connectTimeout: 5_000 },
+    });
+    expect(createAdapterMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      {
+        key: "socket.io",
+        requestsTimeout: 5_000,
+        publishOnSpecificResponseChannel: false,
+      },
+    );
     expect(createAdapterMock).toHaveBeenCalledTimes(1);
     expect(io.adapter).toHaveBeenCalledTimes(1);
     expect(isSocketIoRedisAdapterActive()).toBe(true);
@@ -109,6 +160,32 @@ describe("socket_io_redis_adapter", () => {
     await closeSocketIoRedisAdapter();
   });
 
+  it("forwards custom adapter tuning env to createClient/createAdapter", async () => {
+    const {
+      io,
+      createClientMock,
+      createAdapterMock,
+      module: { initSocketIoRedisAdapter },
+    } = await setupAdapterModule({
+      redisAdapterKey: "plug-hub",
+      redisAdapterRequestsTimeoutMs: 12_000,
+      redisAdapterPublishOnSpecificResponseChannel: true,
+      redisAdapterConnectTimeoutMs: 9_000,
+    });
+
+    await initSocketIoRedisAdapter(io);
+
+    expect(createClientMock).toHaveBeenCalledWith({
+      url: "redis://127.0.0.1:6379",
+      socket: { connectTimeout: 9_000 },
+    });
+    expect(createAdapterMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      key: "plug-hub",
+      requestsTimeout: 12_000,
+      publishOnSpecificResponseChannel: true,
+    });
+  });
+
   it("falls back to in-memory adapter and schedules reconnect when connect fails", async () => {
     vi.useFakeTimers();
     const {
@@ -116,7 +193,7 @@ describe("socket_io_redis_adapter", () => {
       pubClient,
       module: { initSocketIoRedisAdapter, isSocketIoRedisAdapterActive },
       metrics,
-    } = await setupAdapterModule();
+    } = await setupAdapterModule({ redisAdapterReconnectBaseMs: 2_000 });
     pubClient.connect.mockRejectedValueOnce(new Error("redis unavailable"));
 
     await initSocketIoRedisAdapter(io);
@@ -130,7 +207,7 @@ describe("socket_io_redis_adapter", () => {
     });
 
     pubClient.connect.mockResolvedValueOnce(undefined);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(2_000);
     await vi.runOnlyPendingTimersAsync();
 
     expect(isSocketIoRedisAdapterActive()).toBe(true);

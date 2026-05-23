@@ -788,6 +788,11 @@ const envSchema = z.object({
   SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
   SOCKET_RELAY_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().default(30_000),
   SOCKET_RELAY_METRICS_LOG_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  /**
+   * Probabilistic sample rate (0–1) for high-frequency relay/stream hub counters only.
+   * `1` = always count; `0.1` ≈ 10% of events (scaled for unbiased totals).
+   */
+  SOCKET_METRICS_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(1),
   /** How long an unresolved per-request outbound tail may stay untouched before being swept as orphaned. */
   SOCKET_RELAY_OUTBOUND_TAIL_STALE_MS: z.coerce.number().int().positive().default(300_000),
   /** Background sweep cadence for stale outbound tails. */
@@ -1013,6 +1018,58 @@ const envSchema = z.object({
     (val) => (val === undefined || val === "" ? undefined : val),
     z.coerce.number().int().positive().max(120_000).optional(),
   ),
+  /** Override Engine.IO transport upgrade timeout (ms). Omit for default 10000. */
+  SOCKET_IO_UPGRADE_TIMEOUT_MS: z.preprocess(
+    (val) => (val === undefined || val === "" ? undefined : val),
+    z.coerce.number().int().positive().max(120_000).optional(),
+  ),
+  /**
+   * Redis pub/sub channel prefix for `@socket.io/redis-adapter`.
+   * Use a distinct key when sharing a Redis instance with other Socket.IO clusters.
+   */
+  SOCKET_IO_REDIS_ADAPTER_KEY: z.preprocess(
+    (val) => (val === undefined || val === "" ? "socket.io" : String(val).trim()),
+    z.string().min(1).max(256),
+  ),
+  /**
+   * Timeout (ms) for cross-node adapter requests (`fetchSockets`, `allRooms`, etc.).
+   * Matches `@socket.io/redis-adapter` library default (5000).
+   */
+  SOCKET_IO_REDIS_ADAPTER_REQUESTS_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(120_000)
+    .default(5_000),
+  /**
+   * When true, adapter responses publish to a node-specific Redis channel.
+   * Matches library default (`false`); may become default `true` in a future major release.
+   */
+  SOCKET_IO_REDIS_ADAPTER_PUBLISH_ON_SPECIFIC_RESPONSE_CHANNEL: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** `node-redis` socket connect timeout (ms). Library default 5000. */
+  SOCKET_IO_REDIS_ADAPTER_CONNECT_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(120_000)
+    .default(5_000),
+  /** Base delay (ms) for hub reconnect backoff after Redis adapter runtime failure. */
+  SOCKET_IO_REDIS_ADAPTER_RECONNECT_BASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(60_000)
+    .default(1_000),
+  /** Max delay (ms) for hub reconnect backoff after Redis adapter runtime failure. */
+  SOCKET_IO_REDIS_ADAPTER_RECONNECT_MAX_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(600_000)
+    .default(30_000),
   SOCKET_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
   SOCKET_AUDIT_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
@@ -1180,6 +1237,24 @@ if (parsedEnv.NODE_ENV === "production") {
 
   if (!parsedEnv.SOCKET_AUTH_REQUIRED) {
     throw new Error("Invalid production config: SOCKET_AUTH_REQUIRED must be true in production.");
+  }
+
+  if (parsedEnv.SOCKET_CONNECTION_READY_COMPAT_MODE === "raw_json") {
+    throw new Error(
+      "Invalid production config: SOCKET_CONNECTION_READY_COMPAT_MODE must not be raw_json in production.",
+    );
+  }
+
+  if (parsedEnv.SOCKET_AGENTS_COMMAND_COMPAT_MODE === "raw_json") {
+    throw new Error(
+      "Invalid production config: SOCKET_AGENTS_COMMAND_COMPAT_MODE must not be raw_json in production.",
+    );
+  }
+
+  if (parsedEnv.SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE === "raw_json") {
+    throw new Error(
+      "Invalid production config: SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE must not be raw_json in production.",
+    );
   }
 }
 
@@ -1408,6 +1483,14 @@ export const env = {
   socketIoHttpCompression: parsedEnv.SOCKET_IO_HTTP_COMPRESSION,
   socketIoPingIntervalMs: parsedEnv.SOCKET_IO_PING_INTERVAL_MS,
   socketIoPingTimeoutMs: parsedEnv.SOCKET_IO_PING_TIMEOUT_MS,
+  socketIoUpgradeTimeoutMs: parsedEnv.SOCKET_IO_UPGRADE_TIMEOUT_MS,
+  socketIoRedisAdapterKey: parsedEnv.SOCKET_IO_REDIS_ADAPTER_KEY,
+  socketIoRedisAdapterRequestsTimeoutMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_REQUESTS_TIMEOUT_MS,
+  socketIoRedisAdapterPublishOnSpecificResponseChannel:
+    parsedEnv.SOCKET_IO_REDIS_ADAPTER_PUBLISH_ON_SPECIFIC_RESPONSE_CHANNEL,
+  socketIoRedisAdapterConnectTimeoutMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_CONNECT_TIMEOUT_MS,
+  socketIoRedisAdapterReconnectBaseMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_RECONNECT_BASE_MS,
+  socketIoRedisAdapterReconnectMaxMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_RECONNECT_MAX_MS,
   socketAuditRetentionDays: parsedEnv.SOCKET_AUDIT_RETENTION_DAYS,
   socketAuditRetentionIntervalMinutes: parsedEnv.SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES,
   socketAuditPruneBatchSize: parsedEnv.SOCKET_AUDIT_PRUNE_BATCH_SIZE,
