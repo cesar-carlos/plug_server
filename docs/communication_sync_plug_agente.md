@@ -42,7 +42,7 @@ Historico detalhado de mudancas: `CHANGELOG.md`.
 
 ## Versao do profile
 
-O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.10"` em
+O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.11"` em
 `agent:capabilities` (`HUB_TRANSPORT_EXTENSIONS` em
 `src/shared/constants/agent_transport_contract.ts`). A versao acompanha o
 OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
@@ -57,7 +57,7 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | Negociacao de capabilities (com hints de stream pull) | alinhado | `docs/socket_relay_protocol.md` |
 | Readiness explicito com `agent:ready` | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `PayloadFrame` com gzip, assinatura opcional e payload base64 | alinhado | `docs/socket_relay_protocol.md` |
-| Enforcement de `signature.key_id` quando `PAYLOAD_SIGNING_KEY_ID` configurado | alinhado | `docs/configuration.md`, `src/shared/utils/payload_frame.ts` |
+| Keyring HMAC (`PAYLOAD_SIGNING_KEY_ID` ativo + `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON` inbound) | alinhado | `docs/configuration.md`, `src/shared/utils/payload_frame.ts` |
 | `rpc:response` invalido com fail-fast | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `rpc:chunk` / `rpc:complete` invalidos com fail-fast | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `rpc:complete.terminal_status` no REST materializado | alinhado | `docs/api_rest_bridge.md` |
@@ -87,8 +87,9 @@ Estas diferencas nao sao gaps acidentais; fazem parte do desenho atual do hub:
   antigos (o schema publicado marca como obrigatorio); idem para `extensions`
   e `limits` (defaultam a `{}` quando ausentes).
 - O bloco `signature.key_id` e marcado como required no
-  `payload-frame.schema.json`, mas o hub aceita sem `key_id` quando o
-  deployment nao tem `PAYLOAD_SIGNING_KEY_ID` configurado (single-key).
+  `payload-frame.schema.json`, mas o hub aceita sem `key_id` somente quando o
+  deployment esta em modo single-key sem `PAYLOAD_SIGNING_KEY_ID` e sem
+  `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON`.
 - `meta.outbound_compression` e aceito no schema do hub apenas como
   forward-compat: o runtime atual do agente declara explicitamente que **nao
   suporta override por request** (ver `socket_communication_standard.md` ->

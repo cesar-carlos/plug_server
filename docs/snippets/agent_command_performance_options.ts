@@ -25,7 +25,7 @@ export const buildSqlExecuteCommand = (input: SqlExecutePerformanceInput) => {
   return {
     jsonrpc: "2.0",
     id: crypto.randomUUID(),
-    api_version: "2.10",
+    api_version: "2.11",
     method: "sql.execute",
     params: {
       sql: input.sql,
@@ -43,7 +43,7 @@ export const buildReadOnlyBatchCommand = (input: SqlExecuteBatchPerformanceInput
   return {
     jsonrpc: "2.0",
     id: crypto.randomUUID(),
-    api_version: "2.10",
+    api_version: "2.11",
     method: "sql.executeBatch",
     params: {
       commands: input.commands,

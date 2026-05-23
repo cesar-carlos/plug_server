@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   buildRelayHubMetricsSnapshot,
+  noteBridgeAckRetryAttempt,
+  noteBridgeAckRetryExhausted,
   registerAgentFailure,
   relayMetrics,
   resetRelayHubHealthAndMetrics,
@@ -41,5 +43,25 @@ describe("bridge_relay_health_metrics", () => {
       restMaterializeStreamsInFlight: 0,
     });
     expect(snap.gauges.openCircuits).toBe(0);
+  });
+
+  it("tracks ACK retry metrics by bridge path and aggregate", () => {
+    noteBridgeAckRetryAttempt("rest");
+    noteBridgeAckRetryAttempt("relay");
+    noteBridgeAckRetryExhausted("relay");
+
+    const snap = buildRelayHubMetricsSnapshot({
+      activeStreams: 0,
+      restMaterializeStreamsInFlight: 0,
+    });
+
+    expect(snap.counters.ackRetryAttempts).toBe(2);
+    expect(snap.counters.ackRetryAttemptsByPath).toEqual({ rest: 1, relay: 1 });
+    expect(snap.counters.ackRetryExhausted).toBe(1);
+    expect(snap.counters.ackRetryExhaustedByPath).toEqual({ rest: 0, relay: 1 });
+
+    resetRelayHubHealthAndMetrics();
+    expect(relayMetrics.ackRetryAttemptsByPath).toEqual({ rest: 0, relay: 0 });
+    expect(relayMetrics.ackRetryExhaustedByPath).toEqual({ rest: 0, relay: 0 });
   });
 });

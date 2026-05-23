@@ -291,12 +291,15 @@ Regras atuais no servidor:
 - frames inbound **sem** `signature` continuam aceitos por defeito; a verificacao e
   aplicada apenas quando a assinatura vem presente no envelope
 - se `signature` vier no frame, o servidor valida com `PAYLOAD_SIGNING_KEY`
-  (quando nao configurada e houver assinatura, a validacao falha). Quando
-  `PAYLOAD_SIGNING_KEY_ID` esta configurado, `signature.key_id` passa a ser
-  **obrigatorio** e validado: ausente ou divergente -> falha com `-32001`
-  (`invalid_signature`). Sem `PAYLOAD_SIGNING_KEY_ID`, deployments single-key
-  continuam aceitando assinaturas sem `key_id`. Ver
-  `payload-frame.schema.json` no `plug_agente`.
+  ativo ou com uma chave anterior em `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON`
+  (somente inbound). Quando `PAYLOAD_SIGNING_KEY_ID` ou keyring anterior esta
+  configurado, `signature.key_id` passa a ser **obrigatorio** e validado;
+  ausente ou desconhecido falha com `-32001` (`invalid_signature`). Sem key id
+  e sem keyring anterior, deployments single-key continuam aceitando assinaturas
+  sem `key_id`. Ver `payload-frame.schema.json` no `plug_agente`.
+- apos decodificar o `PayloadFrame`, o hub valida logicamente `rpc:response`,
+  `rpc:chunk`, `rpc:complete`, `rpc:request_ack` e `rpc:batch_ack` conforme
+  `SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION` (`strict`, `warn`, `off`).
 - se `rpc:response` chegar com frame invalido mas com `requestId` identificavel no
   envelope, o hub encerra a request relay correlacionada com erro JSON-RPC framed
   em vez de esperar apenas por timeout
@@ -356,8 +359,12 @@ Capacidade operacional:
   `relay:rpc.accepted` com `inFlight: true` e sao replayadas quando a resposta
   original chega.
 - Acks do agente (`rpc:request_ack` / `rpc:batch_ack`) sao observados e
-  reenviados ao consumer quando aplicavel, mas o hub ainda nao faz resend
-  automatico de `rpc:request` se esses acks faltarem.
+  reenviados ao consumer quando aplicavel. Se o ACK nao chega, o hub reemite o
+  mesmo `rpc:request` apenas quando a request e elegivel: relay com
+  `client_request_id`, REST/`agents:command` de leitura segura ou com
+  `params.idempotency_key` em todos os itens. Notifications, batches
+  parcialmente elegiveis, requests ja respondidas, socket desconectado e pending
+  removido nunca sao reemitidos.
 - Timeout de relay request: quando o agente nao responde no prazo, o servidor
   devolve erro JSON-RPC no `relay:rpc.response`.
 - Timeout de stream aberta: quando `rpc:response` abre `stream_id`, o slot de

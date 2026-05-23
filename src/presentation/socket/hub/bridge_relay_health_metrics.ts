@@ -36,6 +36,8 @@ type RelayCircuitState = {
   lastTouchedAtMs: number;
 };
 
+export type BridgeAckRetryPath = "rest" | "relay";
+
 const relayCircuitByAgentId = new Map<string, RelayCircuitState>();
 const latencyByAgentId = new Map<string, AgentLatencyStats>();
 let latencyByAgentCache: RelayHubMetricsSnapshot["latencyByAgent"] = [];
@@ -68,7 +70,9 @@ export const relayMetrics = {
   restMaterializeActiveStreamLimitExceeded: 0,
   requestTimeouts: 0,
   ackRetryAttempts: 0,
+  ackRetryAttemptsByPath: { rest: 0, relay: 0 } as Record<BridgeAckRetryPath, number>,
   ackRetryExhausted: 0,
+  ackRetryExhaustedByPath: { rest: 0, relay: 0 } as Record<BridgeAckRetryPath, number>,
   circuitOpenRejects: 0,
   /** `SOCKET_REST_MAX_PENDING_REQUESTS` cap before dispatch. */
   restGlobalPendingCapRejected: 0,
@@ -96,6 +100,16 @@ export const relayMetrics = {
 
 let rpcFrameDecodeFailureCount = 0;
 let relayMetricsTimer: NodeJS.Timeout | null = null;
+
+export const noteBridgeAckRetryAttempt = (path: BridgeAckRetryPath): void => {
+  relayMetrics.ackRetryAttempts += 1;
+  relayMetrics.ackRetryAttemptsByPath[path] += 1;
+};
+
+export const noteBridgeAckRetryExhausted = (path: BridgeAckRetryPath): void => {
+  relayMetrics.ackRetryExhausted += 1;
+  relayMetrics.ackRetryExhaustedByPath[path] += 1;
+};
 
 export const logRpcFrameDecodeFailure = (input: {
   readonly eventName: string;
@@ -295,7 +309,9 @@ export type RelayHubMetricsSnapshot = {
     readonly restMaterializeActiveStreamLimitExceeded: number;
     readonly requestTimeouts: number;
     readonly ackRetryAttempts: number;
+    readonly ackRetryAttemptsByPath: Record<BridgeAckRetryPath, number>;
     readonly ackRetryExhausted: number;
+    readonly ackRetryExhaustedByPath: Record<BridgeAckRetryPath, number>;
     readonly circuitOpenRejects: number;
     readonly restGlobalPendingCapRejected: number;
     readonly restAgentQueueFullRejected: number;
@@ -438,7 +454,11 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.restMaterializeActiveStreamLimitExceeded = 0;
   relayMetrics.requestTimeouts = 0;
   relayMetrics.ackRetryAttempts = 0;
+  relayMetrics.ackRetryAttemptsByPath.rest = 0;
+  relayMetrics.ackRetryAttemptsByPath.relay = 0;
   relayMetrics.ackRetryExhausted = 0;
+  relayMetrics.ackRetryExhaustedByPath.rest = 0;
+  relayMetrics.ackRetryExhaustedByPath.relay = 0;
   relayMetrics.circuitOpenRejects = 0;
   relayMetrics.restGlobalPendingCapRejected = 0;
   relayMetrics.restAgentQueueFullRejected = 0;

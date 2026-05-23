@@ -449,6 +449,19 @@ plug_socket_relay_dispatch_total_queued_waiters > 0
 rate(plug_socket_relay_dispatch_queue_full_rejected_total[5m]) > 0
 rate(plug_socket_relay_dispatch_queue_wait_timeout_rejected_total[5m]) > 0
 
+# PayloadFrame: assinatura HMAC rejeitada (investigar key_id, rotacao ou segredo incorreto)
+rate(plug_payload_frame_signature_rejected_total[5m]) > 0
+
+# Contrato inbound do plug_agente: strict rejeitando payloads fora do contrato
+rate(plug_socket_agents_inbound_contract_validation_failed_total[5m]) > 0
+
+# Contrato inbound em warn: usar durante staging/rollout para encontrar drift antes de strict
+rate(plug_socket_agents_inbound_contract_validation_warn_total[5m]) > 0
+
+# Delivery guarantee: retry por falta de ACK esgotado por caminho REST/relay
+rate(plug_socket_bridge_ack_retry_exhausted_total{path="rest"}[5m]) > 0
+rate(plug_socket_bridge_ack_retry_exhausted_total{path="relay"}[5m]) > 0
+
 # Backoff propagado ao cliente Socket; picos podem indicar agente saturado ou policy externa
 rate(plug_socket_consumers_retry_after_ms_propagated_total[5m]) > 0
 rate(plug_socket_agents_command_retry_after_seconds_propagated_total[5m]) > 0
@@ -485,9 +498,26 @@ Para o relay Socket, um dashboard mínimo útil costuma incluir:
 - `plug_socket_relay_outbound_queue_backlog`
 - `plug_socket_relay_outbound_queue_job_duration_p95_ms`
 - `plug_socket_relay_outbound_queue_orphaned_request_ids`
+- `rate(plug_socket_bridge_ack_retry_attempts_total{path="rest"}[5m])`
+- `rate(plug_socket_bridge_ack_retry_attempts_total{path="relay"}[5m])`
+- `rate(plug_socket_bridge_ack_retry_exhausted_total[5m])`
 - `rate(plug_socket_relay_emit_discarded_consumer_gone_total[5m])`
 - `rate(plug_socket_relay_conversations_expired_total[5m])`
 - `rate(plug_socket_relay_outbound_queue_overload_rejected_total[5m])`
+
+## Rollout do contrato plug_agente
+
+Para mudancas no contrato de comunicacao com `plug_agente`, usar este fluxo:
+
+1. Rodar staging com `SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION=warn`.
+2. Monitorar `plug_socket_agents_inbound_contract_validation_warn_total` e logs
+   `agent_inbound_contract_validation_failed`.
+3. Corrigir qualquer drift no hub ou no agente antes de promover.
+4. Trocar staging para `strict` e validar que nao ha rejeicoes.
+5. Promover producao em `strict`.
+
+Rotacao de assinatura HMAC: seguir
+`docs/payload_signing_key_rotation_runbook.md`.
 
 ## Sinais uteis do relay
 

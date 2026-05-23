@@ -41,7 +41,9 @@ describe("metrics.controller", () => {
           restMaterializeActiveStreamLimitExceeded: 0,
           requestTimeouts: 0,
           ackRetryAttempts: 0,
+          ackRetryAttemptsByPath: { rest: 0, relay: 0 },
           ackRetryExhausted: 0,
+          ackRetryExhaustedByPath: { rest: 0, relay: 0 },
           circuitOpenRejects: 0,
           restGlobalPendingCapRejected: 0,
           restAgentQueueFullRejected: 0,
@@ -282,5 +284,11 @@ describe("metrics.controller", () => {
     expect(mockGetSnapshot).toHaveBeenCalledOnce();
     expect(response.status).toHaveBeenCalledWith(200);
     expect(response.send).toHaveBeenCalledWith(expect.stringContaining("plug_socket_namespace_connections"));
+    expect(response.send).toHaveBeenCalledWith(
+      expect.stringContaining('plug_socket_bridge_ack_retry_attempts_total{path="rest"} 0'),
+    );
+    expect(response.send).toHaveBeenCalledWith(
+      expect.stringContaining('plug_socket_bridge_ack_retry_exhausted_total{path="relay"} 0'),
+    );
   });
 });

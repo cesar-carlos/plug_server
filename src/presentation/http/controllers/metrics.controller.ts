@@ -1369,9 +1369,25 @@ export const getMetrics = (_request: Request, response: Response): void => {
   lines.push(
     metricLine("plug_socket_relay_ack_retry_attempts_total", relay.counters.ackRetryAttempts),
   );
+  for (const path of ["rest", "relay"] as const) {
+    lines.push(
+      metricLine("plug_socket_bridge_ack_retry_attempts_total", relay.counters.ackRetryAttemptsByPath[path], {
+        path,
+      }),
+    );
+  }
   lines.push(
     metricLine("plug_socket_relay_ack_retry_exhausted_total", relay.counters.ackRetryExhausted),
   );
+  for (const path of ["rest", "relay"] as const) {
+    lines.push(
+      metricLine(
+        "plug_socket_bridge_ack_retry_exhausted_total",
+        relay.counters.ackRetryExhaustedByPath[path],
+        { path },
+      ),
+    );
+  }
   lines.push(
     metricLine("plug_socket_relay_circuit_open_rejects_total", relay.counters.circuitOpenRejects),
   );

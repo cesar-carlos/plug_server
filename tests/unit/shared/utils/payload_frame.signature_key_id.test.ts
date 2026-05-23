@@ -191,6 +191,78 @@ describe("validateFrameSignature key_id enforcement (PAYLOAD_SIGNING_KEY_ID)", (
     expect(decoded.ok).toBe(true);
   });
 
+  it("signs outbound frames with the active key id", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SIGNING_KEY,
+      payloadSigningKeyId: SIGNING_KEY_ID,
+      payloadSignOutbound: true,
+    });
+
+    const frame = mod.encodePayloadFrame({ ok: true }, { omitTraceId: true });
+
+    expect(frame.signature).toMatchObject({
+      alg: "hmac-sha256",
+      key_id: SIGNING_KEY_ID,
+    });
+    const decoded = mod.decodePayloadFrame(frame);
+    expect(decoded.ok).toBe(true);
+  });
+
+  it("ACCEPTS a frame signed with a previous key id for inbound verification", async () => {
+    const previousKeyId = "hub-key-previous";
+    const previousKey = "previous-shared-key";
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SIGNING_KEY,
+      payloadSigningKeyId: SIGNING_KEY_ID,
+      payloadSigningPreviousKeys: { [previousKeyId]: previousKey },
+    });
+    const frameWithoutSig = mod.encodePayloadFrame({ ok: true }, { omitTraceId: true });
+    const binaryPayload = Buffer.from(frameWithoutSig.payload as Buffer);
+    const value = buildSignatureValue(
+      {
+        schemaVersion: frameWithoutSig.schemaVersion,
+        enc: frameWithoutSig.enc,
+        cmp: frameWithoutSig.cmp,
+        contentType: frameWithoutSig.contentType,
+        originalSize: frameWithoutSig.originalSize,
+        compressedSize: frameWithoutSig.compressedSize,
+        traceId: null,
+        requestId: null,
+      },
+      binaryPayload,
+      previousKey,
+    );
+
+    const decoded = mod.decodePayloadFrame({
+      ...frameWithoutSig,
+      signature: { alg: "hmac-sha256" as const, value, key_id: previousKeyId },
+    });
+
+    expect(decoded.ok).toBe(true);
+  });
+
+  it("REJECTS a frame with an invalid signature for a known key id", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SIGNING_KEY,
+      payloadSigningKeyId: SIGNING_KEY_ID,
+    });
+    const frameWithoutSig = mod.encodePayloadFrame({ ok: true }, { omitTraceId: true });
+
+    const decoded = mod.decodePayloadFrame({
+      ...frameWithoutSig,
+      signature: {
+        alg: "hmac-sha256" as const,
+        value: "invalid-signature",
+        key_id: SIGNING_KEY_ID,
+      },
+    });
+
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.message).toMatch(/signature verification failed/i);
+    }
+  });
+
   it("ACCEPTS the shared plug_agente transport-frame HMAC test vector", async () => {
     const mod = await loadModuleWithEnv({
       payloadSigningKey: SHARED_VECTOR_KEY,

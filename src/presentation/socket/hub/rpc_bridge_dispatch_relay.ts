@@ -29,6 +29,8 @@ import { getActiveStreamRouteByRequestId, removeActiveStreamRoute } from "./acti
 import {
   ensureAgentCircuitClosed,
   logRpcFrameDecodeFailure,
+  noteBridgeAckRetryAttempt,
+  noteBridgeAckRetryExhausted,
   observeRelayBridgeEncode,
   observeRelayCommandValidation,
   observeRelayFrameDecode,
@@ -369,7 +371,7 @@ export const createRpcBridgeRelayDispatch = (
         env.socketAgentAckRetryEnabled &&
         (route.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries
       ) {
-        relayMetrics.ackRetryExhausted += 1;
+        noteBridgeAckRetryExhausted("relay");
       }
       observeBridgeRpcMethod({
         channel: "relay",
@@ -426,7 +428,7 @@ export const createRpcBridgeRelayDispatch = (
         }
 
         relayRoute.ackRetriesAttempted = (relayRoute.ackRetriesAttempted ?? 0) + 1;
-        relayMetrics.ackRetryAttempts += 1;
+        noteBridgeAckRetryAttempt("relay");
         liveAgentSocket.emit(socketEvents.rpcRequest, wireFrame);
         if (
           !isRouteAcked(relayRoute) &&

@@ -4,7 +4,7 @@ Use este guia junto de `docs/performance_hub_agent.md`,
 `docs/observability.md` e `docs/e2e_benchmark_hub_agent.md`. O repositorio inclui
 um probe Socket leve (`npm run load:socket-bridge`) para smoke/capacidade do hub;
 para benchmark profundo de SQL/ODBC, mantenha a carga no repositorio do agente.
-O probe tambem cobre os campos do profile 2.10 para medir o custo do transporte
+O probe tambem cobre os campos do profile 2.11 para medir o custo do transporte
 no hub antes de comparar o runtime ODBC do agente.
 
 ## Escopo
@@ -65,7 +65,7 @@ npm run load:socket-bridge
 MODE=relay npm run load:socket-bridge
 ```
 
-### Metodos RPC 2.10
+### Metodos RPC 2.11
 
 O probe aceita `RPC_METHOD=sql.execute|sql.executeBatch|sql.bulkInsert` para
 comparar REST materializado, `agents:command` e relay com o mesmo payload.
