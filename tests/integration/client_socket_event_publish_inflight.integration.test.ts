@@ -17,6 +17,7 @@ vi.mock("../../src/shared/config/env", async (importOriginal) => {
     env: {
       ...mod.env,
       socketConsumerMaxInflightPerSocket: 1,
+      socketCustomEventPublishMaxInflightPerSocket: 1,
     },
   };
 });

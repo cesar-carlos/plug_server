@@ -457,6 +457,17 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   /**
+   * Min UTF-8 bytes of serialized JSON before `encodePayloadFrame` / `encodePayloadFrameBridge`
+   * attempt gzip. Smaller frames use `cmp: none` (avoids gzip+base64 CPU on tiny payloads).
+   * Aligned with `HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES` (4096) unless overridden.
+   */
+  PAYLOAD_FRAME_COMPRESS_MIN_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10 * 1024 * 1024)
+    .default(4096),
+  /**
    * Max UTF-8 bytes of JSON before hub attempts gzip in `preencodePayloadFrameJson`.
    * Larger logical payloads are sent with `cmp: none` (still within 10 MiB frame limits).
    */
@@ -589,11 +600,41 @@ const envSchema = z.object({
     .default("true")
     .transform((v) => v === "true"),
   /**
+   * Disconnect registered `/agents` sockets whose registry `lastSeenAtMs` exceeds this idle threshold.
+   * `0` disables idle enforcement.
+   */
+  SOCKET_AGENT_IDLE_TIMEOUT_MS: z.coerce.number().int().min(0).max(86_400_000).default(1_800_000),
+  /** Background sweep cadence for {@link SOCKET_AGENT_IDLE_TIMEOUT_MS}. `0` disables the scheduler. */
+  SOCKET_AGENT_IDLE_SWEEP_INTERVAL_MS: z.coerce.number().int().min(0).max(3_600_000).default(60_000),
+  /**
+   * Disconnect connected `/consumers` sockets whose registry `lastSeenAtMs` exceeds this idle threshold.
+   * `0` disables idle enforcement.
+   */
+  SOCKET_CONSUMER_IDLE_TIMEOUT_MS: z.coerce.number().int().min(0).max(86_400_000).default(1_800_000),
+  /** Background sweep cadence for {@link SOCKET_CONSUMER_IDLE_TIMEOUT_MS}. `0` disables the scheduler. */
+  SOCKET_CONSUMER_IDLE_SWEEP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3_600_000)
+    .default(60_000),
+  /**
    * When > 0, successful `/agents` and `/consumers` handshake DB checks may be skipped for the same
    * JWT `sub` + `credentials_version` + principal type until the TTL expires (reduces DB load on reconnect storms).
    * Block/unblock can be delayed by up to this window; use `0` (default) to always hit the DB.
    */
   SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS: z.coerce.number().int().min(0).max(600_000).default(0),
+  /**
+   * When > 0, successful consumer agent-access guards may skip `assertPrincipalAccess` (and
+   * redundant client-agent room joins) on the same socket+agent until the TTL expires.
+   * Revokes/grants can be delayed by up to this window; use `0` (default) to always re-check.
+   */
+  SOCKET_CONSUMER_AGENT_ACCESS_SNAPSHOT_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(600_000)
+    .default(0),
   /**
    * Hard cap on async operations a single consumer socket may have in flight at once
    * across all event handlers (`agents:command`, `relay:rpc.request`, `agents:stream_pull`,
@@ -804,6 +845,23 @@ const envSchema = z.object({
    * `payload_frame` is the default/current contract; `raw_json` exists only as a short-lived migration shim.
    */
   SOCKET_CONNECTION_READY_COMPAT_MODE: z
+    .enum(["payload_frame", "raw_json"])
+    .default("payload_frame"),
+  /**
+   * Transitional wire compatibility mode for the `/consumers` `agents:command` family
+   * (`agents:command_response`, `agents:command_stream_*`). Inbound `agents:command` always
+   * accepts both plain JSON and `PayloadFrame` during the migration window.
+   * `payload_frame` is the default/current contract; `raw_json` exists only as a short-lived shim.
+   */
+  SOCKET_AGENTS_COMMAND_COMPAT_MODE: z.enum(["payload_frame", "raw_json"]).default("payload_frame"),
+  /**
+   * Transitional wire compatibility mode for the `/consumers` `agents:stream_pull` family
+   * (`agents:stream_pull_response`). Inbound `agents:stream_pull` always accepts both plain JSON
+   * and `PayloadFrame` during the migration window. Independent from
+   * `SOCKET_AGENTS_COMMAND_COMPAT_MODE` so command and stream_pull can migrate on different schedules.
+   * `payload_frame` is the default/current contract; `raw_json` exists only as a short-lived shim.
+   */
+  SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE: z
     .enum(["payload_frame", "raw_json"])
     .default("payload_frame"),
   SOCKET_REST_MAX_PENDING_REQUESTS: z.coerce.number().int().positive().default(10_000),
@@ -1119,6 +1177,10 @@ if (parsedEnv.NODE_ENV === "production") {
       );
     }
   }
+
+  if (!parsedEnv.SOCKET_AUTH_REQUIRED) {
+    throw new Error("Invalid production config: SOCKET_AUTH_REQUIRED must be true in production.");
+  }
 }
 
 export const env = {
@@ -1229,6 +1291,7 @@ export const env = {
   payloadSigningKeyId: parsedEnv.PAYLOAD_SIGNING_KEY_ID,
   payloadSigningPreviousKeys: parsedEnv.PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON,
   payloadSignOutbound: parsedEnv.PAYLOAD_SIGN_OUTBOUND,
+  payloadFrameCompressMinBytes: parsedEnv.PAYLOAD_FRAME_COMPRESS_MIN_BYTES,
   payloadFrameMaxGzipInputBytes: parsedEnv.PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES,
   payloadFrameGzipLevel: parsedEnv.PAYLOAD_FRAME_GZIP_LEVEL,
   payloadFrameAutoGzipMinSavingsBytes: parsedEnv.PAYLOAD_FRAME_AUTO_GZIP_MIN_SAVINGS_BYTES,
@@ -1251,7 +1314,14 @@ export const env = {
   agentRegisterBindCacheTtlMs: parsedEnv.AGENT_REGISTER_BIND_CACHE_TTL_MS,
   agentRegisterBindCacheMaxSize: parsedEnv.AGENT_REGISTER_BIND_CACHE_MAX_SIZE,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
+  socketAgentAuthBypassAllowed:
+    parsedEnv.NODE_ENV === "test" && parsedEnv.SOCKET_AUTH_REQUIRED === false,
+  socketAgentIdleTimeoutMs: parsedEnv.SOCKET_AGENT_IDLE_TIMEOUT_MS,
+  socketAgentIdleSweepIntervalMs: parsedEnv.SOCKET_AGENT_IDLE_SWEEP_INTERVAL_MS,
+  socketConsumerIdleTimeoutMs: parsedEnv.SOCKET_CONSUMER_IDLE_TIMEOUT_MS,
+  socketConsumerIdleSweepIntervalMs: parsedEnv.SOCKET_CONSUMER_IDLE_SWEEP_INTERVAL_MS,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
+  socketConsumerAgentAccessSnapshotTtlMs: parsedEnv.SOCKET_CONSUMER_AGENT_ACCESS_SNAPSHOT_TTL_MS,
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,
   socketCustomEventPublishMaxInflightPerSocket:
     parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET,
@@ -1318,6 +1388,8 @@ export const env = {
   socketAgentsStreamPullRateLimitMaxCredits:
     parsedEnv.SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS,
   socketConnectionReadyCompatMode: parsedEnv.SOCKET_CONNECTION_READY_COMPAT_MODE,
+  socketAgentsCommandCompatMode: parsedEnv.SOCKET_AGENTS_COMMAND_COMPAT_MODE,
+  socketAgentsStreamPullCompatMode: parsedEnv.SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE,
   socketRestMaxPendingRequests: parsedEnv.SOCKET_REST_MAX_PENDING_REQUESTS,
   socketRestAgentMaxInflight: parsedEnv.SOCKET_REST_AGENT_MAX_INFLIGHT,
   socketRestAgentMaxQueue: parsedEnv.SOCKET_REST_AGENT_MAX_QUEUE,

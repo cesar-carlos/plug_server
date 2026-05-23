@@ -36,6 +36,7 @@ import { dispatchRelayRpcToAgent } from "../../../../../src/presentation/socket/
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
 import {
   handleRelayRpcRequest,
+  parseRelayRpcRequestEnvelope,
   shouldRefundRelayRpcRequestRateLimit,
 } from "../../../../../src/presentation/socket/consumers/relay_rpc_request.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
@@ -114,19 +115,13 @@ describe("handleRelayRpcRequest", () => {
     mockedAssertAccess.mockResolvedValue({ type: "user", id: "user-1", role: "user" });
   });
 
-  it("emits VALIDATION_ERROR for malformed envelopes", () => {
-    const socket = buildSocket();
+  it("returns VALIDATION_ERROR for malformed relay:rpc.request envelopes", () => {
+    const envelope = parseRelayRpcRequestEnvelope({ conversationId: "" });
 
-    handleRelayRpcRequest(socket as never, { conversationId: "" });
-
-    expect(socket.emit).toHaveBeenCalledWith(
-      socketEvents.relayRpcAccepted,
-      expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({ code: "VALIDATION_ERROR" }),
-      }),
-    );
-    expect(mockedRefundRelayRpc).not.toHaveBeenCalled();
+    expect(envelope.success).toBe(false);
+    if (!envelope.success) {
+      expect(envelope.errorMessage).toBeTruthy();
+    }
   });
 
   it("does not refund relay rate limit when the per-socket inflight gate is full", () => {

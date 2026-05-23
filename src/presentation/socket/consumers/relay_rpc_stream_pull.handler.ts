@@ -80,18 +80,9 @@ const emitRelayStreamPullResponse = (
 
 export const handleRelayRpcStreamPull = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
-  rawPayload: unknown,
+  envelope: RelayRpcStreamPullEnvelope,
 ): void => {
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
-  const envelope = parseRelayRpcStreamPullEnvelope(rawPayload);
-  if (!envelope.success) {
-    emitRelayStreamPullResponse(socket, {
-      success: false,
-      error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
-    });
-    return;
-  }
-  const parsed = { success: true as const, data: envelope.data };
 
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
     emitRelayStreamPullResponse(socket, {
@@ -122,7 +113,7 @@ export const handleRelayRpcStreamPull = (
     try {
       assertNotAborted();
       const conversation = conversationRegistry.findInternalByConversationId(
-        parsed.data.conversationId,
+        envelope.conversationId,
       );
       if (!conversation || conversation.consumerSocketId !== socket.id) {
         throw new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 });
@@ -133,8 +124,8 @@ export const handleRelayRpcStreamPull = (
 
       const prepared = await prepareRelayStreamPull({
         consumerSocketId: socket.id,
-        conversationId: parsed.data.conversationId,
-        rawFramePayload: parsed.data.frame,
+        conversationId: envelope.conversationId,
+        rawFramePayload: envelope.frame,
       });
       assertNotAborted();
 
@@ -167,7 +158,7 @@ export const handleRelayRpcStreamPull = (
 
       emitRelayStreamPullResponse(socket, {
         success: true,
-        conversationId: parsed.data.conversationId,
+        conversationId: envelope.conversationId,
         requestId: result.requestId,
         streamId: result.streamId,
         windowSize: result.windowSize,
@@ -185,7 +176,7 @@ export const handleRelayRpcStreamPull = (
         actorUserId: socket.data.user?.sub ?? null,
         ...(actorRole ? { actorRole } : {}),
         direction: "consumer_to_agent",
-        conversationId: parsed.data.conversationId,
+        conversationId: envelope.conversationId,
         requestId: result.requestId,
         streamId: result.streamId,
         payload: {

@@ -15,21 +15,31 @@ vi.mock("../../../../../src/shared/di/container", () => ({
   },
 }));
 
+vi.mock("../../../../../src/presentation/socket/hub/consumer_identity_rooms", () => ({
+  joinConsumerClientAgentRoom: vi.fn(),
+}));
+
 import {
   assertConsumerSocketAgentAccess,
+  clearConsumerSocketAgentAccessSnapshot,
   resolveConsumerAgentAccessPrincipal,
   resolveSocketActorRole,
 } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import { assertJwtUserAccountActive } from "../../../../../src/presentation/socket/auth/ensure_socket_active_account";
+import { joinConsumerClientAgentRoom } from "../../../../../src/presentation/socket/hub/consumer_identity_rooms";
 import { container } from "../../../../../src/shared/di/container";
+import { env } from "../../../../../src/shared/config/env";
 
 const mockedAssertJwtUserAccountActive = vi.mocked(assertJwtUserAccountActive);
 const mockedAssertPrincipalAccess = vi.mocked(container.agentAccessService.assertPrincipalAccess);
+const mockedJoinConsumerClientAgentRoom = vi.mocked(joinConsumerClientAgentRoom);
 
 describe("consumer_socket_guard", () => {
   beforeEach(() => {
     mockedAssertJwtUserAccountActive.mockReset();
     mockedAssertPrincipalAccess.mockReset();
+    mockedJoinConsumerClientAgentRoom.mockReset();
+    env.socketConsumerAgentAccessSnapshotTtlMs = 0;
   });
 
   it("resolves actor role only for non-empty role strings", () => {
@@ -125,5 +135,88 @@ describe("consumer_socket_guard", () => {
         "agent-9",
       ),
     ).rejects.toBe(denial);
+  });
+
+  it("reuses per-socket agent access snapshot within TTL without hitting assertPrincipalAccess", async () => {
+    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    const user = {
+      sub: "client-1",
+      principal_type: "client",
+      credentials_version: 2,
+    } as never;
+
+    mockedAssertJwtUserAccountActive.mockResolvedValue(user);
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedJoinConsumerClientAgentRoom.mockResolvedValue(undefined);
+
+    const socket = {
+      id: "socket-1",
+      data: {},
+    } as never;
+
+    await expect(assertConsumerSocketAgentAccess(user, "agent-1", socket)).resolves.toEqual({
+      type: "client",
+      id: "client-1",
+    });
+    await expect(assertConsumerSocketAgentAccess(user, "agent-1", socket)).resolves.toEqual({
+      type: "client",
+      id: "client-1",
+    });
+
+    expect(mockedAssertPrincipalAccess).toHaveBeenCalledTimes(1);
+    expect(mockedJoinConsumerClientAgentRoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("revalidates agent access after per-socket snapshot TTL expires", async () => {
+    env.socketConsumerAgentAccessSnapshotTtlMs = 1_000;
+    vi.useFakeTimers();
+    const user = {
+      sub: "user-1",
+      principal_type: "user",
+      role: "user",
+      credentials_version: 1,
+    } as never;
+
+    mockedAssertJwtUserAccountActive.mockResolvedValue(user);
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+
+    const socket = {
+      id: "socket-2",
+      data: {},
+    } as never;
+
+    try {
+      await assertConsumerSocketAgentAccess(user, "agent-9", socket);
+      vi.advanceTimersByTime(1_001);
+      await assertConsumerSocketAgentAccess(user, "agent-9", socket);
+      expect(mockedAssertPrincipalAccess).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clearConsumerSocketAgentAccessSnapshot removes cached entry so guard revalidates", async () => {
+    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    const user = {
+      sub: "client-1",
+      principal_type: "client",
+      credentials_version: 1,
+    } as never;
+
+    mockedAssertJwtUserAccountActive.mockResolvedValue(user);
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedJoinConsumerClientAgentRoom.mockResolvedValue(undefined);
+
+    const socket = {
+      id: "socket-3",
+      data: {},
+    } as never;
+
+    await assertConsumerSocketAgentAccess(user, "agent-1", socket);
+    expect(mockedAssertPrincipalAccess).toHaveBeenCalledTimes(1);
+
+    clearConsumerSocketAgentAccessSnapshot(socket, "agent-1");
+    await assertConsumerSocketAgentAccess(user, "agent-1", socket);
+    expect(mockedAssertPrincipalAccess).toHaveBeenCalledTimes(2);
   });
 });

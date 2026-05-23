@@ -18,6 +18,7 @@ vi.mock("../../../../../src/shared/utils/jwt", () => ({
 vi.mock("../../../../../src/shared/config/env", () => ({
   env: {
     socketAuthRequired: true,
+    socketAgentAuthBypassAllowed: false,
     socketAgentRoles: ["agent"],
     socketConsumerRoles: ["user", "admin"],
   },
@@ -72,8 +73,8 @@ describe("authenticateAgentSocket", () => {
     expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 
-  it("allows /agents without token when auth fallback is disabled", async () => {
-    env.socketAuthRequired = false;
+  it("allows /agents without token only when test-only auth bypass is enabled", async () => {
+    env.socketAgentAuthBypassAllowed = true;
     const socket = {
       handshake: { headers: {}, auth: {} },
       data: {},
@@ -83,10 +84,26 @@ describe("authenticateAgentSocket", () => {
     try {
       await authenticateAgentSocket(socket as never, next);
     } finally {
-      env.socketAuthRequired = true;
+      env.socketAgentAuthBypassAllowed = false;
     }
 
     expect(next).toHaveBeenCalledWith();
+    expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("rejects /agents without token when auth bypass flag is disabled outside test", async () => {
+    env.socketAgentAuthBypassAllowed = false;
+    const socket = {
+      handshake: { headers: {}, auth: {} },
+      data: {},
+    };
+    const next = vi.fn();
+
+    await authenticateAgentSocket(socket as never, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const error = next.mock.calls[0]?.[0] as AppError;
+    expect(error.code).toBe("UNAUTHORIZED");
     expect(mockedGetActiveAccountUserSnapshot).not.toHaveBeenCalled();
   });
 

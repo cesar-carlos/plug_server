@@ -355,6 +355,20 @@ class InMemoryAgentRegistry {
     return Array.from(this.agents.values()).map((internal) => this.toPublic(internal));
   }
 
+  listIdle(idleTimeoutMs: number): readonly RegisteredAgent[] {
+    const timeoutMs = Math.max(1, Math.floor(idleTimeoutMs));
+    const nowMs = Date.now();
+    const idle: RegisteredAgent[] = [];
+
+    for (const internal of this.agents.values()) {
+      if (nowMs - internal.lastSeenAtMs >= timeoutMs) {
+        idle.push(this.toPublic(internal));
+      }
+    }
+
+    return idle;
+  }
+
   findByAgentId(agentId: string): RegisteredAgent | null {
     const internal = this.agents.get(agentId);
     return internal ? this.toPublic(internal) : null;

@@ -60,12 +60,12 @@ export const authenticateAgentSocket = async (
   const token = getToken(socket);
 
   if (!token) {
-    if (env.socketAuthRequired) {
-      noteAgentSocketAuthRejected("missing_token");
-      next(unauthorized("Socket authentication token is required for /agents"));
+    if (env.socketAgentAuthBypassAllowed) {
+      next();
       return;
     }
-    next();
+    noteAgentSocketAuthRejected("missing_token");
+    next(unauthorized("Socket authentication token is required for /agents"));
     return;
   }
 

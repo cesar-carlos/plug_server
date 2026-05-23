@@ -8,12 +8,17 @@ import { approveClientRegistrationByToken } from "./helpers/approve_client_regis
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 import { nextValidTestCnpj } from "./helpers/valid_test_cnpj";
-import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
+import {
+  decodePayloadFrame,
+  encodePayloadFrame,
+  isPayloadFrameEnvelope,
+} from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
 import { agentProfileReliabilityMetrics } from "../../src/application/services/agent_profile_reliability_metrics.service";
 import { container, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { hasRestPendingCorrelationId } from "../../src/presentation/socket/hub/rest_pending_requests";
+import { decodeAgentsStreamPullWirePayload } from "../../src/presentation/socket/consumers/agents_stream_pull_wire";
 import { agentsNamespace } from "../../src/socket";
 import { Client } from "../../src/domain/entities/client.entity";
 import { User } from "../../src/domain/entities/user.entity";
@@ -83,6 +88,39 @@ const waitForEvent = <T>(
 
     socket.on(eventName, onEvent);
   });
+
+const decodeAgentsCommandWirePayload = <T>(rawPayload: unknown): T => {
+  if (isPayloadFrameEnvelope(rawPayload)) {
+    const decoded = decodePayloadFrame(rawPayload);
+    if (!decoded.ok) {
+      throw new Error(`Failed to decode agents command wire payload: ${decoded.error.message}`);
+    }
+    if (!isRecord(decoded.value.data)) {
+      throw new Error("agents command wire payload body must be an object");
+    }
+    return decoded.value.data as T;
+  }
+  if (isRecord(rawPayload)) {
+    return rawPayload as T;
+  }
+  throw new Error("agents command wire payload must be an object or PayloadFrame");
+};
+
+const waitForAgentsCommandResponse = <T>(
+  socket: ReturnType<typeof ioClient>,
+  timeoutMs = 5_000,
+): Promise<T> =>
+  waitForEvent<unknown>(socket, "agents:command_response", timeoutMs).then(
+    decodeAgentsCommandWirePayload<T>,
+  );
+
+const waitForAgentsStreamPullResponse = <T>(
+  socket: ReturnType<typeof ioClient>,
+  timeoutMs = 5_000,
+): Promise<T> =>
+  waitForEvent<unknown>(socket, "agents:stream_pull_response", timeoutMs).then(
+    decodeAgentsStreamPullWirePayload<T>,
+  );
 
 const registerAgentAndWaitReady = async (
   socket: ReturnType<typeof ioClient>,
@@ -330,12 +368,12 @@ describe("Socket namespaces", () => {
     it("should respond to agents:command with validation error for invalid payload", async () => {
       const socket = await connectConsumer(baseUrl, accessToken);
 
-      const response = await new Promise<{ success: boolean; error?: { code: string } }>(
-        (resolve) => {
-          socket.on("agents:command_response", resolve);
-          socket.emit("agents:command", { agentId: "invalid", command: {} });
-        },
-      );
+      const responsePromise = waitForAgentsCommandResponse<{
+        success: boolean;
+        error?: { code: string };
+      }>(socket);
+      socket.emit("agents:command", { agentId: "invalid", command: {} });
+      const response = await responsePromise;
 
       expect(response.success).toBe(false);
       expect(response.error?.code).toBeDefined();
@@ -348,21 +386,20 @@ describe("Socket namespaces", () => {
       }
       const socket = await connectConsumer(baseUrl, clientAccessToken);
 
-      const response = await new Promise<{
+      const responsePromise = waitForAgentsCommandResponse<{
         success: boolean;
         error?: { code?: string; statusCode?: number };
-      }>((resolve) => {
-        socket.on("agents:command_response", resolve);
-        socket.emit("agents:command", {
-          agentId: testAgentId,
-          command: {
-            jsonrpc: "2.0",
-            method: "sql.execute",
-            id: "client-denied-1",
-            params: { sql: "SELECT 1", client_token: "client-test-token" },
-          },
-        });
+      }>(socket);
+      socket.emit("agents:command", {
+        agentId: testAgentId,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "client-denied-1",
+          params: { sql: "SELECT 1", client_token: "client-test-token" },
+        },
       });
+      const response = await responsePromise;
 
       expect(response.success).toBe(false);
       expect(response.error?.code).toBe("AGENT_ACCESS_DENIED");
@@ -500,21 +537,20 @@ describe("Socket namespaces", () => {
       try {
         await setUserStatus(user.userId, "blocked");
 
-        const response = await new Promise<{
+        const responsePromise = waitForAgentsCommandResponse<{
           success: boolean;
           error?: { code?: string; message?: string; statusCode?: number };
-        }>((resolve) => {
-          socket.once("agents:command_response", resolve);
-          socket.emit("agents:command", {
-            agentId: blockedAgentId,
-            command: {
-              jsonrpc: "2.0",
-              method: "sql.execute",
-              id: "blocked-user-command",
-              params: { sql: "SELECT 1" },
-            },
-          });
+        }>(socket);
+        socket.emit("agents:command", {
+          agentId: blockedAgentId,
+          command: {
+            jsonrpc: "2.0",
+            method: "sql.execute",
+            id: "blocked-user-command",
+            params: { sql: "SELECT 1" },
+          },
         });
+        const response = await responsePromise;
 
         expect(response.success).toBe(false);
         expect(response.error?.code).toBe("FORBIDDEN");
@@ -869,11 +905,11 @@ describe("Socket namespaces", () => {
           },
         });
 
-        const commandResponsePromise = waitForEvent<{
+        const commandResponsePromise = waitForAgentsCommandResponse<{
           success: boolean;
           requestId?: string;
           streamId?: string;
-        }>(clientSocket, "agents:command_response");
+        }>(clientSocket);
 
         agentSocket.once("rpc:request", (rawPayload: unknown) => {
           const decoded = decodePayloadFrame(rawPayload);
@@ -919,16 +955,15 @@ describe("Socket namespaces", () => {
         await repositories.clientAgentAccess.removeAccess(client.clientId, testAgentId);
         container.agentAccessService.invalidateAccessCache("client", client.clientId, testAgentId);
 
-        const pullResponse = await new Promise<{
+        const pullResponsePromise = waitForAgentsStreamPullResponse<{
           success: boolean;
           error?: { code?: string; statusCode?: number };
-        }>((resolve) => {
-          clientSocket.once("agents:stream_pull_response", resolve);
-          clientSocket.emit("agents:stream_pull", {
-            requestId: commandResponse.requestId,
-            windowSize: 1,
-          });
+        }>(clientSocket);
+        clientSocket.emit("agents:stream_pull", {
+          requestId: commandResponse.requestId,
+          windowSize: 1,
         });
+        const pullResponse = await pullResponsePromise;
 
         expect(pullResponse.success).toBe(false);
         expect(pullResponse.error?.code).toBe("AGENT_ACCESS_DENIED");
@@ -1046,19 +1081,19 @@ describe("Socket namespaces", () => {
     it("should respond to agents:command with agent not found for non-existent agent", async () => {
       const socket = await connectConsumer(baseUrl, accessToken);
 
-      const response = await new Promise<{ success: boolean; error?: { code: string } }>(
-        (resolve) => {
-          socket.on("agents:command_response", resolve);
-          socket.emit("agents:command", {
-            agentId: "00000000-0000-0000-0000-000000000000",
-            command: {
-              jsonrpc: "2.0",
-              method: "sql.execute",
-              params: { sql: "SELECT 1", client_token: "test" },
-            },
-          });
+      const responsePromise = waitForAgentsCommandResponse<{
+        success: boolean;
+        error?: { code: string };
+      }>(socket);
+      socket.emit("agents:command", {
+        agentId: "00000000-0000-0000-0000-000000000000",
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          params: { sql: "SELECT 1", client_token: "test" },
         },
-      );
+      });
+      const response = await responsePromise;
 
       expect(response.success).toBe(false);
       expect(response.error?.code).toMatch(/NOT_FOUND|COMMAND_FAILED/);
@@ -1111,11 +1146,11 @@ describe("Socket namespaces", () => {
           });
         });
 
-        const commandResponsePromise = waitForEvent<{
+        const commandResponsePromise = waitForAgentsCommandResponse<{
           success: boolean;
           requestId?: string;
           response?: { type?: string; item?: { result?: { via?: string } } };
-        }>(consumerSocket, "agents:command_response");
+        }>(consumerSocket);
 
         consumerSocket.emit("agents:command", {
           agentId: testAgentId,
@@ -1160,12 +1195,12 @@ describe("Socket namespaces", () => {
         });
 
         const pullPayloadPromise = waitForEvent<unknown>(agentSocket, "rpc:stream.pull");
-        const commandResponsePromise = waitForEvent<{
+        const commandResponsePromise = waitForAgentsCommandResponse<{
           success: boolean;
           requestId?: string;
           streamId?: string;
           response?: Record<string, unknown>;
-        }>(consumerSocket, "agents:command_response");
+        }>(consumerSocket);
         const chunkEventsPromise = new Promise<readonly Record<string, unknown>[]>(
           (resolve, reject) => {
             const collected: Record<string, unknown>[] = [];
@@ -1174,8 +1209,8 @@ describe("Socket namespaces", () => {
               reject(new Error("Timed out waiting for stream chunk events"));
             }, 8_000);
 
-            const onChunk = (payload: Record<string, unknown>): void => {
-              collected.push(payload);
+            const onChunk = (rawPayload: unknown): void => {
+              collected.push(decodeAgentsCommandWirePayload<Record<string, unknown>>(rawPayload));
 
               if (collected.length >= 1) {
                 clearTimeout(timeout);
@@ -1187,16 +1222,16 @@ describe("Socket namespaces", () => {
             consumerSocket.on("agents:command_stream_chunk", onChunk);
           },
         );
-        const completeEventPromise = waitForEvent<Record<string, unknown>>(
+        const completeEventPromise = waitForEvent<unknown>(
           consumerSocket,
           "agents:command_stream_complete",
-        );
-        const pullResponsePromise = waitForEvent<{
+        ).then(decodeAgentsCommandWirePayload<Record<string, unknown>>);
+        const pullResponsePromise = waitForAgentsStreamPullResponse<{
           success: boolean;
           requestId?: string;
           streamId?: string;
           windowSize?: number;
-        }>(consumerSocket, "agents:stream_pull_response");
+        }>(consumerSocket);
 
         agentSocket.on("rpc:request", (rawPayload: unknown) => {
           const decoded = decodePayloadFrame(rawPayload);

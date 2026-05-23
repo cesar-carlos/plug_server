@@ -442,6 +442,49 @@ describe("rpc_bridge_agent_inbound", () => {
     expect(releaseInner).toHaveBeenCalledTimes(1);
   });
 
+  it("should invoke Socket.IO ack immediately after validation, before relay outbound", async () => {
+    const callOrder: string[] = [];
+    const ack = vi.fn(() => {
+      callOrder.push("ack");
+    });
+    const emitToConsumer = vi.fn(() => {
+      callOrder.push("emit");
+    });
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+
+    registerRelayRequestRoute({
+      requestId: "req-relay-early-ack",
+      conversationId: "conv-1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+    });
+
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id: "req-relay-early-ack",
+          result: { ok: true },
+        },
+        { requestId: "req-relay-early-ack" },
+      ),
+      ack,
+    );
+
+    await vi.waitFor(() => {
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(emitToConsumer).toHaveBeenCalledTimes(1);
+    });
+    expect(callOrder).toEqual(["ack", "emit"]);
+  });
+
   it("should fail fast instead of leaking an unhandled rejection on unexpected relay processing errors", async () => {
     const emitToConsumer = vi.fn();
     const ack = vi.fn();

@@ -62,6 +62,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
   const clientSocketEventPublishRl = socket.clientSocketEventPublishSocketRateLimit;
   const consumerRuntime = socket.consumerRuntime;
   const agentRuntime = socket.agentRuntime;
+  const hubErrors = socket.hubErrors;
   const audit = getSocketAuditMetricsSnapshot();
   const bridgeLatency = getBridgeLatencyTraceMetricsSnapshot();
   const agentDataMaintenance = getAgentDataMaintenanceMetricsSnapshot();
@@ -787,6 +788,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   lines.push(
     metricLine(
+      "plug_agent_idle_timeout_disconnect_total",
+      agentRuntime.agentIdleTimeoutDisconnectTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
       "plug_agent_session_register_rate_limited_total",
       agentRuntime.sessionRegisterRateLimitedTotal,
     ),
@@ -1242,6 +1249,23 @@ export const getMetrics = (_request: Request, response: Response): void => {
       consumerRuntime.roomDisconnect.consumerTriggeredTotal,
     ),
   );
+  lines.push(
+    metricLine(
+      "plug_consumer_idle_timeout_disconnect_total",
+      consumerRuntime.consumerIdleTimeoutDisconnectTotal,
+    ),
+  );
+  for (const [code, value] of Object.entries(hubErrors.engineConnectionErrors)) {
+    lines.push(metricLine("plug_socket_engine_connection_errors_total", value, { code }));
+  }
+  for (const [namespace, value] of Object.entries(hubErrors.namespaceAdapterErrors)) {
+    lines.push(
+      metricLine("plug_socket_namespace_adapter_errors_total", value, { namespace }),
+    );
+  }
+  for (const [namespace, value] of Object.entries(hubErrors.namespaceSocketErrors)) {
+    lines.push(metricLine("plug_socket_namespace_socket_errors_total", value, { namespace }));
+  }
   const recipientHist = consumerRuntime.publishRecipientsHistogram;
   for (const bucket of recipientHist.cumulativeBuckets) {
     lines.push(

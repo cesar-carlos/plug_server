@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("dotenv", () => ({
+  default: {
+    config: vi.fn(() => ({ parsed: {} })),
+  },
+}));
+
 import type { env as EnvSnapshot } from "../../../../src/shared/config/env";
 
 const previousEnabled = process.env.SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED;

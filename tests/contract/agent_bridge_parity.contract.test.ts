@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentsCommandPlainJsonWireException,
+  agentsCommandWireMigration,
+  agentsStreamPullPlainJsonWireException,
+  agentsStreamPullWireMigration,
   bridgeParityFeatureRows,
   bridgeParityMethodRows,
   bridgeParityMethods,
@@ -168,5 +172,30 @@ describe("agent bridge parity contract", () => {
         }),
       ]),
     );
+  });
+
+  it("documents agents:command wire migration with PayloadFrame outbound by default", () => {
+    expect(agentsCommandWireMigration.inboundEvent).toBe("agents:command");
+    expect(agentsCommandWireMigration.responseEvent).toBe("agents:command_response");
+    expect(agentsCommandWireMigration.streamEvents).toEqual([
+      "agents:command_stream_chunk",
+      "agents:command_stream_complete",
+    ]);
+    expect(agentsCommandWireMigration.defaultOutboundWireFormat).toBe("payload_frame");
+    expect(agentsCommandWireMigration.compatModeEnv).toBe("SOCKET_AGENTS_COMMAND_COMPAT_MODE");
+    expect(agentsCommandWireMigration.reason.length).toBeGreaterThan(0);
+    expect(agentsCommandWireMigration.removeWhen.length).toBeGreaterThan(0);
+    expect(agentsCommandPlainJsonWireException).toBe(agentsCommandWireMigration);
+  });
+
+  it("documents agents:stream_pull wire migration with PayloadFrame outbound by default", () => {
+    expect(agentsStreamPullWireMigration.inboundEvent).toBe("agents:stream_pull");
+    expect(agentsStreamPullWireMigration.responseEvent).toBe("agents:stream_pull_response");
+    expect(agentsStreamPullWireMigration.streamEvents).toEqual([]);
+    expect(agentsStreamPullWireMigration.defaultOutboundWireFormat).toBe("payload_frame");
+    expect(agentsStreamPullWireMigration.compatModeEnv).toBe("SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE");
+    expect(agentsStreamPullWireMigration.reason.length).toBeGreaterThan(0);
+    expect(agentsStreamPullWireMigration.removeWhen.length).toBeGreaterThan(0);
+    expect(agentsStreamPullPlainJsonWireException).toBe(agentsStreamPullWireMigration);
   });
 });

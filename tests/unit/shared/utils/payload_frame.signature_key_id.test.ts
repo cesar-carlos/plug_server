@@ -14,6 +14,7 @@ const baseEnv = {
   payloadSigningKeyId: undefined as string | undefined,
   payloadSigningPreviousKeys: {} as Record<string, string>,
   payloadSignOutbound: false,
+  payloadFrameCompressMinBytes: 4096,
   payloadFrameMaxGzipInputBytes: 1_048_576,
   payloadFrameGzipLevel: undefined as number | undefined,
   payloadFrameAutoGzipMinSavingsBytes: 64,

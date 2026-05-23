@@ -100,6 +100,8 @@ const roomDisconnect = {
   consumerTriggeredTotal: 0,
 };
 
+let consumerIdleTimeoutDisconnectTotal = 0;
+
 /** Upper bounds for Prometheus-style cumulative histogram of publish recipient fan-out. */
 const PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS = [
   0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536, 131_072,
@@ -361,6 +363,12 @@ export const noteConsumerRoomDisconnectTriggered = (): void => {
   roomDisconnect.consumerTriggeredTotal += 1;
 };
 
+export const noteConsumerIdleTimeoutDisconnect = (count = 1): void => {
+  if (count > 0) {
+    consumerIdleTimeoutDisconnectTotal += count;
+  }
+};
+
 export const getSocketConsumerMetricsSnapshot = (): {
   readonly activeConnections: typeof activeConnections;
   readonly authRejects: typeof authRejects;
@@ -387,6 +395,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   };
   readonly profilePushRecipientFetch: typeof profilePushRecipientFetch;
   readonly roomDisconnect: typeof roomDisconnect;
+  readonly consumerIdleTimeoutDisconnectTotal: number;
   readonly publishRecipientsHistogram: {
     readonly cumulativeBuckets: readonly { readonly le: string; readonly count: number }[];
     readonly sum: number;
@@ -433,6 +442,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   },
   profilePushRecipientFetch: { ...profilePushRecipientFetch },
   roomDisconnect: { ...roomDisconnect },
+  consumerIdleTimeoutDisconnectTotal,
   publishRecipientsHistogram: {
     cumulativeBuckets: [
       ...PUBLISH_RECIPIENT_HIST_UPPER_BOUNDS.map((b) => ({
@@ -516,6 +526,7 @@ export const resetSocketConsumerMetrics = (): void => {
   profilePushRecipientFetch.reusedInFlightTotal = 0;
   roomDisconnect.agentTriggeredTotal = 0;
   roomDisconnect.consumerTriggeredTotal = 0;
+  consumerIdleTimeoutDisconnectTotal = 0;
   publishRecipientsHistSum = 0;
   publishRecipientsHistCount = 0;
   publishRecipientsHistBuckets.clear();

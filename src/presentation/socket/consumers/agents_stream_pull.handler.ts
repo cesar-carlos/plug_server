@@ -1,3 +1,12 @@
+/**
+ * Socket handler for consumer stream pulls on active agent streams.
+ *
+ * Wire format: outbound `agents:stream_pull_response` uses `PayloadFrame` by default (hot path);
+ * inbound `agents:stream_pull` accepts both plain JSON (legacy) and `PayloadFrame` during migration.
+ * Set `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE=raw_json` for legacy outbound plain JSON.
+ * See `agentsStreamPullWireMigration` in `agent_bridge_parity.ts`.
+ */
+
 import type { Socket } from "socket.io";
 import { z } from "zod";
 
@@ -10,7 +19,7 @@ import { agentRegistry } from "../hub/agent_registry";
 import { env } from "../../../shared/config/env";
 import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
+import { toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
@@ -28,6 +37,12 @@ import {
 } from "./per_socket_inflight_gate";
 import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
 import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
+import {
+  buildAgentsStreamPullResponseForWire,
+  decodeAgentsStreamPullInboundPayload,
+  extractAgentsStreamPullRequestId,
+  type AgentsStreamPullResponsePayload,
+} from "./agents_stream_pull_wire";
 
 const streamPullPayloadSchema = z
   .object({
@@ -45,33 +60,23 @@ const streamPullPayloadSchema = z
     }
   });
 
-type StreamPullResponsePayload =
-  | {
-      success: true;
-      requestId: string;
-      streamId: string;
-      windowSize: number;
-      rateLimit?: {
-        remainingCredits: number;
-        limit: number;
-        scope: "user" | "anon";
-      };
-    }
-  | {
-      success: false;
-      error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
-      rateLimit?: {
-        remainingCredits: number;
-        limit: number;
-        scope: "user" | "anon";
-      };
-    };
-
-const emitStreamPullResponse = (socket: Socket, payload: StreamPullResponsePayload): void => {
+const emitStreamPullResponse = (
+  socket: Socket,
+  payload: AgentsStreamPullResponsePayload,
+  options?: { readonly requestId?: string },
+): void => {
   if (socket.connected === false) {
     return;
   }
-  socket.emit(socketEvents.agentsStreamPullResponse, payload);
+  const requestId =
+    options?.requestId ??
+    ("requestId" in payload && typeof payload.requestId === "string" ? payload.requestId : undefined);
+  socket.emit(
+    socketEvents.agentsStreamPullResponse,
+    buildAgentsStreamPullResponseForWire(payload, {
+      ...(requestId !== undefined ? { requestId } : {}),
+    }),
+  );
 };
 
 const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_ERROR"): void => {
@@ -102,33 +107,43 @@ export const handleAgentsStreamPull = (
   rawPayload: unknown,
 ): void => {
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
-  if (!isRecord(rawPayload)) {
-    emitAppError(socket, "agents:stream_pull payload must be an object");
+  const decodedInbound = decodeAgentsStreamPullInboundPayload(rawPayload);
+  if (!decodedInbound.ok) {
+    emitAppError(socket, decodedInbound.message);
     return;
   }
 
-  const parsed = streamPullPayloadSchema.safeParse(rawPayload);
+  const correlationRequestId = extractAgentsStreamPullRequestId(decodedInbound.data);
+  const parsed = streamPullPayloadSchema.safeParse(decodedInbound.data);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
     const message = firstIssue
       ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
       : "Validation failed";
-    emitStreamPullResponse(socket, {
-      success: false,
-      error: { code: "VALIDATION_ERROR", message },
-    });
+    emitStreamPullResponse(
+      socket,
+      {
+        success: false,
+        error: { code: "VALIDATION_ERROR", message },
+      },
+      { ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}) },
+    );
     return;
   }
 
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
-    emitStreamPullResponse(socket, {
-      success: false,
-      error: {
-        code: "RATE_LIMITED",
-        message: "Per-socket inflight gate exceeded",
-        statusCode: 429,
+    emitStreamPullResponse(
+      socket,
+      {
+        success: false,
+        error: {
+          code: "RATE_LIMITED",
+          message: "Per-socket inflight gate exceeded",
+          statusCode: 429,
+        },
       },
-    });
+      { ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}) },
+    );
     return;
   }
 
@@ -150,21 +165,33 @@ export const handleAgentsStreamPull = (
     let grantedCredits = 0;
     try {
       if (!(await allowAgentsCommandSocketAsync(userSub, socket.id))) {
-        emitStreamPullResponse(socket, {
-          success: false,
-          error: {
-            code: "TOO_MANY_REQUESTS",
-            message: "Too many agent stream pulls, please try again later.",
-            statusCode: 429,
+        emitStreamPullResponse(
+          socket,
+          {
+            success: false,
+            error: {
+              code: "TOO_MANY_REQUESTS",
+              message: "Too many agent stream pulls, please try again later.",
+              statusCode: 429,
+            },
           },
-        });
+          { ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}) },
+        );
         return;
       }
 
       assertNotAborted();
-      const agentId = resolveStreamRouteAgentId({
+      const prepared = prepareLegacyAgentStreamPull({
+        consumerSocketId: socket.id,
         ...(parsed.data.streamId ? { streamId: parsed.data.streamId } : {}),
         ...(parsed.data.requestId ? { requestId: parsed.data.requestId } : {}),
+        ...(parsed.data.windowSize !== undefined ? { windowSize: parsed.data.windowSize } : {}),
+      });
+      assertNotAborted();
+
+      const agentId = resolveStreamRouteAgentId({
+        streamId: prepared.streamId,
+        requestId: prepared.requestId,
       });
       if (!agentId) {
         throw new AppError("Stream route not found", { code: "NOT_FOUND", statusCode: 404 });
@@ -172,48 +199,49 @@ export const handleAgentsStreamPull = (
 
       await assertConsumerSocketAgentAccess(socket.data.user, agentId, socket);
       assertNotAborted();
-
-      const prepared = prepareLegacyAgentStreamPull({
-        consumerSocketId: socket.id,
-        ...(parsed.data.streamId ? { streamId: parsed.data.streamId } : {}),
-        ...(parsed.data.requestId ? { requestId: parsed.data.requestId } : {}),
-        ...(parsed.data.windowSize !== undefined ? { windowSize: parsed.data.windowSize } : {}),
-      });
       const allowance = await allowAgentsStreamPullCredits(userSub, socket.id, prepared.windowSize);
       if (!allowance.allowed) {
-        emitStreamPullResponse(socket, {
-          success: false,
-          error: {
-            code: "RATE_LIMITED",
-            message: "Stream pull credit budget exceeded for this window",
-            statusCode: 429,
+        emitStreamPullResponse(
+          socket,
+          {
+            success: false,
+            error: {
+              code: "RATE_LIMITED",
+              message: "Stream pull credit budget exceeded for this window",
+              statusCode: 429,
+            },
+            rateLimit: {
+              remainingCredits: allowance.remainingCredits,
+              limit: allowance.limit,
+              scope: allowance.scope,
+            },
           },
-          rateLimit: {
-            remainingCredits: allowance.remainingCredits,
-            limit: allowance.limit,
-            scope: allowance.scope,
-          },
-        });
+          { ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}) },
+        );
         return;
       }
       grantedCredits = allowance.grantedCredits;
       const result = prepared.execute();
 
-      emitStreamPullResponse(socket, {
-        success: true,
-        requestId: result.requestId,
-        streamId: result.streamId,
-        windowSize: result.windowSize,
-        ...(allowance.limit > 0
-          ? {
-              rateLimit: {
-                remainingCredits: allowance.remainingCredits,
-                limit: allowance.limit,
-                scope: allowance.scope,
-              },
-            }
-          : {}),
-      });
+      emitStreamPullResponse(
+        socket,
+        {
+          success: true,
+          requestId: result.requestId,
+          streamId: result.streamId,
+          windowSize: result.windowSize,
+          ...(allowance.limit > 0
+            ? {
+                rateLimit: {
+                  remainingCredits: allowance.remainingCredits,
+                  limit: allowance.limit,
+                  scope: allowance.scope,
+                },
+              }
+            : {}),
+        },
+        { requestId: result.requestId },
+      );
     } catch (err: unknown) {
       if (grantedCredits > 0) {
         try {
@@ -236,15 +264,19 @@ export const handleAgentsStreamPull = (
         noteSocketErrorRetryAfterMsPropagated();
       }
 
-      emitStreamPullResponse(socket, {
-        success: false,
-        error: {
-          code,
-          message,
-          ...(typeof statusCode === "number" ? { statusCode } : {}),
-          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      emitStreamPullResponse(
+        socket,
+        {
+          success: false,
+          error: {
+            code,
+            message,
+            ...(typeof statusCode === "number" ? { statusCode } : {}),
+            ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+          },
         },
-      });
+        { ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}) },
+      );
     } finally {
       unregisterAbortController();
       releaseSocketInflightSlot(socket);

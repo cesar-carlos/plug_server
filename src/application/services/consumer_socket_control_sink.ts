@@ -16,10 +16,26 @@ export interface ConsumerSocketGrantClientAccessEvent {
   readonly agentId: string;
 }
 
+export interface ConsumerSocketInvalidateClientAgentAccessSnapshotEvent {
+  readonly clientId: string;
+  readonly agentId: string;
+}
+
+/** Clears per-socket agent-access snapshots for one agent on all connected consumer sockets. */
+export interface ConsumerSocketInvalidateAgentAccessSnapshotEvent {
+  readonly agentId: string;
+}
+
 interface ConsumerSocketControlHandler {
   disconnectPrincipal(input: ConsumerSocketDisconnectPrincipalEvent): Promise<void>;
   revokeClientAccess(input: ConsumerSocketRevokeClientAccessEvent): Promise<void>;
   grantClientAccess(input: ConsumerSocketGrantClientAccessEvent): Promise<void>;
+  invalidateClientAgentAccessSnapshot?(
+    input: ConsumerSocketInvalidateClientAgentAccessSnapshotEvent,
+  ): Promise<void>;
+  invalidateAgentAccessSnapshot?(
+    input: ConsumerSocketInvalidateAgentAccessSnapshotEvent,
+  ): Promise<void>;
 }
 
 type ConsumerSocketControlHandlerDisposer = () => void;
@@ -51,4 +67,24 @@ export const grantConsumerClientAccessRooms = async (
   event: ConsumerSocketGrantClientAccessEvent,
 ): Promise<void> => {
   await Promise.all([...handlers].map((handler) => handler.grantClientAccess(event)));
+};
+
+export const invalidateConsumerClientAgentAccessSnapshots = async (
+  event: ConsumerSocketInvalidateClientAgentAccessSnapshotEvent,
+): Promise<void> => {
+  await Promise.all(
+    [...handlers].map(
+      (handler) => handler.invalidateClientAgentAccessSnapshot?.(event) ?? Promise.resolve(),
+    ),
+  );
+};
+
+export const invalidateConsumerAgentAccessSnapshotsByAgentId = async (
+  event: ConsumerSocketInvalidateAgentAccessSnapshotEvent,
+): Promise<void> => {
+  await Promise.all(
+    [...handlers].map(
+      (handler) => handler.invalidateAgentAccessSnapshot?.(event) ?? Promise.resolve(),
+    ),
+  );
 };

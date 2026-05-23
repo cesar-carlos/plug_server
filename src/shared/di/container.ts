@@ -4,6 +4,10 @@ import { AgentCatalogService } from "../../application/services/agent_catalog.se
 import { AgentProfileSyncService } from "../../application/services/agent_profile_sync.service";
 import { AgentSelfProfileService } from "../../application/services/agent_self_profile.service";
 import { ClientAgentAccessService } from "../../application/services/client_agent_access.service";
+import {
+  invalidateConsumerAgentAccessSnapshotsByAgentId,
+  invalidateConsumerClientAgentAccessSnapshots,
+} from "../../application/services/consumer_socket_control_sink";
 import { ClientAuthService } from "../../application/services/client_auth.service";
 import { HealthReadinessService } from "../../application/services/health_readiness.service";
 import { UserAgentService } from "../../application/services/user_agent.service";
@@ -196,7 +200,10 @@ const agentAccessService = new AgentAccessService(
   clientAgentAccessRepository,
 );
 const agentCatalogService = new AgentCatalogService(agentRepository, {
-  onAgentDeactivated: (agentId) => agentAccessService.invalidateAccessCacheForAgent(agentId),
+  onAgentDeactivated: (agentId) => {
+    agentAccessService.invalidateAccessCacheForAgent(agentId);
+    void invalidateConsumerAgentAccessSnapshotsByAgentId({ agentId });
+  },
 });
 const agentSelfProfileService = new AgentSelfProfileService(agentRepository);
 const agentProfileSyncService = new AgentProfileSyncService(agentSelfProfileService);
@@ -238,8 +245,10 @@ const clientAgentAccessService = new ClientAgentAccessService(
         dispatch: dispatchRpcCommandToAgent,
         timeoutMs: 10_000,
       }),
-    onAccessRevoked: (clientId, agentId) =>
-      agentAccessService.invalidateAccessCache("client", clientId, agentId),
+    onAccessRevoked: (clientId, agentId) => {
+      agentAccessService.invalidateAccessCache("client", clientId, agentId);
+      void invalidateConsumerClientAgentAccessSnapshots({ clientId, agentId });
+    },
   },
 );
 

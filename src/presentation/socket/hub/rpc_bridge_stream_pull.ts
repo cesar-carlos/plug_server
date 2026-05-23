@@ -2,7 +2,7 @@ import { recordSocketAuditEvent } from "../../../application/services/socket_aud
 import { observeBridgeRpcMethod } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { encodePayloadFrame } from "../../../shared/utils/payload_frame";
+import { encodePayloadFrameHotPath } from "../../../shared/utils/payload_frame";
 import { toRequestId } from "../../../shared/utils/rpc_types";
 import { agentRegistry } from "./agent_registry";
 import type { ActiveStreamRoute } from "./active_stream_registry";
@@ -159,16 +159,13 @@ export const createPrepareAgentStreamPull = (
     const execute = (): RequestAgentStreamPullResult => {
       agentSocket.emit(
         socketEvents.rpcStreamPull,
-        encodePayloadFrame(
+        encodePayloadFrameHotPath(
           {
             stream_id: streamId,
             request_id: route.requestId,
             window_size: windowSize,
           },
-          {
-            requestId: route.requestId,
-            omitTraceId: true,
-          },
+          { requestId: route.requestId },
         ),
       );
 

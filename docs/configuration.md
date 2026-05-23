@@ -67,7 +67,18 @@ activo do socket dentro da janela.
 
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
-| `SOCKET_AUTH_REQUIRED` | `true` | Quando `false`, o middleware do namespace **`/agents`** pode aceitar ligacao **sem** token no handshake (modo desenvolvimento / compat). Em **produção** mantém `true`. O namespace **`/consumers`** continua a exigir JWT válido no handshake independentemente desta flag (ver `docs/socket_client_sdk.md`). |
+| `SOCKET_AUTH_REQUIRED` | `true` | Handshake JWT do namespace **`/agents`**. Quando `false`, o middleware aceita ligacao **sem** token **apenas** com `NODE_ENV=test`; em **produção** o bootstrap **aborta** se a flag estiver desligada (arranque regista `WARN` `socket_agent_auth_bypass_*`). O namespace **`/consumers`** continua a exigir JWT válido no handshake independentemente desta flag (ver `docs/socket_client_sdk.md`). |
+
+### Idle enforcement (Socket)
+
+Sweeps periodicos desligam sockets inactivos para libertar memoria e salas. `touch` em trafego relevante (register, heartbeat, RPC, relay, etc.) reinicia o relogio. `0` no timeout desactiva a politica; `0` no sweep desactiva o scheduler em background.
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `SOCKET_AGENT_IDLE_TIMEOUT_MS` | `1800000` (30 min) | Desliga sockets **`/agents`** registados sem actividade. Metrica: `plug_agent_idle_timeout_disconnect_total`. |
+| `SOCKET_AGENT_IDLE_SWEEP_INTERVAL_MS` | `60000` | Cadencia do sweep em background para `SOCKET_AGENT_IDLE_TIMEOUT_MS`. |
+| `SOCKET_CONSUMER_IDLE_TIMEOUT_MS` | `1800000` (30 min) | Desliga sockets **`/consumers`** ligados inactivos; emite `app:error` com `code: CONSUMER_IDLE_TIMEOUT` antes do disconnect. Metrica: `plug_consumer_idle_timeout_disconnect_total`. |
+| `SOCKET_CONSUMER_IDLE_SWEEP_INTERVAL_MS` | `60000` | Cadencia do sweep em background para `SOCKET_CONSUMER_IDLE_TIMEOUT_MS`. |
 
 ### Checklist produção (smoke socket / Colmeia)
 
@@ -97,6 +108,7 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 
 | Variável                                          | Defeito                                          | Notas                                                                                                                                                                                                                                                                                                                                                                                            |
 | ------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PAYLOAD_FRAME_COMPRESS_MIN_BYTES`                | `4096`                                           | `encodePayloadFrame` / `encodePayloadFrameBridge`: abaixo deste tamanho UTF-8 serializado usa `cmp: none` (evita CPU de gzip+base64 em frames pequenos). `0` desativa o limiar global.                                                                                                                                                                                                           |
 | `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`              | `524288` (512 KiB)                               | Só tenta gzip quando o JSON UTF-8 não excede este tamanho; ver `docs/performance_hub_agent.md`.                                                                                                                                                                                                                                                                                                  |
 | `PAYLOAD_FRAME_GZIP_LEVEL`                        | ver tabela _production_ acima; senão _(omitido)_ | Nível zlib `1`–`9` para gzip do hub; fora do ramo produção omitir = default Node (~6).                                                                                                                                                                                                                                                                                                           |
 | `PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`         | `131072` (128 KiB)                               | Hub→agente (`encodePayloadFrameBridge`): JSON elegível para gzip com pelo menos este tamanho usa **gzip assíncrono**. `0` = sempre síncrono.                                                                                                                                                                                                                                                     |
@@ -117,6 +129,22 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_AGENT_ACK_RETRY_ENABLED`                  | `true`                                           | Habilita retry por falta de `rpc:request_ack`/`rpc:batch_ack` somente para requests elegíveis e idempotentes/seguras. |
 | `SOCKET_AGENT_ACK_TIMEOUT_MS`                     | `1000`                                           | Janela para aguardar ACK antes de reenviar o mesmo frame elegível. |
 | `SOCKET_AGENT_ACK_MAX_RETRIES`                    | `1`                                              | Número máximo de reenvios por falta de ACK. `0` desativa o retry mesmo com a flag ligada. |
+
+### `SOCKET_AGENTS_COMMAND_COMPAT_MODE` (opcional)
+
+Migração do wire format de `agents:command` no namespace **`/consumers`** (plain JSON legado → `PayloadFrame`).
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `SOCKET_AGENTS_COMMAND_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `agents:command_response` e `agents:command_stream_*`. `payload_frame` (defeito) usa `PayloadFrame`; `raw_json` restaura plain JSON legado **apenas na saída**. Inbound `agents:command` aceita plain JSON e `PayloadFrame` durante a transição. Remoção prevista `2026-09-30` (`warnIfAgentsCommandLegacyCompatExpired` no arranque). Ver `agentsCommandWireMigration` em `src/shared/constants/agent_bridge_parity.ts`. |
+
+### `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` (opcional)
+
+Migração do wire format de `agents:stream_pull` no namespace **`/consumers`** (plain JSON legado → `PayloadFrame` hot-path).
+
+| Variável | Defeito | Notas |
+| -------- | ------- | ----- |
+| `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `agents:stream_pull_response`. `payload_frame` (defeito) usa `PayloadFrame` via hot-path encode; `raw_json` restaura plain JSON legado **apenas na saída**. Inbound `agents:stream_pull` aceita plain JSON e `PayloadFrame` durante a transição. Env **independente** de `SOCKET_AGENTS_COMMAND_COMPAT_MODE`. Remoção prevista `2026-09-30` (`warnIfAgentsStreamPullLegacyCompatExpired` no arranque). Ver `agentsStreamPullWireMigration` em `src/shared/constants/agent_bridge_parity.ts`. |
 
 ## Client thumbnail e password recovery
 
@@ -142,8 +170,10 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE`       | `256`                                | Limite máximo anunciado em `agent:capabilities.extensions.maxStreamPullWindowSize`; permite separar a recomendação operacional do teto aceito pelo hub. O valor recomendado publicado nunca ultrapassa este máximo. |
 | `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES`  | `268435456`                          | Teto agregado de bytes UTF-8 materializados no REST (resposta inicial + chunks). Complementa o limite por linhas para proteger contra payloads JSONB muito largos.                                                  |
 | `SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_CHUNKS` | `100000`                             | Teto de `rpc:chunk` aceites na materialização REST. `0` continua a significar ilimitado, mas deixou de ser o default.                                                                                               |
-| `SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS`           | `30000`                              | TTL de inatividade para streams relay ja abertos (`stream_id`). Reinicia em `rpc:chunk`, `rpc:complete` e `rpc:stream.pull`; ao estourar o hub emite `relay:rpc.complete` com erro e remove rotas/flow state.       |
-| `SOCKET_RELAY_STREAM_MAX_LIFETIME_MS`           | `300000`                             | Vida maxima absoluta de uma stream relay aberta. Nao reinicia com trafego; evita vazamento quando o agente nunca envia `rpc:complete`.                                                                                |
+| `SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS`           | `30000`                              | TTL de inatividade para streams relay ja abertos (`stream_id`). Reinicia em `rpc:chunk`, `rpc:complete` e `rpc:stream.pull`; ao estourar o hub emite `relay:rpc.complete` com erro e remove rotas/flow state. Metrica: `plug_socket_relay_stream_idle_timeouts_total`.       |
+| `SOCKET_RELAY_STREAM_MAX_LIFETIME_MS`           | `300000`                             | Vida maxima absoluta de uma stream relay aberta. Nao reinicia com trafego; evita vazamento quando o agente nunca envia `rpc:complete`. Metrica: `plug_socket_relay_stream_lifetime_timeouts_total`.                                                                                |
+| `SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS`     | `300000`                             | TTL de inatividade para conversas relay abertas sem trafego. Ao expirar o sweep emite `relay:conversation.ended` com `reason: expired` ao consumer **e** ao agente ligado, limpa idempotencia e estado associado. Metrica: `plug_socket_relay_conversations_expired_total`. |
+| `SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS`   | `60000`                              | Cadencia do sweep em background para conversas relay inactivas (`SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS`).                                                                                                        |
 | `AGENT_SQL_BULK_INSERT_MAX_ROWS`                | `50000`                              | Teto de linhas aceitas pelo hub em `sql.bulkInsert` antes de montar o `PayloadFrame`. Cargas maiores devem ser quebradas em lotes.                                                                                   |
 | `AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES`          | `10485760`                           | Teto UTF-8 do JSON serializado de `params` em `sql.bulkInsert`; protege memoria do hub antes de encaminhar ao agente.                                                                                                 |
 | `SOCKET_AUDIT_BATCH_MAX`                        | `48`                                 | Eventos por transação na auditoria Socket (1 = um INSERT por evento).                                                                                                                                               |
@@ -156,6 +186,7 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | Variável                                                | Defeito  | Notas                                                                                                                                                                                                                                                                                                                            |
 | ------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS`                   | `0`      | Quando `> 0`, o guard de conta activa nos sockets (`assertJwtUserAccountActive`) pode **omitir** a query à BD no mesmo socket até expirar o TTL (útil em consumidores com muitos eventos). `block`/`unblock` pode atrasar-se até esse intervalo. `0` = sempre consultar a BD (comportamento por defeito). Métricas: `plug_socket_consumers_guard_db_*`. |
+| `SOCKET_CONSUMER_AGENT_ACCESS_SNAPSHOT_TTL_MS`          | `0`      | Quando `> 0`, o guard `assertConsumerSocketAgentAccess` pode **omitir** `assertPrincipalAccess` (e joins redundantes em `consumer:client-agent:*`) no mesmo socket+agente até expirar o TTL. Revogações podem atrasar-se até esse intervalo; `0` = sempre revalidar (comportamento por defeito). |
 | `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`               | `32`     | Teto de operações assíncronas simultâneas por socket consumer (`agents:command`, `relay:rpc.request`, `agents:stream_pull`, `relay:rpc.stream.pull`). Quando `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` é `0`, `socket:event.publish` **partilha** este teto. |
 | `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET`   | `0`      | Quando `> 0`, `socket:event.publish` usa um contador **próprio** (não conta para o teto acima), evitando que relay/comandos monopolizem publicações custom ou o inverso. `0` = publicação custom partilha `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`. Quando **ambos** `> 0`, os dois contadores são independentes: no pior caso o socket pode ter até **soma** dos dois valores de operações em voo (relay/comandos + publicações custom). |
 | `SOCKET_RATE_LIMIT_REDIS_URL`                           | _(vazio)_ | Redis opcional para rate limits Socket (`agents:command`, `agents:stream_pull`, `relay:*`, `agent:register`). Vazio = memoria por processo. Quando configurado, falha de Redis e fail-open com fallback local; sticky sessions continuam obrigatorias para estado Socket. |

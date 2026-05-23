@@ -223,6 +223,7 @@ describe("metrics.controller", () => {
         },
         profilePushRecipientFetch: { reusedInFlightTotal: 0 },
         roomDisconnect: { agentTriggeredTotal: 0, consumerTriggeredTotal: 0 },
+        consumerIdleTimeoutDisconnectTotal: 0,
         publishRecipientsHistogram: { cumulativeBuckets: [], sum: 0, count: 0 },
         profilePush: {
           batchesTotal: 0,
@@ -241,6 +242,7 @@ describe("metrics.controller", () => {
         },
         sessionRejectedActiveTotal: 0,
         sessionTakeoverDisconnectTotal: 0,
+        agentIdleTimeoutDisconnectTotal: 0,
         sessionRegisterRateLimitedTotal: 0,
         agentReadyLegacyPayloadTotal: 0,
         agentReadyInvalidPartialPayloadTotal: 0,
@@ -269,6 +271,15 @@ describe("metrics.controller", () => {
           lastP99LatencyMs: 0,
         },
       },
+      hubErrors: {
+        engineConnectionErrors: {
+          unsupported_protocol: 0,
+          bad_request: 0,
+          unknown: 0,
+        },
+        namespaceAdapterErrors: {},
+        namespaceSocketErrors: {},
+      },
     });
   });
 
@@ -289,6 +300,15 @@ describe("metrics.controller", () => {
     );
     expect(response.send).toHaveBeenCalledWith(
       expect.stringContaining('plug_socket_bridge_ack_retry_exhausted_total{path="relay"} 0'),
+    );
+    expect(response.send).toHaveBeenCalledWith(
+      expect.stringContaining("plug_agent_idle_timeout_disconnect_total"),
+    );
+    expect(response.send).toHaveBeenCalledWith(
+      expect.stringContaining("plug_consumer_idle_timeout_disconnect_total"),
+    );
+    expect(response.send).toHaveBeenCalledWith(
+      expect.stringContaining('plug_socket_engine_connection_errors_total{code="unknown"} 0'),
     );
   });
 });

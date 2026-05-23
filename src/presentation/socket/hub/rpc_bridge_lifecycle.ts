@@ -125,6 +125,26 @@ export const finalizeConversationsClosedByConsumerDisconnect = (
   }
 };
 
+export const finalizeExpiredConversations = (
+  conversations: readonly Pick<
+    RelayConversation,
+    "conversationId" | "consumerSocketId" | "agentSocketId"
+  >[],
+  notifyConsumer?: (
+    conversation: Pick<RelayConversation, "conversationId" | "consumerSocketId" | "agentSocketId">,
+  ) => void,
+  notifyAgent?: (
+    conversation: Pick<RelayConversation, "conversationId" | "consumerSocketId" | "agentSocketId">,
+  ) => void,
+): void => {
+  for (const conversation of conversations) {
+    cleanupConversationStreamSubscriptions(conversation.conversationId);
+    clearRelayIdempotencyForConversation(conversation.conversationId);
+    notifyConsumer?.(conversation);
+    notifyAgent?.(conversation);
+  }
+};
+
 export const cleanupConversationStreamSubscriptions = (conversationId: string): void => {
   const streamRequestIds = listActiveStreamRequestIdsForConversation(conversationId);
   for (const requestId of streamRequestIds) {

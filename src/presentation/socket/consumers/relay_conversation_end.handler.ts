@@ -10,9 +10,12 @@ import { conversationRegistry } from "../hub/conversation_registry";
 import { cleanupConversationStreamSubscriptions } from "../hub/rpc_bridge";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
-export const conversationEndPayloadSchema = z.object({
-  conversationId: conversationIdSchema,
-});
+export const conversationEndPayloadSchema = z
+  .object({
+    conversationId: conversationIdSchema,
+    requestId: z.string().min(1).optional(),
+  })
+  .passthrough();
 
 export type RelayConversationEndEnvelope = z.infer<typeof conversationEndPayloadSchema>;
 
@@ -32,8 +35,13 @@ export const parseRelayConversationEndEnvelope = (
   return { success: true, data: parsed.data };
 };
 
+const withOptionalRequestId = (
+  requestId: string | undefined,
+): { readonly requestId?: string } => (requestId ? { requestId } : {});
+
 const emitConversationEnded = (
   socket: Socket,
+  requestId: string | undefined,
   payload:
     | {
         success: true;
@@ -45,7 +53,13 @@ const emitConversationEnded = (
         error: { code: string; message: string; statusCode?: number };
       },
 ): void => {
-  socket.emit(socketEvents.relayConversationEnded, payload);
+  if (!socket.connected) {
+    return;
+  }
+  socket.emit(socketEvents.relayConversationEnded, {
+    ...payload,
+    ...withOptionalRequestId(requestId),
+  });
 };
 
 const resolveRole = (user: JwtAccessPayload | undefined): string | null =>
@@ -56,14 +70,21 @@ export const handleRelayConversationEnd = (
   rawPayload: unknown,
 ): void => {
   const envelope = parseRelayConversationEndEnvelope(rawPayload);
+  const requestId =
+    typeof rawPayload === "object" &&
+    rawPayload !== null &&
+    typeof (rawPayload as Record<string, unknown>).requestId === "string"
+      ? String((rawPayload as Record<string, unknown>).requestId)
+      : undefined;
   if (!envelope.success) {
-    emitConversationEnded(socket, {
+    emitConversationEnded(socket, requestId, {
       success: false,
       error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
     });
     return;
   }
   const parsed = { success: true as const, data: envelope.data };
+  const resolvedRequestId = parsed.data.requestId ?? requestId;
 
   try {
     const conversation = conversationRegistry.findByConversationId(parsed.data.conversationId);
@@ -73,7 +94,7 @@ export const handleRelayConversationEnd = (
 
     conversationRegistry.removeByConversationId(conversation.conversationId);
     cleanupConversationStreamSubscriptions(conversation.conversationId);
-    emitConversationEnded(socket, {
+    emitConversationEnded(socket, resolvedRequestId, {
       success: true,
       conversationId: conversation.conversationId,
       reason: "consumer_ended",
@@ -92,7 +113,7 @@ export const handleRelayConversationEnd = (
     });
   } catch (err: unknown) {
     const appError = err instanceof AppError ? err : undefined;
-    emitConversationEnded(socket, {
+    emitConversationEnded(socket, resolvedRequestId, {
       success: false,
       error: {
         code: appError?.code ?? "CONVERSATION_END_FAILED",

@@ -472,6 +472,7 @@ export const createRpcBridgeAgentInboundHandlers = (
       const decodeMs = performance.now() - decodeStart;
 
       if (!result.ok) {
+        fireAck();
         logRpcFrameDecodeFailure({
           eventName: socketEvents.rpcResponse,
           socketId,
@@ -488,6 +489,7 @@ export const createRpcBridgeAgentInboundHandlers = (
         socketId,
       });
       if (!contractValidation.shouldProcess) {
+        fireAck();
         const reason = `Inbound contract invalid: ${contractValidation.message}`;
         logRpcFrameDecodeFailure({
           eventName: socketEvents.rpcResponse,
@@ -497,6 +499,9 @@ export const createRpcBridgeAgentInboundHandlers = (
         failFastInvalidAgentResponseFrame(socketId, rawPayload, reason);
         return;
       }
+
+      fireAck();
+
       const frameRequestId = toRequestId(decoded.frame.requestId);
       const responseIds = pickResponseIds(decoded.data);
       const candidateIds = Array.from(
@@ -884,13 +889,12 @@ export const createRpcBridgeAgentInboundHandlers = (
           removeRelayRequestRoute(responseId);
         }
       });
-    })()
-      .catch((error: unknown) => {
-        failFastUnexpectedAgentResponseError(socketId, rawPayload, error);
-      })
-      .finally(() => {
+    })().catch((error: unknown) => {
+      if (!ackInvoked) {
         fireAck();
-      });
+      }
+      failFastUnexpectedAgentResponseError(socketId, rawPayload, error);
+    });
   };
 
   const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void => {

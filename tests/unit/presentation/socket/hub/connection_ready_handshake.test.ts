@@ -8,7 +8,9 @@ import {
 import {
   CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER,
   buildConnectionReadyPayloadForWire,
+  warnIfConnectionReadyLegacyCompatExpired,
 } from "../../../../../src/presentation/socket/hub/connection_ready_handshake";
+import { logger } from "../../../../../src/shared/utils/logger";
 
 describe("connection_ready_handshake", () => {
   it("builds a PayloadFrame by default and keeps a documented removal date", () => {
@@ -57,5 +59,35 @@ describe("connection_ready_handshake", () => {
 
     vi.doUnmock("../../../../../src/shared/config/env");
     vi.resetModules();
+  });
+
+  it("warns at boot when the legacy compat removal date has passed", () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+    warnIfConnectionReadyLegacyCompatExpired(
+      Date.parse("2026-10-01T00:00:00.000Z"),
+      "raw_json",
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith("connection_ready_legacy_compat_past_removal_date", {
+      removeAfter: CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER,
+      compatMode: "raw_json",
+      remediation:
+        "Delete raw_json compat in connection_ready_handshake.ts and remove SOCKET_CONNECTION_READY_COMPAT_MODE from env/docs.",
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  it("does not warn before the legacy compat removal date", () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+    warnIfConnectionReadyLegacyCompatExpired(
+      Date.parse("2026-09-30T12:00:00.000Z"),
+      env.socketConnectionReadyCompatMode,
+    );
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

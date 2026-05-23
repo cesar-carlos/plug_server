@@ -24,6 +24,7 @@ const authRejects: Record<AgentSocketAuthRejectReason, number> = {
 let sessionRejectedActiveTotal = 0;
 let sessionTakeoverDisconnectTotal = 0;
 let sessionRegisterRateLimitedTotal = 0;
+let agentIdleTimeoutDisconnectTotal = 0;
 let agentReadyLegacyPayloadTotal = 0;
 let agentReadyInvalidPartialPayloadTotal = 0;
 
@@ -140,6 +141,12 @@ export const noteAgentSessionTakeoverDisconnect = (): void => {
   sessionTakeoverDisconnectTotal += 1;
 };
 
+export const noteAgentIdleTimeoutDisconnect = (count = 1): void => {
+  if (count > 0) {
+    agentIdleTimeoutDisconnectTotal += count;
+  }
+};
+
 export const noteAgentRegisterRateLimited = (): void => {
   sessionRegisterRateLimitedTotal += 1;
 };
@@ -229,6 +236,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   readonly authRejects: typeof authRejects;
   readonly sessionRejectedActiveTotal: number;
   readonly sessionTakeoverDisconnectTotal: number;
+  readonly agentIdleTimeoutDisconnectTotal: number;
   readonly sessionRegisterRateLimitedTotal: number;
   readonly agentReadyLegacyPayloadTotal: number;
   readonly agentReadyInvalidPartialPayloadTotal: number;
@@ -240,6 +248,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   authRejects: { ...authRejects },
   sessionRejectedActiveTotal,
   sessionTakeoverDisconnectTotal,
+  agentIdleTimeoutDisconnectTotal,
   sessionRegisterRateLimitedTotal,
   agentReadyLegacyPayloadTotal,
   agentReadyInvalidPartialPayloadTotal,
@@ -257,6 +266,7 @@ export const resetSocketAgentMetrics = (): void => {
   authRejects.account_validation_error = 0;
   sessionRejectedActiveTotal = 0;
   sessionTakeoverDisconnectTotal = 0;
+  agentIdleTimeoutDisconnectTotal = 0;
   sessionRegisterRateLimitedTotal = 0;
   agentReadyLegacyPayloadTotal = 0;
   agentReadyInvalidPartialPayloadTotal = 0;

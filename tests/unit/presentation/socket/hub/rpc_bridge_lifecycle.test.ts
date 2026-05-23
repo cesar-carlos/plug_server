@@ -7,6 +7,7 @@ import {
   cleanupConversationStreamSubscriptions,
   cleanupPendingRequestsForAgentSocket,
   finalizeConversationsClosedByConsumerDisconnect,
+  finalizeExpiredConversations,
 } from "../../../../../src/presentation/socket/hub/rpc_bridge_lifecycle";
 import {
   getActiveStreamRouteByRequestId,
@@ -197,5 +198,61 @@ describe("rpc_bridge_lifecycle", () => {
     );
     expect(getActiveStreamRouteByRequestId("req-consumer-disconnect")).toBeUndefined();
     expect(getRelayRequestRoute("req-consumer-disconnect")).toBeUndefined();
+  });
+
+  it("cleans up subscriptions, idempotency, and notifies both parties when conversations expire", () => {
+    const conversationId = "conv-idle-expired";
+    registerRelayRequestRoute({
+      requestId: "req-idle-expired",
+      conversationId,
+      consumerSocketId: "consumer-1",
+      agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+    });
+    upsertActiveStreamRoute({
+      requestId: "req-idle-expired",
+      agentSocketId: "agent-socket-1",
+      streamHandlers: { ...streamHandlers, conversationId },
+      streamId: "stream-1",
+    });
+    setRelayIdempotencyEntry(conversationId, "client-req-expired", {
+      requestId: "req-idle-expired",
+      expiresAtMs: Date.now() + env.socketRelayIdempotencyTtlMs,
+    });
+    const notifyConsumer = vi.fn();
+    const notifyAgent = vi.fn();
+
+    finalizeExpiredConversations(
+      [
+        {
+          conversationId,
+          consumerSocketId: "consumer-1",
+          agentSocketId: "agent-socket-1",
+          agentId: "agent-1",
+          createdAt: new Date().toISOString(),
+          lastSeenAt: new Date().toISOString(),
+        },
+      ],
+      notifyConsumer,
+      notifyAgent,
+    );
+
+    expect(notifyConsumer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId,
+        consumerSocketId: "consumer-1",
+      }),
+    );
+    expect(notifyAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId,
+        agentSocketId: "agent-socket-1",
+      }),
+    );
+    expect(getActiveStreamRouteByRequestId("req-idle-expired")).toBeUndefined();
+    expect(getRelayRequestRoute("req-idle-expired")).toBeUndefined();
+    expect(getRelayIdempotencyMap(conversationId)).toBeUndefined();
   });
 });

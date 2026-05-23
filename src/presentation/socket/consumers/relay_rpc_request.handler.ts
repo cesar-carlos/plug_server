@@ -85,18 +85,9 @@ export const parseRelayRpcRequestEnvelope = (
 
 export const handleRelayRpcRequest = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
-  rawPayload: unknown,
+  envelope: RelayRpcRequestEnvelope,
 ): void => {
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
-  const envelope = parseRelayRpcRequestEnvelope(rawPayload);
-  if (!envelope.success) {
-    emitRelayRpcAccepted(socket, {
-      success: false,
-      error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
-    });
-    return;
-  }
-  const parsed = { success: true as const, data: envelope.data };
 
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
     emitRelayRpcAccepted(socket, {
@@ -122,7 +113,7 @@ export const handleRelayRpcRequest = (
   void (async () => {
     try {
       const conversation = conversationRegistry.findInternalByConversationId(
-        parsed.data.conversationId,
+        envelope.conversationId,
       );
       if (!conversation || conversation.consumerSocketId !== socket.id) {
         throw new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 });
@@ -131,11 +122,11 @@ export const handleRelayRpcRequest = (
       await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId, socket);
 
       const result = await dispatchRelayRpcToAgent({
-        conversationId: parsed.data.conversationId,
+        conversationId: envelope.conversationId,
         consumerSocketId: socket.id,
-        rawFramePayload: parsed.data.frame,
-        ...(parsed.data.payloadFrameCompression !== undefined
-          ? { payloadFrameCompression: parsed.data.payloadFrameCompression }
+        rawFramePayload: envelope.frame,
+        ...(envelope.payloadFrameCompression !== undefined
+          ? { payloadFrameCompression: envelope.payloadFrameCompression }
           : {}),
         ...(latencyTrace ? { latencyTrace } : {}),
         signal: abortController.signal,
@@ -143,7 +134,7 @@ export const handleRelayRpcRequest = (
 
       emitRelayRpcAccepted(socket, {
         success: true,
-        conversationId: parsed.data.conversationId,
+        conversationId: envelope.conversationId,
         requestId: result.requestId,
         ...(result.clientRequestId ? { clientRequestId: result.clientRequestId } : {}),
         ...(result.deduplicated ? { deduplicated: true } : {}),
@@ -161,7 +152,7 @@ export const handleRelayRpcRequest = (
         actorUserId: socket.data.user?.sub ?? null,
         ...(actorRole ? { actorRole } : {}),
         direction: "consumer_to_agent",
-        conversationId: parsed.data.conversationId,
+        conversationId: envelope.conversationId,
         requestId: result.requestId,
         payload: {
           clientRequestId: result.clientRequestId ?? null,

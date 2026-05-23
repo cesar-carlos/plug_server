@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { gzipSync } from "node:zlib";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   decodePayloadFrame,
   decodePayloadFrameAsync,
   encodePayloadFrame,
   encodePayloadFrameBridge,
+  encodePayloadFrameHotPath,
   payloadFrameEncodeOptionsFromPreference,
   preencodePayloadFrameJson,
 } from "../../../../src/shared/utils/payload_frame";
@@ -77,17 +78,36 @@ describe("encodePayloadFrame compression policy", () => {
     expect(frame.traceId).toBe("fixed");
   });
 
-  it("always preference forces gzip on small payload", () => {
+  it("always preference skips gzip on small payload below global compress min", () => {
     const frame = encodePayloadFrame(small, {
       requestId: "r1",
       traceId: "t1",
       ...payloadFrameEncodeOptionsFromPreference("always"),
     });
+    expect(frame.cmp).toBe("none");
+  });
+
+  it("always preference forces gzip on payload above global compress min", () => {
+    const largeSql = "SELECT 1 " + "x".repeat(5000);
+    const frame = encodePayloadFrame(
+      {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q",
+        params: { sql: largeSql, client_token: "t" },
+      },
+      {
+        requestId: "r1",
+        traceId: "t1",
+        maxInflationRatio: Number.POSITIVE_INFINITY,
+        ...payloadFrameEncodeOptionsFromPreference("always"),
+      },
+    );
     expect(frame.cmp).toBe("gzip");
   });
 
   it("auto compresses redundant large JSON when gzip is smaller", () => {
-    const largeSql = "SELECT 1 " + "x".repeat(2000);
+    const largeSql = "SELECT 1 " + "x".repeat(5000);
     const frame = encodePayloadFrame(
       {
         jsonrpc: "2.0",
@@ -141,11 +161,21 @@ describe("encodePayloadFrame compression policy", () => {
     expect(frame.compressedSize).toBe(encoded.length);
   });
 
-  it("always_gzip uses gzip even when result is larger than raw", () => {
-    const frame = encodePayloadFrame(small, {
-      compressionThreshold: 1,
-      compressionPolicy: "always_gzip",
-    });
+  it("always_gzip uses gzip even when result is larger than raw (above compress min)", () => {
+    const largeSql = "SELECT 1 " + "x".repeat(5000);
+    const frame = encodePayloadFrame(
+      {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q",
+        params: { sql: largeSql, client_token: "t" },
+      },
+      {
+        compressionThreshold: 1,
+        compressionPolicy: "always_gzip",
+        maxInflationRatio: Number.POSITIVE_INFINITY,
+      },
+    );
     expect(frame.cmp).toBe("gzip");
   });
 
@@ -168,6 +198,25 @@ describe("encodePayloadFrame compression policy", () => {
   });
 });
 
+describe("encodePayloadFrameHotPath", () => {
+  it("never gzip-compresses and omits traceId by default", () => {
+    const largeSql = "SELECT 1 " + "x".repeat(5000);
+    const frame = encodePayloadFrameHotPath(
+      {
+        stream_id: "stream-1",
+        request_id: "req-1",
+        window_size: 256,
+        sql: largeSql,
+      },
+      { requestId: "req-1" },
+    );
+    expect(frame.cmp).toBe("none");
+    expect(frame.requestId).toBe("req-1");
+    expect(frame.traceId).toBeUndefined();
+    expect(frame.compressedSize).toBe(frame.originalSize);
+  });
+});
+
 describe("encodePayloadFrameBridge", () => {
   it("with asyncGzipMinUtf8Bytes 0 delegates to sync encode", async () => {
     const small = { jsonrpc: "2.0", method: "rpc.discover", id: "a" };
@@ -182,7 +231,7 @@ describe("encodePayloadFrameBridge", () => {
   });
 
   it("uses async gzip path when eligible and over async threshold", async () => {
-    const largeSql = "SELECT 1 " + "x".repeat(2000);
+    const largeSql = "SELECT 1 " + "x".repeat(5000);
     const data = {
       jsonrpc: "2.0",
       method: "sql.execute",
@@ -211,7 +260,7 @@ describe("decodePayloadFrameAsync", () => {
   });
 
   it("matches sync decode for gzip frame", async () => {
-    const largeSql = "SELECT 1 " + "x".repeat(2000);
+    const largeSql = "SELECT 1 " + "x".repeat(5000);
     const data = {
       jsonrpc: "2.0",
       method: "sql.execute",
@@ -227,6 +276,80 @@ describe("decodePayloadFrameAsync", () => {
     const sync = decodePayloadFrame(frame);
     const asyncResult = await decodePayloadFrameAsync(frame);
     expect(asyncResult).toEqual(sync);
+  });
+});
+
+describe("PAYLOAD_FRAME_COMPRESS_MIN_BYTES (encodePayloadFrame global gate)", () => {
+  const baseEnv = {
+    payloadFrameCompressMinBytes: 4096,
+    payloadFrameMaxGzipInputBytes: 1_048_576,
+    payloadFrameGzipLevel: undefined as number | undefined,
+    payloadFrameAutoGzipMinSavingsBytes: 64,
+    payloadFrameAsyncGzipMinUtf8Bytes: 0,
+    payloadFrameAsyncGunzipMinCompressedBytes: 0,
+    payloadSignOutbound: false,
+    payloadSigningKey: undefined as string | undefined,
+    payloadSigningKeyId: undefined as string | undefined,
+    payloadSigningPreviousKeys: {} as Record<string, string>,
+  };
+
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../../../../src/shared/config/env");
+  });
+
+  const loadPayloadFrameWithEnv = async (
+    overrides: Partial<typeof baseEnv>,
+  ): Promise<{
+    encodePayloadFrameBridge: typeof encodePayloadFrameBridge;
+    encodePayloadFrame: typeof encodePayloadFrame;
+  }> => {
+    vi.doMock("../../../../src/shared/config/env", () => ({
+      env: { ...baseEnv, ...overrides },
+    }));
+    return import("../../../../src/shared/utils/payload_frame");
+  };
+
+  it("encodePayloadFrameBridge skips gzip below env compress min", async () => {
+    const mod = await loadPayloadFrameWithEnv({ payloadFrameCompressMinBytes: 4096 });
+    const frame = await mod.encodePayloadFrameBridge(
+      { jsonrpc: "2.0", method: "rpc.discover", id: "a" },
+      {
+        compressionThreshold: 1,
+        compressionPolicy: "always_gzip",
+        asyncGzipMinUtf8Bytes: 0,
+      },
+    );
+    expect(frame.cmp).toBe("none");
+  });
+
+  it("encodePayloadFrame uses env compress min when threshold omitted", async () => {
+    const mod = await loadPayloadFrameWithEnv({ payloadFrameCompressMinBytes: 2048 });
+    const below = mod.encodePayloadFrame({ x: "y".repeat(1800) });
+    expect(below.cmp).toBe("none");
+    const above = mod.encodePayloadFrame(
+      { x: "y".repeat(2500) },
+      { maxInflationRatio: Number.POSITIVE_INFINITY },
+    );
+    expect(above.cmp).toBe("gzip");
+  });
+
+  it("encodePayloadFrame skips gzip when payload is below env min even with always_gzip", async () => {
+    const mod = await loadPayloadFrameWithEnv({ payloadFrameCompressMinBytes: 2048 });
+    const frame = mod.encodePayloadFrame(
+      { jsonrpc: "2.0", method: "rpc.discover", id: "a" },
+      { compressionThreshold: 1, compressionPolicy: "always_gzip" },
+    );
+    expect(frame.cmp).toBe("none");
+  });
+
+  it("env min 0 disables global gate for explicit low thresholds", async () => {
+    const mod = await loadPayloadFrameWithEnv({ payloadFrameCompressMinBytes: 0 });
+    const frame = mod.encodePayloadFrame(
+      { jsonrpc: "2.0", method: "rpc.discover", id: "a" },
+      { compressionThreshold: 1, compressionPolicy: "always_gzip" },
+    );
+    expect(frame.cmp).toBe("gzip");
   });
 });
 

@@ -4,6 +4,11 @@ import { AgentDisconnectedBeforeDispatchError } from "../../../../../src/shared/
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { buildLegacySocketAppErrorPayload } from "../../../../../src/shared/constants/socket_app_error";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
+import {
+  decodePayloadFrame,
+  encodePayloadFrame,
+  isPayloadFrameEnvelope,
+} from "../../../../../src/shared/utils/payload_frame";
 
 vi.mock("../../../../../src/application/agent_commands/execute_authorized_agent_command", () => ({
   executeAuthorizedAgentCommand: vi.fn(),
@@ -58,6 +63,23 @@ const buildSocket = () =>
     emit: vi.fn(),
   }) as const;
 
+const expectAgentsCommandResponse = (
+  emitMock: ReturnType<typeof vi.fn>,
+  logical: Record<string, unknown>,
+): void => {
+  expect(emitMock).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, expect.anything());
+  const wirePayload = emitMock.mock.calls.find(
+    (call) => call[0] === socketEvents.agentsCommandResponse,
+  )?.[1];
+  expect(wirePayload).toBeDefined();
+  expect(isPayloadFrameEnvelope(wirePayload)).toBe(true);
+  const decoded = decodePayloadFrame(wirePayload);
+  expect(decoded.ok).toBe(true);
+  if (decoded.ok) {
+    expect(decoded.value.data).toMatchObject(logical);
+  }
+};
+
 const validPayload = {
   agentId: "agent-1",
   command: {
@@ -94,7 +116,7 @@ describe("handleAgentsCommand", () => {
     } as never);
   });
 
-  it("emits protocol error when payload is not an object", () => {
+  it("emits protocol error when payload is not an object or PayloadFrame", () => {
     const socket = buildSocket();
 
     handleAgentsCommand(socket as never, "invalid");
@@ -103,9 +125,38 @@ describe("handleAgentsCommand", () => {
       socketEvents.appError,
       buildLegacySocketAppErrorPayload(
         "SOCKET_PROTOCOL_ERROR",
-        "agents:command payload must be an object",
+        "agents:command payload must be an object or PayloadFrame",
       ),
     );
+  });
+
+  it("accepts inbound PayloadFrame and emits framed command response", async () => {
+    const socket = buildSocket();
+    mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+      requestId: "req-1",
+      response: {
+        type: "single",
+        success: true,
+        item: { id: "req-1", result: { ok: true } },
+      },
+    } as never);
+
+    handleAgentsCommand(
+      socket as never,
+      encodePayloadFrame(validPayload, { requestId: "req-1", omitTraceId: true }),
+    );
+
+    await vi.waitFor(() => {
+      expectAgentsCommandResponse(socket.emit, {
+        success: true,
+        requestId: "req-1",
+        response: {
+          type: "single",
+          success: true,
+          item: { id: "req-1", result: { ok: true } },
+        },
+      });
+    });
   });
 
   it("emits validation error response when payload schema is invalid", () => {
@@ -113,15 +164,12 @@ describe("handleAgentsCommand", () => {
 
     handleAgentsCommand(socket as never, { agentId: "agent-1" });
 
-    expect(socket.emit).toHaveBeenCalledWith(
-      socketEvents.agentsCommandResponse,
-      expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          code: "VALIDATION_ERROR",
-        }),
-      }),
-    );
+    expectAgentsCommandResponse(socket.emit, {
+      success: false,
+      error: {
+        code: "VALIDATION_ERROR",
+      },
+    });
   });
 
   it("returns RATE_LIMITED when the per-socket inflight gate is full", () => {
@@ -132,7 +180,7 @@ describe("handleAgentsCommand", () => {
 
     expect(mockedAllowAgentsCommandSocket).not.toHaveBeenCalled();
     expect(mockedReleaseInflight).not.toHaveBeenCalled();
-    expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+    expectAgentsCommandResponse(socket.emit, {
       success: false,
       requestId: "req-1",
       error: {
@@ -155,16 +203,13 @@ describe("handleAgentsCommand", () => {
       },
     });
 
-    expect(socket.emit).toHaveBeenCalledWith(
-      socketEvents.agentsCommandResponse,
-      expect.objectContaining({
-        success: false,
-        requestId: "partial-req-1",
-        error: expect.objectContaining({
-          code: "VALIDATION_ERROR",
-        }),
-      }),
-    );
+    expectAgentsCommandResponse(socket.emit, {
+      success: false,
+      requestId: "partial-req-1",
+      error: {
+        code: "VALIDATION_ERROR",
+      },
+    });
   });
 
   it("does not emit command response when socket is disconnected", async () => {
@@ -183,7 +228,7 @@ describe("handleAgentsCommand", () => {
     handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
-      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+      expectAgentsCommandResponse(socket.emit, {
         success: false,
         requestId: "req-1",
         error: {
@@ -206,7 +251,7 @@ describe("handleAgentsCommand", () => {
     handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
-      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+      expectAgentsCommandResponse(socket.emit, {
         success: true,
         requestId: "notif-1",
         response: {
@@ -239,7 +284,7 @@ describe("handleAgentsCommand", () => {
     handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
-      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+      expectAgentsCommandResponse(socket.emit, {
         success: true,
         requestId: "req-1",
         response: {
@@ -281,14 +326,11 @@ describe("handleAgentsCommand", () => {
     handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
-      expect(socket.emit).toHaveBeenCalledWith(
-        socketEvents.agentsCommandResponse,
-        expect.objectContaining({
-          success: true,
-          requestId: "req-1",
-          retryAfterSeconds: 3,
-        }),
-      );
+      expectAgentsCommandResponse(socket.emit, {
+        success: true,
+        requestId: "req-1",
+        retryAfterSeconds: 3,
+      });
     });
   });
 
@@ -301,7 +343,7 @@ describe("handleAgentsCommand", () => {
     handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
-      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+      expectAgentsCommandResponse(socket.emit, {
         success: true,
         requestId: "req-1",
         response: {
@@ -336,8 +378,9 @@ describe("handleAgentsCommand", () => {
     handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
-      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsCommandResponse, {
+      expectAgentsCommandResponse(socket.emit, {
         success: false,
+        requestId: "req-1",
         error: {
           code: "SERVICE_UNAVAILABLE",
           message: "Agent unavailable",

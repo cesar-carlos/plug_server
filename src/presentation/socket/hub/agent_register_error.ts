@@ -44,6 +44,15 @@ export const AGENT_REGISTER_RATE_LIMIT_MESSAGE =
 export const AGENT_SESSION_SUPERSEDED_MESSAGE =
   "This session was superseded by a newer connection for the same agent on this hub.";
 
+export type AgentSessionSupersededReason = "session_superseded";
+
+/** Plain-JSON wire shape for `agent:session.superseded` (NOT a `PayloadFrame`). */
+export interface AgentSessionSupersededPayload {
+  readonly reason: AgentSessionSupersededReason;
+  readonly message: string;
+  readonly policy: string;
+}
+
 const codeForReason: Record<AgentRegisterErrorReason, number> = {
   invalid_request: -32600,
   invalid_payload: -32009,

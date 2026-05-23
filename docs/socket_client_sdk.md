@@ -36,8 +36,9 @@ acima de alguns MiB), preferir Socket/relay e sinalizar
 ## Eventos e formato
 
 - **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket_relay_protocol.md` -> *Handshake: `connection:ready`*). Quando esse evento chega para principal `client`, a room base `client:<clientId>` ja foi associada; rooms derivadas por agente aprovado convergem logo depois em backfill assincrono.
-- Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`
-- Dados em `PayloadFrame`: `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
+- Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`, acks `socket:event.*`
+- Dados em `PayloadFrame`: `connection:ready`, `agents:command_response`, `agents:command_stream_chunk`, `agents:command_stream_complete`, `agents:stream_pull_response`, `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
+- **Bridge legado (`agents:*`)**: inbound `agents:command` e `agents:stream_pull` aceitam plain JSON **ou** `PayloadFrame` durante a transicao; outbound de respostas e stream usa `PayloadFrame` por defeito. Ver *Migração PayloadFrame no bridge legado* abaixo e shims em `docs/configuration.md`.
 - **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/client_agent_business_rules.md`.
 - **Pub/sub customizado:** apenas tokens de **Client** no `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe` / `socket:event.unsubscribe`; publicacoes com o mesmo tipo de token chegam ao `eventName` em `PayloadFrame` via **`POST /api/v1/client/me/socket-events`** (REST) ou **`socket:event.publish`** (Socket; ack em `socket:event.published`). `socket:event.*` revalida conta ativa por evento; conta bloqueada recebe erro no envelope atual e o socket e desconectado de forma controlada.
 
@@ -158,6 +159,7 @@ Campos de arquivo diferentes de `files` sao rejeitados.
 - **Retry-After**: erros Socket de overload podem incluir `retryAfterMs`. Em `agents:command_response`, se o agente retornar erro JSON-RPC `-32013` com `error.data.retry_after_ms`, o hub adiciona `retryAfterSeconds`, espelhando o header `Retry-After` do REST. No relay, o frame JSON-RPC do agente continua sendo fonte de verdade; leia `error.data.retry_after_ms`.
 - **Helper recomendado**: clientes podem copiar a politica pura de `src/shared/utils/socket_retry_after_policy.ts` para normalizar todos os formatos publicos de retry em milissegundos antes de aplicar backoff com jitter.
 - **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`). Se o agente abrir `stream_id` e nunca enviar `rpc:complete`, o hub encerra por idle timeout ou lifetime maximo com `relay:rpc.complete` (`terminal_status: "error"`, `error_code: "RELAY_STREAM_TIMEOUT"`).
+- **Consumer idle timeout**: sweeps desligam sockets `/consumers` inactivos apos `SOCKET_CONSUMER_IDLE_TIMEOUT_MS` (defeito 30 min); emite `app:error` com `code: CONSUMER_IDLE_TIMEOUT` antes do disconnect. Apenas eventos **inbound iniciados pelo cliente** refrescam `lastSeenAt` (`consumer_idle_touch_events.ts`): `agents:command`, `agents:stream_pull`, `relay:conversation.start/end`, `relay:rpc.request`, `relay:rpc.stream.pull`, `socket:event.subscribe/unsubscribe/publish`. Trafego hub→consumer de alta frequencia (`agents:command_response`, `agents:command_stream_*`, chunks/respostas relay reflectidas, `client:agent.profile.updated`, etc.) **nao** reinicia o relogio idle — receber stream passivo nao mantem a sessao viva. Para sessoes longas com pouco trafego de comando, emitir periodicamente um evento significativo (ex. heartbeat de aplicacao via `agents:command` ou `relay:rpc.request`). Config: `docs/configuration.md` (*Idle enforcement*). Metrica: `plug_consumer_idle_timeout_disconnect_total` — ver `docs/observability.md`.
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
 - **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; Redis adapter/idempotencia Redis ajudam `client:custom.*`, mas relay/pending/registry ainda precisam de afinidade — ver `docs/scaling_and_roadmap.md`.
 - **PayloadFrame signature**: quando o cliente assina frames com HMAC-SHA256, em deployments com `PAYLOAD_SIGNING_KEY_ID` ou `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON` configurado no hub o `signature.key_id` passa a ser **obrigatorio** e validado contra a keyring.
@@ -265,9 +267,13 @@ Em overload do namespace `/consumers`, ou quando a janela de créditos estoura, 
 
 ### Resposta de `agents:stream_pull`
 
-`agents:stream_pull_response` tambem pode incluir `rateLimit` quando o limiter
-por creditos legacy (`SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS`) estiver
-ativo ou quando houver rejeicao:
+O servidor responde em **`agents:stream_pull_response`**, entregue como **`PayloadFrame`**
+por defeito (hot-path encode, tipicamente `cmp: "none"`). Decodifique antes de ler
+`success`, `streamId` ou `rateLimit` — ver *Migração PayloadFrame no bridge legado*.
+
+Payload logico apos decode (pode incluir `rateLimit` quando o limiter por creditos
+legacy `SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS` estiver ativo ou quando
+houver rejeicao):
 
 ```json
 {
@@ -335,6 +341,95 @@ mesma janela podes consumir ate N por REST e ate N por Socket). Sockets sem `sub
 Metricas: `plug_socket_agents_command_rate_limit_*` em `/metrics`. O modo **relay** mantem quotas proprias
 (`SOCKET_RELAY_RATE_LIMIT_*`).
 
+### Migração PayloadFrame no bridge legado (`agents:*`)
+
+**Resumo (2026):** outbound de `agents:command_response`, `agents:command_stream_chunk`,
+`agents:command_stream_complete` e `agents:stream_pull_response` passou a **`PayloadFrame`**
+por defeito no namespace `/consumers`. Antes, esses eventos chegavam em plain JSON.
+Inbound de `agents:command` e `agents:stream_pull` continua a aceitar **plain JSON e
+PayloadFrame** durante a janela de transicao (util para clientes que ja codificam o pedido
+em frame binario). Contrato normativo em `src/shared/constants/agent_bridge_parity.ts`
+(`agentsCommandWireMigration`, `agentsStreamPullWireMigration`).
+
+**Eventos outbound que o cliente deve decodificar:**
+
+| Evento | Payload logico apos decode |
+| ------ | -------------------------- |
+| `agents:command_response` | `{ success, requestId?, response?, error?, streamId?, retryAfterSeconds? }` |
+| `agents:command_stream_chunk` | chunk JSON-RPC / linhas SQL do stream |
+| `agents:command_stream_complete` | `{ streamId, terminal_status?, error_code?, ... }` |
+| `agents:stream_pull_response` | `{ success, requestId?, streamId?, windowSize?, rateLimit?, error? }` |
+
+Respostas e stream chunks usam hot-path encode (`encodePayloadFrameHotPath`): tipicamente
+`cmp: "none"` e sem `traceId` no envelope; correlacionar com `requestId` do frame ou do
+JSON logico. `agents:command_response` pode usar gzip quando o body e grande (via
+`encodePayloadFrame` + `payloadFrameCompression` do pedido).
+
+**Helper de decode (transicao):** trate envelope `PayloadFrame` e plain JSON legado ate todos
+os ambientes migrarem:
+
+```ts
+const isPayloadFrame = (raw: unknown): raw is PayloadFrame =>
+  typeof raw === "object" &&
+  raw !== null &&
+  (raw as PayloadFrame).schemaVersion === "1.0" &&
+  "payload" in raw;
+
+const decodeAgentsWirePayload = <T>(raw: unknown): T =>
+  isPayloadFrame(raw) ? decodeFrame(raw) : (raw as T);
+
+socket.on("agents:command_response", (raw) => {
+  const body = decodeAgentsWirePayload<AgentsCommandResponsePayload>(raw);
+  if (!body.success) {
+    console.error(body.error);
+    return;
+  }
+  console.log(body.requestId, body.response);
+});
+
+socket.on("agents:command_stream_chunk", (raw) => {
+  const chunk = decodeAgentsWirePayload<Record<string, unknown>>(raw);
+  // processar chunk
+});
+
+socket.on("agents:command_stream_complete", (raw) => {
+  const complete = decodeAgentsWirePayload<Record<string, unknown>>(raw);
+  // encerrar stream local
+});
+
+socket.on("agents:stream_pull_response", (raw) => {
+  const pull = decodeAgentsWirePayload<AgentsStreamPullResponsePayload>(raw);
+  if (!pull.success) throw new Error(pull.error.message);
+  console.log(pull.windowSize, pull.rateLimit?.remainingCredits);
+});
+```
+
+`decodeFrame` e o tipo `PayloadFrame`: secao *Estrutura do PayloadFrame* / snippet
+[`docs/snippets/payload_frame_client_encode.ts`](snippets/payload_frame_client_encode.ts).
+No servidor, helpers espelhados em `agents_command_wire.ts` e `agents_stream_pull_wire.ts`.
+
+**Shims de compatibilidade (remocao prevista `2026-09-30`):**
+
+| Variavel | Eventos afetados (outbound) | Defeito | `raw_json` |
+| -------- | --------------------------- | ------- | ---------- |
+| `SOCKET_CONNECTION_READY_COMPAT_MODE` | `connection:ready` | `payload_frame` | Restaura plain JSON legado |
+| `SOCKET_AGENTS_COMMAND_COMPAT_MODE` | `agents:command_response`, `agents:command_stream_*` | `payload_frame` | Restaura plain JSON legado |
+| `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` | `agents:stream_pull_response` | `payload_frame` | Restaura plain JSON legado |
+
+Os shims controlam **apenas outbound**; inbound continua dual-format durante a transicao.
+`SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` e **independente** de `SOCKET_AGENTS_COMMAND_COMPAT_MODE`
+para migrar command e stream_pull em calendarios diferentes. Apos `2026-09-30`, o arranque
+regista `WARN` se `raw_json` ainda estiver activo (`warnIf*LegacyCompatExpired`). Detalhes
+operacionais: `docs/configuration.md` (secções *PayloadFrame*, `SOCKET_AGENTS_COMMAND_COMPAT_MODE`,
+`SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE`). Para observar disconnects por idle e rate limits durante
+rollout: `docs/observability.md` (`plug_consumer_idle_timeout_disconnect_total`,
+`plug_socket_agents_command_rate_limit_*`).
+
+**Migracao recomendada para novos clientes:** decodificar `PayloadFrame` em todos os
+eventos da tabela acima (incluindo `connection:ready`); enviar inbound plain JSON ou
+PayloadFrame; evitar depender de `raw_json` em producao. Alternativa de longo prazo:
+migrar para `relay:*` (PayloadFrame end-to-end, backpressure e idempotencia mais fortes).
+
 Semantica do campo JSON-RPC **`id`** (alinhada ao REST):
 
 | `id` no payload | Comportamento |
@@ -350,8 +445,10 @@ notification; no **hub plug_server** a omissao e preenchida para facilitar integ
 ### Exemplo de body JSON (`agents:command`)
 
 Espelha o mesmo objeto que enviarias no body do `POST /api/v1/agents/commands` (ver OpenAPI em
-`agents.routes.ts` / Swagger). Resposta em `agents:command_response` (e chunks em
-`agents:command_stream_chunk` / `agents:command_stream_complete` se houver stream).
+`agents.routes.ts` / Swagger). Resposta em `agents:command_response` (**PayloadFrame** por
+defeito — decodificar antes de ler `success`/`response`) e chunks em
+`agents:command_stream_chunk` / `agents:command_stream_complete` se houver stream (tambem
+PayloadFrame). Backpressure: `agents:stream_pull` → `agents:stream_pull_response` (PayloadFrame).
 
 ```json
 {

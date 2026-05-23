@@ -13,6 +13,10 @@ import { conversationRegistry } from "../hub/conversation_registry";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
+import {
+  releaseSocketInflightSlot,
+  tryAcquireSocketInflightSlot,
+} from "./per_socket_inflight_gate";
 import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
 import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
 import { findAgentBridgeSocketById } from "../hub/rpc_bridge";
@@ -75,17 +79,19 @@ const emitConversationStarted = (
 
 export const handleRelayConversationStart = async (
   socket: Socket & { data: { user?: JwtAccessPayload } },
-  rawPayload: unknown,
+  envelope: RelayConversationStartEnvelope,
 ): Promise<void> => {
-  const envelope = parseRelayConversationStartEnvelope(rawPayload);
-  if (!envelope.success) {
+  if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
     emitConversationStarted(socket, {
       success: false,
-      error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
+      error: {
+        code: "RATE_LIMITED",
+        message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
     });
     return;
   }
-  const parsed = { success: true as const, data: envelope.data };
   const abortController = new AbortController();
   const unregisterAbortController = registerConsumerCommandAbortController(
     socket.id,
@@ -99,12 +105,12 @@ export const handleRelayConversationStart = async (
 
   try {
     assertNotAborted();
-    await assertConsumerSocketAgentAccess(socket.data.user, parsed.data.agentId, socket);
+    await assertConsumerSocketAgentAccess(socket.data.user, envelope.agentId, socket);
     assertNotAborted();
 
-    const registeredAgent = agentRegistry.findByAgentId(parsed.data.agentId);
+    const registeredAgent = agentRegistry.findByAgentId(envelope.agentId);
     if (!registeredAgent) {
-      throw notFound(`Agent ${parsed.data.agentId}`);
+      throw notFound(`Agent ${envelope.agentId}`);
     }
 
     const agentSocket = findAgentBridgeSocketById(registeredAgent.socketId);
@@ -118,7 +124,7 @@ export const handleRelayConversationStart = async (
     const reservation = conversationRegistry.tryReserveAndCreate({
       consumerSocketId: socket.id,
       agentSocketId: registeredAgent.socketId,
-      agentId: parsed.data.agentId,
+      agentId: envelope.agentId,
       maxTotal: env.socketRelayMaxConversations,
       maxPerConsumer: env.socketRelayMaxConversationsPerConsumer,
     });
@@ -167,5 +173,6 @@ export const handleRelayConversationStart = async (
     });
   } finally {
     unregisterAbortController();
+    releaseSocketInflightSlot(socket);
   }
 };

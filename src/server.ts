@@ -50,12 +50,24 @@ import {
   initClientSocketEventPublishIdempotencyRedis,
 } from "./infrastructure/redis/client_socket_event_publish_idempotency_redis";
 import { prismaClient } from "./infrastructure/database/prisma/client";
+import {
+  startAgentIdleTimeoutScheduler,
+  stopAgentIdleTimeoutScheduler,
+} from "./presentation/socket/hub/agent_idle_timeout_scheduler";
+import {
+  startConsumerIdleTimeoutScheduler,
+  stopConsumerIdleTimeoutScheduler,
+} from "./presentation/socket/hub/consumer_idle_timeout_scheduler";
 import { closeSocketServer, createSocketServer } from "./socket";
 import { container } from "./shared/di/container";
 import { env } from "./shared/config/env";
 import { logEnvRestSocketEventHints } from "./shared/config/log_env_rest_socket_event_hints";
 import { logEnvWorldAlignmentHints } from "./shared/config/log_env_world_alignment";
+import { logSocketAuthBootstrapHints } from "./shared/config/log_socket_auth_bootstrap_hints";
 import { logSocketConsumerBootstrapHints } from "./shared/config/log_socket_consumer_bootstrap_hints";
+import { warnIfConnectionReadyLegacyCompatExpired } from "./presentation/socket/hub/connection_ready_handshake";
+import { warnIfAgentsCommandLegacyCompatExpired } from "./presentation/socket/consumers/agents_command_wire";
+import { warnIfAgentsStreamPullLegacyCompatExpired } from "./presentation/socket/consumers/agents_stream_pull_wire";
 import { logger } from "./shared/utils/logger";
 
 let httpServer: HttpServer | undefined;
@@ -82,7 +94,11 @@ const bootstrap = async (): Promise<void> => {
   }
   io = createSocketServer(httpServer);
   await initSocketIoRedisAdapter(io);
+  logSocketAuthBootstrapHints();
   logSocketConsumerBootstrapHints();
+  warnIfConnectionReadyLegacyCompatExpired();
+  warnIfAgentsCommandLegacyCompatExpired();
+  warnIfAgentsStreamPullLegacyCompatExpired();
   logEnvWorldAlignmentHints();
   logEnvRestSocketEventHints();
 
@@ -107,6 +123,8 @@ const bootstrap = async (): Promise<void> => {
   });
   startRegistrationEmailOutboxWorker(container.emailSender);
   startRegistrationEmailOutboxDeadLetterScheduler();
+  startAgentIdleTimeoutScheduler();
+  startConsumerIdleTimeoutScheduler();
 
   httpServer.listen(env.port, "0.0.0.0", () => {
     logger.info("HTTP server started", {
@@ -160,6 +178,8 @@ const shutdown = async (signal: string): Promise<void> => {
     stopClientAgentAccessExpiryScheduler();
     stopRegistrationEmailOutboxWorker();
     stopRegistrationEmailOutboxDeadLetterScheduler();
+    stopAgentIdleTimeoutScheduler();
+    stopConsumerIdleTimeoutScheduler();
     await flushPendingSocketAuditEvents();
     const auditDrain = await waitForSocketAuditDrain(2_500);
     if (!auditDrain.drained) {

@@ -19,6 +19,21 @@ import {
 
 const defaultCompressionThreshold = HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES;
 
+/** Applies `PAYLOAD_FRAME_COMPRESS_MIN_BYTES` for standard hub encoders (see encodePayloadFrame). */
+const effectiveEncodeCompressionThreshold = (
+  explicit: number | undefined,
+  serializedUtf8Length: number,
+): number => {
+  if (explicit === Number.POSITIVE_INFINITY) {
+    return explicit;
+  }
+  const globalMin = env.payloadFrameCompressMinBytes;
+  if (serializedUtf8Length < globalMin) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return explicit ?? globalMin;
+};
+
 const gzipAsync = promisify(zlibGzip);
 const gunzipAsync = promisify(zlibGunzip);
 const EMPTY_BUFFER = Buffer.alloc(0);
@@ -603,14 +618,39 @@ export type EncodePayloadFrameOptions = {
   readonly asyncGzipMinUtf8Bytes?: number;
 };
 
+/**
+ * Shared encode options for high-frequency hub→agent frames (`rpc:stream.pull`,
+ * `agent:capabilities`, `hub:heartbeat_ack`): skip gzip to avoid `gzipSync` on the event loop.
+ */
+export const PAYLOAD_FRAME_HOT_PATH_ENCODE_OPTIONS: Readonly<
+  Pick<EncodePayloadFrameOptions, "compressionThreshold" | "omitTraceId">
+> = {
+  compressionThreshold: Number.POSITIVE_INFINITY,
+  omitTraceId: true,
+};
+
+/** Synchronous hot-path encoder; always `cmp: none` (see `PAYLOAD_FRAME_HOT_PATH_ENCODE_OPTIONS`). */
+export const encodePayloadFrameHotPath = (
+  data: unknown,
+  options?: Pick<EncodePayloadFrameOptions, "requestId" | "traceId">,
+): PayloadFrameEnvelope =>
+  encodePayloadFrame(data, {
+    ...PAYLOAD_FRAME_HOT_PATH_ENCODE_OPTIONS,
+    ...(options?.requestId !== undefined ? { requestId: options.requestId } : {}),
+    ...(options?.traceId !== undefined ? { traceId: options.traceId } : {}),
+  });
+
 export const encodePayloadFrame = (
   data: unknown,
   options?: EncodePayloadFrameOptions,
 ): PayloadFrameEnvelope => {
-  const body = preencodePayloadFrameJson(data, {
-    ...(options?.compressionThreshold !== undefined
-      ? { compressionThreshold: options.compressionThreshold }
-      : {}),
+  const encoded = Buffer.from(JSON.stringify(data), "utf8");
+  const compressionThreshold = effectiveEncodeCompressionThreshold(
+    options?.compressionThreshold,
+    encoded.length,
+  );
+  const body = preencodeUtf8Buffer(encoded, {
+    compressionThreshold,
     ...(options?.compressionPolicy !== undefined
       ? { compressionPolicy: options.compressionPolicy }
       : {}),
@@ -637,10 +677,13 @@ export const encodePayloadFrameBridge = async (
     return encodePayloadFrame(data, options);
   }
 
+  const encoded = Buffer.from(JSON.stringify(data), "utf8");
+  const compressionThreshold = effectiveEncodeCompressionThreshold(
+    options?.compressionThreshold,
+    encoded.length,
+  );
   const preOpts: PreencodePayloadFrameJsonOptions = {
-    ...(options?.compressionThreshold !== undefined
-      ? { compressionThreshold: options.compressionThreshold }
-      : {}),
+    compressionThreshold,
     ...(options?.compressionPolicy !== undefined
       ? { compressionPolicy: options.compressionPolicy }
       : {}),
@@ -652,7 +695,6 @@ export const encodePayloadFrameBridge = async (
       : {}),
   };
 
-  const encoded = Buffer.from(JSON.stringify(data), "utf8");
   const threshold = preOpts.compressionThreshold ?? defaultCompressionThreshold;
   const maxGzipInputBytes = preOpts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
   const belowThreshold = encoded.length < threshold;

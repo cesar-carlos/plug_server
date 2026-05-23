@@ -232,4 +232,31 @@ describe("agent_registry dispatch policy negotiation", () => {
       "agent-touch",
     );
   });
+
+  it("lists agents whose lastSeenAt exceeds the idle threshold", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
+    agentRegistry.registerAgentSession({
+      agentId: "ag-idle",
+      socketId: "sock-idle",
+      userId: "u1",
+      capabilities: {},
+      policy: "reject_active",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.registerAgentSession({
+      agentId: "ag-active",
+      socketId: "sock-active",
+      userId: "u1",
+      capabilities: {},
+      policy: "reject_active",
+      isPeerConnected: () => true,
+    });
+
+    vi.setSystemTime(new Date("2026-05-08T10:02:00.000Z"));
+    agentRegistry.touch("ag-active", { socketId: "sock-active" });
+
+    const idle = agentRegistry.listIdle(60_000);
+    expect(idle.map((agent) => agent.agentId)).toEqual(["ag-idle"]);
+  });
 });

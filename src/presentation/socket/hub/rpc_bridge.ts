@@ -1,7 +1,7 @@
 import type { Namespace, Socket } from "socket.io";
 
 import { socketEvents } from "../../../shared/constants/socket_events";
-import { encodePayloadFrame } from "../../../shared/utils/payload_frame";
+import { encodePayloadFrameHotPath } from "../../../shared/utils/payload_frame";
 import type { ActiveStreamRoute } from "./active_stream_registry";
 import {
   countRestMaterializeStreamsInFlight,
@@ -39,6 +39,7 @@ export {
   cleanupConversationStreamSubscriptions,
   cleanupPendingRequestsForAgentSocket,
   finalizeConversationsClosedByConsumerDisconnect,
+  finalizeExpiredConversations,
 } from "./rpc_bridge_lifecycle";
 
 export type {
@@ -148,13 +149,13 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
   const cappedWindow = Math.max(1, Math.floor(windowSize));
   agentSocket.emit(
     socketEvents.rpcStreamPull,
-    encodePayloadFrame(
+    encodePayloadFrameHotPath(
       {
         stream_id: route.streamId,
         request_id: route.requestId,
         window_size: cappedWindow,
       },
-      { requestId: route.requestId, omitTraceId: true },
+      { requestId: route.requestId },
     ),
   );
   if (route.mode === "relay") {

@@ -44,6 +44,11 @@ vi.mock("../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter"
 
 import { buildLegacySocketAppErrorPayload } from "../../../../../src/shared/constants/socket_app_error";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
+import {
+  decodePayloadFrame,
+  encodePayloadFrame,
+  isPayloadFrameEnvelope,
+} from "../../../../../src/shared/utils/payload_frame";
 import { handleAgentsStreamPull } from "../../../../../src/presentation/socket/consumers/agents_stream_pull.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
 import { prepareLegacyAgentStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge";
@@ -79,6 +84,23 @@ const buildSocket = () =>
     emit: vi.fn(),
   }) as const;
 
+const expectAgentsStreamPullResponse = (
+  emitMock: ReturnType<typeof vi.fn>,
+  logical: Record<string, unknown>,
+): void => {
+  expect(emitMock).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, expect.anything());
+  const wirePayload = emitMock.mock.calls.find(
+    (call) => call[0] === socketEvents.agentsStreamPullResponse,
+  )?.[1];
+  expect(wirePayload).toBeDefined();
+  expect(isPayloadFrameEnvelope(wirePayload)).toBe(true);
+  const decoded = decodePayloadFrame(wirePayload);
+  expect(decoded.ok).toBe(true);
+  if (decoded.ok) {
+    expect(decoded.value.data).toMatchObject(logical);
+  }
+};
+
 describe("handleAgentsStreamPull", () => {
   beforeEach(() => {
     mockedPrepareAgentStreamPull.mockReset();
@@ -104,6 +126,9 @@ describe("handleAgentsStreamPull", () => {
     mockedGetActiveStreamRouteByRequestId.mockReturnValue({
       agentSocketId: "agent-socket-1",
     } as never);
+    mockedGetActiveStreamRouteByStreamId.mockReturnValue({
+      agentSocketId: "agent-socket-1",
+    } as never);
     mockedFindBySocketId.mockReturnValue({ agentId: "agent-1" } as never);
     mockedAssertAccess.mockResolvedValue({ type: "user", id: "user-1", role: "user" });
     mockedPrepareAgentStreamPull.mockReturnValue({
@@ -118,7 +143,7 @@ describe("handleAgentsStreamPull", () => {
     });
   });
 
-  it("emits protocol error when payload is not an object", () => {
+  it("emits protocol error when payload is not an object or PayloadFrame", () => {
     const socket = buildSocket();
 
     handleAgentsStreamPull(socket as never, "invalid");
@@ -127,9 +152,25 @@ describe("handleAgentsStreamPull", () => {
       socketEvents.appError,
       buildLegacySocketAppErrorPayload(
         "SOCKET_PROTOCOL_ERROR",
-        "agents:stream_pull payload must be an object",
+        "agents:stream_pull payload must be an object or PayloadFrame",
       ),
     );
+  });
+
+  it("accepts inbound PayloadFrame during the migration window", async () => {
+    const socket = buildSocket();
+    const framed = encodePayloadFrame({ requestId: "req-1", windowSize: 16 }, { requestId: "req-1" });
+
+    handleAgentsStreamPull(socket as never, framed);
+
+    await vi.waitFor(() => {
+      expectAgentsStreamPullResponse(socket.emit, {
+        success: true,
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 16,
+      });
+    });
   });
 
   it("returns RATE_LIMITED when the per-socket inflight gate is full", () => {
@@ -138,7 +179,7 @@ describe("handleAgentsStreamPull", () => {
 
     handleAgentsStreamPull(socket as never, { requestId: "req-1" });
 
-    expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, {
+    expectAgentsStreamPullResponse(socket.emit, {
       success: false,
       error: {
         code: "RATE_LIMITED",
@@ -164,7 +205,7 @@ describe("handleAgentsStreamPull", () => {
     handleAgentsStreamPull(socket as never, { requestId: "req-1" });
 
     await vi.waitFor(() => {
-      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, {
+      expectAgentsStreamPullResponse(socket.emit, {
         success: false,
         error: {
           code: "TOO_MANY_REQUESTS",
@@ -192,7 +233,7 @@ describe("handleAgentsStreamPull", () => {
     resolveAccess();
 
     await vi.waitFor(() => {
-      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, {
+      expectAgentsStreamPullResponse(socket.emit, {
         success: false,
         error: {
           code: "SERVICE_UNAVAILABLE",
@@ -201,7 +242,7 @@ describe("handleAgentsStreamPull", () => {
         },
       });
     });
-    expect(mockedPrepareAgentStreamPull).not.toHaveBeenCalled();
+    expect(mockedPrepareAgentStreamPull).toHaveBeenCalled();
   });
 
   it("still emits stream pull error response when credit refund fails", async () => {
@@ -220,7 +261,7 @@ describe("handleAgentsStreamPull", () => {
 
     await vi.waitFor(() => {
       expect(mockedRefundAgentsStreamPullCredits).toHaveBeenCalledWith("user-1", "consumer-1", 16);
-      expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentsStreamPullResponse, {
+      expectAgentsStreamPullResponse(socket.emit, {
         success: false,
         error: {
           code: "STREAM_PULL_FAILED",

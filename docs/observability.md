@@ -197,6 +197,9 @@ rate(plug_socket_relay_stream_idle_timeouts_total[5m])
 rate(plug_socket_relay_stream_lifetime_timeouts_total[5m])
 rate(plug_socket_relay_stream_dispatch_slots_released_on_open_total[5m])
 
+# Conversas relay expiradas por idle (sweep SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS)
+rate(plug_socket_relay_conversations_expired_total[5m])
+
 # Custos do hot path relay (média por fase)
 plug_socket_relay_overload_check_avg_ms
 plug_socket_relay_frame_decode_avg_ms
@@ -216,6 +219,15 @@ rate(plug_socket_agents_command_rate_limit_rejected_total[5m])
 rate(plug_agent_session_rejected_active_total[5m])
 rate(plug_agent_session_takeover_disconnect_total[5m])
 rate(plug_agent_session_register_rate_limited_total[5m])
+
+# Idle enforcement: sweeps desligam sockets /agents registados ou /consumers ligados inactivos
+rate(plug_agent_idle_timeout_disconnect_total[5m])
+rate(plug_consumer_idle_timeout_disconnect_total[5m])
+
+# Engine.IO e erros de namespace (handshake, adapter Redis, socket individual)
+sum by (code) (rate(plug_socket_engine_connection_errors_total[5m]))
+sum by (namespace) (rate(plug_socket_namespace_adapter_errors_total[5m]))
+sum by (namespace) (rate(plug_socket_namespace_socket_errors_total[5m]))
 
 # Perfil/capacidade dos agentes e respostas de `agent.getHealth`
 rate(plug_socket_agents_capability_profiles_total[5m])
@@ -307,6 +319,9 @@ Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos c
 - `plug_prisma_transaction_retries_exhausted_total` > 0 exige olhar locks, `40001`, `40P01` e tamanho das transações.
 - `plug_socket_consumer_client_agent_room_reconcile_rooms_joined_total` / `rooms_left_total` mostram drift real corrigido pelo sweep.
 - `plug_socket_io_redis_adapter_attached_servers_total` ajuda a confirmar em testes locais se mais de um hub do mesmo processo anexou o adapter distribuído.
+- `plug_agent_idle_timeout_disconnect_total` e `plug_consumer_idle_timeout_disconnect_total` sobem quando sweeps desligam sockets inactivos; picos sustentados podem indicar clientes sem heartbeat/trafego periodico.
+- `plug_socket_engine_connection_errors_total{code="unsupported_protocol"}` aponta para clientes com versao Engine.IO incompativel; `bad_request` para handshakes malformados.
+- `plug_socket_namespace_adapter_errors_total` correlaciona com falhas do adapter Redis (`SOCKET_IO_REDIS_ADAPTER_URL`); `plug_socket_namespace_socket_errors_total` isola erros por socket ligado.
 
 ## Snapshot minimo para tuning hub ↔ agente
 
@@ -377,7 +392,7 @@ Fases tipicas em `phases_ms` (REST / consumer; relay inclui `consumer_frame_deco
 | `transform_ms` | Paginacao, normalizacao JSON-RPC, atribuicao de `id` no hub |
 | `dispatch_preflight_ms` | Validacao, registry, capacidade REST pendente |
 | `queue_wait_ms` | Espera na fila por agente (`SOCKET_REST_AGENT_*`) |
-| `encode_ms` | `encodePayloadFrameBridge` |
+| `encode_ms` | `encodePayloadFrameBridge` (gzip omitido abaixo de `PAYLOAD_FRAME_COMPRESS_MIN_BYTES`; ver `docs/configuration.md`) |
 | `emit_to_socket_ms` | `emit` de `rpc:request` |
 | `agent_to_hub_ms` | Do fim do emit ate a entrada sincrona do handler `rpc:response` |
 | `inbound_decode_ms` | `decodePayloadFrameAsync` |
@@ -410,8 +425,19 @@ rate(plug_socket_relay_chunks_dropped_total[5m]) > 0.1
 # Relay: emissões descartadas quando consumer desconecta durante stream
 rate(plug_socket_relay_emit_discarded_consumer_gone_total[5m]) > 0
 
-# Relay: conversas expiradas por idle (normal, mas picos podem indicar problema de limpeza)
-rate(plug_socket_relay_conversations_expired_total[5m])
+# Relay: conversas expiradas por idle (normal; picos sustentados podem indicar clientes que abrem conversas e nunca fecham)
+rate(plug_socket_relay_conversations_expired_total[5m]) > 0.5
+
+# Idle enforcement: picos de disconnect por inactividade (ajustar limiar ao trafego base)
+rate(plug_agent_idle_timeout_disconnect_total[5m]) > 0.2
+rate(plug_consumer_idle_timeout_disconnect_total[5m]) > 0.5
+
+# Engine.IO: erros de handshake/transport (scanners, protocol mismatch, TLS/proxy)
+sum(rate(plug_socket_engine_connection_errors_total[5m])) > 0.1
+
+# Namespace: falhas do adapter Redis ou erros por socket ligado
+sum(rate(plug_socket_namespace_adapter_errors_total[5m])) > 0
+sum(rate(plug_socket_namespace_socket_errors_total[5m])) > 0.05
 
 # Fila outbound relay: backlog crescente (jobs enfileirados - concluídos)
 plug_socket_relay_outbound_queue_backlog > 50
@@ -503,6 +529,9 @@ Para o relay Socket, um dashboard mínimo útil costuma incluir:
 - `rate(plug_socket_bridge_ack_retry_exhausted_total[5m])`
 - `rate(plug_socket_relay_emit_discarded_consumer_gone_total[5m])`
 - `rate(plug_socket_relay_conversations_expired_total[5m])`
+- `rate(plug_agent_idle_timeout_disconnect_total[5m])` e `rate(plug_consumer_idle_timeout_disconnect_total[5m])`
+- `sum by (code) (rate(plug_socket_engine_connection_errors_total[5m]))`
+- `sum by (namespace) (rate(plug_socket_namespace_adapter_errors_total[5m]))` e `..._socket_errors_total`
 - `rate(plug_socket_relay_outbound_queue_overload_rejected_total[5m])`
 
 ## Rollout do contrato plug_agente

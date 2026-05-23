@@ -1,6 +1,11 @@
 /**
  * Socket handler for consumer commands to agents.
  * Reuses executeAgentCommand use case and shared validation (including auto JSON-RPC `id` when omitted).
+ *
+ * Wire format: outbound `agents:command_response` and stream events use `PayloadFrame` by default;
+ * inbound `agents:command` accepts both plain JSON (legacy) and `PayloadFrame` during migration.
+ * Set `SOCKET_AGENTS_COMMAND_COMPAT_MODE=raw_json` for legacy outbound plain JSON.
+ * See `agentsCommandWireMigration` in `agent_bridge_parity.ts`.
  */
 
 import type { Socket } from "socket.io";
@@ -34,6 +39,13 @@ import {
   noteAgentsCommandRetryAfterSecondsPropagated,
   noteSocketErrorRetryAfterMsPropagated,
 } from "../../../shared/metrics/socket_consumer.metrics";
+import {
+  buildAgentsCommandResponseForWire,
+  buildAgentsCommandStreamEventForWire,
+  decodeAgentsCommandInboundPayload,
+  type AgentsCommandResponsePayload,
+} from "./agents_command_wire";
+import type { PayloadFrameCompressionPreference } from "../../../shared/utils/payload_frame";
 
 const extractAgentsCommandRequestId = (rawPayload: unknown): string | undefined => {
   if (!isRecord(rawPayload)) {
@@ -59,24 +71,24 @@ const extractAgentsCommandRequestId = (rawPayload: unknown): string | undefined 
 
 const emitCommandResponse = (
   socket: Socket,
-  payload:
-    | {
-        success: true;
-        requestId: string;
-        response: unknown;
-        streamId?: string;
-        retryAfterSeconds?: number;
-      }
-    | {
-        success: false;
-        requestId?: string;
-        error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
-      },
+  payload: AgentsCommandResponsePayload,
+  options?: {
+    readonly payloadFrameCompression?: PayloadFrameCompressionPreference;
+  },
 ): void => {
   if (socket.connected === false) {
     return;
   }
-  socket.emit(socketEvents.agentsCommandResponse, payload);
+  const requestId = "requestId" in payload ? payload.requestId : undefined;
+  socket.emit(
+    socketEvents.agentsCommandResponse,
+    buildAgentsCommandResponseForWire(payload, {
+      ...(requestId !== undefined ? { requestId } : {}),
+      ...(options?.payloadFrameCompression !== undefined
+        ? { payloadFrameCompression: options.payloadFrameCompression }
+        : {}),
+    }),
+  );
 };
 
 const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_ERROR"): void => {
@@ -84,18 +96,19 @@ const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_E
 };
 
 export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void => {
-  if (!isRecord(rawPayload)) {
-    emitAppError(socket, "agents:command payload must be an object");
+  const decodedInbound = decodeAgentsCommandInboundPayload(rawPayload);
+  if (!decodedInbound.ok) {
+    emitAppError(socket, decodedInbound.message);
     return;
   }
 
-  const parsed = agentCommandBodySchema.safeParse(rawPayload);
+  const parsed = agentCommandBodySchema.safeParse(decodedInbound.data);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
     const message = firstIssue
       ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
       : "Validation failed";
-    const requestIdFallback = extractAgentsCommandRequestId(rawPayload);
+    const requestIdFallback = extractAgentsCommandRequestId(decodedInbound.data);
     emitCommandResponse(socket, {
       success: false,
       ...(requestIdFallback !== undefined ? { requestId: requestIdFallback } : {}),
@@ -107,16 +120,24 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   const body = parsed.data;
   const correlationRequestId = toCorrelationIds(body.command)[0];
+  const responseWireOptions =
+    body.payloadFrameCompression !== undefined
+      ? { payloadFrameCompression: body.payloadFrameCompression }
+      : undefined;
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
-    emitCommandResponse(socket, {
-      success: false,
-      ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
-      error: {
-        code: "RATE_LIMITED",
-        message: "Per-socket inflight gate exceeded",
-        statusCode: 429,
+    emitCommandResponse(
+      socket,
+      {
+        success: false,
+        ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
+        error: {
+          code: "RATE_LIMITED",
+          message: "Per-socket inflight gate exceeded",
+          statusCode: 429,
+        },
       },
-    });
+      responseWireOptions,
+    );
     return;
   }
 
@@ -133,25 +154,39 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   const streamHandlers = {
     consumerSocketId: socket.id,
     onChunk: (payload: Record<string, unknown>): void => {
-      socket.emit(socketEvents.agentsCommandStreamChunk, payload);
+      socket.emit(
+        socketEvents.agentsCommandStreamChunk,
+        buildAgentsCommandStreamEventForWire(payload, {
+          ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
+        }),
+      );
     },
     onComplete: (payload: Record<string, unknown>): void => {
-      socket.emit(socketEvents.agentsCommandStreamComplete, payload);
+      socket.emit(
+        socketEvents.agentsCommandStreamComplete,
+        buildAgentsCommandStreamEventForWire(payload, {
+          ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
+        }),
+      );
     },
   } as const;
 
   void (async () => {
     try {
       if (!(await allowAgentsCommandSocketAsync(userSub, socket.id, rateLimitCost))) {
-        emitCommandResponse(socket, {
-          success: false,
-          ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
-          error: {
-            code: "TOO_MANY_REQUESTS",
-            message: "Too many agent commands, please try again later.",
-            statusCode: 429,
+        emitCommandResponse(
+          socket,
+          {
+            success: false,
+            ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
+            error: {
+              code: "TOO_MANY_REQUESTS",
+              message: "Too many agent commands, please try again later.",
+              statusCode: 429,
+            },
           },
-        });
+          responseWireOptions,
+        );
         return;
       }
 
@@ -185,15 +220,19 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
 
       if ("notification" in result && result.notification) {
         const tWrite = performance.now();
-        emitCommandResponse(socket, {
-          success: true,
-          requestId: result.requestId,
-          response: {
-            type: "notification",
-            accepted: true,
-            acceptedCommands: result.acceptedCommands,
+        emitCommandResponse(
+          socket,
+          {
+            success: true,
+            requestId: result.requestId,
+            response: {
+              type: "notification",
+              accepted: true,
+              acceptedCommands: result.acceptedCommands,
+            },
           },
-        });
+          responseWireOptions,
+        );
         latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWrite);
         latencyTrace?.finalizeOnce({ outcome: "notification" });
         return;
@@ -216,13 +255,17 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       if (retryAfterSeconds !== undefined) {
         noteAgentsCommandRetryAfterSecondsPropagated();
       }
-      emitCommandResponse(socket, {
-        success: true,
-        requestId: result.requestId,
-        response: normalizedResponse,
-        ...(streamId ? { streamId } : {}),
-        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
-      });
+      emitCommandResponse(
+        socket,
+        {
+          success: true,
+          requestId: result.requestId,
+          response: normalizedResponse,
+          ...(streamId ? { streamId } : {}),
+          ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+        },
+        responseWireOptions,
+      );
       latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWrite);
       latencyTrace?.finalizeOnce({ outcome: "success" });
     } catch (err: unknown) {
@@ -235,14 +278,18 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
               errorCode: "SERVICE_UNAVAILABLE",
             });
           }
-          emitCommandResponse(socket, {
-            success: false,
-            error: {
-              code: "SERVICE_UNAVAILABLE",
-              message: `Agent ${err.agentId} is disconnected`,
-              statusCode: 503,
+          emitCommandResponse(
+            socket,
+            {
+              success: false,
+              error: {
+                code: "SERVICE_UNAVAILABLE",
+                message: `Agent ${err.agentId} is disconnected`,
+                statusCode: 503,
+              },
             },
-          });
+            responseWireOptions,
+          );
           return;
         }
 
@@ -251,11 +298,15 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
           err.command,
         );
         const tWriteOffline = performance.now();
-        emitCommandResponse(socket, {
-          success: true,
-          requestId,
-          response: offlineRpcEnvelope,
-        });
+        emitCommandResponse(
+          socket,
+          {
+            success: true,
+            requestId,
+            response: offlineRpcEnvelope,
+          },
+          responseWireOptions,
+        );
         latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWriteOffline);
         latencyTrace?.finalizeOnce({ outcome: "success", httpStatus: 200 });
         return;
@@ -278,15 +329,20 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
         });
       }
 
-      emitCommandResponse(socket, {
-        success: false,
-        error: {
-          code,
-          message,
-          ...(typeof statusCode === "number" ? { statusCode } : {}),
-          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      emitCommandResponse(
+        socket,
+        {
+          success: false,
+          ...(correlationRequestId !== undefined ? { requestId: correlationRequestId } : {}),
+          error: {
+            code,
+            message,
+            ...(typeof statusCode === "number" ? { statusCode } : {}),
+            ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+          },
         },
-      });
+        responseWireOptions,
+      );
     } finally {
       unregisterAbortController();
       releaseSocketInflightSlot(socket);

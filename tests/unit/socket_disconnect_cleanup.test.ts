@@ -12,6 +12,7 @@ import {
   createSocketServer,
   runAgentSocketDisconnectCleanup,
   runConsumerSocketDisconnectCleanup,
+  runExpiredConversationCleanup,
 } from "../../src/socket";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 
@@ -118,6 +119,38 @@ describe("socket disconnect cleanup wiring", () => {
     expect(conversationRegistry.findByConversationId("conv-consumer-disconnect")).toBeNull();
   });
 
+  it("should emit relay:conversation.ended to consumer and agent when conversations expire by idle sweep", () => {
+    const agentSocket = createHubSocket("agent-socket-expired");
+    const consumerSocket = createHubSocket("consumer-socket-expired");
+    const agentsNsp = createMockNamespace(new Map([["agent-socket-expired", agentSocket]]));
+    const consumersNsp = createMockNamespace(
+      new Map([["consumer-socket-expired", consumerSocket]]),
+    );
+
+    const expiredConversation = conversationRegistry.create({
+      conversationId: "conv-idle-expired",
+      consumerSocketId: consumerSocket.id,
+      agentSocketId: agentSocket.id,
+      agentId: "agent-1",
+    });
+
+    runExpiredConversationCleanup([expiredConversation], consumersNsp, agentsNsp);
+
+    const expectedPayload = {
+      success: true,
+      conversationId: "conv-idle-expired",
+      reason: "expired",
+    };
+    expect(consumerSocket.emit).toHaveBeenCalledWith(
+      socketEvents.relayConversationEnded,
+      expectedPayload,
+    );
+    expect(agentSocket.emit).toHaveBeenCalledWith(
+      socketEvents.relayConversationEnded,
+      expectedPayload,
+    );
+  });
+
   it("should invoke resetSocketBridgeState when the last socket server closes", async () => {
     const resetSpy = vi.spyOn(rpcBridge, "resetSocketBridgeState");
     const httpServer = createServer();
@@ -125,6 +158,20 @@ describe("socket disconnect cleanup wiring", () => {
 
     await closeSocketServer(io, "test_shutdown");
 
+    expect(resetSpy).toHaveBeenCalledOnce();
+  });
+
+  it("should not reset global bridge state while another socket server remains active", async () => {
+    const resetSpy = vi.spyOn(rpcBridge, "resetSocketBridgeState");
+    const firstHttpServer = createServer();
+    const secondHttpServer = createServer();
+    const firstIo = createSocketServer(firstHttpServer);
+    const secondIo = createSocketServer(secondHttpServer);
+
+    await closeSocketServer(firstIo, "test_shutdown");
+
+    expect(resetSpy).not.toHaveBeenCalled();
+    await closeSocketServer(secondIo, "test_shutdown");
     expect(resetSpy).toHaveBeenCalledOnce();
   });
 });

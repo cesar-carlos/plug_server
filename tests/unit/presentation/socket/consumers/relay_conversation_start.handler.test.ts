@@ -29,10 +29,16 @@ vi.mock("../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter"
   refundRelayConversationStartAsync: vi.fn(),
 }));
 
+vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_gate", () => ({
+  tryAcquireSocketInflightSlot: vi.fn(() => true),
+  releaseSocketInflightSlot: vi.fn(),
+}));
+
 import { conflict, notFound, serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import {
   handleRelayConversationStart,
+  parseRelayConversationStartEnvelope,
   shouldRefundRelayConversationStartRateLimit,
 } from "../../../../../src/presentation/socket/consumers/relay_conversation_start.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
@@ -41,12 +47,18 @@ import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
 import { findAgentBridgeSocketById } from "../../../../../src/presentation/socket/hub/rpc_bridge";
 import { refundRelayConversationStartAsync } from "../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter";
+import {
+  releaseSocketInflightSlot,
+  tryAcquireSocketInflightSlot,
+} from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
 
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedFindByAgentId = vi.mocked(agentRegistry.findByAgentId);
 const mockedTryReserveAndCreate = vi.mocked(conversationRegistry.tryReserveAndCreate);
 const mockedFindAgentBridgeSocketById = vi.mocked(findAgentBridgeSocketById);
 const mockedRefundRelayConversationStart = vi.mocked(refundRelayConversationStartAsync);
+const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
+const mockedReleaseInflight = vi.mocked(releaseSocketInflightSlot);
 
 const buildSocket = () =>
   ({
@@ -83,6 +95,10 @@ describe("handleRelayConversationStart", () => {
     mockedFindByAgentId.mockReset();
     mockedTryReserveAndCreate.mockReset();
     mockedRefundRelayConversationStart.mockReset();
+    mockedTryAcquire.mockReset();
+    mockedReleaseInflight.mockReset();
+
+    mockedTryAcquire.mockReturnValue(true);
 
     mockedAssertAccess.mockResolvedValue({ type: "user", id: "user-1", role: "user" });
     mockedFindByAgentId.mockReturnValue({
@@ -104,14 +120,30 @@ describe("handleRelayConversationStart", () => {
     });
   });
 
-  it("returns VALIDATION_ERROR on relay:conversation.started for invalid payloads", async () => {
+  it("returns VALIDATION_ERROR for invalid relay:conversation.start envelopes", () => {
+    const envelope = parseRelayConversationStartEnvelope({ agentId: "" });
+
+    expect(envelope.success).toBe(false);
+    if (!envelope.success) {
+      expect(envelope.errorMessage).toBeTruthy();
+    }
+  });
+
+  it("does not refund relay rate limit when the per-socket inflight gate is full", async () => {
+    mockedTryAcquire.mockReturnValue(false);
     const socket = buildSocket();
 
-    await handleRelayConversationStart(socket as never, { agentId: "" });
+    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
 
+    expect(mockedRefundRelayConversationStart).not.toHaveBeenCalled();
+    expect(mockedReleaseInflight).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,
-      error: expect.objectContaining({ code: "VALIDATION_ERROR" }),
+      error: {
+        code: "RATE_LIMITED",
+        message: "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
     });
   });
 
