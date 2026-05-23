@@ -127,7 +127,7 @@ export const consumeSocketRateLimitRedis = async (
     }
     recordRedisCommandSuccess();
     let used = Number(usedRaw);
-    let allowed = used <= input.max;
+    const allowed = used <= input.max;
     if (!allowed) {
       try {
         const rolledBackRaw = await client.eval(SOCKET_RATE_LIMIT_REFUND_SCRIPT, {
