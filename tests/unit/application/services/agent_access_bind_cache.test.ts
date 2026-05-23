@@ -75,4 +75,31 @@ describe("AgentAccessService bind-register cache", () => {
     await service.bindOwnershipOnRegister(userId, agentId);
     expect(spy).toHaveBeenCalledTimes(2);
   });
+
+  it("invalidateAccessCacheForUser clears bind cache so bindIfUnbound runs again", async () => {
+    const agentRepository = new InMemoryAgentRepository();
+    await agentRepository.save(
+      Agent.create({
+        agentId,
+        name: "Existing",
+      }),
+    );
+    const agentIdentityRepository = new InMemoryAgentIdentityRepository();
+    const clientAgentAccessRepository = new InMemoryClientAgentAccessRepository();
+    const service = new AgentAccessService(
+      agentRepository,
+      agentIdentityRepository,
+      clientAgentAccessRepository,
+    );
+
+    const spy = vi.spyOn(agentIdentityRepository, "bindIfUnbound");
+
+    await service.bindOwnershipOnRegister(userId, agentId);
+    await service.bindOwnershipOnRegister(userId, agentId);
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    service.invalidateAccessCacheForUser(userId);
+    await service.bindOwnershipOnRegister(userId, agentId);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
 });

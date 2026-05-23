@@ -5,6 +5,7 @@ import {
   grantConsumerClientAccessRooms,
   invalidateConsumerAgentAccessSnapshotsByAgentId,
   invalidateConsumerClientAgentAccessSnapshots,
+  invalidateConsumerUserAccessSnapshots,
   registerConsumerSocketControlHandler,
   revokeConsumerClientAccessSockets,
 } from "../../../../src/application/services/consumer_socket_control_sink";
@@ -17,6 +18,7 @@ describe("consumer_socket_control_sink", () => {
       grantClientAccess: vi.fn().mockResolvedValue(undefined),
       invalidateClientAgentAccessSnapshot: vi.fn().mockResolvedValue(undefined),
       invalidateAgentAccessSnapshot: vi.fn().mockResolvedValue(undefined),
+      invalidateUserAccessSnapshot: vi.fn().mockResolvedValue(undefined),
     };
     const second = {
       disconnectPrincipal: vi.fn().mockResolvedValue(undefined),
@@ -24,6 +26,7 @@ describe("consumer_socket_control_sink", () => {
       grantClientAccess: vi.fn().mockResolvedValue(undefined),
       invalidateClientAgentAccessSnapshot: vi.fn().mockResolvedValue(undefined),
       invalidateAgentAccessSnapshot: vi.fn().mockResolvedValue(undefined),
+      invalidateUserAccessSnapshot: vi.fn().mockResolvedValue(undefined),
     };
     const disposeFirst = registerConsumerSocketControlHandler(first);
     const disposeSecond = registerConsumerSocketControlHandler(second);
@@ -39,6 +42,7 @@ describe("consumer_socket_control_sink", () => {
       agentId: "agent-1",
     });
     await invalidateConsumerAgentAccessSnapshotsByAgentId({ agentId: "agent-1" });
+    await invalidateConsumerUserAccessSnapshots({ userId: "user-1" });
 
     expect(first.disconnectPrincipal).toHaveBeenCalledTimes(1);
     expect(second.disconnectPrincipal).toHaveBeenCalledTimes(1);
@@ -48,6 +52,8 @@ describe("consumer_socket_control_sink", () => {
     expect(second.invalidateClientAgentAccessSnapshot).toHaveBeenCalledTimes(1);
     expect(first.invalidateAgentAccessSnapshot).toHaveBeenCalledTimes(1);
     expect(second.invalidateAgentAccessSnapshot).toHaveBeenCalledTimes(1);
+    expect(first.invalidateUserAccessSnapshot).toHaveBeenCalledTimes(1);
+    expect(second.invalidateUserAccessSnapshot).toHaveBeenCalledTimes(1);
 
     disposeFirst();
     await revokeConsumerClientAccessSockets({

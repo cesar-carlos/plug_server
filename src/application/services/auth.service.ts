@@ -25,7 +25,10 @@ import type { RejectRegistrationUseCase } from "../../domain/use_cases/reject_re
 import type { UpdateMyCelularUseCase } from "../../domain/use_cases/update_my_celular.use_case";
 import type { AgentAccessService } from "./agent_access.service";
 import { disconnectAgentPrincipalSockets } from "./agent_socket_control_sink";
-import { disconnectConsumerPrincipalSockets } from "./consumer_socket_control_sink";
+import {
+  disconnectConsumerPrincipalSockets,
+  invalidateConsumerUserAccessSnapshots,
+} from "./consumer_socket_control_sink";
 import { enqueueRegistrationApprovalEmails } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
 import { forbidden, invalidToken, notFound } from "../../shared/errors/http_errors";
@@ -220,17 +223,20 @@ export class AuthService {
   async adminSetUserStatus(input: AdminSetUserStatusInput): Promise<Result<User>> {
     const result = await this.adminSetUserStatusUseCase.execute(input);
     if (result.ok && input.status === "blocked") {
-      this.invalidateSnapshotCache(result.value.id);
+      const userId = result.value.id;
+      this.invalidateSnapshotCache(userId);
+      this.agentAccessService.invalidateAccessCacheForUser(userId);
       await Promise.all([
         disconnectConsumerPrincipalSockets({
           principalType: "user",
-          principalId: result.value.id,
+          principalId: userId,
           reason: "account_blocked",
         }),
         disconnectAgentPrincipalSockets({
-          userId: result.value.id,
+          userId,
           reason: "account_blocked",
         }),
+        invalidateConsumerUserAccessSnapshots({ userId }),
       ]);
     }
     return result;

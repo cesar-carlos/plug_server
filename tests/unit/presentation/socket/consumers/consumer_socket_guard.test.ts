@@ -21,6 +21,7 @@ vi.mock("../../../../../src/presentation/socket/hub/consumer_identity_rooms", ()
 
 import {
   assertConsumerSocketAgentAccess,
+  clearAllConsumerSocketAgentAccessSnapshots,
   clearConsumerSocketAgentAccessSnapshot,
   resolveConsumerAgentAccessPrincipal,
   resolveSocketActorRole,
@@ -218,5 +219,31 @@ describe("consumer_socket_guard", () => {
     clearConsumerSocketAgentAccessSnapshot(socket, "agent-1");
     await assertConsumerSocketAgentAccess(user, "agent-1", socket);
     expect(mockedAssertPrincipalAccess).toHaveBeenCalledTimes(2);
+  });
+
+  it("clearAllConsumerSocketAgentAccessSnapshots removes all cached entries", async () => {
+    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    const user = {
+      sub: "user-1",
+      principal_type: "user",
+      credentials_version: 1,
+    } as never;
+
+    mockedAssertJwtUserAccountActive.mockResolvedValue(user);
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+
+    const socket = {
+      id: "socket-4",
+      data: {},
+    } as never;
+
+    await assertConsumerSocketAgentAccess(user, "agent-1", socket);
+    await assertConsumerSocketAgentAccess(user, "agent-2", socket);
+    expect(mockedAssertPrincipalAccess).toHaveBeenCalledTimes(2);
+
+    clearAllConsumerSocketAgentAccessSnapshots(socket);
+    await assertConsumerSocketAgentAccess(user, "agent-1", socket);
+    await assertConsumerSocketAgentAccess(user, "agent-2", socket);
+    expect(mockedAssertPrincipalAccess).toHaveBeenCalledTimes(4);
   });
 });

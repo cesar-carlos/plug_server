@@ -70,7 +70,10 @@ import { agentProfileReliabilityMetrics } from "./application/services/agent_pro
 import { registerAgentSocketControlHandler } from "./application/services/agent_socket_control_sink";
 import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
 import { registerConsumerSocketEventHandler } from "./application/services/consumer_socket_event_sink";
-import { clearConsumerSocketAgentAccessSnapshot } from "./presentation/socket/consumers/consumer_socket_guard";
+import {
+  clearAllConsumerSocketAgentAccessSnapshots,
+  clearConsumerSocketAgentAccessSnapshot,
+} from "./presentation/socket/consumers/consumer_socket_guard";
 import {
   buildConsumerClientAgentRoom,
   buildConsumerClientRoom as buildClientRoomName,
@@ -1389,6 +1392,20 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
         } catch (error: unknown) {
           logger.warn("consumer_socket_agent_access_snapshot_invalidate_by_agent_failed", {
             agentId: event.agentId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+      invalidateUserAccessSnapshot: async (event) => {
+        const room = `consumer:principal:user:${event.userId}`;
+        try {
+          const sockets = await consumersNsp.in(room).fetchSockets();
+          for (const remote of sockets) {
+            clearAllConsumerSocketAgentAccessSnapshots(remote);
+          }
+        } catch (error: unknown) {
+          logger.warn("consumer_socket_agent_access_snapshot_invalidate_by_user_failed", {
+            userId: event.userId,
             message: error instanceof Error ? error.message : String(error),
           });
         }

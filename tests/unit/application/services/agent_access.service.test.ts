@@ -173,4 +173,35 @@ describe("AgentAccessService.assertPrincipalAccess — access cache", () => {
     expect(snapshotSpy).toHaveBeenCalledTimes(2);
     expect(accessSpy).toHaveBeenCalledTimes(2);
   });
+
+  it("invalidateAccessCacheForUser clears all entries for that user", async () => {
+    const userId = "user-aaa";
+    const agentId2 = "agent-ccc";
+    const agentRepository = new InMemoryAgentRepository();
+    await agentRepository.save(Agent.create({ agentId, name: "Test Agent" }));
+    await agentRepository.save(Agent.create({ agentId: agentId2, name: "Test Agent 2" }));
+    const agentIdentityRepository = new InMemoryAgentIdentityRepository();
+    const clientAgentAccessRepository = new InMemoryClientAgentAccessRepository();
+    await agentIdentityRepository.bindIfUnbound(agentId, userId);
+    await agentIdentityRepository.bindIfUnbound(agentId2, userId);
+
+    const snapshotSpy = vi.spyOn(agentRepository, "findAccessSnapshotById");
+    const accessSpy = vi.spyOn(agentIdentityRepository, "hasAccess");
+    const service = new AgentAccessService(
+      agentRepository,
+      agentIdentityRepository,
+      clientAgentAccessRepository,
+    );
+
+    await service.assertPrincipalAccess({ type: "user", id: userId }, agentId);
+    await service.assertPrincipalAccess({ type: "user", id: userId }, agentId2);
+    service.invalidateAccessCacheForUser(userId);
+    snapshotSpy.mockClear();
+    accessSpy.mockClear();
+
+    await service.assertPrincipalAccess({ type: "user", id: userId }, agentId);
+    await service.assertPrincipalAccess({ type: "user", id: userId }, agentId2);
+    expect(snapshotSpy).toHaveBeenCalledTimes(2);
+    expect(accessSpy).toHaveBeenCalledTimes(2);
+  });
 });

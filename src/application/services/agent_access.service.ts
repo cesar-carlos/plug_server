@@ -145,6 +145,15 @@ export class AgentAccessService {
   }
 
   /**
+   * Removes all cached access grants for a given user (e.g. when the account is
+   * blocked). O(n) over current cache size.
+   */
+  invalidateAccessCacheForUser(userId: string): void {
+    this.accessCache.deleteWhere((key) => key.startsWith(`user:${userId}:`));
+    this.bindRegisterCache?.deleteWhere((key) => key.startsWith(`bindReg:user:${userId}:`));
+  }
+
+  /**
    * Allows agent login when the agent is either missing from the catalog or active,
    * and is either unbound or already owned by the same user. Ownership is not created here.
    */

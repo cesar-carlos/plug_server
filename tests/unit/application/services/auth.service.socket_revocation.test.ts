@@ -5,7 +5,12 @@ import { registerAgentSocketControlHandler } from "../../../../src/application/s
 import { registerConsumerSocketControlHandler } from "../../../../src/application/services/consumer_socket_control_sink";
 import { User } from "../../../../src/domain/entities/user.entity";
 
-const makeService = (adminSetUserStatusResult: unknown): AuthService =>
+const makeService = (
+  adminSetUserStatusResult: unknown,
+  agentAccessService: { invalidateAccessCacheForUser: ReturnType<typeof vi.fn> } = {
+    invalidateAccessCacheForUser: vi.fn(),
+  },
+): AuthService =>
   new AuthService(
     { execute: vi.fn() } as never,
     { execute: vi.fn() } as never,
@@ -20,7 +25,7 @@ const makeService = (adminSetUserStatusResult: unknown): AuthService =>
     { execute: vi.fn() } as never,
     { hash: vi.fn(), compare: vi.fn() } as never,
     { save: vi.fn() } as never,
-    {} as never,
+    agentAccessService as never,
     {} as never,
     { findById: vi.fn() } as never,
   );
@@ -45,16 +50,19 @@ describe("AuthService socket revocation", () => {
     });
     const disconnectAgent = vi.fn().mockResolvedValue(undefined);
     const disconnectConsumer = vi.fn().mockResolvedValue(undefined);
+    const invalidateUserSnapshots = vi.fn().mockResolvedValue(undefined);
+    const agentAccessService = { invalidateAccessCacheForUser: vi.fn() };
     disposers.push(registerAgentSocketControlHandler({ disconnectPrincipal: disconnectAgent }));
     disposers.push(
       registerConsumerSocketControlHandler({
         disconnectPrincipal: disconnectConsumer,
         revokeClientAccess: vi.fn(),
         grantClientAccess: vi.fn(),
+        invalidateUserAccessSnapshot: invalidateUserSnapshots,
       }),
     );
 
-    const service = makeService({ ok: true, value: blockedUser });
+    const service = makeService({ ok: true, value: blockedUser }, agentAccessService);
     const result = await service.adminSetUserStatus({
       adminUserId: "admin-1",
       targetUserId: blockedUser.id,
@@ -62,6 +70,7 @@ describe("AuthService socket revocation", () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(agentAccessService.invalidateAccessCacheForUser).toHaveBeenCalledWith(blockedUser.id);
     expect(disconnectConsumer).toHaveBeenCalledWith({
       principalType: "user",
       principalId: blockedUser.id,
@@ -71,5 +80,6 @@ describe("AuthService socket revocation", () => {
       userId: blockedUser.id,
       reason: "account_blocked",
     });
+    expect(invalidateUserSnapshots).toHaveBeenCalledWith({ userId: blockedUser.id });
   });
 });

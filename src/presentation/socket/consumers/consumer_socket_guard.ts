@@ -120,6 +120,13 @@ export const clearConsumerSocketAgentAccessSnapshot = (
   socket.data.agentAccessSnapshots?.delete(agentId);
 };
 
+/** Clears all per-socket agent-access snapshots (e.g. when the user account is blocked). */
+export const clearAllConsumerSocketAgentAccessSnapshots = (
+  socket: AgentAccessSnapshotHolder,
+): void => {
+  socket.data.agentAccessSnapshots?.clear();
+};
+
 const validateAgentAccessAgainstDb = async (
   user: JwtAccessPayload,
   agentId: string,

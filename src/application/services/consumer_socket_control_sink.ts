@@ -26,6 +26,11 @@ export interface ConsumerSocketInvalidateAgentAccessSnapshotEvent {
   readonly agentId: string;
 }
 
+/** Clears all per-socket agent-access snapshots for user-principal consumer sockets. */
+export interface ConsumerSocketInvalidateUserAccessSnapshotEvent {
+  readonly userId: string;
+}
+
 interface ConsumerSocketControlHandler {
   disconnectPrincipal(input: ConsumerSocketDisconnectPrincipalEvent): Promise<void>;
   revokeClientAccess(input: ConsumerSocketRevokeClientAccessEvent): Promise<void>;
@@ -35,6 +40,9 @@ interface ConsumerSocketControlHandler {
   ): Promise<void>;
   invalidateAgentAccessSnapshot?(
     input: ConsumerSocketInvalidateAgentAccessSnapshotEvent,
+  ): Promise<void>;
+  invalidateUserAccessSnapshot?(
+    input: ConsumerSocketInvalidateUserAccessSnapshotEvent,
   ): Promise<void>;
 }
 
@@ -85,6 +93,16 @@ export const invalidateConsumerAgentAccessSnapshotsByAgentId = async (
   await Promise.all(
     [...handlers].map(
       (handler) => handler.invalidateAgentAccessSnapshot?.(event) ?? Promise.resolve(),
+    ),
+  );
+};
+
+export const invalidateConsumerUserAccessSnapshots = async (
+  event: ConsumerSocketInvalidateUserAccessSnapshotEvent,
+): Promise<void> => {
+  await Promise.all(
+    [...handlers].map(
+      (handler) => handler.invalidateUserAccessSnapshot?.(event) ?? Promise.resolve(),
     ),
   );
 };
