@@ -180,4 +180,31 @@ describe("socket_rate_limit_redis", () => {
 
     await closeSocketRateLimitRedis();
   });
+  it("rolls back Redis increment when budget is exceeded", async () => {
+    const {
+      client,
+      module: { closeSocketRateLimitRedis, consumeSocketRateLimitRedis, initSocketRateLimitRedis },
+    } = await setupSocketRedisModule();
+    client.incrBy.mockResolvedValue(3);
+    client.eval.mockResolvedValue(2);
+
+    await initSocketRateLimitRedis();
+    const decision = await consumeSocketRateLimitRedis({
+      scope: "relay_rpc_request",
+      key: "user:abc",
+      windowMs: 10_000,
+      max: 2,
+    });
+
+    expect(decision).toEqual({ allowed: false, remaining: 0, limit: 2, used: 2 });
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.stringContaining("DECRBY"),
+      expect.objectContaining({
+        keys: ["plug_socket_rl:relay_rpc_request:user:abc"],
+        arguments: ["1"],
+      }),
+    );
+
+    await closeSocketRateLimitRedis();
+  });
 });

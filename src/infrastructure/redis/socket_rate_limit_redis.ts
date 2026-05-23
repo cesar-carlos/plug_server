@@ -126,8 +126,25 @@ export const consumeSocketRateLimitRedis = async (
       }
     }
     recordRedisCommandSuccess();
-    const used = Number(usedRaw);
-    const allowed = used <= input.max;
+    let used = Number(usedRaw);
+    let allowed = used <= input.max;
+    if (!allowed) {
+      try {
+        const rolledBackRaw = await client.eval(SOCKET_RATE_LIMIT_REFUND_SCRIPT, {
+          keys: [redisKey],
+          arguments: [String(cost)],
+        });
+        used = Math.max(0, Number(rolledBackRaw));
+        recordRedisCommandSuccess();
+      } catch (error: unknown) {
+        recordRedisCommandFailure(error);
+        logger.warn("socket_rate_limit_redis_consume_rollback_error", {
+          scope: input.scope,
+          message: toSafeErrorMessage(error),
+        });
+        return null;
+      }
+    }
     noteSocketRateLimitRedisDecision(allowed);
     return {
       allowed,
