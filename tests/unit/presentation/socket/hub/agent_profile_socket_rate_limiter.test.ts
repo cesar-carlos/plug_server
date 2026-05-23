@@ -111,7 +111,8 @@ describe("agent_profile_socket_rate_limiter", () => {
         expect(allowAgentProfileSocketUpdate("agent-unlimited", "sock-unlimited")).toBe(true);
       }
     } finally {
-      (env as { restAgentsCommandsRateLimitMax: number }).restAgentsCommandsRateLimitMax = originalMax;
+      (env as { restAgentsCommandsRateLimitMax: number }).restAgentsCommandsRateLimitMax =
+        originalMax;
     }
   });
 });

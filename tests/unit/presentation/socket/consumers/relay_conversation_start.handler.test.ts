@@ -34,7 +34,11 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
   releaseSocketInflightSlot: vi.fn(),
 }));
 
-import { conflict, notFound, serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
+import {
+  conflict,
+  notFound,
+  serviceUnavailable,
+} from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import {
   handleRelayConversationStart,

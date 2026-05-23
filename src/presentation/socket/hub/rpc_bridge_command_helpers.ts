@@ -1,9 +1,6 @@
 import type { BridgeBatchCommand, BridgeCommand } from "../../../shared/validators/agent_command";
 import { HUB_DEFAULT_API_VERSION } from "../../../shared/constants/agent_transport_contract";
-import {
-  isBatchCommand,
-  toCorrelationIds,
-} from "../../../shared/utils/bridge_command_correlation";
+import { isBatchCommand, toCorrelationIds } from "../../../shared/utils/bridge_command_correlation";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 
 export { isBatchCommand, toCorrelationIds };
@@ -242,14 +239,7 @@ export const hasNotificationCommand = (command: BridgeCommand): boolean => {
   return command.id === null;
 };
 
-const READ_ONLY_SQL_PREFIXES = [
-  "select",
-  "with",
-  "show",
-  "describe",
-  "desc",
-  "explain",
-] as const;
+const READ_ONLY_SQL_PREFIXES = ["select", "with", "show", "describe", "desc", "explain"] as const;
 
 const normalizeSqlPrefix = (sql: string): string => sql.trimStart().toLowerCase();
 
@@ -294,9 +284,7 @@ const isReadSafeRpcCommand = (command: Record<string, unknown>): boolean => {
       commands.every((item) => {
         const itemRecord = toRecord(item);
         return (
-          itemRecord !== null &&
-          typeof itemRecord.sql === "string" &&
-          isReadOnlySql(itemRecord.sql)
+          itemRecord !== null && typeof itemRecord.sql === "string" && isReadOnlySql(itemRecord.sql)
         );
       })
     );
@@ -313,8 +301,7 @@ export const isAckRetryEligibleCommand = (command: BridgeCommand): boolean => {
 
     const items = command.map((item) => item as unknown as Record<string, unknown>);
     return (
-      items.every(hasRpcParamsIdempotencyKey) ||
-      items.every((item) => isReadSafeRpcCommand(item))
+      items.every(hasRpcParamsIdempotencyKey) || items.every((item) => isReadSafeRpcCommand(item))
     );
   }
 

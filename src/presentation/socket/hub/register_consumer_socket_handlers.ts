@@ -4,9 +4,7 @@ import type { Server, Socket } from "socket.io";
 import { handleAgentsCommand } from "../consumers/agents_command.handler";
 import { handleAgentsStreamPull } from "../consumers/agents_stream_pull.handler";
 import { abortPendingConsumerCommands } from "../consumers/consumer_command_abort_registry";
-import {
-  handleCustomSocketEventPublish,
-} from "../consumers/custom_socket_event_publish.handler";
+import { handleCustomSocketEventPublish } from "../consumers/custom_socket_event_publish.handler";
 import {
   handleCustomSocketEventSubscribe,
   handleCustomSocketEventUnsubscribe,
@@ -24,9 +22,7 @@ import {
   handleRelayRpcStreamPull,
   parseRelayRpcStreamPullEnvelope,
 } from "../consumers/relay_rpc_stream_pull.handler";
-import {
-  observeRelayOverloadCheck,
-} from "./bridge_relay_health_metrics";
+import { observeRelayOverloadCheck } from "./bridge_relay_health_metrics";
 import { emitConnectionReady } from "./connection_ready_handshake";
 import { conversationRegistry } from "./conversation_registry";
 import {
@@ -45,15 +41,9 @@ import {
   allowRelayRpcRequestAsync,
   clearRelayRateLimitStateByConsumerSocket,
 } from "./consumer_relay_rate_limiter";
-import {
-  clearAgentsCommandSocketRateLimitStateForSocketId,
-} from "./agents_command_socket_rate_limiter";
-import {
-  clearCustomSocketEventSubscriptionRateLimitState,
-} from "./custom_socket_event_subscription_limiter";
-import {
-  removeCustomSocketEventSubscriptionsBySocketId,
-} from "./custom_socket_event_subscription_registry";
+import { clearAgentsCommandSocketRateLimitStateForSocketId } from "./agents_command_socket_rate_limiter";
+import { clearCustomSocketEventSubscriptionRateLimitState } from "./custom_socket_event_subscription_limiter";
+import { removeCustomSocketEventSubscriptionsBySocketId } from "./custom_socket_event_subscription_registry";
 import {
   buildRelayConversationEndedPayload,
   cleanupConsumerStreamSubscriptions,
@@ -65,9 +55,7 @@ import {
   getRelayOutboundQueueOverloadState,
   noteRelayOutboundQueueOverloadRejected,
 } from "./relay_outbound_queue";
-import {
-  buildLegacySocketAppErrorPayload,
-} from "../../../shared/constants/socket_app_error";
+import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import {
   noteConsumerPendingCommandsAborted,
@@ -77,9 +65,7 @@ import {
 } from "../../../shared/metrics/socket_consumer.metrics";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { logger } from "../../../shared/utils/logger";
-import {
-  clearAgentProfileSocketRateLimitStateForSocketId,
-} from "./agent_profile_socket_rate_limiter";
+import { clearAgentProfileSocketRateLimitStateForSocketId } from "./agent_profile_socket_rate_limiter";
 
 type SocketData = {
   user?: JwtAccessPayload;
@@ -137,9 +123,7 @@ export const runConsumerSocketDisconnectCleanup = (
   unregisterConsumerBridgeSocket(socket.id);
   consumerRegistry.removeBySocketId(socket.id);
   const abortedCommands = abortPendingConsumerCommands(socket.id);
-  const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(
-    socket.id,
-  );
+  const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(socket.id);
   clearCustomSocketEventSubscriptionRateLimitState(socket.id);
   if (removedCustomEventSubscriptions > 0) {
     noteCustomSocketEventSubscriptionsRemoved(removedCustomEventSubscriptions);

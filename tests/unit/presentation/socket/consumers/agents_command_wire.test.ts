@@ -120,7 +120,8 @@ describe("agents_command_wire", () => {
       },
     }));
 
-    const mod = await import("../../../../../src/presentation/socket/consumers/agents_command_wire");
+    const mod =
+      await import("../../../../../src/presentation/socket/consumers/agents_command_wire");
     const response = mod.buildAgentsCommandResponseForWire({
       success: false,
       requestId: "req-legacy",
@@ -146,10 +147,7 @@ describe("agents_command_wire", () => {
   it("warns at boot when the legacy compat removal date has passed", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
 
-    warnIfAgentsCommandLegacyCompatExpired(
-      Date.parse("2026-10-01T00:00:00.000Z"),
-      "raw_json",
-    );
+    warnIfAgentsCommandLegacyCompatExpired(Date.parse("2026-10-01T00:00:00.000Z"), "raw_json");
 
     expect(warnSpy).toHaveBeenCalledWith("agents_command_legacy_compat_past_removal_date", {
       removeAfter: AGENTS_COMMAND_LEGACY_COMPAT_REMOVE_AFTER,

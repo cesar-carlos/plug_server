@@ -10,7 +10,9 @@ describe("consumer_identity_rooms", () => {
   it("joins only rooms that are still missing", async () => {
     const join = vi.fn().mockResolvedValue(undefined);
     const socket = {
-      rooms: new Set<string>([buildConsumerClientAgentRoom({ clientId: "client-1", agentId: "agent-1" })]),
+      rooms: new Set<string>([
+        buildConsumerClientAgentRoom({ clientId: "client-1", agentId: "agent-1" }),
+      ]),
       join,
     };
 

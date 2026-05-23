@@ -104,8 +104,7 @@ export const getBridgeRpcMethodMetricsSnapshot = (): BridgeRpcMethodMetricSnapsh
         method,
         outcome,
         count: state.count,
-        latencyAvgMs:
-          state.count > 0 ? Number((state.latencyTotalMs / state.count).toFixed(2)) : 0,
+        latencyAvgMs: state.count > 0 ? Number((state.latencyTotalMs / state.count).toFixed(2)) : 0,
         latencyMaxMs: Number(state.latencyMaxMs.toFixed(2)),
         latencyP95Ms: Number(percentile(state.latencySamples, 95).toFixed(2)),
         latencyP99Ms: Number(percentile(state.latencySamples, 99).toFixed(2)),

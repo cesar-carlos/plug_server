@@ -48,7 +48,10 @@ export const resolveCustomSocketEventRoomRecipientCountStrategy = (input: {
 };
 
 export const toRoomRecipientCountFromStrategy = (
-  strategy: Exclude<CustomSocketEventRoomRecipientCountStrategy, { readonly kind: "fetch_distributed" }>,
+  strategy: Exclude<
+    CustomSocketEventRoomRecipientCountStrategy,
+    { readonly kind: "fetch_distributed" }
+  >,
 ): ResolvedCustomSocketEventRoomRecipientCount => {
   switch (strategy.kind) {
     case "exact_local":
@@ -73,5 +76,8 @@ export const toRoomRecipientCountFromStrategy = (
 };
 
 export const shouldSkipCustomSocketEventZeroRecipientEarlyReturn = (
-  count: Pick<ResolvedCustomSocketEventRoomRecipientCount, "recipientCountLocalOnly" | "recipients">,
+  count: Pick<
+    ResolvedCustomSocketEventRoomRecipientCount,
+    "recipientCountLocalOnly" | "recipients"
+  >,
 ): boolean => count.recipientCountLocalOnly && count.recipients === 0;

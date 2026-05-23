@@ -25,7 +25,7 @@ describe("per_socket_inflight_gate", () => {
     expect(tryAcquireSocketInflightSlot(socket, 0)).toBe(true);
     expect(tryAcquireSocketInflightSlot(socket, 0)).toBe(true);
     releaseSocketInflightSlot(socket);
-    expect((socket.data.inflightCounter?.inflightCount ?? 0)).toBe(0);
+    expect(socket.data.inflightCounter?.inflightCount ?? 0).toBe(0);
   });
 
   it("should reject when shared inflight cap is reached", () => {

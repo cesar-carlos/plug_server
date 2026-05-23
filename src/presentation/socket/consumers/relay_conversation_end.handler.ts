@@ -35,9 +35,8 @@ export const parseRelayConversationEndEnvelope = (
   return { success: true, data: parsed.data };
 };
 
-const withOptionalRequestId = (
-  requestId: string | undefined,
-): { readonly requestId?: string } => (requestId ? { requestId } : {});
+const withOptionalRequestId = (requestId: string | undefined): { readonly requestId?: string } =>
+  requestId ? { requestId } : {};
 
 const emitConversationEnded = (
   socket: Socket,

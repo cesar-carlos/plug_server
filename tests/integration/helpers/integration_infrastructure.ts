@@ -102,77 +102,76 @@ export interface DistributedRedisInfrastructure {
   readonly probe: InfrastructureProbeResult;
 }
 
-export const probeDistributedRedisInfrastructure = async (): Promise<DistributedRedisInfrastructure> => {
-  const databaseUrl = process.env.DATABASE_URL?.trim() ?? "";
-  const socketIoRedisAdapterUrl = resolveIntegrationRedisUrl(
-    process.env.SOCKET_IO_REDIS_ADAPTER_URL,
-  );
-  const restSocketEventIdempotencyRedisUrl = resolveIntegrationRedisUrl(
-    process.env.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL,
-  );
-
-  const missingEnv: string[] = [];
-  if (databaseUrl === "") {
-    missingEnv.push("DATABASE_URL");
-  }
-  if (socketIoRedisAdapterUrl === undefined) {
-    missingEnv.push("SOCKET_IO_REDIS_ADAPTER_URL");
-  }
-  if (restSocketEventIdempotencyRedisUrl === undefined) {
-    missingEnv.push("REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL");
-  }
-  if (missingEnv.length > 0) {
-    return {
-      databaseUrl,
-      socketIoRedisAdapterUrl: socketIoRedisAdapterUrl ?? "",
-      restSocketEventIdempotencyRedisUrl: restSocketEventIdempotencyRedisUrl ?? "",
-      probe: {
-        ok: false,
-        reason: formatInfrastructureSkipReason(missingEnv),
-      },
-    };
-  }
-
-  const [databaseAvailable, socketIoRedisAvailable, idempotencyRedisAvailable] =
-    await Promise.all([
-      canReachDatabase(),
-      canReachRedis(socketIoRedisAdapterUrl),
-      canReachRedis(restSocketEventIdempotencyRedisUrl),
-    ]);
-
-  const unreachable: string[] = [];
-  if (!databaseAvailable) {
-    unreachable.push(`Postgres unreachable (${redactUrl(databaseUrl)})`);
-  }
-  if (!socketIoRedisAvailable) {
-    unreachable.push(
-      `Redis adapter unreachable (${redactUrl(socketIoRedisAdapterUrl)})`,
+export const probeDistributedRedisInfrastructure =
+  async (): Promise<DistributedRedisInfrastructure> => {
+    const databaseUrl = process.env.DATABASE_URL?.trim() ?? "";
+    const socketIoRedisAdapterUrl = resolveIntegrationRedisUrl(
+      process.env.SOCKET_IO_REDIS_ADAPTER_URL,
     );
-  }
-  if (!idempotencyRedisAvailable) {
-    unreachable.push(
-      `Idempotency Redis unreachable (${redactUrl(restSocketEventIdempotencyRedisUrl)})`,
+    const restSocketEventIdempotencyRedisUrl = resolveIntegrationRedisUrl(
+      process.env.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL,
     );
-  }
-  if (unreachable.length > 0) {
+
+    const missingEnv: string[] = [];
+    if (databaseUrl === "") {
+      missingEnv.push("DATABASE_URL");
+    }
+    if (socketIoRedisAdapterUrl === undefined) {
+      missingEnv.push("SOCKET_IO_REDIS_ADAPTER_URL");
+    }
+    if (restSocketEventIdempotencyRedisUrl === undefined) {
+      missingEnv.push("REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL");
+    }
+    if (missingEnv.length > 0) {
+      return {
+        databaseUrl,
+        socketIoRedisAdapterUrl: socketIoRedisAdapterUrl ?? "",
+        restSocketEventIdempotencyRedisUrl: restSocketEventIdempotencyRedisUrl ?? "",
+        probe: {
+          ok: false,
+          reason: formatInfrastructureSkipReason(missingEnv),
+        },
+      };
+    }
+
+    const [databaseAvailable, socketIoRedisAvailable, idempotencyRedisAvailable] =
+      await Promise.all([
+        canReachDatabase(),
+        canReachRedis(socketIoRedisAdapterUrl),
+        canReachRedis(restSocketEventIdempotencyRedisUrl),
+      ]);
+
+    const unreachable: string[] = [];
+    if (!databaseAvailable) {
+      unreachable.push(`Postgres unreachable (${redactUrl(databaseUrl)})`);
+    }
+    if (!socketIoRedisAvailable) {
+      unreachable.push(`Redis adapter unreachable (${redactUrl(socketIoRedisAdapterUrl)})`);
+    }
+    if (!idempotencyRedisAvailable) {
+      unreachable.push(
+        `Idempotency Redis unreachable (${redactUrl(restSocketEventIdempotencyRedisUrl)})`,
+      );
+    }
+    if (unreachable.length > 0) {
+      return {
+        databaseUrl,
+        socketIoRedisAdapterUrl,
+        restSocketEventIdempotencyRedisUrl,
+        probe: {
+          ok: false,
+          reason: formatInfrastructureSkipReason(unreachable),
+        },
+      };
+    }
+
     return {
       databaseUrl,
       socketIoRedisAdapterUrl,
       restSocketEventIdempotencyRedisUrl,
-      probe: {
-        ok: false,
-        reason: formatInfrastructureSkipReason(unreachable),
-      },
+      probe: { ok: true },
     };
-  }
-
-  return {
-    databaseUrl,
-    socketIoRedisAdapterUrl,
-    restSocketEventIdempotencyRedisUrl,
-    probe: { ok: true },
   };
-};
 
 export interface DatabaseInfrastructure {
   readonly databaseUrl: string;

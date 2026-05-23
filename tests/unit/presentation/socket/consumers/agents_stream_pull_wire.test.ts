@@ -90,9 +90,10 @@ describe("agents_stream_pull_wire", () => {
       success: false,
       error: { code: "NOT_FOUND", message: "Stream route not found", statusCode: 404 },
     });
-    const logical = decodeAgentsStreamPullWirePayload<{ success: boolean; error: { code: string } }>(
-      wire,
-    );
+    const logical = decodeAgentsStreamPullWirePayload<{
+      success: boolean;
+      error: { code: string };
+    }>(wire);
     expect(logical.success).toBe(false);
     expect(logical.error.code).toBe("NOT_FOUND");
   });
@@ -111,9 +112,8 @@ describe("agents_stream_pull_wire", () => {
       },
     }));
 
-    const mod = await import(
-      "../../../../../src/presentation/socket/consumers/agents_stream_pull_wire"
-    );
+    const mod =
+      await import("../../../../../src/presentation/socket/consumers/agents_stream_pull_wire");
     const response = mod.buildAgentsStreamPullResponseForWire({
       success: true,
       requestId: "req-legacy",
@@ -135,10 +135,7 @@ describe("agents_stream_pull_wire", () => {
   it("warns at boot when the legacy compat removal date has passed", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
 
-    warnIfAgentsStreamPullLegacyCompatExpired(
-      Date.parse("2026-10-01T00:00:00.000Z"),
-      "raw_json",
-    );
+    warnIfAgentsStreamPullLegacyCompatExpired(Date.parse("2026-10-01T00:00:00.000Z"), "raw_json");
 
     expect(warnSpy).toHaveBeenCalledWith("agents_stream_pull_legacy_compat_past_removal_date", {
       removeAfter: AGENTS_STREAM_PULL_LEGACY_COMPAT_REMOVE_AFTER,

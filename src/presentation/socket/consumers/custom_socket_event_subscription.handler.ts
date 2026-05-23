@@ -203,7 +203,8 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
         requestId,
         error: {
           code: "INTERNAL_SERVER_ERROR",
-          message: error instanceof Error ? error.message : "Failed to join custom socket event room",
+          message:
+            error instanceof Error ? error.message : "Failed to join custom socket event room",
         },
       });
       return;

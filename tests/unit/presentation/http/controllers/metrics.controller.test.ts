@@ -294,7 +294,9 @@ describe("metrics.controller", () => {
 
     expect(mockGetSnapshot).toHaveBeenCalledOnce();
     expect(response.status).toHaveBeenCalledWith(200);
-    expect(response.send).toHaveBeenCalledWith(expect.stringContaining("plug_socket_namespace_connections"));
+    expect(response.send).toHaveBeenCalledWith(
+      expect.stringContaining("plug_socket_namespace_connections"),
+    );
     expect(response.send).toHaveBeenCalledWith(
       expect.stringContaining('plug_socket_bridge_ack_retry_attempts_total{path="rest"} 0'),
     );

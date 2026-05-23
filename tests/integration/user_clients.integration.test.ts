@@ -557,7 +557,9 @@ describe("User client governance API", () => {
       .set("Authorization", `Bearer ${owner.accessToken}`)
       .query({ status: "pending", agentId: agent.agentId, pageSize: 10 });
     expect(ownerRequests.status).toBe(200);
-    const requestIds = (ownerRequests.body.requests as Array<{ id: string }>).map((item) => item.id);
+    const requestIds = (ownerRequests.body.requests as Array<{ id: string }>).map(
+      (item) => item.id,
+    );
     expect(requestIds).toHaveLength(2);
 
     for (const requestId of requestIds) {

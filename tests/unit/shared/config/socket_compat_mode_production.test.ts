@@ -72,15 +72,12 @@ describe("production socket compat mode bootstrap assertions", () => {
     ["SOCKET_CONNECTION_READY_COMPAT_MODE", "socketConnectionReadyCompatMode"],
     ["SOCKET_AGENTS_COMMAND_COMPAT_MODE", "socketAgentsCommandCompatMode"],
     ["SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE", "socketAgentsStreamPullCompatMode"],
-  ] as const)(
-    "rejects %s=raw_json in production",
-    async (envKey, _exportedKey) => {
-      process.env[envKey] = "raw_json";
-      await expect(reloadEnv()).rejects.toThrow(
-        `Invalid production config: ${envKey} must not be raw_json in production.`,
-      );
-    },
-  );
+  ] as const)("rejects %s=raw_json in production", async (envKey, _exportedKey) => {
+    process.env[envKey] = "raw_json";
+    await expect(reloadEnv()).rejects.toThrow(
+      `Invalid production config: ${envKey} must not be raw_json in production.`,
+    );
+  });
 
   it("allows raw_json compat modes outside production", async () => {
     process.env.NODE_ENV = "development";

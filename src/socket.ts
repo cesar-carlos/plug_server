@@ -79,9 +79,7 @@ import {
   buildConsumerClientRoom as buildClientRoomName,
   joinConsumerClientAgentRoom,
 } from "./presentation/socket/hub/consumer_identity_rooms";
-import {
-  shouldSkipCustomSocketEventZeroRecipientEarlyReturn,
-} from "./presentation/socket/hub/custom_socket_event_room_recipient_count";
+import { shouldSkipCustomSocketEventZeroRecipientEarlyReturn } from "./presentation/socket/hub/custom_socket_event_room_recipient_count";
 import {
   countDistributedRoomRecipients,
   createInitialDistributedCountCircuitState,
@@ -153,7 +151,10 @@ import {
   payloadFrameEncodeOptionsFromPreference,
 } from "./shared/utils/payload_frame";
 import { agentSelfProfileSocketSchema } from "./presentation/http/validators/agent_self_profile.validator";
-import { agentRegisterPayloadSchema, type AgentRegisterPayload } from "./shared/validators/agent_register";
+import {
+  agentRegisterPayloadSchema,
+  type AgentRegisterPayload,
+} from "./shared/validators/agent_register";
 import {
   AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
   AGENT_REGISTER_RATE_LIMIT_MESSAGE,
@@ -682,9 +683,7 @@ const stopSocketServerLifecycleTasks = async (state: SocketServerState): Promise
     "consumer_socket_client_agent_room_bootstrap_shutdown_drain_failed",
   );
 
-  clearConsumerProfilePushState(state, () =>
-    hasOtherOpenCustomEventDistributedCountCircuit(state),
-  );
+  clearConsumerProfilePushState(state, () => hasOtherOpenCustomEventDistributedCountCircuit(state));
 };
 
 export const stopSocketServerLifecycleTasksForTests = stopSocketServerLifecycleTasks;

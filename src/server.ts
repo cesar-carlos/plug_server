@@ -80,9 +80,8 @@ const bootstrap = async (): Promise<void> => {
   await initSocketRateLimitRedis();
   await initClientSocketEventPublishIdempotencyRedis();
 
-  const { registerHttpRateLimits } = await import(
-    "./presentation/http/middlewares/rate_limit.middleware"
-  );
+  const { registerHttpRateLimits } =
+    await import("./presentation/http/middlewares/rate_limit.middleware");
   registerHttpRateLimits();
 
   const { createApp } = await import("./app");

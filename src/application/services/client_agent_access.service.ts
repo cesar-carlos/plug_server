@@ -1399,11 +1399,7 @@ export class ClientAgentAccessService {
       return inFlight;
     }
 
-    const refreshPromise = this.resolvePreferredAgentSnapshot(
-      clientId,
-      agentId,
-      persistedAgent,
-    )
+    const refreshPromise = this.resolvePreferredAgentSnapshot(clientId, agentId, persistedAgent)
       .then((agent) => {
         this.recentlyRefreshedAgents.set(agentId, { agent, refreshedAtMs: Date.now() });
         return agent;

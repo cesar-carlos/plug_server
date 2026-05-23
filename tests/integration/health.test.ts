@@ -203,8 +203,12 @@ describe("GET /api/v1/health", () => {
     expect(response.text).toContain("plug_agent_idle_timeout_disconnect_total");
     expect(response.text).toContain("plug_consumer_idle_timeout_disconnect_total");
     expect(response.text).toContain("plug_socket_relay_conversations_expired_total");
-    expect(response.text).toContain('plug_socket_engine_connection_errors_total{code="unsupported_protocol"}');
-    expect(response.text).toContain('plug_socket_engine_connection_errors_total{code="bad_request"}');
+    expect(response.text).toContain(
+      'plug_socket_engine_connection_errors_total{code="unsupported_protocol"}',
+    );
+    expect(response.text).toContain(
+      'plug_socket_engine_connection_errors_total{code="bad_request"}',
+    );
     expect(response.text).toContain('plug_socket_engine_connection_errors_total{code="unknown"}');
   });
 });

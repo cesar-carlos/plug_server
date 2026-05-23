@@ -2,10 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentCommandBody } from "../../../shared/validators/agent_command";
 import { isRecord, toJsonRpcId } from "../../../shared/utils/rpc_types";
-import {
-  isBatchCommand,
-  toCorrelationIds,
-} from "../../../shared/utils/bridge_command_correlation";
+import { isBatchCommand, toCorrelationIds } from "../../../shared/utils/bridge_command_correlation";
 import type {
   NormalizedAgentRpcResponse,
   NormalizedRpcItem,

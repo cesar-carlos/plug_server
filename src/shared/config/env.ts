@@ -521,12 +521,7 @@ const envSchema = z.object({
     .max(10 * 1024 * 1024)
     .default(65_536),
   /** Max rows accepted in one `sql.bulkInsert` RPC before the hub asks callers to chunk. */
-  AGENT_SQL_BULK_INSERT_MAX_ROWS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .max(1_000_000)
-    .default(50_000),
+  AGENT_SQL_BULK_INSERT_MAX_ROWS: z.coerce.number().int().positive().max(1_000_000).default(50_000),
   /** Max UTF-8 bytes for serialized `sql.bulkInsert.params` before PayloadFrame encoding. */
   AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES: z.coerce
     .number()
@@ -534,9 +529,7 @@ const envSchema = z.object({
     .positive()
     .max(10 * 1024 * 1024)
     .default(10 * 1024 * 1024),
-  SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION: z
-    .enum(["strict", "warn", "off"])
-    .default("strict"),
+  SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION: z.enum(["strict", "warn", "off"]).default("strict"),
   SOCKET_AGENT_ACK_RETRY_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -605,12 +598,22 @@ const envSchema = z.object({
    */
   SOCKET_AGENT_IDLE_TIMEOUT_MS: z.coerce.number().int().min(0).max(86_400_000).default(1_800_000),
   /** Background sweep cadence for {@link SOCKET_AGENT_IDLE_TIMEOUT_MS}. `0` disables the scheduler. */
-  SOCKET_AGENT_IDLE_SWEEP_INTERVAL_MS: z.coerce.number().int().min(0).max(3_600_000).default(60_000),
+  SOCKET_AGENT_IDLE_SWEEP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3_600_000)
+    .default(60_000),
   /**
    * Disconnect connected `/consumers` sockets whose registry `lastSeenAtMs` exceeds this idle threshold.
    * `0` disables idle enforcement.
    */
-  SOCKET_CONSUMER_IDLE_TIMEOUT_MS: z.coerce.number().int().min(0).max(86_400_000).default(1_800_000),
+  SOCKET_CONSUMER_IDLE_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(86_400_000)
+    .default(1_800_000),
   /** Background sweep cadence for {@link SOCKET_CONSUMER_IDLE_TIMEOUT_MS}. `0` disables the scheduler. */
   SOCKET_CONSUMER_IDLE_SWEEP_INTERVAL_MS: z.coerce
     .number()
@@ -1445,6 +1448,7 @@ export const env = {
   socketRelayCircuitFailureThreshold: parsedEnv.SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD,
   socketRelayCircuitOpenMs: parsedEnv.SOCKET_RELAY_CIRCUIT_OPEN_MS,
   socketRelayMetricsLogIntervalMs: parsedEnv.SOCKET_RELAY_METRICS_LOG_INTERVAL_MS,
+  socketMetricsSampleRate: parsedEnv.SOCKET_METRICS_SAMPLE_RATE,
   socketRelayOutboundTailStaleMs: parsedEnv.SOCKET_RELAY_OUTBOUND_TAIL_STALE_MS,
   socketRelayOutboundSweepIntervalMs: parsedEnv.SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS,
   socketRelayOutboundOverloadBacklog: parsedEnv.SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG,

@@ -159,7 +159,10 @@ describe("handleAgentsStreamPull", () => {
 
   it("accepts inbound PayloadFrame during the migration window", async () => {
     const socket = buildSocket();
-    const framed = encodePayloadFrame({ requestId: "req-1", windowSize: 16 }, { requestId: "req-1" });
+    const framed = encodePayloadFrame(
+      { requestId: "req-1", windowSize: 16 },
+      { requestId: "req-1" },
+    );
 
     handleAgentsStreamPull(socket as never, framed);
 

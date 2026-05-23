@@ -54,7 +54,9 @@ export const resolvePlugAgenteRoot = (): string | null => {
     envRoot,
     join(process.cwd(), "..", "plug_agente"),
     "D:/Developer/plug_database/plug_agente",
-  ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+  ].filter(
+    (candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
+  );
 
   for (const root of candidates) {
     const openRpcPath = join(root, "docs", "communication", "openrpc.json");
@@ -86,10 +88,7 @@ const withId = (schema: Record<string, unknown>, $id: string): Record<string, un
   $id,
 });
 
-export const registerPlugAgenteSchemas = (
-  ajv: PlugAgenteAjv,
-  schemasDir: string,
-): void => {
+export const registerPlugAgenteSchemas = (ajv: PlugAgenteAjv, schemasDir: string): void => {
   const read = (name: string): Record<string, unknown> => readJsonFile(join(schemasDir, name));
 
   const error = read("rpc.error.schema.json");

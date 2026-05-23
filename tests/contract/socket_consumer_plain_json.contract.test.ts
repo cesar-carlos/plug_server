@@ -202,7 +202,9 @@ describe("socket consumer agents:stream_pull wire contracts", () => {
     expect(agentsStreamPullWireMigration.responseEvent).toBe("agents:stream_pull_response");
     expect(agentsStreamPullWireMigration.streamEvents).toEqual([]);
     expect(agentsStreamPullWireMigration.defaultOutboundWireFormat).toBe("payload_frame");
-    expect(agentsStreamPullWireMigration.compatModeEnv).toBe("SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE");
+    expect(agentsStreamPullWireMigration.compatModeEnv).toBe(
+      "SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE",
+    );
     expect(agentsStreamPullWireMigration.inboundAcceptsDuringTransition).toEqual([
       "payload_frame",
       "plain_json",

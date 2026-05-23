@@ -56,7 +56,9 @@ httpRouter.use("/", userClientsRouter);
 httpRouter.get("/ping", (_request, response) => {
   response
     .status(200)
-    .json(attachHttpRequestId({ message: "pong" }, response.locals.requestId as string | undefined));
+    .json(
+      attachHttpRequestId({ message: "pong" }, response.locals.requestId as string | undefined),
+    );
 });
 
 /**

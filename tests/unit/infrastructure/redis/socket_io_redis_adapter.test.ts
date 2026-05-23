@@ -66,9 +66,11 @@ const setupAdapterModule = async (options?: {
     env: {
       ...defaultSocketIoRedisAdapterEnv,
       nodeEnv: options?.nodeEnv ?? defaultSocketIoRedisAdapterEnv.nodeEnv,
-      socketIoRedisAdapterUrl: options?.redisUrl ?? defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterUrl,
+      socketIoRedisAdapterUrl:
+        options?.redisUrl ?? defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterUrl,
       socketIoRedisAdapterRequired:
-        options?.redisAdapterRequired ?? defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterRequired,
+        options?.redisAdapterRequired ??
+        defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterRequired,
       socketIoRedisAdapterKey:
         options?.redisAdapterKey ?? defaultSocketIoRedisAdapterEnv.socketIoRedisAdapterKey,
       socketIoRedisAdapterRequestsTimeoutMs:
@@ -95,9 +97,8 @@ const setupAdapterModule = async (options?: {
   }));
 
   const module = await import("../../../../src/infrastructure/redis/socket_io_redis_adapter");
-  const metrics = await import(
-    "../../../../src/application/services/socket_io_redis_adapter_metrics.service"
-  );
+  const metrics =
+    await import("../../../../src/application/services/socket_io_redis_adapter_metrics.service");
   return { pubClient, subClient, createClientMock, createAdapterMock, io, module, metrics };
 };
 
@@ -116,9 +117,8 @@ describe("socket_io_redis_adapter", () => {
     vi.doUnmock("redis");
     vi.doUnmock("@socket.io/redis-adapter");
     vi.doUnmock("socket.io-adapter");
-    metricsModule = await import(
-      "../../../../src/application/services/socket_io_redis_adapter_metrics.service"
-    );
+    metricsModule =
+      await import("../../../../src/application/services/socket_io_redis_adapter_metrics.service");
     metricsModule.resetSocketIoRedisAdapterMetricsForTests();
   });
 
@@ -137,15 +137,11 @@ describe("socket_io_redis_adapter", () => {
       url: "redis://127.0.0.1:6379",
       socket: { connectTimeout: 5_000 },
     });
-    expect(createAdapterMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      {
-        key: "socket.io",
-        requestsTimeout: 5_000,
-        publishOnSpecificResponseChannel: false,
-      },
-    );
+    expect(createAdapterMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      key: "socket.io",
+      requestsTimeout: 5_000,
+      publishOnSpecificResponseChannel: false,
+    });
     expect(createAdapterMock).toHaveBeenCalledTimes(1);
     expect(io.adapter).toHaveBeenCalledTimes(1);
     expect(isSocketIoRedisAdapterActive()).toBe(true);

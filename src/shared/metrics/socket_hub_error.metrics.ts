@@ -3,10 +3,7 @@
  * Exposed via GET /metrics through `getSocketMetricsSnapshot`.
  */
 
-export type SocketEngineConnectionErrorCode =
-  | "unsupported_protocol"
-  | "bad_request"
-  | "unknown";
+export type SocketEngineConnectionErrorCode = "unsupported_protocol" | "bad_request" | "unknown";
 
 export type SocketNamespaceErrorSource = "adapter" | "socket";
 
@@ -19,9 +16,7 @@ const engineConnectionErrors: Record<SocketEngineConnectionErrorCode, number> = 
 const namespaceAdapterErrors: Record<string, number> = {};
 const namespaceSocketErrors: Record<string, number> = {};
 
-export const noteSocketEngineConnectionError = (
-  code: SocketEngineConnectionErrorCode,
-): void => {
+export const noteSocketEngineConnectionError = (code: SocketEngineConnectionErrorCode): void => {
   engineConnectionErrors[code] += 1;
 };
 

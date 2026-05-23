@@ -27,7 +27,11 @@ const resolveEngineConnectionErrorCode = (
   if (contextName === "UNSUPPORTED_PROTOCOL_VERSION" || payload.context?.protocol !== undefined) {
     return "unsupported_protocol";
   }
-  if (payload.code === 400 || contextName === "ID_GENERATION_ERROR" || contextName === "TRANSPORT_HANDSHAKE_ERROR") {
+  if (
+    payload.code === 400 ||
+    contextName === "ID_GENERATION_ERROR" ||
+    contextName === "TRANSPORT_HANDSHAKE_ERROR"
+  ) {
     return "bad_request";
   }
   return "unknown";

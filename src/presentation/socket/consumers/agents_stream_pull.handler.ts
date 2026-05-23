@@ -70,7 +70,9 @@ const emitStreamPullResponse = (
   }
   const requestId =
     options?.requestId ??
-    ("requestId" in payload && typeof payload.requestId === "string" ? payload.requestId : undefined);
+    ("requestId" in payload && typeof payload.requestId === "string"
+      ? payload.requestId
+      : undefined);
   socket.emit(
     socketEvents.agentsStreamPullResponse,
     buildAgentsStreamPullResponseForWire(payload, {

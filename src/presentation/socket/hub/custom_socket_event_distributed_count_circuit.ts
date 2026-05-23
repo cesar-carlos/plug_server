@@ -62,7 +62,10 @@ export const enforceCustomEventDistributedCountCircuit = (
   eventName: string,
   nowEpochMs = Date.now(),
 ): void => {
-  if (circuit.openedUntilEpochMs > 0 && !isCustomEventDistributedCountCircuitOpen(circuit, nowEpochMs)) {
+  if (
+    circuit.openedUntilEpochMs > 0 &&
+    !isCustomEventDistributedCountCircuitOpen(circuit, nowEpochMs)
+  ) {
     circuit.consecutiveFailures = 0;
     circuit.openedUntilEpochMs = 0;
   }

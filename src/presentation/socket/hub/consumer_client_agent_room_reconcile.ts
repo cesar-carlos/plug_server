@@ -350,9 +350,7 @@ export const resolveConsumerClientAgentRoomReconcileStartDelayMs = (
   if (maxJitterMs <= 0) {
     return 0;
   }
-  const normalizedRandom = Number.isFinite(randomValue)
-    ? Math.min(1, Math.max(0, randomValue))
-    : 0;
+  const normalizedRandom = Number.isFinite(randomValue) ? Math.min(1, Math.max(0, randomValue)) : 0;
   return Math.floor(normalizedRandom * (maxJitterMs + 1));
 };
 

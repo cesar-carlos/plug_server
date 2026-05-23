@@ -153,7 +153,12 @@ export type RpcBridgeRelayDispatchHandlers = {
 export const createRpcBridgeRelayDispatch = (
   deps: RpcBridgeRelayDispatchDeps,
 ): RpcBridgeRelayDispatchHandlers => {
-  const { hasRegisteredAgentSocketBridge, findAgentSocketById, emitToConsumer, prepareAgentStreamPull } = deps;
+  const {
+    hasRegisteredAgentSocketBridge,
+    findAgentSocketById,
+    emitToConsumer,
+    prepareAgentStreamPull,
+  } = deps;
 
   const dispatchRelayRpcToAgent = async (
     input: DispatchRelayRpcInput,

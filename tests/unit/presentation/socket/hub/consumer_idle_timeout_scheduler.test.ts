@@ -17,7 +17,10 @@ const emit = vi.fn();
 
 vi.mock("../../../../../src/socket", () => ({
   consumersNamespace: {
-    sockets: new Map<string, { connected: boolean; disconnect: typeof disconnect; emit: typeof emit }>(),
+    sockets: new Map<
+      string,
+      { connected: boolean; disconnect: typeof disconnect; emit: typeof emit }
+    >(),
   },
 }));
 

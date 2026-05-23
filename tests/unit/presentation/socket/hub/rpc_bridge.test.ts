@@ -40,9 +40,8 @@ const createMockSocket = (id: string): MockSocket => ({
   emit: vi.fn(),
 });
 
-const createMockNamespace = (
-  sockets = new Map<string, MockSocket>(),
-): Namespace => ({ sockets }) as unknown as Namespace;
+const createMockNamespace = (sockets = new Map<string, MockSocket>()): Namespace =>
+  ({ sockets }) as unknown as Namespace;
 
 describe("rpc_bridge orchestrator", () => {
   const timeoutHandles: NodeJS.Timeout[] = [];
@@ -194,9 +193,7 @@ describe("rpc_bridge orchestrator", () => {
       ),
     );
 
-    await vi.waitFor(() =>
-      expect(relayMetrics.relayEmitDiscardedConsumerGone).toBe(before + 1),
-    );
+    await vi.waitFor(() => expect(relayMetrics.relayEmitDiscardedConsumerGone).toBe(before + 1));
   });
 
   it("should skip consumer emits entirely when no consumer bridge server is registered", async () => {

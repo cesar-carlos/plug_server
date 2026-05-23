@@ -82,10 +82,7 @@ const waitForEvent = <T>(socket: ClientSocket, eventName: string, timeoutMs = 8_
     socket.on(eventName, onEvent);
   });
 
-const registerAgentAndWaitReady = async (
-  socket: ClientSocket,
-  agentId: string,
-): Promise<void> => {
+const registerAgentAndWaitReady = async (socket: ClientSocket, agentId: string): Promise<void> => {
   const capabilitiesPromise = waitForEvent<unknown>(socket, "agent:capabilities");
   socket.emit(
     "agent:register",
@@ -224,7 +221,10 @@ describe("relay multi-replica with Redis adapter", () => {
   });
 
   it("should reject relay conversation start when agent is registered only on another hub", async (ctx) => {
-    assertInfrastructureOrSkip(ctx, infrastructure?.probe ?? { ok: false, reason: "probe missing" });
+    assertInfrastructureOrSkip(
+      ctx,
+      infrastructure?.probe ?? { ok: false, reason: "probe missing" },
+    );
     assertInfrastructureOrSkip(ctx, bootstrapProbe);
     if (!env.socketConsumerRoles.includes("client")) {
       ctx.skip("SOCKET_CONSUMER_ROLES does not include client");
@@ -261,7 +261,10 @@ describe("relay multi-replica with Redis adapter", () => {
   });
 
   it("should complete relay rpc when consumer and agent share the same hub (sticky session)", async (ctx) => {
-    assertInfrastructureOrSkip(ctx, infrastructure?.probe ?? { ok: false, reason: "probe missing" });
+    assertInfrastructureOrSkip(
+      ctx,
+      infrastructure?.probe ?? { ok: false, reason: "probe missing" },
+    );
     assertInfrastructureOrSkip(ctx, bootstrapProbe);
     if (!env.socketConsumerRoles.includes("client")) {
       ctx.skip("SOCKET_CONSUMER_ROLES does not include client");

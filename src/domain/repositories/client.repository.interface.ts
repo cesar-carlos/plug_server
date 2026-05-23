@@ -28,7 +28,10 @@ export interface IClientRepository {
   findById(id: string): Promise<Client | null>;
   findByEmail(email: string): Promise<Client | null>;
   listByUserId(userId: string): Promise<Client[]>;
-  listByUserIdPage(userId: string, filter?: ManagedClientListFilter): Promise<ManagedClientListPage>;
+  listByUserIdPage(
+    userId: string,
+    filter?: ManagedClientListFilter,
+  ): Promise<ManagedClientListPage>;
   /** Active client IDs among `ids`, preserving the input order after de-duplication. */
   findActiveIdsByIds(ids: readonly string[]): Promise<string[]>;
   /** Lightweight projection for hot-path active-account checks (auth handshake, consumer guard). */

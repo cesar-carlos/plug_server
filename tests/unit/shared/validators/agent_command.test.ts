@@ -676,9 +676,7 @@ describe("agentCommandBodySchema", () => {
         params: {
           table: "target_table",
           columns: [{ name: "id", type: "i64" }],
-          rows: Array.from({ length: AGENT_SQL_BULK_INSERT_MAX_ROWS + 1 }, (_, index) => [
-            index,
-          ]),
+          rows: Array.from({ length: AGENT_SQL_BULK_INSERT_MAX_ROWS + 1 }, (_, index) => [index]),
           client_token: "t",
         },
       },

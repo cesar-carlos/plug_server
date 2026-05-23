@@ -639,8 +639,7 @@ const swaggerSpec = swaggerJSDoc({
             clientToken: { type: "string", minLength: 1 },
             auth: { type: "string", minLength: 1 },
           },
-          description:
-            "Published correlation and token aliases for agent.action.* remote calls.",
+          description: "Published correlation and token aliases for agent.action.* remote calls.",
         },
         AgentActionRunParams: {
           allOf: [

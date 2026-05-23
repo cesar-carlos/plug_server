@@ -25,9 +25,8 @@ export type ConsumerIdleTouchEvent = (typeof consumerIdleTouchEvents)[number];
 
 const consumerIdleTouchEventSet = new Set<string>(consumerIdleTouchEvents);
 
-export const isConsumerIdleTouchEvent = (
-  eventName: string,
-): eventName is ConsumerIdleTouchEvent => consumerIdleTouchEventSet.has(eventName);
+export const isConsumerIdleTouchEvent = (eventName: string): eventName is ConsumerIdleTouchEvent =>
+  consumerIdleTouchEventSet.has(eventName);
 
 export const touchConsumerRegistryOnInboundEvent = (
   socketId: string,

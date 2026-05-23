@@ -106,24 +106,20 @@ describe("socket IO Redis adapter integration", () => {
     expect(adapterModule.isSocketIoRedisAdapterActive()).toBe(true);
   });
 
-  it(
-    "falls back to in-memory adapter when Redis clients drop and reconnects",
-    async (ctx) => {
-      assertInfrastructureOrSkip(ctx, infrastructureProbe);
+  it("falls back to in-memory adapter when Redis clients drop and reconnects", async (ctx) => {
+    assertInfrastructureOrSkip(ctx, infrastructureProbe);
 
-      expect(adapterModule.isSocketIoRedisAdapterActive()).toBe(true);
+    expect(adapterModule.isSocketIoRedisAdapterActive()).toBe(true);
 
-      await killAdapterRedisClients(redisUrl);
+    await killAdapterRedisClients(redisUrl);
 
-      await waitUntil(() => !adapterModule.isSocketIoRedisAdapterActive(), {
-        timeoutMs: 5_000,
-      });
+    await waitUntil(() => !adapterModule.isSocketIoRedisAdapterActive(), {
+      timeoutMs: 5_000,
+    });
 
-      await waitUntil(() => adapterModule.isSocketIoRedisAdapterActive(), {
-        timeoutMs: 8_000,
-        intervalMs: 100,
-      });
-    },
-    20_000,
-  );
+    await waitUntil(() => adapterModule.isSocketIoRedisAdapterActive(), {
+      timeoutMs: 8_000,
+      intervalMs: 100,
+    });
+  }, 20_000);
 });

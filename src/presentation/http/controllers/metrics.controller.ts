@@ -855,9 +855,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
     );
   }
   for (const [reason, value] of Object.entries(payloadFrame.signatureRejected)) {
-    lines.push(
-      metricLine("plug_payload_frame_signature_rejected_total", value, { reason }),
-    );
+    lines.push(metricLine("plug_payload_frame_signature_rejected_total", value, { reason }));
   }
   lines.push(
     metricLine(
@@ -1259,9 +1257,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
     lines.push(metricLine("plug_socket_engine_connection_errors_total", value, { code }));
   }
   for (const [namespace, value] of Object.entries(hubErrors.namespaceAdapterErrors)) {
-    lines.push(
-      metricLine("plug_socket_namespace_adapter_errors_total", value, { namespace }),
-    );
+    lines.push(metricLine("plug_socket_namespace_adapter_errors_total", value, { namespace }));
   }
   for (const [namespace, value] of Object.entries(hubErrors.namespaceSocketErrors)) {
     lines.push(metricLine("plug_socket_namespace_socket_errors_total", value, { namespace }));
@@ -1327,10 +1323,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
     ),
   );
   lines.push(
-    metricLine(
-      "plug_socket_relay_stream_idle_timeouts_total",
-      relay.counters.streamIdleTimeouts,
-    ),
+    metricLine("plug_socket_relay_stream_idle_timeouts_total", relay.counters.streamIdleTimeouts),
   );
   lines.push(
     metricLine(
@@ -1395,9 +1388,13 @@ export const getMetrics = (_request: Request, response: Response): void => {
   );
   for (const path of ["rest", "relay"] as const) {
     lines.push(
-      metricLine("plug_socket_bridge_ack_retry_attempts_total", relay.counters.ackRetryAttemptsByPath[path], {
-        path,
-      }),
+      metricLine(
+        "plug_socket_bridge_ack_retry_attempts_total",
+        relay.counters.ackRetryAttemptsByPath[path],
+        {
+          path,
+        },
+      ),
     );
   }
   lines.push(

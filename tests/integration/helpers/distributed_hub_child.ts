@@ -42,10 +42,7 @@ const patchConsumersFetchSockets = (socketServer: SocketIoServer): void => {
   }
 
   const originalFetchSockets = prototype.fetchSockets;
-  prototype.fetchSockets = async function (
-    this: unknown,
-    ...args: unknown[]
-  ): Promise<unknown[]> {
+  prototype.fetchSockets = async function (this: unknown, ...args: unknown[]): Promise<unknown[]> {
     if (injectFetchSocketsFailure) {
       throw new Error("integration_test_fetch_sockets_injected_failure");
     }
@@ -122,9 +119,8 @@ const shutdown = async (): Promise<void> => {
 const bootstrap = async (): Promise<void> => {
   await initClientSocketEventPublishIdempotencyRedis();
 
-  const { registerHttpRateLimits } = await import(
-    "../../../src/presentation/http/middlewares/rate_limit.middleware"
-  );
+  const { registerHttpRateLimits } =
+    await import("../../../src/presentation/http/middlewares/rate_limit.middleware");
   registerHttpRateLimits();
 
   const { createApp } = await import("../../../src/app");

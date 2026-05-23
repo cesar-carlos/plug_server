@@ -44,9 +44,7 @@ export const assertActiveClientCustomSocketEventPrincipal = async (
   return user.sub.trim();
 };
 
-export const handleCustomSocketEventAuthFailure = (
-  error: unknown,
-): AppError => {
+export const handleCustomSocketEventAuthFailure = (error: unknown): AppError => {
   const appError =
     error instanceof AppError
       ? error
@@ -61,4 +59,5 @@ export const isTerminalCustomSocketEventAuthFailure = (error: AppError): boolean
   error.statusCode === 401 || error.statusCode === 403;
 
 export const isNonClientCustomSocketEventPrincipalError = (error: AppError): boolean =>
-  error.code === "FORBIDDEN" && error.message === "Only Client principals may use custom socket events";
+  error.code === "FORBIDDEN" &&
+  error.message === "Only Client principals may use custom socket events";

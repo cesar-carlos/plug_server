@@ -193,7 +193,9 @@ describe("agent bridge parity contract", () => {
     expect(agentsStreamPullWireMigration.responseEvent).toBe("agents:stream_pull_response");
     expect(agentsStreamPullWireMigration.streamEvents).toEqual([]);
     expect(agentsStreamPullWireMigration.defaultOutboundWireFormat).toBe("payload_frame");
-    expect(agentsStreamPullWireMigration.compatModeEnv).toBe("SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE");
+    expect(agentsStreamPullWireMigration.compatModeEnv).toBe(
+      "SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE",
+    );
     expect(agentsStreamPullWireMigration.reason.length).toBeGreaterThan(0);
     expect(agentsStreamPullWireMigration.removeWhen.length).toBeGreaterThan(0);
     expect(agentsStreamPullPlainJsonWireException).toBe(agentsStreamPullWireMigration);

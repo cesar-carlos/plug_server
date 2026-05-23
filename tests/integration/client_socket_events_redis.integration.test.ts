@@ -143,7 +143,10 @@ describe("distributed client socket events with Redis", () => {
   });
 
   it("delivers across replicas and replays idempotency keys without duplicate fan-out", async (ctx) => {
-    assertInfrastructureOrSkip(ctx, infrastructure?.probe ?? { ok: false, reason: "probe missing" });
+    assertInfrastructureOrSkip(
+      ctx,
+      infrastructure?.probe ?? { ok: false, reason: "probe missing" },
+    );
     assertInfrastructureOrSkip(ctx, bootstrapProbe);
     if (serverA === undefined || serverB === undefined) {
       throw new Error("distributed hub servers were not started");
@@ -405,7 +408,10 @@ describe("consumer client-agent room reconciliation across Redis replicas", () =
   });
 
   it("should join consumer:client-agent rooms on a remote replica after grantClientAccess", async (ctx) => {
-    assertInfrastructureOrSkip(ctx, infrastructure?.probe ?? { ok: false, reason: "probe missing" });
+    assertInfrastructureOrSkip(
+      ctx,
+      infrastructure?.probe ?? { ok: false, reason: "probe missing" },
+    );
     assertInfrastructureOrSkip(ctx, bootstrapProbe);
     if (serverA === undefined || serverB === undefined) {
       throw new Error("cross-replica reconcile servers were not started");
@@ -522,7 +528,10 @@ describe("REST socket event distributed count circuit", () => {
   });
 
   it("should publish in best-effort mode when fetchSockets fails and return 503 once the circuit opens", async (ctx) => {
-    assertInfrastructureOrSkip(ctx, infrastructure?.probe ?? { ok: false, reason: "probe missing" });
+    assertInfrastructureOrSkip(
+      ctx,
+      infrastructure?.probe ?? { ok: false, reason: "probe missing" },
+    );
     assertInfrastructureOrSkip(ctx, bootstrapProbe);
     if (server === undefined) {
       throw new Error("distributed count circuit server was not started");

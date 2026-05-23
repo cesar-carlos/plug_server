@@ -9,7 +9,10 @@ import {
 } from "../helpers/plug_agente_socket";
 import { startE2EHubFixture, type E2EHubFixture } from "../helpers/e2e_hub_fixture";
 import { env } from "../../../src/shared/config/env";
-import { resetSocketAgentMetrics, getSocketAgentMetricsSnapshot } from "../../../src/shared/metrics/socket_agent.metrics";
+import {
+  resetSocketAgentMetrics,
+  getSocketAgentMetricsSnapshot,
+} from "../../../src/shared/metrics/socket_agent.metrics";
 import { decodePayloadFrame, encodePayloadFrame } from "../../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../src/shared/utils/rpc_types";
 
@@ -171,7 +174,9 @@ describe("E2E plug_agente contract hardening", () => {
 
     expect(response.status).toBe(503);
     expect(response.body.code).toBe("SERVICE_UNAVAILABLE");
-    expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBeGreaterThan(0);
+    expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBeGreaterThan(
+      0,
+    );
   });
 
   it("processes invalid inbound rpc:response in warn mode and records a warning metric", async () => {
@@ -255,7 +260,9 @@ describe("E2E plug_agente contract hardening", () => {
     ]);
 
     expect(response.status).toBe(503);
-    expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBeGreaterThan(0);
+    expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBeGreaterThan(
+      0,
+    );
   });
 
   it("rejects invalid rpc:chunk on a real REST stream", async () => {
@@ -303,7 +310,9 @@ describe("E2E plug_agente contract hardening", () => {
     ]);
 
     expect(response.status).toBe(503);
-    expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBeGreaterThan(0);
+    expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBeGreaterThan(
+      0,
+    );
   });
 
   it("rejects invalid rpc:complete on a real REST stream", async () => {
@@ -349,7 +358,9 @@ describe("E2E plug_agente contract hardening", () => {
     ]);
 
     expect(response.status).toBe(503);
-    expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBeGreaterThan(0);
+    expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBeGreaterThan(
+      0,
+    );
   });
 
   it("retries an ACK-eligible REST request once and reuses the same frame", async () => {

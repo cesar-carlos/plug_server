@@ -144,14 +144,7 @@ const validateRpcChunk = (payload: unknown): ContractValidationFailure | null =>
   }
   const extraKey = ensureOnlyKeys(
     payload,
-    new Set([
-      "stream_id",
-      "request_id",
-      "chunk_index",
-      "rows",
-      "total_chunks",
-      "column_metadata",
-    ]),
+    new Set(["stream_id", "request_id", "chunk_index", "rows", "total_chunks", "column_metadata"]),
   );
   if (extraKey !== null) {
     return extraKey;

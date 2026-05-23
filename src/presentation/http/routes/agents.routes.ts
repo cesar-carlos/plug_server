@@ -17,7 +17,10 @@ import {
   agentsCommandsUserRateLimit,
 } from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
-import { agentCommandBodySchema, listConnectedAgentsQuerySchema } from "../validators/agents.validator";
+import {
+  agentCommandBodySchema,
+  listConnectedAgentsQuerySchema,
+} from "../validators/agents.validator";
 import {
   agentSelfProfileHttpBodySchema,
   agentSelfProfileParamsSchema,

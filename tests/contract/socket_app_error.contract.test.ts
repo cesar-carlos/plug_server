@@ -24,9 +24,7 @@ describe("socket app:error contract", () => {
   });
 
   it("allows optional statusCode on legacy app:error payloads", () => {
-    expect(
-      buildLegacySocketAppErrorPayload("FORBIDDEN", "Account is blocked", 403),
-    ).toEqual({
+    expect(buildLegacySocketAppErrorPayload("FORBIDDEN", "Account is blocked", 403)).toEqual({
       code: "FORBIDDEN",
       message: "Account is blocked",
       statusCode: 403,

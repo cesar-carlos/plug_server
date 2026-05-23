@@ -250,9 +250,9 @@ describe("Agent catalog API", () => {
       seedAgent({ name: duplicateName, cnpjCpf: `stable-duplicate-b-${Date.now()}` }),
       seedAgent({ name: duplicateName, cnpjCpf: `stable-duplicate-c-${Date.now()}` }),
     ]);
-    const expectedOrder = [...seeded].map((agent) => agent.agentId).sort((left, right) =>
-      left.localeCompare(right),
-    );
+    const expectedOrder = [...seeded]
+      .map((agent) => agent.agentId)
+      .sort((left, right) => left.localeCompare(right));
 
     const pageOne = await request(app)
       .get("/api/v1/agents/catalog")

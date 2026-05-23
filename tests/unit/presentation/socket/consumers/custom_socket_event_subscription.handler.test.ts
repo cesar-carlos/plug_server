@@ -44,7 +44,10 @@ vi.mock("../../../../../src/presentation/socket/consumers/custom_socket_event_gu
     return user.sub;
   }),
   handleCustomSocketEventAuthFailure: vi.fn((error: unknown) => {
-    if (error instanceof Error && error.message === "Only Client principals may use custom socket events") {
+    if (
+      error instanceof Error &&
+      error.message === "Only Client principals may use custom socket events"
+    ) {
       return { code: "FORBIDDEN", message: error.message, statusCode: 403 };
     }
     return { code: "UNAUTHORIZED", message: "Authentication required", statusCode: 401 };

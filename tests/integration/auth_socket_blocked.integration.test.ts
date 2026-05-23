@@ -78,9 +78,7 @@ describe("Socket.IO blocked account", () => {
     });
     const email = `sock-agent-block-${Date.now()}@test.com`;
     const password = "User1234";
-    const reg = await request(baseUrl)
-      .post("/api/v1/auth/register")
-      .send({ email, password });
+    const reg = await request(baseUrl).post("/api/v1/auth/register").send({ email, password });
     expect(reg.status).toBe(201);
     await approveRegistrationByToken(baseUrl, reg.body.approvalToken as string);
     const userId = reg.body.user.id as string;

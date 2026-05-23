@@ -64,10 +64,7 @@ describe("connection_ready_handshake", () => {
   it("warns at boot when the legacy compat removal date has passed", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
 
-    warnIfConnectionReadyLegacyCompatExpired(
-      Date.parse("2026-10-01T00:00:00.000Z"),
-      "raw_json",
-    );
+    warnIfConnectionReadyLegacyCompatExpired(Date.parse("2026-10-01T00:00:00.000Z"), "raw_json");
 
     expect(warnSpy).toHaveBeenCalledWith("connection_ready_legacy_compat_past_removal_date", {
       removeAfter: CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER,
