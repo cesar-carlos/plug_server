@@ -27,7 +27,12 @@ const maxQueue = env.socketRestAgentMaxQueue;
 const queueWaitMs = env.socketRestAgentQueueWaitMs;
 
 const agentInflightById = new Map<string, number>();
-const agentQueueById = new Map<string, AgentQueueWaiter[]>();
+/**
+ * Per-agent FIFO wait queue backed by a `Set` so removal at any position is O(1)
+ * (vs the previous `Array.indexOf + splice` which was O(queue depth)).
+ * Set iteration order is insertion order, giving stable FIFO dequeue via the iterator.
+ */
+const agentQueueById = new Map<string, Set<AgentQueueWaiter>>();
 
 export type RestAgentDispatchQueueRejectReason = "queue_full" | "queue_wait_timeout";
 
@@ -49,8 +54,8 @@ export const getRestAgentDispatchQueueMetricsSnapshot = (): {
   let totalQueued = 0;
   let maxDepth = 0;
   for (const q of agentQueueById.values()) {
-    totalQueued += q.length;
-    maxDepth = Math.max(maxDepth, q.length);
+    totalQueued += q.size;
+    maxDepth = Math.max(maxDepth, q.size);
   }
   let totalInflight = 0;
   for (const v of agentInflightById.values()) {
@@ -84,22 +89,21 @@ const drainAgentQueue = (agentId: string): void => {
   }
 
   const queue = agentQueueById.get(agentId);
-  if (!queue || queue.length === 0) {
-    if (queue && queue.length === 0) {
+  if (!queue || queue.size === 0) {
+    if (queue) {
       agentQueueById.delete(agentId);
     }
     return;
   }
 
-  const next = queue.shift();
-  if (queue.length === 0) {
-    agentQueueById.delete(agentId);
-  } else {
-    agentQueueById.set(agentId, queue);
-  }
-
+  // Set preserves insertion order; the iterator yields the oldest entry first (FIFO).
+  const [next] = queue;
   if (!next) {
     return;
+  }
+  queue.delete(next);
+  if (queue.size === 0) {
+    agentQueueById.delete(agentId);
   }
 
   clearTimeout(next.timeoutHandle);
@@ -115,20 +119,12 @@ const releaseAgentDispatchSlot = (agentId: string): void => {
 
 const removeQueuedWaiter = (agentId: string, waiter: AgentQueueWaiter): void => {
   const queue = agentQueueById.get(agentId);
-  if (!queue || queue.length === 0) {
+  if (!queue) {
     return;
   }
-
-  const index = queue.indexOf(waiter);
-  if (index < 0) {
-    return;
-  }
-
-  queue.splice(index, 1);
-  if (queue.length === 0) {
+  queue.delete(waiter); // O(1) — no indexOf scan or element shift
+  if (queue.size === 0) {
     agentQueueById.delete(agentId);
-  } else {
-    agentQueueById.set(agentId, queue);
   }
 };
 
@@ -155,8 +151,8 @@ export const acquireRestAgentDispatchSlot = async (
     };
   }
 
-  const queue = agentQueueById.get(agentId) ?? [];
-  if (maxQueue > 0 && queue.length >= maxQueue) {
+  const queue = agentQueueById.get(agentId) ?? new Set<AgentQueueWaiter>();
+  if (maxQueue > 0 && queue.size >= maxQueue) {
     onRestDispatchQueueReject("queue_full");
     throw serviceUnavailableWithRetry(
       withAppendedMessage("Agent is overloaded", "queue is full"),
@@ -222,7 +218,7 @@ export const acquireRestAgentDispatchSlot = async (
         }
       : null;
 
-    queue.push(waiter);
+    queue.add(waiter);
     agentQueueById.set(agentId, queue);
     if (signal && signalListener) {
       signal.addEventListener("abort", signalListener, { once: true });

@@ -22,7 +22,12 @@ const maxQueue = env.socketRelayAgentMaxQueue;
 const queueWaitMs = env.socketRelayAgentQueueWaitMs;
 
 const agentInflightById = new Map<string, number>();
-const agentQueueById = new Map<string, AgentQueueWaiter[]>();
+/**
+ * Per-agent FIFO wait queue backed by a `Set` so removal at any position is O(1)
+ * (vs the previous `Array.indexOf + splice` which was O(queue depth)).
+ * Set iteration order is insertion order, giving stable FIFO dequeue via the iterator.
+ */
+const agentQueueById = new Map<string, Set<AgentQueueWaiter>>();
 
 const metrics = {
   queueFullRejected: 0,
@@ -44,12 +49,8 @@ const removeQueuedWaiter = (agentId: string, waiter: AgentQueueWaiter): void => 
   if (!queue) {
     return;
   }
-  const index = queue.indexOf(waiter);
-  if (index < 0) {
-    return;
-  }
-  queue.splice(index, 1);
-  if (queue.length === 0) {
+  queue.delete(waiter); // O(1) — no indexOf scan or element shift
+  if (queue.size === 0) {
     agentQueueById.delete(agentId);
   }
 };
@@ -60,12 +61,21 @@ const drainAgentQueue = (agentId: string): void => {
   }
 
   const queue = agentQueueById.get(agentId);
-  const next = queue?.shift();
-  if (queue && queue.length === 0) {
-    agentQueueById.delete(agentId);
+  if (!queue || queue.size === 0) {
+    if (queue) {
+      agentQueueById.delete(agentId);
+    }
+    return;
   }
+
+  // Set preserves insertion order; the iterator yields the oldest entry first (FIFO).
+  const [next] = queue;
   if (!next) {
     return;
+  }
+  queue.delete(next);
+  if (queue.size === 0) {
+    agentQueueById.delete(agentId);
   }
 
   clearTimeout(next.timeoutHandle);
@@ -107,8 +117,8 @@ export const acquireRelayAgentDispatchSlot = async (
     return idempotentRelease(agentId);
   }
 
-  const queue = agentQueueById.get(agentId) ?? [];
-  if (maxQueue > 0 && queue.length >= maxQueue) {
+  const queue = agentQueueById.get(agentId) ?? new Set<AgentQueueWaiter>();
+  if (maxQueue > 0 && queue.size >= maxQueue) {
     metrics.queueFullRejected += 1;
     throw serviceUnavailableWithRetry(
       "Agent relay dispatch is overloaded; queue is full",
@@ -172,7 +182,7 @@ export const acquireRelayAgentDispatchSlot = async (
     };
     waiterHolder.current = waiter;
 
-    queue.push(waiter);
+    queue.add(waiter);
     agentQueueById.set(agentId, queue);
     if (signal && signalListener) {
       signal.addEventListener("abort", signalListener, { once: true });
@@ -191,8 +201,8 @@ export const getRelayAgentDispatchQueueMetricsSnapshot = (): {
   let totalQueuedWaiters = 0;
   let maxQueueDepthPerAgent = 0;
   for (const queue of agentQueueById.values()) {
-    totalQueuedWaiters += queue.length;
-    maxQueueDepthPerAgent = Math.max(maxQueueDepthPerAgent, queue.length);
+    totalQueuedWaiters += queue.size;
+    maxQueueDepthPerAgent = Math.max(maxQueueDepthPerAgent, queue.size);
   }
   let totalInflight = 0;
   for (const inflight of agentInflightById.values()) {

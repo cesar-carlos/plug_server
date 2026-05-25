@@ -810,6 +810,9 @@ export const decodePayloadFrame = (payload: unknown): Result<DecodedPayloadFrame
 /**
  * Same as `decodePayloadFrame` but uses async zlib gunzip for large **compressed** payloads when
  * `PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES` is set (> 0) and `cmp === "gzip"`.
+ *
+ * Uncompressed frames (`cmp: none`) bypass the gunzip branch entirely and go straight to JSON
+ * parse — no try/catch overhead and no async machinery beyond the function's own Promise wrapper.
  */
 export const decodePayloadFrameAsync = async (
   payload: unknown,
@@ -820,18 +823,19 @@ export const decodePayloadFrameAsync = async (
   }
 
   const { envelope, binaryPayload } = prep.value;
+
+  // Fast path: uncompressed frames need no gunzip — skip the try/catch and zlib branches.
+  if (envelope.cmp !== "gzip") {
+    return finalizeDecodedPayloadBytes(envelope, binaryPayload, binaryPayload);
+  }
+
   const minAsync = env.payloadFrameAsyncGunzipMinCompressedBytes;
   let decodedBytes: Buffer;
   try {
-    if (envelope.cmp === "gzip") {
-      if (minAsync > 0 && binaryPayload.length >= minAsync) {
-        decodedBytes = await gunzipAsync(binaryPayload);
-      } else {
-        decodedBytes = gunzipSync(binaryPayload);
-      }
-    } else {
-      decodedBytes = binaryPayload;
-    }
+    decodedBytes =
+      minAsync > 0 && binaryPayload.length >= minAsync
+        ? await gunzipAsync(binaryPayload)
+        : gunzipSync(binaryPayload);
   } catch {
     return err(badRequest("Failed to decompress PayloadFrame payload"));
   }
