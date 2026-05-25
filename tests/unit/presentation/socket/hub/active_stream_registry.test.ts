@@ -176,6 +176,42 @@ describe("active_stream_registry", () => {
     expect(reject).not.toHaveBeenCalled();
   });
 
+  it("countOpenStreamRoutesForAgent counts only routes that have a streamId", () => {
+    upsertActiveStreamRoute({ requestId: "r-no-sid", agentSocketId: "a1", streamHandlers: handlers });
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(0);
+
+    upsertActiveStreamRoute({ requestId: "r-with-sid", agentSocketId: "a1", streamHandlers: handlers, streamId: "s1" });
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(1);
+
+    const routeWithSid = getActiveStreamRouteByRequestId("r-with-sid")!;
+    removeActiveStreamRoute(routeWithSid);
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(0);
+  });
+
+  it("countOpenStreamRoutesForAgent increments when resolveActiveStreamRoute assigns streamId late", () => {
+    upsertActiveStreamRoute({ requestId: "r-late", agentSocketId: "a1", streamHandlers: handlers });
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(0);
+
+    resolveActiveStreamRoute("a1", { stream_id: "s-late", request_id: "r-late" });
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(1);
+
+    const route = getActiveStreamRouteByRequestId("r-late")!;
+    removeActiveStreamRoute(route);
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(0);
+  });
+
+  it("countOpenStreamRoutesForAgent does not double-count when streamId is replaced", () => {
+    upsertActiveStreamRoute({ requestId: "r-replace", agentSocketId: "a1", streamHandlers: handlers, streamId: "s-old" });
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(1);
+
+    upsertActiveStreamRoute({ requestId: "r-replace", agentSocketId: "a1", streamHandlers: handlers, streamId: "s-new" });
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(1);
+
+    const route = getActiveStreamRouteByRequestId("r-replace")!;
+    removeActiveStreamRoute(route);
+    expect(countOpenStreamRoutesForAgent("a1")).toBe(0);
+  });
+
   it("removeActiveStreamRoute with restMaterialize detach clears timeout without rejecting", () => {
     const reject = vi.fn();
     let fired = false;

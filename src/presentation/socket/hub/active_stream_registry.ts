@@ -39,6 +39,29 @@ const activeStreamsByStreamId = new Map<string, ActiveStreamRoute>();
 const activeStreamRequestIdsByConversation = new Map<string, Set<string>>();
 const streamRequestIdsByConsumer = new Map<string, Set<string>>();
 const streamRequestIdsByAgent = new Map<string, Set<string>>();
+/**
+ * O(1) counter of routes where `streamId` has been assigned for a given agent socket.
+ * Maintained in lockstep with `activeStreamsByStreamId` to avoid O(n) scans in
+ * `countOpenStreamRoutesForAgent`, which is called on every `rpc:response` that
+ * opens a new stream.
+ */
+const openStreamCountByAgentSocketId = new Map<string, number>();
+
+const incrementOpenStreamCount = (agentSocketId: string): void => {
+  openStreamCountByAgentSocketId.set(
+    agentSocketId,
+    (openStreamCountByAgentSocketId.get(agentSocketId) ?? 0) + 1,
+  );
+};
+
+const decrementOpenStreamCount = (agentSocketId: string): void => {
+  const current = openStreamCountByAgentSocketId.get(agentSocketId);
+  if (current === undefined || current <= 1) {
+    openStreamCountByAgentSocketId.delete(agentSocketId);
+    return;
+  }
+  openStreamCountByAgentSocketId.set(agentSocketId, current - 1);
+};
 
 const addToIndex = (index: Map<string, Set<string>>, key: string, value: string): void => {
   const existing = index.get(key);
@@ -111,20 +134,8 @@ export const listStreamRequestIdsForAgent = (agentSocketId: string): string[] =>
 export const countStreamRoutesForAgent = (agentSocketId: string): number =>
   streamRequestIdsByAgent.get(agentSocketId)?.size ?? 0;
 
-export const countOpenStreamRoutesForAgent = (agentSocketId: string): number => {
-  const requestIds = streamRequestIdsByAgent.get(agentSocketId);
-  if (!requestIds) {
-    return 0;
-  }
-  let total = 0;
-  for (const requestId of requestIds) {
-    const route = activeStreamsByRequestId.get(requestId);
-    if (route?.streamId) {
-      total += 1;
-    }
-  }
-  return total;
-};
+export const countOpenStreamRoutesForAgent = (agentSocketId: string): number =>
+  openStreamCountByAgentSocketId.get(agentSocketId) ?? 0;
 
 export const listActiveStreamRequestIdsForConversation = (conversationId: string): string[] =>
   Array.from(activeStreamRequestIdsByConversation.get(conversationId) ?? []);
@@ -173,6 +184,7 @@ export const removeActiveStreamRoute = (
   activeStreamsByRequestId.delete(route.requestId);
   if (route.streamId) {
     activeStreamsByStreamId.delete(route.streamId);
+    decrementOpenStreamCount(route.agentSocketId);
   }
   if (route.conversationId) {
     removeFromIndex(activeStreamRequestIdsByConversation, route.conversationId, route.requestId);
@@ -203,6 +215,11 @@ export const upsertActiveStreamRoute = (input: {
     if (input.streamId) {
       if (existing.streamId && existing.streamId !== input.streamId) {
         activeStreamsByStreamId.delete(existing.streamId);
+        // streamId is being replaced (still set) — counter unchanged
+      }
+      if (!existing.streamId) {
+        // Transitioning from no streamId → has streamId for the first time
+        incrementOpenStreamCount(input.agentSocketId);
       }
       existing.streamId = input.streamId;
     }
@@ -229,6 +246,9 @@ export const upsertActiveStreamRoute = (input: {
 
   addToIndex(streamRequestIdsByConsumer, route.consumerSocketId, route.requestId);
   addToIndex(streamRequestIdsByAgent, route.agentSocketId, route.requestId);
+  if (route.streamId) {
+    incrementOpenStreamCount(route.agentSocketId);
+  }
 
   activeStreamsByRequestId.set(route.requestId, route);
   if (route.streamId) {
@@ -259,6 +279,7 @@ export const resolveActiveStreamRoute = (
   if (streamId && !route.streamId) {
     route.streamId = streamId;
     activeStreamsByStreamId.set(streamId, route);
+    incrementOpenStreamCount(route.agentSocketId);
   }
   return route;
 };
@@ -273,4 +294,5 @@ export const resetActiveStreamRegistry = (): void => {
   activeStreamRequestIdsByConversation.clear();
   streamRequestIdsByConsumer.clear();
   streamRequestIdsByAgent.clear();
+  openStreamCountByAgentSocketId.clear();
 };

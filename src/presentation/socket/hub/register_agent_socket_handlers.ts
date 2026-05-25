@@ -528,7 +528,15 @@ export const registerAgentSocketConnectionHandlers = ({
         return;
       }
 
-      const payloadAgentId = isRecord(decoded.value.data) ? decoded.value.data.agent_id : undefined;
+      const payloadData = isRecord(decoded.value.data) ? decoded.value.data : {};
+      const payloadAgentId = payloadData.agent_id;
+      // Mirror trace_id back so the agent can correlate emission with ack
+      // without requiring a synchronised clock (spec: socket_communication_standard.md § heartbeat).
+      const payloadTraceId =
+        typeof payloadData.trace_id === "string" && payloadData.trace_id.trim() !== ""
+          ? payloadData.trace_id
+          : undefined;
+
       const currentAgentId = resolveCanonicalRegisteredAgentId(
         socket,
         socketEvents.agentHeartbeat,
@@ -547,6 +555,7 @@ export const registerAgentSocketConnectionHandlers = ({
             agent_id: currentAgentId,
             timestamp: new Date().toISOString(),
             status: "ok",
+            ...(payloadTraceId !== undefined ? { trace_id: payloadTraceId } : {}),
           },
           withOptionalRequestId(decoded.value.frame.requestId),
         ),

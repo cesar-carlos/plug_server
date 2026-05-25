@@ -24,6 +24,17 @@ interface InternalRegisteredAgent {
   /** Pre-computed ISO string for `connectedAt` — never changes after creation. */
   readonly connectedAtIso: string;
   lastSeenAtMs: number;
+  /**
+   * Dispatch limits resolved from `capabilities` at registration time.
+   * Capabilities are immutable after register, so this can be read directly
+   * instead of re-parsing on every dispatch (hot path for rpc:request).
+   */
+  readonly dispatchPolicy: ReturnType<typeof resolveDispatchPolicy>;
+  /**
+   * Stream-pull window hints resolved from `capabilities` at registration time.
+   * Used by `resolveStreamPullWindow` to skip re-parsing on each pull.
+   */
+  readonly streamPullWindowPolicy: ReturnType<typeof resolveStreamPullWindowPolicy>;
 }
 
 type ProtocolReadyMode = "grace" | "explicit_ack";
@@ -288,6 +299,8 @@ class InMemoryAgentRegistry {
           ? existing.connectedAtIso
           : new Date(connectedAtMs).toISOString(),
       lastSeenAtMs: nowMs,
+      dispatchPolicy: resolveDispatchPolicy(input.capabilities),
+      streamPullWindowPolicy: resolveStreamPullWindowPolicy(input.capabilities),
     };
 
     this.knownAgentIds.add(input.agentId);
@@ -433,7 +446,7 @@ class InMemoryAgentRegistry {
       return Math.min(baseWindow, hubMaxWindow);
     }
 
-    const { recommendedWindow, maxWindow } = resolveStreamPullWindowPolicy(agent.capabilities);
+    const { recommendedWindow, maxWindow } = agent.streamPullWindowPolicy;
     const resolved =
       requestedWindow === undefined && recommendedWindow !== null ? recommendedWindow : baseWindow;
     const maxAllowedWindow = maxWindow !== null ? Math.min(maxWindow, hubMaxWindow) : hubMaxWindow;
@@ -458,7 +471,7 @@ class InMemoryAgentRegistry {
         allowsNoneCompression: true,
       };
     }
-    return resolveDispatchPolicy(agent.capabilities);
+    return agent.dispatchPolicy;
   }
 
   clear(): void {
