@@ -763,6 +763,16 @@ const envSchema = z.object({
   SOCKET_RELAY_MAX_ACTIVE_STREAMS: z.coerce.number().int().positive().default(5_000),
   SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST: z.coerce.number().int().positive().default(256),
   SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS: z.coerce.number().int().positive().default(25_600),
+  SOCKET_RELAY_MAX_BUFFERED_BYTES_PER_REQUEST: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(16 * 1024 * 1024),
+  SOCKET_RELAY_MAX_TOTAL_BUFFERED_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(256 * 1024 * 1024),
   SOCKET_RELAY_IDEMPOTENCY_TTL_MS: z.coerce.number().int().positive().default(300_000),
   /** Background prune of relay idempotency maps; larger interval = less CPU, slower reclamation of empty maps. */
   SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS: z.coerce.number().int().positive().default(120_000),
@@ -913,10 +923,11 @@ const envSchema = z.object({
     .max(10_000_000)
     .default(100_000),
   /**
-   * Hard cap on aggregated UTF-8 bytes (estimated via `JSON.stringify`) materialized
-   * for a single REST SQL stream. Complements `MAX_ROWS` for cases where individual
-   * rows are large (JSONB blobs). `0` disables the byte cap. Default 256 MiB matches
-   * Node default `--max-old-space-size` headroom.
+   * Hard cap on aggregated UTF-8 bytes materialized for a single REST SQL stream.
+   * Inbound PayloadFrame metadata supplies the hot-path byte count; legacy fallback
+   * still estimates via JSON serialization. Complements `MAX_ROWS` for large rows
+   * (JSONB blobs). `0` disables the byte cap. Default 256 MiB matches Node default
+   * `--max-old-space-size` headroom.
    */
   SOCKET_REST_SQL_STREAM_MATERIALIZE_MAX_BYTES: z.coerce
     .number()
@@ -1440,6 +1451,8 @@ export const env = {
   socketRelayMaxActiveStreams: parsedEnv.SOCKET_RELAY_MAX_ACTIVE_STREAMS,
   socketRelayMaxBufferedChunksPerRequest: parsedEnv.SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST,
   socketRelayMaxTotalBufferedChunks: parsedEnv.SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS,
+  socketRelayMaxBufferedBytesPerRequest: parsedEnv.SOCKET_RELAY_MAX_BUFFERED_BYTES_PER_REQUEST,
+  socketRelayMaxTotalBufferedBytes: parsedEnv.SOCKET_RELAY_MAX_TOTAL_BUFFERED_BYTES,
   socketRelayIdempotencyTtlMs: parsedEnv.SOCKET_RELAY_IDEMPOTENCY_TTL_MS,
   socketRelayIdempotencyCleanupIntervalMs: parsedEnv.SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS,
   socketRelayIdempotencyMaxEntriesPerConversation:

@@ -110,11 +110,11 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 - `relay:conversation.ended` -> `{ success, requestId?, conversationId, reason }` ou erro; `requestId` so e ecoado quando valido (`1..128` chars apos trim)
 - `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`, `inFlight`)
 - `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`, `rateLimit`) ou erro
-- `socket:event.subscribe` -> `{ requestId, eventName }`
+- `socket:event.subscribe` -> `{ requestId, eventName }`; em erro pre-handler, `requestId` so e ecoado quando for string valida (`1..128` chars apos trim)
 - `socket:event.subscribed` -> `{ success, requestId, data: { eventName, subscribed, alreadySubscribed? }, error? }` — `alreadySubscribed: true` quando o socket ja estava inscrito nesse `eventName` (re-subscribe idempotente; a metrica `plug_socket_custom_event_subscribed_total` nao incrementa de novo)
 - `socket:event.unsubscribe` -> `{ requestId, eventName }`
 - `socket:event.unsubscribed` -> `{ success, requestId, data: { eventName, subscribed: false, wasSubscribed }, error? }` — `wasSubscribed` indica se havia entrada local no registo antes do `leave` (falso = unsubscribe idempotente sem subscricao previa)
-- `socket:event.publish` -> `{ requestId, eventName, payload, idempotencyKey?, payloadFrameCompression?, attachments? }` (JSON; apenas principal `client`)
+- `socket:event.publish` -> `{ requestId, eventName, payload, idempotencyKey?, payloadFrameCompression?, attachments? }` (JSON; apenas principal `client`); em erro pre-handler, `requestId` so e ecoado quando for string valida (`1..128` chars apos trim)
 - `socket:event.published` -> `{ success, requestId, data?: { eventId, eventName, recipients, idempotencyKey?, idempotentReplay }, error? }` (ack; nao `PayloadFrame`)
 
 ## Pub/sub customizado REST ou Socket
@@ -303,6 +303,9 @@ Regras atuais no servidor:
 - apos decodificar o `PayloadFrame`, o hub valida logicamente `rpc:response`,
   `rpc:chunk`, `rpc:complete`, `rpc:request_ack` e `rpc:batch_ack` conforme
   `SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION` (`strict`, `warn`, `off`).
+- `rpc:response` batch inbound aceita no maximo 32 itens (`HUB_MAX_BATCH_SIZE`)
+  e cada item com `error` deve conter `error.code` inteiro e `error.message`
+  string, alinhado ao schema JSON-RPC publicado para o agente.
 - se `rpc:response` chegar com frame invalido mas com `requestId` identificavel no
   envelope, o hub encerra a request relay correlacionada com erro JSON-RPC framed
   em vez de esperar apenas por timeout
@@ -395,8 +398,8 @@ Capacidade operacional:
   **antes** de o hub conceder novos credits/pulls ao agente. Se o pull for aceite
   mas a execucao falhar antes de concluir, os creditos concedidos nessa tentativa
   sao devolvidos para a janela do consumer.
-- Buffer com limites: chunks sao bufferizados por request e globalmente com cap
-  de memoria para evitar explosao de uso; se o agente exceder esse buffer, o hub
+- Buffer com limites: chunks sao bufferizados por request e globalmente com caps
+  de quantidade e bytes para evitar explosao de uso; se o agente exceder esse buffer, o hub
   fecha o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`)
   em vez de descartar chunks silenciosamente.
 - Pull capability-aware: o hub **publica** os hints
@@ -432,6 +435,8 @@ Variaveis principais do relay:
 - `SOCKET_RELAY_MAX_ACTIVE_STREAMS`
 - `SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST`
 - `SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS`
+- `SOCKET_RELAY_MAX_BUFFERED_BYTES_PER_REQUEST`
+- `SOCKET_RELAY_MAX_TOTAL_BUFFERED_BYTES`
 - `SOCKET_RELAY_IDEMPOTENCY_TTL_MS`
 - `SOCKET_RELAY_IDEMPOTENCY_MAX_ENTRIES_PER_CONVERSATION`
 - `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES`

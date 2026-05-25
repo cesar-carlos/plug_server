@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearRelayStreamFlowState,
@@ -6,6 +6,8 @@ import {
   addRelayStreamBufferedChunk,
   getRelayStreamBufferedChunks,
   getRelayStreamTotalBufferedChunks,
+  getRelayStreamBufferedBytes,
+  getRelayStreamTotalBufferedBytes,
   setRelayStreamFlowCredits,
   getRelayStreamFlowCredits,
   setRelayStreamPendingComplete,
@@ -22,20 +24,22 @@ afterEach(() => {
 
 describe("relay_stream_flow_state", () => {
   it("clearRelayStreamFlowState subtracts buffered length from total", () => {
-    addRelayStreamBufferedChunk("r1", { a: 1 });
-    addRelayStreamBufferedChunk("r1", { b: 2 });
+    addRelayStreamBufferedChunk("r1", { a: 1 }, 10);
+    addRelayStreamBufferedChunk("r1", { b: 2 }, 20);
 
     clearRelayStreamFlowState("r1");
 
     expect(getRelayStreamBufferedChunks("r1").length).toBe(0);
+    expect(getRelayStreamBufferedBytes("r1")).toBe(0);
     expect(getRelayStreamTotalBufferedChunks()).toBe(0);
+    expect(getRelayStreamTotalBufferedBytes()).toBe(0);
   });
 
   it("resetRelayStreamFlowState clears maps and total", () => {
     setRelayStreamFlowCredits("r1", 3);
     setRelayStreamPendingComplete("r1", {});
     addRelayStreamForwardedRows("r1", 7);
-    addRelayStreamBufferedChunk("r2", {});
+    addRelayStreamBufferedChunk("r2", {}, 12);
 
     resetRelayStreamFlowState();
 
@@ -43,6 +47,7 @@ describe("relay_stream_flow_state", () => {
     expect(getRelayStreamPendingComplete("r1")).toBeUndefined();
     expect(getRelayStreamForwardedRows("r1")).toBe(0);
     expect(getRelayStreamTotalBufferedChunks()).toBe(0);
+    expect(getRelayStreamTotalBufferedBytes()).toBe(0);
   });
 
   it("addRelayStreamFlowCredits increases credits", () => {
@@ -53,12 +58,16 @@ describe("relay_stream_flow_state", () => {
     expect(getRelayStreamFlowCredits("r1")).toBe(10);
   });
 
-  it("addRelayStreamBufferedChunk increments total", () => {
-    addRelayStreamBufferedChunk("r1", { chunk: 1 });
+  it("addRelayStreamBufferedChunk increments total chunk and byte counters", () => {
+    addRelayStreamBufferedChunk("r1", { chunk: 1 }, 15);
     expect(getRelayStreamTotalBufferedChunks()).toBe(1);
+    expect(getRelayStreamBufferedBytes("r1")).toBe(15);
+    expect(getRelayStreamTotalBufferedBytes()).toBe(15);
 
-    addRelayStreamBufferedChunk("r1", { chunk: 2 });
+    addRelayStreamBufferedChunk("r1", { chunk: 2 }, 20);
     expect(getRelayStreamTotalBufferedChunks()).toBe(2);
+    expect(getRelayStreamBufferedBytes("r1")).toBe(35);
+    expect(getRelayStreamTotalBufferedBytes()).toBe(35);
   });
 
   it("drainRelayStreamBuffer serializes reentrant drains and emits complete once", async () => {
@@ -130,5 +139,52 @@ describe("relay_stream_flow_state", () => {
     expect(getRelayStreamTotalBufferedChunks()).toBe(1);
     expect(getRelayStreamFlowCredits("r1")).toBe(1);
     expect(getRelayStreamForwardedRows("r1")).toBe(0);
+  });
+
+  it("does not emit buffered data after the drain context becomes inactive", async () => {
+    setRelayStreamFlowCredits("r1", 1);
+    addRelayStreamBufferedChunk("r1", {
+      stream_id: "stream-r1",
+      rows: [{ id: 1 }],
+    });
+
+    let active = true;
+    let encodeStarted = false;
+    let resolveEncode: ((value: unknown) => void) | undefined;
+    const encodePromise = new Promise<unknown>((resolve) => {
+      resolveEncode = resolve;
+    });
+
+    const chunks: unknown[] = [];
+    const ctx = {
+      requestId: "r1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "agent-1",
+      conversationId: "conversation-1",
+      agentId: "agent-123",
+      emitChunk: (frame: unknown) => {
+        chunks.push(frame);
+      },
+      emitComplete: () => {},
+      encodeFrame: async () => {
+        encodeStarted = true;
+        return encodePromise;
+      },
+      recordAudit: () => {},
+      isActive: () => active,
+    } as const;
+
+    const drain = drainRelayStreamBuffer(ctx);
+    await vi.waitFor(() => expect(encodeStarted).toBe(true));
+
+    active = false;
+    clearRelayStreamFlowState("r1");
+    resolveEncode?.({ framed: true });
+
+    await drain;
+
+    expect(chunks).toHaveLength(0);
+    expect(getRelayStreamTotalBufferedChunks()).toBe(0);
+    expect(getRelayStreamTotalBufferedBytes()).toBe(0);
   });
 });

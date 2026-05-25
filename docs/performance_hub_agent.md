@@ -29,6 +29,11 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 - **Drain em lote por `requestId`**: chunks buffered são drenados em jobs agregados da fila outbound (sem perder ordenação), reduzindo custo de Promise chaining e de encode por chunk em bursts.
 - **Lookup relay durante `rpc:stream.pull`**: ao drenar buffer interno após um pull, o hub reutiliza a rota relay já resolvida onde possível (`rpc_bridge_stream_pull.ts`), evitando consultas repetidas ao registo por chunk no mesmo tick.
 
+**Nota de hot path:** `rpc:chunk` ja chega decodificado como `PayloadFrame`; o
+hub usa `originalSize` do envelope para aplicar limites de bytes em relay e no
+materializador REST. O fallback por serializacao JSON continua para chamadas
+legadas/testes sem metadata, mas nao fica no hot path normal.
+
 ## REST vs streaming
 
 - **Pipeline HTTP (`app.ts`)**: o rate limit global de **`/api/v1`** corre **antes** de `express.json`, para rejeitar abusos sem parse de corpo; a rota pesada continua protegida por `REST_AGENTS_COMMANDS_RATE_LIMIT_*` depois de `requireAuth` (métricas `plug_rest_http_rate_limit_*`).
@@ -63,6 +68,13 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 | `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT` | Amostragem em `relay:rpc.chunk` (fora de produção **100**; em produção sem env **25**). |
 | `SOCKET_IO_SERVE_CLIENT` / `HTTP_COMPRESSION` / `PING_*` | Ver secção *Transporte Socket.IO* acima. |
 
+Os buffers relay agora possuem dois tipos de teto: quantidade de chunks
+(`SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST`,
+`SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS`) e bytes UTF-8 estimados
+(`SOCKET_RELAY_MAX_BUFFERED_BYTES_PER_REQUEST`,
+`SOCKET_RELAY_MAX_TOTAL_BUFFERED_BYTES`). Ajuste ambos em conjunto para evitar
+que poucos chunks muito grandes consumam memoria excessiva.
+
 ## Presets recomendados (`.env`)
 
 Copia as linhas para o teu `.env` e ajusta por carga. Valores aqui **substituem** os defaults de `env.ts`. Fragmento comentado também em [`.env.example`](../.env.example) (secção *Performance presets*).
@@ -79,9 +91,23 @@ Com `NODE_ENV=production` e variáveis **omitidas**, o hub já aplica: `SOCKET_I
 SOCKET_REST_STREAM_PULL_WINDOW_SIZE=512
 SOCKET_RELAY_MAX_BUFFERED_CHUNKS_PER_REQUEST=512
 SOCKET_RELAY_MAX_TOTAL_BUFFERED_CHUNKS=51200
+SOCKET_RELAY_MAX_BUFFERED_BYTES_PER_REQUEST=33554432
+SOCKET_RELAY_MAX_TOTAL_BUFFERED_BYTES=536870912
 # Opcional: mais comandos REST concorrentes por agente (monitorar latência p99)
 # SOCKET_REST_AGENT_MAX_INFLIGHT=48
 # SOCKET_REST_AGENT_MAX_QUEUE=96
+```
+
+### Streams maiores
+
+- Ajustar janela e byte caps em conjunto. Subir apenas a janela pode aumentar o
+  burst de chunks sem memoria suficiente para absorver backpressure.
+
+```bash
+SOCKET_REST_STREAM_PULL_WINDOW_SIZE=512
+SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE=1024
+SOCKET_RELAY_MAX_BUFFERED_BYTES_PER_REQUEST=33554432
+SOCKET_RELAY_MAX_TOTAL_BUFFERED_BYTES=536870912
 ```
 
 ### Priorizar menos bloqueio do event loop (JSON/gzip grandes)
@@ -102,6 +128,17 @@ PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES=1048576
 # PAYLOAD_FRAME_GZIP_LEVEL=2
 ```
 
+### Gzip com menor CPU
+
+- Para hubs CPU-bound com muito `PayloadFrame` comprimido, comparar niveis baixos.
+  O default de producao ja usa nivel 3 quando a variavel esta omitida.
+
+```bash
+PAYLOAD_FRAME_GZIP_LEVEL=1
+# ou
+PAYLOAD_FRAME_GZIP_LEVEL=2
+```
+
 ### VM pequena / menos trabalho de fundo
 
 - Menos tarefas async zlib para payloads médios; sweep de idempotência menos frequente.
@@ -110,6 +147,17 @@ PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES=1048576
 PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES=262144
 PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES=131072
 SOCKET_RELAY_IDEMPOTENCY_CLEANUP_INTERVAL_MS=180000
+```
+
+### Auditoria em alta carga
+
+- Reduzir sample de eventos de chunk quando o custo de auditoria competir com
+  throughput. Mantenha eventos de controle/erro sem depender desse sample.
+
+```bash
+SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT=10
+# ou
+SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT=25
 ```
 
 ### Resultados muito grandes: canal em vez de só tunar env

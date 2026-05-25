@@ -6,7 +6,9 @@
 export interface RelayStreamFlowEntry {
   credits: number;
   bufferedChunks: Record<string, unknown>[];
+  bufferedChunkBytes: number[];
   bufferedChunkHead: number;
+  bufferedBytes: number;
   pendingComplete?: Record<string, unknown>;
   forwardedRows: number;
 }
@@ -14,6 +16,7 @@ export interface RelayStreamFlowEntry {
 const entriesByRequestId = new Map<string, RelayStreamFlowEntry>();
 const drainTailByRequestId = new Map<string, Promise<void>>();
 let globalTotalBufferedChunks = 0;
+let globalTotalBufferedBytes = 0;
 
 export const getRelayStreamFlowEntry = (requestId: string): RelayStreamFlowEntry | undefined => {
   return entriesByRequestId.get(requestId);
@@ -27,7 +30,9 @@ export const ensureRelayStreamFlowEntry = (requestId: string): RelayStreamFlowEn
   const created: RelayStreamFlowEntry = {
     credits: 0,
     bufferedChunks: [],
+    bufferedChunkBytes: [],
     bufferedChunkHead: 0,
+    bufferedBytes: 0,
     forwardedRows: 0,
   };
   entriesByRequestId.set(requestId, created);
@@ -67,13 +72,29 @@ export const getRelayStreamBufferedChunkCount = (requestId: string): number => {
   return Math.max(0, entry.bufferedChunks.length - entry.bufferedChunkHead);
 };
 
+export const getRelayStreamBufferedBytes = (requestId: string): number => {
+  return entriesByRequestId.get(requestId)?.bufferedBytes ?? 0;
+};
+
+const normalizeBufferedByteLength = (byteLength: number): number => {
+  if (!Number.isFinite(byteLength) || byteLength <= 0) {
+    return 0;
+  }
+  return Math.ceil(byteLength);
+};
+
 export const addRelayStreamBufferedChunk = (
   requestId: string,
   chunk: Record<string, unknown>,
+  byteLength = 0,
 ): void => {
   const entry = ensureRelayStreamFlowEntry(requestId);
+  const normalizedByteLength = normalizeBufferedByteLength(byteLength);
   entry.bufferedChunks.push(chunk);
+  entry.bufferedChunkBytes.push(normalizedByteLength);
+  entry.bufferedBytes += normalizedByteLength;
   globalTotalBufferedChunks += 1;
+  globalTotalBufferedBytes += normalizedByteLength;
 };
 
 export const popRelayStreamBufferedChunk = (
@@ -85,17 +106,22 @@ export const popRelayStreamBufferedChunk = (
   }
 
   const chunk = entry.bufferedChunks[entry.bufferedChunkHead];
+  const byteLength = entry.bufferedChunkBytes[entry.bufferedChunkHead] ?? 0;
   entry.bufferedChunkHead += 1;
+  entry.bufferedBytes = Math.max(0, entry.bufferedBytes - byteLength);
   globalTotalBufferedChunks = Math.max(0, globalTotalBufferedChunks - 1);
+  globalTotalBufferedBytes = Math.max(0, globalTotalBufferedBytes - byteLength);
 
   if (entry.bufferedChunkHead >= entry.bufferedChunks.length) {
     entry.bufferedChunks = [];
+    entry.bufferedChunkBytes = [];
     entry.bufferedChunkHead = 0;
   } else if (
     entry.bufferedChunkHead >= 64 &&
     entry.bufferedChunkHead * 2 >= entry.bufferedChunks.length
   ) {
     entry.bufferedChunks = entry.bufferedChunks.slice(entry.bufferedChunkHead);
+    entry.bufferedChunkBytes = entry.bufferedChunkBytes.slice(entry.bufferedChunkHead);
     entry.bufferedChunkHead = 0;
   }
 
@@ -145,6 +171,10 @@ export const getRelayStreamTotalBufferedChunks = (): number => {
   return globalTotalBufferedChunks;
 };
 
+export const getRelayStreamTotalBufferedBytes = (): number => {
+  return globalTotalBufferedBytes;
+};
+
 export const relayStreamFlowState = {
   get creditsByRequestId(): Map<string, number> {
     const map = new Map<string, number>();
@@ -187,6 +217,12 @@ export const relayStreamFlowState = {
   set totalBufferedChunks(value: number) {
     globalTotalBufferedChunks = value;
   },
+  get totalBufferedBytes(): number {
+    return globalTotalBufferedBytes;
+  },
+  set totalBufferedBytes(value: number) {
+    globalTotalBufferedBytes = value;
+  },
 };
 
 export const clearRelayStreamFlowState = (requestId: string): void => {
@@ -196,6 +232,7 @@ export const clearRelayStreamFlowState = (requestId: string): void => {
       0,
       globalTotalBufferedChunks - (entry.bufferedChunks.length - entry.bufferedChunkHead),
     );
+    globalTotalBufferedBytes = Math.max(0, globalTotalBufferedBytes - entry.bufferedBytes);
   }
   entriesByRequestId.delete(requestId);
   drainTailByRequestId.delete(requestId);
@@ -205,6 +242,7 @@ export const resetRelayStreamFlowState = (): void => {
   entriesByRequestId.clear();
   drainTailByRequestId.clear();
   globalTotalBufferedChunks = 0;
+  globalTotalBufferedBytes = 0;
 };
 
 export interface DrainRelayStreamBufferContext {
@@ -217,11 +255,16 @@ export interface DrainRelayStreamBufferContext {
   readonly emitComplete: (frame: unknown) => void;
   readonly encodeFrame: (data: unknown) => Promise<unknown>;
   readonly recordAudit: (eventType: string, extras?: Record<string, unknown>) => void;
+  readonly isActive?: () => boolean;
   readonly onComplete?: (streamId: string | null) => void;
 }
 
 const countChunkRows = (payload: Record<string, unknown>): number => {
   return Array.isArray(payload.rows) ? payload.rows.length : 0;
+};
+
+const isDrainContextActive = (ctx: DrainRelayStreamBufferContext): boolean => {
+  return ctx.isActive?.() ?? true;
 };
 
 export const drainRelayStreamBuffer = async (
@@ -232,16 +275,26 @@ export const drainRelayStreamBuffer = async (
   let chunksDrained = 0;
   let completeEmitted = false;
   const nextDrain = previousDrain.then(async () => {
+    if (!isDrainContextActive(ctx)) {
+      return;
+    }
+
     let credits = getRelayStreamFlowCredits(ctx.requestId);
 
     if (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
       while (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
+        if (!isDrainContextActive(ctx)) {
+          return;
+        }
         const chunk = peekRelayStreamBufferedChunk(ctx.requestId);
         if (!chunk) {
           break;
         }
 
         const frame = await ctx.encodeFrame(chunk);
+        if (!isDrainContextActive(ctx)) {
+          return;
+        }
         ctx.emitChunk(frame);
         popRelayStreamBufferedChunk(ctx.requestId);
         addRelayStreamForwardedRows(ctx.requestId, countChunkRows(chunk));
@@ -259,6 +312,9 @@ export const drainRelayStreamBuffer = async (
     const pendingComplete = getRelayStreamPendingComplete(ctx.requestId);
     if (getRelayStreamBufferedChunkCount(ctx.requestId) === 0 && pendingComplete) {
       const completeFrame = await ctx.encodeFrame(pendingComplete);
+      if (!isDrainContextActive(ctx)) {
+        return;
+      }
       ctx.emitComplete(completeFrame);
       completeEmitted = true;
 

@@ -25,7 +25,6 @@ import {
   encodeRelayOutboundFrame,
   markRelayOutboundForceGzip,
 } from "./relay_outbound_queue";
-import { jsonUtf8ByteLengthOrNull } from "../../../shared/validators/custom_socket_event";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import type { ActiveStreamRoute } from "./active_stream_registry";
 import {
@@ -58,6 +57,11 @@ import {
   findRestPendingRequestByIds,
   getRestPendingRequestByCorrelationId,
 } from "./rest_pending_requests";
+import {
+  resolveStreamChunkOriginalSizeBytes,
+  streamChunkMetadataFromPayloadFrame,
+  type StreamChunkMetadata,
+} from "./stream_chunk_metadata";
 import {
   getOrCreateRelayIdempotencyMap,
   setRelayIdempotencyEntry,
@@ -252,7 +256,9 @@ export const createRpcBridgeAgentInboundHandlers = (
     },
   });
 
-  const createRelayBatchResponseUnsupportedPayload = (requestId: string): Record<string, unknown> => ({
+  const createRelayBatchResponseUnsupportedPayload = (
+    requestId: string,
+  ): Record<string, unknown> => ({
     jsonrpc: "2.0",
     id: requestId,
     error: {
@@ -624,6 +630,18 @@ export const createRpcBridgeAgentInboundHandlers = (
         return;
       }
 
+      if (Array.isArray(decoded.data) && decoded.data.length > HUB_MAX_BATCH_SIZE) {
+        fireAck();
+        const reason = `rpc:response batch cannot exceed ${HUB_MAX_BATCH_SIZE}`;
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcResponse,
+          socketId,
+          reason,
+        });
+        failFastInvalidAgentResponseFrame(socketId, rawPayload, reason);
+        return;
+      }
+
       fireAck();
 
       const frameRequestId = toRequestId(decoded.frame.requestId);
@@ -677,7 +695,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           let aggregatedByteCount = 0;
           let chunkFramesSeen = 0;
           if (materializeMaxBytes > 0) {
-            aggregatedByteCount = jsonUtf8ByteLengthOrNull(initialJson) ?? 0;
+            aggregatedByteCount = decoded.frame.originalSize;
           }
 
           if (materializeMaxRows > 0 && aggregatedRowCount > materializeMaxRows) {
@@ -703,7 +721,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           const streamHandlers: StreamEventHandlers = {
             consumerSocketId: REST_STREAM_AGGREGATE_CONSUMER_ID,
             mode: "legacy",
-            onChunk: (payload) => {
+            onChunk: (payload, metadata?: StreamChunkMetadata) => {
               chunkFramesSeen += 1;
               if (materializeMaxChunks > 0 && chunkFramesSeen > materializeMaxChunks) {
                 relayMetrics.restMaterializeChunkLimitExceeded += 1;
@@ -737,7 +755,7 @@ export const createRpcBridgeAgentInboundHandlers = (
               }
 
               if (materializeMaxBytes > 0) {
-                const chunkBytes = jsonUtf8ByteLengthOrNull(payload) ?? 0;
+                const chunkBytes = resolveStreamChunkOriginalSizeBytes(payload, metadata, 0);
                 if (aggregatedByteCount + chunkBytes > materializeMaxBytes) {
                   relayMetrics.restMaterializeByteLimitExceeded += 1;
                   registerAgentFailure(pendingRequest.agentId);
@@ -1074,7 +1092,7 @@ export const createRpcBridgeAgentInboundHandlers = (
       }
 
       try {
-        route.onChunk(data);
+        route.onChunk(data, streamChunkMetadataFromPayloadFrame(result.value.frame));
       } catch {
         logger.warn("rpc_stream_chunk_forward_failed", {
           requestId: route.requestId,
@@ -1300,10 +1318,7 @@ export const createRpcBridgeAgentInboundHandlers = (
             request_ids: batch.requestIds,
             ...(typeof data.received_at === "string" ? { received_at: data.received_at } : {}),
           };
-          const frame = await encodeRelayOutboundFrame(
-            relayBatchAckPayload,
-            batch.firstRequestId,
-          );
+          const frame = await encodeRelayOutboundFrame(relayBatchAckPayload, batch.firstRequestId);
           emitToConsumer(consumerSocketId, socketEvents.relayRpcBatchAck, frame);
         });
       }

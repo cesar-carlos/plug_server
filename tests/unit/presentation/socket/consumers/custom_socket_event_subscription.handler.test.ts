@@ -180,6 +180,29 @@ describe("custom_socket_event_subscription.handler", () => {
     );
   });
 
+  it("does not echo invalid requestId on subscribe validation errors", async () => {
+    const socket = buildSocket("client");
+    handleCustomSocketEventSubscribe(socket, {
+      requestId: "r".repeat(129),
+      eventName: "client:custom.ok",
+    });
+
+    await flushMicrotasks();
+    expect(mockedAllow).not.toHaveBeenCalled();
+    expect(mockedNoteRejected).toHaveBeenCalledTimes(1);
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventSubscribed,
+      expect.objectContaining({
+        success: false,
+        error: expect.objectContaining({ code: "VALIDATION_ERROR" }),
+      }),
+    );
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventSubscribed,
+      expect.not.objectContaining({ requestId: expect.any(String) }),
+    );
+  });
+
   it("should reject subscribe when rate limit is exceeded", async () => {
     mockedAllow.mockReturnValueOnce({
       allowed: false,

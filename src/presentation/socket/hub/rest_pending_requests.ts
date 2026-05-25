@@ -1,10 +1,11 @@
 import type { BridgeLatencyTraceSession } from "../../../application/services/bridge_latency_trace_builder";
+import type { StreamChunkMetadata } from "./stream_chunk_metadata";
 
 export interface StreamEventHandlers {
   readonly consumerSocketId: string;
   readonly conversationId?: string;
   readonly mode?: "legacy" | "relay";
-  readonly onChunk: (payload: Record<string, unknown>) => void;
+  readonly onChunk: (payload: Record<string, unknown>, metadata?: StreamChunkMetadata) => void;
   readonly onComplete: (payload: Record<string, unknown>) => void;
 }
 

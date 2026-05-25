@@ -290,6 +290,27 @@ describe("handleCustomSocketEventPublish", () => {
       }),
     );
   });
+
+  it("should not echo invalid requestId on validation errors", () => {
+    const socket = buildClientSocket();
+    handleCustomSocketEventPublish(socket, {
+      requestId: "r".repeat(129),
+      eventName: "client:custom.handler.unit",
+      payload: { n: 1 },
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventPublished,
+      expect.objectContaining({
+        success: false,
+        error: expect.objectContaining({ code: "VALIDATION_ERROR" }),
+      }),
+    );
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventPublished,
+      expect.not.objectContaining({ requestId: expect.any(String) }),
+    );
+  });
 });
 
 describe("handleCustomSocketEventPublish dedicated inflight", () => {

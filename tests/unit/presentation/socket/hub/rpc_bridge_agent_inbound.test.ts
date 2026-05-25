@@ -506,6 +506,41 @@ describe("rpc_bridge_agent_inbound", () => {
     });
   });
 
+  it("should pass PayloadFrame byte metadata to active stream chunk handlers", async () => {
+    const onChunk = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+    upsertActiveStreamRoute({
+      requestId: "req-chunk-meta",
+      agentSocketId: "socket-test",
+      streamHandlers: {
+        consumerSocketId: "consumer-1",
+        onChunk,
+        onComplete: vi.fn(),
+      },
+      streamId: "stream-meta-1",
+    });
+
+    const chunkPayload = {
+      request_id: "req-chunk-meta",
+      stream_id: "stream-meta-1",
+      chunk_index: 0,
+      rows: [{ id: 1 }],
+    };
+    const frame = encodePayloadFrame(chunkPayload, { requestId: "req-chunk-meta" });
+
+    h.handleAgentRpcChunk("socket-test", frame);
+
+    await vi.waitFor(() => expect(onChunk).toHaveBeenCalledTimes(1));
+    expect(onChunk).toHaveBeenCalledWith(chunkPayload, {
+      originalSizeBytes: frame.originalSize,
+      compressedSizeBytes: frame.compressedSize,
+      compression: frame.cmp,
+    });
+  });
+
   it("should fail fast and emit terminal error on invalid rpc:chunk frame for a legacy stream", async () => {
     const onComplete = vi.fn();
     const h = createRpcBridgeAgentInboundHandlers({
@@ -567,6 +602,127 @@ describe("rpc_bridge_agent_inbound", () => {
       });
     });
     expect(getActiveStreamRouteByRequestId("req-chunk")).toBeUndefined();
+  });
+
+  it("should use PayloadFrame metadata for REST materialization byte accounting", async () => {
+    const previousMaxBytes = env.socketRestSqlStreamMaterializeMaxBytes;
+    const requestId = "req-rest-materialize-meta";
+    const streamId = "stream-rest-materialize-meta";
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const emitPull = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: emitPull,
+    });
+    const initialPayload = {
+      jsonrpc: "2.0",
+      id: requestId,
+      result: { stream_id: streamId, rows: [] },
+    };
+    const initialFrame = encodePayloadFrame(initialPayload, { requestId });
+
+    Object.defineProperty(env, "socketRestSqlStreamMaterializeMaxBytes", {
+      value: initialFrame.originalSize + 16,
+      configurable: true,
+    });
+
+    try {
+      registerRestPendingRequest({
+        primaryRequestId: requestId,
+        correlationIds: [requestId],
+        socketId: "socket-test",
+        agentId: "agent-1",
+        createdAtMs: Date.now(),
+        resolve,
+        reject,
+        timeoutHandle: createTimeoutHandle(),
+        acked: false,
+        restStreamAggregate: true,
+      });
+
+      h.handleAgentRpcResponse("socket-test", initialFrame);
+
+      await vi.waitFor(() => expect(getActiveStreamRouteByRequestId(requestId)).toBeDefined());
+      const route = getActiveStreamRouteByRequestId(requestId);
+      expect(route).toBeDefined();
+
+      route?.onChunk(
+        {
+          request_id: requestId,
+          stream_id: streamId,
+          rows: [{ payload: "x".repeat(256) }],
+        },
+        {
+          originalSizeBytes: 1,
+          compressedSizeBytes: 1,
+          compression: "none",
+        },
+      );
+
+      expect(reject).not.toHaveBeenCalled();
+      expect(getActiveStreamRouteByRequestId(requestId)).toBeDefined();
+      expect(emitPull).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(env, "socketRestSqlStreamMaterializeMaxBytes", {
+        value: previousMaxBytes,
+        configurable: true,
+      });
+    }
+  });
+
+  it("should keep REST materialization byte accounting fallback when metadata is missing", async () => {
+    const previousMaxBytes = env.socketRestSqlStreamMaterializeMaxBytes;
+    const requestId = "req-rest-materialize-fallback";
+    const streamId = "stream-rest-materialize-fallback";
+    const reject = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+    const initialPayload = {
+      jsonrpc: "2.0",
+      id: requestId,
+      result: { stream_id: streamId, rows: [] },
+    };
+    const initialFrame = encodePayloadFrame(initialPayload, { requestId });
+
+    Object.defineProperty(env, "socketRestSqlStreamMaterializeMaxBytes", {
+      value: initialFrame.originalSize + 16,
+      configurable: true,
+    });
+
+    try {
+      registerRestPendingRequest({
+        primaryRequestId: requestId,
+        correlationIds: [requestId],
+        socketId: "socket-test",
+        agentId: "agent-1",
+        createdAtMs: Date.now(),
+        resolve: vi.fn(),
+        reject,
+        timeoutHandle: createTimeoutHandle(),
+        acked: false,
+        restStreamAggregate: true,
+      });
+
+      h.handleAgentRpcResponse("socket-test", initialFrame);
+
+      await vi.waitFor(() => expect(getActiveStreamRouteByRequestId(requestId)).toBeDefined());
+      getActiveStreamRouteByRequestId(requestId)?.onChunk({
+        request_id: requestId,
+        stream_id: streamId,
+        rows: [{ payload: "x".repeat(256) }],
+      });
+
+      expect(reject).toHaveBeenCalledTimes(1);
+      expect(getActiveStreamRouteByRequestId(requestId)).toBeUndefined();
+    } finally {
+      Object.defineProperty(env, "socketRestSqlStreamMaterializeMaxBytes", {
+        value: previousMaxBytes,
+        configurable: true,
+      });
+    }
   });
 
   it("should synthesize compression_failed for relay rpc:response gunzip failures", async () => {

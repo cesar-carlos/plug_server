@@ -195,6 +195,18 @@ export const createPrepareAgentStreamPull = (
             emitComplete: (frame) =>
               emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
             encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
+            isActive: () => {
+              const activeRoute = getActiveStreamRouteByRequestId(route.requestId);
+              const relayRoute = getRelayRequestRoute(route.requestId);
+              return (
+                activeRoute === route &&
+                Boolean(
+                  relayRoute &&
+                    relayRoute.consumerSocketId === route.consumerSocketId &&
+                    relayRoute.agentSocketId === route.agentSocketId,
+                )
+              );
+            },
             recordAudit: (eventType, extras) => {
               if (relayRouteForAudit) {
                 void recordSocketAuditEvent({

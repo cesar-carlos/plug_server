@@ -17,6 +17,7 @@ import {
   noteCustomSocketEventPublishViaSocket,
 } from "../../../shared/metrics/socket_consumer.metrics";
 import {
+  extractSocketEventRequestId,
   jsonUtf8ByteLengthOrNull,
   socketEventPublishRequestSchema,
   toClientSocketEventPublishInput,
@@ -74,14 +75,6 @@ const emitPublishedIfConnected = (socket: Socket, payload: PublishedAck): void =
   socket.emit(socketEvents.socketEventPublished, payload);
 };
 
-const extractRequestId = (raw: unknown): string | undefined => {
-  if (typeof raw !== "object" || raw === null) {
-    return undefined;
-  }
-  const rid = (raw as Record<string, unknown>).requestId;
-  return typeof rid === "string" && rid.trim() !== "" ? rid.trim() : undefined;
-};
-
 /**
  * After {@link allowClientSocketEventPublishSocketAsync} consumes a slot, decides whether to
  * {@link refundClientSocketEventPublishSocketAsync} when {@link executeClientSocketEventPublish} fails.
@@ -110,7 +103,7 @@ export const shouldRefundSocketCustomEventPublishRateLimit = (error: unknown): b
 };
 
 export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unknown): void => {
-  const requestIdFallback = extractRequestId(rawPayload);
+  const requestIdFallback = extractSocketEventRequestId(rawPayload);
 
   const rawBytes = jsonUtf8ByteLengthOrNull(rawPayload);
   if (rawBytes === null || rawBytes > env.socketEventPublishRawJsonMaxBytes) {

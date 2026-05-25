@@ -54,6 +54,18 @@ describe("agent inbound contract validation", () => {
         ],
       }).ok,
     ).toBe(true);
+
+    expect(
+      validateAgentInboundContract({
+        eventName: socketEvents.rpcResponse,
+        socketId: "agent-socket",
+        payload: Array.from({ length: HUB_MAX_BATCH_SIZE }, (_, index) => ({
+          jsonrpc: "2.0",
+          id: `batch-${index}`,
+          result: {},
+        })),
+      }).ok,
+    ).toBe(true);
   });
 
   it("rejects invalid rpc:response payloads in strict mode", () => {
@@ -76,6 +88,63 @@ describe("agent inbound contract validation", () => {
       message: "rpc:response must contain exactly one of result or error",
     });
     expect(getSocketAgentMetricsSnapshot().inboundContractValidation.failedTotal).toBe(1);
+  });
+
+  it("rejects malformed rpc:response errors in strict mode", () => {
+    setMode("strict");
+
+    const missingCode = validateAgentInboundContract({
+      eventName: socketEvents.rpcResponse,
+      socketId: "agent-socket",
+      payload: {
+        jsonrpc: "2.0",
+        id: "r1",
+        error: { message: "failed" },
+      },
+    });
+    expect(missingCode.ok).toBe(false);
+    expect(missingCode.message).toBe("rpc:response error.code must be an integer");
+
+    const missingMessage = validateAgentInboundContract({
+      eventName: socketEvents.rpcResponse,
+      socketId: "agent-socket",
+      payload: {
+        jsonrpc: "2.0",
+        id: "r1",
+        error: { code: -32000 },
+      },
+    });
+    expect(missingMessage.ok).toBe(false);
+    expect(missingMessage.message).toBe("rpc:response error.message must be a string");
+
+    const invalidData = validateAgentInboundContract({
+      eventName: socketEvents.rpcResponse,
+      socketId: "agent-socket",
+      payload: {
+        jsonrpc: "2.0",
+        id: "r1",
+        error: { code: -32000, message: "failed", data: "not-object" },
+      },
+    });
+    expect(invalidData.ok).toBe(false);
+    expect(invalidData.message).toBe("rpc:response error.data must be an object");
+  });
+
+  it("rejects oversized rpc:response batches in strict mode", () => {
+    setMode("strict");
+
+    const result = validateAgentInboundContract({
+      eventName: socketEvents.rpcResponse,
+      socketId: "agent-socket",
+      payload: Array.from({ length: HUB_MAX_BATCH_SIZE + 1 }, (_, index) => ({
+        jsonrpc: "2.0",
+        id: `batch-${index}`,
+        result: {},
+      })),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe(`rpc:response batch cannot exceed ${HUB_MAX_BATCH_SIZE}`);
   });
 
   it("warn mode records the failure but allows processing", () => {

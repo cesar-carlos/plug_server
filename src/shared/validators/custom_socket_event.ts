@@ -21,9 +21,23 @@ export const customSocketEventNameSchema = z
     "Event name must start with client:custom. and contain only letters, numbers, dot, colon, underscore or hyphen",
   );
 
+export const socketEventRequestIdSchema = z.string().trim().min(1).max(128);
+
+export const extractSocketEventRequestId = (raw: unknown): string | undefined => {
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+  const requestId = (raw as Record<string, unknown>).requestId;
+  if (typeof requestId !== "string") {
+    return undefined;
+  }
+  const trimmed = requestId.trim();
+  return trimmed.length >= 1 && trimmed.length <= 128 ? trimmed : undefined;
+};
+
 export const socketEventSubscriptionSchema = z
   .object({
-    requestId: z.string().trim().min(1).max(128),
+    requestId: socketEventRequestIdSchema,
     eventName: customSocketEventNameSchema,
   })
   .strict();
@@ -62,7 +76,7 @@ export const clientSocketEventAttachmentInputSchema = z
  */
 export const socketEventPublishRequestSchema = z
   .object({
-    requestId: z.string().trim().min(1).max(128),
+    requestId: socketEventRequestIdSchema,
     idempotencyKey: socketEventPublishIdempotencyKeySchema.optional(),
     eventName: customSocketEventNameSchema,
     payload: z.unknown().refine((value) => value !== undefined, "payload is required"),

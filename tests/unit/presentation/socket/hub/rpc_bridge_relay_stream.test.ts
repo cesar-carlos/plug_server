@@ -12,11 +12,15 @@ import {
   resetRelayIdempotencyStore,
 } from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
 import type { RelayRequestRoute } from "../../../../../src/presentation/socket/hub/relay_request_registry";
-import { resetRelayRequestRegistry } from "../../../../../src/presentation/socket/hub/relay_request_registry";
+import {
+  registerRelayRequestRoute,
+  resetRelayRequestRegistry,
+} from "../../../../../src/presentation/socket/hub/relay_request_registry";
 import {
   setRelayStreamFlowCredits,
   getRelayStreamFlowCredits,
   addRelayStreamBufferedChunk,
+  getRelayStreamBufferedBytes,
   resetRelayStreamFlowState,
 } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
@@ -50,6 +54,7 @@ describe("rpc_bridge_relay_stream", () => {
   it("createRelayStreamHandlers forwards chunk when credits > 0", async () => {
     const emit = vi.fn();
     const route = makeRoute();
+    registerRelayRequestRoute(route);
     setRelayStreamFlowCredits("r1", 1);
     const h = createRelayStreamHandlers(route, emit);
     expect(h.mode).toBe("relay");
@@ -76,6 +81,7 @@ describe("rpc_bridge_relay_stream", () => {
   it("createRelayStreamHandlers emits terminal complete on backpressure overflow", async () => {
     const emit = vi.fn();
     const route = makeRoute({ requestId: "r-overflow" });
+    registerRelayRequestRoute(route);
     for (let i = 0; i < env.socketRelayMaxBufferedChunksPerRequest; i++) {
       addRelayStreamBufferedChunk("r-overflow", { rows: [] });
     }
@@ -92,9 +98,59 @@ describe("rpc_bridge_relay_stream", () => {
     expect(emit.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcComplete);
   });
 
+  it("createRelayStreamHandlers emits terminal complete on byte backpressure overflow", async () => {
+    const emit = vi.fn();
+    const route = makeRoute({ requestId: "r-byte-overflow" });
+    registerRelayRequestRoute(route);
+    addRelayStreamBufferedChunk(
+      "r-byte-overflow",
+      { rows: [] },
+      env.socketRelayMaxBufferedBytesPerRequest,
+    );
+
+    const h = createRelayStreamHandlers(route, emit);
+    h.onChunk({
+      stream_id: "stream-byte-overflow",
+      request_id: "r-byte-overflow",
+      rows: [{ id: 1 }],
+    });
+
+    await flushRelayOutbound();
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcComplete);
+  });
+
+  it("createRelayStreamHandlers uses metadata byte size when buffering chunks", async () => {
+    const emit = vi.fn();
+    const route = makeRoute({ requestId: "r-byte-metadata" });
+    registerRelayRequestRoute(route);
+    setRelayStreamFlowCredits("r-byte-metadata", 0);
+    const initialBytes = env.socketRelayMaxBufferedBytesPerRequest - 8;
+    addRelayStreamBufferedChunk("r-byte-metadata", { rows: [] }, initialBytes);
+
+    const h = createRelayStreamHandlers(route, emit);
+    h.onChunk(
+      {
+        stream_id: "stream-byte-metadata",
+        request_id: "r-byte-metadata",
+        rows: [{ payload: "x".repeat(256) }],
+      },
+      {
+        originalSizeBytes: 4,
+        compressedSizeBytes: 4,
+        compression: "none",
+      },
+    );
+
+    await flushRelayOutbound();
+    expect(emit).not.toHaveBeenCalled();
+    expect(getRelayStreamBufferedBytes("r-byte-metadata")).toBe(initialBytes + 4);
+  });
+
   it("createRelayStreamHandlers emits only one terminal complete after overflow", async () => {
     const emit = vi.fn();
     const route = makeRoute({ requestId: "r-overflow-once" });
+    registerRelayRequestRoute(route);
     for (let i = 0; i < env.socketRelayMaxBufferedChunksPerRequest; i++) {
       addRelayStreamBufferedChunk("r-overflow-once", { rows: [] });
     }

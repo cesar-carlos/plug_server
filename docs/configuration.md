@@ -190,6 +190,14 @@ Migração do wire format de `agents:stream_pull` no namespace **`/consumers`** 
 | `SOCKET_AUDIT_MAX_QUEUE`                        | `50000`                              | Cap de eventos em memória antes de começar a descartar os mais antigos. Evita crescimento sem limite quando a BD atrasa.                                                                                            |
 | `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT`       | ver tabela _production_; senão `100` | Percentagem de eventos de auditoria em `relay:rpc.chunk` persistidos.                                                                                                                                               |
 
+### Byte caps do buffer relay
+
+`SOCKET_RELAY_MAX_BUFFERED_BYTES_PER_REQUEST` (default `16777216`) e
+`SOCKET_RELAY_MAX_TOTAL_BUFFERED_BYTES` (default `268435456`) limitam os bytes
+UTF-8 estimados mantidos nos buffers de stream relay. Eles complementam os
+limites por quantidade de chunks e abortam o stream relay com
+`relay:rpc.complete` terminal quando excedidos.
+
 ## Guards e limites do consumer socket
 
 | Variável                                                | Defeito  | Notas                                                                                                                                                                                                                                                                                                                            |

@@ -8,7 +8,10 @@ import {
   noteCustomSocketEventSubscribed,
   noteCustomSocketEventUnsubscribed,
 } from "../../../shared/metrics/socket_consumer.metrics";
-import { socketEventSubscriptionSchema } from "../../../shared/validators/custom_socket_event";
+import {
+  extractSocketEventRequestId,
+  socketEventSubscriptionSchema,
+} from "../../../shared/validators/custom_socket_event";
 import { buildCustomSocketEventRoom } from "../hub/custom_socket_event_rooms";
 import { allowCustomSocketEventSubscriptionControl } from "../hub/custom_socket_event_subscription_limiter";
 import {
@@ -69,12 +72,7 @@ const parseSubscriptionPayload = (
     return { ok: true, value: parsed.data };
   }
 
-  const requestId =
-    typeof rawPayload === "object" &&
-    rawPayload !== null &&
-    typeof (rawPayload as Record<string, unknown>).requestId === "string"
-      ? String((rawPayload as Record<string, unknown>).requestId)
-      : undefined;
+  const requestId = extractSocketEventRequestId(rawPayload);
   const firstIssue = parsed.error.issues[0];
   return {
     ok: false,

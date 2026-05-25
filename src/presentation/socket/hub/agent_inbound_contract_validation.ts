@@ -78,6 +78,19 @@ const validateRpcMeta = (meta: unknown): ContractValidationFailure | null => {
   return null;
 };
 
+const validateRpcResponseError = (error: Record<string, unknown>): ContractValidationFailure | null => {
+  if (typeof error.code !== "number" || !Number.isInteger(error.code)) {
+    return reject("rpc:response error.code must be an integer");
+  }
+  if (typeof error.message !== "string") {
+    return reject("rpc:response error.message must be a string");
+  }
+  if (error.data !== undefined && !isRecord(error.data)) {
+    return reject("rpc:response error.data must be an object");
+  }
+  return null;
+};
+
 const validateRpcResponseObject = (payload: unknown): ContractValidationFailure | null => {
   if (!isRecord(payload)) {
     return reject("rpc:response item must be an object");
@@ -99,6 +112,12 @@ const validateRpcResponseObject = (payload: unknown): ContractValidationFailure 
   if (hasError && !isRecord(payload.error)) {
     return reject("rpc:response error must be an object");
   }
+  if (hasError && isRecord(payload.error)) {
+    const errorValidation = validateRpcResponseError(payload.error);
+    if (errorValidation !== null) {
+      return errorValidation;
+    }
+  }
   if (payload.api_version !== undefined && typeof payload.api_version !== "string") {
     return reject("rpc:response api_version must be a string");
   }
@@ -113,6 +132,12 @@ const validateRpcResponseObject = (payload: unknown): ContractValidationFailure 
 
 const validateRpcResponse = (payload: unknown): ContractValidationFailure | null => {
   if (Array.isArray(payload)) {
+    if (payload.length === 0) {
+      return reject("rpc:response batch must contain at least one item");
+    }
+    if (payload.length > HUB_MAX_BATCH_SIZE) {
+      return reject(`rpc:response batch cannot exceed ${HUB_MAX_BATCH_SIZE}`);
+    }
     for (const item of payload) {
       const itemValidation = validateRpcResponseObject(item);
       if (itemValidation !== null) {

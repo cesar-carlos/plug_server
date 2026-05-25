@@ -28,7 +28,7 @@ export interface ActiveStreamRoute {
   readonly requestId: string;
   readonly conversationId?: string;
   readonly mode: "legacy" | "relay";
-  readonly onChunk: (payload: Record<string, unknown>) => void;
+  readonly onChunk: StreamEventHandlers["onChunk"];
   readonly onComplete: (payload: Record<string, unknown>) => void;
   streamId?: string;
   restMaterializeState?: RestMaterializeStreamState;

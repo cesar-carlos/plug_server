@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   clientSocketEventPublishBodySchema,
   customSocketEventNameSchema,
+  extractSocketEventRequestId,
   jsonUtf8ByteLength,
   jsonUtf8ByteLengthOrNull,
   socketEventPublishRequestSchema,
@@ -90,6 +91,13 @@ describe("custom_socket_event validators", () => {
       payload: {},
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("should extract only public-contract requestIds for error acks", () => {
+    expect(extractSocketEventRequestId({ requestId: " req-1 " })).toBe("req-1");
+    expect(extractSocketEventRequestId({ requestId: "" })).toBeUndefined();
+    expect(extractSocketEventRequestId({ requestId: "r".repeat(129) })).toBeUndefined();
+    expect(extractSocketEventRequestId({ requestId: 123 })).toBeUndefined();
   });
 
   it("should return null from jsonUtf8ByteLengthOrNull for circular structures", () => {

@@ -93,6 +93,26 @@ MODE=rest RPC_METHOD=sql.execute PREFER_DB_STREAMING=true npm run load:socket-br
 MODE=relay RPC_METHOD=sql.execute PREFER_DB_STREAMING=true npm run load:socket-bridge
 ```
 
+Relay stream real com `relay:rpc.stream.pull` e backpressure explicito:
+
+```bash
+HUB_URL=http://localhost:3000 \
+CONSUMER_TOKEN=YOUR_ACCESS_TOKEN \
+AGENT_ID=YOUR_AGENT \
+MODE=relay-stream \
+RPC_METHOD=sql.execute \
+PREFER_DB_STREAMING=true \
+STREAM_PULL_WINDOW=256 \
+STREAM_MAX_PULLS=1000 \
+SQL_TEXT="SELECT * FROM heavy_report" \
+npm run load:socket-bridge
+```
+
+`STREAM_EXPECT_ROWS` e opcional; quando definido, o probe falha se o total
+observado no stream nao bater exatamente. O JSON final de `MODE=relay-stream`
+inclui latencia, chunks, linhas, bytes recebidos, pulls enviados e p95/p99 do
+intervalo entre chunks.
+
 Batch read-only com paralelismo opt-in. Rode a mesma carga com `1`, `2`, `4` e
 `8`, observando p95/p99, erros de pool no agente e saturacao de fila:
 
@@ -143,7 +163,8 @@ Em multi-replica, rode o mesmo teste com e sem `SOCKET_IO_REDIS_ADAPTER_URL` e,
 para retries, com `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL` ligado. Compare
 `recipients`, taxa de replay, timeouts de lock e latencia p95/p99.
 
-O script reporta sucesso/falha e p50/p95/p99. Ele foi desenhado para smoke de
+O script reporta sucesso/falha e p50/p95/p99. Em `MODE=relay-stream`, tambem
+reporta estatisticas de stream real com pulls. Ele foi desenhado para smoke de
 capacidade do bridge; para benchmark de banco/ODBC, manter os testes de carga no
 `plug_agente`.
 

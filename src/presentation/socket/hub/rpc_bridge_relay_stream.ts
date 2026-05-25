@@ -21,18 +21,26 @@ import {
   setRelayStreamPendingComplete,
   getRelayStreamForwardedRows,
   getRelayStreamTotalBufferedChunks,
+  getRelayStreamBufferedBytes,
+  getRelayStreamTotalBufferedBytes,
   drainRelayStreamBuffer,
 } from "./relay_stream_flow_state";
 import type { RelayRequestRoute } from "./relay_request_registry";
-import { removeRelayRequestRoute } from "./relay_request_registry";
+import { getRelayRequestRoute, removeRelayRequestRoute } from "./relay_request_registry";
 import {
   registerRelayStreamTimeouts,
   touchRelayStreamTimeout,
 } from "./relay_stream_timeout_registry";
 import type { StreamEventHandlers } from "./rest_pending_requests";
+import {
+  resolveStreamChunkOriginalSizeBytes,
+  type StreamChunkMetadata,
+} from "./stream_chunk_metadata";
 
 const relayMaxBufferedChunksPerRequest = env.socketRelayMaxBufferedChunksPerRequest;
 const relayMaxTotalBufferedChunks = env.socketRelayMaxTotalBufferedChunks;
+const relayMaxBufferedBytesPerRequest = env.socketRelayMaxBufferedBytesPerRequest;
+const relayMaxTotalBufferedBytes = env.socketRelayMaxTotalBufferedBytes;
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
 const shouldAuditRelayChunks = env.socketAuditHighVolumeSamplePercent > 0;
 
@@ -48,6 +56,10 @@ export const createRelayStreamHandlers = (
 ): StreamEventHandlers => {
   let drainScheduled = false;
   let terminalEmitted = false;
+
+  const isRouteActive = (): boolean => {
+    return getRelayRequestRoute(route.requestId) === route;
+  };
 
   const emitRelayTerminalComplete = (
     terminalStatus: "aborted" | "error",
@@ -152,6 +164,7 @@ export const createRelayStreamHandlers = (
               emitComplete: (frame) =>
                 emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
               encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
+              isActive: isRouteActive,
               recordAudit: (eventType, extras) => {
                 if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
                   return;
@@ -188,6 +201,9 @@ export const createRelayStreamHandlers = (
           } finally {
             observeRelayBufferDrain(performance.now() - tDrain);
             drainScheduled = false;
+            if (!isRouteActive()) {
+              return;
+            }
             const pendingComplete = getRelayStreamPendingComplete(route.requestId);
             const hasBuffered = getRelayStreamBufferedChunkCount(route.requestId) > 0;
             const hasCredits = getRelayStreamFlowCredits(route.requestId) > 0;
@@ -215,6 +231,7 @@ export const createRelayStreamHandlers = (
           emitComplete: (frame) =>
             emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
           encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
+          isActive: isRouteActive,
           recordAudit: (eventType, extras) => {
             if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
               return;
@@ -245,6 +262,9 @@ export const createRelayStreamHandlers = (
       } finally {
         observeRelayBufferDrain(performance.now() - tDrain);
         drainScheduled = false;
+        if (!isRouteActive()) {
+          return;
+        }
         const pendingComplete = getRelayStreamPendingComplete(route.requestId);
         const hasBuffered = getRelayStreamBufferedChunkCount(route.requestId) > 0;
         const hasCredits = getRelayStreamFlowCredits(route.requestId) > 0;
@@ -259,9 +279,14 @@ export const createRelayStreamHandlers = (
     consumerSocketId: route.consumerSocketId,
     conversationId: route.conversationId,
     mode: "relay",
-    onChunk: (payload) => {
+    onChunk: (payload, metadata?: StreamChunkMetadata) => {
       touchRelayStreamTimeout(route.requestId);
       const available = getRelayStreamFlowCredits(route.requestId);
+      const payloadBytes = resolveStreamChunkOriginalSizeBytes(
+        payload,
+        metadata,
+        env.socketIoMaxHttpBufferBytes,
+      );
       if (
         getRelayStreamBufferedChunkCount(route.requestId) >= relayMaxBufferedChunksPerRequest ||
         getRelayStreamTotalBufferedChunks() >= relayMaxTotalBufferedChunks
@@ -270,8 +295,22 @@ export const createRelayStreamHandlers = (
         emitRelayTerminalComplete("aborted", "relay_backpressure_buffer_limit", payload);
         return;
       }
+      if (
+        getRelayStreamBufferedBytes(route.requestId) + payloadBytes >
+          relayMaxBufferedBytesPerRequest ||
+        getRelayStreamTotalBufferedBytes() + payloadBytes > relayMaxTotalBufferedBytes
+      ) {
+        relayMetrics.chunksDropped += 1;
+        emitRelayTerminalComplete(
+          "aborted",
+          "relay_backpressure_buffer_byte_limit",
+          payload,
+          "RELAY_STREAM_BUFFER_BYTE_LIMIT",
+        );
+        return;
+      }
 
-      addRelayStreamBufferedChunk(route.requestId, payload);
+      addRelayStreamBufferedChunk(route.requestId, payload, payloadBytes);
       if (available <= 0) {
         relayMetrics.chunksBuffered += sampledMetricDelta(1);
       }
