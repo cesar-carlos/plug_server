@@ -34,10 +34,10 @@ describe("rpc_bridge_command_helpers", () => {
     expect(toCorrelationIds(batch)).toEqual(["b1", "b2"]);
   });
 
-  it("resolveOutboundApiVersion trims or defaults to 2.11", () => {
+  it("resolveOutboundApiVersion trims or defaults to 2.11.2", () => {
     expect(resolveOutboundApiVersion({ api_version: "  3.0  " })).toBe("3.0");
-    expect(resolveOutboundApiVersion({ api_version: "" })).toBe("2.11");
-    expect(resolveOutboundApiVersion({})).toBe("2.11");
+    expect(resolveOutboundApiVersion({ api_version: "" })).toBe("2.11.2");
+    expect(resolveOutboundApiVersion({})).toBe("2.11.2");
   });
 
   it("sanitizeOutboundRpcMeta strips hub-only and undocumented fields", () => {
@@ -78,7 +78,7 @@ describe("rpc_bridge_command_helpers", () => {
       trace_id: "trace-1",
       timestamp: "t0",
     });
-    expect(out[1].api_version).toBe("2.11");
+    expect(out[1].api_version).toBe("2.11.2");
     expect(out[1].meta?.request_id).toBe("i2");
   });
 
