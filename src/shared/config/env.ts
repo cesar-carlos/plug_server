@@ -1112,6 +1112,23 @@ const envSchema = z.object({
   /** Max requests per window per authenticated user (JWT `sub`). `0` = unlimited (HTTP + socket consumer). */
   REST_AGENTS_COMMANDS_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(100),
   /**
+   * Sliding window (ms) for `PATCH /agents/:agentId/profile` per authenticated agent.
+   * Independent from {@link REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS} so profile updates
+   * can be tuned separately from command invocations.
+   */
+  REST_AGENTS_SELF_PROFILE_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60_000),
+  /** Max profile patch requests per window per agent. `0` = unlimited. */
+  REST_AGENTS_SELF_PROFILE_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(20),
+  /**
    * When true, Socket `agents:command` consumes rate-limit budget according to
    * command workload (batch item count / sql.executeBatch command count).
    * Default false preserves the historical one-event = one-credit behaviour.
@@ -1518,6 +1535,8 @@ export const env = {
   swaggerEnabled: parsedEnv.SWAGGER_ENABLED,
   restAgentsCommandsRateLimitWindowMs: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS,
   restAgentsCommandsRateLimitMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_MAX,
+  restAgentsSelfProfileRateLimitWindowMs: parsedEnv.REST_AGENTS_SELF_PROFILE_RATE_LIMIT_WINDOW_MS,
+  restAgentsSelfProfileRateLimitMax: parsedEnv.REST_AGENTS_SELF_PROFILE_RATE_LIMIT_MAX,
   socketAgentsCommandRateLimitWeightedCosts:
     parsedEnv.SOCKET_AGENTS_COMMAND_RATE_LIMIT_WEIGHTED_COSTS,
   restAgentsCommandsRateLimitIpMax: parsedEnv.REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX,

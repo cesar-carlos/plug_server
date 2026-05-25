@@ -15,14 +15,14 @@ import { socketEvents } from "../../../../../src/shared/constants/socket_events"
 const disconnect = vi.fn();
 const emit = vi.fn();
 
-vi.mock("../../../../../src/socket", () => ({
-  consumersNamespace: {
-    sockets: new Map<
-      string,
-      { connected: boolean; disconnect: typeof disconnect; emit: typeof emit }
-    >(),
-  },
-}));
+const mockSockets = new Map<
+  string,
+  { connected: boolean; disconnect: typeof disconnect; emit: typeof emit }
+>();
+
+const mockNamespace = {
+  sockets: mockSockets,
+} as unknown as import("socket.io").Namespace;
 
 vi.mock("../../../../../src/shared/config/env", () => ({
   env: {
@@ -31,8 +31,6 @@ vi.mock("../../../../../src/shared/config/env", () => ({
   },
 }));
 
-import { consumersNamespace } from "../../../../../src/socket";
-
 describe("consumer_idle_timeout_scheduler", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -40,8 +38,9 @@ describe("consumer_idle_timeout_scheduler", () => {
     consumerRegistry.clear();
     disconnect.mockReset();
     emit.mockReset();
-    consumersNamespace!.sockets.clear();
+    mockSockets.clear();
     stopConsumerIdleTimeoutScheduler();
+    startConsumerIdleTimeoutScheduler(mockNamespace);
   });
 
   afterEach(() => {
@@ -58,7 +57,7 @@ describe("consumer_idle_timeout_scheduler", () => {
       principalType: "user",
     });
 
-    consumersNamespace!.sockets.set("sock-idle", { connected: true, disconnect, emit });
+    mockSockets.set("sock-idle", { connected: true, disconnect, emit });
 
     vi.setSystemTime(new Date("2026-05-08T10:02:00.000Z"));
     const disconnected = sweepIdleConsumerConnections();
@@ -79,7 +78,7 @@ describe("consumer_idle_timeout_scheduler", () => {
       userId: "user-1",
       principalType: "user",
     });
-    consumersNamespace!.sockets.set("sock-active", { connected: true, disconnect, emit });
+    mockSockets.set("sock-active", { connected: true, disconnect, emit });
 
     vi.setSystemTime(new Date("2026-05-08T10:00:30.000Z"));
     expect(sweepIdleConsumerConnections()).toBe(0);
@@ -94,9 +93,9 @@ describe("consumer_idle_timeout_scheduler", () => {
       userId: "user-1",
       principalType: "user",
     });
-    consumersNamespace!.sockets.set("sock-timer", { connected: true, disconnect, emit });
+    mockSockets.set("sock-timer", { connected: true, disconnect, emit });
 
-    startConsumerIdleTimeoutScheduler();
+    startConsumerIdleTimeoutScheduler(mockNamespace);
     vi.setSystemTime(new Date("2026-05-08T10:02:00.000Z"));
     vi.advanceTimersByTime(1_000);
 

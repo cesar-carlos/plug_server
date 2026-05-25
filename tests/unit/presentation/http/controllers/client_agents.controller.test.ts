@@ -13,6 +13,7 @@ const mockListApprovedAgentsPage = vi.fn();
 const mockFindApprovedAgent = vi.fn();
 const mockHasClientTokenForAgent = vi.fn();
 const mockIsAgentConnected = vi.fn();
+const mockGetConnectedAgentIdSet = vi.fn();
 
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
@@ -23,6 +24,7 @@ vi.mock("../../../../../src/shared/di/container", () => ({
     },
     restAgentBridgeService: {
       isAgentConnected: (...args: unknown[]) => mockIsAgentConnected(...args),
+      getConnectedAgentIdSet: (...args: unknown[]) => mockGetConnectedAgentIdSet(...args),
     },
   },
 }));
@@ -62,6 +64,7 @@ describe("client_agents.controller", () => {
     mockFindApprovedAgent.mockReset();
     mockHasClientTokenForAgent.mockReset();
     mockIsAgentConnected.mockReset();
+    mockGetConnectedAgentIdSet.mockReset();
   });
 
   describe("listMyClientAgents", () => {
@@ -73,6 +76,7 @@ describe("client_agents.controller", () => {
         pageSize: 20,
       });
       mockIsAgentConnected.mockReturnValue(true);
+      mockGetConnectedAgentIdSet.mockReturnValue(new Set(["agent-a"]));
 
       const response = {
         locals: {
@@ -85,7 +89,7 @@ describe("client_agents.controller", () => {
 
       await listMyClientAgents({} as never, response);
 
-      expect(mockIsAgentConnected).toHaveBeenCalledWith("agent-a");
+      expect(mockGetConnectedAgentIdSet).toHaveBeenCalledOnce();
       expect(response.json).toHaveBeenCalledWith(
         expect.objectContaining({
           agents: [expect.objectContaining({ agentId: "agent-a", isHubConnected: true })],

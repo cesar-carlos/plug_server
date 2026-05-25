@@ -5,17 +5,22 @@ import type { NextFunction as ExpressNextFunction, RequestHandler } from "expres
 import { badRequest } from "../../../shared/errors/http_errors";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
+import { logger } from "../../../shared/utils/logger";
 import { getAuthClient } from "../middlewares/auth.middleware";
 import { negotiateApprovalHtmlLang } from "../helpers/approval_page_locale";
 import {
   approvalDecisionEyebrow,
   approvalHomeLabel,
+  clientPasswordResetReviewCopy,
   clientRegistrationDecisionCopy,
   clientRegistrationReviewCopy,
 } from "../helpers/approval_registration_i18n";
-import { renderApprovalDecisionPage, renderApprovalReviewPage } from "../helpers/approval_pages";
+import {
+  renderApprovalDecisionPage,
+  renderApprovalReviewPage,
+  renderPasswordResetFormPage,
+} from "../helpers/approval_pages";
 import { clearRefreshCookie, setRefreshCookie } from "../helpers/refresh_cookie";
-import { escapeHtmlAttr } from "../helpers/html_escape";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   ClientRegistrationApproveBody,
@@ -437,13 +442,11 @@ export const uploadClientThumbnail = async (
     const metadata = await sharpModule(file.buffer).metadata();
     detectedFormat = metadata.format;
   } catch (error) {
-    next(
-      badRequest(
-        `thumbnail file is not a valid image (${
-          error instanceof Error ? error.message : "decode_failed"
-        })`,
-      ),
-    );
+    logger.warn("client_thumbnail_decode_failed", {
+      clientSub: authClient.sub,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    next(badRequest("thumbnail file is not a valid image"));
     return;
   }
   if (!detectedFormat || !ALLOWED_THUMBNAIL_FORMATS.has(detectedFormat)) {
@@ -483,26 +486,26 @@ export const clientPasswordRecoveryRequest = async (
 };
 
 /** GET: read-only page with POST form (no mutating GET). */
-export const clientPasswordRecoveryReviewPage = (_request: Request, response: Response): void => {
+export const clientPasswordRecoveryReviewPage = (request: Request, response: Response): void => {
+  const lang = negotiateApprovalHtmlLang(request);
+  const copy = clientPasswordResetReviewCopy(lang);
   const { token } = getValidated<ClientPasswordRecoveryTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
   const resetAction = `${base}/api/v1/client-auth/password-recovery/reset`;
-  const safeToken = escapeHtmlAttr(token);
+  const { homeUrl, homeLabel } = appHome(lang);
 
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"/><title>Reset client password</title></head>
-<body style="font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;">
-  <h1>Reset client password</h1>
-  <p>Set a new password below. This page does not mutate data until you submit the POST form.</p>
-  <form method="post" action="${resetAction}">
-    <input type="hidden" name="token" value="${safeToken}"/>
-    <label for="newPassword">New password</label><br/>
-    <input id="newPassword" name="newPassword" type="password" minlength="8" maxlength="128" required style="margin:0.5rem 0;"/><br/>
-    <button type="submit" style="padding:10px 16px;background:#0d6efd;color:#fff;border:none;border-radius:6px;cursor:pointer;">Reset password</button>
-  </form>
-</body>
-</html>`;
+  const html = renderPasswordResetFormPage({
+    title: copy.title,
+    heading: copy.heading,
+    description: copy.description,
+    formAction: resetAction,
+    token,
+    passwordLabel: copy.passwordLabel,
+    submitLabel: copy.submitLabel,
+    lang,
+    homeUrl,
+    homeLabel,
+  });
   response.status(200).type("html").send(html);
 };
 

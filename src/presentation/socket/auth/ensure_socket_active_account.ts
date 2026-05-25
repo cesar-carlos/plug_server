@@ -36,6 +36,15 @@ type SocketWithSnapshot = Socket & {
 /** Coalesces concurrent DB validations on the same socket before `authSnapshot` is written. */
 const inFlightValidationBySocketId = new Map<string, Promise<JwtAccessPayload>>();
 
+/**
+ * Clears any pending in-flight DB validation promise for a disconnecting socket.
+ * Call from `runConsumerSocketDisconnectCleanup` to avoid stale map entries when
+ * a DB call is in progress at the time of disconnect.
+ */
+export const clearInflightValidationForSocket = (socketId: string): void => {
+  inFlightValidationBySocketId.delete(socketId);
+};
+
 export type AssertJwtUserAccountActiveOptions = {
   /** When true, increments consumer handshake/guard blocked-account metrics. */
   readonly recordConsumerBlockedMetric?: boolean;

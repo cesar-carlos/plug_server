@@ -1,4 +1,5 @@
-import { consumersNamespace } from "../../../socket";
+import type { Namespace } from "socket.io";
+
 import { env } from "../../../shared/config/env";
 import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -8,6 +9,7 @@ import { logger } from "../../../shared/utils/logger";
 import { consumerRegistry } from "./consumer_registry";
 
 let sweepTimer: NodeJS.Timeout | null = null;
+let _consumersNamespace: Namespace | null = null;
 
 export const sweepIdleConsumerConnections = (): number => {
   if (env.socketConsumerIdleTimeoutMs <= 0) {
@@ -18,7 +20,7 @@ export const sweepIdleConsumerConnections = (): number => {
   let disconnected = 0;
 
   for (const consumer of idleConsumers) {
-    const socket = consumersNamespace?.sockets.get(consumer.socketId);
+    const socket = _consumersNamespace?.sockets.get(consumer.socketId);
     if (!socket?.connected) {
       continue;
     }
@@ -47,7 +49,9 @@ export const sweepIdleConsumerConnections = (): number => {
   return disconnected;
 };
 
-export const startConsumerIdleTimeoutScheduler = (): void => {
+export const startConsumerIdleTimeoutScheduler = (namespace: Namespace): void => {
+  _consumersNamespace = namespace;
+
   if (sweepTimer !== null) {
     return;
   }
@@ -69,4 +73,5 @@ export const stopConsumerIdleTimeoutScheduler = (): void => {
 
   clearInterval(sweepTimer);
   sweepTimer = null;
+  _consumersNamespace = null;
 };

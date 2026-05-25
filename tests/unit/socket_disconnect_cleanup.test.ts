@@ -114,6 +114,7 @@ describe("socket disconnect cleanup wiring", () => {
     expect(agentSocket.emit).toHaveBeenCalledWith(socketEvents.relayConversationEnded, {
       success: true,
       conversationId: "conv-consumer-disconnect",
+      requestId: "conv-consumer-disconnect",
       reason: "consumer_disconnected",
     });
     expect(conversationRegistry.findByConversationId("conv-consumer-disconnect")).toBeNull();
@@ -139,6 +140,7 @@ describe("socket disconnect cleanup wiring", () => {
     const expectedPayload = {
       success: true,
       conversationId: "conv-idle-expired",
+      requestId: "conv-idle-expired",
       reason: "expired",
     };
     expect(consumerSocket.emit).toHaveBeenCalledWith(

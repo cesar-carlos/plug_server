@@ -21,6 +21,8 @@ interface InternalRegisteredAgent {
   readonly userId: string | null;
   readonly capabilities: Record<string, unknown>;
   readonly connectedAtMs: number;
+  /** Pre-computed ISO string for `connectedAt` — never changes after creation. */
+  readonly connectedAtIso: string;
   lastSeenAtMs: number;
 }
 
@@ -173,7 +175,7 @@ class InMemoryAgentRegistry {
       socketId: internal.socketId,
       userId: internal.userId,
       capabilities: internal.capabilities,
-      connectedAt: new Date(internal.connectedAtMs).toISOString(),
+      connectedAt: internal.connectedAtIso,
       lastSeenAt: new Date(internal.lastSeenAtMs).toISOString(),
     };
   }
@@ -273,12 +275,18 @@ class InMemoryAgentRegistry {
       }
     }
 
+    const connectedAtMs =
+      existing?.socketId === input.socketId ? existing.connectedAtMs : nowMs;
     const agent: InternalRegisteredAgent = {
       agentId: input.agentId,
       socketId: input.socketId,
       userId: input.userId,
       capabilities: input.capabilities,
-      connectedAtMs: existing?.socketId === input.socketId ? existing.connectedAtMs : nowMs,
+      connectedAtMs,
+      connectedAtIso:
+        existing?.socketId === input.socketId
+          ? existing.connectedAtIso
+          : new Date(connectedAtMs).toISOString(),
       lastSeenAtMs: nowMs,
     };
 

@@ -59,6 +59,7 @@ import {
   stopConsumerIdleTimeoutScheduler,
 } from "./presentation/socket/hub/consumer_idle_timeout_scheduler";
 import { closeSocketServer, createSocketServer } from "./socket";
+import { SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { container } from "./shared/di/container";
 import { env } from "./shared/config/env";
 import { logEnvRestSocketEventHints } from "./shared/config/log_env_rest_socket_event_hints";
@@ -122,8 +123,8 @@ const bootstrap = async (): Promise<void> => {
   });
   startRegistrationEmailOutboxWorker(container.emailSender);
   startRegistrationEmailOutboxDeadLetterScheduler();
-  startAgentIdleTimeoutScheduler();
-  startConsumerIdleTimeoutScheduler();
+  startAgentIdleTimeoutScheduler(io.of(SOCKET_NAMESPACES.agents));
+  startConsumerIdleTimeoutScheduler(io.of(SOCKET_NAMESPACES.consumers));
 
   httpServer.listen(env.port, "0.0.0.0", () => {
     logger.info("HTTP server started", {

@@ -342,3 +342,63 @@ export const renderApprovalErrorPage = (input: ApprovalErrorPageInput): string =
     },
   );
 };
+
+export interface PasswordResetFormPageInput {
+  readonly title: string;
+  readonly heading: string;
+  readonly description: string;
+  readonly formAction: string;
+  readonly token: string;
+  readonly passwordLabel: string;
+  readonly submitLabel: string;
+  readonly lang?: string;
+  readonly homeUrl?: string;
+  readonly homeLabel?: string;
+}
+
+/**
+ * Single-form password reset page reusing the shared page shell and HTML escaping
+ * from the approval-pages infrastructure. Replaces the hardcoded English HTML
+ * previously inlined in `clientPasswordRecoveryReviewPage`.
+ */
+export const renderPasswordResetFormPage = (input: PasswordResetFormPageInput): string => {
+  const safeAction = escapeHtmlAttr(input.formAction);
+  const safeToken = escapeHtmlAttr(input.token);
+  const safeHeading = escapeHtml(input.heading);
+  const safeDescription = escapeHtml(input.description);
+  const safePasswordLabel = escapeHtml(input.passwordLabel);
+  const safeSubmitLabel = escapeHtml(input.submitLabel);
+
+  const body = `
+    <section class="review-section" aria-label="${safeHeading}">
+      <h1 class="review-heading">${safeHeading}</h1>
+      <p class="review-description">${safeDescription}</p>
+      <form method="post" action="${safeAction}" class="actions-form" aria-label="${safeHeading}">
+        <input type="hidden" name="token" value="${safeToken}" />
+        <div class="field-group">
+          <label class="field-label" for="newPassword">${safePasswordLabel}</label>
+          <input
+            id="newPassword"
+            class="field-input"
+            name="newPassword"
+            type="password"
+            minlength="8"
+            maxlength="128"
+            required
+            autocomplete="new-password"
+          />
+        </div>
+        <div class="action-buttons">
+          <button type="submit" class="btn btn-approve">${safeSubmitLabel}</button>
+        </div>
+      </form>
+    </section>`;
+
+  return pageShell(input.title, body, {
+    ...(input.lang !== undefined ? { lang: input.lang } : {}),
+    ...(input.homeUrl && input.homeLabel
+      ? { homeUrl: input.homeUrl, homeLabel: input.homeLabel }
+      : {}),
+    includeFocusScript: true,
+  });
+};

@@ -13,11 +13,11 @@ import {
 
 const disconnect = vi.fn();
 
-vi.mock("../../../../../src/socket", () => ({
-  agentsNamespace: {
-    sockets: new Map<string, { connected: boolean; disconnect: typeof disconnect }>(),
-  },
-}));
+const mockSockets = new Map<string, { connected: boolean; disconnect: typeof disconnect }>();
+
+const mockNamespace = {
+  sockets: mockSockets,
+} as unknown as import("socket.io").Namespace;
 
 vi.mock("../../../../../src/shared/config/env", () => ({
   env: {
@@ -26,16 +26,15 @@ vi.mock("../../../../../src/shared/config/env", () => ({
   },
 }));
 
-import { agentsNamespace } from "../../../../../src/socket";
-
 describe("agent_idle_timeout_scheduler", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetSocketAgentMetrics();
     agentRegistry.clear();
     disconnect.mockReset();
-    agentsNamespace!.sockets.clear();
+    mockSockets.clear();
     stopAgentIdleTimeoutScheduler();
+    startAgentIdleTimeoutScheduler(mockNamespace);
   });
 
   afterEach(() => {
@@ -55,7 +54,7 @@ describe("agent_idle_timeout_scheduler", () => {
       isPeerConnected: () => true,
     });
 
-    agentsNamespace!.sockets.set("sock-idle", { connected: true, disconnect });
+    mockSockets.set("sock-idle", { connected: true, disconnect });
 
     vi.setSystemTime(new Date("2026-05-08T10:02:00.000Z"));
     const disconnected = sweepIdleAgentConnections();
@@ -75,7 +74,7 @@ describe("agent_idle_timeout_scheduler", () => {
       policy: "reject_active",
       isPeerConnected: () => true,
     });
-    agentsNamespace!.sockets.set("sock-active", { connected: true, disconnect });
+    mockSockets.set("sock-active", { connected: true, disconnect });
 
     vi.setSystemTime(new Date("2026-05-08T10:00:30.000Z"));
     expect(sweepIdleAgentConnections()).toBe(0);
@@ -92,9 +91,9 @@ describe("agent_idle_timeout_scheduler", () => {
       policy: "reject_active",
       isPeerConnected: () => true,
     });
-    agentsNamespace!.sockets.set("sock-timer", { connected: true, disconnect });
+    mockSockets.set("sock-timer", { connected: true, disconnect });
 
-    startAgentIdleTimeoutScheduler();
+    startAgentIdleTimeoutScheduler(mockNamespace);
     vi.setSystemTime(new Date("2026-05-08T10:02:00.000Z"));
     vi.advanceTimersByTime(1_000);
 

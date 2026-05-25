@@ -315,9 +315,9 @@ clientAgentsRouter.delete(
  *           application/json:
  *             schema:
  *               type: object
- *               required: [items, total, page, pageSize]
+ *               required: [requests, total, page, pageSize]
  *               properties:
- *                 items:
+ *                 requests:
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/ClientAgentAccessRequestRecord'

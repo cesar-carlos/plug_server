@@ -12,6 +12,7 @@ import { noteConsumerSocketAuthRejected } from "../../../shared/metrics/socket_c
 import { noteAgentSocketAuthRejected } from "../../../shared/metrics/socket_agent.metrics";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { verifyAccessToken } from "../../../shared/utils/jwt";
+import { logger } from "../../../shared/utils/logger";
 
 import {
   assertJwtUserAccountActive,
@@ -61,6 +62,10 @@ export const authenticateAgentSocket = async (
 
   if (!token) {
     if (env.socketAgentAuthBypassAllowed) {
+      logger.warn("agent_socket_auth_bypass_used", {
+        socketId: socket.id,
+        ip: socket.handshake.address,
+      });
       next();
       return;
     }

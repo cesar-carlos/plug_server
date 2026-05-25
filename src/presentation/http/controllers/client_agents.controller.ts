@@ -69,10 +69,11 @@ export const listMyClientAgents = async (_request: Request, response: Response):
       refreshOnline: query.refresh === true,
     },
   );
+  const connectedAgentIds = container.restAgentBridgeService.getConnectedAgentIdSet();
   const agents = pageResult.items.map((item) =>
     toClientAgentDto(
       item.agent,
-      container.restAgentBridgeService.isAgentConnected(item.agent.agentId),
+      connectedAgentIds.has(item.agent.agentId),
       item.hasClientToken,
     ),
   );

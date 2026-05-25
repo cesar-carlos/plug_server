@@ -271,11 +271,11 @@ export function registerHttpRateLimits(): void {
         });
 
   agentsSelfProfileRateLimit =
-    env.restAgentsCommandsRateLimitMax === 0
+    env.restAgentsSelfProfileRateLimitMax === 0
       ? passthrough
       : rateLimit({
-          windowMs: env.restAgentsCommandsRateLimitWindowMs,
-          limit: env.restAgentsCommandsRateLimitMax,
+          windowMs: env.restAgentsSelfProfileRateLimitWindowMs,
+          limit: env.restAgentsSelfProfileRateLimitMax,
           ...(optionalRedisStore("agents_self_profile") ?? {}),
           standardHeaders: true,
           legacyHeaders: false,

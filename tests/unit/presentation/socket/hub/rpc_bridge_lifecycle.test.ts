@@ -153,6 +153,7 @@ describe("rpc_bridge_lifecycle", () => {
     expect(buildRelayConversationEndedPayload("conv-1", "consumer_disconnected")).toEqual({
       success: true,
       conversationId: "conv-1",
+      requestId: "conv-1",
       reason: "consumer_disconnected",
     });
   });

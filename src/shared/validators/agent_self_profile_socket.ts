@@ -1,12 +1,11 @@
 import { z } from "zod";
 
-import { uuidSchema } from "../../../shared/validators/schemas";
+import { uuidSchema } from "./schemas";
 
 const normalizeOptionalText = (value: unknown): unknown => {
   if (typeof value !== "string") {
     return value;
   }
-
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
 };
@@ -15,7 +14,6 @@ const normalizeRequiredText = (value: unknown): unknown => {
   if (typeof value !== "string") {
     return value;
   }
-
   return value.trim();
 };
 
@@ -24,12 +22,12 @@ const optionalNullableText = (maxLength: number): z.ZodType<string | null | unde
 
 const optionalNameText = z.preprocess(normalizeRequiredText, z.string().min(1).max(120).optional());
 
-const httpAddressPatchSchema = z
+const socketAddressPatchSchema = z
   .object({
     street: optionalNullableText(120),
     number: optionalNullableText(20),
     district: optionalNullableText(120),
-    postalCode: optionalNullableText(20),
+    postal_code: optionalNullableText(20),
     city: optionalNullableText(120),
     state: optionalNullableText(2),
   })
@@ -53,7 +51,6 @@ const ensurePatchHasFields = (
     if (ignoredKeys.includes(key)) {
       return false;
     }
-
     return fieldValue !== undefined;
   });
 
@@ -66,32 +63,30 @@ const ensurePatchHasFields = (
   }
 };
 
-export const agentSelfProfileParamsSchema = z.object({
-  agentId: uuidSchema,
-});
-
-export type AgentSelfProfileParams = z.infer<typeof agentSelfProfileParamsSchema>;
-
-export const agentSelfProfileHttpBodySchema = z
+export const agentSelfProfileSocketSchema = z
   .object({
+    agent_id: uuidSchema.optional(),
     name: optionalNameText,
-    tradeName: optionalNullableText(120),
+    trade_name: optionalNullableText(120),
     document: optionalNullableText(40),
-    documentType: z.enum(["cpf", "cnpj"]).nullable().optional(),
+    document_type: z.enum(["cpf", "cnpj"]).nullable().optional(),
     phone: optionalNullableText(20),
     mobile: optionalNullableText(20),
     email: z.preprocess(normalizeOptionalText, z.string().email().max(255).nullable().optional()),
-    address: z.union([httpAddressPatchSchema, z.null()]).optional(),
+    address: z.union([socketAddressPatchSchema, z.null()]).optional(),
     notes: optionalNullableText(2000),
-    /** CAS: must match current server profileVersion when provided. */
-    expectedProfileVersion: z.number().int().min(0).optional(),
-    /** Optional idempotency key when `Idempotency-Key` header is not sent. */
-    idempotencyKey: z.string().min(1).max(256).optional(),
+    profile_version: z.number().int().min(0).optional(),
+    expected_profile_version: z.number().int().min(0).optional(),
+    idempotency_key: z.string().min(1).max(256).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
-    ensurePatchHasFields(value, ctx, ["expectedProfileVersion", "idempotencyKey"]);
+    ensurePatchHasFields(value as Record<string, unknown>, ctx, [
+      "agent_id",
+      "profile_version",
+      "expected_profile_version",
+      "idempotency_key",
+    ]);
   });
 
-export type AgentSelfProfileHttpBody = z.infer<typeof agentSelfProfileHttpBodySchema>;
-
+export type AgentSelfProfileSocketBody = z.infer<typeof agentSelfProfileSocketSchema>;

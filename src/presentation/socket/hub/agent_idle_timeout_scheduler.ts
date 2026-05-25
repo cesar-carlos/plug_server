@@ -1,4 +1,5 @@
-import { agentsNamespace } from "../../../socket";
+import type { Namespace } from "socket.io";
+
 import { env } from "../../../shared/config/env";
 import { noteAgentIdleTimeoutDisconnect } from "../../../shared/metrics/socket_agent.metrics";
 import { logger } from "../../../shared/utils/logger";
@@ -6,6 +7,7 @@ import { logger } from "../../../shared/utils/logger";
 import { agentRegistry } from "./agent_registry";
 
 let sweepTimer: NodeJS.Timeout | null = null;
+let _agentsNamespace: Namespace | null = null;
 
 export const sweepIdleAgentConnections = (): number => {
   if (env.socketAgentIdleTimeoutMs <= 0) {
@@ -16,7 +18,7 @@ export const sweepIdleAgentConnections = (): number => {
   let disconnected = 0;
 
   for (const agent of idleAgents) {
-    const socket = agentsNamespace?.sockets.get(agent.socketId);
+    const socket = _agentsNamespace?.sockets.get(agent.socketId);
     if (!socket?.connected) {
       continue;
     }
@@ -37,7 +39,9 @@ export const sweepIdleAgentConnections = (): number => {
   return disconnected;
 };
 
-export const startAgentIdleTimeoutScheduler = (): void => {
+export const startAgentIdleTimeoutScheduler = (namespace: Namespace): void => {
+  _agentsNamespace = namespace;
+
   if (sweepTimer !== null) {
     return;
   }
@@ -59,4 +63,5 @@ export const stopAgentIdleTimeoutScheduler = (): void => {
 
   clearInterval(sweepTimer);
   sweepTimer = null;
+  _agentsNamespace = null;
 };

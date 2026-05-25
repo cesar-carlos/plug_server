@@ -67,6 +67,7 @@ import {
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { logger } from "../../../shared/utils/logger";
 import { clearAgentProfileSocketRateLimitStateForSocketId } from "./agent_profile_socket_rate_limiter";
+import { clearInflightValidationForSocket } from "../auth/ensure_socket_active_account";
 
 type SocketData = {
   user?: JwtAccessPayload;
@@ -79,7 +80,7 @@ export type ConsumerHubSocket = Socket<
   SocketData
 >;
 
-type ConsumersNamespace = ReturnType<Server["of"]>;
+type HubNamespace = ReturnType<Server["of"]>;
 
 const buildConsumerOverloadError = (
   retryAfterMs: number,
@@ -90,6 +91,14 @@ const buildConsumerOverloadError = (
   statusCode: 503,
   retryAfterMs,
 });
+
+const extractRelayEnvelopeConversationId = (rawPayload: unknown): string | undefined => {
+  if (typeof rawPayload !== "object" || rawPayload === null) {
+    return undefined;
+  }
+  const id = (rawPayload as Record<string, unknown>).conversationId;
+  return typeof id === "string" && id.trim() !== "" ? id.trim() : undefined;
+};
 
 const buildConsumerPrincipalRoom = (user: JwtAccessPayload | undefined): string | null => {
   if (typeof user?.sub !== "string" || user.sub.trim() === "") {
@@ -118,10 +127,11 @@ const joinConsumerIdentityRooms = async (socket: ConsumerHubSocket): Promise<voi
 
 export const runConsumerSocketDisconnectCleanup = (
   socket: ConsumerHubSocket,
-  agentsNsp: ConsumersNamespace,
+  agentsNsp: HubNamespace,
   getUserId: (socket: ConsumerHubSocket) => string | null,
 ): void => {
   unregisterConsumerBridgeSocket(socket.id);
+  clearInflightValidationForSocket(socket.id);
   consumerRegistry.removeBySocketId(socket.id);
   const abortedCommands = abortPendingConsumerCommands(socket.id);
   const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(socket.id);
@@ -159,8 +169,8 @@ export const runConsumerSocketDisconnectCleanup = (
 
 export type RegisterConsumerSocketHandlersInput = {
   readonly state: ConsumerClientAgentRoomBootstrapState;
-  readonly consumersNsp: ConsumersNamespace;
-  readonly agentsNsp: ConsumersNamespace;
+  readonly consumersNsp: HubNamespace;
+  readonly agentsNsp: HubNamespace;
   readonly getUserId: (socket: ConsumerHubSocket) => string | null;
 };
 
@@ -250,6 +260,7 @@ export const registerConsumerSocketConnectionHandlers = ({
         // Pre-validate envelope BEFORE consuming rate-limit budget; malformed
         // payloads should not burn quota (self-DoS).
         const envelope = parseRelayConversationStartEnvelope(rawPayload);
+
         if (!envelope.success) {
           socket.emit(socketEvents.relayConversationStarted, {
             success: false,
@@ -293,8 +304,10 @@ export const registerConsumerSocketConnectionHandlers = ({
         observeRelayOverloadCheck(performance.now() - tOverload);
         if (overload.overloaded) {
           noteRelayOutboundQueueOverloadRejected();
+          const conversationId = extractRelayEnvelopeConversationId(rawPayload);
           socket.emit(socketEvents.relayRpcAccepted, {
             success: false,
+            ...(conversationId !== undefined ? { conversationId } : {}),
             error: buildConsumerOverloadError(
               overload.retryAfterMs,
               overload.reason ?? "relay_outbound_queue",
@@ -306,8 +319,10 @@ export const registerConsumerSocketConnectionHandlers = ({
         // Pre-validate envelope BEFORE consuming rate-limit budget.
         const envelope = parseRelayRpcRequestEnvelope(rawPayload);
         if (!envelope.success) {
+          const conversationId = extractRelayEnvelopeConversationId(rawPayload);
           socket.emit(socketEvents.relayRpcAccepted, {
             success: false,
+            ...(conversationId !== undefined ? { conversationId } : {}),
             error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
           });
           return;
@@ -317,6 +332,7 @@ export const registerConsumerSocketConnectionHandlers = ({
         if (!(await allowRelayRpcRequestAsync(userSub, socket.id))) {
           socket.emit(socketEvents.relayRpcAccepted, {
             success: false,
+            conversationId: envelope.data.conversationId,
             error: {
               code: "RATE_LIMITED",
               message: "Rate limit exceeded for relay:rpc.request",
@@ -341,8 +357,10 @@ export const registerConsumerSocketConnectionHandlers = ({
       observeRelayOverloadCheck(performance.now() - tOverload);
       if (overload.overloaded) {
         noteRelayOutboundQueueOverloadRejected();
+        const conversationId = extractRelayEnvelopeConversationId(rawPayload);
         socket.emit(socketEvents.relayRpcStreamPullResponse, {
           success: false,
+          ...(conversationId !== undefined ? { conversationId } : {}),
           error: buildConsumerOverloadError(
             overload.retryAfterMs,
             overload.reason ?? "relay_outbound_queue",
@@ -356,8 +374,10 @@ export const registerConsumerSocketConnectionHandlers = ({
       // executing it), so envelope validation is the only pre-step here.
       const envelope = parseRelayRpcStreamPullEnvelope(rawPayload);
       if (!envelope.success) {
+        const conversationId = extractRelayEnvelopeConversationId(rawPayload);
         socket.emit(socketEvents.relayRpcStreamPullResponse, {
           success: false,
+          ...(conversationId !== undefined ? { conversationId } : {}),
           error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
         });
         return;

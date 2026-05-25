@@ -253,3 +253,34 @@ export const approvalHomeLabel = (lang: ApprovalHtmlLang): string =>
 
 export const approvalDecisionEyebrow = (lang: ApprovalHtmlLang): string =>
   lang === "pt-BR" ? "Decisão registrada" : "Decision recorded";
+
+export interface ClientPasswordResetReviewCopy {
+  readonly title: string;
+  readonly heading: string;
+  readonly description: string;
+  readonly passwordLabel: string;
+  readonly submitLabel: string;
+}
+
+export const clientPasswordResetReviewCopy = (
+  lang: ApprovalHtmlLang,
+): ClientPasswordResetReviewCopy => {
+  if (lang === "pt-BR") {
+    return {
+      title: "Redefinir senha",
+      heading: "Redefinir senha do cliente",
+      description:
+        "Defina uma nova senha abaixo. Esta página não altera dados até que o formulário seja enviado.",
+      passwordLabel: "Nova senha",
+      submitLabel: "Redefinir senha",
+    };
+  }
+  return {
+    title: "Reset password",
+    heading: "Reset client password",
+    description:
+      "Set a new password below. This page does not change data until you submit the form.",
+    passwordLabel: "New password",
+    submitLabel: "Reset password",
+  };
+};

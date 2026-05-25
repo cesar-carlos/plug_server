@@ -51,25 +51,32 @@ const hasConnectedAgentsPagination = (query: ListConnectedAgentsQuery): boolean 
 export const listConnectedAgents = async (_request: Request, response: Response): Promise<void> => {
   const authUser = getAuthUser(response);
   const query = getValidated<ListConnectedAgentsQuery>(response, "query");
-  let agents = container.restAgentBridgeService.listConnectedAgents();
 
   const visibleAgentIds = await resolveVisibleAgentIds(authUser, (userId) =>
     container.userAgentService.listAgentIdsByUserId(userId),
   );
-  if (visibleAgentIds !== undefined) {
-    const allowed = new Set(visibleAgentIds);
-    agents = agents.filter((a) => allowed.has(a.agentId));
-  }
 
-  const total = agents.length;
-  if (hasConnectedAgentsPagination(query)) {
-    const page = Math.max(1, query.page ?? 1);
-    const pageSize = Math.max(1, Math.min(100, query.pageSize ?? 20));
-    const start = (page - 1) * pageSize;
-    agents = agents.slice(start, start + pageSize);
-  }
+  const page = Math.max(1, query.page ?? 1);
+  const pageSize = Math.max(1, Math.min(100, query.pageSize ?? 20));
 
-  const publicAgents: PublicConnectedAgent[] = toPublicConnectedAgents(agents);
+  const allowedIdSet =
+    visibleAgentIds !== undefined ? new Set(visibleAgentIds) : undefined;
+
+  const { items, total } = hasConnectedAgentsPagination(query)
+    ? container.restAgentBridgeService.listConnectedAgentsPaged({
+        ...(allowedIdSet !== undefined ? { allowedIds: allowedIdSet } : {}),
+        page,
+        pageSize,
+      })
+    : (() => {
+        let all = container.restAgentBridgeService.listConnectedAgents();
+        if (allowedIdSet !== undefined) {
+          all = all.filter((a) => allowedIdSet.has(a.agentId));
+        }
+        return { items: all, total: all.length };
+      })();
+
+  const publicAgents: PublicConnectedAgent[] = toPublicConnectedAgents(items);
 
   const payload: {
     agents: PublicConnectedAgent[];
@@ -81,13 +88,7 @@ export const listConnectedAgents = async (_request: Request, response: Response)
   } = {
     agents: publicAgents,
     count: publicAgents.length,
-    ...(hasConnectedAgentsPagination(query)
-      ? {
-          total,
-          page: Math.max(1, query.page ?? 1),
-          pageSize: Math.max(1, Math.min(100, query.pageSize ?? 20)),
-        }
-      : {}),
+    ...(hasConnectedAgentsPagination(query) ? { total, page, pageSize } : {}),
   };
 
   if (isJwtAdmin(authUser) && env.nodeEnv !== "production") {
@@ -108,46 +109,51 @@ export const patchMyAgentProfile = async (
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
+  const authUser = getAuthUser(response);
+  const { agentId } = getValidated<AgentSelfProfileParams>(response, "params");
+  const body = getValidated<AgentSelfProfileHttpBody>(response, "body");
+  const tokenAgentId = authUser.agent_id;
+
+  if (
+    authUser.role !== "agent" ||
+    typeof tokenAgentId !== "string" ||
+    tokenAgentId.trim() === ""
+  ) {
+    logger.warn("agent_self_profile_http_token_missing_agent_claim", {
+      userId: authUser.sub,
+      role: authUser.role,
+      pathAgentId: agentId,
+    });
+    next(forbidden("Agent token with agent_id claim is required"));
+    return;
+  }
+
+  if (tokenAgentId !== agentId) {
+    logger.warn("agent_self_profile_http_identity_mismatch", {
+      userId: authUser.sub,
+      tokenAgentId,
+      pathAgentId: agentId,
+    });
+    next(forbidden("Authenticated agent cannot update another agent profile"));
+    return;
+  }
+
+  const idemHeader = request.get("Idempotency-Key")?.trim();
+  const dedupeKey =
+    idemHeader !== undefined && idemHeader !== ""
+      ? `idem:${idemHeader}`
+      : body.idempotencyKey !== undefined && body.idempotencyKey.trim() !== ""
+        ? `idem:${body.idempotencyKey.trim()}`
+        : undefined;
+
+  const requestId =
+    typeof response.locals.requestId === "string" ? response.locals.requestId : undefined;
+
+  let updated: Awaited<
+    ReturnType<typeof container.agentSelfProfileService.persistProfilePatch>
+  >;
   try {
-    const authUser = getAuthUser(response);
-    const { agentId } = getValidated<AgentSelfProfileParams>(response, "params");
-    const body = getValidated<AgentSelfProfileHttpBody>(response, "body");
-    const tokenAgentId = authUser.agent_id;
-
-    if (
-      authUser.role !== "agent" ||
-      typeof tokenAgentId !== "string" ||
-      tokenAgentId.trim() === ""
-    ) {
-      logger.warn("agent_self_profile_http_token_missing_agent_claim", {
-        userId: authUser.sub,
-        role: authUser.role,
-        pathAgentId: agentId,
-      });
-      throw forbidden("Agent token with agent_id claim is required");
-    }
-
-    if (tokenAgentId !== agentId) {
-      logger.warn("agent_self_profile_http_identity_mismatch", {
-        userId: authUser.sub,
-        tokenAgentId,
-        pathAgentId: agentId,
-      });
-      throw forbidden("Authenticated agent cannot update another agent profile");
-    }
-
-    const idemHeader = request.get("Idempotency-Key")?.trim();
-    const dedupeKey =
-      idemHeader !== undefined && idemHeader !== ""
-        ? `idem:${idemHeader}`
-        : body.idempotencyKey !== undefined && body.idempotencyKey.trim() !== ""
-          ? `idem:${body.idempotencyKey.trim()}`
-          : undefined;
-
-    const requestId =
-      typeof response.locals.requestId === "string" ? response.locals.requestId : undefined;
-
-    const updated = await container.agentSelfProfileService.persistProfilePatch({
+    updated = await container.agentSelfProfileService.persistProfilePatch({
       agentId,
       patch: container.agentSelfProfileService.toPatchFromHttpPayload(body),
       source: "http",
@@ -159,26 +165,25 @@ export const patchMyAgentProfile = async (
       ...(requestId !== undefined ? { requestId } : {}),
       ...(body.idempotencyKey !== undefined ? { idempotencyKey: body.idempotencyKey } : {}),
     });
-
-    logger.info("agent_self_profile_http_updated", {
-      userId: authUser.sub,
-      agentId,
-    });
-    response.status(200).json({ agent: toAgentCatalogDto(updated) });
   } catch (error) {
-    const authUser = response.locals.authUser as { sub?: string } | undefined;
-    const params = response.locals.validated?.params as { agentId?: string } | undefined;
     if (error instanceof AppError) {
       logger.warn("agent_self_profile_http_failed", {
-        userId: authUser?.sub,
-        agentId: params?.agentId,
+        userId: authUser.sub,
+        agentId,
         code: error.code,
         statusCode: error.statusCode,
         message: error.message,
       });
     }
     next(error);
+    return;
   }
+
+  logger.info("agent_self_profile_http_updated", {
+    userId: authUser.sub,
+    agentId,
+  });
+  response.status(200).json({ agent: toAgentCatalogDto(updated) });
 };
 
 export const proxyCommandToAgent = async (

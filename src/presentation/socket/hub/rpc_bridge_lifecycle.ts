@@ -109,9 +109,15 @@ export const cleanupPendingRequestsForAgentSocket = (agentSocketId: string): num
 export const buildRelayConversationEndedPayload = (
   conversationId: string,
   reason: ConversationCloseReason,
-): { success: true; conversationId: string; reason: ConversationCloseReason } => ({
+): {
+  success: true;
+  conversationId: string;
+  requestId: string;
+  reason: ConversationCloseReason;
+} => ({
   success: true,
   conversationId,
+  requestId: conversationId,
   reason,
 });
 

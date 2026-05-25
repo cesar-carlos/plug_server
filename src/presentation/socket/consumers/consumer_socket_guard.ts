@@ -34,6 +34,12 @@ type GuardSocket = Socket & {
 /** Coalesces concurrent agent-access validations on the same socket+agent before snapshot is written. */
 const inFlightAgentAccessBySocketAgent = new Map<string, Promise<AgentAccessPrincipal>>();
 
+/**
+ * Reverse index: agentId → Set of socketIds that have a cached access snapshot for that agent.
+ * Used by `invalidateAgentAccessSnapshot` to avoid an O(N) scan over all consumer sockets.
+ */
+const socketIdsByAgentId = new Map<string, Set<string>>();
+
 const inFlightAgentAccessKey = (socketId: string, agentId: string): string =>
   `${socketId}:${agentId}`;
 
@@ -104,6 +110,13 @@ const recordAgentAccessSnapshot = (
   const snapshots =
     socket.data.agentAccessSnapshots ?? (socket.data.agentAccessSnapshots = new Map());
   snapshots.set(agentId, buildAgentAccessSnapshot(user, agentId, principal));
+
+  let sockets = socketIdsByAgentId.get(agentId);
+  if (!sockets) {
+    sockets = new Set<string>();
+    socketIdsByAgentId.set(agentId, sockets);
+  }
+  sockets.add(socket.id);
 };
 
 type AgentAccessSnapshotHolder = {
@@ -118,14 +131,41 @@ export const clearConsumerSocketAgentAccessSnapshot = (
   agentId: string,
 ): void => {
   socket.data.agentAccessSnapshots?.delete(agentId);
+  const sockets = socketIdsByAgentId.get(agentId);
+  if (sockets) {
+    sockets.delete((socket as { id?: string }).id ?? "");
+    if (sockets.size === 0) {
+      socketIdsByAgentId.delete(agentId);
+    }
+  }
 };
 
 /** Clears all per-socket agent-access snapshots (e.g. when the user account is blocked). */
 export const clearAllConsumerSocketAgentAccessSnapshots = (
   socket: AgentAccessSnapshotHolder,
 ): void => {
-  socket.data.agentAccessSnapshots?.clear();
+  const snapshots = socket.data.agentAccessSnapshots;
+  if (snapshots) {
+    const socketId = (socket as { id?: string }).id ?? "";
+    for (const agentId of snapshots.keys()) {
+      const sockets = socketIdsByAgentId.get(agentId);
+      if (sockets) {
+        sockets.delete(socketId);
+        if (sockets.size === 0) {
+          socketIdsByAgentId.delete(agentId);
+        }
+      }
+    }
+    snapshots.clear();
+  }
 };
+
+/**
+ * Returns the set of socketIds that currently hold a cached access snapshot for the given agentId.
+ * Used by the socket control sink to perform targeted invalidation without iterating all consumers.
+ */
+export const getSocketIdsWithAgentAccessSnapshot = (agentId: string): ReadonlySet<string> =>
+  socketIdsByAgentId.get(agentId) ?? new Set<string>();
 
 const validateAgentAccessAgainstDb = async (
   user: JwtAccessPayload,
