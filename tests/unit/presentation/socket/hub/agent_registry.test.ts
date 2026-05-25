@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
+import { env } from "../../../../../src/shared/config/env";
 
 describe("agent_registry session policies", () => {
   afterEach(() => {
@@ -258,5 +259,54 @@ describe("agent_registry dispatch policy negotiation", () => {
 
     const idle = agentRegistry.listIdle(60_000);
     expect(idle.map((agent) => agent.agentId)).toEqual(["ag-idle"]);
+  });
+
+  it("clamps requested stream pull windows to the hub maximum when the agent has no max hint", () => {
+    agentRegistry.upsert({
+      agentId: "agent-window",
+      socketId: "socket-window",
+      userId: "user-1",
+      capabilities: {},
+    });
+
+    expect(
+      agentRegistry.resolveStreamPullWindow(
+        "agent-window",
+        1,
+        env.socketRestStreamPullMaxWindowSize + 10,
+      ),
+    ).toBe(env.socketRestStreamPullMaxWindowSize);
+  });
+
+  it("clamps recommended stream pull windows to the hub maximum when the agent has no max hint", () => {
+    agentRegistry.upsert({
+      agentId: "agent-recommended-window",
+      socketId: "socket-recommended-window",
+      userId: "user-1",
+      capabilities: {
+        extensions: {
+          recommendedStreamPullWindowSize: env.socketRestStreamPullMaxWindowSize + 10,
+        },
+      },
+    });
+
+    expect(agentRegistry.resolveStreamPullWindow("agent-recommended-window", 1)).toBe(
+      env.socketRestStreamPullMaxWindowSize,
+    );
+  });
+
+  it("respects an agent stream pull max lower than the hub maximum", () => {
+    agentRegistry.upsert({
+      agentId: "agent-small-window",
+      socketId: "socket-small-window",
+      userId: "user-1",
+      capabilities: {
+        extensions: {
+          maxStreamPullWindowSize: 7,
+        },
+      },
+    });
+
+    expect(agentRegistry.resolveStreamPullWindow("agent-small-window", 1, 100)).toBe(7);
   });
 });

@@ -10,6 +10,7 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { conversationIdSchema } from "../../../shared/validators/schemas";
 import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { isRecord } from "../../../shared/utils/rpc_types";
 import { conversationRegistry } from "../hub/conversation_registry";
 import { refundRelayRpcRequestAsync } from "../hub/consumer_relay_rate_limiter";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
@@ -23,8 +24,10 @@ import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/s
 
 /**
  * Rate-limit refund policy for `relay:rpc.request` after quota was consumed:
- * - **Refund**: non-`AppError` (unexpected / transient) and `AppError` outside the 4xx range (e.g. 503).
- * - **No refund**: any **4xx** (404 conversation missing, auth/forbidden, etc.).
+ * - **Refund**: non-`AppError` (unexpected / transient), marked `400` from deep
+ *   PayloadFrame/JSON-RPC validation, and `AppError` outside the 4xx range (e.g. 503).
+ * - **No refund**: authorization/routing/conflict/rate-limit 4xx
+ *   (`401`, `403`, `404`, `409`, `429`, etc.).
  *
  * Envelope `VALIDATION_ERROR` is rejected before quota consumption in `socket.ts`.
  * Idempotent dedupe (`deduplicated: true`) refunds on the success path separately.
@@ -32,6 +35,11 @@ import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/s
 export const shouldRefundRelayRpcRequestRateLimit = (error: unknown): boolean => {
   if (!(error instanceof AppError)) {
     return true;
+  }
+  if (error.statusCode === 400) {
+    return (
+      isRecord(error.details) && error.details.refundRelayRpcRequestRateLimit === true
+    );
   }
   if (error.statusCode !== undefined && error.statusCode >= 400 && error.statusCode < 500) {
     return false;

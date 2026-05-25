@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { validateAgentInboundContract } from "../../../../../src/presentation/socket/hub/agent_inbound_contract_validation";
 import { env } from "../../../../../src/shared/config/env";
+import { HUB_MAX_BATCH_SIZE } from "../../../../../src/shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import {
   getSocketAgentMetricsSnapshot,
@@ -192,7 +193,9 @@ describe("agent inbound contract validation", () => {
       validateAgentInboundContract({
         eventName: socketEvents.rpcBatchAck,
         socketId: "agent-socket",
-        payload: { request_ids: ["req-1", 2] },
+        payload: {
+          request_ids: Array.from({ length: HUB_MAX_BATCH_SIZE }, (_, index) => `req-${index}`),
+        },
       }).ok,
     ).toBe(true);
 
@@ -210,5 +213,21 @@ describe("agent inbound contract validation", () => {
         payload: { request_ids: [] },
       }).ok,
     ).toBe(false);
+    const oversizedBatchAck = validateAgentInboundContract({
+      eventName: socketEvents.rpcBatchAck,
+      socketId: "agent-socket",
+      payload: {
+        request_ids: Array.from(
+          { length: HUB_MAX_BATCH_SIZE + 1 },
+          (_, index) => `req-${index}`,
+        ),
+      },
+    });
+    expect(oversizedBatchAck.ok).toBe(false);
+    if (!oversizedBatchAck.ok) {
+      expect(oversizedBatchAck.message).toBe(
+        `rpc:batch_ack request_ids cannot exceed ${HUB_MAX_BATCH_SIZE}`,
+      );
+    }
   });
 });

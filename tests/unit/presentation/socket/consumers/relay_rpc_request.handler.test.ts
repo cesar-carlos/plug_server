@@ -72,17 +72,37 @@ const buildSocket = () =>
   }) as const;
 
 describe("shouldRefundRelayRpcRequestRateLimit", () => {
-  it("does not refund 4xx client errors", () => {
+  it("refunds marked deep validation 400 errors", () => {
     expect(
       shouldRefundRelayRpcRequestRateLimit(
-        new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 }),
+        new AppError("Bad request", {
+          code: "BAD_REQUEST",
+          statusCode: 400,
+          details: { refundRelayRpcRequestRateLimit: true },
+        }),
       ),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it("does not refund unmarked bad request errors", () => {
     expect(
       shouldRefundRelayRpcRequestRateLimit(
-        new AppError("Bad request", { code: "BAD_REQUEST", statusCode: 400 }),
+        new AppError("Agent capabilities do not allow gzip compression for PayloadFrame", {
+          code: "BAD_REQUEST",
+          statusCode: 400,
+        }),
       ),
     ).toBe(false);
+  });
+
+  it("does not refund authorization, routing, conflict, or rate-limit 4xx errors", () => {
+    for (const statusCode of [401, 403, 404, 409, 429]) {
+      expect(
+        shouldRefundRelayRpcRequestRateLimit(
+          new AppError(`status ${statusCode}`, { code: "CLIENT_ERROR", statusCode }),
+        ),
+      ).toBe(false);
+    }
   });
 
   it("refunds transient and unexpected failures", () => {
@@ -197,6 +217,52 @@ describe("handleRelayRpcRequest", () => {
     await vi.waitFor(() => {
       expect(mockedRefundRelayRpc).toHaveBeenCalledWith("user-1", "consumer-1");
     });
+  });
+
+  it("refunds quota on deep validation 400 when dispatch rejects as bad request", async () => {
+    const socket = buildSocket();
+    mockedDispatchRelayRpcToAgent.mockRejectedValue(
+      new AppError("relay:rpc.request frame must contain a JSON object payload", {
+        code: "BAD_REQUEST",
+        statusCode: 400,
+        details: { refundRelayRpcRequestRateLimit: true },
+      }),
+    );
+
+    handleRelayRpcRequest(socket as never, {
+      conversationId: "conv-1",
+      frame: { schemaVersion: "1.0" },
+    });
+
+    await vi.waitFor(() => {
+      expect(mockedRefundRelayRpc).toHaveBeenCalledWith("user-1", "consumer-1");
+    });
+  });
+
+  it("does not refund quota on unmarked bad request errors", async () => {
+    const socket = buildSocket();
+    mockedDispatchRelayRpcToAgent.mockRejectedValue(
+      new AppError("Agent capabilities do not allow gzip compression for PayloadFrame", {
+        code: "BAD_REQUEST",
+        statusCode: 400,
+      }),
+    );
+
+    handleRelayRpcRequest(socket as never, {
+      conversationId: "conv-1",
+      frame: { schemaVersion: "1.0" },
+    });
+
+    await vi.waitFor(() => {
+      expect(socket.emit).toHaveBeenCalledWith(
+        socketEvents.relayRpcAccepted,
+        expect.objectContaining({
+          success: false,
+          error: expect.objectContaining({ code: "BAD_REQUEST", statusCode: 400 }),
+        }),
+      );
+    });
+    expect(mockedRefundRelayRpc).not.toHaveBeenCalled();
   });
 
   it("does not refund quota when the conversation is not found", async () => {

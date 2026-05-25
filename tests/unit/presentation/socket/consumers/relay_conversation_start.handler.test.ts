@@ -41,6 +41,7 @@ import {
 } from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import {
+  extractRelayConversationStartRequestId,
   handleRelayConversationStart,
   parseRelayConversationStartEnvelope,
   shouldRefundRelayConversationStartRateLimit,
@@ -93,6 +94,25 @@ describe("shouldRefundRelayConversationStartRateLimit", () => {
   });
 });
 
+describe("extractRelayConversationStartRequestId", () => {
+  it("returns a trimmed requestId when it matches the public contract", () => {
+    expect(
+      extractRelayConversationStartRequestId({
+        requestId: " req-start-1 ",
+        agentId: "agent-1",
+      }),
+    ).toBe("req-start-1");
+  });
+
+  it("rejects empty, long, and non-string requestIds", () => {
+    expect(extractRelayConversationStartRequestId({ requestId: "   " })).toBeUndefined();
+    expect(
+      extractRelayConversationStartRequestId({ requestId: "r".repeat(129) }),
+    ).toBeUndefined();
+    expect(extractRelayConversationStartRequestId({ requestId: 123 })).toBeUndefined();
+  });
+});
+
 describe("handleRelayConversationStart", () => {
   beforeEach(() => {
     mockedAssertAccess.mockReset();
@@ -125,7 +145,7 @@ describe("handleRelayConversationStart", () => {
   });
 
   it("returns VALIDATION_ERROR for invalid relay:conversation.start envelopes", () => {
-    const envelope = parseRelayConversationStartEnvelope({ agentId: "" });
+    const envelope = parseRelayConversationStartEnvelope({ agentId: "", requestId: "req-start" });
 
     expect(envelope.success).toBe(false);
     if (!envelope.success) {
@@ -133,16 +153,50 @@ describe("handleRelayConversationStart", () => {
     }
   });
 
+  it("emits success with requestId when relay conversation starts", async () => {
+    const socket = buildSocket();
+
+    await handleRelayConversationStart(socket as never, {
+      agentId: "agent-1",
+      requestId: "req-start-success",
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
+      success: true,
+      requestId: "req-start-success",
+      conversationId: "conv-1",
+      agentId: "agent-1",
+      createdAt: "2026-04-18T17:00:00.000Z",
+    });
+  });
+
+  it("keeps legacy relay conversation start payloads without requestId working", async () => {
+    const socket = buildSocket();
+
+    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
+
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
+      success: true,
+      conversationId: "conv-1",
+      agentId: "agent-1",
+      createdAt: "2026-04-18T17:00:00.000Z",
+    });
+  });
+
   it("does not refund relay rate limit when the per-socket inflight gate is full", async () => {
     mockedTryAcquire.mockReturnValue(false);
     const socket = buildSocket();
 
-    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
+    await handleRelayConversationStart(socket as never, {
+      agentId: "agent-1",
+      requestId: "req-start-inflight",
+    });
 
     expect(mockedRefundRelayConversationStart).not.toHaveBeenCalled();
     expect(mockedReleaseInflight).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,
+      requestId: "req-start-inflight",
       error: {
         code: "RATE_LIMITED",
         message: "Per-socket inflight gate exceeded",
@@ -158,11 +212,15 @@ describe("handleRelayConversationStart", () => {
       reason: "consumer_cap_reached",
     });
 
-    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
+    await handleRelayConversationStart(socket as never, {
+      agentId: "agent-1",
+      requestId: "req-start-conflict",
+    });
 
     expect(mockedRefundRelayConversationStart).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,
+      requestId: "req-start-conflict",
       error: {
         code: conflict("Consumer reached max active relay conversations").code,
         message: "Consumer reached max active relay conversations",
@@ -175,11 +233,15 @@ describe("handleRelayConversationStart", () => {
     const socket = buildSocket();
     mockedFindAgentBridgeSocketById.mockReturnValue(undefined);
 
-    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
+    await handleRelayConversationStart(socket as never, {
+      agentId: "agent-1",
+      requestId: "req-start-503",
+    });
 
     expect(mockedRefundRelayConversationStart).toHaveBeenCalledWith("user-1", "consumer-1");
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,
+      requestId: "req-start-503",
       error: expect.objectContaining({
         code: "SERVICE_UNAVAILABLE",
         statusCode: 503,
@@ -191,11 +253,15 @@ describe("handleRelayConversationStart", () => {
     const socket = buildSocket();
     mockedFindByAgentId.mockReturnValue(undefined);
 
-    await handleRelayConversationStart(socket as never, { agentId: "agent-1" });
+    await handleRelayConversationStart(socket as never, {
+      agentId: "agent-1",
+      requestId: "req-start-not-found",
+    });
 
     expect(mockedRefundRelayConversationStart).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
       success: false,
+      requestId: "req-start-not-found",
       error: expect.objectContaining({
         code: "NOT_FOUND",
         statusCode: 404,

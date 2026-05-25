@@ -157,7 +157,7 @@ Campos de arquivo diferentes de `files` sao rejeitados.
 ## Limites e comportamento do hub (resumo)
 
 - **Tamanho de frame**: até **10 MiB** comprimido/decodificado no contrato do hub (`payload_frame.ts`); validar no cliente antes de enviar SQL/parametros enormes.
-- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`, creditos de `relay:rpc.stream.pull`), `agents:command`, `agents:stream_pull` e `agent:register` tem tetos por janela. Quando `SOCKET_RATE_LIMIT_REDIS_URL` esta configurado, esses limitadores Socket usam Redis com fallback fail-open para memoria; caso contrario ficam locais ao processo. Respostas **429** quando excedido. No relay, dedupe (`deduplicated: true`) e falhas profundas de validacao `400` nao devem consumir quota final da janela; o hub faz rollback do contador.
+- **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`, creditos de `relay:rpc.stream.pull`), `agents:command`, `agents:stream_pull` e `agent:register` tem tetos por janela. Quando `SOCKET_RATE_LIMIT_REDIS_URL` esta configurado, esses limitadores Socket usam Redis com fallback fail-open para memoria; caso contrario ficam locais ao processo. Respostas **429** quando excedido. No relay, dedupe (`deduplicated: true`) e falhas profundas de validacao `400` marcadas como refundaveis nao devem consumir quota final da janela; o hub faz rollback do contador.
 - **Retry-After**: erros Socket de overload podem incluir `retryAfterMs`. Em `agents:command_response`, se o agente retornar erro JSON-RPC `-32013` com `error.data.retry_after_ms`, o hub adiciona `retryAfterSeconds`, espelhando o header `Retry-After` do REST. No relay, o frame JSON-RPC do agente continua sendo fonte de verdade; leia `error.data.retry_after_ms`.
 - **Helper recomendado**: clientes podem copiar a politica pura de `src/shared/utils/socket_retry_after_policy.ts` para normalizar todos os formatos publicos de retry em milissegundos antes de aplicar backoff com jitter.
 - **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`). Se o agente abrir `stream_id` e nunca enviar `rpc:complete`, o hub encerra por idle timeout ou lifetime maximo com `relay:rpc.complete` (`terminal_status: "error"`, `error_code: "RELAY_STREAM_TIMEOUT"`).
@@ -165,6 +165,8 @@ Campos de arquivo diferentes de `files` sao rejeitados.
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
 - **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; Redis adapter/idempotencia Redis ajudam `client:custom.*`, mas relay/pending/registry ainda precisam de afinidade — ver `docs/scaling_and_roadmap.md`.
 - **PayloadFrame signature**: quando o cliente assina frames com HMAC-SHA256, em deployments com `PAYLOAD_SIGNING_KEY_ID` ou `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON` configurado no hub o `signature.key_id` passa a ser **obrigatorio** e validado contra a keyring.
+
+Nota de streaming relay: `relay:rpc.stream.pull` e limitado pelo hub a `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` e, quando o agente anuncia teto menor, pelo teto do agente.
 
 ## Exemplo de encode/decode no cliente (Node.js)
 
@@ -220,13 +222,13 @@ negociada (ver `plug_agente/docs/communication/socketio_client_binary_transport.
 
 ## Fluxo minimo (chat-like)
 
-1. `relay:conversation.start` com `{ agentId }`
-2. Recebe `relay:conversation.started` com `conversationId`
+1. `relay:conversation.start` com `{ agentId }` ou `{ requestId, agentId }`
+2. Recebe `relay:conversation.started` com `conversationId` e o mesmo `requestId` quando enviado
 3. Envia `relay:rpc.request` com `{ conversationId, frame }` (opcional: `payloadFrameCompression`: `default` \| `none` \| `always` — `default` = auto: gzip ao agente so se menor que JSON bruto e dentro da guarda de inflacao; `always` = prefere gzip quando elegivel, alinhado ao plug_agente, mas ainda respeita a guarda de inflacao)
 4. Recebe `relay:rpc.accepted` (JSON)
 5. Recebe dados (`relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`) em `PayloadFrame`
 6. Em streaming, envia `relay:rpc.stream.pull` com `{ conversationId, frame }`
-7. Finaliza com `relay:conversation.end`
+7. Finaliza com `relay:conversation.end` (opcionalmente `{ requestId, conversationId }`; o agente tambem recebe `relay:conversation.ended` com `reason: "consumer_ended"`)
 
 ## Escolha de canal
 

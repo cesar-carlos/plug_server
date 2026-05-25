@@ -1,4 +1,5 @@
 import { env } from "../../../shared/config/env";
+import { HUB_MAX_BATCH_SIZE } from "../../../shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { noteAgentInboundContractValidationFailed } from "../../../shared/metrics/socket_agent.metrics";
 import { logger } from "../../../shared/utils/logger";
@@ -251,6 +252,9 @@ const validateRpcBatchAck = (payload: unknown): ContractValidationFailure | null
   }
   if (!Array.isArray(payload.request_ids) || payload.request_ids.length === 0) {
     return reject("rpc:batch_ack request_ids must be a non-empty array");
+  }
+  if (payload.request_ids.length > HUB_MAX_BATCH_SIZE) {
+    return reject(`rpc:batch_ack request_ids cannot exceed ${HUB_MAX_BATCH_SIZE}`);
   }
   for (const requestId of payload.request_ids) {
     if (!isStringOrNumber(requestId)) {

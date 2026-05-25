@@ -7,13 +7,19 @@ import { AppError } from "../../../shared/errors/app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { conversationIdSchema } from "../../../shared/validators/schemas";
 import { conversationRegistry } from "../hub/conversation_registry";
-import { cleanupConversationStreamSubscriptions } from "../hub/rpc_bridge";
+import {
+  buildRelayConversationEndedPayload,
+  cleanupConversationStreamSubscriptions,
+  findAgentBridgeSocketById,
+} from "../hub/rpc_bridge";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+
+const relayConversationEndRequestIdMaxLength = 128;
 
 export const conversationEndPayloadSchema = z
   .object({
     conversationId: conversationIdSchema,
-    requestId: z.string().min(1).optional(),
+    requestId: z.string().trim().min(1).max(relayConversationEndRequestIdMaxLength).optional(),
   })
   .passthrough();
 
@@ -33,6 +39,20 @@ export const parseRelayConversationEndEnvelope = (
     return { success: false, errorMessage: message };
   }
   return { success: true, data: parsed.data };
+};
+
+export const extractRelayConversationEndRequestId = (rawPayload: unknown): string | undefined => {
+  if (typeof rawPayload !== "object" || rawPayload === null) {
+    return undefined;
+  }
+  const requestId = (rawPayload as Record<string, unknown>).requestId;
+  if (typeof requestId !== "string") {
+    return undefined;
+  }
+  const trimmed = requestId.trim();
+  return trimmed !== "" && trimmed.length <= relayConversationEndRequestIdMaxLength
+    ? trimmed
+    : undefined;
 };
 
 const withOptionalRequestId = (requestId: string | undefined): { readonly requestId?: string } =>
@@ -69,12 +89,7 @@ export const handleRelayConversationEnd = (
   rawPayload: unknown,
 ): void => {
   const envelope = parseRelayConversationEndEnvelope(rawPayload);
-  const requestId =
-    typeof rawPayload === "object" &&
-    rawPayload !== null &&
-    typeof (rawPayload as Record<string, unknown>).requestId === "string"
-      ? String((rawPayload as Record<string, unknown>).requestId)
-      : undefined;
+  const requestId = extractRelayConversationEndRequestId(rawPayload);
   if (!envelope.success) {
     emitConversationEnded(socket, requestId, {
       success: false,
@@ -93,6 +108,11 @@ export const handleRelayConversationEnd = (
 
     conversationRegistry.removeByConversationId(conversation.conversationId);
     cleanupConversationStreamSubscriptions(conversation.conversationId);
+    const agentSocket = findAgentBridgeSocketById(conversation.agentSocketId);
+    agentSocket?.emit(
+      socketEvents.relayConversationEnded,
+      buildRelayConversationEndedPayload(conversation.conversationId, "consumer_ended"),
+    );
     emitConversationEnded(socket, resolvedRequestId, {
       success: true,
       conversationId: conversation.conversationId,

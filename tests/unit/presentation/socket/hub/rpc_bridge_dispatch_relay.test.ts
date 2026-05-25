@@ -14,6 +14,7 @@ import {
 import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
 import { env } from "../../../../../src/shared/config/env";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
+import { AppError } from "../../../../../src/shared/errors/app_error";
 import { encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
 
 const originalAckRetryConfig = {
@@ -43,6 +44,46 @@ afterEach(() => {
 });
 
 describe("rpc_bridge_dispatch_relay", () => {
+  it("marks deep validation bad requests as relay rate-limit refundable", async () => {
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => false,
+      findAgentSocketById: () => null,
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    let caught: unknown;
+    try {
+      await handlers.dispatchRelayRpcToAgent({
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        rawFramePayload: encodePayloadFrame({
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: null,
+          params: { sql: "SELECT 1" },
+        }),
+      });
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AppError);
+    if (caught instanceof AppError) {
+      expect(caught.statusCode).toBe(400);
+      expect(caught.details).toEqual({ refundRelayRpcRequestRateLimit: true });
+    }
+  });
+
   it("rejects JSON-RPC notifications (`id: null`) in relay:rpc.request", async () => {
     const handlers = createRpcBridgeRelayDispatch({
       hasRegisteredAgentSocketBridge: () => false,

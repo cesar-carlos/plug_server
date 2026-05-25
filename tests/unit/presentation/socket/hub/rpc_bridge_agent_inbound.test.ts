@@ -74,6 +74,300 @@ describe("rpc_bridge_agent_inbound", () => {
     expect(typeof h.handleAgentBatchAck).toBe("function");
   });
 
+  it("isolates relay batch acks per consumer and clears ack retry timers", async () => {
+    const emitToConsumer = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+    const ackRetryTimerA = createTimeoutHandle();
+    const ackRetryTimerB = createTimeoutHandle();
+
+    registerRelayRequestRoute({
+      requestId: "req-relay-batch-a",
+      conversationId: "conv-a",
+      consumerSocketId: "consumer-a",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      acked: false,
+      ackRetryTimer: ackRetryTimerA,
+    });
+    registerRelayRequestRoute({
+      requestId: "req-relay-batch-b",
+      conversationId: "conv-b",
+      consumerSocketId: "consumer-b",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      acked: false,
+      ackRetryTimer: ackRetryTimerB,
+    });
+
+    h.handleAgentBatchAck(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          request_ids: ["req-relay-batch-a", "req-relay-batch-b"],
+          received_at: "2026-05-25T13:00:00.000Z",
+        },
+        { requestId: "batch-ack-1" },
+      ),
+    );
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(2));
+
+    const routeA = getRelayRequestRoute("req-relay-batch-a");
+    const routeB = getRelayRequestRoute("req-relay-batch-b");
+    expect(routeA?.acked).toBe(true);
+    expect(routeA).not.toHaveProperty("ackRetryTimer");
+    expect(routeB?.acked).toBe(true);
+    expect(routeB).not.toHaveProperty("ackRetryTimer");
+
+    const decodedByConsumer = new Map<string, unknown>();
+    for (const [consumerSocketId, eventName, frame] of emitToConsumer.mock.calls as [
+      string,
+      string,
+      unknown,
+    ][]) {
+      expect(eventName).toBe(socketEvents.relayRpcBatchAck);
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        decodedByConsumer.set(consumerSocketId, decoded.value.data);
+      }
+    }
+
+    expect(decodedByConsumer.get("consumer-a")).toEqual({
+      request_ids: ["req-relay-batch-a"],
+      received_at: "2026-05-25T13:00:00.000Z",
+    });
+    expect(decodedByConsumer.get("consumer-b")).toEqual({
+      request_ids: ["req-relay-batch-b"],
+      received_at: "2026-05-25T13:00:00.000Z",
+    });
+  });
+
+  it("coalesces relay batch acks for the same consumer without leaking other ids", async () => {
+    const emitToConsumer = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+
+    registerRelayRequestRoute({
+      requestId: "req-relay-same-a",
+      conversationId: "conv-a",
+      consumerSocketId: "consumer-same",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      acked: false,
+      ackRetryTimer: createTimeoutHandle(),
+    });
+    registerRelayRequestRoute({
+      requestId: "req-relay-same-b",
+      conversationId: "conv-b",
+      consumerSocketId: "consumer-same",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      acked: false,
+      ackRetryTimer: createTimeoutHandle(),
+    });
+    registerRelayRequestRoute({
+      requestId: "req-relay-other",
+      conversationId: "conv-c",
+      consumerSocketId: "consumer-other",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      acked: false,
+      ackRetryTimer: createTimeoutHandle(),
+    });
+
+    h.handleAgentBatchAck(
+      "socket-test",
+      encodePayloadFrame({
+        request_ids: ["req-relay-same-a", "req-relay-same-b", "req-relay-other"],
+        received_at: "2026-05-25T13:10:00.000Z",
+      }),
+    );
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(2));
+
+    const decodedByConsumer = new Map<string, unknown>();
+    for (const [consumerSocketId, eventName, frame] of emitToConsumer.mock.calls as [
+      string,
+      string,
+      unknown,
+    ][]) {
+      expect(eventName).toBe(socketEvents.relayRpcBatchAck);
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        decodedByConsumer.set(consumerSocketId, decoded.value.data);
+      }
+    }
+
+    expect(decodedByConsumer.get("consumer-same")).toEqual({
+      request_ids: ["req-relay-same-a", "req-relay-same-b"],
+      received_at: "2026-05-25T13:10:00.000Z",
+    });
+    expect(decodedByConsumer.get("consumer-other")).toEqual({
+      request_ids: ["req-relay-other"],
+      received_at: "2026-05-25T13:10:00.000Z",
+    });
+    for (const requestId of ["req-relay-same-a", "req-relay-same-b", "req-relay-other"]) {
+      const route = getRelayRequestRoute(requestId);
+      expect(route?.acked).toBe(true);
+      expect(route).not.toHaveProperty("ackRetryTimer");
+    }
+  });
+
+  it("rejects relay batch rpc responses per consumer without leaking original payloads", async () => {
+    const emitToConsumer = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+
+    registerRelayRequestRoute({
+      requestId: "req-response-a",
+      conversationId: "conv-a",
+      consumerSocketId: "consumer-a",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      clientRequestId: "client-a",
+    });
+    registerRelayRequestRoute({
+      requestId: "req-response-b",
+      conversationId: "conv-b",
+      consumerSocketId: "consumer-b",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      clientRequestId: "client-b",
+    });
+
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame(
+        [
+          { jsonrpc: "2.0", id: "req-response-a", result: { secret: "a" } },
+          { jsonrpc: "2.0", id: "req-response-b", result: { secret: "b" } },
+        ],
+        { requestId: "batch-response-1" },
+      ),
+    );
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(2));
+
+    const decodedByConsumer = new Map<string, unknown>();
+    for (const [consumerSocketId, eventName, frame] of emitToConsumer.mock.calls as [
+      string,
+      string,
+      unknown,
+    ][]) {
+      expect(eventName).toBe(socketEvents.relayRpcResponse);
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        expect(Array.isArray(decoded.value.data)).toBe(false);
+        decodedByConsumer.set(consumerSocketId, decoded.value.data);
+      }
+    }
+
+    expect(decodedByConsumer.get("consumer-a")).toEqual({
+      jsonrpc: "2.0",
+      id: "req-response-a",
+      error: {
+        code: -32009,
+        message: "Relay does not support batch rpc:response",
+        data: {
+          code: "RELAY_BATCH_RESPONSE_UNSUPPORTED",
+          retryable: false,
+        },
+      },
+    });
+    expect(decodedByConsumer.get("consumer-b")).toEqual({
+      jsonrpc: "2.0",
+      id: "req-response-b",
+      error: {
+        code: -32009,
+        message: "Relay does not support batch rpc:response",
+        data: {
+          code: "RELAY_BATCH_RESPONSE_UNSUPPORTED",
+          retryable: false,
+        },
+      },
+    });
+    expect(getRelayRequestRoute("req-response-a")).toBeUndefined();
+    expect(getRelayRequestRoute("req-response-b")).toBeUndefined();
+  });
+
+  it("rejects relay batch rpc responses for the same consumer as isolated errors", async () => {
+    const emitToConsumer = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+
+    for (const requestId of ["req-response-same-a", "req-response-same-b"]) {
+      registerRelayRequestRoute({
+        requestId,
+        conversationId: "conv-same",
+        consumerSocketId: "consumer-same",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+      });
+    }
+
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame([
+        { jsonrpc: "2.0", id: "req-response-same-a", result: { secret: "a" } },
+        { jsonrpc: "2.0", id: "req-response-same-b", result: { secret: "b" } },
+      ]),
+    );
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(2));
+
+    const responseIds: string[] = [];
+    for (const [consumerSocketId, eventName, frame] of emitToConsumer.mock.calls as [
+      string,
+      string,
+      unknown,
+    ][]) {
+      expect(consumerSocketId).toBe("consumer-same");
+      expect(eventName).toBe(socketEvents.relayRpcResponse);
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        expect(Array.isArray(decoded.value.data)).toBe(false);
+        const data = decoded.value.data as { id?: unknown; error?: { data?: { code?: string } } };
+        expect(data.error?.data?.code).toBe("RELAY_BATCH_RESPONSE_UNSUPPORTED");
+        if (typeof data.id === "string") {
+          responseIds.push(data.id);
+        }
+      }
+    }
+
+    expect(responseIds.sort()).toEqual(["req-response-same-a", "req-response-same-b"]);
+    expect(getRelayRequestRoute("req-response-same-a")).toBeUndefined();
+    expect(getRelayRequestRoute("req-response-same-b")).toBeUndefined();
+  });
+
   it("should invoke Socket.IO ack on rpc:response decode failure (delivery guarantee compat)", async () => {
     const ack = vi.fn();
     const h = createRpcBridgeAgentInboundHandlers({

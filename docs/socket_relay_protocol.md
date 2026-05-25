@@ -104,10 +104,10 @@ Pub/sub customizado:
 
 Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 
-- `relay:conversation.start` -> `{ agentId }`
-- `relay:conversation.started` -> `{ success, conversationId, agentId, createdAt }` ou erro
-- `relay:conversation.end` -> `{ conversationId }`
-- `relay:conversation.ended` -> `{ success, conversationId, reason }` ou erro
+- `relay:conversation.start` -> `{ requestId?, agentId }`
+- `relay:conversation.started` -> `{ success, requestId?, conversationId, agentId, createdAt }` ou erro; quando `requestId` valido (`1..128` chars apos trim) for enviado no start, ele e ecoado tambem em erros de validacao, overload e rate limit
+- `relay:conversation.end` -> `{ requestId?, conversationId }`
+- `relay:conversation.ended` -> `{ success, requestId?, conversationId, reason }` ou erro; `requestId` so e ecoado quando valido (`1..128` chars apos trim)
 - `relay:rpc.accepted` -> status de aceite/dedupe (`requestId`, `clientRequestId`, `deduplicated`, `replayed`, `inFlight`)
 - `relay:rpc.stream.pull_response` -> status do pull (`requestId`, `streamId`, `windowSize`, `rateLimit`) ou erro
 - `socket:event.subscribe` -> `{ requestId, eventName }`
@@ -217,6 +217,9 @@ Valores publicos documentados:
 - `agent_disconnected`: o socket do agente caiu enquanto a conversa ainda existia
 - `expired`: a conversa foi removida pelo idle timeout
 
+No encerramento explicito (`consumer_ended`), o hub emite `relay:conversation.ended`
+ao consumer e tambem ao agente ligado, em modo best-effort.
+
 `consumer_disconnected` pode existir como razao **interna** de cleanup do hub, mas
 nao deve ser tratado como contrato publico para SDKs.
 
@@ -236,7 +239,7 @@ O servidor valida o payload com o schema do bridge (mesmas regras por comando do
 
 - validacao barata de envelope JSON acontece antes do rate limit fixo
 - validacao profunda do `PayloadFrame` / JSON-RPC pode ocorrer depois do `allowRelayRpcRequest`
-- se essa validacao profunda falhar com erro `400`, ou se o pedido cair em dedupe (`deduplicated: true`), o hub **devolve a quota consumida** na janela do consumer
+- se essa validacao profunda falhar com erro `400` marcado como refundavel, ou se o pedido cair em dedupe (`deduplicated: true`), o hub **devolve a quota consumida** na janela do consumer
 - `sql.bulkInsert` valida antes do `PayloadFrame` os tetos
   `AGENT_SQL_BULK_INSERT_MAX_ROWS` e `AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES`;
   cargas maiores devem ser quebradas em lotes pelo cliente
@@ -303,6 +306,10 @@ Regras atuais no servidor:
 - se `rpc:response` chegar com frame invalido mas com `requestId` identificavel no
   envelope, o hub encerra a request relay correlacionada com erro JSON-RPC framed
   em vez de esperar apenas por timeout
+- se `rpc:response` chegar como batch JSON-RPC (`[]`) para rotas relay, o hub
+  rejeita o batch por rota com erro `RELAY_BATCH_RESPONSE_UNSUPPORTED` e nunca
+  encaminha o array original ao consumer; batch response permanece permitido no
+  fluxo REST/legado quando houver pending request compativel
 - se `rpc:chunk` ou `rpc:complete` chegarem com frame invalido mas com `requestId`
   identificavel no envelope, o hub encerra o stream relay com `relay:rpc.complete`
   terminal (`terminal_status: "error"`) em vez de deixar o consumer pendurado
@@ -365,6 +372,9 @@ Capacidade operacional:
   `params.idempotency_key` em todos os itens. Notifications, batches
   parcialmente elegiveis, requests ja respondidas, socket desconectado e pending
   removido nunca sao reemitidos.
+- `rpc:batch_ack` inbound aceita no maximo 32 `request_ids`. No relay, o hub
+  agrupa o ACK por consumer e encaminha apenas os IDs pertencentes a cada
+  consumer.
 - Timeout de relay request: quando o agente nao responde no prazo, o servidor
   devolve erro JSON-RPC no `relay:rpc.response`.
 - Timeout de stream aberta: quando `rpc:response` abre `stream_id`, o slot de
@@ -391,12 +401,13 @@ Capacidade operacional:
   em vez de descartar chunks silenciosamente.
 - Pull capability-aware: o hub **publica** os hints
   `recommendedStreamPullWindowSize` e `maxStreamPullWindowSize` (derivados de
-  `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`) e limite maximo
+  `SOCKET_REST_STREAM_PULL_WINDOW_SIZE` e do limite maximo
   (`SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE`) em `agent:capabilities.extensions`
   para o agente calibrar `rpc:stream.pull` sem heuristica propria; o hub garante
-  `recommendedStreamPullWindowSize <= maxStreamPullWindowSize`; quando o
-  agente anuncia esses mesmos campos em `extensions` ou `limits`, o hub aplica
-  o clamp tanto no pull interno quanto nas requests do consumer
+  `recommendedStreamPullWindowSize <= maxStreamPullWindowSize`; o hub sempre
+  aplica `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` como teto final e, quando o
+  agente anuncia um teto menor em `extensions` ou `limits`, aplica tambem esse
+  clamp tanto no pull interno quanto nas requests do consumer
   (`agent_registry.resolveStreamPullWindow`).
 - Quotas de protecao: limites para conversas, pending requests por conversa e
   por consumer.
@@ -461,11 +472,16 @@ barata do envelope), falhas no handler podem **devolver** o hit na janela
 (best-effort via `refundRelayConversationStartAsync` / `refundRelayRpcRequestAsync`;
 com Redis, scope `relay_conversation_start` / `relay_rpc_request`):
 
-- **Devolve quota**: erros **transientes** ou inesperados (nao-`AppError`) e
-  `AppError` fora do intervalo 4xx (ex.: `503` / `SERVICE_UNAVAILABLE`, agente
-  indisponivel, fila cheia, disconnect do consumer antes de concluir).
-- **Nao devolve**: qualquer **4xx** (404 agente/conversa inexistente, 409 teto
-  por consumer, forbidden, etc.).
+- **Devolve quota**: erros **transientes** ou inesperados (nao-`AppError`),
+  `AppError` fora do intervalo 4xx (ex.: `503` / `SERVICE_UNAVAILABLE`,
+  agente indisponivel, fila cheia, disconnect do consumer antes de concluir) e,
+  somente em `relay:rpc.request`, `AppError` **400** marcado internamente como
+  validacao profunda refundavel do `PayloadFrame` / JSON-RPC depois do
+  `allowRelayRpcRequestAsync`.
+- **Nao devolve**: `401`, `403`, `404`, `409`, `429` e demais **4xx** que nao
+  sejam o `400` profundo marcado de `relay:rpc.request` (404 agente/conversa
+  inexistente, 409 teto por consumer, forbidden, capability/compressao
+  incompatível, etc.).
 - **Antes do consumo**: `VALIDATION_ERROR` no envelope e `429` do proprio
   limitador (`allow === false`) **nao** consomem quota.
 - **`relay:rpc.request` — casos extra**: `429` por inflight partilhado por socket
@@ -473,8 +489,9 @@ com Redis, scope `relay_conversation_start` / `relay_rpc_request`):
   idempotente (`deduplicated: true`) **devolve** no caminho de sucesso porque
   nao houve novo dispatch.
 
-Paridade com `socket:event.publish` (refund so em falhas nao-4xx) e com o REST
-(`skipFailedRequests` / `statusCode < 500`).
+O `400` profundo marcado de `relay:rpc.request` e uma excecao deliberada a
+paridade geral com `socket:event.publish` para evitar cobrar quota por payloads
+rejeitados depois do pre-handler barato.
 
 ### Fila por agente no relay
 

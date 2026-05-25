@@ -14,6 +14,7 @@ import { createPrepareAgentStreamPull } from "../../../../../src/presentation/so
 import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
 import { addRelayStreamForwardedRows } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
+import { env } from "../../../../../src/shared/config/env";
 import { decodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
 
 describe("rpc_bridge_stream_pull", () => {
@@ -137,5 +138,48 @@ describe("rpc_bridge_stream_pull", () => {
         requestId: "req-2",
       }),
     ).toThrow(/different stream routes/i);
+  });
+
+  it("clamps stream pull windows to the hub maximum when the agent is not registered", () => {
+    const agentEmit = vi.fn();
+    const prepare = createPrepareAgentStreamPull({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (socketId) =>
+        socketId === "agent-socket-1"
+          ? {
+              emit: agentEmit,
+            }
+          : null,
+      emitToConsumer: vi.fn(),
+    });
+
+    upsertActiveStreamRoute({
+      requestId: "req-clamp",
+      agentSocketId: "agent-socket-1",
+      streamHandlers: {
+        consumerSocketId: "consumer-1",
+        onChunk: vi.fn(),
+        onComplete: vi.fn(),
+      },
+      streamId: "stream-clamp",
+    });
+
+    const result = prepare({
+      consumerSocketId: "consumer-1",
+      requestId: "req-clamp",
+      windowSize: env.socketRestStreamPullMaxWindowSize + 10,
+    }).execute();
+
+    expect(result.windowSize).toBe(env.socketRestStreamPullMaxWindowSize);
+    expect(agentEmit).toHaveBeenCalledWith(socketEvents.rpcStreamPull, expect.anything());
+    const decoded = decodePayloadFrame(agentEmit.mock.calls[0]?.[1]);
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) {
+      expect(decoded.value.data).toMatchObject({
+        request_id: "req-clamp",
+        stream_id: "stream-clamp",
+        window_size: env.socketRestStreamPullMaxWindowSize,
+      });
+    }
   });
 });

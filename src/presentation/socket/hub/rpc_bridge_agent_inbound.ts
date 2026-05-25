@@ -11,15 +11,14 @@ import {
   type BridgeRpcMethodMetricOutcome,
 } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../shared/config/env";
+import { HUB_MAX_BATCH_SIZE } from "../../../shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { serviceUnavailable } from "../../../shared/errors/http_errors";
 import { noteAgentHealthRpcResponse } from "../../../shared/metrics/socket_agent.metrics";
 import { logger } from "../../../shared/utils/logger";
 import {
   decodePayloadFrameAsync,
-  finishPayloadFrameEnvelope,
   isPayloadFrameEnvelope,
-  preencodePayloadFrameJson,
 } from "../../../shared/utils/payload_frame";
 import {
   enqueueRelayOutbound,
@@ -253,6 +252,56 @@ export const createRpcBridgeAgentInboundHandlers = (
     },
   });
 
+  const createRelayBatchResponseUnsupportedPayload = (requestId: string): Record<string, unknown> => ({
+    jsonrpc: "2.0",
+    id: requestId,
+    error: {
+      code: -32009,
+      message: "Relay does not support batch rpc:response",
+      data: {
+        code: "RELAY_BATCH_RESPONSE_UNSUPPORTED",
+        retryable: false,
+      },
+    },
+  });
+
+  const findRelayRequestRoutesForAgentSocket = (
+    candidateIds: readonly string[],
+    agentSocketId: string,
+  ): RelayRequestRoute[] => {
+    const routes: RelayRequestRoute[] = [];
+    const seen = new Set<string>();
+    for (const requestId of candidateIds) {
+      if (seen.has(requestId)) {
+        continue;
+      }
+      seen.add(requestId);
+      const route = getRelayRequestRoute(requestId);
+      if (route && route.agentSocketId === agentSocketId) {
+        routes.push(route);
+      }
+    }
+    return routes;
+  };
+
+  const persistRelayIdempotentResponseFrame = (
+    route: RelayRequestRoute,
+    responseFrame: unknown,
+  ): readonly string[] | undefined => {
+    if (!route.clientRequestId) {
+      return undefined;
+    }
+
+    const idempotencyMap = getOrCreateRelayIdempotencyMap(route.conversationId);
+    const previousEntry = idempotencyMap.get(route.clientRequestId);
+    setRelayIdempotencyEntry(route.conversationId, route.clientRequestId, {
+      requestId: route.requestId,
+      expiresAtMs: Date.now() + relayIdempotencyTtlMs,
+      responseFrame,
+    });
+    return previousEntry?.pendingReplayConsumerSocketIds;
+  };
+
   const failFastUnexpectedAgentResponseError = (
     socketId: string,
     rawPayload: unknown,
@@ -445,6 +494,81 @@ export const createRpcBridgeAgentInboundHandlers = (
     } finally {
       removeActiveStreamRoute(route);
     }
+  };
+
+  const rejectRelayBatchResponse = (
+    socketId: string,
+    candidateIds: readonly string[],
+    inboundSyncStart: number,
+    decodeMs: number,
+  ): boolean => {
+    const relayRoutes = findRelayRequestRoutesForAgentSocket(candidateIds, socketId);
+    if (relayRoutes.length === 0) {
+      return false;
+    }
+
+    for (const route of relayRoutes) {
+      if (route.timedOut === true) {
+        logger.debug("relay_late_batch_response_ignored_after_timeout", {
+          requestId: route.requestId,
+          socketId,
+        });
+        continue;
+      }
+
+      const requestId = route.requestId;
+      route.latencyTrace?.markInboundArrival(inboundSyncStart);
+      route.latencyTrace?.recordInboundDecodeMs(decodeMs);
+      route.latencyTrace?.finalizeOnce({
+        outcome: "error",
+        httpStatus: 502,
+        errorCode: "RELAY_BATCH_RESPONSE_UNSUPPORTED",
+      });
+      observeRelayRouteOutcome(route, "error");
+      registerAgentFailure(route.agentId);
+      clearTimeout(route.timeoutHandle);
+      conversationRegistry.touchInternal(route.conversationId);
+
+      enqueueRelayOutbound(requestId, async () => {
+        try {
+          const frame = await encodeRelayOutboundFrame(
+            createRelayBatchResponseUnsupportedPayload(requestId),
+            requestId,
+          );
+          emitToConsumer(route.consumerSocketId, socketEvents.relayRpcResponse, frame);
+          relayMetrics.responsesForwarded += 1;
+
+          const waiters = persistRelayIdempotentResponseFrame(route, frame);
+          if (waiters && waiters.length > 0) {
+            for (const waiterSocketId of waiters) {
+              if (waiterSocketId === route.consumerSocketId) {
+                continue;
+              }
+              emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, frame);
+              relayMetrics.responsesForwarded += 1;
+            }
+          }
+
+          void recordSocketAuditEvent({
+            eventType: socketEvents.relayRpcResponse,
+            actorSocketId: socketId,
+            direction: "agent_to_consumer",
+            conversationId: route.conversationId,
+            agentId: route.agentId,
+            requestId,
+            payload: { errorCode: "RELAY_BATCH_RESPONSE_UNSUPPORTED" },
+          });
+        } finally {
+          const existingStream = getActiveStreamRouteByRequestId(requestId);
+          if (existingStream && existingStream.agentSocketId === socketId) {
+            removeActiveStreamRoute(existingStream);
+          }
+          removeRelayRequestRoute(requestId);
+        }
+      });
+    }
+
+    return true;
   };
 
   const handleAgentRpcResponse = (
@@ -735,6 +859,12 @@ export const createRpcBridgeAgentInboundHandlers = (
         pendingRequest.resolve(decoded.data);
       }
 
+      if (Array.isArray(decoded.data)) {
+        if (rejectRelayBatchResponse(socketId, candidateIds, inboundSyncStart, decodeMs)) {
+          return;
+        }
+      }
+
       const relayRoute = findRelayRequestRouteForAgentSocket(candidateIds, socketId);
 
       if (!relayRoute) {
@@ -836,14 +966,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           relayMetrics.responsesForwarded += 1;
 
           if (relayRoute.clientRequestId) {
-            const idempotencyMap = getOrCreateRelayIdempotencyMap(relayRoute.conversationId);
-            const previousEntry = idempotencyMap.get(relayRoute.clientRequestId);
-            setRelayIdempotencyEntry(relayRoute.conversationId, relayRoute.clientRequestId, {
-              requestId: relayRoute.requestId,
-              expiresAtMs: Date.now() + relayIdempotencyTtlMs,
-              responseFrame,
-            });
-            const waiters = previousEntry?.pendingReplayConsumerSocketIds;
+            const waiters = persistRelayIdempotentResponseFrame(relayRoute, responseFrame);
             if (waiters && waiters.length > 0) {
               for (const waiterSocketId of waiters) {
                 if (waiterSocketId === relayRoute.consumerSocketId) {
@@ -1117,6 +1240,14 @@ export const createRpcBridgeAgentInboundHandlers = (
       if (!data) {
         return;
       }
+      if (Array.isArray(data.request_ids) && data.request_ids.length > HUB_MAX_BATCH_SIZE) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.rpcBatchAck,
+          socketId,
+          reason: `rpc:batch_ack request_ids cannot exceed ${HUB_MAX_BATCH_SIZE}`,
+        });
+        return;
+      }
 
       const requestIds = Array.isArray(data.request_ids)
         ? Array.from(
@@ -1128,9 +1259,11 @@ export const createRpcBridgeAgentInboundHandlers = (
           )
         : [];
 
-      const preencodedBatchAck = requestIds.length > 1 ? preencodePayloadFrameJson(data) : null;
-
       let ackedCount = 0;
+      const relayBatchAckByConsumer = new Map<
+        string,
+        { firstRequestId: string; requestIds: string[] }
+      >();
       for (const requestId of requestIds) {
         const pending = getRestPendingRequestByCorrelationId(requestId);
         if (pending && pending.socketId === socketId) {
@@ -1144,14 +1277,35 @@ export const createRpcBridgeAgentInboundHandlers = (
 
         const relayRoute = getRelayRequestRoute(requestId);
         if (relayRoute && relayRoute.agentSocketId === socketId) {
-          enqueueRelayOutbound(requestId, async () => {
-            const frame =
-              preencodedBatchAck !== null
-                ? finishPayloadFrameEnvelope(preencodedBatchAck, { requestId, omitTraceId: true })
-                : await encodeRelayOutboundFrame(data, requestId);
-            emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcBatchAck, frame);
-          });
+          relayRoute.acked = true;
+          if (relayRoute.ackRetryTimer !== undefined) {
+            clearTimeout(relayRoute.ackRetryTimer);
+            delete relayRoute.ackRetryTimer;
+          }
+          ackedCount++;
+          const existing = relayBatchAckByConsumer.get(relayRoute.consumerSocketId);
+          if (existing) {
+            existing.requestIds.push(requestId);
+          } else {
+            relayBatchAckByConsumer.set(relayRoute.consumerSocketId, {
+              firstRequestId: requestId,
+              requestIds: [requestId],
+            });
+          }
         }
+      }
+      for (const [consumerSocketId, batch] of relayBatchAckByConsumer.entries()) {
+        enqueueRelayOutbound(batch.firstRequestId, async () => {
+          const relayBatchAckPayload = {
+            request_ids: batch.requestIds,
+            ...(typeof data.received_at === "string" ? { received_at: data.received_at } : {}),
+          };
+          const frame = await encodeRelayOutboundFrame(
+            relayBatchAckPayload,
+            batch.firstRequestId,
+          );
+          emitToConsumer(consumerSocketId, socketEvents.relayRpcBatchAck, frame);
+        });
       }
       if (ackedCount > 0) {
         logger.debug("rpc_batch_ack_received", {

@@ -39,10 +39,13 @@ export const shouldRefundRelayConversationStartRateLimit = (error: unknown): boo
 };
 
 export const conversationStartPayloadSchema = z.object({
+  requestId: z.string().trim().min(1).max(128).optional(),
   agentId: agentIdSchema,
 });
 
 export type RelayConversationStartEnvelope = z.infer<typeof conversationStartPayloadSchema>;
+
+const relayConversationStartRequestIdMaxLength = 128;
 
 export const parseRelayConversationStartEnvelope = (
   rawPayload: unknown,
@@ -60,17 +63,38 @@ export const parseRelayConversationStartEnvelope = (
   return { success: true, data: parsed.data };
 };
 
+export const extractRelayConversationStartRequestId = (
+  rawPayload: unknown,
+): string | undefined => {
+  if (typeof rawPayload !== "object" || rawPayload === null) {
+    return undefined;
+  }
+  const requestId = (rawPayload as Record<string, unknown>).requestId;
+  if (typeof requestId !== "string") {
+    return undefined;
+  }
+  const trimmed = requestId.trim();
+  return trimmed !== "" && trimmed.length <= relayConversationStartRequestIdMaxLength
+    ? trimmed
+    : undefined;
+};
+
+const withOptionalRequestId = (requestId: string | undefined): { readonly requestId?: string } =>
+  requestId !== undefined ? { requestId } : {};
+
 const emitConversationStarted = (
   socket: Socket,
   payload:
     | {
         success: true;
+        requestId?: string;
         conversationId: string;
         agentId: string;
         createdAt: string;
       }
     | {
         success: false;
+        requestId?: string;
         error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
       },
 ): void => {
@@ -84,6 +108,7 @@ export const handleRelayConversationStart = async (
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
     emitConversationStarted(socket, {
       success: false,
+      ...withOptionalRequestId(envelope.requestId),
       error: {
         code: "RATE_LIMITED",
         message: "Per-socket inflight gate exceeded",
@@ -137,6 +162,7 @@ export const handleRelayConversationStart = async (
 
     emitConversationStarted(socket, {
       success: true,
+      ...withOptionalRequestId(envelope.requestId),
       conversationId: conversation.conversationId,
       agentId: conversation.agentId,
       createdAt: conversation.createdAt,
@@ -164,6 +190,7 @@ export const handleRelayConversationStart = async (
     }
     emitConversationStarted(socket, {
       success: false,
+      ...withOptionalRequestId(envelope.requestId),
       error: {
         code: appError?.code ?? "CONVERSATION_START_FAILED",
         message: err instanceof Error ? err.message : "Failed to start conversation",

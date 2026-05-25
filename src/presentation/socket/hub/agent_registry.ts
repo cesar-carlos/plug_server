@@ -415,20 +415,22 @@ class InMemoryAgentRegistry {
     fallbackWindow: number,
     requestedWindow?: number,
   ): number {
+    const hubMaxWindow = Math.max(1, Math.floor(env.socketRestStreamPullMaxWindowSize));
     const baseWindow =
       typeof requestedWindow === "number" && Number.isFinite(requestedWindow) && requestedWindow > 0
         ? Math.max(1, Math.floor(requestedWindow))
         : Math.max(1, Math.floor(fallbackWindow));
     const agent = this.agents.get(agentId);
     if (!agent) {
-      return baseWindow;
+      return Math.min(baseWindow, hubMaxWindow);
     }
 
     const { recommendedWindow, maxWindow } = resolveStreamPullWindowPolicy(agent.capabilities);
     const resolved =
       requestedWindow === undefined && recommendedWindow !== null ? recommendedWindow : baseWindow;
+    const maxAllowedWindow = maxWindow !== null ? Math.min(maxWindow, hubMaxWindow) : hubMaxWindow;
 
-    return maxWindow !== null ? Math.max(1, Math.min(resolved, maxWindow)) : resolved;
+    return Math.max(1, Math.min(resolved, maxAllowedWindow));
   }
 
   resolveEffectiveDispatchPolicy(agentId: string): {

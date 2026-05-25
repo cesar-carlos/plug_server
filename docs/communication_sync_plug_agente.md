@@ -62,7 +62,7 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | `rpc:chunk` / `rpc:complete` invalidos com fail-fast | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `rpc:complete.terminal_status` no REST materializado | alinhado | `docs/api_rest_bridge.md` |
 | Backpressure relay com encerramento explicito | alinhado | `docs/socket_relay_protocol.md` |
-| Pull capability-aware (`recommendedStreamPullWindowSize`, `maxStreamPullWindowSize`) | publicado pelo hub e clampado por agente | `docs/socket_relay_protocol.md`, `docs/api_rest_bridge.md` |
+| Pull capability-aware (`recommendedStreamPullWindowSize`, `maxStreamPullWindowSize`) | publicado pelo hub; clamp final usa teto global do hub e menor teto do agente | `docs/socket_relay_protocol.md`, `docs/api_rest_bridge.md` |
 | `execution_mode`, `preserve_sql`, `prefer_db_streaming`, `effective_max_rows` | alinhado | `docs/api_rest_bridge.md` |
 | `sql.bulkInsert` (introduzido no perfil 2.10) | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `max_parallel_read_only_batch_items` em `sql.executeBatch` | pass-through validado | `src/shared/validators/agent_command.ts` |

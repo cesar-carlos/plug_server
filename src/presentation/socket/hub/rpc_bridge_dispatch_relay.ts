@@ -83,6 +83,13 @@ const isRouteAcked = (route: RelayRequestRoute): boolean => route.acked === true
 
 const supportedMethodSet = new Set<string>(supportedAgentRpcMethods);
 
+const relayRpcRefundableBadRequestDetails = {
+  refundRelayRpcRequestRateLimit: true,
+} as const;
+
+const relayRpcRefundableBadRequest = (message: string): AppError =>
+  badRequest(message, relayRpcRefundableBadRequestDetails);
+
 export interface DispatchRelayRpcInput {
   readonly conversationId: string;
   readonly consumerSocketId: string;
@@ -184,20 +191,24 @@ export const createRpcBridgeRelayDispatch = (
         socketId: input.consumerSocketId,
         reason: decoded.error.message,
       });
-      throw badRequest(decoded.error.message);
+      throw relayRpcRefundableBadRequest(decoded.error.message);
     }
 
     const rawCommand = toRecord(decoded.value.data);
     if (!rawCommand) {
-      throw badRequest("relay:rpc.request frame must contain a JSON object payload");
+      throw relayRpcRefundableBadRequest(
+        "relay:rpc.request frame must contain a JSON object payload",
+      );
     }
 
     if (Array.isArray(rawCommand)) {
-      throw badRequest("relay:rpc.request does not support batch; send a single JSON-RPC request");
+      throw relayRpcRefundableBadRequest(
+        "relay:rpc.request does not support batch; send a single JSON-RPC request",
+      );
     }
     const method = typeof rawCommand.method === "string" ? rawCommand.method : "";
     if (!supportedMethodSet.has(method)) {
-      throw badRequest("command.method: Unsupported RPC method");
+      throw relayRpcRefundableBadRequest("command.method: Unsupported RPC method");
     }
 
     const validateStart = performance.now();
@@ -208,12 +219,12 @@ export const createRpcBridgeRelayDispatch = (
       const message = firstIssue
         ? `${firstIssue.path.join(".") || "command"}: ${firstIssue.message}`
         : "Invalid RPC command";
-      throw badRequest(message);
+      throw relayRpcRefundableBadRequest(message);
     }
 
     const command = parsed.data;
     if (hasNotificationCommand(command)) {
-      throw badRequest(
+      throw relayRpcRefundableBadRequest(
         "relay:rpc.request does not support JSON-RPC notifications (`id: null`); provide a request id",
       );
     }

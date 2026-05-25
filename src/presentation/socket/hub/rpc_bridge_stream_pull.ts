@@ -1,6 +1,7 @@
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { observeBridgeRpcMethod } from "../../../application/services/bridge_rpc_method_metrics.service";
 import { badRequest, notFound, serviceUnavailable } from "../../../shared/errors/http_errors";
+import { env } from "../../../shared/config/env";
 import { sampledMetricDelta } from "../../../shared/metrics/metrics_sample";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { encodePayloadFrameHotPath } from "../../../shared/utils/payload_frame";
@@ -24,6 +25,12 @@ import { touchRelayStreamTimeout } from "./relay_stream_timeout_registry";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 
 const defaultStreamWindowSize = 1;
+
+const clampStreamPullWindowToHubMax = (windowSize: number): number =>
+  Math.min(
+    Math.max(1, Math.floor(windowSize)),
+    Math.max(1, Math.floor(env.socketRestStreamPullMaxWindowSize)),
+  );
 
 export interface RequestAgentStreamPullInput {
   readonly consumerSocketId: string;
@@ -154,8 +161,8 @@ export const createPrepareAgentStreamPull = (
           input.windowSize,
         )
       : typeof input.windowSize === "number" && Number.isFinite(input.windowSize)
-        ? Math.max(1, Math.floor(input.windowSize))
-        : defaultStreamWindowSize;
+        ? clampStreamPullWindowToHubMax(input.windowSize)
+        : clampStreamPullWindowToHubMax(defaultStreamWindowSize);
 
     const execute = (): RequestAgentStreamPullResult => {
       agentSocket.emit(

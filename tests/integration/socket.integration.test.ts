@@ -380,6 +380,54 @@ describe("Socket namespaces", () => {
       socket.disconnect();
     });
 
+    it("should echo requestId when relay conversation start envelope is invalid", async () => {
+      const socket = await connectConsumer(baseUrl, accessToken);
+
+      try {
+        const responsePromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          error?: { code?: string };
+        }>(socket, "relay:conversation.started");
+
+        socket.emit("relay:conversation.start", {
+          requestId: "req-invalid-conversation-start",
+          agentId: "",
+        });
+        const response = await responsePromise;
+
+        expect(response.success).toBe(false);
+        expect(response.requestId).toBe("req-invalid-conversation-start");
+        expect(response.error?.code).toBe("VALIDATION_ERROR");
+      } finally {
+        socket.disconnect();
+      }
+    });
+
+    it("should not echo invalid requestId when relay conversation start envelope is invalid", async () => {
+      const socket = await connectConsumer(baseUrl, accessToken);
+
+      try {
+        const responsePromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          error?: { code?: string };
+        }>(socket, "relay:conversation.started");
+
+        socket.emit("relay:conversation.start", {
+          requestId: "r".repeat(129),
+          agentId: "",
+        });
+        const response = await responsePromise;
+
+        expect(response.success).toBe(false);
+        expect(response).not.toHaveProperty("requestId");
+        expect(response.error?.code).toBe("VALIDATION_ERROR");
+      } finally {
+        socket.disconnect();
+      }
+    });
+
     it("should deny client agents:command when client has no approved access", async () => {
       if (!env.socketConsumerRoles.includes("client")) {
         return;
@@ -434,6 +482,68 @@ describe("Socket namespaces", () => {
         expect(started.success).toBe(true);
         expect(started.conversationId).toBeDefined();
         expect(started.agentId).toBe(testAgentId);
+      } finally {
+        clientSocket.disconnect();
+        agentSocket.disconnect();
+      }
+    });
+
+    it("should notify the agent when the consumer explicitly ends a relay conversation", async () => {
+      if (!env.socketConsumerRoles.includes("client")) {
+        return;
+      }
+      await repositories.clientAgentAccess.addAccess(clientId, testAgentId, new Date());
+      const clientSocket = await connectConsumer(baseUrl, clientAccessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
+
+        const startedPromise = waitForEvent<{
+          success: boolean;
+          conversationId?: string;
+        }>(clientSocket, "relay:conversation.started");
+        clientSocket.emit("relay:conversation.start", { agentId: testAgentId });
+        const started = await startedPromise;
+        expect(started.success).toBe(true);
+        expect(started.conversationId).toBeDefined();
+
+        const consumerEndedPromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          conversationId?: string;
+          reason?: string;
+        }>(clientSocket, "relay:conversation.ended");
+        const agentEndedPromise = waitForEvent<{
+          success: boolean;
+          conversationId?: string;
+          reason?: string;
+        }>(agentSocket, "relay:conversation.ended");
+
+        clientSocket.emit("relay:conversation.end", {
+          conversationId: started.conversationId,
+          requestId: "req-end-relay-integration",
+        });
+
+        const [consumerEnded, agentEnded] = await Promise.all([
+          consumerEndedPromise,
+          agentEndedPromise,
+        ]);
+        expect(consumerEnded).toMatchObject({
+          success: true,
+          requestId: "req-end-relay-integration",
+          conversationId: started.conversationId,
+          reason: "consumer_ended",
+        });
+        expect(agentEnded).toMatchObject({
+          success: true,
+          conversationId: started.conversationId,
+          reason: "consumer_ended",
+        });
       } finally {
         clientSocket.disconnect();
         agentSocket.disconnect();

@@ -11,6 +11,7 @@ import {
 } from "../consumers/custom_socket_event_subscription.handler";
 import { handleRelayConversationEnd } from "../consumers/relay_conversation_end.handler";
 import {
+  extractRelayConversationStartRequestId,
   handleRelayConversationStart,
   parseRelayConversationStartEnvelope,
 } from "../consumers/relay_conversation_start.handler";
@@ -229,6 +230,7 @@ export const registerConsumerSocketConnectionHandlers = ({
 
     socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
       void (async (): Promise<void> => {
+        const requestId = extractRelayConversationStartRequestId(rawPayload);
         const tOverload = performance.now();
         const overload = getRelayOutboundQueueOverloadState();
         observeRelayOverloadCheck(performance.now() - tOverload);
@@ -236,6 +238,7 @@ export const registerConsumerSocketConnectionHandlers = ({
           noteRelayOutboundQueueOverloadRejected();
           socket.emit(socketEvents.relayConversationStarted, {
             success: false,
+            ...(requestId !== undefined ? { requestId } : {}),
             error: buildConsumerOverloadError(
               overload.retryAfterMs,
               overload.reason ?? "relay_outbound_queue",
@@ -250,6 +253,7 @@ export const registerConsumerSocketConnectionHandlers = ({
         if (!envelope.success) {
           socket.emit(socketEvents.relayConversationStarted, {
             success: false,
+            ...(requestId !== undefined ? { requestId } : {}),
             error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
           });
           return;
@@ -259,6 +263,7 @@ export const registerConsumerSocketConnectionHandlers = ({
         if (!(await allowRelayConversationStartAsync(userSub, socket.id))) {
           socket.emit(socketEvents.relayConversationStarted, {
             success: false,
+            ...(requestId !== undefined ? { requestId } : {}),
             error: {
               code: "RATE_LIMITED",
               message: "Rate limit exceeded for relay:conversation.start",
