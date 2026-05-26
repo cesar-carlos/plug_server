@@ -1,4 +1,4 @@
-import { compare, hash } from "bcryptjs";
+import { compare, hash } from "@node-rs/bcrypt";
 
 const passwordSaltRounds = 10;
 

@@ -1,7 +1,36 @@
 node_modules
 dist
+coverage
 .git
 .github
-coverage
-*.log
+.vscode
+.cursor
+.nvmrc
+.editorconfig
+.prettierrc
+.prettierignore
+.gitignore
+.dockerignore
 .env
+.env.*
+!.env.example
+
+# Build artifacts and editor caches
+tsconfig.tsbuildinfo
+*.log
+
+# Tests and dev configs not needed in the runtime image
+tests
+vitest.config.mjs
+vitest.e2e.config.mjs
+eslint.config.mjs
+
+# Docs and scripts not used at runtime
+docs
+deploy
+backups
+scripts
+AGENTS.md
+CLAUDE.md
+README.md
+CHANGELOG.md

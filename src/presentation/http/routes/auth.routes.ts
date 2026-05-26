@@ -1,3 +1,4 @@
+import cookieParser from "cookie-parser";
 import { Router } from "express";
 
 import {
@@ -37,6 +38,14 @@ import {
 } from "../validators/auth.validator";
 
 export const authRouter = Router();
+
+/**
+ * Only `/auth/refresh` and `/auth/logout` consume `req.cookies.refresh_token`.
+ * Mounting `cookieParser` per router keeps the parser off the global hot path
+ * (`/agents/commands`, `/client/me/socket-events`, etc.) where cookies are
+ * never read.
+ */
+authRouter.use(cookieParser());
 
 /**
  * @openapi

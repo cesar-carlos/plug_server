@@ -1,6 +1,7 @@
 import type { Express } from "express";
-import swaggerJSDoc from "swagger-jsdoc";
-import swaggerUi from "swagger-ui-express";
+import type SwaggerJSDoc from "swagger-jsdoc";
+import type * as SwaggerUi from "swagger-ui-express";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 import pkg from "../../../package.json";
@@ -25,8 +26,13 @@ const routeDocGlobs =
     ? [path.join(process.cwd(), "dist/presentation/http/routes/**/*.js")]
     : [path.join(process.cwd(), "src/presentation/http/routes/**/*.ts")];
 
-const swaggerSpec = swaggerJSDoc({
-  definition: {
+/**
+ * Static OpenAPI definition used as input for {@link buildSwaggerSpec}.
+ * Building the actual spec parses ~10k lines of JSDoc on disk; defer that
+ * work until `setupSwagger` confirms `SWAGGER_ENABLED=true` so production
+ * boot/RSS are not penalized when docs are off.
+ */
+const swaggerDefinition = {
     openapi: "3.0.0",
     info: {
       title: `${env.appName} API`,
@@ -1306,10 +1312,8 @@ const swaggerSpec = swaggerJSDoc({
         },
       },
     },
-    security: [],
-  },
-  apis: routeDocGlobs,
-});
+  security: [],
+};
 
 type OpenApiOperation = {
   servers?: Array<{ url: string; description?: string }>;
@@ -1336,35 +1340,82 @@ const compatAliasServers = [
   },
 ] as const;
 
+interface BuiltSwaggerSpec {
+  readonly spec: object;
+  readonly json: Buffer;
+  readonly etag: string;
+}
+
 /**
- * The app mounts `/auth/*` and `/metrics` both under `/api/v1` and at the root
- * for backward compatibility. Document those aliases with operation-level
- * servers, without implying that the whole API is available at `/`.
+ * Parses the JSDoc OpenAPI annotations in the configured route globs,
+ * applies compat-alias servers to `/auth/*` and `/metrics`, then pre-serializes
+ * the document into a JSON `Buffer` plus a strong `ETag` so repeated
+ * `/docs.json` hits avoid `JSON.stringify` on the hot path. Called once from
+ * {@link setupSwagger} when documentation is enabled.
  */
-for (const [pathKey, pathItem] of Object.entries((swaggerSpec as OpenApiSpecRuntime).paths ?? {})) {
-  if (pathKey !== "/metrics" && !pathKey.startsWith("/auth/")) {
-    continue;
-  }
-  const item = pathItem as OpenApiPathItem;
-  for (const method of ["get", "post", "put", "patch", "delete", "options", "head"] as const) {
-    const operation = item[method];
-    if (!operation) {
+const buildSwaggerSpec = (): BuiltSwaggerSpec => {
+  /**
+   * Lazy `require` so the relatively expensive `swagger-jsdoc` parser (and its
+   * `doctrine` / `glob` transitive deps) only land in the require cache when
+   * `SWAGGER_ENABLED=true`. Keeps prod boot/RSS lean when docs are off.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const swaggerJSDoc = require("swagger-jsdoc") as typeof SwaggerJSDoc;
+  const spec = swaggerJSDoc({
+    definition: swaggerDefinition,
+    apis: routeDocGlobs,
+  }) as object;
+
+  /**
+   * The app mounts `/auth/*` and `/metrics` both under `/api/v1` and at the root
+   * for backward compatibility. Document those aliases with operation-level
+   * servers, without implying that the whole API is available at `/`.
+   */
+  for (const [pathKey, pathItem] of Object.entries((spec as OpenApiSpecRuntime).paths ?? {})) {
+    if (pathKey !== "/metrics" && !pathKey.startsWith("/auth/")) {
       continue;
     }
-    operation.servers = [...compatAliasServers];
+    const item = pathItem as OpenApiPathItem;
+    for (const method of ["get", "post", "put", "patch", "delete", "options", "head"] as const) {
+      const operation = item[method];
+      if (!operation) {
+        continue;
+      }
+      operation.servers = [...compatAliasServers];
+    }
   }
-}
+
+  const json = Buffer.from(JSON.stringify(spec));
+  const etag = `"${createHash("sha1").update(json).digest("base64")}"`;
+  return { spec, json, etag };
+};
 
 export const setupSwagger = (app: Express): void => {
   if (!env.swaggerEnabled) {
     return;
   }
 
+  /**
+   * Lazy `require` mirrors {@link buildSwaggerSpec}: `swagger-ui-express` (and
+   * its bundled UI assets) only load when docs are enabled.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const swaggerUi = require("swagger-ui-express") as typeof SwaggerUi;
+
+  const { json: swaggerJson, etag: swaggerEtag } = buildSwaggerSpec();
+
   app.use(
     "/docs",
     swaggerUi.serve,
-    swaggerUi.setup(swaggerSpec, {
+    /**
+     * `setup(undefined, { swaggerOptions: { url } })` makes the Swagger UI
+     * HTML stable across requests and fetch the spec asynchronously from
+     * `/docs.json` (which is now Buffer-cached with `ETag`). Avoids
+     * re-stringifying ~70 KB of OpenAPI document into the HTML on every load.
+     */
+    swaggerUi.setup(undefined, {
       swaggerOptions: {
+        url: "/docs.json",
         persistAuthorization: true,
         displayRequestDuration: true,
         tryItOutEnabled: false,
@@ -1374,9 +1425,15 @@ export const setupSwagger = (app: Express): void => {
     }),
   );
 
-  app.get("/docs.json", (_request, response) => {
+  app.get("/docs.json", (request, response) => {
+    const ifNoneMatch = request.headers["if-none-match"];
+    if (typeof ifNoneMatch === "string" && ifNoneMatch === swaggerEtag) {
+      response.status(304).end();
+      return;
+    }
     response.setHeader("Content-Type", "application/json");
     response.setHeader("Cache-Control", "public, max-age=300");
-    response.send(swaggerSpec);
+    response.setHeader("ETag", swaggerEtag);
+    response.status(200).send(swaggerJson);
   });
 };

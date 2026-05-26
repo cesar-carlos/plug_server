@@ -285,13 +285,55 @@ Se aparecer `503` em qualquer asset de `/docs/*`, o bloqueio e de borda (Nginx/C
 
 Ajuste as zonas (`rate`, `burst`) se houver falsos positivos ou trafego interno legitimo (ex.: health checks em massa).
 
-## 11) TLS global, logs e multi-instancia
+## 11) Compressao coordenada (gzip)
+
+A partir desta versao, `plug_server` usa o middleware `compression` do
+Express e ja entrega respostas gzipadas (>=1 KiB) para clientes que enviam
+`Accept-Encoding: gzip`. O cliente que nao suporta compressao continua
+recebendo o mesmo corpo bytes-identico em texto puro (`compression` so age
+quando o cliente pede). Nenhuma resposta muda de shape — apenas o transporte.
+
+No Nginx, o ajuste essencial e **nao recomprimir** respostas que chegam ja
+comprimidas do upstream:
+
+```nginx
+gzip on;
+gzip_vary on;
+gzip_min_length 1024;
+gzip_proxied off;                  # default: nao gzip-a proxied responses
+gzip_types
+    application/json
+    application/javascript
+    application/xml
+    text/css
+    text/html
+    text/plain
+    text/xml
+    image/svg+xml;
+```
+
+O default do `gzip_proxied` ja e `off`, o que significa que o Nginx **nao**
+toca em respostas vindas do `proxy_pass` (o Node ja entregou gzipado).
+O `gzip on` se aplica ao que o proprio Nginx serve direto (ex.: `alias`
+de `/uploads/` para imagens — que ja sao binarias e nao comprimem,
+portanto inofensivo).
+
+Se preferir centralizar a compressao no Nginx, defina `gzip_proxied any`
+e desabilite o `compression` no Express via flag. Comprimir nos dois
+extremos ao mesmo tempo corrompe `Content-Encoding` e quebra clientes.
+
+O middleware Express respeita o header `X-No-Compression` (skip), util
+para load tests de baseline e comparacoes A/B.
+
+Snippet em `deploy/nginx/plug_server.conf.example` (`03-plug-gzip.conf`).
+
+## 12) TLS global, logs e multi-instancia
 
 - **`nginx.conf` (http):** endurecer `ssl_protocols` para **TLSv1.2 TLSv1.3**, `ssl_prefer_server_ciphers off`, e `server_tokens off` (afeta todos os virtual hosts no mesmo servidor).
 - **Logs:** em Ubuntu o pacote `nginx` costuma instalar rotacao em `/etc/logrotate.d/nginx`; confirmar espaco em disco e retencao.
 - **Multi-instancia / balanceador:** se houver varios processos Node, o storage em `UPLOADS_DIR` tem de ser **partilhado** (NFS, object storage) ou o Nginx tem de servir sempre o mesmo volume; caso contrario thumbnails podem falhar apos mudanca de instancia.
 
-## 12) Sticky session para Socket.IO (multi-replica)
+## 13) Sticky session para Socket.IO (multi-replica)
 
 Quando ha mais de uma replica do `plug_server` por tras do mesmo upstream,
 **todas as conexoes Socket.IO de um cliente tem de cair na mesma replica**.

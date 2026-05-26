@@ -65,16 +65,18 @@ describe("agents.controller", () => {
       ]);
       mockListAgentIdsByUserId.mockResolvedValue(["agent-a"]);
 
+      const request = { headers: {} } as unknown as Parameters<typeof listConnectedAgents>[0];
       const response = {
         locals: {
           authUser: { sub: "user-1", role: "user" },
           validated: { query: {} },
         },
+        setHeader: vi.fn(),
         status: vi.fn().mockReturnThis(),
         json: vi.fn(),
       } as unknown as Response;
 
-      await listConnectedAgents({} as never, response);
+      await listConnectedAgents(request, response);
 
       expect(mockListConnectedAgents).toHaveBeenCalledOnce();
       expect(mockListAgentIdsByUserId).toHaveBeenCalledWith("user-1");
@@ -100,16 +102,18 @@ describe("agents.controller", () => {
       const previousNodeEnv = env.nodeEnv;
       Object.defineProperty(env, "nodeEnv", { value: "development", configurable: true });
 
+      const request = { headers: {} } as unknown as Parameters<typeof listConnectedAgents>[0];
       const response = {
         locals: {
           authUser: { sub: "admin-1", role: "admin" },
           validated: { query: {} },
         },
+        setHeader: vi.fn(),
         status: vi.fn().mockReturnThis(),
         json: vi.fn(),
       } as unknown as Response;
 
-      await listConnectedAgents({} as never, response);
+      await listConnectedAgents(request, response);
 
       expect(mockGetAgentsNamespaceConnectionCount).toHaveBeenCalledOnce();
       expect(response.json).toHaveBeenCalledWith({
@@ -144,6 +148,8 @@ describe("agents.controller", () => {
         writableEnded: false,
         on: vi.fn(),
         off: vi.fn(),
+        once: vi.fn(),
+        setHeader: vi.fn(),
         status: vi.fn().mockReturnThis(),
         json: vi.fn(),
       } as unknown as Response;

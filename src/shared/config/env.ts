@@ -364,6 +364,33 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
   JWT_ISSUER: z.string().min(1).default("plug_server"),
   JWT_AUDIENCE: z.string().min(1).default("plug_clients"),
+  /**
+   * In-memory cache of `verifyAccessToken` results. Cuts repeated jwt.verify
+   * passes for the same token (typical on chatty Socket.IO sessions where
+   * every event re-validates). `0` disables; defaults to 30s. Cache hits still
+   * re-check the JWT `exp` claim before returning the payload, so an expiring
+   * token is never served past its lifetime.
+   */
+  JWT_VERIFY_CACHE_TTL_MS: z.coerce.number().int().min(0).max(300_000).default(30_000),
+  JWT_VERIFY_CACHE_MAX_SIZE: z.coerce.number().int().min(0).max(50_000).default(2_000),
+  /**
+   * Opt-in flag for OpenTelemetry auto-instrumentation of HTTP/Express/Prisma.
+   * When enabled, the SDK is bootstrapped before `createApp` and emits spans
+   * to the OTLP HTTP endpoint configured by `OTEL_EXPORTER_OTLP_ENDPOINT`
+   * (default `http://localhost:4318`). Sampling rate is `OTEL_TRACES_SAMPLER_ARG`.
+   */
+  OTEL_TRACES_ENABLED: z.preprocess(
+    (val) => {
+      if (val !== undefined && val !== "" && String(val).trim() !== "") {
+        return String(val).trim().toLowerCase();
+      }
+      return "false";
+    },
+    z.enum(["true", "false"]).transform((v) => v === "true"),
+  ),
+  OTEL_TRACES_SAMPLER_ARG: z.coerce.number().min(0).max(1).default(0.05),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default("http://localhost:4318"),
+  OTEL_SERVICE_NAME: z.string().default("plug_server"),
   /** Public HTTP base URL for registration approval links (no trailing slash). */
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   /** Receives registration approval / rejection emails. */
@@ -1391,6 +1418,12 @@ export const env = {
   jwtAccessExpiresIn: parsedEnv.JWT_ACCESS_EXPIRES_IN,
   jwtRefreshSecret: parsedEnv.JWT_REFRESH_SECRET,
   jwtRefreshExpiresIn: parsedEnv.JWT_REFRESH_EXPIRES_IN,
+  jwtVerifyCacheTtlMs: parsedEnv.JWT_VERIFY_CACHE_TTL_MS,
+  jwtVerifyCacheMaxSize: parsedEnv.JWT_VERIFY_CACHE_MAX_SIZE,
+  otelTracesEnabled: parsedEnv.OTEL_TRACES_ENABLED,
+  otelTracesSamplerArg: parsedEnv.OTEL_TRACES_SAMPLER_ARG,
+  otelExporterOtlpEndpoint: parsedEnv.OTEL_EXPORTER_OTLP_ENDPOINT,
+  otelServiceName: parsedEnv.OTEL_SERVICE_NAME,
   jwtIssuer: parsedEnv.JWT_ISSUER,
   jwtAudience: parsedEnv.JWT_AUDIENCE,
   payloadSigningKey: parsedEnv.PAYLOAD_SIGNING_KEY,

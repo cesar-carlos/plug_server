@@ -5,6 +5,7 @@ import {
 } from "../../../application/policies/agent_visibility.policy";
 import { container } from "../../../shared/di/container";
 import { forbidden } from "../../../shared/errors/http_errors";
+import { buildWeakETag, sendIfNoneMatch } from "../helpers/weak_etag";
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
 import type { AgentIdParam, ListAgentsQuery } from "../validators/agent_catalog.validator";
@@ -12,7 +13,7 @@ import { toAgentCatalogDto } from "../serializers/agent_catalog.serializer";
 
 export { toAgentCatalogDto };
 
-export const listAgents = async (_request: Request, response: Response): Promise<void> => {
+export const listAgents = async (request: Request, response: Response): Promise<void> => {
   const authUser = getAuthUser(response);
   const query = getValidated<ListAgentsQuery>(response, "query");
 
@@ -34,17 +35,26 @@ export const listAgents = async (_request: Request, response: Response): Promise
           agentIds: visibleAgentIds,
         },
   );
-  response.status(200).json({
+  const payload = {
     agents: pageResult.items.map(toAgentCatalogDto),
     count: pageResult.items.length,
     total: pageResult.total,
     page: pageResult.page,
     pageSize: pageResult.pageSize,
-  });
+  };
+  /**
+   * Catalog reads change rarely; a weak ETag lets pollers short-circuit with
+   * 304 when nothing moved. Headers preserved on both 200 and 304 paths.
+   */
+  const etag = buildWeakETag(payload);
+  if (sendIfNoneMatch(request, response, etag)) {
+    return;
+  }
+  response.status(200).json(payload);
 };
 
 export const getAgent = async (
-  _request: Request,
+  request: Request,
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
@@ -64,7 +74,12 @@ export const getAgent = async (
     next(result.error);
     return;
   }
-  response.status(200).json({ agent: toAgentCatalogDto(result.value) });
+  const payload = { agent: toAgentCatalogDto(result.value) };
+  const etag = buildWeakETag(payload);
+  if (sendIfNoneMatch(request, response, etag)) {
+    return;
+  }
+  response.status(200).json(payload);
 };
 
 export const deactivateAgent = async (

@@ -18,6 +18,7 @@ import {
   toPublicConnectedAgents,
   type PublicConnectedAgent,
 } from "../serializers/agent_registry.serializer";
+import { buildWeakETag, sendIfNoneMatch } from "../helpers/weak_etag";
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
 import { toCorrelationIds } from "../../../shared/utils/bridge_command_correlation";
@@ -48,7 +49,7 @@ const resolveAgentAccessPrincipal = (
 const hasConnectedAgentsPagination = (query: ListConnectedAgentsQuery): boolean =>
   query.page !== undefined || query.pageSize !== undefined;
 
-export const listConnectedAgents = async (_request: Request, response: Response): Promise<void> => {
+export const listConnectedAgents = async (request: Request, response: Response): Promise<void> => {
   const authUser = getAuthUser(response);
   const query = getValidated<ListConnectedAgentsQuery>(response, "query");
 
@@ -101,6 +102,15 @@ export const listConnectedAgents = async (_request: Request, response: Response)
     }
   }
 
+  /**
+   * In-memory registry data changes more frequently than the catalog, but
+   * during a polling burst (UI auto-refresh) consecutive payloads are usually
+   * identical, so the 304 short-circuit still pays off.
+   */
+  const etag = buildWeakETag(payload);
+  if (sendIfNoneMatch(request, response, etag)) {
+    return;
+  }
   response.status(200).json(payload);
 };
 
@@ -187,21 +197,25 @@ export const patchMyAgentProfile = async (
 };
 
 export const proxyCommandToAgent = async (
-  request: Request,
+  _request: Request,
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<AgentCommandBody>(response, "body");
   const authUser = getAuthUser(response);
   const abortController = new AbortController();
-  const abortOnClientDisconnect = (): void => {
+  /**
+   * `response.once("close", ...)` self-removes after firing, dropping the
+   * explicit `response.off(...)` cleanup the previous implementation needed.
+   * Fires on both normal completion and premature client disconnect; the
+   * `writableEnded` guard ensures we only abort the in-flight agent command
+   * when the client disconnected before the response was written.
+   */
+  response.once("close", () => {
     if (!response.writableEnded && !abortController.signal.aborted) {
       abortController.abort();
     }
-  };
-  // `response.close` fires on both normal completion and premature client disconnect;
-  // `request.aborted` was removed in Node.js 18 and is redundant here.
-  response.on("close", abortOnClientDisconnect);
+  });
 
   incrementRestBridgeRequest();
 
@@ -317,7 +331,5 @@ export const proxyCommandToAgent = async (
       });
     }
     next(error);
-  } finally {
-    response.off("close", abortOnClientDisconnect);
   }
 };

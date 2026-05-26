@@ -5,6 +5,7 @@ import { env } from "../config/env";
 import { invalidToken } from "../errors/http_errors";
 import type { Result } from "../errors/result";
 import { tryCatch } from "../errors/try_catch";
+import { TtlCache } from "./ttl_cache";
 
 // ─── Access token ─────────────────────────────────────────────────────────────
 
@@ -16,6 +17,8 @@ export interface JwtAccessPayload {
   readonly agent_id?: string;
   readonly credentials_version?: number;
   readonly iat?: number;
+  /** JWT standard expiration (unix seconds). Always present in tokens we sign. */
+  readonly exp?: number;
   readonly tokenType: "access";
 }
 
@@ -28,7 +31,28 @@ export const signAccessToken = (payload: JwtAccessPayload): string => {
   return jwt.sign(payload, env.jwtAccessSecret, options);
 };
 
-export const verifyAccessToken = (token: string): Result<JwtAccessPayload> => {
+/**
+ * Short-lived cache for `verifyAccessToken` results. Keys are the raw bearer
+ * token; values are the decoded payload (only inserted on success). Cache hits
+ * re-check the JWT `exp` claim before returning so an expired token is never
+ * served from cache. `JWT_VERIFY_CACHE_TTL_MS=0` disables the cache entirely.
+ *
+ * Sized via `JWT_VERIFY_CACHE_MAX_SIZE` (default 2000) to bound RSS in
+ * scenarios with many distinct sockets per replica.
+ */
+const verifyAccessTokenCache = new TtlCache<string, JwtAccessPayload>(
+  env.jwtVerifyCacheTtlMs,
+  env.jwtVerifyCacheMaxSize,
+);
+
+const isStillUnexpired = (payload: JwtAccessPayload, nowSeconds: number): boolean => {
+  if (typeof payload.exp !== "number") {
+    return true;
+  }
+  return payload.exp > nowSeconds;
+};
+
+const verifyAccessTokenUncached = (token: string): Result<JwtAccessPayload> => {
   return tryCatch(
     () => {
       const decoded = jwt.verify(token, env.jwtAccessSecret, {
@@ -48,6 +72,33 @@ export const verifyAccessToken = (token: string): Result<JwtAccessPayload> => {
     "Invalid or expired access token",
     { statusCode: 401, code: "INVALID_TOKEN" },
   );
+};
+
+export const verifyAccessToken = (token: string): Result<JwtAccessPayload> => {
+  if (env.jwtVerifyCacheTtlMs > 0) {
+    const cached = verifyAccessTokenCache.get(token);
+    if (cached !== undefined) {
+      if (isStillUnexpired(cached, Math.floor(Date.now() / 1000))) {
+        return { ok: true, value: cached };
+      }
+      verifyAccessTokenCache.delete(token);
+    }
+  }
+
+  const result = verifyAccessTokenUncached(token);
+  if (result.ok && env.jwtVerifyCacheTtlMs > 0) {
+    verifyAccessTokenCache.set(token, result.value);
+  }
+  return result;
+};
+
+/**
+ * Test-only: clears the in-memory access-token verification cache so unit and
+ * integration suites can flip secrets / token shapes without coalescing on a
+ * cached payload.
+ */
+export const _resetAccessTokenVerifyCacheForTests = (): void => {
+  verifyAccessTokenCache.clear();
 };
 
 // ─── Refresh token ────────────────────────────────────────────────────────────

@@ -3,6 +3,11 @@ import { createServer, type Server as HttpServer } from "node:http";
 import type { Server as SocketIoServer } from "socket.io";
 
 import {
+  initOpenTelemetry,
+  shutdownOpenTelemetry,
+} from "./infrastructure/observability/otel_bootstrap";
+
+import {
   startAgentProfileMaintenanceScheduler,
   startClientAgentAccessExpiryScheduler,
   stopAgentProfileMaintenanceScheduler,
@@ -77,6 +82,14 @@ let io: SocketIoServer | undefined;
 let shutdownInProgress = false;
 
 const bootstrap = async (): Promise<void> => {
+  /**
+   * OpenTelemetry must initialize **before** other modules are loaded so the
+   * `auto-instrumentations-node` package can patch HTTP / Express / Prisma at
+   * require time. The actual SDK boot is a no-op when `OTEL_TRACES_ENABLED`
+   * is false.
+   */
+  await initOpenTelemetry();
+
   await initRestHttpRateLimitRedis();
   await initSocketRateLimitRedis();
   await initClientSocketEventPublishIdempotencyRedis();
@@ -102,29 +115,69 @@ const bootstrap = async (): Promise<void> => {
   logEnvWorldAlignmentHints();
   logEnvRestSocketEventHints();
 
-  startSocketAuditRetentionScheduler({
-    retentionDays: env.socketAuditRetentionDays,
-    intervalMs: env.socketAuditRetentionIntervalMinutes * 60 * 1000,
-    batchSize: env.socketAuditPruneBatchSize,
-  });
+  /**
+   * `bootSafe` swallows synchronous failures from scheduler `start()` calls so
+   * a single misconfigured scheduler does not abort the entire boot. Each
+   * failure is logged with `scheduler_boot_failed` so operators can correlate
+   * a degraded scheduler with a successful but incomplete startup.
+   */
+  const bootSafe = (name: string, fn: () => void): void => {
+    try {
+      fn();
+    } catch (error: unknown) {
+      logger.error("scheduler_boot_failed", {
+        scheduler: name,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+    }
+  };
 
-  startBridgeLatencyTraceRetentionScheduler({
-    intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
-    batchSize: env.bridgeLatencyTracePruneBatchSize,
-  });
-  startBridgeLatencyTraceRollupScheduler();
-  startAgentProfileMaintenanceScheduler({
-    intervalMs: env.agentProfileMaintenanceIntervalMinutes * 60 * 1000,
-    batchSize: env.agentProfileMaintenancePruneBatchSize,
-  });
-  startClientAgentAccessExpiryScheduler({
-    intervalMs: env.clientAgentAccessExpirySweepIntervalMinutes * 60 * 1000,
-    batchSize: env.clientAgentAccessExpirySweepBatchSize,
-  });
-  startRegistrationEmailOutboxWorker(container.emailSender);
-  startRegistrationEmailOutboxDeadLetterScheduler();
-  startAgentIdleTimeoutScheduler(io.of(SOCKET_NAMESPACES.agents));
-  startConsumerIdleTimeoutScheduler(io.of(SOCKET_NAMESPACES.consumers));
+  bootSafe("socket_audit_retention", () =>
+    startSocketAuditRetentionScheduler({
+      retentionDays: env.socketAuditRetentionDays,
+      intervalMs: env.socketAuditRetentionIntervalMinutes * 60 * 1000,
+      batchSize: env.socketAuditPruneBatchSize,
+    }),
+  );
+  bootSafe("bridge_latency_trace_retention", () =>
+    startBridgeLatencyTraceRetentionScheduler({
+      intervalMs: env.bridgeLatencyTraceRetentionIntervalMinutes * 60 * 1000,
+      batchSize: env.bridgeLatencyTracePruneBatchSize,
+    }),
+  );
+  bootSafe("bridge_latency_trace_rollup", () => startBridgeLatencyTraceRollupScheduler());
+  bootSafe("agent_profile_maintenance", () =>
+    startAgentProfileMaintenanceScheduler({
+      intervalMs: env.agentProfileMaintenanceIntervalMinutes * 60 * 1000,
+      batchSize: env.agentProfileMaintenancePruneBatchSize,
+    }),
+  );
+  bootSafe("client_agent_access_expiry", () =>
+    startClientAgentAccessExpiryScheduler({
+      intervalMs: env.clientAgentAccessExpirySweepIntervalMinutes * 60 * 1000,
+      batchSize: env.clientAgentAccessExpirySweepBatchSize,
+    }),
+  );
+  bootSafe("registration_email_outbox_worker", () =>
+    startRegistrationEmailOutboxWorker(container.emailSender),
+  );
+  bootSafe("registration_email_outbox_dead_letter", () =>
+    startRegistrationEmailOutboxDeadLetterScheduler(),
+  );
+  /**
+   * Narrow `io` for the closures: TS cannot prove the module-level binding
+   * is defined inside the lambdas (which run synchronously immediately,
+   * but the analyzer is conservative). Capturing it locally also documents
+   * that the schedulers depend on the just-created socket server.
+   */
+  const ioForSchedulers = io;
+  bootSafe("agent_idle_timeout", () =>
+    startAgentIdleTimeoutScheduler(ioForSchedulers.of(SOCKET_NAMESPACES.agents)),
+  );
+  bootSafe("consumer_idle_timeout", () =>
+    startConsumerIdleTimeoutScheduler(ioForSchedulers.of(SOCKET_NAMESPACES.consumers)),
+  );
 
   httpServer.listen(env.port, "0.0.0.0", () => {
     logger.info("HTTP server started", {
@@ -212,6 +265,7 @@ const shutdown = async (signal: string): Promise<void> => {
     await closeRestHttpRateLimitRedis();
     await closeSocketRateLimitRedis();
     await prismaClient.$disconnect();
+    await shutdownOpenTelemetry();
     logger.info("Shutdown completed", { signal });
     process.exit(0);
   } catch (error: unknown) {

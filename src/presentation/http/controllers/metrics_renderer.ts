@@ -12,6 +12,7 @@ import type { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth
 import type { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
 import type { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/metrics/client_agent_access_request.metrics";
 import type { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
+import type { HttpRedMetricsSnapshot } from "../../../shared/metrics/http_red.metrics";
 import type { getPayloadFrameMetricsSnapshot } from "../../../shared/metrics/payload_frame.metrics";
 import type { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import type { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
@@ -51,6 +52,7 @@ export interface MetricsSnapshots {
   readonly clientAccessRequestPost: ReturnType<typeof getClientAgentAccessRequestPostMetricsSnapshot>;
   readonly clientAccessPublicDecision: ReturnType<typeof getClientAgentAccessPublicDecisionMetricsSnapshot>;
   readonly payloadFrame: ReturnType<typeof getPayloadFrameMetricsSnapshot>;
+  readonly httpRed: HttpRedMetricsSnapshot;
 }
 
 export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
@@ -72,6 +74,7 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     clientAccessRequestPost,
     clientAccessPublicDecision,
     payloadFrame,
+    httpRed,
   } = snapshots;
   const relay = socket.relay;
   const rateLimit = socket.relayRateLimit;
@@ -1979,6 +1982,70 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
   );
   lines.push(metricLine("plug_bridge_latency_trace_prune_failed_total", bridgeLatency.pruneFailed));
   lines.push(metricLine("plug_bridge_latency_trace_queued_rows", bridgeLatency.queuedRows));
+
+  /**
+   * HTTP RED metrics: counter per `method|route|status_bucket`, histogram per
+   * route, and in-flight gauge. Route label is the Express template (e.g.
+   * `/agents/catalog/:agentId`), not the raw URL, to keep label cardinality
+   * proportional to declared routes — not to the actual IDs in production
+   * traffic.
+   */
+  for (const sample of httpRed.requestsTotal) {
+    lines.push(
+      metricLine("plug_http_requests_total", sample.value, {
+        method: sample.method,
+        route: sample.route,
+        status_bucket: sample.statusBucket,
+      }),
+    );
+  }
+  for (const sample of httpRed.requestsInFlight) {
+    lines.push(
+      metricLine("plug_http_requests_in_flight", sample.value, {
+        method: sample.method,
+        route: sample.route,
+      }),
+    );
+  }
+  for (const sample of httpRed.requestDurationSeconds) {
+    for (const bucket of sample.buckets) {
+      lines.push(
+        metricLine("plug_http_request_duration_seconds_bucket", bucket.count, {
+          method: sample.method,
+          route: sample.route,
+          status_bucket: sample.statusBucket,
+          le: String(bucket.le),
+        }),
+      );
+    }
+    /**
+     * Prometheus histograms also need the `+Inf` bucket and the `_count` /
+     * `_sum` aggregators; the +Inf bucket equals the total count by
+     * definition.
+     */
+    lines.push(
+      metricLine("plug_http_request_duration_seconds_bucket", sample.count, {
+        method: sample.method,
+        route: sample.route,
+        status_bucket: sample.statusBucket,
+        le: "+Inf",
+      }),
+    );
+    lines.push(
+      metricLine("plug_http_request_duration_seconds_count", sample.count, {
+        method: sample.method,
+        route: sample.route,
+        status_bucket: sample.statusBucket,
+      }),
+    );
+    lines.push(
+      metricLine("plug_http_request_duration_seconds_sum", sample.sumSeconds, {
+        method: sample.method,
+        route: sample.route,
+        status_bucket: sample.statusBucket,
+      }),
+    );
+  }
 
   return lines;
 };

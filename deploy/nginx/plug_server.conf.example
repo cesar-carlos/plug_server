@@ -37,6 +37,31 @@ limit_req_zone $binary_remote_addr zone=plug_api:10m rate=30r/s;
 limit_req_zone $binary_remote_addr zone=plug_metrics:10m rate=120r/m;
 limit_conn_zone $binary_remote_addr zone=plug_conn:10m;
 
+# --- /etc/nginx/conf.d/03-plug-gzip.conf ---
+# Coordenacao com a app Node: a partir de plug_server >=1.x, o Express aplica
+# `compression` em respostas >=1 KiB quando o cliente envia `Accept-Encoding`.
+# Mantenha `gzip_proxied off` (default do nginx) para nao recomprimir respostas
+# que chegam ja gzipadas do upstream. Nginx continua livre para comprimir o
+# que serve diretamente (ex.: estaticos via `alias` em /uploads/).
+#
+# Para forcar gzip do lado do nginx (e ignorar o Express), defina aqui
+# `gzip_proxied any` E adicione um middleware no Node que respeite o header
+# `X-No-Compression: 1` injetado pelo proxy. Cuidado: comprimir duas vezes
+# (Express -> nginx) corrompe `Content-Encoding`.
+gzip on;
+gzip_vary on;
+gzip_min_length 1024;
+gzip_proxied off;
+gzip_types
+    application/json
+    application/javascript
+    application/xml
+    text/css
+    text/html
+    text/plain
+    text/xml
+    image/svg+xml;
+
 # --- /etc/nginx/snippets/plug_server_proxy.conf ---
 # proxy_http_version 1.1;
 # proxy_set_header Upgrade $http_upgrade;

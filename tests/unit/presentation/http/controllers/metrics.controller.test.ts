@@ -294,23 +294,19 @@ describe("metrics.controller", () => {
 
     expect(mockGetSnapshot).toHaveBeenCalledOnce();
     expect(response.status).toHaveBeenCalledWith(200);
-    expect(response.send).toHaveBeenCalledWith(
-      expect.stringContaining("plug_socket_namespace_connections"),
-    );
-    expect(response.send).toHaveBeenCalledWith(
-      expect.stringContaining('plug_socket_bridge_ack_retry_attempts_total{path="rest"} 0'),
-    );
-    expect(response.send).toHaveBeenCalledWith(
-      expect.stringContaining('plug_socket_bridge_ack_retry_exhausted_total{path="relay"} 0'),
-    );
-    expect(response.send).toHaveBeenCalledWith(
-      expect.stringContaining("plug_agent_idle_timeout_disconnect_total"),
-    );
-    expect(response.send).toHaveBeenCalledWith(
-      expect.stringContaining("plug_consumer_idle_timeout_disconnect_total"),
-    );
-    expect(response.send).toHaveBeenCalledWith(
-      expect.stringContaining('plug_socket_engine_connection_errors_total{code="unknown"} 0'),
-    );
+    /**
+     * `metrics.controller` now caches the rendered body as a `Buffer` to
+     * skip UTF-8 re-encoding on warm hits; decode here so the assertions
+     * remain string-based and human-readable.
+     */
+    const sendCalls = (response.send as ReturnType<typeof vi.fn>).mock.calls;
+    const sendArg = sendCalls[0]?.[0];
+    const body = Buffer.isBuffer(sendArg) ? sendArg.toString("utf-8") : String(sendArg);
+    expect(body).toContain("plug_socket_namespace_connections");
+    expect(body).toContain('plug_socket_bridge_ack_retry_attempts_total{path="rest"} 0');
+    expect(body).toContain('plug_socket_bridge_ack_retry_exhausted_total{path="relay"} 0');
+    expect(body).toContain("plug_agent_idle_timeout_disconnect_total");
+    expect(body).toContain("plug_consumer_idle_timeout_disconnect_total");
+    expect(body).toContain('plug_socket_engine_connection_errors_total{code="unknown"} 0');
   });
 });

@@ -13,6 +13,7 @@ import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_acco
 import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
 import { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/metrics/client_agent_access_request.metrics";
 import { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
+import { getHttpRedMetricsSnapshot } from "../../../shared/metrics/http_red.metrics";
 import { getPayloadFrameMetricsSnapshot } from "../../../shared/metrics/payload_frame.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
@@ -22,8 +23,12 @@ import { container } from "../../../shared/di/container";
 import { buildMetricsLines } from "./metrics_renderer";
 
 const metricsResponseCacheTtlMs = 500;
+/**
+ * Cache holds the **Buffer** rather than the source string so cache hits skip
+ * the UTF-8 encoding pass that `response.send(string)` would do otherwise.
+ */
 let metricsResponseCache: {
-  body: string;
+  body: Buffer;
   expiresAtMs: number;
 } | null = null;
 
@@ -55,9 +60,10 @@ export const getMetrics = (_request: Request, response: Response): void => {
     clientAccessRequestPost: getClientAgentAccessRequestPostMetricsSnapshot(),
     clientAccessPublicDecision: getClientAgentAccessPublicDecisionMetricsSnapshot(),
     payloadFrame: getPayloadFrameMetricsSnapshot(),
+    httpRed: getHttpRedMetricsSnapshot(),
   });
 
-  const body = `${lines.join("\n")}\n`;
+  const body = Buffer.from(`${lines.join("\n")}\n`);
   metricsResponseCache = {
     body,
     expiresAtMs: nowMs + metricsResponseCacheTtlMs,

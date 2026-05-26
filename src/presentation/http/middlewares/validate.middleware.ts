@@ -26,7 +26,10 @@ export const getValidated = <T>(response: Response, key: keyof RequestSchemas): 
  * centralized error middleware maps it to a 400 response.
  *
  * Validated data is stored in `response.locals.validated` and accessible
- * through `getValidated()` in downstream controllers.
+ * through `getValidated()` in downstream controllers. The middleware does
+ * **not** mutate `request.body`/`request.params`/`request.query` — callers
+ * must read via `getValidated()` to get the transformed/coerced shape (e.g.
+ * normalized email casing from Zod `.transform()`).
  */
 export const validateRequest = (schemas: RequestSchemas) => {
   return (request: Request, response: Response, next: NextFunction): void => {
@@ -39,7 +42,6 @@ export const validateRequest = (schemas: RequestSchemas) => {
         return;
       }
       validated.body = bodyResult.data;
-      request.body = bodyResult.data;
     }
 
     if (schemas.params) {
