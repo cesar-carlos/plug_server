@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveStreamChunkOriginalSizeBytes,
   streamChunkMetadataFromPayloadFrame,
-} from "../../../../../src/presentation/socket/hub/stream_chunk_metadata";
+} from "../../../../../src/presentation/socket/hub/relay/stream_chunk_metadata";
 
 describe("stream_chunk_metadata", () => {
   it("builds chunk metadata from PayloadFrame envelope sizes", () => {

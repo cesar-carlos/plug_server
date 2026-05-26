@@ -7,9 +7,9 @@ import { AppError } from "../../../shared/errors/app_error";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { agentIdSchema } from "../../../shared/validators/schemas";
-import { agentRegistry } from "../hub/agent_registry";
-import { refundRelayConversationStartAsync } from "../hub/consumer_relay_rate_limiter";
-import { conversationRegistry } from "../hub/conversation_registry";
+import { agentRegistry } from "../hub/registries/agent_registry";
+import { refundRelayConversationStartAsync } from "../hub/rate_limits/consumer_relay_rate_limiter";
+import { conversationRegistry } from "../hub/registries/conversation_registry";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
@@ -19,7 +19,7 @@ import {
 } from "./per_socket_inflight_gate";
 import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
 import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
-import { findAgentBridgeSocketById } from "../hub/rpc_bridge";
+import { findAgentBridgeSocketById } from "../hub/relay/rpc_bridge";
 
 /**
  * Rate-limit refund policy for `relay:conversation.start` after quota was consumed:

@@ -7,7 +7,7 @@ import {
   restSqlStreamMaterializeReset,
   restSqlStreamMaterializeSeedCredits,
   stepRestSqlStreamMaterializeCredits,
-} from "../../../../../src/presentation/socket/hub/rest_sql_stream_materialize";
+} from "../../../../../src/presentation/socket/hub/relay/rest_sql_stream_materialize";
 
 describe("rest_sql_stream_materialize", () => {
   afterEach(() => {

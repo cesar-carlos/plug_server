@@ -6,12 +6,12 @@ import { notFound } from "../../../shared/errors/http_errors";
 import { AppError } from "../../../shared/errors/app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { conversationIdSchema } from "../../../shared/validators/schemas";
-import { conversationRegistry } from "../hub/conversation_registry";
+import { conversationRegistry } from "../hub/registries/conversation_registry";
 import {
   buildRelayConversationEndedPayload,
   cleanupConversationStreamSubscriptions,
   findAgentBridgeSocketById,
-} from "../hub/rpc_bridge";
+} from "../hub/relay/rpc_bridge";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 
 const relayConversationEndRequestIdMaxLength = 128;

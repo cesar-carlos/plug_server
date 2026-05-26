@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { isAgentConnectedToHub } from "../../../../../src/presentation/socket/hub/agent_hub_connection";
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 
 describe("isAgentConnectedToHub", () => {
   afterEach(() => {

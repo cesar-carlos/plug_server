@@ -8,8 +8,8 @@ import {
   bridgeCommandSchema,
   supportedAgentRpcMethods,
 } from "../../src/shared/validators/agent_command";
-import { validateAgentInboundContract } from "../../src/presentation/socket/hub/agent_inbound_contract_validation";
-import { withBridgeMeta } from "../../src/presentation/socket/hub/rpc_bridge_command_helpers";
+import { validateAgentInboundContract } from "../../src/presentation/socket/hub/handshake/agent_inbound_contract_validation";
+import { withBridgeMeta } from "../../src/presentation/socket/hub/relay/rpc_bridge_command_helpers";
 import { HUB_TRANSPORT_EXTENSIONS } from "../../src/shared/constants/agent_transport_contract";
 import { env } from "../../src/shared/config/env";
 import { socketEvents } from "../../src/shared/constants/socket_events";
@@ -52,7 +52,7 @@ function readOpenRpcMajorMinor(version: string): string {
 }
 
 function readHubPlugProfileMajorMinor(profile: string): string {
-  const match = /^plug-jsonrpc-profile\/(\d+\.\d+)$/u.exec(profile);
+  const match = /^plug-jsonrpc-profile\/(\d+\.\d+)(?:\.\d+)?$/u.exec(profile);
   expect(match).not.toBeNull();
   return match?.[1] ?? "";
 }

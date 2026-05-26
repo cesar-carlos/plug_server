@@ -12,14 +12,14 @@ import {
   extractSocketEventRequestId,
   socketEventSubscriptionSchema,
 } from "../../../shared/validators/custom_socket_event";
-import { buildCustomSocketEventRoom } from "../hub/custom_socket_event_rooms";
-import { allowCustomSocketEventSubscriptionControl } from "../hub/custom_socket_event_subscription_limiter";
+import { buildCustomSocketEventRoom } from "../hub/custom_events/custom_socket_event_rooms";
+import { allowCustomSocketEventSubscriptionControl } from "../hub/rate_limits/custom_socket_event_subscription_limiter";
 import {
   addCustomSocketEventSubscription,
   countCustomSocketEventSubscriptionsBySocketId,
   hasCustomSocketEventSubscription,
   removeCustomSocketEventSubscription,
-} from "../hub/custom_socket_event_subscription_registry";
+} from "../hub/custom_events/custom_socket_event_subscription_registry";
 import {
   assertActiveClientCustomSocketEventPrincipal,
   disconnectSocketAfterCustomSocketEventAuthFailure,

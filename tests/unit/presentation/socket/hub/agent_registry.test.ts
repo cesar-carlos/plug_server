@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { env } from "../../../../../src/shared/config/env";
 
 describe("agent_registry session policies", () => {

@@ -4,7 +4,7 @@ import { env } from "../../../../../src/shared/config/env";
 import {
   allowCustomSocketEventSubscriptionControl,
   resetCustomSocketEventSubscriptionRateLimitState,
-} from "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_limiter";
+} from "../../../../../src/presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
 
 const mutableEnv = env as unknown as {
   socketCustomEventSubscriptionRateLimitWindowMs: number;

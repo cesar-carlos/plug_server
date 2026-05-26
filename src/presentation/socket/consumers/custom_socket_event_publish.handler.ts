@@ -7,7 +7,7 @@ import {
 import {
   allowClientSocketEventPublishSocketAsync,
   refundClientSocketEventPublishSocketAsync,
-} from "../hub/client_socket_event_publish_socket_rate_limiter";
+} from "../hub/rate_limits/client_socket_event_publish_socket_rate_limiter";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { AppError } from "../../../shared/errors/app_error";

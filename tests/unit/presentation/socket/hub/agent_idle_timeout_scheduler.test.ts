@@ -1,11 +1,12 @@
+import type { Namespace } from "socket.io";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import {
   startAgentIdleTimeoutScheduler,
   stopAgentIdleTimeoutScheduler,
   sweepIdleAgentConnections,
-} from "../../../../../src/presentation/socket/hub/agent_idle_timeout_scheduler";
+} from "../../../../../src/presentation/socket/hub/scheduling/agent_idle_timeout_scheduler";
 import {
   getSocketAgentMetricsSnapshot,
   resetSocketAgentMetrics,
@@ -17,7 +18,7 @@ const mockSockets = new Map<string, { connected: boolean; disconnect: typeof dis
 
 const mockNamespace = {
   sockets: mockSockets,
-} as unknown as import("socket.io").Namespace;
+} as unknown as Namespace;
 
 vi.mock("../../../../../src/shared/config/env", () => ({
   env: {

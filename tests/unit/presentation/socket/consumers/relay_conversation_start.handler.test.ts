@@ -9,23 +9,23 @@ vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard"
   resolveSocketActorRole: vi.fn(() => "user"),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/agent_registry", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/registries/agent_registry", () => ({
   agentRegistry: {
     findByAgentId: vi.fn(),
   },
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/conversation_registry", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/registries/conversation_registry", () => ({
   conversationRegistry: {
     tryReserveAndCreate: vi.fn(),
   },
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/rpc_bridge", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/relay/rpc_bridge", () => ({
   findAgentBridgeSocketById: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter", () => ({
   refundRelayConversationStartAsync: vi.fn(),
 }));
 
@@ -48,10 +48,10 @@ import {
 } from "../../../../../src/presentation/socket/consumers/relay_conversation_start.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
-import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
-import { findAgentBridgeSocketById } from "../../../../../src/presentation/socket/hub/rpc_bridge";
-import { refundRelayConversationStartAsync } from "../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
+import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
+import { findAgentBridgeSocketById } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
+import { refundRelayConversationStartAsync } from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
 import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,

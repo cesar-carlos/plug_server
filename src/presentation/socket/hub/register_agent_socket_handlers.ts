@@ -9,36 +9,36 @@
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Namespace, Socket } from "socket.io";
 
-import { AgentProfileSyncScheduler } from "./agent_profile_sync_scheduler";
-import { agentRegistry } from "./agent_registry";
+import { AgentProfileSyncScheduler } from "./scheduling/agent_profile_sync_scheduler";
+import { agentRegistry } from "./registries/agent_registry";
 import {
   acquireAgentProfileSyncSlot,
   resetAgentProfileSyncConcurrency,
-} from "./agent_profile_sync_concurrency";
+} from "./scheduling/agent_profile_sync_concurrency";
 import {
   allowAgentProfileSocketUpdate,
   clearAgentProfileSocketRateLimitStateForAgentId,
   clearAgentProfileSocketRateLimitStateForSocketId,
-} from "./agent_profile_socket_rate_limiter";
+} from "./rate_limits/agent_profile_socket_rate_limiter";
 import {
   AGENT_REGISTER_RATE_LIMIT_MESSAGE,
   AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
   AGENT_SESSION_SUPERSEDED_MESSAGE,
   emitAgentRegisterError,
-} from "./agent_register_error";
+} from "./handshake/agent_register_error";
 import {
   tryConsumeAgentRegisterRateLimitAsync,
-} from "./agent_register_rate_limit";
-import { parseAgentReadyPayload } from "./agent_ready_payload";
-import { emitConnectionReady } from "./connection_ready_handshake";
-import { conversationRegistry } from "./conversation_registry";
+} from "./rate_limits/agent_register_rate_limit";
+import { parseAgentReadyPayload } from "./handshake/agent_ready_payload";
+import { emitConnectionReady } from "./handshake/connection_ready_handshake";
+import { conversationRegistry } from "./registries/conversation_registry";
 import {
   cleanupAgentInboundSocketState,
   cleanupAgentStreamSubscriptions,
   cleanupConversationStreamSubscriptions,
   cleanupPendingRequestsForAgentSocket,
   buildRelayConversationEndedPayload,
-} from "./rpc_bridge";
+} from "./relay/rpc_bridge";
 import {
   dispatchRpcCommandToAgent,
   handleAgentRpcResponse,
@@ -48,7 +48,7 @@ import {
   handleAgentRpcComplete,
   registerAgentBridgeSocket,
   unregisterAgentBridgeSocket,
-} from "./rpc_bridge";
+} from "./relay/rpc_bridge";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";

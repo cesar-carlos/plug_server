@@ -7,10 +7,10 @@ import {
   registerAgentFailure,
   relayMetrics,
   resetRelayHubHealthAndMetrics,
-} from "../../../../../src/presentation/socket/hub/bridge_relay_health_metrics";
-import { resetRelayRequestRegistry } from "../../../../../src/presentation/socket/hub/relay_request_registry";
-import { resetRestPendingRequestsStore } from "../../../../../src/presentation/socket/hub/rest_pending_requests";
-import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
+} from "../../../../../src/presentation/socket/hub/relay/bridge_relay_health_metrics";
+import { resetRelayRequestRegistry } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
+import { resetRestPendingRequestsStore } from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
+import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 
 afterEach(() => {
   resetRelayHubHealthAndMetrics();

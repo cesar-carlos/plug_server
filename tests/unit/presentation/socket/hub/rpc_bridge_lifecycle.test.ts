@@ -8,27 +8,27 @@ import {
   cleanupPendingRequestsForAgentSocket,
   finalizeConversationsClosedByConsumerDisconnect,
   finalizeExpiredConversations,
-} from "../../../../../src/presentation/socket/hub/rpc_bridge_lifecycle";
+} from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_lifecycle";
 import {
   getActiveStreamRouteByRequestId,
   resetActiveStreamRegistry,
   upsertActiveStreamRoute,
-} from "../../../../../src/presentation/socket/hub/active_stream_registry";
+} from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
 import {
   getRelayRequestRoute,
   registerRelayRequestRoute,
   resetRelayRequestRegistry,
-} from "../../../../../src/presentation/socket/hub/relay_request_registry";
+} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
   getRelayIdempotencyMap,
   resetRelayIdempotencyStore,
   setRelayIdempotencyEntry,
-} from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
+} from "../../../../../src/presentation/socket/hub/registries/relay_idempotency_store";
 import {
   getRestPendingRequestCount,
   registerRestPendingRequest,
   resetRestPendingRequestsStore,
-} from "../../../../../src/presentation/socket/hub/rest_pending_requests";
+} from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
 import { env } from "../../../../../src/shared/config/env";
 
 describe("rpc_bridge_lifecycle", () => {

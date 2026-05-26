@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { validateAgentInboundContract } from "../../../../../src/presentation/socket/hub/agent_inbound_contract_validation";
+import { validateAgentInboundContract } from "../../../../../src/presentation/socket/hub/handshake/agent_inbound_contract_validation";
 import { env } from "../../../../../src/shared/config/env";
 import { HUB_MAX_BATCH_SIZE } from "../../../../../src/shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";

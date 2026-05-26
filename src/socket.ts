@@ -7,8 +7,8 @@ import {
   authenticateAgentSocket,
   authenticateConsumerSocket,
 } from "./presentation/socket/auth/socket_namespace_auth.middleware";
-import { agentRegistry } from "./presentation/socket/hub/agent_registry";
-import type { RelayConversation } from "./presentation/socket/hub/conversation_registry";
+import { agentRegistry } from "./presentation/socket/hub/registries/agent_registry";
+import type { RelayConversation } from "./presentation/socket/hub/registries/conversation_registry";
 import { resetConsumerCommandAbortRegistry } from "./presentation/socket/consumers/consumer_command_abort_registry";
 import {
   finalizeExpiredConversations,
@@ -19,30 +19,30 @@ import {
   registerSocketBridgeServer,
   unregisterConsumerBridgeServer,
   unregisterSocketBridgeServer,
-} from "./presentation/socket/hub/rpc_bridge";
-import { relayMetrics } from "./presentation/socket/hub/bridge_relay_health_metrics";
-import { conversationRegistry } from "./presentation/socket/hub/conversation_registry";
-import { consumerRegistry } from "./presentation/socket/hub/consumer_registry";
+} from "./presentation/socket/hub/relay/rpc_bridge";
+import { relayMetrics } from "./presentation/socket/hub/relay/bridge_relay_health_metrics";
+import { conversationRegistry } from "./presentation/socket/hub/registries/conversation_registry";
+import { consumerRegistry } from "./presentation/socket/hub/registries/consumer_registry";
 import {
   getRelayRateLimitMetricsSnapshot,
   resetRelayRateLimiterState,
   sweepRelayRateLimitState,
-} from "./presentation/socket/hub/consumer_relay_rate_limiter";
+} from "./presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
 import {
   getAgentsCommandSocketRateLimitMetricsSnapshot,
   resetAgentsCommandSocketRateLimitState,
   sweepAgentsCommandSocketRateLimitState,
-} from "./presentation/socket/hub/agents_command_socket_rate_limiter";
+} from "./presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 import {
   getClientSocketEventPublishSocketRateLimitMetricsSnapshot,
   resetClientSocketEventPublishSocketRateLimitState,
   sweepClientSocketEventPublishSocketRateLimitState,
-} from "./presentation/socket/hub/client_socket_event_publish_socket_rate_limiter";
+} from "./presentation/socket/hub/rate_limits/client_socket_event_publish_socket_rate_limiter";
 import {
   resetAgentProfileSocketRateLimitState,
   sweepAgentProfileSocketRateLimitState,
-} from "./presentation/socket/hub/agent_profile_socket_rate_limiter";
-import { sweepRelayOutboundQueueState } from "./presentation/socket/hub/relay_outbound_queue";
+} from "./presentation/socket/hub/rate_limits/agent_profile_socket_rate_limiter";
+import { sweepRelayOutboundQueueState } from "./presentation/socket/hub/relay/relay_outbound_queue";
 import { registerAgentProfileBroadcastHandler } from "./application/services/agent_profile_broadcast_sink";
 import { registerAgentSocketControlHandler } from "./application/services/agent_socket_control_sink";
 import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
@@ -57,20 +57,20 @@ import {
   buildConsumerClientRoom as buildClientRoomName,
   joinConsumerClientAgentRoom,
 } from "./presentation/socket/hub/consumer_identity_rooms";
-import { shouldSkipCustomSocketEventZeroRecipientEarlyReturn } from "./presentation/socket/hub/custom_socket_event_room_recipient_count";
+import { shouldSkipCustomSocketEventZeroRecipientEarlyReturn } from "./presentation/socket/hub/custom_events/custom_socket_event_room_recipient_count";
 import {
   countDistributedRoomRecipients,
   createInitialDistributedCountCircuitState,
   enforceCustomEventDistributedCountCircuit,
   resetCustomEventDistributedCountCircuit,
   type DistributedCountCircuitState,
-} from "./presentation/socket/hub/custom_socket_event_distributed_count_circuit";
+} from "./presentation/socket/hub/custom_events/custom_socket_event_distributed_count_circuit";
 import {
   clearConsumerProfilePushState,
   scheduleAgentProfilePush,
   scheduleConsumerClientAgentRoomReconcile,
   type PendingAgentProfilePush,
-} from "./presentation/socket/hub/consumer_client_agent_room_reconcile";
+} from "./presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
 import {
   registerConsumerSocketConnectionHandlers,
   runConsumerSocketDisconnectCleanup as runConsumerSocketDisconnectCleanupImpl,
@@ -80,9 +80,9 @@ import {
   resetAgentProfileSyncScheduler,
 } from "./presentation/socket/hub/register_agent_socket_handlers";
 import { registerSocketHubErrorHandlers } from "./presentation/socket/hub/socket_hub_error_handlers";
-import { buildCustomSocketEventRoom } from "./presentation/socket/hub/custom_socket_event_rooms";
-import { resetCustomSocketEventSubscriptionRateLimitState } from "./presentation/socket/hub/custom_socket_event_subscription_limiter";
-import { resetCustomSocketEventSubscriptions } from "./presentation/socket/hub/custom_socket_event_subscription_registry";
+import { buildCustomSocketEventRoom } from "./presentation/socket/hub/custom_events/custom_socket_event_rooms";
+import { resetCustomSocketEventSubscriptionRateLimitState } from "./presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
+import { resetCustomSocketEventSubscriptions } from "./presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { resetBridgeRpcMethodMetrics } from "./application/services/bridge_rpc_method_metrics.service";
 import { buildCorsOptions } from "./shared/config/cors";
@@ -122,7 +122,7 @@ import {
 } from "./shared/utils/payload_frame";
 import {
   resetAgentRegisterRateLimitState,
-} from "./presentation/socket/hub/agent_register_rate_limit";
+} from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
 import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
 
 type ConsumerSocketData = {
@@ -166,7 +166,7 @@ const activeSocketServers: Server[] = [];
 export {
   resolveConsumerClientAgentRoomReconcileStartDelayMs,
   selectReconcileClientEntries,
-} from "./presentation/socket/hub/consumer_client_agent_room_reconcile";
+} from "./presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
 
 const createSocketServerState = (
   io: Server,

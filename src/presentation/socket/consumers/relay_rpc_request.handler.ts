@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
-import { dispatchRelayRpcToAgent } from "../hub/rpc_bridge";
+import { dispatchRelayRpcToAgent } from "../hub/relay/rpc_bridge";
 import { AppError } from "../../../shared/errors/app_error";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -11,8 +11,8 @@ import { conversationIdSchema } from "../../../shared/validators/schemas";
 import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { isRecord } from "../../../shared/utils/rpc_types";
-import { conversationRegistry } from "../hub/conversation_registry";
-import { refundRelayRpcRequestAsync } from "../hub/consumer_relay_rate_limiter";
+import { conversationRegistry } from "../hub/registries/conversation_registry";
+import { refundRelayRpcRequestAsync } from "../hub/rate_limits/consumer_relay_rate_limiter";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {

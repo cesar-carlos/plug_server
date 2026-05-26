@@ -13,7 +13,7 @@ import type { Socket } from "socket.io";
 import { executeAuthorizedAgentCommand } from "../../../application/agent_commands/execute_authorized_agent_command";
 import { container } from "../../../shared/di/container";
 import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
-import { dispatchRpcCommandToAgent } from "../hub/rpc_bridge";
+import { dispatchRpcCommandToAgent } from "../hub/relay/rpc_bridge";
 import { buildAgentOfflineNormalizedResponse } from "../../http/serializers/agent_offline_bridge_response";
 import { normalizeAgentRpcResponse } from "../../http/serializers/agent_rpc_response.serializer";
 import { env } from "../../../shared/config/env";
@@ -26,14 +26,14 @@ import { AppError } from "../../../shared/errors/app_error";
 import {
   allowAgentsCommandSocketAsync,
   estimateAgentsCommandRateLimitCost,
-} from "../hub/agents_command_socket_rate_limiter";
+} from "../hub/rate_limits/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,
 } from "./per_socket_inflight_gate";
-import { toCorrelationIds } from "../hub/rpc_bridge_command_helpers";
+import { toCorrelationIds } from "../hub/relay/rpc_bridge_command_helpers";
 import { resolveAppErrorRetryAfterMs, resolveRpcRetryAfterSeconds } from "./socket_retry_after";
 import {
   noteAgentsCommandRetryAfterSecondsPropagated,

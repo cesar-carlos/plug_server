@@ -23,16 +23,16 @@ import {
   handleRelayRpcStreamPull,
   parseRelayRpcStreamPullEnvelope,
 } from "../consumers/relay_rpc_stream_pull.handler";
-import { observeRelayOverloadCheck } from "./bridge_relay_health_metrics";
-import { emitConnectionReady } from "./connection_ready_handshake";
-import { conversationRegistry } from "./conversation_registry";
+import { observeRelayOverloadCheck } from "./relay/bridge_relay_health_metrics";
+import { emitConnectionReady } from "./handshake/connection_ready_handshake";
+import { conversationRegistry } from "./registries/conversation_registry";
 import {
   backfillConsumerApprovedAgentRooms,
   reconcileConsumerClientAgentRoomsForSocket,
   type ConsumerClientAgentRoomBootstrapState,
-} from "./consumer_client_agent_room_reconcile";
-import { consumerRegistry } from "./consumer_registry";
-import { touchConsumerRegistryOnInboundEvent } from "./consumer_idle_touch_events";
+} from "./scheduling/consumer_client_agent_room_reconcile";
+import { consumerRegistry } from "./registries/consumer_registry";
+import { touchConsumerRegistryOnInboundEvent } from "./scheduling/consumer_idle_touch_events";
 import {
   buildConsumerClientRoom as buildClientRoomName,
   buildConsumerPrincipalRoom as buildPrincipalRoomName,
@@ -41,21 +41,21 @@ import {
   allowRelayConversationStartAsync,
   allowRelayRpcRequestAsync,
   clearRelayRateLimitStateByConsumerSocket,
-} from "./consumer_relay_rate_limiter";
-import { clearAgentsCommandSocketRateLimitStateForSocketId } from "./agents_command_socket_rate_limiter";
-import { clearCustomSocketEventSubscriptionRateLimitState } from "./custom_socket_event_subscription_limiter";
-import { removeCustomSocketEventSubscriptionsBySocketId } from "./custom_socket_event_subscription_registry";
+} from "./rate_limits/consumer_relay_rate_limiter";
+import { clearAgentsCommandSocketRateLimitStateForSocketId } from "./rate_limits/agents_command_socket_rate_limiter";
+import { clearCustomSocketEventSubscriptionRateLimitState } from "./rate_limits/custom_socket_event_subscription_limiter";
+import { removeCustomSocketEventSubscriptionsBySocketId } from "./custom_events/custom_socket_event_subscription_registry";
 import {
   buildRelayConversationEndedPayload,
   cleanupConsumerStreamSubscriptions,
   finalizeConversationsClosedByConsumerDisconnect,
   registerConsumerBridgeSocket,
   unregisterConsumerBridgeSocket,
-} from "./rpc_bridge";
+} from "./relay/rpc_bridge";
 import {
   getRelayOutboundQueueOverloadState,
   noteRelayOutboundQueueOverloadRejected,
-} from "./relay_outbound_queue";
+} from "./relay/relay_outbound_queue";
 import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import {
@@ -66,7 +66,7 @@ import {
 } from "../../../shared/metrics/socket_consumer.metrics";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { logger } from "../../../shared/utils/logger";
-import { clearAgentProfileSocketRateLimitStateForSocketId } from "./agent_profile_socket_rate_limiter";
+import { clearAgentProfileSocketRateLimitStateForSocketId } from "./rate_limits/agent_profile_socket_rate_limiter";
 import { clearInflightValidationForSocket } from "../auth/ensure_socket_active_account";
 
 type SocketData = {

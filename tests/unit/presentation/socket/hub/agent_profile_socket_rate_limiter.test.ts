@@ -21,7 +21,7 @@ import {
   clearAgentProfileSocketRateLimitStateForSocketId,
   resetAgentProfileSocketRateLimitState,
   sweepAgentProfileSocketRateLimitState,
-} from "../../../../../src/presentation/socket/hub/agent_profile_socket_rate_limiter";
+} from "../../../../../src/presentation/socket/hub/rate_limits/agent_profile_socket_rate_limiter";
 
 describe("agent_profile_socket_rate_limiter", () => {
   beforeEach(() => {

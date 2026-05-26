@@ -10,7 +10,7 @@ vi.mock("../../../../../src/application/services/client_socket_event_publish.ser
 }));
 
 vi.mock(
-  "../../../../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter",
+  "../../../../../src/presentation/socket/hub/rate_limits/client_socket_event_publish_socket_rate_limiter",
   () => ({
     allowClientSocketEventPublishSocketAsync: vi.fn(),
     refundClientSocketEventPublishSocketAsync: vi.fn(),
@@ -54,7 +54,7 @@ import { executeClientSocketEventPublish } from "../../../../../src/application/
 import {
   allowClientSocketEventPublishSocketAsync,
   refundClientSocketEventPublishSocketAsync,
-} from "../../../../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter";
+} from "../../../../../src/presentation/socket/hub/rate_limits/client_socket_event_publish_socket_rate_limiter";
 import {
   handleCustomSocketEventPublish,
   shouldRefundSocketCustomEventPublishRateLimit,

@@ -4,7 +4,7 @@ import type { Socket } from "socket.io";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
 vi.mock(
-  "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_limiter",
+  "../../../../../src/presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter",
   () => ({
     allowCustomSocketEventSubscriptionControl: vi.fn(() => ({
       allowed: true,
@@ -16,7 +16,7 @@ vi.mock(
 );
 
 vi.mock(
-  "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_registry",
+  "../../../../../src/presentation/socket/hub/custom_events/custom_socket_event_subscription_registry",
   () => ({
     addCustomSocketEventSubscription: vi.fn(() => true),
     hasCustomSocketEventSubscription: vi.fn(() => false),
@@ -61,7 +61,7 @@ vi.mock("../../../../../src/presentation/socket/consumers/custom_socket_event_gu
   disconnectSocketAfterCustomSocketEventAuthFailure: vi.fn(),
 }));
 
-import { allowCustomSocketEventSubscriptionControl } from "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_limiter";
+import { allowCustomSocketEventSubscriptionControl } from "../../../../../src/presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
 import {
   handleCustomSocketEventSubscribe,
   handleCustomSocketEventUnsubscribe,
@@ -69,7 +69,7 @@ import {
 import {
   addCustomSocketEventSubscription,
   removeCustomSocketEventSubscription,
-} from "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_registry";
+} from "../../../../../src/presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
 import {
   noteCustomSocketEventSubscriptionForbidden,
   noteCustomSocketEventSubscriptionRejected,

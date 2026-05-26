@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { PendingRequest } from "../../../../../src/presentation/socket/hub/rest_pending_requests";
+import type { PendingRequest } from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
 import {
   clearRestPendingRequest,
   forEachUniqueRestPendingRequest,
@@ -8,8 +8,8 @@ import {
   hasRestPendingCorrelationId,
   registerRestPendingRequest,
   resetRestPendingRequestsStore,
-} from "../../../../../src/presentation/socket/hub/rest_pending_requests";
-import { resetRpcBridgeMutableStores } from "../../../../../src/presentation/socket/hub/rpc_bridge_lifecycle";
+} from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
+import { resetRpcBridgeMutableStores } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_lifecycle";
 
 afterEach(() => {
   resetRestPendingRequestsStore();

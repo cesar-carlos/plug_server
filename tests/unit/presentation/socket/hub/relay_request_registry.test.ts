@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { RelayRequestRoute } from "../../../../../src/presentation/socket/hub/relay_request_registry";
+import type { RelayRequestRoute } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
   findRelayRequestRouteForAgentSocket,
   getRelayPendingRequestCountForConversation,
@@ -9,11 +9,11 @@ import {
   registerRelayRequestRoute,
   removeRelayRequestRoute,
   resetRelayRequestRegistry,
-} from "../../../../../src/presentation/socket/hub/relay_request_registry";
+} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
   relayStreamFlowState,
   resetRelayStreamFlowState,
-} from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
+} from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 
 afterEach(() => {
   resetRelayRequestRegistry();

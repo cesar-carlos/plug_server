@@ -53,11 +53,11 @@ import { prismaClient } from "./infrastructure/database/prisma/client";
 import {
   startAgentIdleTimeoutScheduler,
   stopAgentIdleTimeoutScheduler,
-} from "./presentation/socket/hub/agent_idle_timeout_scheduler";
+} from "./presentation/socket/hub/scheduling/agent_idle_timeout_scheduler";
 import {
   startConsumerIdleTimeoutScheduler,
   stopConsumerIdleTimeoutScheduler,
-} from "./presentation/socket/hub/consumer_idle_timeout_scheduler";
+} from "./presentation/socket/hub/scheduling/consumer_idle_timeout_scheduler";
 import { closeSocketServer, createSocketServer } from "./socket";
 import { SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { container } from "./shared/di/container";
@@ -66,7 +66,7 @@ import { logEnvRestSocketEventHints } from "./shared/config/log_env_rest_socket_
 import { logEnvWorldAlignmentHints } from "./shared/config/log_env_world_alignment";
 import { logSocketAuthBootstrapHints } from "./shared/config/log_socket_auth_bootstrap_hints";
 import { logSocketConsumerBootstrapHints } from "./shared/config/log_socket_consumer_bootstrap_hints";
-import { warnIfConnectionReadyLegacyCompatExpired } from "./presentation/socket/hub/connection_ready_handshake";
+import { warnIfConnectionReadyLegacyCompatExpired } from "./presentation/socket/hub/handshake/connection_ready_handshake";
 import { warnIfAgentsCommandLegacyCompatExpired } from "./presentation/socket/consumers/agents_command_wire";
 import { warnIfAgentsStreamPullLegacyCompatExpired } from "./presentation/socket/consumers/agents_stream_pull_wire";
 import { logger } from "./shared/utils/logger";

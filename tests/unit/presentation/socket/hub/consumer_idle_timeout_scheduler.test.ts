@@ -1,11 +1,12 @@
+import type { Namespace } from "socket.io";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { consumerRegistry } from "../../../../../src/presentation/socket/hub/consumer_registry";
+import { consumerRegistry } from "../../../../../src/presentation/socket/hub/registries/consumer_registry";
 import {
   startConsumerIdleTimeoutScheduler,
   stopConsumerIdleTimeoutScheduler,
   sweepIdleConsumerConnections,
-} from "../../../../../src/presentation/socket/hub/consumer_idle_timeout_scheduler";
+} from "../../../../../src/presentation/socket/hub/scheduling/consumer_idle_timeout_scheduler";
 import {
   getSocketConsumerMetricsSnapshot,
   resetSocketConsumerMetrics,
@@ -22,7 +23,7 @@ const mockSockets = new Map<
 
 const mockNamespace = {
   sockets: mockSockets,
-} as unknown as import("socket.io").Namespace;
+} as unknown as Namespace;
 
 vi.mock("../../../../../src/shared/config/env", () => ({
   env: {

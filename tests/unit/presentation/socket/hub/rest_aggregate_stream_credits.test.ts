@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { stepRestSqlStreamMaterializeCredits } from "../../../../../src/presentation/socket/hub/rest_sql_stream_materialize";
+import { stepRestSqlStreamMaterializeCredits } from "../../../../../src/presentation/socket/hub/relay/rest_sql_stream_materialize";
 
 /**
  * Simulates initial pull + chunk sequence using the same pure step as production.

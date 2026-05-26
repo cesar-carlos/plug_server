@@ -80,7 +80,7 @@ import {
 } from "../../presentation/adapters/rest_agent_bridge.adapters";
 import { createSocketMetricsSnapshotProvider } from "../../presentation/adapters/socket_metrics_snapshot.adapter";
 import { isAgentConnectedToHub } from "../../presentation/socket/hub/agent_hub_connection";
-import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/rpc_bridge";
+import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/relay/rpc_bridge";
 import { env } from "../config/env";
 
 const passwordHasher = new BcryptPasswordHasher();

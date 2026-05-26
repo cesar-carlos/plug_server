@@ -8,7 +8,7 @@ import {
   removeCustomSocketEventSubscription,
   removeCustomSocketEventSubscriptionsBySocketId,
   resetCustomSocketEventSubscriptions,
-} from "../../../../../src/presentation/socket/hub/custom_socket_event_subscription_registry";
+} from "../../../../../src/presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
 
 describe("custom_socket_event_subscription_registry", () => {
   beforeEach(() => {

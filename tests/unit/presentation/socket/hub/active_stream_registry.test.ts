@@ -10,7 +10,7 @@ import {
   resolveActiveStreamRoute,
   resetActiveStreamRegistry,
   upsertActiveStreamRoute,
-} from "../../../../../src/presentation/socket/hub/active_stream_registry";
+} from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
 
 afterEach(() => {
   resetActiveStreamRegistry();

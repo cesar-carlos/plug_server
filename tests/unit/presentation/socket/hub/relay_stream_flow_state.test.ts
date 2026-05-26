@@ -16,7 +16,7 @@ import {
   drainRelayStreamBuffer,
   getRelayStreamForwardedRows,
   getRelayStreamBufferedChunkCount,
-} from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
+} from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 
 afterEach(() => {
   resetRelayStreamFlowState();

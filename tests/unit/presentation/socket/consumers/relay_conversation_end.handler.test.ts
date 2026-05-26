@@ -4,14 +4,14 @@ vi.mock("../../../../../src/application/services/socket_audit.service", () => ({
   recordSocketAuditEvent: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/conversation_registry", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/registries/conversation_registry", () => ({
   conversationRegistry: {
     findByConversationId: vi.fn(),
     removeByConversationId: vi.fn(),
   },
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/rpc_bridge", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/relay/rpc_bridge", () => ({
   buildRelayConversationEndedPayload: vi.fn((conversationId: string, reason: string) => ({
     success: true,
     conversationId,
@@ -23,11 +23,11 @@ vi.mock("../../../../../src/presentation/socket/hub/rpc_bridge", () => ({
 
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { handleRelayConversationEnd } from "../../../../../src/presentation/socket/consumers/relay_conversation_end.handler";
-import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
+import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 import {
   cleanupConversationStreamSubscriptions,
   findAgentBridgeSocketById,
-} from "../../../../../src/presentation/socket/hub/rpc_bridge";
+} from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
 
 const mockedFindConversation = vi.mocked(conversationRegistry.findByConversationId);
 const mockedRemoveConversation = vi.mocked(conversationRegistry.removeByConversationId);

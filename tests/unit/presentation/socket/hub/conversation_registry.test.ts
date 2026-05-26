@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
+import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 
 afterEach(() => {
   conversationRegistry.clear();

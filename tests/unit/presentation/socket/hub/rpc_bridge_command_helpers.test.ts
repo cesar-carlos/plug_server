@@ -13,7 +13,7 @@ import {
   sanitizeOutboundRpcMeta,
   toCorrelationIds,
   withBridgeMeta,
-} from "../../../../../src/presentation/socket/hub/rpc_bridge_command_helpers";
+} from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_command_helpers";
 
 describe("rpc_bridge_command_helpers", () => {
   it("pickResponseIds collects ids from batch and single responses", () => {

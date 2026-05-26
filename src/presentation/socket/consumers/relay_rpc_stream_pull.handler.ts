@@ -2,7 +2,7 @@ import type { Socket } from "socket.io";
 import { z } from "zod";
 
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
-import { prepareRelayStreamPull } from "../hub/rpc_bridge";
+import { prepareRelayStreamPull } from "../hub/relay/rpc_bridge";
 import { AppError } from "../../../shared/errors/app_error";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -11,8 +11,8 @@ import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import {
   allowRelayStreamPullAsync,
   refundRelayStreamPullCreditsAsync,
-} from "../hub/consumer_relay_rate_limiter";
-import { conversationRegistry } from "../hub/conversation_registry";
+} from "../hub/rate_limits/consumer_relay_rate_limiter";
+import { conversationRegistry } from "../hub/registries/conversation_registry";
 import { assertConsumerSocketAgentAccess, resolveSocketActorRole } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {

@@ -19,7 +19,7 @@ import {
   getRestAgentDispatchQueueMetricsSnapshot,
   resetRestAgentDispatchQueue,
   wireRestAgentDispatchQueueMetrics,
-} from "../../../../../src/presentation/socket/hub/rest_agent_dispatch_queue";
+} from "../../../../../src/presentation/socket/hub/relay/rest_agent_dispatch_queue";
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 
 describe("rest_agent_dispatch_queue", () => {

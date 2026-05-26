@@ -8,7 +8,7 @@ vi.mock("../../../../../src/shared/config/env", () => ({
   },
 }));
 
-import { allowAgentsCommandSocket } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocket } from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 
 describe("agents_command_socket_rate_limiter (REST_AGENTS_COMMANDS_RATE_LIMIT_MAX=0)", () => {
   it("never rejects when per-window max is 0 (unlimited)", () => {

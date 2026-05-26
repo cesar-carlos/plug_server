@@ -4,7 +4,7 @@ import {
   resetAgentRegisterRateLimitState,
   tryConsumeAgentRegisterRateLimit,
   tryConsumeAgentRegisterRateLimitAsync,
-} from "../../../../../src/presentation/socket/hub/agent_register_rate_limit";
+} from "../../../../../src/presentation/socket/hub/rate_limits/agent_register_rate_limit";
 
 vi.mock("../../../../../src/infrastructure/redis/socket_rate_limit_redis", () => ({
   consumeSocketRateLimitRedis: vi.fn(),

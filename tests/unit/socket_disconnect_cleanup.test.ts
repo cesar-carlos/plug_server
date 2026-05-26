@@ -4,9 +4,9 @@ import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Namespace } from "socket.io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import * as rpcBridge from "../../src/presentation/socket/hub/rpc_bridge";
-import { agentRegistry } from "../../src/presentation/socket/hub/agent_registry";
-import { conversationRegistry } from "../../src/presentation/socket/hub/conversation_registry";
+import * as rpcBridge from "../../src/presentation/socket/hub/relay/rpc_bridge";
+import { agentRegistry } from "../../src/presentation/socket/hub/registries/agent_registry";
+import { conversationRegistry } from "../../src/presentation/socket/hub/registries/conversation_registry";
 import {
   closeSocketServer,
   createSocketServer,

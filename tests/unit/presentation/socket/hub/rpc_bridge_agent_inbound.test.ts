@@ -1,27 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
-import { createRpcBridgeAgentInboundHandlers } from "../../../../../src/presentation/socket/hub/rpc_bridge_agent_inbound";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
+import { createRpcBridgeAgentInboundHandlers } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_agent_inbound";
 import {
   getActiveStreamRouteByRequestId,
   resetActiveStreamRegistry,
   upsertActiveStreamRoute,
-} from "../../../../../src/presentation/socket/hub/active_stream_registry";
+} from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
 import {
   getRelayRequestRoute,
   registerRelayRequestRoute,
   resetRelayRequestRegistry,
-} from "../../../../../src/presentation/socket/hub/relay_request_registry";
+} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
   relayMetrics,
   resetRelayHubHealthAndMetrics,
-} from "../../../../../src/presentation/socket/hub/bridge_relay_health_metrics";
+} from "../../../../../src/presentation/socket/hub/relay/bridge_relay_health_metrics";
 import { env } from "../../../../../src/shared/config/env";
 import {
   getRestPendingRequestByCorrelationId,
   registerRestPendingRequest,
   resetRestPendingRequestsStore,
-} from "../../../../../src/presentation/socket/hub/rest_pending_requests";
+} from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import {
   getSocketAgentMetricsSnapshot,

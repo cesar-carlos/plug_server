@@ -4,15 +4,15 @@ import {
   resetActiveStreamRegistry,
   upsertActiveStreamRoute,
   getActiveStreamRouteByRequestId,
-} from "../../../../../src/presentation/socket/hub/active_stream_registry";
+} from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
 import {
   getRelayRequestRoute,
   registerRelayRequestRoute,
   resetRelayRequestRegistry,
-} from "../../../../../src/presentation/socket/hub/relay_request_registry";
-import { createPrepareAgentStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge_stream_pull";
-import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
-import { addRelayStreamForwardedRows } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
+} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
+import { createPrepareAgentStreamPull } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_stream_pull";
+import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay/relay_outbound_queue";
+import { addRelayStreamForwardedRows } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { env } from "../../../../../src/shared/config/env";
 import { decodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";

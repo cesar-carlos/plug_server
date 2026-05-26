@@ -22,7 +22,7 @@ import {
   getAgentsCommandSocketRateLimitMetricsSnapshot,
   resetAgentsCommandSocketRateLimitState,
   sweepAgentsCommandSocketRateLimitState,
-} from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
+} from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 
 describe("agents_command_socket_rate_limiter", () => {
   beforeEach(() => {

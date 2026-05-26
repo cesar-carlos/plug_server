@@ -5,7 +5,7 @@ import {
   type AgentSessionSupersededPayload,
   AGENT_SESSION_SUPERSEDED_MESSAGE,
   emitAgentRegisterError,
-} from "../../src/presentation/socket/hub/agent_register_error";
+} from "../../src/presentation/socket/hub/handshake/agent_register_error";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { isPayloadFrameEnvelope } from "../../src/shared/utils/payload_frame";
 

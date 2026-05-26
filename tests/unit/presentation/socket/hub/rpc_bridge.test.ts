@@ -1,16 +1,16 @@
 import type { Namespace } from "socket.io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import {
   relayMetrics,
   resetRelayHubHealthAndMetrics,
-} from "../../../../../src/presentation/socket/hub/bridge_relay_health_metrics";
+} from "../../../../../src/presentation/socket/hub/relay/bridge_relay_health_metrics";
 import {
   registerRelayRequestRoute,
   resetRelayRequestRegistry,
-} from "../../../../../src/presentation/socket/hub/relay_request_registry";
-import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
+} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
+import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay/relay_outbound_queue";
 import {
   dispatchRpcCommandToAgent,
   findAgentBridgeSocketById,
@@ -23,9 +23,9 @@ import {
   unregisterAgentBridgeSocket,
   unregisterConsumerBridgeServer,
   unregisterSocketBridgeServer,
-} from "../../../../../src/presentation/socket/hub/rpc_bridge";
-import { resetRestAgentDispatchQueue } from "../../../../../src/presentation/socket/hub/rest_agent_dispatch_queue";
-import { resetRestPendingRequestsStore } from "../../../../../src/presentation/socket/hub/rest_pending_requests";
+} from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
+import { resetRestAgentDispatchQueue } from "../../../../../src/presentation/socket/hub/relay/rest_agent_dispatch_queue";
+import { resetRestPendingRequestsStore } from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";

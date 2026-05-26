@@ -1,4 +1,4 @@
-import { agentRegistry } from "./agent_registry";
+import { agentRegistry } from "./registries/agent_registry";
 
 /**
  * Whether this hub process currently has the agent registered on `/agents` after `agent:register`

@@ -1,17 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createRpcBridgeRelayDispatch } from "../../../../../src/presentation/socket/hub/rpc_bridge_dispatch_relay";
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
-import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
+import { createRpcBridgeRelayDispatch } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_dispatch_relay";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
+import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 import {
   getRelayRegisteredRouteCount,
   resetRelayRequestRegistry,
-} from "../../../../../src/presentation/socket/hub/relay_request_registry";
+} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
   resetRelayIdempotencyStore,
   setRelayIdempotencyEntry,
-} from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
-import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
+} from "../../../../../src/presentation/socket/hub/registries/relay_idempotency_store";
+import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 import { env } from "../../../../../src/shared/config/env";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { AppError } from "../../../../../src/shared/errors/app_error";

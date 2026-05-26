@@ -463,7 +463,7 @@ PayloadFrame). Backpressure: `agents:stream_pull` → `agents:stream_pull_respon
     "jsonrpc": "2.0",
     "method": "sql.execute",
     "id": "req-socket-1",
-    "api_version": "2.11",
+    "api_version": "2.11.2",
     "meta": {
       "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
     },

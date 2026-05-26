@@ -9,7 +9,7 @@ import {
   CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER,
   buildConnectionReadyPayloadForWire,
   warnIfConnectionReadyLegacyCompatExpired,
-} from "../../../../../src/presentation/socket/hub/connection_ready_handshake";
+} from "../../../../../src/presentation/socket/hub/handshake/connection_ready_handshake";
 import { logger } from "../../../../../src/shared/utils/logger";
 
 describe("connection_ready_handshake", () => {
@@ -44,7 +44,7 @@ describe("connection_ready_handshake", () => {
     }));
 
     const mod =
-      await import("../../../../../src/presentation/socket/hub/connection_ready_handshake");
+      await import("../../../../../src/presentation/socket/hub/handshake/connection_ready_handshake");
     const payload = mod.buildConnectionReadyPayloadForWire({
       id: "socket-legacy",
       message: "legacy",

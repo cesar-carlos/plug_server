@@ -4,7 +4,7 @@ import {
   resolveCustomSocketEventRoomRecipientCountStrategy,
   shouldSkipCustomSocketEventZeroRecipientEarlyReturn,
   toRoomRecipientCountFromStrategy,
-} from "../../../../../src/presentation/socket/hub/custom_socket_event_room_recipient_count";
+} from "../../../../../src/presentation/socket/hub/custom_events/custom_socket_event_room_recipient_count";
 
 describe("resolveCustomSocketEventRoomRecipientCountStrategy", () => {
   it("should use exact local count when the Redis adapter is inactive", () => {

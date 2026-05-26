@@ -17,7 +17,7 @@ import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
 import { agentProfileReliabilityMetrics } from "../../src/application/services/agent_profile_reliability_metrics.service";
 import { container, getTestRepositoryAccess } from "../../src/shared/di/container";
-import { hasRestPendingCorrelationId } from "../../src/presentation/socket/hub/rest_pending_requests";
+import { hasRestPendingCorrelationId } from "../../src/presentation/socket/hub/registries/rest_pending_requests";
 import { decodeAgentsStreamPullWirePayload } from "../../src/presentation/socket/consumers/agents_stream_pull_wire";
 import { agentsNamespace } from "../../src/socket";
 import { Client } from "../../src/domain/entities/client.entity";

@@ -100,7 +100,7 @@ Detalhes normativos:
 
 ### Socket em `/agents`
 
-O agente usa o protocolo do `plug_agente` (perfil `plug-jsonrpc-profile/2.11`) no
+O agente usa o protocolo do `plug_agente` (perfil `plug-jsonrpc-profile/2.11.2`) no
 namespace `/agents`, incluindo:
 
 | Evento | Direcao | Notas |
@@ -156,7 +156,7 @@ O projeto ja contem:
 - `POST /api/v1/auth/agent-login` para agentes
 - ownership automatica de agente no fluxo `agent-login` + `agent:register`
 - registry de agentes e negociacao de capabilities
-  (`HUB_TRANSPORT_EXTENSIONS.plugProfile = "plug-jsonrpc-profile/2.11"`)
+  (`HUB_TRANSPORT_EXTENSIONS.plugProfile = "plug-jsonrpc-profile/2.11.2"`)
 - validacao zod do payload `agent:register` alinhada ao schema do agente, com
   resposta de rejeicao em `agent:register_error` (JSON puro)
 - readiness explicito com `agent:ready` e fallback por grace window

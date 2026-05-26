@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../src/presentation/socket/hub/rpc_bridge", () => ({
+vi.mock("../../src/presentation/socket/hub/relay/rpc_bridge", () => ({
   prepareRelayStreamPull: vi.fn(),
 }));
 
-vi.mock("../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => ({
+vi.mock("../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter", () => ({
   allowRelayStreamPullAsync: vi.fn(),
 }));
 
-vi.mock("../../src/presentation/socket/hub/conversation_registry", () => ({
+vi.mock("../../src/presentation/socket/hub/registries/conversation_registry", () => ({
   conversationRegistry: {
     findInternalByConversationId: vi.fn(() => ({
       consumerSocketId: "consumer-1",
@@ -26,9 +26,9 @@ import { handleRelayRpcStreamPull } from "../../src/presentation/socket/consumer
 import {
   buildConnectionReadyPayloadForWire,
   CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER,
-} from "../../src/presentation/socket/hub/connection_ready_handshake";
-import { prepareRelayStreamPull } from "../../src/presentation/socket/hub/rpc_bridge";
-import { allowRelayStreamPullAsync } from "../../src/presentation/socket/hub/consumer_relay_rate_limiter";
+} from "../../src/presentation/socket/hub/handshake/connection_ready_handshake";
+import { prepareRelayStreamPull } from "../../src/presentation/socket/hub/relay/rpc_bridge";
+import { allowRelayStreamPullAsync } from "../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { decodePayloadFrame, isPayloadFrameEnvelope } from "../../src/shared/utils/payload_frame";
 

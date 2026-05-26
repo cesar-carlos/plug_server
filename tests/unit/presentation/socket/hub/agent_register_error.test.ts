@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
-import { emitAgentRegisterError } from "../../../../../src/presentation/socket/hub/agent_register_error";
+import { emitAgentRegisterError } from "../../../../../src/presentation/socket/hub/handshake/agent_register_error";
 
 interface FakeSocket {
   readonly id: string;

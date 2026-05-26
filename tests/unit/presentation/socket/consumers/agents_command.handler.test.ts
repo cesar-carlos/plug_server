@@ -18,7 +18,7 @@ vi.mock("../../../../../src/application/services/bridge_latency_trace_builder", 
   createBridgeLatencyTraceIfSampled: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter", () => ({
   allowAgentsCommandSocketAsync: vi.fn(),
   estimateAgentsCommandRateLimitCost: vi.fn(() => 1),
 }));
@@ -35,7 +35,7 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
 import { executeAuthorizedAgentCommand } from "../../../../../src/application/agent_commands/execute_authorized_agent_command";
 import { createBridgeLatencyTraceIfSampled } from "../../../../../src/application/services/bridge_latency_trace_builder";
 import { handleAgentsCommand } from "../../../../../src/presentation/socket/consumers/agents_command.handler";
-import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import {
   releaseSocketInflightSlot,

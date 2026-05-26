@@ -20,7 +20,7 @@ import {
   getClientSocketEventPublishSocketRateLimitMetricsSnapshot,
   resetClientSocketEventPublishSocketRateLimitState,
   sweepClientSocketEventPublishSocketRateLimitState,
-} from "../../../../../src/presentation/socket/hub/client_socket_event_publish_socket_rate_limiter";
+} from "../../../../../src/presentation/socket/hub/rate_limits/client_socket_event_publish_socket_rate_limiter";
 
 describe("client_socket_event_publish_socket_rate_limiter", () => {
   beforeEach(() => {

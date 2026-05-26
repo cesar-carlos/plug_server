@@ -4,7 +4,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { io as ioClient } from "socket.io-client";
 
-import { AGENT_REGISTER_SESSION_ACTIVE_MESSAGE } from "../../src/presentation/socket/hub/agent_register_error";
+import { AGENT_REGISTER_SESSION_ACTIVE_MESSAGE } from "../../src/presentation/socket/hub/handshake/agent_register_error";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { createTestServer, type TestServerResult } from "../helpers/test_server";
 import { approveRegistrationByToken } from "./helpers/approve_registration";

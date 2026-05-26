@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { consumerRegistry } from "../../../../../src/presentation/socket/hub/consumer_registry";
+import { consumerRegistry } from "../../../../../src/presentation/socket/hub/registries/consumer_registry";
 
 describe("consumer_registry", () => {
   beforeEach(() => {

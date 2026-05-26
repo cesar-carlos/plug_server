@@ -7,7 +7,7 @@ import {
   mergeCoalescedAgentProfileBroadcastEvent,
   scheduleAgentProfilePush,
   type AgentProfilePushSocketServerState,
-} from "../../../../../src/presentation/socket/hub/consumer_client_agent_room_reconcile";
+} from "../../../../../src/presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
 import { TtlCache } from "../../../../../src/shared/utils/ttl_cache";
 import { env } from "../../../../../src/shared/config/env";
 

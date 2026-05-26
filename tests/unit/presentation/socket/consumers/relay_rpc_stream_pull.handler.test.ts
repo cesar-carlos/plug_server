@@ -4,16 +4,16 @@ vi.mock("../../../../../src/application/services/socket_audit.service", () => ({
   recordSocketAuditEvent: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/rpc_bridge", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/relay/rpc_bridge", () => ({
   prepareRelayStreamPull: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter", () => ({
   allowRelayStreamPullAsync: vi.fn(),
   refundRelayStreamPullCreditsAsync: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/conversation_registry", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/registries/conversation_registry", () => ({
   conversationRegistry: {
     findInternalByConversationId: vi.fn(),
   },
@@ -29,9 +29,9 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
   releaseSocketInflightSlot: vi.fn(),
 }));
 
-import { prepareRelayStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge";
-import { allowRelayStreamPullAsync } from "../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter";
-import { conversationRegistry } from "../../../../../src/presentation/socket/hub/conversation_registry";
+import { prepareRelayStreamPull } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
+import { allowRelayStreamPullAsync } from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
+import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 import { handleRelayRpcStreamPull } from "../../../../../src/presentation/socket/consumers/relay_rpc_stream_pull.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";

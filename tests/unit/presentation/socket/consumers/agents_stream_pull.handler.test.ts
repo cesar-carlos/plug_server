@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../../../src/presentation/socket/hub/rpc_bridge", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/relay/rpc_bridge", () => ({
   prepareLegacyAgentStreamPull: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/active_stream_registry", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/registries/active_stream_registry", () => ({
   getActiveStreamRouteByRequestId: vi.fn(),
   getActiveStreamRouteByStreamId: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/agent_registry", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/registries/agent_registry", () => ({
   agentRegistry: {
     findBySocketId: vi.fn(),
   },
@@ -24,11 +24,11 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
   releaseSocketInflightSlot: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter", () => ({
   allowAgentsCommandSocketAsync: vi.fn(() => Promise.resolve(true)),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter", () => ({
+vi.mock("../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter", () => ({
   allowAgentsStreamPullCredits: vi.fn(() =>
     Promise.resolve({
       allowed: true,
@@ -51,18 +51,18 @@ import {
 } from "../../../../../src/shared/utils/payload_frame";
 import { handleAgentsStreamPull } from "../../../../../src/presentation/socket/consumers/agents_stream_pull.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
-import { prepareLegacyAgentStreamPull } from "../../../../../src/presentation/socket/hub/rpc_bridge";
+import { prepareLegacyAgentStreamPull } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
 import {
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteByStreamId,
-} from "../../../../../src/presentation/socket/hub/active_stream_registry";
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/agent_registry";
+} from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
-import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 import {
   allowAgentsStreamPullCredits,
   refundAgentsStreamPullCredits,
-} from "../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter";
+} from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
 import { tryAcquireSocketInflightSlot } from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 

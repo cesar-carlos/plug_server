@@ -7,7 +7,7 @@ import {
   getRelayOutboundQueueOverloadState,
   resetRelayOutboundQueueState,
   sweepRelayOutboundQueueState,
-} from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
+} from "../../../../../src/presentation/socket/hub/relay/relay_outbound_queue";
 
 afterEach(() => {
   vi.useRealTimers();

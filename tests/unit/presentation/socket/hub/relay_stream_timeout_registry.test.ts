@@ -5,7 +5,7 @@ import {
   registerRelayStreamTimeouts,
   resetRelayStreamTimeouts,
   touchRelayStreamTimeout,
-} from "../../../../../src/presentation/socket/hub/relay_stream_timeout_registry";
+} from "../../../../../src/presentation/socket/hub/registries/relay_stream_timeout_registry";
 
 describe("relay_stream_timeout_registry", () => {
   beforeEach(() => {

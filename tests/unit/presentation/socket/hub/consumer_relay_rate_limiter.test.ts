@@ -25,7 +25,7 @@ import {
   getRelayRateLimitMetricsSnapshot,
   resetRelayRateLimiterState,
   sweepRelayRateLimitState,
-} from "../../../../../src/presentation/socket/hub/consumer_relay_rate_limiter";
+} from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
 
 describe("consumer_relay_rate_limiter", () => {
   beforeEach(() => {

@@ -4,7 +4,7 @@ import type {
   IConnectedAgentsRegistryPort,
 } from "../../domain/ports/connected_agents_registry.port";
 import { agentsNamespace } from "../../socket";
-import { agentRegistry } from "../socket/hub/agent_registry";
+import { agentRegistry } from "../socket/hub/registries/agent_registry";
 
 const toSnapshot = ({
   agentId,

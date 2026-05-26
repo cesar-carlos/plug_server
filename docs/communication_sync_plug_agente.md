@@ -42,7 +42,7 @@ Historico detalhado de mudancas: `CHANGELOG.md`.
 
 ## Versao do profile
 
-O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.11"` em
+O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.11.2"` em
 `agent:capabilities` (`HUB_TRANSPORT_EXTENSIONS` em
 `src/shared/constants/agent_transport_contract.ts`). A versao acompanha o
 OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
@@ -53,7 +53,7 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | ---- | ------------- | --------------- |
 | Namespace do agente em `/agents` | alinhado | `docs/migracao_plug_agente_namespaces.md` |
 | Handshake autenticado e `agent:register` (zod schema) | alinhado | `docs/api_rest_bridge.md`, `src/shared/validators/agent_register.ts` |
-| Rejeicao de `agent:register` via `agent:register_error` (JSON puro, `{ code, reason, message, details? }`) | alinhado | `docs/migracao_plug_agente_namespaces.md`, `src/presentation/socket/hub/agent_register_error.ts` |
+| Rejeicao de `agent:register` via `agent:register_error` (JSON puro, `{ code, reason, message, details? }`) | alinhado | `docs/migracao_plug_agente_namespaces.md`, `src/presentation/socket/hub/handshake/agent_register_error.ts` |
 | Negociacao de capabilities (com hints de stream pull) | alinhado | `docs/socket_relay_protocol.md` |
 | Readiness explicito com `agent:ready` | alinhado | `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md` |
 | `PayloadFrame` com gzip, assinatura opcional e payload base64 | alinhado | `docs/socket_relay_protocol.md` |
@@ -105,7 +105,7 @@ Detalhes:
 Sempre que o `plug_agente` mudar o contrato de comunicacao:
 
 1. Rever `socket_communication_standard.md` e `socketio_client_binary_transport.md`.
-2. Comparar `openrpc.json` com os metodos e versao minima esperada no hub. Para cada **metodo RPC novo ou alterado**, atualizar o hub em conjunto: `src/shared/validators/agent_command.ts` (Zod / `supportedAgentRpcMethods`), `src/presentation/docs/swagger.ts` (OpenAPI, incl. `BridgeSingleCommand`), e a documentacao aplicavel (`api_rest_bridge.md`, `socket_relay_protocol.md`, e remissoes em `socket_client_sdk.md` quando a lista de metodos mudar).
+2. Comparar `openrpc.json` com os metodos e versao minima esperada no hub. Para cada **metodo RPC novo ou alterado**, atualizar o hub em conjunto: `src/shared/validators/agent_command.ts` (Zod / `supportedAgentRpcMethods`), `src/presentation/docs/swagger/bridge_schemas.ts` (OpenAPI, incl. `BridgeSingleCommand`), e a documentacao aplicavel (`api_rest_bridge.md`, `socket_relay_protocol.md`, e remissoes em `socket_client_sdk.md` quando a lista de metodos mudar).
 3. Revalidar `schemas/*.json` e exemplos com `npm run test:contract`.
 4. Atualizar os docs normativos do hub, nao este ficheiro primeiro:
    `api_rest_bridge.md`, `socket_relay_protocol.md`, `socket_client_sdk.md`.

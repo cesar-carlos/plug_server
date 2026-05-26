@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { consumerRegistry } from "../../../../../src/presentation/socket/hub/consumer_registry";
+import { consumerRegistry } from "../../../../../src/presentation/socket/hub/registries/consumer_registry";
 import {
   consumerIdleTouchEvents,
   isConsumerIdleTouchEvent,
   touchConsumerRegistryOnInboundEvent,
-} from "../../../../../src/presentation/socket/hub/consumer_idle_touch_events";
+} from "../../../../../src/presentation/socket/hub/scheduling/consumer_idle_touch_events";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
 describe("consumer_idle_touch_events", () => {

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   acquireAgentProfileSyncSlot,
   resetAgentProfileSyncConcurrency,
-} from "../../../../../src/presentation/socket/hub/agent_profile_sync_concurrency";
+} from "../../../../../src/presentation/socket/hub/scheduling/agent_profile_sync_concurrency";
 import { env } from "../../../../../src/shared/config/env";
 
 describe("agent_profile_sync_concurrency", () => {

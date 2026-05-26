@@ -1,28 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { env } from "../../../../../src/shared/config/env";
-import { resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/active_stream_registry";
-import { resetRelayOutboundQueueTails } from "../../../../../src/presentation/socket/hub/relay_outbound_queue";
+import { resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
+import { resetRelayOutboundQueueTails } from "../../../../../src/presentation/socket/hub/relay/relay_outbound_queue";
 import {
   createRelayStreamHandlers,
   emitRelayTimeoutResponse,
-} from "../../../../../src/presentation/socket/hub/rpc_bridge_relay_stream";
+} from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_relay_stream";
 import {
   getOrCreateRelayIdempotencyMap,
   resetRelayIdempotencyStore,
-} from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
-import type { RelayRequestRoute } from "../../../../../src/presentation/socket/hub/relay_request_registry";
+} from "../../../../../src/presentation/socket/hub/registries/relay_idempotency_store";
+import type { RelayRequestRoute } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
   registerRelayRequestRoute,
   resetRelayRequestRegistry,
-} from "../../../../../src/presentation/socket/hub/relay_request_registry";
+} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
   setRelayStreamFlowCredits,
   getRelayStreamFlowCredits,
   addRelayStreamBufferedChunk,
   getRelayStreamBufferedBytes,
   resetRelayStreamFlowState,
-} from "../../../../../src/presentation/socket/hub/relay_stream_flow_state";
+} from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
 const fakeTimeout = {} as NodeJS.Timeout;

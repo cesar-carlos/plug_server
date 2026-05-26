@@ -18,7 +18,7 @@ import {
   acquireRelayAgentDispatchSlot,
   getRelayAgentDispatchQueueMetricsSnapshot,
   resetRelayAgentDispatchQueue,
-} from "../../../../../src/presentation/socket/hub/relay_agent_dispatch_queue";
+} from "../../../../../src/presentation/socket/hub/relay/relay_agent_dispatch_queue";
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 
 describe("relay_agent_dispatch_queue", () => {

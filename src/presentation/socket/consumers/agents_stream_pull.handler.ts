@@ -10,12 +10,12 @@
 import type { Socket } from "socket.io";
 import { z } from "zod";
 
-import { prepareLegacyAgentStreamPull } from "../hub/rpc_bridge";
+import { prepareLegacyAgentStreamPull } from "../hub/relay/rpc_bridge";
 import {
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteByStreamId,
-} from "../hub/active_stream_registry";
-import { agentRegistry } from "../hub/agent_registry";
+} from "../hub/registries/active_stream_registry";
+import { agentRegistry } from "../hub/registries/agent_registry";
 import { env } from "../../../shared/config/env";
 import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -23,11 +23,11 @@ import { toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
-import { allowAgentsCommandSocketAsync } from "../hub/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync } from "../hub/rate_limits/agents_command_socket_rate_limiter";
 import {
   allowAgentsStreamPullCredits,
   refundAgentsStreamPullCredits,
-} from "../hub/consumer_relay_rate_limiter";
+} from "../hub/rate_limits/consumer_relay_rate_limiter";
 import { logger } from "../../../shared/utils/logger";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";

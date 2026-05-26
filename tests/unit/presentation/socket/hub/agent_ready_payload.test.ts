@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseAgentReadyPayload } from "../../../../../src/presentation/socket/hub/agent_ready_payload";
+import { parseAgentReadyPayload } from "../../../../../src/presentation/socket/hub/handshake/agent_ready_payload";
 
 describe("parseAgentReadyPayload", () => {
   it("accepts complete Communication 2.11 agent:ready payloads", () => {

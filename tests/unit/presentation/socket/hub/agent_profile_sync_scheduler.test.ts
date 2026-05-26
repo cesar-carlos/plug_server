@@ -4,7 +4,7 @@ import {
   AgentProfileSyncScheduler,
   type AgentProfileSyncSchedulerLogger,
   type AgentProfileSyncSchedulerMetrics,
-} from "../../../../../src/presentation/socket/hub/agent_profile_sync_scheduler";
+} from "../../../../../src/presentation/socket/hub/scheduling/agent_profile_sync_scheduler";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 
 const snapshot = {

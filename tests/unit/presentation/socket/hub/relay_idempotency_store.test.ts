@@ -10,7 +10,7 @@ import {
   removeRelayIdempotencyEntry,
   resetRelayIdempotencyStore,
   setRelayIdempotencyEntry,
-} from "../../../../../src/presentation/socket/hub/relay_idempotency_store";
+} from "../../../../../src/presentation/socket/hub/registries/relay_idempotency_store";
 
 afterEach(() => {
   resetRelayIdempotencyStore();
