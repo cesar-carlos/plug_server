@@ -286,8 +286,7 @@ class InMemoryAgentRegistry {
       }
     }
 
-    const connectedAtMs =
-      existing?.socketId === input.socketId ? existing.connectedAtMs : nowMs;
+    const connectedAtMs = existing?.socketId === input.socketId ? existing.connectedAtMs : nowMs;
     const agent: InternalRegisteredAgent = {
       agentId: input.agentId,
       socketId: input.socketId,

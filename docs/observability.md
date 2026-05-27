@@ -177,6 +177,50 @@ rate(plug_socket_custom_event_idempotency_redis_locks_acquired_total[5m])
 rate(plug_socket_custom_event_idempotency_redis_lock_contention_total[5m])
 rate(plug_socket_custom_event_idempotency_redis_lock_wait_timeouts_total[5m])
 rate(plug_socket_custom_event_idempotency_redis_writes_total[5m])
+rate(plug_socket_custom_event_idempotency_redis_lock_extensions_total[5m])
+
+# Per-command latency histograms (ms) — alerte em p95 alto antes do circuit breaker abrir
+histogram_quantile(0.95, sum by (le, op) (rate(plug_socket_rate_limit_redis_command_duration_ms_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(plug_rest_http_rate_limit_redis_command_duration_ms_bucket[5m])))
+histogram_quantile(0.95, sum by (le, op) (rate(plug_socket_custom_event_idempotency_redis_command_duration_ms_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(plug_socket_io_redis_adapter_connect_duration_ms_bucket[5m])))
+
+# Tracked keys (cardinality aproximada) do rate-limit Socket
+plug_socket_rate_limit_redis_tracked_keys_window_size
+rate(plug_socket_rate_limit_redis_tracked_keys_seen_total[5m])
+
+# Redis Streams opcional para entrega at-least-once de `client:custom.*` cross-replica
+plug_agent_event_stream_url_configured
+plug_agent_event_stream_active
+rate(plug_agent_event_stream_appends_total[5m])
+rate(plug_agent_event_stream_backlog_reads_total[5m])
+rate(plug_agent_event_stream_backlog_entries_delivered_total[5m])
+rate(plug_agent_event_stream_acks_total[5m])
+rate(plug_agent_event_stream_dropped_total[5m])
+rate(plug_agent_event_stream_fallback_events_total[5m])
+histogram_quantile(0.95, sum by (le, op) (rate(plug_agent_event_stream_command_duration_ms_bucket[5m])))
+
+# Pipeline de fan-out (`MULTI/EXEC`) — uma round-trip independentemente do nro de recipients
+rate(plug_agent_event_stream_batch_appends_total[5m])
+rate(plug_agent_event_stream_batch_partial_failures_total[5m])
+# Distribuicao do tamanho dos batches (sustained shift para a direita = rooms maiores)
+histogram_quantile(0.95, sum by (le) (rate(plug_agent_event_stream_batch_size_bucket[5m])))
+# Razao de falhas parciais por batch — alerte > 5% (XADD individual rejeitado dentro de EXEC bem-sucedido)
+rate(plug_agent_event_stream_batch_partial_failures_total[5m])
+  / clamp_min(rate(plug_agent_event_stream_batch_appends_total[5m]), 0.001)
+
+# Rate-limit Socket: rollback atomico via Lua `consume_or_rollback` (1 RTT em vez de 2 no deny path)
+rate(plug_socket_rate_limit_consume_atomic_rollbacks_total[5m])
+# Compare contra rejected_total: deve seguir junto, com `atomic_rollbacks_total <= rejected_total`
+rate(plug_socket_rate_limit_redis_rejected_total[5m])
+
+# Boundary-burst telemetry (Sprint 11) + atomic rollback (Sprint P2): mantenha as 3 series juntas
+rate(plug_socket_rate_limit_window_resets_total[5m])
+rate(plug_socket_rate_limit_window_saturations_total[5m])
+rate(plug_socket_rate_limit_consume_atomic_rollbacks_total[5m])
+
+# Dedupe de `fetchSockets()` no publish (cluster-wide RPC reusada entre count + principal-id resolution)
+rate(plug_socket_custom_event_publish_fetch_sockets_dedupes_total[5m])
 
 # Relay: pedidos aceites vs rejeitados por rate-limit
 rate(plug_socket_relay_rate_limit_request_allowed_total[5m])

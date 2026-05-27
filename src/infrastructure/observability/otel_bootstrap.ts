@@ -41,8 +41,7 @@ export const initOpenTelemetry = async (): Promise<void> => {
       require("@opentelemetry/exporter-trace-otlp-http") as typeof ExporterTraceOtlpHttp;
     const { ParentBasedSampler, TraceIdRatioBasedSampler } =
       require("@opentelemetry/sdk-trace-base") as typeof SdkTraceBase;
-    const { resourceFromAttributes } =
-      require("@opentelemetry/resources") as typeof Resources;
+    const { resourceFromAttributes } = require("@opentelemetry/resources") as typeof Resources;
     const { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } =
       require("@opentelemetry/semantic-conventions") as typeof SemanticConventions;
     const pkg = require("../../../package.json") as { version?: string };

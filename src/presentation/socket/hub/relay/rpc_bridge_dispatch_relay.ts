@@ -25,7 +25,10 @@ import {
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
-import { getActiveStreamRouteByRequestId, removeActiveStreamRoute } from "../registries/active_stream_registry";
+import {
+  getActiveStreamRouteByRequestId,
+  removeActiveStreamRoute,
+} from "../registries/active_stream_registry";
 import {
   ensureAgentCircuitClosed,
   logRpcFrameDecodeFailure,

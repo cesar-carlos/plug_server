@@ -1,7 +1,14 @@
+import { performance } from "node:perf_hooks";
+
 import { RedisStore, type SendCommandFn } from "rate-limit-redis";
-import { createClient } from "redis";
 import type { Store } from "express-rate-limit";
 
+import { validateRedisClusterTopology } from "./cluster_topology_validator";
+import {
+  createInstrumentedRedisClient,
+  type InstrumentedRedisClient,
+} from "./instrumented_redis_client";
+import { redisKeyNamespace } from "./redis_key_namespace";
 import {
   noteRestRateLimitRedisConnected,
   noteRestRateLimitRedisCircuitClosed,
@@ -11,11 +18,12 @@ import {
   noteRestRateLimitRedisFallback,
   noteRestRateLimitRedisRecovered,
   noteRestRateLimitRedisSkippedEmptyUrl,
+  observeRestRateLimitRedisLatency,
 } from "../../application/services/rest_rate_limit_redis_metrics.service";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
-let redisClient: ReturnType<typeof createClient> | undefined;
+let redisClient: InstrumentedRedisClient | undefined;
 let redisSendCommand: SendCommandFn | undefined;
 let redisCommandFailures = 0;
 let circuitOpenUntilMs = 0;
@@ -103,7 +111,7 @@ export function createRestHttpRateLimitStore(
 
   try {
     const store = new RedisStore({
-      prefix: `plug_rl:${scope}:`,
+      prefix: `plug_rl:${redisKeyNamespace()}:${scope}:`,
       sendCommand: redisSendCommand,
     });
     markRedisStoreWarmupHandled(store);
@@ -134,69 +142,79 @@ export async function initRestHttpRateLimitRedis(): Promise<void> {
 
   await closeRestHttpRateLimitRedis();
 
-  try {
-    const client = createClient({ url });
-    redisClient = client;
-    redisUrlInUse = url;
-    redisClientGeneration += 1;
-    const generation = redisClientGeneration;
-    let initialConnectSucceeded = false;
-    const isCurrentClient = (): boolean =>
-      redisClient === client && redisClientGeneration === generation;
+  redisClientGeneration += 1;
+  const generation = redisClientGeneration;
+  redisUrlInUse = url;
+  const isCurrentClient = (): boolean => redisClientGeneration === generation;
 
-    client.on("error", (err: Error) => {
-      if (!isCurrentClient()) {
-        return;
-      }
-      logger.error("rest_rate_limit_redis_client_error", { message: err.message });
-      if (initialConnectSucceeded) {
+  const client = await createInstrumentedRedisClient({
+    url,
+    logName: "rest_rate_limit_redis",
+    callbacks: {
+      onConnected: () => {
+        noteRestRateLimitRedisConnected();
+        logger.info("rest_rate_limit_redis_connected");
+      },
+      onError: () => {
+        if (!isCurrentClient()) {
+          return;
+        }
         noteRestRateLimitRedisFallback();
-      }
-    });
-    client.on("ready", () => {
-      if (!isCurrentClient()) {
-        return;
-      }
-      if (initialConnectSucceeded) {
+      },
+      onEnd: () => {
+        if (!isCurrentClient()) {
+          return;
+        }
+        noteRestRateLimitRedisDisconnected();
+      },
+      onReadyAfterReconnect: () => {
         redisCommandFailures = 0;
         circuitOpenUntilMs = 0;
         noteRestRateLimitRedisConnected();
         logger.info("rest_rate_limit_redis_ready");
-      }
-    });
-    client.on("end", () => {
-      if (!isCurrentClient()) {
-        return;
-      }
-      noteRestRateLimitRedisDisconnected();
-    });
-    await client.connect();
-    initialConnectSucceeded = true;
-    redisSendCommand = async (...args: string[]) => {
-      if (!isCurrentClient()) {
-        throw new Error("Redis rate-limit store unavailable");
-      }
-      if (isRedisCircuitOpen()) {
-        throw new Error("Redis rate-limit store circuit is open");
-      }
-      try {
-        const result = await client.sendCommand(args);
-        recordRedisCommandSuccess();
-        return result as unknown as Awaited<ReturnType<SendCommandFn>>;
-      } catch (error: unknown) {
-        recordRedisCommandFailure(error);
-        logger.warn("rest_rate_limit_redis_command_error", {
-          message: toSafeErrorMessage(error),
-        });
-        throw new Error("Redis rate-limit store unavailable");
-      }
-    };
-    noteRestRateLimitRedisConnected();
-    logger.info("rest_rate_limit_redis_connected");
-  } catch (error: unknown) {
-    recordRedisStoreUnavailable("rest_rate_limit_redis_fallback_memory", error);
-    disableRedisStoreClient();
+      },
+      onFallback: (error: unknown) => {
+        recordRedisStoreUnavailable("rest_rate_limit_redis_fallback_memory", error);
+      },
+    },
+  });
+
+  if (client === undefined) {
+    redisUrlInUse = undefined;
+    return;
   }
+  redisClient = client;
+
+  redisSendCommand = async (...args: string[]) => {
+    if (!isCurrentClient() || redisClient !== client) {
+      throw new Error("Redis rate-limit store unavailable");
+    }
+    if (isRedisCircuitOpen()) {
+      throw new Error("Redis rate-limit store circuit is open");
+    }
+    const startedAtMs = performance.now();
+    try {
+      const result = await client.sendCommand(args);
+      recordRedisCommandSuccess();
+      return result as unknown as Awaited<ReturnType<SendCommandFn>>;
+    } catch (error: unknown) {
+      recordRedisCommandFailure(error);
+      logger.warn("rest_rate_limit_redis_command_error", {
+        message: toSafeErrorMessage(error),
+      });
+      throw new Error("Redis rate-limit store unavailable");
+    } finally {
+      observeRestRateLimitRedisLatency(performance.now() - startedAtMs);
+    }
+  };
+  await validateRedisClusterTopology({
+    client,
+    logName: "rest_rate_limit_redis",
+    sampleKeys: [
+      `plug_rl:${redisKeyNamespace()}:global:probe`,
+      `plug_rl:${redisKeyNamespace()}:credential_auth:probe`,
+    ],
+  });
 }
 
 export async function closeRestHttpRateLimitRedis(): Promise<void> {

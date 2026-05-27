@@ -389,24 +389,29 @@ export const reconcileConsumerClientAgentRoomsForSocket = async (
       room.startsWith(buildConsumerAgentProfileRoomPrefix()),
   );
 
-  let joined = 0;
-  let left = 0;
-
-  for (const room of currentRooms) {
-    if (!expectedRooms.has(room)) {
-      await socket.leave(room);
-      left += 1;
-    }
-  }
-
+  /**
+   * Compute the leave/join sets first, then fire each set in parallel via
+   * `Promise.all`. With many agents per client (~60+), the previous sequential
+   * `await socket.leave/join` would walk through ~120 round-trips on the
+   * Socket.IO adapter; the parallel pattern collapses each set into a single
+   * adapter batch.
+   */
+  const roomsToLeave = currentRooms.filter((room) => !expectedRooms.has(room));
+  const roomsToJoin: string[] = [];
   for (const room of expectedRooms) {
     if (!socket.rooms.has(room)) {
-      await socket.join(room);
-      joined += 1;
+      roomsToJoin.push(room);
     }
   }
 
-  return { joined, left };
+  if (roomsToLeave.length > 0) {
+    await Promise.all(roomsToLeave.map((room) => socket.leave(room)));
+  }
+  if (roomsToJoin.length > 0) {
+    await Promise.all(roomsToJoin.map((room) => socket.join(room)));
+  }
+
+  return { joined: roomsToJoin.length, left: roomsToLeave.length };
 };
 
 export type ConsumerClientAgentRoomReconcileState = ConsumerClientAgentRoomBootstrapState & {

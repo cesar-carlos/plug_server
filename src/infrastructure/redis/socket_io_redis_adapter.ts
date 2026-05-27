@@ -1,6 +1,7 @@
+import { performance } from "node:perf_hooks";
+
 import { createAdapter } from "@socket.io/redis-adapter";
 import { Adapter } from "socket.io-adapter";
-import { createClient } from "redis";
 import type { Server } from "socket.io";
 
 import {
@@ -10,19 +11,32 @@ import {
   noteSocketIoRedisAdapterFallback,
   noteSocketIoRedisAdapterRuntimeError,
   noteSocketIoRedisAdapterSkippedEmptyUrl,
+  observeSocketIoRedisAdapterConnectLatency,
 } from "../../application/services/socket_io_redis_adapter_metrics.service";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
+import type { InstrumentedRedisClient } from "./instrumented_redis_client";
+import { createPubSubInstrumentedRedisClients } from "./pubsub_instrumented_redis_client";
 
-type RedisClient = ReturnType<typeof createClient>;
+type RedisClient = InstrumentedRedisClient;
+
+const SOCKET_IO_ADAPTER_RECONNECT_RETRY_CAP = 8;
 
 export const buildSocketIoRedisAdapterClientOptions = (): {
   readonly url: string;
-  readonly socket: { readonly connectTimeout: number };
+  readonly socket: {
+    readonly connectTimeout: number;
+    readonly reconnectStrategy: (retries: number) => number;
+  };
 } => ({
   url: env.socketIoRedisAdapterUrl.trim(),
   socket: {
     connectTimeout: env.socketIoRedisAdapterConnectTimeoutMs,
+    reconnectStrategy: (retries: number): number => {
+      const cappedRetries = Math.min(retries, SOCKET_IO_ADAPTER_RECONNECT_RETRY_CAP);
+      const delay = env.socketIoRedisAdapterReconnectBaseMs * 2 ** cappedRetries;
+      return Math.min(delay, env.socketIoRedisAdapterReconnectMaxMs);
+    },
   },
 });
 
@@ -151,63 +165,60 @@ export async function initSocketIoRedisAdapter(io: Server): Promise<void> {
 
   await closeSocketIoRedisAdapter({ preserveRegistration: true });
 
-  try {
-    const pub = createClient(buildSocketIoRedisAdapterClientOptions());
-    const sub = pub.duplicate();
-    pubClient = pub;
-    subClient = sub;
-    redisUrlInUse = url;
-    generation += 1;
-    const currentGeneration = generation;
-    const isCurrent = (): boolean =>
-      pubClient === pub && subClient === sub && generation === currentGeneration;
+  generation += 1;
+  const currentGeneration = generation;
+  redisUrlInUse = url;
+  const isCurrent = (): boolean => generation === currentGeneration;
 
-    const onError = (role: "pub" | "sub", error: Error): void => {
-      if (!isCurrent()) {
-        return;
-      }
-      noteSocketIoRedisAdapterRuntimeError();
-      logger.error("socket_io_redis_adapter_client_error", {
-        role,
-        message: error.message,
-      });
-      fallBackToMemoryAndScheduleReconnect(io, isCurrent);
-    };
-    pub.on("error", (error: Error) => onError("pub", error));
-    sub.on("error", (error: Error) => onError("sub", error));
-    pub.on("end", () => {
-      if (isCurrent()) {
+  let factoryError: unknown;
+  const connectStartedAtMs = performance.now();
+  const clients = await createPubSubInstrumentedRedisClients({
+    url,
+    logName: "socket_io_redis_adapter",
+    buildClientOptions: buildSocketIoRedisAdapterClientOptions,
+    isCurrent,
+    callbacks: {
+      onConnected: () => undefined,
+      onError: () => {
+        if (!isCurrent()) {
+          return;
+        }
+        noteSocketIoRedisAdapterRuntimeError();
         fallBackToMemoryAndScheduleReconnect(io, isCurrent);
-      }
-    });
-    sub.on("end", () => {
-      if (isCurrent()) {
+      },
+      onEnd: () => {
+        if (!isCurrent()) {
+          return;
+        }
         fallBackToMemoryAndScheduleReconnect(io, isCurrent);
-      }
-    });
+      },
+      onFallback: (error: unknown) => {
+        factoryError = error;
+      },
+    },
+  });
+  observeSocketIoRedisAdapterConnectLatency(performance.now() - connectStartedAtMs);
 
-    await Promise.all([pub.connect(), sub.connect()]);
-    io.adapter(createAdapter(pub, sub, buildSocketIoRedisAdapterOptions()));
-    if (!attachedForCurrentGeneration) {
-      noteSocketIoRedisAdapterAttachedServer();
-      attachedForCurrentGeneration = true;
-    }
-    resetReconnectBackoff();
-    noteSocketIoRedisAdapterConnected();
-    logger.info("socket_io_redis_adapter_connected");
-  } catch (error: unknown) {
+  if (clients === undefined) {
     if (shouldFailHardOnInitialConnect()) {
-      disableAdapterClients();
-      throw error;
+      throw factoryError ?? new Error("socket_io_redis_adapter_fallback_memory");
     }
     noteSocketIoRedisAdapterFallback();
-    logger.warn("socket_io_redis_adapter_fallback_memory", {
-      message: toSafeErrorMessage(error),
-    });
     attachInMemoryAdapter(io);
-    disableAdapterClients();
     scheduleReconnect();
+    return;
   }
+
+  pubClient = clients.pub;
+  subClient = clients.sub;
+  io.adapter(createAdapter(clients.pub, clients.sub, buildSocketIoRedisAdapterOptions()));
+  if (!attachedForCurrentGeneration) {
+    noteSocketIoRedisAdapterAttachedServer();
+    attachedForCurrentGeneration = true;
+  }
+  resetReconnectBackoff();
+  noteSocketIoRedisAdapterConnected();
+  logger.info("socket_io_redis_adapter_connected");
 }
 
 export async function reattachSocketIoRedisAdapter(): Promise<void> {

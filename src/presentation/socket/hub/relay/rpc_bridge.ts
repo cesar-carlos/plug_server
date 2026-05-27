@@ -18,7 +18,10 @@ import {
 } from "./bridge_relay_health_metrics";
 import { agentRegistry } from "../registries/agent_registry";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
-import { getRelayRequestRoute, removeRelayRequestRoute } from "../registries/relay_request_registry";
+import {
+  getRelayRequestRoute,
+  removeRelayRequestRoute,
+} from "../registries/relay_request_registry";
 import { getRelayStreamForwardedRows } from "./relay_stream_flow_state";
 import { touchRelayStreamTimeout } from "../registries/relay_stream_timeout_registry";
 import { wireRestAgentDispatchQueueMetrics } from "./rest_agent_dispatch_queue";

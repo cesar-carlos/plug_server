@@ -157,17 +157,36 @@ describe("relay_outbound_queue", () => {
   });
 
   it("reports overload when backlog crosses threshold", () => {
-    for (let index = 0; index < env.socketRelayOutboundOverloadBacklog + 1; index += 1) {
-      enqueueRelayOutbound(`req-${index}`, async () => {
-        await new Promise<void>(() => undefined);
+    /**
+     * The "Generous profile" production `.env` sets
+     * `SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG=0` (shedding disabled). To keep
+     * this contract test independent of the active profile, we temporarily
+     * pin the threshold to a small positive value and restore it on exit.
+     */
+    const originalThreshold = env.socketRelayOutboundOverloadBacklog;
+    const testThreshold = 5;
+    Object.defineProperty(env, "socketRelayOutboundOverloadBacklog", {
+      value: testThreshold,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      for (let index = 0; index < testThreshold + 1; index += 1) {
+        enqueueRelayOutbound(`req-${index}`, async () => {
+          await new Promise<void>(() => undefined);
+        });
+      }
+
+      const overload = getRelayOutboundQueueOverloadState();
+      expect(overload.overloaded).toBe(true);
+      expect(overload.reason).toBe("backlog");
+      expect(overload.snapshot.backlog).toBeGreaterThanOrEqual(testThreshold);
+    } finally {
+      Object.defineProperty(env, "socketRelayOutboundOverloadBacklog", {
+        value: originalThreshold,
+        configurable: true,
+        writable: true,
       });
     }
-
-    const overload = getRelayOutboundQueueOverloadState();
-    expect(overload.overloaded).toBe(true);
-    expect(overload.reason).toBe("backlog");
-    expect(overload.snapshot.backlog).toBeGreaterThanOrEqual(
-      env.socketRelayOutboundOverloadBacklog,
-    );
   });
 });

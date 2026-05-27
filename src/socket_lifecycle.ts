@@ -8,42 +8,22 @@ import {
   unregisterConsumerBridgeServer,
   unregisterSocketBridgeServer,
 } from "./presentation/socket/hub/relay/rpc_bridge";
-import {
-  resetRelayRateLimiterState,
-} from "./presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
-import {
-  resetAgentsCommandSocketRateLimitState,
-} from "./presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
-import {
-  resetClientSocketEventPublishSocketRateLimitState,
-} from "./presentation/socket/hub/rate_limits/client_socket_event_publish_socket_rate_limiter";
-import {
-  resetAgentProfileSocketRateLimitState,
-} from "./presentation/socket/hub/rate_limits/agent_profile_socket_rate_limiter";
+import { resetRelayRateLimiterState } from "./presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
+import { resetAgentsCommandSocketRateLimitState } from "./presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
+import { resetClientSocketEventPublishSocketRateLimitState } from "./presentation/socket/hub/rate_limits/client_socket_event_publish_socket_rate_limiter";
+import { resetAgentProfileSocketRateLimitState } from "./presentation/socket/hub/rate_limits/agent_profile_socket_rate_limiter";
 import { resetConsumerCommandAbortRegistry } from "./presentation/socket/consumers/consumer_command_abort_registry";
-import {
-  resetCustomSocketEventSubscriptions,
-} from "./presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
-import {
-  resetCustomSocketEventSubscriptionRateLimitState,
-} from "./presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
-import {
-  resetAgentRegisterRateLimitState,
-} from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
-import {
-  resetAgentProfileSyncScheduler,
-} from "./presentation/socket/hub/register_agent_socket_handlers";
-import {
-  clearConsumerProfilePushState,
-} from "./presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
+import { resetCustomSocketEventSubscriptions } from "./presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
+import { resetCustomSocketEventSubscriptionRateLimitState } from "./presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
+import { resetAgentRegisterRateLimitState } from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
+import { resetAgentProfileSyncScheduler } from "./presentation/socket/hub/register_agent_socket_handlers";
+import { clearConsumerProfilePushState } from "./presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { resetBridgeRpcMethodMetrics } from "./application/services/bridge_rpc_method_metrics.service";
 import { resetSocketConsumerMetrics } from "./shared/metrics/socket_consumer.metrics";
 import { resetSocketAgentMetrics } from "./shared/metrics/socket_agent.metrics";
 import { resetSocketHubErrorMetrics } from "./shared/metrics/socket_hub_error.metrics";
-import {
-  buildLegacySocketAppErrorPayload,
-} from "./shared/constants/socket_app_error";
+import { buildLegacySocketAppErrorPayload } from "./shared/constants/socket_app_error";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { logger } from "./shared/utils/logger";
 import {

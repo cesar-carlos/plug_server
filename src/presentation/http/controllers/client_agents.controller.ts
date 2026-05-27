@@ -71,11 +71,7 @@ export const listMyClientAgents = async (_request: Request, response: Response):
   );
   const connectedAgentIds = container.restAgentBridgeService.getConnectedAgentIdSet();
   const agents = pageResult.items.map((item) =>
-    toClientAgentDto(
-      item.agent,
-      connectedAgentIds.has(item.agent.agentId),
-      item.hasClientToken,
-    ),
+    toClientAgentDto(item.agent, connectedAgentIds.has(item.agent.agentId), item.hasClientToken),
   );
   recordClientMeAgentsListResponse(agents.filter((a) => a.isHubConnected).length);
   response.status(200).json({

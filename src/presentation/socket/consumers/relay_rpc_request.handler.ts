@@ -37,9 +37,7 @@ export const shouldRefundRelayRpcRequestRateLimit = (error: unknown): boolean =>
     return true;
   }
   if (error.statusCode === 400) {
-    return (
-      isRecord(error.details) && error.details.refundRelayRpcRequestRateLimit === true
-    );
+    return isRecord(error.details) && error.details.refundRelayRpcRequestRateLimit === true;
   }
   if (error.statusCode !== undefined && error.statusCode >= 400 && error.statusCode < 500) {
     return false;

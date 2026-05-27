@@ -9,6 +9,8 @@ import { getRestHttpRateLimitMetricsSnapshot } from "../../../application/servic
 import { getRestRateLimitRedisMetricsSnapshot } from "../../../application/services/rest_rate_limit_redis_metrics.service";
 import { getSocketIoRedisAdapterMetricsSnapshot } from "../../../application/services/socket_io_redis_adapter_metrics.service";
 import { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../../application/services/client_socket_event_idempotency_redis_metrics.service";
+import { getAgentEventStreamMetricsSnapshot } from "../../../application/services/agent_event_stream_metrics.service";
+import { getRedisAuthPingMetricsSnapshot } from "../../../application/services/redis_auth_ping_metrics.service";
 import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
 import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
 import { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/metrics/client_agent_access_request.metrics";
@@ -53,6 +55,8 @@ export const getMetrics = (_request: Request, response: Response): void => {
     restRateLimitRedis: getRestRateLimitRedisMetricsSnapshot(),
     socketIoRedisAdapter: getSocketIoRedisAdapterMetricsSnapshot(),
     customEventIdempotencyRedis: getClientSocketEventIdempotencyRedisMetricsSnapshot(),
+    agentEventStream: getAgentEventStreamMetricsSnapshot(),
+    redisAuthPing: getRedisAuthPingMetricsSnapshot(),
     prismaTransactionRetry: getPrismaTransactionRetryMetricsSnapshot(),
     registrationFlow: getRegistrationFlowMetricsSnapshot(),
     authAccount: getAuthAccountMetricsSnapshot(),

@@ -8,8 +8,14 @@
  * still useful to spot regression in error rate per route.
  */
 
+/**
+ * Histogram buckets in seconds. Extended past 10 s with `15` and `30` so
+ * tail latency from REST bridge / materialize endpoints (subject to
+ * `SOCKET_RELAY_REQUEST_TIMEOUT_MS=15000` and longer batch SQL) lands in a
+ * named bucket instead of the implicit `+Inf`. Helps p95/p99 dashboards.
+ */
 const BUCKETS_SECONDS: readonly number[] = [
-  0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+  0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30,
 ];
 
 interface RouteHistogram {

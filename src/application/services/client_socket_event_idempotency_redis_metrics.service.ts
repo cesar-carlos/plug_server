@@ -3,6 +3,36 @@
  * Exposed via GET /metrics.
  */
 
+import {
+  createRedisCommandLatencyHistogram,
+  type RedisCommandLatencyHistogramSnapshot,
+} from "./redis_command_latency_histogram";
+
+export type ClientSocketEventIdempotencyRedisLatencyOp =
+  | "get"
+  | "set"
+  | "lock"
+  | "unlock"
+  | "extend";
+
+const latencyHistograms: Record<
+  ClientSocketEventIdempotencyRedisLatencyOp,
+  ReturnType<typeof createRedisCommandLatencyHistogram>
+> = {
+  get: createRedisCommandLatencyHistogram(),
+  set: createRedisCommandLatencyHistogram(),
+  lock: createRedisCommandLatencyHistogram(),
+  unlock: createRedisCommandLatencyHistogram(),
+  extend: createRedisCommandLatencyHistogram(),
+};
+
+export const observeClientSocketEventIdempotencyRedisLatency = (
+  op: ClientSocketEventIdempotencyRedisLatencyOp,
+  durationMs: number,
+): void => {
+  latencyHistograms[op].observe(durationMs);
+};
+
 let redisUrlConfigured: 0 | 1 = 0;
 let redisStoreActive: 0 | 1 = 0;
 let connectionEventsTotal = 0;
@@ -11,6 +41,7 @@ let runtimeCommandErrorEventsTotal = 0;
 let replayHitsTotal = 0;
 let conflictsTotal = 0;
 let locksAcquiredTotal = 0;
+let lockExtensionsTotal = 0;
 let lockContentionTotal = 0;
 let lockWaitTimeoutsTotal = 0;
 let writesTotal = 0;
@@ -56,6 +87,10 @@ export const noteClientSocketEventIdempotencyRedisLockAcquired = (): void => {
   locksAcquiredTotal += 1;
 };
 
+export const noteClientSocketEventIdempotencyRedisLockExtended = (): void => {
+  lockExtensionsTotal += 1;
+};
+
 export const noteClientSocketEventIdempotencyRedisLockContention = (): void => {
   lockContentionTotal += 1;
 };
@@ -77,11 +112,16 @@ export const getClientSocketEventIdempotencyRedisMetricsSnapshot = (): {
   readonly replayHitsTotal: number;
   readonly conflictsTotal: number;
   readonly locksAcquiredTotal: number;
+  readonly lockExtensionsTotal: number;
   readonly lockContentionTotal: number;
   readonly lockWaitTimeoutsTotal: number;
   readonly writesTotal: number;
   readonly lastConnectionAtMs: number;
   readonly lastFallbackAtMs: number;
+  readonly latency: Record<
+    ClientSocketEventIdempotencyRedisLatencyOp,
+    RedisCommandLatencyHistogramSnapshot
+  >;
 } => ({
   redisUrlConfigured,
   redisStoreActive,
@@ -91,11 +131,19 @@ export const getClientSocketEventIdempotencyRedisMetricsSnapshot = (): {
   replayHitsTotal,
   conflictsTotal,
   locksAcquiredTotal,
+  lockExtensionsTotal,
   lockContentionTotal,
   lockWaitTimeoutsTotal,
   writesTotal,
   lastConnectionAtMs,
   lastFallbackAtMs,
+  latency: {
+    get: latencyHistograms.get.snapshot(),
+    set: latencyHistograms.set.snapshot(),
+    lock: latencyHistograms.lock.snapshot(),
+    unlock: latencyHistograms.unlock.snapshot(),
+    extend: latencyHistograms.extend.snapshot(),
+  },
 });
 
 export const resetClientSocketEventIdempotencyRedisMetricsForTests = (): void => {
@@ -107,9 +155,15 @@ export const resetClientSocketEventIdempotencyRedisMetricsForTests = (): void =>
   replayHitsTotal = 0;
   conflictsTotal = 0;
   locksAcquiredTotal = 0;
+  lockExtensionsTotal = 0;
   lockContentionTotal = 0;
   lockWaitTimeoutsTotal = 0;
   writesTotal = 0;
   lastConnectionAtMs = 0;
   lastFallbackAtMs = 0;
+  latencyHistograms.get.reset();
+  latencyHistograms.set.reset();
+  latencyHistograms.lock.reset();
+  latencyHistograms.unlock.reset();
+  latencyHistograms.extend.reset();
 };

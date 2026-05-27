@@ -6,8 +6,155 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Performance (Generous profile — Onda A/B: capacity headroom)
+
+Resposta ao perfil "generoso com os limites": eliminacao de chokepoints de
+configuracao detectados pos-Sprints P1-P4 (Redis hardening). O foco e abrir
+headroom de **capacidade** sem afrouxar safety nets reais (buffers, queue
+caps, rate-limits criticos permanecem ativos).
+
+**Onda A — `.env` apenas (sem mudanca de codigo):**
+
+- **Postgres pool** ([`.env`](.env) `DATABASE_URL`): `connection_limit=15→40`, `pool_timeout=20→45`. Ajustar `max_connections` do Postgres em paralelo.
+- **Queue waits** (`SOCKET_RELAY_AGENT_QUEUE_WAIT_MS`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`): `200→2000` ms. Bursts esperam 2s antes do `503`, evitando retry storm.
+- **Outbound overload shedding** (`SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG`, `_P95_MS`): `200/250→0/0`. Desliga shedding por backlog/p95 — buffers e queue caps continuam protegendo.
+- **Per-conversation pending** (`SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONVERSATION`): `32→256`. Alinhado com `_PER_CONSUMER=1024`.
+- **JWT verify cache** (`JWT_VERIFY_CACHE_TTL_MS`, `_MAX_SIZE`): defaults `30s/2k → 120s/20k`. Hits ainda revalidam `exp`.
+- **Swagger em producao** (`SWAGGER_ENABLED`): `true→false`. Operadores habilitam temporariamente quando precisam.
+- **Profile sync concurrency** (`SOCKET_AGENT_PROFILE_SYNC_MAX_CONCURRENT`): `8→32`. Reconnect storm de ~60 agentes converge mais rapido.
+- **Custom publish inflight** (`SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET`): `128→512`. Alinhado com `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`.
+- **Audit batching** (`SOCKET_AUDIT_BATCH_MAX`, `SOCKET_AUDIT_MAX_QUEUE`): `64/50000→192/200000`. Menos round-trips Prisma; queue absorve stalls.
+- **Profile recipients cache** (`SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS`, `_MAX_SIZE`): `10s/5k→30s/15k`. Reduz pressao DB; bounded por revoke.
+- **Self profile rate limit** (`REST_AGENTS_SELF_PROFILE_RATE_LIMIT_MAX`): default `20/min → 0` (unlimited).
+- **Email outbox poll/batch** (`REGISTRATION_EMAIL_OUTBOX_POLL_INTERVAL_MS`, `_BATCH_SIZE`): `3000/25→1000/100`. Drena bursts de aprovacao mais rapido.
+
+**Onda B — mudancas de codigo:**
+
+- **Email outbox concurrency env-driven**: novo env `REGISTRATION_EMAIL_OUTBOX_WORKER_CONCURRENCY` (default `4` para back-compat). [`registration_email_outbox.service.ts`](src/application/services/registration_email_outbox.service.ts) substitui o `Math.min(4, ...)` hardcoded por `env.registrationEmailOutboxWorkerConcurrency`. Generous profile usa `8`.
+- **Room reconcile parallel leave/join**: [`consumer_client_agent_room_reconcile.ts`](src/presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile.ts) calcula `roomsToLeave`/`roomsToJoin` e dispara cada conjunto via `Promise.all`. Antes: ~120 round-trips sequenciais por client por tick para ~60 agentes. Agora: 2 batches paralelos por client.
+- **HTTP RED histogram buckets** ([`http_red.metrics.ts`](src/shared/metrics/http_red.metrics.ts)): adicionado `15`, `30` segundos. Tail latency de REST bridge / materialize agora cai em bucket nomeado em vez do implicito `+Inf`.
+- **Agent event stream batch size buckets** ([`agent_event_stream_metrics.service.ts`](src/application/services/agent_event_stream_metrics.service.ts)): adicionado `2000`, `5000`. Cobre fan-out de rooms grandes (P1 `appendAgentEventFramesBatch`).
+
+**Tests:**
+
+- [`tests/unit/presentation/socket/hub/relay_outbound_queue.test.ts`](tests/unit/presentation/socket/hub/relay_outbound_queue.test.ts) ajustado: o teste de overload agora pinneja o threshold via `Object.defineProperty` para nao depender da config ativa (que pode ter shedding desligado).
+- [`tests/unit/application/services/agent_event_stream_metrics.service.test.ts`](tests/unit/application/services/agent_event_stream_metrics.service.test.ts) cobre os novos buckets `2000`/`5000`.
+
+**Validacao:**
+
+- `tsc --noEmit`: green
+- `eslint`: green
+- `vitest run`: 1584 passed | 16 skipped (integration sem broker)
+
+### Performance (Redis perf v1 — Sprints P1-P4: hot-path RTT reductions)
+
+- **P1 — Stream fan-out pipelining (`MULTI/EXEC`)**: novo `appendAgentEventFramesBatch` em `src/infrastructure/redis/agent_event_stream.ts` empacota `XADD` (+ `PEXPIRE` opcional) por recipient num único `MULTI/EXEC`, reduzindo `2N` round-trips para **1 RTT** independente da contagem de recipients. `appendAgentEventFrame` continua exposto como wrapper de uma entry. `client_socket_event_publish.service.ts` chama o batch nos 3 modos (`await`/`timeout`/`fire_and_forget`).
+- **P1 — Métricas batch**: novos `plug_agent_event_stream_batch_appends_total`, `plug_agent_event_stream_batch_partial_failures_total`, e histograma `plug_agent_event_stream_batch_size_bucket{le}` (buckets 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, +Inf).
+- **P1 — Bench script**: novo `scripts/bench-stream-fanout.ts` (gated por `BENCH=1`) compara legacy concurrent `XADD` vs batch `MULTI/EXEC` para 10/50/200 recipients.
+- **P2 — Atomic consume-or-rollback Lua**: novo script `SOCKET_RATE_LIMIT_CONSUME_OR_ROLLBACK_SCRIPT` em `src/infrastructure/redis/socket_rate_limit_redis.ts` retorna `[allowed, used]` num único `EVALSHA`, fundindo o `INCRBY+PEXPIRE` com o `DECRBY+DEL` quando `used > max`. Reduz **deny path de 2 RTTs para 1 RTT** (~50% p95). Pré-loaded via `LuaScriptCache`. O legacy `consume` script e `refundSocketRateLimitRedis` (refund externo pós-validação) ficam intactos.
+- **P2 — Métricas atomic rollback**: novo counter `plug_socket_rate_limit_consume_atomic_rollbacks_total` distingue rollbacks atômicos do refund externo.
+- **P3.1 — Init Redis paralelo**: `bootstrap()` em `src/server.ts` agora roda os 4 inits independentes (`initRestHttpRateLimitRedis`, `initSocketRateLimitRedis`, `initClientSocketEventPublishIdempotencyRedis`, `initAgentEventStream`) via `Promise.all`. Total wait de boot passa de `Σ(initᵢ)` para `max(initᵢ)` — ganho 2-4× em ambientes degradados onde 1 Redis está unreachable. ADR-0007 documenta a decisão.
+- **P3.1 — Shutdown via `Promise.allSettled`**: `closeSocketIoRedisAdapter`, `closeClient...IdempotencyRedis`, `closeAgentEventStream`, `closeRestHttpRateLimitRedis`, `closeSocketRateLimitRedis` rodam concorrentemente; falhas individuais geram warning `redis_module_close_failed` sem bloquear o shutdown geral.
+- **P3.2 — fetchSockets dedupe**: `countSocketsInRoom` aceita `captureSockets: true` e expõe `fetchedSockets` no `RoomRecipientCount`. Quando `AGENT_EVENT_STREAM_ENABLED=true`, o publish handler reutiliza os sockets capturados na contagem para extrair `recipientPrincipalIds` (1 cluster-RPC ao invés de 2). Path local-only ainda faz fetchSockets dedicado quando count não pagou a RPC. Novo counter `plug_socket_custom_event_publish_fetch_sockets_dedupes_total`.
+- **P4.1 — Histogram bucket binary search**: `redis_command_latency_histogram.ts` substitui scan linear por busca binária no `findBucketIndex`. ~5 comparações → 4 no pior caso para os 11 buckets atuais; cumulativo é mensurável em ambientes high-throughput.
+- **P4.2 — Pre-allocated arrays em snapshots**: `histogram.snapshot()` substitui `Array.prototype.map` por arrays pré-alocados (`new Array<T>(buckets.length)`), evitando realocações em cada metrics scrape.
+- **P4.3 — Microbench in-process**: novo `scripts/redis-perf-bench.ts` (gated por `BENCH=1`) roda 100k iterations das hot paths (observe, snapshot, boundary lookup) e imprime p50/p95/p99 ns por chamada.
+- **Docs**: nova ADR-0007 (parallel Redis init); seção de microbenchmarks em `docs/load_testing.md` com exemplos de uso e sinais de regressão.
+
+### Added (Redis hardening v3 — Sprint 9: Observability + Quick wins)
+
+- **AUTH ping metrics**: novo counter `plug_redis_auth_ping_total{module, outcome="ok|auth_error|other_error"}` em `redis_auth_ping_metrics.service.ts` instrumentado nos 2 factories (`instrumented_redis_client.ts` e `pubsub_instrumented_redis_client.ts`).
+- **OpenTelemetry spans para comandos Redis**: novo helper `withRedisSpan` em `src/infrastructure/observability/redis_span.ts` com env `REDIS_OTEL_SPANS_ENABLED=false` (default off). Quando enabled junto com `OTEL_TRACES_ENABLED=true`, comandos hot-path (consume, refund, lock, unlock, extend, xadd) ganham spans nomeados `redis.<module>.<op>` com atributos PII-safe (`redis.module`, `redis.op`, `redis.key.prefix`).
+- **Cluster topology validator unit tests**: cobertura unitária completa (`tests/unit/infrastructure/redis/cluster_topology_validator.test.ts`) — standalone short-circuit, cluster com slots iguais e diferentes, error swallowing, edge cases.
+- **Spikes index**: novo `docs/spikes/_README.md` com triggers concretos para revisitar os 2 NO-GO existentes; `socket_rate_limit_redis_sliding.ts` ganha JSDoc TODO apontando para os triggers do Sprint 11.
+- **Cross-links de docs**: `docs/configuration.md` e `src/infrastructure/redis/README.md` agora apontam para `docs/redis_security.md` e vice-versa.
+
+### Changed (Redis hardening v3)
+
+- **Rename API: `agentId` → `principalId`** nos módulos `agent_event_stream`, `agent_event_stream_cursor` e `agent_event_stream_drain`. Parâmetro positional, então **chamadas existentes funcionam sem mudança**. Logs e mensagens de erro também usam `principalId`. Key prefix `plug_agent_stream:` mantido para back-compat de dados em flight.
+
+### Added (Redis hardening v3 — Sprint 10: Stream evolution)
+
+- **`schemaVersion=1` em frames do stream**: `appendAgentEventFrame` injeta `schemaVersion="1"` em cada XADD; `parseStreamMessage` rejeita versões desconhecidas via `noteAgentEventStreamDropped()`. Frames legacy sem `schemaVersion` são aceitos (back-compat).
+- **Consumer groups (opt-in)**: novo env `AGENT_EVENT_STREAM_USE_CONSUMER_GROUPS=false` (default off) + `AGENT_EVENT_STREAM_CONSUMER_GROUP=plug_hub`. Quando ativado, `XGROUP CREATE MKSTREAM` é emitido lazy (BUSYGROUP swallowed); reads via `XREADGROUP GROUP plug_hub <replicaId>` e acks via `XACK`. Cross-replica drain de mesmo principalId fica coordenado.
+- **Backpressure dual-mode**: nova env `AGENT_EVENT_STREAM_APPEND_MODE` com 3 modos:
+  - `await` (default): publish bloqueia até todos appends resolverem (preserva at-least-once).
+  - `timeout`: race contra `AGENT_EVENT_STREAM_APPEND_TIMEOUT_MS=50` por append; publish não espera além do timeout.
+  - `fire_and_forget`: appends nunca bloqueiam o publish; falhas só aparecem em métricas/logs.
+
+### Added (Redis hardening v3 — Sprint 11: URL/Topology flexibility)
+
+- **Sentinel/multi-host URL resolver**: novo `src/infrastructure/redis/redis_url_resolver.ts` parseando `redis-sentinel://`, `rediss+sentinel://` e URLs `redis://` com múltiplos hosts. Aplicado em `buildResilientRedisClientOptions` com warning logado uma vez por shape detectado.
+- **Read-replica para idempotency `getEntry`**: nova env `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_READ_URL` (default vazio = primary). Quando set, `getEntry` consulta o réplica enquanto writes (`setEntry`/`acquireLock`/`extendLock`/`releaseLock`) seguem para o primary. Tolerante a lag de replicação porque o re-read pós-lock acontece via primary.
+- **Boundary-burst telemetry**: novos counters `plug_socket_rate_limit_window_resets_total` e `plug_socket_rate_limit_window_saturations_total` em `socket_rate_limit_redis_metrics.service.ts`. Sustained `saturations / resets > 0.5` em escopo com `windowMs >= 60s` é o trigger para revisitar a decisão NO-GO do sliding-window (`docs/spikes/sliding_window_rate_limit.md`).
+
+### Added (Redis hardening v3 — Sprint 12: Multi-tenancy + Cluster ops)
+
+- **Multi-tenancy via `REDIS_TENANT_ID`**: nova env opt-in (default vazio = single-tenant; valores `[A-Za-z0-9_-]{1,32}`). Quando set, todos os 5 módulos Redis injetam `<tenantId>` dentro do hash tag (ex: `plug_socket_rl:{plug}:acme:scope:user`), garantindo isolamento hard sem cross-tenant slot collision. Novo helper `redis_key_namespace.ts` centraliza a lógica. ADR-0006 documenta a decisão.
+- **Cluster migration runbook**: novo `docs/runbooks/redis_cluster_migration.md` com 5 phases (pre-flight, stage rollout, cutover, rollback, decommission) + checklist de observabilidade.
+- **Cluster readiness check CLI**: novo `scripts/redis-cluster-readiness-check.ts` valida `cluster_enabled`, single-slot dos prefixos plug, INCRBY+PEXPIRE, SCRIPT LOAD+EVALSHA e XADD+XLEN antes do cutover. Exit code 0 = ready.
+
+### Added (Redis hardening v2 — Sprint 5: Streams Phase 2 wiring)
+
+- **Backlog cross-replica live**: `client:custom.*` agora persiste cada frame no stream durável por destinatário e drena no `socket:event.subscribe` após reconexão. Default off via `AGENT_EVENT_STREAM_ENABLED=false`. Novo módulo `src/presentation/socket/hub/agent_event_stream_drain.ts` orquestra `getCursor → readBacklog → emit serial com ack → commitCursor → XDEL`. Wiring integrado em `socket.ts` (resolução de `recipientPrincipalIds` via `fetchSockets`) e em `client_socket_event_publish.service.ts` (append after live emit).
+- **Cursor persistido**: novo `src/infrastructure/redis/agent_event_stream_cursor.ts` (`get/commit/purge`) com chave `plug_agent_stream_cursor:{plug}:<principalId>` e TTL = `AGENT_EVENT_STREAM_TTL_MS`. Default `"$"` no primeiro connect (skip histórico).
+- **Feature flag por principal**: nova env `AGENT_EVENT_STREAM_AGENT_ALLOWLIST` (CSV) permite rollout gradual; vazio = todos.
+- **Drain ack timeout**: nova env `AGENT_EVENT_STREAM_DRAIN_ACK_TIMEOUT_MS=5000`. Frames sem ack ficam no stream para próxima reconexão.
+- **Integration test**: novo `tests/integration/agent_event_stream_backlog.integration.test.ts` exercita ciclo append → read → ack → cursor com Redis real (skipa sem broker).
+
+### Added (Redis hardening v2 — Sprint 6: Performance + Refactor)
+
+- **Lua single-round-trip consume**: `consumeSocketRateLimitRedis` agora executa `INCRBY` + `PEXPIRE` condicional em um único EVAL (`SOCKET_RATE_LIMIT_CONSUME_SCRIPT`). Reduz round-trips em ~50% no hot-path. Spike a/b mantido em `scripts/socket-bridge-load-test.mjs`.
+- **`LuaScriptCache`**: novo `src/infrastructure/redis/lua_script_cache.ts` pré-carrega scripts via `SCRIPT LOAD` no `onConnected` e usa `EVALSHA` com fallback `NOSCRIPT`. Aplicado em `socket_rate_limit_redis` (consume + refund) e `client_socket_event_publish_idempotency_redis` (release_lock + extend_lock).
+- **`createPubSubInstrumentedRedisClients`**: novo factory para o par `pub` + `sub.duplicate()` em `src/infrastructure/redis/pubsub_instrumented_redis_client.ts`. `socket_io_redis_adapter` consome o factory removendo ~80 LOC de cerimônia.
+- **README do diretório Redis**: `src/infrastructure/redis/README.md` com diagrama dos 5 módulos e quando usar cada factory.
+- **Type guard `xRead`**: substituiu o `type assertion` em `agent_event_stream.ts` por um `isXReadStreamBatch` reutilizável.
+
+### Spikes documentados (NO-GO)
+
+- **Sliding-window rate-limit**: `src/infrastructure/redis/socket_rate_limit_redis_sliding.ts` (não wired). Decisão NO-GO em `docs/spikes/sliding_window_rate_limit.md` — memória ~80× a do fixed-window e nenhum incidente de boundary-burst observado em 30 dias.
+- **RedisClientPool**: análise em `docs/spikes/redis_client_pool.md`. NO-GO — node-redis@5 já multiplexa comandos; pool não reduz p95 sob nosso workload (sem comandos blocking).
+
+### Added (Redis hardening v2 — Sprint 7: Security + Operability)
+
+- **AUTH ping pós-connect**: `instrumented_redis_client.ts` e `pubsub_instrumented_redis_client.ts` executam `client.ping()` após `connect()` e abortam boot em produção se a resposta indica `WRONGPASS`/`NOAUTH`. Fora de produção, falhas autenticáveis logam `*_post_connect_ping_failed` e seguem.
+- **Cluster topology validator**: novo `src/infrastructure/redis/cluster_topology_validator.ts` chamado de cada `init()` (best-effort, no-op em standalone). Valida via `CLUSTER INFO` + `CLUSTER KEYSLOT` que prefixos `{plug}` mapeiam ao mesmo slot; loga `*_cluster_topology_crossslot` quando detecta inconsistência.
+- **`GET /health/redis`**: novo controller `health_redis.controller.ts` retornando estado por módulo (`adapter`, `socketRateLimit`, `restRateLimit`, `idempotency`, `agentEventStream`). 200 quando todos `active||skipped`, 503 caso contrário. Útil para readiness probes diferenciadas.
+- **Chaos integration test**: `tests/integration/redis_chaos.integration.test.ts` mata clientes do broker mid-flight via `CLIENT KILL` e valida que watchdog pára de renovar, publish termina graciosamente, sem `unhandledRejection`. Gated em `INTEGRATION_REDIS_CHAOS_TESTS_ENABLED=true`.
+- **Limpeza**: removidos arquivos órfãos `src/shared/config/env_schema_{infra,socket,http}.ts` (não importados em lugar nenhum desde a centralização em `env.ts`).
+
+### Added (Redis hardening v2 — Sprint 8: Docs + Observability)
+
+- **Quantis explícitos**: `redis_command_latency_histogram` agora calcula `p50Ms/p95Ms/p99Ms` por interpolação linear nos buckets. Renderer emite `plug_*_command_duration_ms_p50/p95/p99` para dashboards lightweight sem `histogram_quantile()` PromQL.
+- **Grafana dashboard**: novo `docs/grafana/redis_dashboard.json` com 14 painéis (connection state stat-tiles, latency p95 por op, fallback rate por módulo, circuit state, tracked keys, stream backlog flow). Importável em Grafana 10.x.
+- **Alerting rules**: novo `docs/observability/alerts/redis.yml` com 8 regras Prometheus cobrindo adapter down (critical), rate-limit circuit open (warning), latency p95 alta (warning), fallback events (warning), stream dropped (critical), stream fallback (critical), tracked keys saturation (warning).
+- **ADRs**: novo diretório `docs/adrs/` com 5 documentos (`0001-fail-open-default`, `0002-hash-tag-prefix`, `0003-streams-vs-pubsub`, `0004-circuit-breaker-thresholds`, `0005-instrumented-redis-client-factory`).
+- **Capacity planner CLI**: `scripts/redis-capacity-planner.ts` calcula memória steady-state e burst do agent_event_stream a partir de `agents`, `max-len`, `avg-frame-bytes`, `ttl-hours`, `active-fraction`. Recomenda `maxmemory` e eviction policy.
+
+### Changed (Redis hardening v2)
+
+- **`PublishConsumerSocketEventResult` ganha `recipientPrincipalIds?: ReadonlyArray<string>`**: handlers do sink podem retornar a lista de principalIds locais (resolvida apenas quando streams ativo). Compatível com handlers existentes (campo opcional, agregação faz Set-merge cross-handler).
+- **Redis envs convencionadas**: `docs/configuration.md` documenta o contrato "vazio = desligado" para todos os 5 módulos Redis e centraliza o tuning compartilhado (`REDIS_DEFAULT_*`, `STRICT_REDIS_AUTH`).
+
+### Added (Redis hardening)
+
+- **Redis Streams para entrega at-least-once cross-replica (opt-in, default off)**: novo `src/infrastructure/redis/agent_event_stream.ts` (XADD com `MAXLEN ~ N` + `PEXPIRE` por append, XREAD desde `lastSeenStreamId`, XDEL para ack), metrics service `agent_event_stream_metrics.service.ts` (counters + histograma `append/read/ack/trim`). Novas envs `AGENT_EVENT_STREAM_REDIS_URL`, `AGENT_EVENT_STREAM_ENABLED=false`, `AGENT_EVENT_STREAM_MAX_LEN=1000`, `AGENT_EVENT_STREAM_TTL_MS=86400000`, `AGENT_EVENT_STREAM_BACKLOG_MAX_ENTRIES=500`. Lifecycle integrado em `server.ts`. Wiring no publish/connect (Phase 2) documentado em `docs/redis_streams_agent_backlog.md`.
+- **Redlock-style watchdog**: idempotency lock NX/PX agora pode ser estendido em-flight via Lua compare-and-pexpire (`extendLock`). Nova env `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_LOCK_RENEWAL_MS` (default `0` = legacy fixed-TTL). Quando > 0, `executeClientSocketEventPublish` arma `setInterval` que renova o lock até o publish concluir. Metrica `plug_socket_custom_event_idempotency_redis_lock_extensions_total` + bucket `op="extend"` no histograma de latencia.
+- **STRICT_REDIS_AUTH (production guard)**: nova env (default `false`); quando `true` e `NODE_ENV=production`, `env.ts` recusa boot se qualquer `*_REDIS_URL` usar `redis://` sem password. Aceita `rediss://` (TLS) ou `redis://default:<password>@host`. Documentado em `docs/redis_security.md`.
+
+### Changed (Redis hardening)
+
+- **Redis client resilience**: novo helper `src/infrastructure/redis/redis_client_options.ts` aplica `socket.connectTimeout` e `socket.reconnectStrategy` (capped exponential backoff) a todos os 4 modulos Redis (`socket_io_redis_adapter`, `socket_rate_limit_redis`, `rest_rate_limit_redis`, `client_socket_event_publish_idempotency_redis`). Novas envs `REDIS_DEFAULT_CONNECT_TIMEOUT_MS=5000`, `REDIS_DEFAULT_RECONNECT_BASE_MS=200`, `REDIS_DEFAULT_RECONNECT_MAX_MS=5000`. Adapter Socket.IO mantem suas envs `SOCKET_IO_REDIS_ADAPTER_RECONNECT_BASE_MS/MAX_MS` para back-compat.
+- **Redis hash tag (cluster-ready)**: prefixos das chaves de rate-limit e idempotency passam a usar `{plug}` para co-localizar slots em Redis Cluster: `plug_socket_rl:{plug}:<scope>:<key>`, `plug_rl:{plug}:<scope>:`, `plug_socket_event_idem:{plug}:<digest>`, `plug_socket_event_idem_lock:{plug}:<digest>`. **Migracao destrutiva** — contadores de rate-limit em janela activa e entradas de idempotency com TTL pendente nao sao migrados (efeito tipico: 1 minuto de janela perdida; idempotency keys repetidas durante o deploy podem produzir 2 publishes). Adapter Socket.IO (`SOCKET_IO_REDIS_ADAPTER_KEY`) nao foi alterado.
+- **Tracked keys gauge sem GC spike**: `socket_rate_limit_redis_metrics.service.ts` substitui `Set<string>` ilimitado (clear de 10k strings na mudanca de geracao) por `Map<string, number>` com janela de 60 s e cap de 5000. Snapshot expoe `trackedKeysWindowSize` (gauge) e `trackedKeysSeenTotal` (counter monotonico) — antes `trackedKeysApprox`. Atualiza `metrics_renderer.ts` (`plug_socket_rate_limit_redis_tracked_keys_window_size`, `_seen_total`).
+- **Latency histograms (per-command)**: novo `redis_command_latency_histogram.ts` (buckets 1ms..5s) instrumenta os 5 modulos Redis em `try/finally` com `performance.now()`. Novas metricas Prometheus: `plug_rest_http_rate_limit_redis_command_duration_ms_*`, `plug_socket_rate_limit_redis_command_duration_ms_*{op="consume|refund"}`, `plug_socket_io_redis_adapter_connect_duration_ms_*`, `plug_socket_custom_event_idempotency_redis_command_duration_ms_*{op="get|set|lock|unlock|extend"}`, `plug_agent_event_stream_command_duration_ms_*{op="append|read|ack|trim"}`. Atende `observe-metrics` rule.
+- **Cerimonia de cliente Redis consolidada**: novo `instrumented_redis_client.ts` encapsula `createClient` resiliente + listeners `error`/`end`/`ready` + generation token + fallback handler. `socket_rate_limit_redis`, `rest_rate_limit_redis`, `client_socket_event_publish_idempotency_redis` e `agent_event_stream` passam a usar o factory; `socket_io_redis_adapter` mantem implementacao propria por causa do par `pub`+`sub.duplicate()` e backoff customizado.
+
 ### Docs
 
+- **Redis Streams (at-least-once)**: novo `docs/redis_streams_agent_backlog.md` com arquitetura, capacity planning (formula `agentes × MAX_LEN × frame_size`), trade-offs vs pub/sub-only, e roadmap Phase 2 para wiring no publish/connect.
+- **Observability metrics**: `docs/observability.md` lista os novos histogramas de latencia (`p95` PromQL pronto), `tracked_keys_*`, e o bloco completo `plug_agent_event_stream_*`.
+- **Redis security checklist**: novo `docs/redis_security.md` com guidance de auth/TLS, ACL, network isolation, eviction policies, observability. `.env.example` linka o documento nas 4 secoes Redis.
 - **Performance tuning (config)**: `.env.example` e `docs/configuration.md` documentam TTLs recomendados para staging/prod (`SOCKET_CONSUMER_AGENT_ACCESS_SNAPSHOT_TTL_MS=15000`, `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS=10000`, sweeps opcionais `120000` ms) com trade-offs staleness vs carga na BD; cross-link a metricas em `docs/observability.md`.
 - **Limpeza de configuração**: removidas env órfãs `REST_ME_AGENTS_POST_RATE_LIMIT_*` (rota `POST /api/v1/me/agents` removida); `.env` local sincronizado. `docs/configuration.md` — secção de ajuste para `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET` (inclui `relay:conversation.start` na tabela de guards).
 - **Socket client SDK — PayloadFrame migration**: `docs/socket_client_sdk.md` documenta decode de `agents:command_response`, `agents:command_stream_*` e `agents:stream_pull_response`; shims `SOCKET_AGENTS_COMMAND_COMPAT_MODE`, `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` e `SOCKET_CONNECTION_READY_COMPAT_MODE` (remocao `2026-09-30`); consumer idle timeout (eventos significativos vs trafego hub→consumer); cross-links a `docs/configuration.md` e `docs/observability.md`.

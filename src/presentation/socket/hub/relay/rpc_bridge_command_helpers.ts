@@ -1,6 +1,12 @@
-import type { BridgeBatchCommand, BridgeCommand } from "../../../../shared/validators/agent_command";
+import type {
+  BridgeBatchCommand,
+  BridgeCommand,
+} from "../../../../shared/validators/agent_command";
 import { HUB_DEFAULT_API_VERSION } from "../../../../shared/constants/agent_transport_contract";
-import { isBatchCommand, toCorrelationIds } from "../../../../shared/utils/bridge_command_correlation";
+import {
+  isBatchCommand,
+  toCorrelationIds,
+} from "../../../../shared/utils/bridge_command_correlation";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
 
 export { isBatchCommand, toCorrelationIds };

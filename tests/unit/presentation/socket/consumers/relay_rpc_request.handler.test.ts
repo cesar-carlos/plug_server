@@ -23,9 +23,12 @@ vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard"
   resolveSocketActorRole: vi.fn(() => "user"),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter", () => ({
-  refundRelayRpcRequestAsync: vi.fn(),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter",
+  () => ({
+    refundRelayRpcRequestAsync: vi.fn(),
+  }),
+);
 
 vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_gate", () => ({
   tryAcquireSocketInflightSlot: vi.fn(() => true),

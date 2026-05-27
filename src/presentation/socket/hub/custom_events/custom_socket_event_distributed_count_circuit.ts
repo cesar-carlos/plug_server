@@ -12,6 +12,7 @@ import { isSocketIoRedisAdapterActive } from "../../../../infrastructure/redis/s
 import {
   resolveCustomSocketEventRoomRecipientCountStrategy,
   toRoomRecipientCountFromStrategy,
+  type RemoteSocketLike,
   type ResolvedCustomSocketEventRoomRecipientCount,
 } from "./custom_socket_event_room_recipient_count";
 
@@ -84,13 +85,30 @@ export const enforceCustomEventDistributedCountCircuit = (
   });
 };
 
-export const countDistributedRoomRecipients = async (input: {
+/**
+ * Counts subscribers for a custom event room.
+ *
+ * The caller chooses **how** the distributed count is obtained by passing
+ * one of the two fetch hooks below — they are mutually exclusive:
+ *
+ *   - `fetchDistributedCount`: legacy "count only" path. Cheap when the
+ *     caller does not also need the underlying sockets (e.g. agent room
+ *     audits where only the cardinality matters).
+ *   - `fetchDistributedSockets`: returns the underlying `RemoteSocket[]`
+ *     so downstream code can reuse the array (length = count) without a
+ *     second `fetchSockets()` cluster RPC. Used by the publish path,
+ *     which also needs `recipientPrincipalIds`.
+ */
+export const countDistributedRoomRecipients = async <
+  S extends RemoteSocketLike = RemoteSocketLike,
+>(input: {
   readonly circuit: DistributedCountCircuitState;
   readonly localRecipients: number;
   readonly room: string;
-  readonly fetchDistributedCount: () => Promise<number>;
+  readonly fetchDistributedCount?: () => Promise<number>;
+  readonly fetchDistributedSockets?: () => Promise<ReadonlyArray<S>>;
   readonly onCircuitReset: () => void;
-}): Promise<ResolvedCustomSocketEventRoomRecipientCount> => {
+}): Promise<ResolvedCustomSocketEventRoomRecipientCount<S>> => {
   const redisAdapterActive = isSocketIoRedisAdapterActive();
   const strategy = resolveCustomSocketEventRoomRecipientCountStrategy({
     redisAdapterActive,
@@ -103,10 +121,30 @@ export const countDistributedRoomRecipients = async (input: {
     if (redisAdapterActive) {
       noteCustomSocketEventPublishDistributedRecipientCountSkipped();
     }
-    return toRoomRecipientCountFromStrategy(strategy);
+    /**
+     * The non-distributed strategies never populate `fetchedSockets`, so the
+     * cast widens the un-generic helper result to the caller's `S` parameter
+     * without changing runtime behavior.
+     */
+    return toRoomRecipientCountFromStrategy(
+      strategy,
+    ) as ResolvedCustomSocketEventRoomRecipientCount<S>;
   }
 
   try {
+    if (input.fetchDistributedSockets !== undefined) {
+      const sockets = await input.fetchDistributedSockets();
+      input.onCircuitReset();
+      return {
+        recipients: sockets.length,
+        recipientCountBestEffort: false,
+        recipientCountLocalOnly: false,
+        fetchedSockets: sockets,
+      };
+    }
+    if (input.fetchDistributedCount === undefined) {
+      throw new Error("countDistributedRoomRecipients: missing fetch hook");
+    }
     const recipients = await input.fetchDistributedCount();
     input.onCircuitReset();
     return {

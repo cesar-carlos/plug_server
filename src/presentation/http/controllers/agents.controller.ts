@@ -60,8 +60,7 @@ export const listConnectedAgents = async (request: Request, response: Response):
   const page = Math.max(1, query.page ?? 1);
   const pageSize = Math.max(1, Math.min(100, query.pageSize ?? 20));
 
-  const allowedIdSet =
-    visibleAgentIds !== undefined ? new Set(visibleAgentIds) : undefined;
+  const allowedIdSet = visibleAgentIds !== undefined ? new Set(visibleAgentIds) : undefined;
 
   const { items, total } = hasConnectedAgentsPagination(query)
     ? container.restAgentBridgeService.listConnectedAgentsPaged({
@@ -124,11 +123,7 @@ export const patchMyAgentProfile = async (
   const body = getValidated<AgentSelfProfileHttpBody>(response, "body");
   const tokenAgentId = authUser.agent_id;
 
-  if (
-    authUser.role !== "agent" ||
-    typeof tokenAgentId !== "string" ||
-    tokenAgentId.trim() === ""
-  ) {
+  if (authUser.role !== "agent" || typeof tokenAgentId !== "string" || tokenAgentId.trim() === "") {
     logger.warn("agent_self_profile_http_token_missing_agent_claim", {
       userId: authUser.sub,
       role: authUser.role,
@@ -159,9 +154,7 @@ export const patchMyAgentProfile = async (
   const requestId =
     typeof response.locals.requestId === "string" ? response.locals.requestId : undefined;
 
-  let updated: Awaited<
-    ReturnType<typeof container.agentSelfProfileService.persistProfilePatch>
-  >;
+  let updated: Awaited<ReturnType<typeof container.agentSelfProfileService.persistProfilePatch>>;
   try {
     updated = await container.agentSelfProfileService.persistProfilePatch({
       agentId,

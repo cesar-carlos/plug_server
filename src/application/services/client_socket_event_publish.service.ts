@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
+import { appendAgentEventFramesBatch } from "../../infrastructure/redis/agent_event_stream";
 import { publishConsumerSocketEvent } from "./consumer_socket_event_sink";
 import {
   buildClientSocketEventPublishFingerprint,
@@ -280,6 +281,40 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
   const eventId = randomUUID();
   const emittedAt = new Date().toISOString();
 
+  /**
+   * Redlock-style watchdog: while the publish is in-flight, periodically extend
+   * the distributed lock so a slow `publishConsumerSocketEvent` never lets the
+   * lock TTL expire. Idle until both `LOCK_RENEWAL_MS > 0` and a lock token
+   * exists (in-memory contention path skips this work).
+   */
+  let lockRenewalTimer: ReturnType<typeof setInterval> | undefined;
+  if (
+    distributedIdempotencyStore !== undefined &&
+    distributedLockToken !== undefined &&
+    idempotencyKey !== undefined &&
+    env.restSocketEventIdempotencyRedisLockRenewalMs > 0
+  ) {
+    const store = distributedIdempotencyStore;
+    const tokenAtSetup = distributedLockToken;
+    const renewalIntervalMs = env.restSocketEventIdempotencyRedisLockRenewalMs;
+    const ttlMs = env.restSocketEventIdempotencyRedisLockTtlMs;
+    lockRenewalTimer = setInterval(() => {
+      void (async () => {
+        if (distributedLockToken === undefined || distributedLockToken !== tokenAtSetup) {
+          return;
+        }
+        const extended = await store.extendLock(clientId, idempotencyKey, tokenAtSetup, ttlMs);
+        if (!extended) {
+          // Lock expired or stolen: stop renewing so we do not log on every tick.
+          if (lockRenewalTimer !== undefined) {
+            clearInterval(lockRenewalTimer);
+            lockRenewalTimer = undefined;
+          }
+        }
+      })();
+    }, renewalIntervalMs);
+  }
+
   try {
     let result: Awaited<ReturnType<typeof publishConsumerSocketEvent>>;
     try {
@@ -309,6 +344,99 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
       recipients: result.recipients,
       attachmentBytes: body.attachments.reduce((sum, attachment) => sum + attachment.sizeBytes, 0),
     });
+
+    /**
+     * Phase 2: append the published frame to each recipient's durable backlog
+     * stream so reconnecting subscribers receive missed frames at-least-once.
+     * `recipientPrincipalIds` is only populated when the sink resolved them
+     * (which itself only happens when `AGENT_EVENT_STREAM_ENABLED=true`).
+     *
+     * Append behavior is governed by `AGENT_EVENT_STREAM_APPEND_MODE`:
+     *
+     *   - `await` (default): block until every append resolves. Preserves
+     *     at-least-once delivery; publishes pay the Redis round-trip cost.
+     *   - `timeout`: race each append against
+     *     `AGENT_EVENT_STREAM_APPEND_TIMEOUT_MS`; appends keep running in
+     *     the background after the timeout (their resolution still updates
+     *     the metric) but the caller stops waiting.
+     *   - `fire_and_forget`: publish never waits. Failures only surface in
+     *     metrics / logs.
+     *
+     * Append failures degrade silently — the live emit already happened.
+     */
+    if (
+      env.agentEventStreamEnabled &&
+      result.recipientPrincipalIds !== undefined &&
+      result.recipientPrincipalIds.length > 0
+    ) {
+      const streamPayload = JSON.stringify({
+        publisher: { principalType: "client" as const, clientId },
+        payload: body.payload,
+        attachments: body.attachments,
+        ...(body.payloadFrameCompression !== undefined
+          ? { payloadFrameCompression: body.payloadFrameCompression }
+          : {}),
+      });
+      const frame = {
+        eventId,
+        eventName: body.eventName,
+        emittedAt,
+        payload: streamPayload,
+      };
+      const batchEntries = result.recipientPrincipalIds.map((principalId) => ({
+        principalId,
+        frame,
+      }));
+      /**
+       * Single pipelined `MULTI/EXEC` for the full fan-out: one round-trip
+       * regardless of recipient count. Failure handling stays per-batch so
+       * individual recipients that the server rejected still surface in
+       * `noteAgentEventStreamBatchPartialFailure` (not in the global
+       * `agent_event_stream_append_failed_post_publish` log line, which
+       * remains for the catastrophic case below).
+       */
+      const runBatch = async (): Promise<void> => {
+        try {
+          await appendAgentEventFramesBatch(batchEntries);
+        } catch (error: unknown) {
+          logger.warn("agent_event_stream_append_failed_post_publish", {
+            clientId,
+            recipientPrincipalCount: batchEntries.length,
+            eventId,
+            eventName: body.eventName,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+
+      const mode = env.agentEventStreamAppendMode;
+      if (mode === "await") {
+        await runBatch();
+      } else if (mode === "timeout") {
+        const timeoutMs = env.agentEventStreamAppendTimeoutMs;
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const timer = setTimeout(() => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            resolve();
+          }, timeoutMs);
+          void runBatch().finally(() => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+      } else {
+        // fire_and_forget — schedule the batch and continue.
+        void runBatch();
+      }
+    }
 
     logger.debug("client_socket_custom_event_published", {
       clientId,
@@ -357,6 +485,10 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
       idempotentReplay: false,
     };
   } finally {
+    if (lockRenewalTimer !== undefined) {
+      clearInterval(lockRenewalTimer);
+      lockRenewalTimer = undefined;
+    }
     if (
       distributedIdempotencyStore !== undefined &&
       idempotencyKey !== undefined &&

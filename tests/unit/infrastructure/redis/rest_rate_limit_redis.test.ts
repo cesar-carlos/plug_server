@@ -59,6 +59,10 @@ const setupRedisModuleWithStore = async (
 
   const envMock = {
     restRateLimitRedisUrl: "redis://localhost:6379",
+    redisDefaultConnectTimeoutMs: 5_000,
+    redisTenantId: "",
+    redisDefaultReconnectBaseMs: 200,
+    redisDefaultReconnectMaxMs: 5_000,
   };
   const createClientMock = vi.fn(() => client);
   vi.doMock("../../../../src/shared/config/env", () => ({
@@ -102,6 +106,10 @@ describe("rest_rate_limit_redis", () => {
     createRestHttpRateLimitStore("global");
     const sendCommand = capturedStores[0]?.sendCommand;
     expect(sendCommand).toBeDefined();
+    // Discard any sendCommand invocations made during init (e.g. cluster
+    // topology probe via `CLUSTER INFO`) before asserting the rate-limit
+    // command count.
+    clientSendCommand.mockClear();
     clientSendCommand.mockRejectedValue(new Error("redis down"));
 
     await expect(sendCommand?.("INCR", "key")).rejects.toThrow(

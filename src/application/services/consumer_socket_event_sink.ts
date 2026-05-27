@@ -22,6 +22,13 @@ export interface PublishConsumerSocketEventInput {
 export interface PublishConsumerSocketEventResult {
   readonly recipients: number;
   readonly recipientCountBestEffort?: boolean;
+  /**
+   * Local recipient principal ids (e.g. consumer Client `JWT sub`) when the
+   * caller resolved them — used as keys into per-recipient durable backlog
+   * (`agent_event_stream`). Undefined when not resolved (default fan-out path
+   * doesn't compute this); empty array means resolved-but-zero.
+   */
+  readonly recipientPrincipalIds?: ReadonlyArray<string>;
 }
 
 interface ConsumerSocketEventHandler {
@@ -57,5 +64,22 @@ export const publishConsumerSocketEvent = async (
     return { recipients: 0 };
   }
   const results = await Promise.all([...handlers].map((handler) => handler.publish(input)));
-  return { recipients: results.reduce((sum, result) => sum + result.recipients, 0) };
+  const aggregated: { recipients: number; principalIds?: Set<string> } = {
+    recipients: 0,
+  };
+  for (const result of results) {
+    aggregated.recipients += result.recipients;
+    if (result.recipientPrincipalIds) {
+      aggregated.principalIds ??= new Set<string>();
+      for (const id of result.recipientPrincipalIds) {
+        aggregated.principalIds.add(id);
+      }
+    }
+  }
+  return {
+    recipients: aggregated.recipients,
+    ...(aggregated.principalIds !== undefined
+      ? { recipientPrincipalIds: Array.from(aggregated.principalIds) }
+      : {}),
+  };
 };

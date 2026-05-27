@@ -187,8 +187,7 @@ export const agentCatalogSchemas = {
       "createdAt",
       "updatedAt",
     ],
-    description:
-      "A client-to-agent access request with its current status and retry counter.",
+    description: "A client-to-agent access request with its current status and retry counter.",
     properties: {
       id: { type: "string", format: "uuid" },
       clientId: { type: "string", format: "uuid" },

@@ -94,4 +94,3 @@ export const agentSelfProfileHttpBodySchema = z
   });
 
 export type AgentSelfProfileHttpBody = z.infer<typeof agentSelfProfileHttpBodySchema>;
-

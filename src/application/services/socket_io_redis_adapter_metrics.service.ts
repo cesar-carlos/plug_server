@@ -3,6 +3,17 @@
  * Exposed via GET /metrics.
  */
 
+import {
+  createRedisCommandLatencyHistogram,
+  type RedisCommandLatencyHistogramSnapshot,
+} from "./redis_command_latency_histogram";
+
+const connectLatencyHistogram = createRedisCommandLatencyHistogram();
+
+export const observeSocketIoRedisAdapterConnectLatency = (durationMs: number): void => {
+  connectLatencyHistogram.observe(durationMs);
+};
+
 let redisUrlConfigured: 0 | 1 = 0;
 let redisAdapterActive: 0 | 1 = 0;
 let connectionEventsTotal = 0;
@@ -53,6 +64,7 @@ export const getSocketIoRedisAdapterMetricsSnapshot = (): {
   readonly lastConnectionAtMs: number;
   readonly lastFallbackAtMs: number;
   readonly attachedServersTotal: number;
+  readonly connectLatency: RedisCommandLatencyHistogramSnapshot;
 } => ({
   redisUrlConfigured,
   redisAdapterActive,
@@ -62,6 +74,7 @@ export const getSocketIoRedisAdapterMetricsSnapshot = (): {
   lastConnectionAtMs,
   lastFallbackAtMs,
   attachedServersTotal,
+  connectLatency: connectLatencyHistogram.snapshot(),
 });
 
 export const resetSocketIoRedisAdapterMetricsForTests = (): void => {
@@ -73,4 +86,5 @@ export const resetSocketIoRedisAdapterMetricsForTests = (): void => {
   lastConnectionAtMs = 0;
   lastFallbackAtMs = 0;
   attachedServersTotal = 0;
+  connectLatencyHistogram.reset();
 };

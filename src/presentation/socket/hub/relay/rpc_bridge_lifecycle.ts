@@ -1,5 +1,8 @@
 import { serviceUnavailable } from "../../../../shared/errors/http_errors";
-import type { ConversationCloseReason, RelayConversation } from "../registries/conversation_registry";
+import type {
+  ConversationCloseReason,
+  RelayConversation,
+} from "../registries/conversation_registry";
 import {
   getActiveStreamRouteByRequestId,
   listActiveStreamRequestIdsForConversation,

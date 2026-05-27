@@ -400,6 +400,139 @@ Requer `SOCKET_IO_REDIS_ADAPTER_URL`. As variaveis abaixo ajustam o adapter e o 
 | `SOCKET_IO_REDIS_ADAPTER_RECONNECT_BASE_MS`                  | `1000`      | Backoff exponencial apos falha runtime (primeira tentativa).          |
 | `SOCKET_IO_REDIS_ADAPTER_RECONNECT_MAX_MS`                   | `30000`     | Teto do backoff de reconnect do hub.                                  |
 
+### Redis envs — convencao de "vazio = desligado"
+
+Todos os modulos Redis seguem a mesma convencao: a env de URL vazia faz o
+modulo correr em modo local-only (sem Redis), e nenhuma boot-time error
+e' lancada. Quando ha tambem uma flag `_ENABLED`, essa flag domina (mesmo
+com a URL preenchida, `*_ENABLED=false` mantem o modulo desligado).
+
+> Para guidance de auth/TLS, ACLs, eviction policies e network isolation, ver
+> [`docs/redis_security.md`](redis_security.md). Para a arquitetura interna dos
+> 5 modulos Redis e factories ver
+> [`src/infrastructure/redis/README.md`](../src/infrastructure/redis/README.md).
+
+| Modulo                            | URL env                                              | Flag opcional `_ENABLED`           | Default operacional |
+| --------------------------------- | ---------------------------------------------------- | ----------------------------------- | ------------------- |
+| Adapter Socket.IO (rooms/pubsub)  | `SOCKET_IO_REDIS_ADAPTER_URL`                        | -                                   | Vazio = adapter em memoria |
+| Rate-limit Socket                 | `SOCKET_RATE_LIMIT_REDIS_URL`                        | -                                   | Vazio = limites por processo |
+| Rate-limit REST                   | `REST_RATE_LIMIT_REDIS_URL`                          | -                                   | Vazio = store memoria por processo |
+| Idempotency `client:custom.*`     | `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`            | -                                   | Vazio = idempotency local |
+| Agent event stream (backlog)      | `AGENT_EVENT_STREAM_REDIS_URL`                       | `AGENT_EVENT_STREAM_ENABLED=false`  | Default off (opt-in) |
+
+Tuning compartilhado (todos os modulos exceto o adapter Socket.IO, que tem
+suas proprias envs `SOCKET_IO_REDIS_ADAPTER_*`):
+
+| Variavel                              | Default | Notas |
+| ------------------------------------- | ------- | ----- |
+| `REDIS_DEFAULT_CONNECT_TIMEOUT_MS`    | `5000`  | `socket.connectTimeout` para todos os clientes nao-adapter. |
+| `REDIS_DEFAULT_RECONNECT_BASE_MS`     | `200`   | Base do backoff exponencial capped. |
+| `REDIS_DEFAULT_RECONNECT_MAX_MS`      | `5000`  | Teto do backoff. |
+| `STRICT_REDIS_AUTH`                   | `false` | Quando `true` + `NODE_ENV=production`, recusa boot se algum `*_REDIS_URL` usar `redis://` sem senha (use `rediss://` ou `redis://default:<pwd>@host`). |
+| `REDIS_TENANT_ID`                     | vazio   | Multi-tenancy hard via prefixo `{plug}:<tenant>` em todos os 5 modulos. Match `^[A-Za-z0-9_-]{1,32}$`. Ver [ADR-0006](adrs/0006-redis-multi-tenancy.md). |
+| `REDIS_OTEL_SPANS_ENABLED`            | `false` | Spans OTel `redis.<module>.<op>` para comandos hot-path. Requer `OTEL_TRACES_ENABLED=true`. |
+
+> **Sprint P3.1**: o boot dos 4 modulos Redis nao-adapter (`socket_rate_limit`,
+> `rest_rate_limit`, `client_socket_event_idempotency`, `agent_event_stream`)
+> roda em paralelo via `Promise.all`. Em ambientes degradados onde uma URL
+> esta unreachable, o tempo total de boot passa de `Σ(initᵢ)` para
+> `max(initᵢ)`. O adapter Socket.IO continua sequencial porque depende do
+> `io` instance criado em `createSocketServer`. Ver
+> [`docs/adrs/0007-parallel-redis-init.md`](adrs/0007-parallel-redis-init.md).
+
+### Streams backlog (`AGENT_EVENT_STREAM_*`)
+
+Quando `AGENT_EVENT_STREAM_ENABLED=true`, o publish hub escreve cada frame
+em um stream Redis por recipient, permitindo entrega at-least-once a
+subscribers que reconectam em outra replica. Uma RTT pipelined cobre toda
+a fan-out (`MULTI/EXEC` — Sprint P1).
+
+| Variavel                                       | Default     | Notas |
+| ---------------------------------------------- | ----------- | ----- |
+| `AGENT_EVENT_STREAM_REDIS_URL`                 | vazio       | Vazio = backlog desabilitado (gating effective do stream). |
+| `AGENT_EVENT_STREAM_ENABLED`                   | `false`     | Liga a feature mesmo com URL configurada. |
+| `AGENT_EVENT_STREAM_MAX_LEN`                   | `1000`      | `XADD MAXLEN ~` por recipient. |
+| `AGENT_EVENT_STREAM_TTL_MS`                    | `86400000`  | `PEXPIRE` aplicado por recipient (24h default). `0` desliga TTL. |
+| `AGENT_EVENT_STREAM_BACKLOG_MAX_ENTRIES`       | `500`       | `COUNT` no `XREAD`/`XREADGROUP` por drain. |
+| `AGENT_EVENT_STREAM_AGENT_ALLOWLIST`           | vazio       | CSV de recipient principal ids. Vazio = todos. Util para rollout em staged. |
+| `AGENT_EVENT_STREAM_DRAIN_ACK_TIMEOUT_MS`      | `1000`      | Timeout do ack por subscriber durante drain. |
+| `AGENT_EVENT_STREAM_USE_CONSUMER_GROUPS`       | `false`     | `XREADGROUP`/`XACK` em vez de `XREAD`/`XDEL`. Coordena cross-replica. |
+| `AGENT_EVENT_STREAM_CONSUMER_GROUP`            | `plug_hub`  | Nome do consumer group. |
+| `AGENT_EVENT_STREAM_APPEND_MODE`               | `await`     | Backpressure: `await` (bloqueia), `timeout` (race), `fire_and_forget`. |
+| `AGENT_EVENT_STREAM_APPEND_TIMEOUT_MS`         | `50`        | Timeout do batch quando `APPEND_MODE=timeout`. |
+
+### Idempotency `client:custom.*` (`REST_SOCKET_EVENT_IDEMPOTENCY_*`)
+
+| Variavel                                            | Default | Notas |
+| --------------------------------------------------- | ------- | ----- |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`           | vazio   | Vazio = idempotency local. Ver topo da secao para semantica de fan-out. |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_READ_URL`      | vazio   | Sprint 11 — read-replica para `getEntry`. Writes no primary. |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_LOCK_TTL_MS`   | `5000`  | TTL do lock distribuido. |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_WAIT_MS`       | `750`   | Wait maximo apos perder o lock antes de devolver `503`. |
+| `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_LOCK_RENEWAL_MS` | `0`   | `0` = sem watchdog. >0 = renova lock a cada N ms (recomendado `LOCK_TTL_MS/3`). |
+
+## Generous profile — perfil de capacidade
+
+O perfil "generous" prioriza throughput maximo aceitando custos previsiveis de
+RAM/CPU/conexoes. Aplicado em [`.env`](../.env) por default; defaults do schema
+em [`env.ts`](../src/shared/config/env.ts) ficam intencionalmente conservadores
+para single-replica / dev. Trade-offs documentados em
+[CHANGELOG.md](../CHANGELOG.md) (entrada `Generous profile`).
+
+| Area                                | Generous (`.env` ativo)               | Default schema (`env.ts`)             | Por que                                                                           |
+| ----------------------------------- | -------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| Postgres pool (no `DATABASE_URL`)    | `connection_limit=40&pool_timeout=45`  | `15` / `20`                            | 256 inflight relay + 256 REST + 512 async/socket + audit batches concorrem.       |
+| Queue waits relay/REST agent        | `2000` ms                              | `200` ms                               | Bursts esperam 2 s antes do `503`; reduz amplificacao de retries.                 |
+| Outbound overload shedding          | `BACKLOG=0`, `P95_MS=0` (off)          | `BACKLOG=200`, `P95_MS=250`            | Buffers (16 MiB / 256 MiB) e queue caps ja absorvem; shedding antecipava rejeicoes.|
+| Per-conversation pending requests   | `256`                                  | `32`                                   | Alinha com `_PER_CONSUMER=1024`.                                                  |
+| Per-consumer max inflight (socket)  | `512`                                  | `32`                                   | ~60 agentes em paralelo por consumer.                                             |
+| Custom publish max inflight        | `512`                                  | `128`                                  | Empata com `_CONSUMER_MAX_INFLIGHT_PER_SOCKET`.                                   |
+| JWT verify cache                    | `120s` TTL, `20000` entries            | `30s`, `2000`                          | HMAC-SHA512 caro; revalidacao do `exp` em hit garante seguranca.                  |
+| Profile sync concurrency            | `32`                                   | `8`                                    | Reconnect storm de ~60 agentes converge mais rapido.                              |
+| Audit batch / queue                 | `192` / `200000`                       | `1` / `50000` (env.ts default)         | Menos round-trips Prisma; queue absorve stalls.                                   |
+| Email outbox poll / batch / workers | `1000` ms / `100` rows / `8`           | `3000` / `25` / `4`                    | Drena bursts de aprovacao mais rapido.                                            |
+| Profile recipients cache            | `30s` TTL, `15000` entries             | `15s`, `2500`                          | Reduz pressao DB; bounded por revoke (TTL).                                       |
+| Self profile rate limit             | `0` (unlimited)                         | `20` / minuto                         | Self-service nao precisa de proteao acima da auth.                                |
+| Swagger em prod                     | `false`                                | `true`                                 | Construir spec on-demand consome CPU; habilitar so em staging/dev.                |
+| HTTP RED histogram buckets (s)       | `[…, 5, 10, 15, 30]`                   | `[…, 5, 10]`                           | Tail latency relay (timeout 15 s) cabe em bucket nomeado.                         |
+| Stream batch_size buckets           | `[…, 1000, 2000, 5000]`                | `[…, 1000]`                            | Cobre fan-out de rooms grandes apos P1 pipelined.                                  |
+
+### Como rebaixar para um perfil conservador
+
+Para single-replica / staging onde memoria e conexoes Postgres sao escassas,
+sobrescreva no `.env`:
+
+```bash
+# Postgres
+DATABASE_URL="...?connection_limit=15&pool_timeout=20"
+
+# Queue / overload
+SOCKET_RELAY_AGENT_QUEUE_WAIT_MS=200
+SOCKET_REST_AGENT_QUEUE_WAIT_MS=200
+SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG=200
+SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS=250
+
+# Inflight
+SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET=32
+SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET=128
+SOCKET_RELAY_MAX_PENDING_REQUESTS_PER_CONVERSATION=32
+
+# Caches / batches
+JWT_VERIFY_CACHE_TTL_MS=30000
+JWT_VERIFY_CACHE_MAX_SIZE=2000
+SOCKET_AUDIT_BATCH_MAX=64
+SOCKET_AGENT_PROFILE_SYNC_MAX_CONCURRENT=8
+REGISTRATION_EMAIL_OUTBOX_WORKER_CONCURRENCY=4
+```
+
+### Sinais para revisitar o perfil generoso
+
+- `prisma_pool_timeout_total` cresce sustentadamente — subir `connection_limit` ou `max_connections` do Postgres.
+- `plug_socket_relay_dispatch_queue_wait_timeout_rejected_total` > 0 com `_QUEUE_WAIT_MS=2000` — capacidade real do agente esgotada (nao adianta abrir mais).
+- `plug_socket_audit_drops_total` > 0 com `MAX_QUEUE=200000` — Postgres muito atras; investigar locks/IO antes de abrir mais.
+- `plug_jwt_verify_cache_evictions_total` cresce — subir `MAX_SIZE` para reduzir thrashing.
+- `process_resident_memory_bytes` proximo do limite do container — recuar caches.
+
 ## Rollout de indices grandes
 
 Quando uma migration adicionar índices novos em tabelas quentes ou grandes,

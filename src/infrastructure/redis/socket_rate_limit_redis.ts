@@ -1,6 +1,15 @@
-import { createClient } from "redis";
+import { performance } from "node:perf_hooks";
 
+import { withRedisSpan } from "../observability/redis_span";
+import { validateRedisClusterTopology } from "./cluster_topology_validator";
 import {
+  createInstrumentedRedisClient,
+  type InstrumentedRedisClient,
+} from "./instrumented_redis_client";
+import { LuaScriptCache, type CachedLuaScript } from "./lua_script_cache";
+import { redisKeyNamespace } from "./redis_key_namespace";
+import {
+  noteSocketRateLimitRedisAtomicRollback,
   noteSocketRateLimitRedisCircuitClosed,
   noteSocketRateLimitRedisCircuitOpened,
   noteSocketRateLimitRedisCommandError,
@@ -9,13 +18,32 @@ import {
   noteSocketRateLimitRedisDisconnected,
   noteSocketRateLimitRedisFallback,
   noteSocketRateLimitRedisRecovered,
+  noteSocketRateLimitRedisSaturation,
   noteSocketRateLimitRedisSkippedEmptyUrl,
   noteSocketRateLimitRedisTrackedKey,
+  noteSocketRateLimitRedisWindowReset,
+  observeSocketRateLimitRedisLatency,
 } from "../../application/services/socket_rate_limit_redis_metrics.service";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
-let redisClient: ReturnType<typeof createClient> | undefined;
+let redisClient: InstrumentedRedisClient | undefined;
+let scriptCache: LuaScriptCache | undefined;
+
+const CONSUME_SCRIPT: CachedLuaScript = {
+  name: "socket_rate_limit_consume",
+  source: "", // assigned after script body declaration below to keep TS happy
+};
+
+const CONSUME_OR_ROLLBACK_SCRIPT: CachedLuaScript = {
+  name: "socket_rate_limit_consume_or_rollback",
+  source: "", // assigned after script body declaration below
+};
+
+const REFUND_SCRIPT: CachedLuaScript = {
+  name: "socket_rate_limit_refund",
+  source: "", // assigned after script body declaration below
+};
 let redisCommandFailures = 0;
 let circuitOpenUntilMs = 0;
 let redisUrlInUse: string | undefined;
@@ -53,18 +81,6 @@ const toSafeErrorMessage = (error: unknown): string =>
 
 const isRedisCircuitOpen = (): boolean => Date.now() < circuitOpenUntilMs;
 
-const disableRedisClient = (): void => {
-  redisClientGeneration += 1;
-  const client = redisClient;
-  redisClient = undefined;
-  redisCommandFailures = 0;
-  circuitOpenUntilMs = 0;
-  redisUrlInUse = undefined;
-  if (client !== undefined) {
-    void client.quit().catch(() => undefined);
-  }
-};
-
 const recordRedisCommandFailure = (error: unknown): void => {
   redisCommandFailures += 1;
   noteSocketRateLimitRedisCommandError();
@@ -99,6 +115,75 @@ if v <= 0 then
 end
 return v
 `;
+(REFUND_SCRIPT as { source: string }).source = SOCKET_RATE_LIMIT_REFUND_SCRIPT;
+
+/**
+ * Single round-trip consume: increments the counter and conditionally sets
+ * the window TTL when (a) this is the first hit creating the key (`v == cost`)
+ * or (b) the existing key is missing a TTL. Returns the post-increment value.
+ *
+ * Saves one round-trip vs the previous `INCRBY` + (`PEXPIRE` or `PTTL`+`PEXPIRE`)
+ * sequence. Trade-off: pushes ~1 microsecond of CPU work onto the (single-
+ * threaded) Redis server in exchange for half the network latency. Net win
+ * for hub workloads where round-trip dominates.
+ *
+ * Kept around for back-compat / tests; the hot path now uses
+ * {@link SOCKET_RATE_LIMIT_CONSUME_OR_ROLLBACK_SCRIPT}, which folds the
+ * over-limit rollback into the same call (1 RTT on deny vs the previous 2).
+ */
+const SOCKET_RATE_LIMIT_CONSUME_SCRIPT = `
+local cost = tonumber(ARGV[1])
+local windowMs = tonumber(ARGV[2])
+local v = redis.call('INCRBY', KEYS[1], cost)
+if v == cost then
+  redis.call('PEXPIRE', KEYS[1], windowMs)
+else
+  if redis.call('PTTL', KEYS[1]) < 0 then
+    redis.call('PEXPIRE', KEYS[1], windowMs)
+  end
+end
+return v
+`;
+(CONSUME_SCRIPT as { source: string }).source = SOCKET_RATE_LIMIT_CONSUME_SCRIPT;
+
+/**
+ * Atomic consume-or-rollback: same window/TTL semantics as
+ * `SOCKET_RATE_LIMIT_CONSUME_SCRIPT` plus an in-script rollback when the
+ * post-increment counter exceeds `max`. Returns `{allowed, used}` so the
+ * caller can decide without a second round-trip.
+ *
+ *   ARGV[1] = cost
+ *   ARGV[2] = windowMs
+ *   ARGV[3] = max
+ *
+ * Reply (Lua array → Resp 2-element array):
+ *   {1, used}  when the request is allowed (used <= max)
+ *   {0, used}  when the request was rolled back (post-DECRBY value)
+ *
+ * Reduces deny-path RTTs from 2 (consume + refund) to 1 — the hottest
+ * burst-absorbing case for the rate limiter.
+ */
+const SOCKET_RATE_LIMIT_CONSUME_OR_ROLLBACK_SCRIPT = `
+local cost = tonumber(ARGV[1])
+local windowMs = tonumber(ARGV[2])
+local maxAllowed = tonumber(ARGV[3])
+local v = redis.call('INCRBY', KEYS[1], cost)
+if v == cost then
+  redis.call('PEXPIRE', KEYS[1], windowMs)
+elseif redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], windowMs)
+end
+if v > maxAllowed then
+  v = redis.call('DECRBY', KEYS[1], cost)
+  if v <= 0 then
+    redis.call('DEL', KEYS[1])
+  end
+  return {0, v}
+end
+return {1, v}
+`;
+(CONSUME_OR_ROLLBACK_SCRIPT as { source: string }).source =
+  SOCKET_RATE_LIMIT_CONSUME_OR_ROLLBACK_SCRIPT;
 
 export const consumeSocketRateLimitRedis = async (
   input: SocketRateLimitRedisConsumeInput,
@@ -112,38 +197,63 @@ export const consumeSocketRateLimitRedis = async (
   }
 
   const cost = Math.max(1, Math.floor(input.cost ?? 1));
-  const redisKey = `plug_socket_rl:${input.scope}:${normalizeKey(input.key)}`;
+  const redisKey = `plug_socket_rl:${redisKeyNamespace()}:${input.scope}:${normalizeKey(input.key)}`;
   noteSocketRateLimitRedisTrackedKey(redisKey);
 
+  const startedAtMs = performance.now();
   try {
-    const usedRaw = await client.incrBy(redisKey, cost);
-    if (usedRaw === cost) {
-      await client.pExpire(redisKey, input.windowMs);
-    } else {
-      const ttl = await client.pTTL(redisKey);
-      if (ttl < 0) {
-        await client.pExpire(redisKey, input.windowMs);
-      }
-    }
-    recordRedisCommandSuccess();
-    let used = Number(usedRaw);
-    const allowed = used <= input.max;
-    if (!allowed) {
-      try {
-        const rolledBackRaw = await client.eval(SOCKET_RATE_LIMIT_REFUND_SCRIPT, {
+    const cache = scriptCache;
+    /**
+     * Single round-trip: the Lua script returns `[allowed, used]` and folds
+     * the over-limit rollback in. Caller is now decoder-only — no second
+     * span / RTT on the deny path.
+     */
+    const reply: unknown = await withRedisSpan(
+      { module: "socket_rate_limit_redis", op: "consume", keyPrefix: "plug_socket_rl" },
+      async () => {
+        if (cache) {
+          return cache.invoke<readonly (number | string)[]>(CONSUME_OR_ROLLBACK_SCRIPT, {
+            keys: [redisKey],
+            arguments: [String(cost), String(input.windowMs), String(input.max)],
+          });
+        }
+        return client.eval(SOCKET_RATE_LIMIT_CONSUME_OR_ROLLBACK_SCRIPT, {
           keys: [redisKey],
-          arguments: [String(cost)],
+          arguments: [String(cost), String(input.windowMs), String(input.max)],
         });
-        used = Math.max(0, Number(rolledBackRaw));
-        recordRedisCommandSuccess();
-      } catch (error: unknown) {
-        recordRedisCommandFailure(error);
-        logger.warn("socket_rate_limit_redis_consume_rollback_error", {
-          scope: input.scope,
-          message: toSafeErrorMessage(error),
-        });
-        return null;
-      }
+      },
+    );
+    recordRedisCommandSuccess();
+    /**
+     * Defensive parse: production node-redis returns `[number, number]`
+     * for `{1, used}` Lua replies, but we treat anything malformed as a
+     * fail-open (return `null` so the caller's in-memory limiter takes
+     * over) rather than crash the request.
+     */
+    if (!Array.isArray(reply) || reply.length < 2) {
+      logger.warn("socket_rate_limit_redis_consume_unexpected_reply", {
+        scope: input.scope,
+      });
+      return null;
+    }
+    const allowedRaw = Number(reply[0]);
+    const used = Math.max(0, Number(reply[1]));
+    const allowed = allowedRaw === 1;
+    /**
+     * Window reset: when the script just created the key and set `PEXPIRE`,
+     * `used` equals `cost` (the increment that bootstrapped the window).
+     * The deny path with cost==max would also satisfy this, but in that
+     * case the rollback already DECRBY'd to <= 0 so `used` < cost; the
+     * heuristic stays accurate for the boundary-burst signal.
+     */
+    if (allowed && used === cost) {
+      noteSocketRateLimitRedisWindowReset();
+    }
+    if (allowed && used === input.max) {
+      noteSocketRateLimitRedisSaturation();
+    }
+    if (!allowed) {
+      noteSocketRateLimitRedisAtomicRollback();
     }
     noteSocketRateLimitRedisDecision(allowed);
     return {
@@ -159,6 +269,8 @@ export const consumeSocketRateLimitRedis = async (
       message: toSafeErrorMessage(error),
     });
     return null;
+  } finally {
+    observeSocketRateLimitRedisLatency("consume", performance.now() - startedAtMs);
   }
 };
 
@@ -172,14 +284,28 @@ export const refundSocketRateLimitRedis = async (input: {
     return;
   }
   const cost = Math.max(1, Math.floor(input.cost ?? 1));
-  const redisKey = `plug_socket_rl:${input.scope}:${normalizeKey(input.key)}`;
+  const redisKey = `plug_socket_rl:${redisKeyNamespace()}:${input.scope}:${normalizeKey(input.key)}`;
 
   const attemptRefund = async (): Promise<boolean> => {
+    const startedAtMs = performance.now();
     try {
-      await client.eval(SOCKET_RATE_LIMIT_REFUND_SCRIPT, {
-        keys: [redisKey],
-        arguments: [String(cost)],
-      });
+      await withRedisSpan(
+        { module: "socket_rate_limit_redis", op: "refund_external", keyPrefix: "plug_socket_rl" },
+        async () => {
+          const cache = scriptCache;
+          if (cache) {
+            await cache.invoke(REFUND_SCRIPT, {
+              keys: [redisKey],
+              arguments: [String(cost)],
+            });
+          } else {
+            await client.eval(SOCKET_RATE_LIMIT_REFUND_SCRIPT, {
+              keys: [redisKey],
+              arguments: [String(cost)],
+            });
+          }
+        },
+      );
       recordRedisCommandSuccess();
       return true;
     } catch (error: unknown) {
@@ -189,6 +315,8 @@ export const refundSocketRateLimitRedis = async (input: {
         message: toSafeErrorMessage(error),
       });
       return false;
+    } finally {
+      observeSocketRateLimitRedisLatency("refund", performance.now() - startedAtMs);
     }
   };
 
@@ -217,57 +345,76 @@ export async function initSocketRateLimitRedis(): Promise<void> {
 
   await closeSocketRateLimitRedis();
 
-  try {
-    const client = createClient({ url });
-    redisClient = client;
-    redisUrlInUse = url;
-    redisClientGeneration += 1;
-    const generation = redisClientGeneration;
-    let initialConnectSucceeded = false;
-    const isCurrentClient = (): boolean =>
-      redisClient === client && redisClientGeneration === generation;
+  redisClientGeneration += 1;
+  const generation = redisClientGeneration;
+  redisUrlInUse = url;
+  const isCurrentClient = (): boolean => redisClientGeneration === generation;
 
-    client.on("error", (err: Error) => {
-      if (!isCurrentClient()) {
-        return;
-      }
-      logger.error("socket_rate_limit_redis_client_error", { message: err.message });
-      if (initialConnectSucceeded) {
+  const client = await createInstrumentedRedisClient({
+    url,
+    logName: "socket_rate_limit_redis",
+    callbacks: {
+      onConnected: () => {
+        noteSocketRateLimitRedisConnected();
+        logger.info("socket_rate_limit_redis_connected");
+      },
+      onError: () => {
+        if (!isCurrentClient()) {
+          return;
+        }
         noteSocketRateLimitRedisFallback();
-      }
-    });
-    client.on("ready", () => {
-      if (!isCurrentClient()) {
-        return;
-      }
-      if (initialConnectSucceeded) {
+      },
+      onEnd: () => {
+        if (!isCurrentClient()) {
+          return;
+        }
+        noteSocketRateLimitRedisDisconnected();
+      },
+      onReadyAfterReconnect: () => {
         redisCommandFailures = 0;
         circuitOpenUntilMs = 0;
         noteSocketRateLimitRedisConnected();
         logger.info("socket_rate_limit_redis_ready");
-      }
-    });
-    client.on("end", () => {
-      if (!isCurrentClient()) {
-        return;
-      }
-      noteSocketRateLimitRedisDisconnected();
-    });
-    await client.connect();
-    initialConnectSucceeded = true;
-    noteSocketRateLimitRedisConnected();
-    logger.info("socket_rate_limit_redis_connected");
-  } catch (error: unknown) {
-    noteSocketRateLimitRedisFallback();
-    logger.warn("socket_rate_limit_redis_fallback_memory", {
-      message: toSafeErrorMessage(error),
-    });
-    disableRedisClient();
+      },
+      onFallback: () => {
+        noteSocketRateLimitRedisFallback();
+      },
+    },
+  });
+
+  if (client === undefined) {
+    redisUrlInUse = undefined;
+    return;
   }
+  redisClient = client;
+  const cache = new LuaScriptCache(client);
+  try {
+    await Promise.all([
+      cache.load(CONSUME_SCRIPT),
+      cache.load(CONSUME_OR_ROLLBACK_SCRIPT),
+      cache.load(REFUND_SCRIPT),
+    ]);
+    scriptCache = cache;
+  } catch (error: unknown) {
+    // Pre-load failure is non-fatal: invoke() falls back to EVAL on every call.
+    logger.warn("socket_rate_limit_redis_script_preload_failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    scriptCache = undefined;
+  }
+  await validateRedisClusterTopology({
+    client,
+    logName: "socket_rate_limit_redis",
+    sampleKeys: [
+      `plug_socket_rl:${redisKeyNamespace()}:agents_command:probe`,
+      `plug_socket_rl:${redisKeyNamespace()}:relay_rpc_request:probe`,
+    ],
+  });
 }
 
 export async function closeSocketRateLimitRedis(): Promise<void> {
   redisClientGeneration += 1;
+  scriptCache = undefined;
   if (redisClient === undefined) {
     redisCommandFailures = 0;
     circuitOpenUntilMs = 0;

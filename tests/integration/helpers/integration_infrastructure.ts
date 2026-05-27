@@ -206,6 +206,40 @@ export const probeDatabaseInfrastructure = async (): Promise<DatabaseInfrastruct
   };
 };
 
+export interface AgentEventStreamInfrastructure {
+  readonly redisUrl: string;
+  readonly probe: InfrastructureProbeResult;
+}
+
+export const probeAgentEventStreamInfrastructure =
+  async (): Promise<AgentEventStreamInfrastructure> => {
+    const redisUrl = resolveIntegrationRedisUrl(process.env.AGENT_EVENT_STREAM_REDIS_URL);
+    if (redisUrl === undefined) {
+      return {
+        redisUrl: "",
+        probe: {
+          ok: false,
+          reason: formatInfrastructureSkipReason(["AGENT_EVENT_STREAM_REDIS_URL"]),
+        },
+      };
+    }
+    if (!(await canReachRedis(redisUrl))) {
+      return {
+        redisUrl,
+        probe: {
+          ok: false,
+          reason: formatInfrastructureSkipReason([
+            `Agent event stream Redis unreachable (${redactUrl(redisUrl)})`,
+          ]),
+        },
+      };
+    }
+    return {
+      redisUrl,
+      probe: { ok: true },
+    };
+  };
+
 export interface SocketRateLimitRedisInfrastructure {
   readonly redisUrl: string;
   readonly probe: InfrastructureProbeResult;

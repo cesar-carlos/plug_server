@@ -15,7 +15,10 @@ import {
 } from "../registries/active_stream_registry";
 import { registerAgentFailure, relayMetrics } from "./bridge_relay_health_metrics";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
-import { getRelayRequestRoute, removeRelayRequestRoute } from "../registries/relay_request_registry";
+import {
+  getRelayRequestRoute,
+  removeRelayRequestRoute,
+} from "../registries/relay_request_registry";
 import {
   addRelayStreamFlowCredits,
   drainRelayStreamBuffer,
@@ -202,8 +205,8 @@ export const createPrepareAgentStreamPull = (
                 activeRoute === route &&
                 Boolean(
                   relayRoute &&
-                    relayRoute.consumerSocketId === route.consumerSocketId &&
-                    relayRoute.agentSocketId === route.agentSocketId,
+                  relayRoute.consumerSocketId === route.consumerSocketId &&
+                  relayRoute.agentSocketId === route.agentSocketId,
                 )
               );
             },

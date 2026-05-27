@@ -3,6 +3,17 @@
  * Exposed via GET /metrics.
  */
 
+import {
+  createRedisCommandLatencyHistogram,
+  type RedisCommandLatencyHistogramSnapshot,
+} from "./redis_command_latency_histogram";
+
+const latencyHistogram = createRedisCommandLatencyHistogram();
+
+export const observeRestRateLimitRedisLatency = (durationMs: number): void => {
+  latencyHistogram.observe(durationMs);
+};
+
 let redisUrlConfigured: 0 | 1 = 0;
 let redisStoreActive: 0 | 1 = 0;
 let fallbackEventsTotal = 0;
@@ -75,6 +86,7 @@ export const getRestRateLimitRedisMetricsSnapshot = (): {
   readonly circuitOpenedTotal: number;
   readonly lastFallbackAtMs: number;
   readonly lastConnectionAtMs: number;
+  readonly latency: RedisCommandLatencyHistogramSnapshot;
 } => ({
   redisUrlConfigured,
   redisStoreActive,
@@ -85,6 +97,7 @@ export const getRestRateLimitRedisMetricsSnapshot = (): {
   circuitOpenedTotal,
   lastFallbackAtMs,
   lastConnectionAtMs,
+  latency: latencyHistogram.snapshot(),
 });
 
 export const resetRestRateLimitRedisMetricsForTests = (): void => {
@@ -97,4 +110,5 @@ export const resetRestRateLimitRedisMetricsForTests = (): void => {
   circuitOpenedTotal = 0;
   lastFallbackAtMs = 0;
   lastConnectionAtMs = 0;
+  latencyHistogram.reset();
 };

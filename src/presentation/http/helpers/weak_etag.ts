@@ -26,11 +26,7 @@ export const buildWeakETag = (payload: unknown): string => {
  * the `ETag` response header and returns `false` so the caller proceeds to
  * write the body.
  */
-export const sendIfNoneMatch = (
-  request: Request,
-  response: Response,
-  etag: string,
-): boolean => {
+export const sendIfNoneMatch = (request: Request, response: Response, etag: string): boolean => {
   const ifNoneMatch = request.headers["if-none-match"];
   if (typeof ifNoneMatch === "string" && ifNoneMatch === etag) {
     response.status(304).end();

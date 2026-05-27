@@ -21,7 +21,8 @@ const toSeconds = (start: bigint): number => {
  */
 const resolveRouteTemplate = (request: Request): string => {
   const baseUrl = typeof request.baseUrl === "string" ? request.baseUrl : "";
-  const routePath = request.route && typeof request.route.path === "string" ? request.route.path : undefined;
+  const routePath =
+    request.route && typeof request.route.path === "string" ? request.route.path : undefined;
   if (routePath !== undefined && routePath !== "") {
     return `${baseUrl}${routePath}`;
   }

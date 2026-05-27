@@ -167,6 +167,7 @@ describe("executeClientSocketEventPublish", () => {
       }),
       setEntry: vi.fn(),
       acquireLock: vi.fn(),
+      extendLock: vi.fn().mockResolvedValue(true),
       releaseLock: vi.fn(),
     };
     registerClientSocketEventPublishDistributedIdempotencyStore(store);
@@ -190,6 +191,7 @@ describe("executeClientSocketEventPublish", () => {
       getEntry: vi.fn().mockResolvedValue(undefined),
       setEntry: vi.fn().mockResolvedValue(undefined),
       acquireLock: vi.fn().mockResolvedValue("lock-token"),
+      extendLock: vi.fn().mockResolvedValue(true),
       releaseLock: vi.fn().mockResolvedValue(undefined),
     };
     registerClientSocketEventPublishDistributedIdempotencyStore(store);
@@ -240,6 +242,7 @@ describe("executeClientSocketEventPublish", () => {
         }),
       setEntry: vi.fn(),
       acquireLock: vi.fn().mockResolvedValue("after-lock-token"),
+      extendLock: vi.fn().mockResolvedValue(true),
       releaseLock: vi.fn().mockResolvedValue(undefined),
     };
     registerClientSocketEventPublishDistributedIdempotencyStore(store);
@@ -265,6 +268,7 @@ describe("executeClientSocketEventPublish", () => {
       getEntry: vi.fn().mockResolvedValue(undefined),
       setEntry: vi.fn().mockResolvedValue(undefined),
       acquireLock: vi.fn().mockRejectedValue(new Error("redis unavailable")),
+      extendLock: vi.fn().mockResolvedValue(true),
       releaseLock: vi.fn().mockResolvedValue(undefined),
     };
     registerClientSocketEventPublishDistributedIdempotencyStore(store);

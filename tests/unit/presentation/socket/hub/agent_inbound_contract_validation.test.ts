@@ -286,10 +286,7 @@ describe("agent inbound contract validation", () => {
       eventName: socketEvents.rpcBatchAck,
       socketId: "agent-socket",
       payload: {
-        request_ids: Array.from(
-          { length: HUB_MAX_BATCH_SIZE + 1 },
-          (_, index) => `req-${index}`,
-        ),
+        request_ids: Array.from({ length: HUB_MAX_BATCH_SIZE + 1 }, (_, index) => `req-${index}`),
       },
     });
     expect(oversizedBatchAck.ok).toBe(false);

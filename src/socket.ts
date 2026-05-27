@@ -99,6 +99,7 @@ import {
   noteConsumerClientAgentRoomGrantFetchFailed,
   noteConsumerClientAgentRoomGrantJoinFailed,
   noteConsumerClientAgentRoomGrantSocketsJoined,
+  noteCustomSocketEventPublishFetchSocketsDedupe,
   noteCustomSocketEventPublishRecipientCapUnverified,
   noteCustomSocketEventPublishRecipientCountBestEffort,
   noteAgentRoomDisconnectTriggered,
@@ -120,9 +121,7 @@ import {
   encodePayloadFrameBridge,
   payloadFrameEncodeOptionsFromPreference,
 } from "./shared/utils/payload_frame";
-import {
-  resetAgentRegisterRateLimitState,
-} from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
+import { resetAgentRegisterRateLimitState } from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
 import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
 
 type ConsumerSocketData = {
@@ -133,10 +132,13 @@ type HubSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, Co
 
 type PendingAgentProfilePushEntry = PendingAgentProfilePush;
 
+type RoomRemoteSocket = Awaited<ReturnType<Namespace["fetchSockets"]>>[number];
+
 type RoomRecipientCount = {
   readonly recipients: number;
   readonly recipientCountBestEffort: boolean;
   readonly recipientCountLocalOnly: boolean;
+  readonly fetchedSockets?: ReadonlyArray<RoomRemoteSocket>;
 };
 
 type SocketSinkDisposer = () => void;
@@ -248,8 +250,18 @@ const countSocketsInRoom = async (
   state: SocketServerState,
   namespace: Namespace,
   room: string,
+  options?: { readonly captureSockets?: boolean },
 ): Promise<RoomRecipientCount> => {
   const localRecipients = countLocalSocketsInRoom(namespace, room);
+  if (options?.captureSockets === true) {
+    return countDistributedRoomRecipients<RoomRemoteSocket>({
+      circuit: state.customEventDistributedCountCircuit,
+      localRecipients,
+      room,
+      fetchDistributedSockets: async () => namespace.in(room).fetchSockets(),
+      onCircuitReset: () => resetStateCustomEventDistributedCountCircuit(state),
+    });
+  }
   return countDistributedRoomRecipients({
     circuit: state.customEventDistributedCountCircuit,
     localRecipients,
@@ -739,7 +751,15 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
           state.customEventDistributedCountCircuit,
           event.eventName,
         );
-        const recipientCount = await countSocketsInRoom(state, consumersNsp, room);
+        /**
+         * When the agent-event stream is active, capture the sockets while
+         * counting so the principal-id resolution below can reuse the same
+         * `fetchSockets()` RPC. When the stream is off, the legacy count-only
+         * path keeps its lighter-weight signature.
+         */
+        const recipientCount = await countSocketsInRoom(state, consumersNsp, room, {
+          captureSockets: env.agentEventStreamEnabled,
+        });
         if (
           !recipientCount.recipientCountBestEffort &&
           !shouldSkipCustomSocketEventZeroRecipientEarlyReturn(recipientCount) &&
@@ -812,10 +832,51 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
             details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
           });
         }
+        /**
+         * When the durable agent-event stream is active, resolve the local
+         * recipient principal ids (consumer Client `sub`) BEFORE the emit so
+         * the publish caller can append the frame to each recipient's backlog
+         * stream. `fetchSockets` is a cluster-wide RPC; we only do it when
+         * streams are enabled (default off) to avoid extra round-trips on
+         * the hot publish path.
+         */
+        let recipientPrincipalIds: string[] | undefined;
+        if (env.agentEventStreamEnabled) {
+          try {
+            /**
+             * Reuse the sockets fetched during recipient-count when available
+             * (single cluster-wide RPC for both count and principal-id
+             * resolution). Falls back to a dedicated `fetchSockets()` only
+             * when the count path took a local-only branch (e.g.
+             * `restSocketEventMaxRecipients=0`) and never paid the RPC.
+             */
+            let principalSockets: ReadonlyArray<{ readonly data: unknown }>;
+            if (recipientCount.fetchedSockets !== undefined) {
+              principalSockets = recipientCount.fetchedSockets;
+              noteCustomSocketEventPublishFetchSocketsDedupe();
+            } else {
+              principalSockets = await consumersNsp.in(room).fetchSockets();
+            }
+            const ids = new Set<string>();
+            for (const recipient of principalSockets) {
+              const principalSub = (recipient.data as { user?: { sub?: unknown } })?.user?.sub;
+              if (typeof principalSub === "string" && principalSub.trim() !== "") {
+                ids.add(principalSub.trim());
+              }
+            }
+            recipientPrincipalIds = Array.from(ids);
+          } catch (error: unknown) {
+            logger.warn("custom_socket_event_recipient_principal_resolution_failed", {
+              eventName: event.eventName,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
         consumersNsp.to(room).emit(event.eventName, frame);
         return {
           recipients: recipientCount.recipients,
           ...(recipientCount.recipientCountBestEffort ? { recipientCountBestEffort: true } : {}),
+          ...(recipientPrincipalIds !== undefined ? { recipientPrincipalIds } : {}),
         };
       },
     }),

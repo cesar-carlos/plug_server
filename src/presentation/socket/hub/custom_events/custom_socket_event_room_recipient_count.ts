@@ -9,10 +9,27 @@ export type CustomSocketEventRoomRecipientCountStrategy =
   | { readonly kind: "local_exceeds_cap"; readonly recipients: number }
   | { readonly kind: "fetch_distributed" };
 
-export type ResolvedCustomSocketEventRoomRecipientCount = {
+/**
+ * Lightweight shape of a Socket.IO `RemoteSocket` for downstream consumers
+ * that only need the principal id projection. Decoupled from the full
+ * `RemoteSocket` type so this module stays free of `socket.io` dependency.
+ */
+export type RemoteSocketLike = { readonly data?: unknown };
+
+export type ResolvedCustomSocketEventRoomRecipientCount<
+  S extends RemoteSocketLike = RemoteSocketLike,
+> = {
   readonly recipients: number;
   readonly recipientCountBestEffort: boolean;
   readonly recipientCountLocalOnly: boolean;
+  /**
+   * Sockets returned by the cluster-wide `fetchSockets()` call when the
+   * count strategy required a distributed lookup. Set only on the path
+   * where we actually paid the RPC: callers that need per-socket data
+   * (principal ids, etc.) should reuse this array instead of issuing a
+   * second `fetchSockets()` round-trip. Undefined for local-only paths.
+   */
+  readonly fetchedSockets?: ReadonlyArray<S>;
 };
 
 /**

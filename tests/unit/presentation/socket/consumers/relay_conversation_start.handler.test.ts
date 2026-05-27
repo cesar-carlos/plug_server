@@ -25,9 +25,12 @@ vi.mock("../../../../../src/presentation/socket/hub/relay/rpc_bridge", () => ({
   findAgentBridgeSocketById: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter", () => ({
-  refundRelayConversationStartAsync: vi.fn(),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter",
+  () => ({
+    refundRelayConversationStartAsync: vi.fn(),
+  }),
+);
 
 vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_gate", () => ({
   tryAcquireSocketInflightSlot: vi.fn(() => true),
@@ -106,9 +109,7 @@ describe("extractRelayConversationStartRequestId", () => {
 
   it("rejects empty, long, and non-string requestIds", () => {
     expect(extractRelayConversationStartRequestId({ requestId: "   " })).toBeUndefined();
-    expect(
-      extractRelayConversationStartRequestId({ requestId: "r".repeat(129) }),
-    ).toBeUndefined();
+    expect(extractRelayConversationStartRequestId({ requestId: "r".repeat(129) })).toBeUndefined();
     expect(extractRelayConversationStartRequestId({ requestId: 123 })).toBeUndefined();
   });
 });

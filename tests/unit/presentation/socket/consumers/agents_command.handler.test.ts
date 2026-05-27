@@ -18,10 +18,13 @@ vi.mock("../../../../../src/application/services/bridge_latency_trace_builder", 
   createBridgeLatencyTraceIfSampled: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter", () => ({
-  allowAgentsCommandSocketAsync: vi.fn(),
-  estimateAgentsCommandRateLimitCost: vi.fn(() => 1),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter",
+  () => ({
+    allowAgentsCommandSocketAsync: vi.fn(),
+    estimateAgentsCommandRateLimitCost: vi.fn(() => 1),
+  }),
+);
 
 vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard", () => ({
   assertConsumerSocketAgentAccess: vi.fn(),

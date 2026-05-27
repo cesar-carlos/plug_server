@@ -78,7 +78,9 @@ const validateRpcMeta = (meta: unknown): ContractValidationFailure | null => {
   return null;
 };
 
-const validateRpcResponseError = (error: Record<string, unknown>): ContractValidationFailure | null => {
+const validateRpcResponseError = (
+  error: Record<string, unknown>,
+): ContractValidationFailure | null => {
   if (typeof error.code !== "number" || !Number.isInteger(error.code)) {
     return reject("rpc:response error.code must be an integer");
   }

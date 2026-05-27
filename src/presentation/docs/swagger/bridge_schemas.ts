@@ -16,8 +16,7 @@ import {
 export const bridgeSchemas = {
   SocketBridgeSecurityNotes: {
     type: "object",
-    description:
-      "Security and transport hardening notes applied to HTTP-to-Socket bridge flow.",
+    description: "Security and transport hardening notes applied to HTTP-to-Socket bridge flow.",
     properties: {
       maxCompressedPayloadBytes: {
         type: "integer",

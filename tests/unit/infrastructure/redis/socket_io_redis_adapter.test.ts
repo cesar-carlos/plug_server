@@ -135,7 +135,10 @@ describe("socket_io_redis_adapter", () => {
 
     expect(createClientMock).toHaveBeenCalledWith({
       url: "redis://127.0.0.1:6379",
-      socket: { connectTimeout: 5_000 },
+      socket: {
+        connectTimeout: 5_000,
+        reconnectStrategy: expect.any(Function),
+      },
     });
     expect(createAdapterMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
       key: "socket.io",
@@ -173,13 +176,42 @@ describe("socket_io_redis_adapter", () => {
 
     expect(createClientMock).toHaveBeenCalledWith({
       url: "redis://127.0.0.1:6379",
-      socket: { connectTimeout: 9_000 },
+      socket: {
+        connectTimeout: 9_000,
+        reconnectStrategy: expect.any(Function),
+      },
     });
     expect(createAdapterMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
       key: "plug-hub",
       requestsTimeout: 12_000,
       publishOnSpecificResponseChannel: true,
     });
+  });
+
+  it("uses capped exponential reconnect strategy from env tuning", async () => {
+    const {
+      io,
+      createClientMock,
+      module: { initSocketIoRedisAdapter, closeSocketIoRedisAdapter },
+    } = await setupAdapterModule({
+      redisAdapterReconnectBaseMs: 500,
+      redisAdapterReconnectMaxMs: 4_000,
+    });
+
+    await initSocketIoRedisAdapter(io);
+
+    const callArgs = createClientMock.mock.calls[0]?.[0] as
+      | { readonly socket?: { readonly reconnectStrategy?: (retries: number) => number } }
+      | undefined;
+    const reconnectStrategy = callArgs?.socket?.reconnectStrategy;
+    expect(typeof reconnectStrategy).toBe("function");
+    expect(reconnectStrategy?.(0)).toBe(500);
+    expect(reconnectStrategy?.(1)).toBe(1_000);
+    expect(reconnectStrategy?.(2)).toBe(2_000);
+    expect(reconnectStrategy?.(3)).toBe(4_000);
+    expect(reconnectStrategy?.(10)).toBe(4_000);
+
+    await closeSocketIoRedisAdapter();
   });
 
   it("falls back to in-memory adapter and schedules reconnect when connect fails", async () => {

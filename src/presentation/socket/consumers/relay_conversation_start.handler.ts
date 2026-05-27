@@ -63,9 +63,7 @@ export const parseRelayConversationStartEnvelope = (
   return { success: true, data: parsed.data };
 };
 
-export const extractRelayConversationStartRequestId = (
-  rawPayload: unknown,
-): string | undefined => {
+export const extractRelayConversationStartRequestId = (rawPayload: unknown): string | undefined => {
   if (typeof rawPayload !== "object" || rawPayload === null) {
     return undefined;
   }

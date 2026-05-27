@@ -1,0 +1,149 @@
+## Prometheus alerting rules for the Plug hub Redis modules.
+##
+## Drop into your Prometheus rules directory (e.g.
+## `/etc/prometheus/rules.d/plug_redis.yml`) and reload Prometheus.
+## Severities follow the project convention: warning -> on-call awareness,
+## critical -> page.
+groups:
+  - name: plug_redis
+    rules:
+      # Adapter is the only module whose absence directly breaks cross-replica
+      # broadcasts. Sustained downtime is critical for multi-replica deployments.
+      - alert: PlugRedisAdapterDown
+        expr: max(plug_socket_io_redis_adapter_url_configured) == 1 and max(plug_socket_io_redis_adapter_active) == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: redis_adapter
+        annotations:
+          summary: "Plug Socket.IO Redis adapter unavailable for >=2 minutes"
+          description: |
+            `plug_socket_io_redis_adapter_active=0` while `plug_socket_io_redis_adapter_url_configured=1`.
+            Cross-replica `client:custom.*` fan-out and room broadcasts are degraded to per-replica memory.
+            Check Redis broker health and the `plug_socket_io_redis_adapter_fallback_events_total` counter.
+
+      # Rate-limit circuit breakers protect the hub from upstream Redis pain;
+      # sustained open state means the limit is enforced per-replica, which
+      # may allow bursts beyond the documented cap.
+      - alert: PlugRedisRateLimitCircuitOpen
+        expr: max(plug_socket_rate_limit_redis_circuit_open) == 1 or max(plug_rest_http_rate_limit_redis_circuit_open) == 1
+        for: 2m
+        labels:
+          severity: warning
+          component: redis_rate_limit
+        annotations:
+          summary: "Plug rate-limit Redis circuit open for >=2 minutes"
+          description: |
+            Either the Socket or REST rate-limit circuit is open. Limits fall back to per-replica
+            memory until Redis recovers and the breaker closes after one successful command.
+
+      # p95 sustained > 250ms suggests Redis is slow (network or contention)
+      # well before the circuit breaker fires.
+      - alert: PlugRedisLatencyP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(plug_socket_rate_limit_redis_command_duration_ms_bucket[5m]))) > 250
+        for: 5m
+        labels:
+          severity: warning
+          component: redis_latency
+        annotations:
+          summary: "Socket rate-limit Redis p95 latency > 250ms"
+          description: |
+            High p95 on `plug_socket_rate_limit_redis_command_duration_ms_bucket`.
+            Investigate Redis CPU, network RTT, or expired Lua SHA cache.
+
+      - alert: PlugRedisIdempotencyLatencyP95High
+        expr: histogram_quantile(0.95, sum by (le, op) (rate(plug_socket_custom_event_idempotency_redis_command_duration_ms_bucket[5m]))) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: redis_latency
+        annotations:
+          summary: "Idempotency Redis p95 latency > 100ms ({{ $labels.op }})"
+          description: |
+            Idempotency op {{ $labels.op }} (lock/unlock/extend/get/set) is slow.
+            Sustained slowness on `extend` may cause the Redlock-style watchdog to fail to renew.
+
+      # Fallback events at non-zero rate mean Redis is intermittently failing.
+      # Bumps the watchful eye even before circuit opens.
+      - alert: PlugRedisFallbackRate
+        expr: |
+          rate(plug_socket_io_redis_adapter_fallback_events_total[5m]) > 0
+          or rate(plug_socket_rate_limit_redis_fallback_events_total[5m]) > 0
+          or rate(plug_rest_http_rate_limit_redis_fallback_events_total[5m]) > 0
+          or rate(plug_socket_custom_event_idempotency_redis_fallback_events_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: redis_reliability
+        annotations:
+          summary: "Plug Redis modules emitting fallback events"
+          description: |
+            One or more modules are degrading to local-only mode.
+            Inspect `plug_*_redis_fallback_events_total` per module.
+
+      # Stream-specific: dropped frames indicate parse failures (schema drift)
+      # or in-flight Redis errors. Either is unsafe for at-least-once.
+      - alert: PlugAgentEventStreamDropped
+        expr: rate(plug_agent_event_stream_dropped_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: agent_event_stream
+        annotations:
+          summary: "Agent event stream dropping frames"
+          description: |
+            `plug_agent_event_stream_dropped_total` rate > 0 — frames were appended
+            but parsing failed at drain time, breaking at-least-once delivery.
+
+      - alert: PlugAgentEventStreamFallback
+        expr: rate(plug_agent_event_stream_fallback_events_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: agent_event_stream
+        annotations:
+          summary: "Agent event stream Redis unavailable"
+          description: |
+            Backlog Redis store is failing. Reconnecting subscribers will not receive
+            missed frames. Restore Redis or accept temporary lossy delivery.
+
+      # Tracked keys cardinality climbing past the cap means the rate-limit
+      # window is sustaining > 5000 distinct keys, which may indicate a bug
+      # or an attack pattern hitting many keys.
+      - alert: PlugRedisRateLimitTrackedKeysSaturated
+        expr: max(plug_socket_rate_limit_redis_tracked_keys_window_size) >= 5000
+        for: 10m
+        labels:
+          severity: warning
+          component: redis_rate_limit
+        annotations:
+          summary: "Socket rate-limit tracked keys at cap (5000)"
+          description: |
+            Indicates either an attack pattern or a key-explosion bug.
+            Inspect inbound traffic and the per-scope rate-limit metrics.
+
+      # Performance v1: high partial-failure ratio on the pipelined fan-out
+      # path implies the MULTI/EXEC transaction succeeded overall but at
+      # least one XADD per batch was rejected by the server. Investigate
+      # data-shape regressions or per-recipient stream MAXLEN tuning.
+      - alert: PlugAgentEventStreamBatchPartialFailureRatio
+        expr: |
+          (
+            rate(plug_agent_event_stream_batch_partial_failures_total[5m])
+            /
+            (
+              rate(plug_agent_event_stream_batch_appends_total[5m]) > 0
+              or
+              vector(1)
+            )
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: agent_event_stream
+        annotations:
+          summary: "Agent event stream batch partial-failure rate > 5%"
+          description: |
+            More than 5% of pipelined fan-out batches contain at least one
+            rejected XADD reply. Check stream MAXLEN saturation, schema
+            drift, or per-recipient stream key shape under multi-tenancy.

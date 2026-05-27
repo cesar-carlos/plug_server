@@ -59,6 +59,14 @@ const customEvents = {
   publishDistributedRecipientCountCircuitOpen: 0,
   publishRecipientCountBestEffortTotal: 0,
   publishRecipientCapUnverifiedTotal: 0,
+  /**
+   * Number of `client:custom.*` publishes that reused the cluster-wide
+   * `fetchSockets()` result from the recipient-count step instead of
+   * issuing a second RPC for principal-id resolution. Sustained growth
+   * confirms the dedupe path is hot; a flat zero indicates the publish
+   * is not exercising both paths simultaneously.
+   */
+  publishFetchSocketsDedupesTotal: 0,
 };
 
 /** Live `grantClientAccess` on this process only (multi-replica: see docs). */
@@ -267,6 +275,10 @@ export const noteCustomSocketEventPublishRecipientCountBestEffort = (): void => 
 
 export const noteCustomSocketEventPublishRecipientCapUnverified = (): void => {
   customEvents.publishRecipientCapUnverifiedTotal += 1;
+};
+
+export const noteCustomSocketEventPublishFetchSocketsDedupe = (): void => {
+  customEvents.publishFetchSocketsDedupesTotal += 1;
 };
 
 export const noteConsumerClientAgentRoomGrantAttempt = (): void => {
@@ -503,6 +515,7 @@ export const resetSocketConsumerMetrics = (): void => {
   customEvents.publishDistributedRecipientCountCircuitOpen = 0;
   customEvents.publishRecipientCountBestEffortTotal = 0;
   customEvents.publishRecipientCapUnverifiedTotal = 0;
+  customEvents.publishFetchSocketsDedupesTotal = 0;
   consumerClientAgentRoomGrant.attemptsTotal = 0;
   consumerClientAgentRoomGrant.socketsJoinedTotal = 0;
   consumerClientAgentRoomGrant.joinFailuresTotal = 0;

@@ -17,6 +17,19 @@ export interface ClientSocketEventPublishDistributedIdempotencyStore {
     },
   ): Promise<void>;
   acquireLock(clientId: string, idempotencyKey: string, ttlMs: number): Promise<string | undefined>;
+  /**
+   * Extend the TTL of an existing lock if (and only if) the caller still owns
+   * it (matching `token`). Returns `true` when the TTL was successfully
+   * extended; `false` when the lock has expired or was acquired by someone
+   * else. Atomic compare-and-pexpire via Lua to avoid the classic CHECK/SET
+   * race window.
+   */
+  extendLock(
+    clientId: string,
+    idempotencyKey: string,
+    token: string,
+    ttlMs: number,
+  ): Promise<boolean>;
   releaseLock(clientId: string, idempotencyKey: string, token: string): Promise<void>;
 }
 

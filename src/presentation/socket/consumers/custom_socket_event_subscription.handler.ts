@@ -12,6 +12,8 @@ import {
   extractSocketEventRequestId,
   socketEventSubscriptionSchema,
 } from "../../../shared/validators/custom_socket_event";
+import { logger } from "../../../shared/utils/logger";
+import { drainAgentEventBacklogForSubscription } from "../hub/agent_event_stream_drain";
 import { buildCustomSocketEventRoom } from "../hub/custom_events/custom_socket_event_rooms";
 import { allowCustomSocketEventSubscriptionControl } from "../hub/rate_limits/custom_socket_event_subscription_limiter";
 import {
@@ -138,8 +140,9 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
   const { eventName, requestId } = parsed.value;
 
   void (async (): Promise<void> => {
+    let principalId: string;
     try {
-      await assertActiveClientCustomSocketEventPrincipal(socket);
+      principalId = await assertActiveClientCustomSocketEventPrincipal(socket);
     } catch (error: unknown) {
       emitCustomSocketEventSubscriptionAuthFailure(
         socket,
@@ -220,6 +223,26 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
         ...(addedNew ? {} : { alreadySubscribed: true as const }),
       },
     });
+
+    /**
+     * After the subscribe ack, drain any backlog frames for this principal+
+     * eventName from the durable Redis stream. Triggered AFTER the ack so the
+     * client knows the subscription is live before backlog frames arrive.
+     * Best-effort: failures are logged and frames remain for next reconnect.
+     */
+    if (addedNew) {
+      void drainAgentEventBacklogForSubscription({
+        socket,
+        principalId,
+        eventName,
+      }).catch((error: unknown) => {
+        logger.warn("agent_event_stream_drain_orchestrator_failed", {
+          principalId,
+          eventName,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
   })().catch((error: unknown) => {
     noteCustomSocketEventSubscriptionRejected();
     emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {

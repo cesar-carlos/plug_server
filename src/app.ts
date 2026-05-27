@@ -94,9 +94,7 @@ export const createApp = (): Express => {
    * the request correlation id for upstream/downstream tracing.
    */
   if (env.nodeEnv !== "production") {
-    app.use(
-      morgan(":method :url :status :response-time ms req_id=:request-id"),
-    );
+    app.use(morgan(":method :url :status :response-time ms req_id=:request-id"));
   }
   /** Fail-fast: throttle /api/v1 before JSON body parsing (reduces CPU on abusive traffic). */
   app.use("/api/v1", globalRateLimit);

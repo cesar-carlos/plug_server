@@ -22,7 +22,19 @@ const setupSocketRedisModule = async (): Promise<{
 }> => {
   vi.resetModules();
 
-  const client = {
+  const client: {
+    on: ReturnType<typeof vi.fn>;
+    connect: ReturnType<typeof vi.fn>;
+    quit: ReturnType<typeof vi.fn>;
+    incrBy: ReturnType<typeof vi.fn>;
+    pExpire: ReturnType<typeof vi.fn>;
+    pTTL: ReturnType<typeof vi.fn>;
+    decrBy: ReturnType<typeof vi.fn>;
+    del: ReturnType<typeof vi.fn>;
+    eval: ReturnType<typeof vi.fn>;
+    evalSha: ReturnType<typeof vi.fn>;
+    scriptLoad: ReturnType<typeof vi.fn>;
+  } = {
     on: vi.fn(() => client),
     connect: vi.fn().mockResolvedValue(undefined),
     quit: vi.fn().mockResolvedValue(undefined),
@@ -32,9 +44,27 @@ const setupSocketRedisModule = async (): Promise<{
     decrBy: vi.fn(),
     del: vi.fn().mockResolvedValue(1),
     eval: vi.fn(),
+    evalSha: vi.fn(),
+    scriptLoad: vi.fn().mockImplementation(async (source: string) => {
+      // Distinguish the three pre-loaded scripts by their unique keywords so
+      // tests can assert which SHA is invoked without depending on call order.
+      if (typeof source === "string") {
+        if (/maxAllowed/.test(source)) {
+          return "sha-consume-or-rollback";
+        }
+        if (/DECRBY/.test(source)) {
+          return "sha-refund";
+        }
+      }
+      return "sha-consume";
+    }),
   };
   const envMock = {
     socketRateLimitRedisUrl: "redis://localhost:6379",
+    redisDefaultConnectTimeoutMs: 5_000,
+    redisTenantId: "",
+    redisDefaultReconnectBaseMs: 200,
+    redisDefaultReconnectMaxMs: 5_000,
   };
   const createClientMock = vi.fn(() => client);
 
@@ -53,12 +83,12 @@ describe("socket_rate_limit_redis", () => {
     vi.doUnmock("redis");
   });
 
-  it("consumes Redis budget and returns remaining credits", async () => {
+  it("consumes Redis budget via cached Lua EVALSHA and returns remaining credits", async () => {
     const {
       client,
       module: { closeSocketRateLimitRedis, consumeSocketRateLimitRedis, initSocketRateLimitRedis },
     } = await setupSocketRedisModule();
-    client.incrBy.mockResolvedValue(3);
+    client.evalSha.mockResolvedValue([1, 3]);
 
     await initSocketRateLimitRedis();
     const decision = await consumeSocketRateLimitRedis({
@@ -70,11 +100,22 @@ describe("socket_rate_limit_redis", () => {
     });
 
     expect(decision).toEqual({ allowed: true, remaining: 2, limit: 5, used: 3 });
-    expect(client.incrBy).toHaveBeenCalledWith("plug_socket_rl:relay_rpc_request:user:abc", 3);
-    expect(client.pExpire).toHaveBeenCalledWith(
-      "plug_socket_rl:relay_rpc_request:user:abc",
-      10_000,
+    /**
+     * Three scripts pre-loaded: consume (legacy, kept for compat),
+     * consume_or_rollback (new hot path), refund (external rollback).
+     */
+    expect(client.scriptLoad).toHaveBeenCalledTimes(3);
+    expect(client.evalSha).toHaveBeenCalledTimes(1);
+    expect(client.evalSha).toHaveBeenCalledWith(
+      "sha-consume-or-rollback",
+      expect.objectContaining({
+        keys: ["plug_socket_rl:{plug}:relay_rpc_request:user:abc"],
+        arguments: ["3", "10000", "5"],
+      }),
     );
+    expect(client.eval).not.toHaveBeenCalled();
+    expect(client.incrBy).not.toHaveBeenCalled();
+    expect(client.pExpire).not.toHaveBeenCalled();
 
     await closeSocketRateLimitRedis();
   });
@@ -103,7 +144,7 @@ describe("socket_rate_limit_redis", () => {
       client,
       module: { closeSocketRateLimitRedis, consumeSocketRateLimitRedis, initSocketRateLimitRedis },
     } = await setupSocketRedisModule();
-    client.incrBy.mockRejectedValue(new Error("command failed"));
+    client.evalSha.mockRejectedValue(new Error("command failed"));
 
     await initSocketRateLimitRedis();
     for (let index = 0; index < 3; index += 1) {
@@ -125,17 +166,18 @@ describe("socket_rate_limit_redis", () => {
         max: 5,
       }),
     ).resolves.toBeNull();
-    expect(client.incrBy).toHaveBeenCalledTimes(3);
+    // 3 failed consume attempts via cached Lua EVALSHA; the 4th is short-circuited.
+    expect(client.evalSha).toHaveBeenCalledTimes(3);
 
     await closeSocketRateLimitRedis();
   });
 
-  it("refunds consumed Redis credits with a single atomic EVAL", async () => {
+  it("refunds consumed Redis credits with a single atomic EVALSHA", async () => {
     const {
       client,
       module: { closeSocketRateLimitRedis, refundSocketRateLimitRedis, initSocketRateLimitRedis },
     } = await setupSocketRedisModule();
-    client.eval.mockResolvedValue(0);
+    client.evalSha.mockResolvedValue(0);
 
     await initSocketRateLimitRedis();
     await refundSocketRateLimitRedis({
@@ -144,11 +186,11 @@ describe("socket_rate_limit_redis", () => {
       cost: 4,
     });
 
-    expect(client.eval).toHaveBeenCalledTimes(1);
-    expect(client.eval).toHaveBeenCalledWith(
-      expect.stringContaining("DECRBY"),
+    expect(client.evalSha).toHaveBeenCalledTimes(1);
+    expect(client.evalSha).toHaveBeenCalledWith(
+      "sha-refund",
       expect.objectContaining({
-        keys: ["plug_socket_rl:relay_stream_pull_credits:user:abc"],
+        keys: ["plug_socket_rl:{plug}:relay_stream_pull_credits:user:abc"],
         arguments: ["4"],
       }),
     );
@@ -163,7 +205,7 @@ describe("socket_rate_limit_redis", () => {
       client,
       module: { closeSocketRateLimitRedis, refundSocketRateLimitRedis, initSocketRateLimitRedis },
     } = await setupSocketRedisModule();
-    client.eval.mockRejectedValueOnce(new Error("timeout")).mockResolvedValueOnce(0);
+    client.evalSha.mockRejectedValueOnce(new Error("timeout")).mockResolvedValueOnce(0);
 
     await initSocketRateLimitRedis();
     vi.useFakeTimers();
@@ -176,17 +218,18 @@ describe("socket_rate_limit_redis", () => {
     await refundPromise;
     vi.useRealTimers();
 
-    expect(client.eval).toHaveBeenCalledTimes(2);
+    expect(client.evalSha).toHaveBeenCalledTimes(2);
 
     await closeSocketRateLimitRedis();
   });
-  it("rolls back Redis increment when budget is exceeded", async () => {
+  it("rolls back Redis increment atomically when budget is exceeded (single EVALSHA on deny)", async () => {
     const {
       client,
       module: { closeSocketRateLimitRedis, consumeSocketRateLimitRedis, initSocketRateLimitRedis },
     } = await setupSocketRedisModule();
-    client.incrBy.mockResolvedValue(3);
-    client.eval.mockResolvedValue(2);
+    // The new consume_or_rollback Lua returns {0, used} (post-DECRBY=2) in a
+    // single EVALSHA — no second round-trip on deny.
+    client.evalSha.mockResolvedValueOnce([0, 2]);
 
     await initSocketRateLimitRedis();
     const decision = await consumeSocketRateLimitRedis({
@@ -197,13 +240,57 @@ describe("socket_rate_limit_redis", () => {
     });
 
     expect(decision).toEqual({ allowed: false, remaining: 0, limit: 2, used: 2 });
-    expect(client.eval).toHaveBeenCalledWith(
-      expect.stringContaining("DECRBY"),
+    expect(client.evalSha).toHaveBeenCalledTimes(1);
+    expect(client.evalSha).toHaveBeenCalledWith(
+      "sha-consume-or-rollback",
       expect.objectContaining({
-        keys: ["plug_socket_rl:relay_rpc_request:user:abc"],
-        arguments: ["1"],
+        keys: ["plug_socket_rl:{plug}:relay_rpc_request:user:abc"],
+        arguments: ["1", "10000", "2"],
       }),
     );
+
+    await closeSocketRateLimitRedis();
+  });
+
+  it("returns null on malformed Lua reply (defensive fail-open)", async () => {
+    const {
+      client,
+      module: { closeSocketRateLimitRedis, consumeSocketRateLimitRedis, initSocketRateLimitRedis },
+    } = await setupSocketRedisModule();
+    // Bogus reply (single number instead of [allowed, used]).
+    client.evalSha.mockResolvedValueOnce(99);
+
+    await initSocketRateLimitRedis();
+    const decision = await consumeSocketRateLimitRedis({
+      scope: "relay_rpc_request",
+      key: "user:weird",
+      windowMs: 10_000,
+      max: 5,
+    });
+
+    expect(decision).toBeNull();
+    expect(client.evalSha).toHaveBeenCalledTimes(1);
+
+    await closeSocketRateLimitRedis();
+  });
+
+  it("at boundary used==max, decision is allowed and saturation is observed", async () => {
+    const {
+      client,
+      module: { closeSocketRateLimitRedis, consumeSocketRateLimitRedis, initSocketRateLimitRedis },
+    } = await setupSocketRedisModule();
+    client.evalSha.mockResolvedValueOnce([1, 5]);
+
+    await initSocketRateLimitRedis();
+    const decision = await consumeSocketRateLimitRedis({
+      scope: "relay_rpc_request",
+      key: "user:saturated",
+      windowMs: 10_000,
+      max: 5,
+    });
+
+    expect(decision).toEqual({ allowed: true, remaining: 0, limit: 5, used: 5 });
+    expect(client.evalSha).toHaveBeenCalledTimes(1);
 
     await closeSocketRateLimitRedis();
   });

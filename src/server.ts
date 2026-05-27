@@ -54,6 +54,10 @@ import {
   closeClientSocketEventPublishIdempotencyRedis,
   initClientSocketEventPublishIdempotencyRedis,
 } from "./infrastructure/redis/client_socket_event_publish_idempotency_redis";
+import {
+  closeAgentEventStream,
+  initAgentEventStream,
+} from "./infrastructure/redis/agent_event_stream";
 import { prismaClient } from "./infrastructure/database/prisma/client";
 import {
   startAgentIdleTimeoutScheduler,
@@ -90,9 +94,23 @@ const bootstrap = async (): Promise<void> => {
    */
   await initOpenTelemetry();
 
-  await initRestHttpRateLimitRedis();
-  await initSocketRateLimitRedis();
-  await initClientSocketEventPublishIdempotencyRedis();
+  /**
+   * Each Redis-backed module is fail-soft (init errors are logged and the
+   * module falls back to in-memory state — see ADR-0001 / ADR-0007). Boot
+   * uses `Promise.all` so the total wait is `max(initN)` instead of `sum(initN)`,
+   * which is especially valuable when one Redis URL is unreachable: the
+   * other modules still finish in their normal timeout window.
+   *
+   * The Socket.IO Redis adapter (`initSocketIoRedisAdapter`) is *not*
+   * included here because it depends on the `io` instance created later
+   * by `createSocketServer(httpServer)`.
+   */
+  await Promise.all([
+    initRestHttpRateLimitRedis(),
+    initSocketRateLimitRedis(),
+    initClientSocketEventPublishIdempotencyRedis(),
+    initAgentEventStream(),
+  ]);
 
   const { registerHttpRateLimits } =
     await import("./presentation/http/middlewares/rate_limit.middleware");
@@ -260,10 +278,28 @@ const shutdown = async (signal: string): Promise<void> => {
       await closeSocketServer(io, signal);
     }
     await closeHttpServer();
-    await closeSocketIoRedisAdapter();
-    await closeClientSocketEventPublishIdempotencyRedis();
-    await closeRestHttpRateLimitRedis();
-    await closeSocketRateLimitRedis();
+    /**
+     * Close every Redis-backed module concurrently. `Promise.allSettled`
+     * ensures one slow `quit()` (e.g. a hung TCP socket) cannot block the
+     * others; rejections surface as fail-soft warnings. The Socket.IO
+     * adapter (`closeSocketIoRedisAdapter`) is part of the group because
+     * the live `io` server has already been closed above.
+     */
+    const closeOutcomes = await Promise.allSettled([
+      closeSocketIoRedisAdapter(),
+      closeClientSocketEventPublishIdempotencyRedis(),
+      closeAgentEventStream(),
+      closeRestHttpRateLimitRedis(),
+      closeSocketRateLimitRedis(),
+    ]);
+    for (const outcome of closeOutcomes) {
+      if (outcome.status === "rejected") {
+        logger.warn("redis_module_close_failed", {
+          message:
+            outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+        });
+      }
+    }
     await prismaClient.$disconnect();
     await shutdownOpenTelemetry();
     logger.info("Shutdown completed", { signal });

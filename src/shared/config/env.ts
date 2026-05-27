@@ -296,6 +296,33 @@ const envSchema = z.object({
     .max(30_000)
     .default(750),
   /**
+   * Renew the Redis SET NX lock every `LOCK_RENEWAL_MS` while a publish is in-flight
+   * (Redlock-style watchdog). Default `0` keeps legacy fixed-TTL behaviour. Recommended
+   * value: ~`LOCK_TTL_MS / 3` so two failed renewals still leave headroom before expiry.
+   * The watchdog stops when the publish completes or the lock is released.
+   */
+  REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_LOCK_RENEWAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(60_000)
+    .default(0),
+  /**
+   * Optional read-replica URL for the idempotency `getEntry` path. When set,
+   * `getEntry` queries the replica (cheap GET) while writes (`setEntry`,
+   * `acquireLock`, `releaseLock`, `extendLock`) keep going to the primary.
+   * Empty (default) = read from the primary client.
+   *
+   * Caveats: replica replication lag means `getEntry` may briefly return
+   * `undefined` for a recently written key. The publish path tolerates this
+   * because the post-lock `getEntry` recheck still happens against the
+   * primary client.
+   */
+  REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_READ_URL: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
+  /**
    * Express `express.json` limit for JSON-only `POST /api/v1/client/me/socket-events` (not global).
    * Empty: derive ~110% of worst-case UTF-8 envelope from `REST_SOCKET_EVENT_*` payload + attachment caps.
    */
@@ -391,6 +418,20 @@ const envSchema = z.object({
   OTEL_TRACES_SAMPLER_ARG: z.coerce.number().min(0).max(1).default(0.05),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default("http://localhost:4318"),
   OTEL_SERVICE_NAME: z.string().default("plug_server"),
+  /**
+   * When `true` AND `OTEL_TRACES_ENABLED=true`, the Redis-backed modules
+   * wrap hot-path commands (Lua eval, XADD, SET NX) in named spans with
+   * `module` and `op` attributes. Default `false` keeps the SDK
+   * auto-instrumentation as the only source of Redis spans.
+   *
+   * Useful when investigating a slow `client:custom.*` publish: the named
+   * spans expose which Lua script / Redis op contributed to the latency
+   * tail without grepping auto-instrumentation generic spans.
+   */
+  REDIS_OTEL_SPANS_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   /** Public HTTP base URL for registration approval links (no trailing slash). */
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   /** Receives registration approval / rejection emails. */
@@ -454,6 +495,12 @@ const envSchema = z.object({
     .min(1_000)
     .max(3_600_000)
     .default(300_000),
+  /**
+   * Max number of parallel SMTP sends per outbox flush. Default 4 (legacy),
+   * generous profile recommends 8 when SMTP provider/connection pool tolerates it.
+   * The actual concurrency is `Math.min(WORKER_CONCURRENCY, BATCH_SIZE)`.
+   */
+  REGISTRATION_EMAIL_OUTBOX_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(4),
   /**
    * Retention (days) for dead-letter rows in `registration_email_outbox`
    * (rows where `attempts >= MAX_ATTEMPTS`, marked with `last_error` prefix
@@ -607,6 +654,133 @@ const envSchema = z.object({
     (val) => (val === undefined || val === null ? "" : String(val).trim()),
     z.string(),
   ),
+  /**
+   * Default `node-redis` socket connect timeout (ms) shared by every Redis-backed module
+   * (rate-limits + idempotency). The Socket.IO adapter keeps its own override for backwards
+   * compatibility (`SOCKET_IO_REDIS_ADAPTER_CONNECT_TIMEOUT_MS`).
+   */
+  REDIS_DEFAULT_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().max(120_000).default(5_000),
+  /** Base delay (ms) for capped exponential backoff on reconnect attempts. */
+  REDIS_DEFAULT_RECONNECT_BASE_MS: z.coerce.number().int().positive().max(60_000).default(200),
+  /** Maximum delay (ms) between reconnect attempts. */
+  REDIS_DEFAULT_RECONNECT_MAX_MS: z.coerce.number().int().positive().max(600_000).default(5_000),
+  /**
+   * When `true` and `NODE_ENV=production`, refuse to boot if any *_REDIS_URL uses plain
+   * `redis://` without password. Use `rediss://` (TLS) or `redis://default:<password>@host`
+   * instead. Default `false` keeps current behavior.
+   */
+  STRICT_REDIS_AUTH: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /**
+   * Optional tenant identifier embedded in every Redis key prefix after the
+   * `{plug}` hash tag. Used when multiple plug deployments share a single
+   * Redis database and need hard isolation of rate-limit counters,
+   * idempotency entries, and stream backlogs. Empty (default) keeps the
+   * single-tenant key shape (no `<tenant>:` segment).
+   *
+   * Allowed: `[A-Za-z0-9_-]{1,32}`. Validated at boot.
+   */
+  REDIS_TENANT_ID: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z
+      .string()
+      .max(32)
+      .refine((v) => v === "" || /^[A-Za-z0-9_-]+$/.test(v), {
+        message: "REDIS_TENANT_ID must match /^[A-Za-z0-9_-]{1,32}$/ when set",
+      }),
+  ),
+  /**
+   * Optional Redis Streams URL for at-least-once delivery of `client:custom.*` frames
+   * to agents that briefly disconnect/reconnect across hub replicas. Empty = streams
+   * disabled (current pub/sub-only behaviour).
+   */
+  AGENT_EVENT_STREAM_REDIS_URL: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
+  /**
+   * When `true`, append outbound `client:custom.*` frames to the per-agent Redis
+   * stream so agents that reconnect retrieve a backlog. Default `false` (opt-in).
+   */
+  AGENT_EVENT_STREAM_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** Cap per-agent stream length via `XADD MAXLEN ~ N`. Older entries are trimmed automatically. */
+  AGENT_EVENT_STREAM_MAX_LEN: z.coerce.number().int().positive().max(1_000_000).default(1_000),
+  /**
+   * TTL applied to a per-agent stream key whenever a frame is appended. When the agent
+   * goes idle longer than this, the entire stream is GC'd. `0` = never expire.
+   */
+  AGENT_EVENT_STREAM_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(7 * 24 * 60 * 60 * 1_000)
+    .default(24 * 60 * 60 * 1_000),
+  /** Max entries returned per `XREAD` when reading the backlog on connect/resume. */
+  AGENT_EVENT_STREAM_BACKLOG_MAX_ENTRIES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10_000)
+    .default(500),
+  /**
+   * CSV allowlist of principal ids (consumer Client `JWT sub`) for which the
+   * durable backlog is enabled. Empty (default) = all recipients participate
+   * when `AGENT_EVENT_STREAM_ENABLED=true`. Use this to roll out gradually.
+   */
+  AGENT_EVENT_STREAM_AGENT_ALLOWLIST: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
+  /**
+   * Drain-on-connect ack timeout (ms). When the agent socket does not ack a
+   * backlog frame within this window the cursor is NOT committed and the
+   * frame is left for the next reconnect attempt.
+   */
+  AGENT_EVENT_STREAM_DRAIN_ACK_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(60_000)
+    .default(5_000),
+  /**
+   * When `true`, the backlog drain uses Redis consumer groups (XREADGROUP /
+   * XACK) instead of cursor-based XREAD / XDEL. Consumer groups coordinate
+   * delivery across replicas so two hubs reconnecting the same principal
+   * cannot deliver duplicate frames. Default `false` keeps the cursor-based
+   * path for back-compat — see ADR-0007 (Sprint 12).
+   */
+  AGENT_EVENT_STREAM_USE_CONSUMER_GROUPS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /**
+   * Consumer group name shared across replicas. Single value per cluster.
+   * Customise only if you run multiple hub clusters off the same Redis.
+   */
+  AGENT_EVENT_STREAM_CONSUMER_GROUP: z.string().min(1).max(64).default("plug_hub"),
+  /**
+   * Backpressure mode for the per-recipient stream append on the publish hot
+   * path. Trade-off:
+   *
+   * - `await` (default): publish blocks until every recipient append resolves
+   *   (or rejects). Preserves at-least-once delivery semantics. Slow Redis
+   *   adds latency to every publish.
+   * - `timeout`: each append races against `AGENT_EVENT_STREAM_APPEND_TIMEOUT_MS`.
+   *   Late appends still resolve in the background but the publish path stops
+   *   waiting after the timeout. Some recipients may miss the durable backlog
+   *   on slow appends.
+   * - `fire_and_forget`: publish never waits for appends. Lowest latency,
+   *   weakest delivery guarantee — appends that fail go unnoticed by the
+   *   publish caller (logged + metric only).
+   */
+  AGENT_EVENT_STREAM_APPEND_MODE: z.enum(["await", "timeout", "fire_and_forget"]).default("await"),
+  /** Per-append timeout for `AGENT_EVENT_STREAM_APPEND_MODE=timeout`. */
+  AGENT_EVENT_STREAM_APPEND_TIMEOUT_MS: z.coerce.number().int().positive().max(60_000).default(50),
   /**
    * When > 0, successful `bindOwnershipOnRegister(userId, agentId)` skip repeated DB work until TTL.
    * Cleared with `AgentAccessService.invalidateAccessCache*` / `invalidateAccessCacheForAgent` (same hooks as `AGENT_ACCESS_CACHE_*`).
@@ -1143,11 +1317,7 @@ const envSchema = z.object({
    * Independent from {@link REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS} so profile updates
    * can be tuned separately from command invocations.
    */
-  REST_AGENTS_SELF_PROFILE_RATE_LIMIT_WINDOW_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(60_000),
+  REST_AGENTS_SELF_PROFILE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   /** Max profile patch requests per window per agent. `0` = unlimited. */
   REST_AGENTS_SELF_PROFILE_RATE_LIMIT_MAX: z.coerce
     .number()
@@ -1297,6 +1467,35 @@ if (parsedEnv.NODE_ENV === "production") {
     throw new Error("Invalid production config: SOCKET_AUTH_REQUIRED must be true in production.");
   }
 
+  if (parsedEnv.STRICT_REDIS_AUTH) {
+    const redisUrlsByName: ReadonlyArray<readonly [string, string]> = [
+      ["SOCKET_IO_REDIS_ADAPTER_URL", parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL],
+      ["REST_RATE_LIMIT_REDIS_URL", parsedEnv.REST_RATE_LIMIT_REDIS_URL],
+      ["SOCKET_RATE_LIMIT_REDIS_URL", parsedEnv.SOCKET_RATE_LIMIT_REDIS_URL],
+      [
+        "REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL",
+        parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL,
+      ],
+    ];
+    for (const [name, raw] of redisUrlsByName) {
+      const url = raw.trim();
+      if (url === "") {
+        continue;
+      }
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        throw new Error(`Invalid production config: ${name} is not a valid URL.`);
+      }
+      if (parsedUrl.protocol === "redis:" && !parsedUrl.password) {
+        throw new Error(
+          `Invalid production config: ${name} must use rediss:// (TLS) or include a password when STRICT_REDIS_AUTH=true.`,
+        );
+      }
+    }
+  }
+
   if (parsedEnv.SOCKET_CONNECTION_READY_COMPAT_MODE === "raw_json") {
     throw new Error(
       "Invalid production config: SOCKET_CONNECTION_READY_COMPAT_MODE must not be raw_json in production.",
@@ -1384,6 +1583,9 @@ export const env = {
   restSocketEventIdempotencyRedisLockTtlMs:
     parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_LOCK_TTL_MS,
   restSocketEventIdempotencyRedisWaitMs: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_WAIT_MS,
+  restSocketEventIdempotencyRedisLockRenewalMs:
+    parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_LOCK_RENEWAL_MS,
+  restSocketEventIdempotencyRedisReadUrl: parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_READ_URL,
   socketCustomEventPublishRateLimitWindowMs:
     parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_WINDOW_MS ??
     parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS,
@@ -1421,6 +1623,7 @@ export const env = {
   jwtVerifyCacheTtlMs: parsedEnv.JWT_VERIFY_CACHE_TTL_MS,
   jwtVerifyCacheMaxSize: parsedEnv.JWT_VERIFY_CACHE_MAX_SIZE,
   otelTracesEnabled: parsedEnv.OTEL_TRACES_ENABLED,
+  redisOtelSpansEnabled: parsedEnv.REDIS_OTEL_SPANS_ENABLED,
   otelTracesSamplerArg: parsedEnv.OTEL_TRACES_SAMPLER_ARG,
   otelExporterOtlpEndpoint: parsedEnv.OTEL_EXPORTER_OTLP_ENDPOINT,
   otelServiceName: parsedEnv.OTEL_SERVICE_NAME,
@@ -1558,6 +1761,24 @@ export const env = {
   socketIoRedisAdapterConnectTimeoutMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_CONNECT_TIMEOUT_MS,
   socketIoRedisAdapterReconnectBaseMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_RECONNECT_BASE_MS,
   socketIoRedisAdapterReconnectMaxMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_RECONNECT_MAX_MS,
+  redisDefaultConnectTimeoutMs: parsedEnv.REDIS_DEFAULT_CONNECT_TIMEOUT_MS,
+  redisDefaultReconnectBaseMs: parsedEnv.REDIS_DEFAULT_RECONNECT_BASE_MS,
+  redisDefaultReconnectMaxMs: parsedEnv.REDIS_DEFAULT_RECONNECT_MAX_MS,
+  strictRedisAuth: parsedEnv.STRICT_REDIS_AUTH,
+  redisTenantId: parsedEnv.REDIS_TENANT_ID,
+  agentEventStreamRedisUrl: parsedEnv.AGENT_EVENT_STREAM_REDIS_URL,
+  agentEventStreamEnabled: parsedEnv.AGENT_EVENT_STREAM_ENABLED,
+  agentEventStreamMaxLen: parsedEnv.AGENT_EVENT_STREAM_MAX_LEN,
+  agentEventStreamTtlMs: parsedEnv.AGENT_EVENT_STREAM_TTL_MS,
+  agentEventStreamBacklogMaxEntries: parsedEnv.AGENT_EVENT_STREAM_BACKLOG_MAX_ENTRIES,
+  agentEventStreamAgentAllowlist: parsedEnv.AGENT_EVENT_STREAM_AGENT_ALLOWLIST.split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== ""),
+  agentEventStreamDrainAckTimeoutMs: parsedEnv.AGENT_EVENT_STREAM_DRAIN_ACK_TIMEOUT_MS,
+  agentEventStreamUseConsumerGroups: parsedEnv.AGENT_EVENT_STREAM_USE_CONSUMER_GROUPS,
+  agentEventStreamConsumerGroup: parsedEnv.AGENT_EVENT_STREAM_CONSUMER_GROUP,
+  agentEventStreamAppendMode: parsedEnv.AGENT_EVENT_STREAM_APPEND_MODE,
+  agentEventStreamAppendTimeoutMs: parsedEnv.AGENT_EVENT_STREAM_APPEND_TIMEOUT_MS,
   socketAuditRetentionDays: parsedEnv.SOCKET_AUDIT_RETENTION_DAYS,
   socketAuditRetentionIntervalMinutes: parsedEnv.SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES,
   socketAuditPruneBatchSize: parsedEnv.SOCKET_AUDIT_PRUNE_BATCH_SIZE,
@@ -1626,6 +1847,7 @@ export const env = {
   registrationEmailOutboxMaxAttempts: parsedEnv.REGISTRATION_EMAIL_OUTBOX_MAX_ATTEMPTS,
   registrationEmailOutboxRetryBaseDelayMs: parsedEnv.REGISTRATION_EMAIL_OUTBOX_RETRY_BASE_DELAY_MS,
   registrationEmailOutboxLockTimeoutMs: parsedEnv.REGISTRATION_EMAIL_OUTBOX_LOCK_TIMEOUT_MS,
+  registrationEmailOutboxWorkerConcurrency: parsedEnv.REGISTRATION_EMAIL_OUTBOX_WORKER_CONCURRENCY,
   registrationEmailOutboxDeadLetterRetentionDays:
     parsedEnv.REGISTRATION_EMAIL_OUTBOX_DEAD_LETTER_RETENTION_DAYS,
   registrationEmailOutboxDeadLetterPruneIntervalMinutes:

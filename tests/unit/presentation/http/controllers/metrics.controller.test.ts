@@ -142,7 +142,14 @@ describe("metrics.controller", () => {
         lastConnectionAtMs: 0,
         redisAllowedTotal: 0,
         redisRejectedTotal: 0,
-        trackedKeysApprox: 0,
+        windowResetsTotal: 0,
+        saturationsTotal: 0,
+        trackedKeysWindowSize: 0,
+        trackedKeysSeenTotal: 0,
+        latency: {
+          consume: { buckets: [], count: 0, sumMs: 0, p50Ms: 0, p95Ms: 0, p99Ms: 0 },
+          refund: { buckets: [], count: 0, sumMs: 0, p50Ms: 0, p95Ms: 0, p99Ms: 0 },
+        },
       },
       agentsCommandSocketRateLimit: {
         windowMs: 0,

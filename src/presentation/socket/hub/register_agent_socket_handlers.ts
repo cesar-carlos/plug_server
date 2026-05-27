@@ -26,9 +26,7 @@ import {
   AGENT_SESSION_SUPERSEDED_MESSAGE,
   emitAgentRegisterError,
 } from "./handshake/agent_register_error";
-import {
-  tryConsumeAgentRegisterRateLimitAsync,
-} from "./rate_limits/agent_register_rate_limit";
+import { tryConsumeAgentRegisterRateLimitAsync } from "./rate_limits/agent_register_rate_limit";
 import { parseAgentReadyPayload } from "./handshake/agent_ready_payload";
 import { emitConnectionReady } from "./handshake/connection_ready_handshake";
 import { conversationRegistry } from "./registries/conversation_registry";
@@ -54,9 +52,7 @@ import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";
 import { badRequest, forbidden, tooManyRequests } from "../../../shared/errors/http_errors";
 import { buildHubServerCapabilities } from "../../../shared/constants/agent_transport_contract";
-import {
-  buildLegacySocketAppErrorPayload,
-} from "../../../shared/constants/socket_app_error";
+import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import {
   noteAgentCapabilityProfile,
@@ -91,7 +87,12 @@ type SocketData = {
   agentRegisterProfileSnapshot?: AgentRegisterProfileSnapshot;
 };
 
-export type AgentHubSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
+export type AgentHubSocket = Socket<
+  DefaultEventsMap,
+  DefaultEventsMap,
+  DefaultEventsMap,
+  SocketData
+>;
 type HubNamespace = Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -107,9 +108,7 @@ const getUserId = (socket: AgentHubSocket): string | null =>
   typeof socket.data.user?.sub === "string" ? socket.data.user.sub : null;
 
 const buildAgentPrincipalRoom = (user: JwtAccessPayload | undefined): string | null =>
-  typeof user?.sub === "string" && user.sub.trim() !== ""
-    ? `agent:principal:${user.sub}`
-    : null;
+  typeof user?.sub === "string" && user.sub.trim() !== "" ? `agent:principal:${user.sub}` : null;
 
 const joinAgentIdentityRooms = async (socket: AgentHubSocket): Promise<void> => {
   const room = buildAgentPrincipalRoom(socket.data.user);

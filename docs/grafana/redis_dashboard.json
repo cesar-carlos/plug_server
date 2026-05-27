@@ -1,0 +1,314 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Plug hub Redis modules: connection state, latency p95, fallback rate, circuit breaker, tracked keys cardinality, stream backlog. Tested on Grafana 10.x with a Prometheus scrape at /metrics.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Connection state",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100
+    },
+    {
+      "type": "stat",
+      "title": "Adapter active",
+      "targets": [{ "expr": "max(plug_socket_io_redis_adapter_active)", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Socket rate-limit",
+      "targets": [{ "expr": "max(plug_socket_rate_limit_redis_store_active)", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "REST rate-limit",
+      "targets": [{ "expr": "max(plug_rest_http_rate_limit_redis_store_active)", "refId": "A" }],
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Idempotency",
+      "targets": [{ "expr": "max(plug_socket_custom_event_idempotency_redis_store_active)", "refId": "A" }],
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Agent stream",
+      "targets": [{ "expr": "max(plug_agent_event_stream_active)", "refId": "A" }],
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 5
+    },
+    {
+      "type": "row",
+      "title": "Latency p95 (ms)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 200
+    },
+    {
+      "type": "timeseries",
+      "title": "Socket rate-limit p95 by op",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, op) (rate(plug_socket_rate_limit_redis_command_duration_ms_bucket[5m])))",
+          "legendFormat": "{{op}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "Idempotency p95 by op",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, op) (rate(plug_socket_custom_event_idempotency_redis_command_duration_ms_bucket[5m])))",
+          "legendFormat": "{{op}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 11
+    },
+    {
+      "type": "timeseries",
+      "title": "REST rate-limit p95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(plug_rest_http_rate_limit_redis_command_duration_ms_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "id": 12
+    },
+    {
+      "type": "timeseries",
+      "title": "Adapter connect p95",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(plug_socket_io_redis_adapter_connect_duration_ms_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "id": 13
+    },
+    {
+      "type": "row",
+      "title": "Reliability — fallback / circuit",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "id": 300
+    },
+    {
+      "type": "timeseries",
+      "title": "Fallback rate (events/s)",
+      "targets": [
+        { "expr": "rate(plug_socket_io_redis_adapter_fallback_events_total[5m])", "legendFormat": "adapter", "refId": "A" },
+        { "expr": "rate(plug_socket_rate_limit_redis_fallback_events_total[5m])", "legendFormat": "socket_rl", "refId": "B" },
+        { "expr": "rate(plug_rest_http_rate_limit_redis_fallback_events_total[5m])", "legendFormat": "rest_rl", "refId": "C" },
+        { "expr": "rate(plug_socket_custom_event_idempotency_redis_fallback_events_total[5m])", "legendFormat": "idempotency", "refId": "D" },
+        { "expr": "rate(plug_agent_event_stream_fallback_events_total[5m])", "legendFormat": "stream", "refId": "E" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "id": 20
+    },
+    {
+      "type": "timeseries",
+      "title": "Circuit open state",
+      "targets": [
+        { "expr": "max(plug_socket_rate_limit_redis_circuit_open)", "legendFormat": "socket_rl", "refId": "A" },
+        { "expr": "max(plug_rest_http_rate_limit_redis_circuit_open)", "legendFormat": "rest_rl", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "id": 21
+    },
+    {
+      "type": "row",
+      "title": "Cardinality + Streams",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "id": 400
+    },
+    {
+      "type": "timeseries",
+      "title": "Tracked rate-limit keys (window size)",
+      "targets": [
+        {
+          "expr": "max(plug_socket_rate_limit_redis_tracked_keys_window_size)",
+          "legendFormat": "active keys",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(plug_socket_rate_limit_redis_tracked_keys_seen_total[5m])",
+          "legendFormat": "seen rate",
+          "refId": "B"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "id": 30
+    },
+    {
+      "type": "timeseries",
+      "title": "Agent event stream backlog flow",
+      "targets": [
+        {
+          "expr": "rate(plug_agent_event_stream_appends_total[5m])",
+          "legendFormat": "appends",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(plug_agent_event_stream_backlog_entries_delivered_total[5m])",
+          "legendFormat": "delivered",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(plug_agent_event_stream_acks_total[5m])",
+          "legendFormat": "acks",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(plug_agent_event_stream_dropped_total[5m])",
+          "legendFormat": "dropped",
+          "refId": "D"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 31
+    },
+    {
+      "type": "row",
+      "title": "Performance v1 (Sprints P1-P4)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "id": 200
+    },
+    {
+      "type": "timeseries",
+      "title": "Stream batch fan-out (P1)",
+      "description": "Pipelined MULTI/EXEC fan-out: rate of batch appends and partial-failure entries. Sustained partial failures > 1% indicate per-entry rejections inside otherwise-successful EXEC.",
+      "targets": [
+        {
+          "expr": "rate(plug_agent_event_stream_batch_appends_total[5m])",
+          "legendFormat": "batch appends/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(plug_agent_event_stream_batch_partial_failures_total[5m])",
+          "legendFormat": "partial failures/s",
+          "refId": "B"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
+      "id": 40
+    },
+    {
+      "type": "timeseries",
+      "title": "Stream batch size distribution (P1)",
+      "description": "Histogram of recipients per pipelined fan-out batch. Mode shifting upward indicates rooms growing — the MULTI/EXEC path keeps RTT cost flat regardless.",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(plug_agent_event_stream_batch_size_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(plug_agent_event_stream_batch_size_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(plug_agent_event_stream_batch_size_bucket[5m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
+      "id": 41
+    },
+    {
+      "type": "timeseries",
+      "title": "Atomic consume rollbacks (P2)",
+      "description": "Rate of in-script `consume_or_rollback` Lua deny path (1 RTT). Compared against rejected_total (which also includes external refund path). Sustained > 0 indicates burst-shedding pressure.",
+      "targets": [
+        {
+          "expr": "rate(plug_socket_rate_limit_consume_atomic_rollbacks_total[5m])",
+          "legendFormat": "atomic rollbacks/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(plug_socket_rate_limit_redis_rejected_total[5m])",
+          "legendFormat": "rejected/s",
+          "refId": "B"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 49 },
+      "id": 42
+    },
+    {
+      "type": "timeseries",
+      "title": "fetchSockets dedupes (P3)",
+      "description": "Cluster-wide fetchSockets RPCs reused across recipient-count and principal-id resolution on the publish hot path. Zero with streams enabled and Redis adapter active suggests dedupe is not being exercised.",
+      "targets": [
+        {
+          "expr": "rate(plug_socket_custom_event_publish_fetch_sockets_dedupes_total[5m])",
+          "legendFormat": "dedupes/s",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 49 },
+      "id": 43
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["plug", "redis", "infrastructure"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Plug Redis modules",
+  "version": 1,
+  "weekStart": ""
+}

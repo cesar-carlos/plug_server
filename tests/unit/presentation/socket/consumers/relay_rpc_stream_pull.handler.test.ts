@@ -8,10 +8,13 @@ vi.mock("../../../../../src/presentation/socket/hub/relay/rpc_bridge", () => ({
   prepareRelayStreamPull: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter", () => ({
-  allowRelayStreamPullAsync: vi.fn(),
-  refundRelayStreamPullCreditsAsync: vi.fn(),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter",
+  () => ({
+    allowRelayStreamPullAsync: vi.fn(),
+    refundRelayStreamPullCreditsAsync: vi.fn(),
+  }),
+);
 
 vi.mock("../../../../../src/presentation/socket/hub/registries/conversation_registry", () => ({
   conversationRegistry: {

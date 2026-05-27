@@ -205,3 +205,51 @@ capacidade do bridge; para benchmark de banco/ODBC, manter os testes de carga no
 - repetir `socket:event.publish` com mesma chave/corpo diferente e confirmar `IDEMPOTENCY_KEY_CONFLICT`;
 - comparar o comportamento com sticky sessions habilitado e desabilitado;
 - comparar `client:custom.*` com Redis adapter ligado e desligado quando houver mais de uma replica.
+
+## Microbenchmarks Redis (in-process, sem broker)
+
+Para validar otimizacoes localizadas (busca binaria de bucket de histograma,
+pre-alocacao de arrays de snapshot, etc.) o repositorio inclui um bench
+in-process gated por `BENCH=1`:
+
+```bash
+BENCH=1 npx tsx scripts/redis-perf-bench.ts --iterations 100000
+```
+
+Saida esperada (ordem de grandeza em maquina de desenvolvimento moderna):
+
+- `histogram.observe (binary search)`: avg ~200-500 ns/call, p99 abaixo de 5 us.
+- `histogram.observe (boundary values)`: comportamento equivalente (busca
+  binaria nao tem caso patologico em valores de fronteira).
+- `histogram.snapshot (pre-alloc)`: avg sub-microssegundo para histograma
+  com 11 buckets.
+
+### Benchmark de fan-out de stream (requer Redis)
+
+Para validar o ganho do `MULTI/EXEC` no caminho de fan-out:
+
+```bash
+BENCH=1 BENCH_REDIS_URL=redis://localhost:6379 \
+  npx tsx scripts/bench-stream-fanout.ts \
+    --recipients 10,50,200 --iterations 200
+```
+
+A saida compara a latencia p50/p95/p99 do publish para diferentes contagens
+de recipients entre o caminho legado (XADD + PEXPIRE concorrentes via
+`Promise.all`) e o caminho novo (`MULTI/EXEC` em uma unica RTT). O ganho
+esperado escala linearmente com a contagem de recipients (1 RTT vs N RTTs).
+
+### Sinais de regressao em performance
+
+- `plug_redis_command_duration_ms_p99` sobe sustentadamente para qualquer
+  modulo Redis;
+- `plug_socket_rate_limit_consume_atomic_rollbacks_total` cresce mais rapido
+  que `plug_socket_rate_limit_redis_rejected_total` (indicio de logica
+  de rollback duplicada apos rollback atomico);
+- `plug_agent_event_stream_batch_partial_failures_total` cresce
+  desproporcionalmente a `plug_agent_event_stream_batch_appends_total` (pelo
+  menos 5%) — possivel saturacao do MULTI/EXEC ou problema na rede com
+  pacote grande;
+- `plug_socket_custom_event_publish_fetch_sockets_dedupes_total` permanece
+  zero quando o stream de eventos esta habilitado e existem mais de uma
+  replica — indicacao de que a deduplicacao nao esta sendo exercida.

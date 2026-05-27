@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { getHealth, getHealthLive, getHealthReady } from "../controllers/health.controller";
+import { getRedisHealth } from "../controllers/health_redis.controller";
 import { attachHttpRequestId } from "../helpers/http_success_response";
 import { getMetrics } from "../controllers/metrics.controller";
 import { asyncHandler } from "../middlewares/async_handler";
@@ -95,6 +96,80 @@ httpRouter.get("/metrics", ...requireAuthAndActiveAccount, requireRole("admin"),
  *         description: Process is alive
  */
 httpRouter.get("/health/live", getHealthLive);
+
+/**
+ * @openapi
+ * /health/redis:
+ *   get:
+ *     summary: Per-module Redis health check
+ *     description: |
+ *       Reports the connection state of every Redis-backed module (Socket.IO adapter,
+ *       socket rate-limit, REST rate-limit, distributed idempotency, agent event stream).
+ *       Returns 200 when every module is either `active` or `skipped` (URL not configured),
+ *       and 503 when any module is `disconnected` or `circuit_open`. Suitable for K8s
+ *       readiness probes that need Redis liveness independently from Postgres.
+ *
+ *       Module reasons:
+ *
+ *       - `skipped`: the module's `*_REDIS_URL` is empty (opt-in module not enabled);
+ *       - `disconnected`: URL configured but the client lost the TCP connection;
+ *       - `circuit_open`: short circuit breaker open after repeated command failures.
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: All Redis modules healthy or skipped
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - status
+ *                 - modules
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [ok, degraded]
+ *                   example: ok
+ *                 modules:
+ *                   type: object
+ *                   required:
+ *                     - adapter
+ *                     - socketRateLimit
+ *                     - restRateLimit
+ *                     - idempotency
+ *                     - agentEventStream
+ *                   properties:
+ *                     adapter:
+ *                       $ref: '#/components/schemas/RedisModuleHealth'
+ *                     socketRateLimit:
+ *                       $ref: '#/components/schemas/RedisModuleHealth'
+ *                     restRateLimit:
+ *                       $ref: '#/components/schemas/RedisModuleHealth'
+ *                     idempotency:
+ *                       $ref: '#/components/schemas/RedisModuleHealth'
+ *                     agentEventStream:
+ *                       $ref: '#/components/schemas/RedisModuleHealth'
+ *       503:
+ *         description: At least one Redis module is degraded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - status
+ *                 - modules
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   enum: [degraded]
+ *                   example: degraded
+ *                 modules:
+ *                   type: object
+ *                   additionalProperties:
+ *                     $ref: '#/components/schemas/RedisModuleHealth'
+ */
+httpRouter.get("/health/redis", getRedisHealth);
 
 /**
  * @openapi

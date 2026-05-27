@@ -79,6 +79,17 @@ flowchart LR
 - `docs/load_testing.md`
 - `docs/e2e_benchmark_hub_agent.md`
 
+### Redis (modulos compartilhados)
+
+- `src/infrastructure/redis/README.md` — mapa dos 5 modulos + 2 factories.
+- `docs/redis_security.md` — checklist de auth/TLS/ACL/eviction.
+- `docs/redis_streams_agent_backlog.md` — entrega at-least-once `client:custom.*` (inclui batch fan-out P1).
+- `docs/grafana/redis_dashboard.json` — dashboard Prometheus pronto.
+- `docs/observability/alerts/redis.yml` — regras de alerta.
+- `docs/runbooks/redis_cluster_migration.md` — runbook standalone -> Cluster.
+- `docs/spikes/_README.md` — index de spikes (NO-GO docs).
+- ADRs: `docs/adrs/0001-fail-open-default.md`, `0002-hash-tag-prefix.md`, `0003-streams-vs-pubsub.md`, `0004-circuit-breaker-thresholds.md`, `0005-instrumented-redis-client-factory.md`, `0006-redis-multi-tenancy.md`, `0007-parallel-redis-init.md`.
+
 ### Roadmap e estudos
 
 - `docs/scaling_and_roadmap.md`

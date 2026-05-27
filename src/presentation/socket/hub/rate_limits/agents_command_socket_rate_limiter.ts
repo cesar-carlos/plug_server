@@ -3,7 +3,10 @@ import {
   consumeSocketRateLimitRedis,
   refundSocketRateLimitRedis,
 } from "../../../../infrastructure/redis/socket_rate_limit_redis";
-import type { BridgeCommand, BridgeSingleCommand } from "../../../../shared/validators/agent_command";
+import type {
+  BridgeCommand,
+  BridgeSingleCommand,
+} from "../../../../shared/validators/agent_command";
 
 /**
  * Fixed-window rate limit for Socket `agents:command` on `/consumers`.

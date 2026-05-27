@@ -1,5 +1,5 @@
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
-import type { Server, Socket } from "socket.io";
+import type { RemoteSocket, Server, Socket } from "socket.io";
 
 import {
   createInitialDistributedCountCircuitState,
@@ -23,10 +23,24 @@ export type HubSocket = Socket<
 
 export type PendingAgentProfilePushEntry = PendingAgentProfilePush;
 
+/**
+ * Cluster-wide remote socket as returned by `namespace.in(room).fetchSockets()`.
+ * We only ever read `data.user.sub`, but typing it here keeps the publish path
+ * decoupled from the internal `RemoteSocket` shape.
+ */
+export type RoomRemoteSocket = RemoteSocket<DefaultEventsMap, ConsumerSocketData>;
+
 export type RoomRecipientCount = {
   readonly recipients: number;
   readonly recipientCountBestEffort: boolean;
   readonly recipientCountLocalOnly: boolean;
+  /**
+   * Populated only when `countSocketsInRoom` was called with `captureSockets:
+   * true` AND the strategy actually issued the cluster-wide RPC. Callers that
+   * also need per-socket data (principal ids, etc.) should reuse this array
+   * instead of issuing a second `fetchSockets()` call. Length === `recipients`.
+   */
+  readonly fetchedSockets?: ReadonlyArray<RoomRemoteSocket>;
 };
 
 export type SocketSinkDisposer = () => void;

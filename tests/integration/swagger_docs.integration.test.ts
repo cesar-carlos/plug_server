@@ -188,5 +188,19 @@ describe("Swagger docs", () => {
     expect(schemas?.UpdateAgentCatalogRequest).toBeUndefined();
     expect(schemas?.PaginatedAgentCatalogResponse?.required).toContain("total");
     expect(response.body.paths?.["/agents/commands"]?.post?.servers).toBeUndefined();
+
+    // /health/redis: per-module Redis health check (Sprint 5+) with full RedisModuleHealth schema.
+    const redisHealth = response.body.paths?.["/health/redis"]?.get;
+    expect(redisHealth?.tags).toContain("Health");
+    expect(redisHealth?.responses?.["200"]).toBeDefined();
+    expect(redisHealth?.responses?.["503"]).toBeDefined();
+    expect(schemas?.RedisModuleHealth?.required).toEqual(["active"]);
+    expect(schemas?.RedisModuleHealth?.properties).toHaveProperty("reason");
+    expect(schemas?.RedisModuleHealth?.properties).toHaveProperty("circuitOpen");
+    expect(schemas?.RedisModuleHealth?.properties?.reason?.enum).toEqual([
+      "skipped",
+      "disconnected",
+      "circuit_open",
+    ]);
   });
 });

@@ -480,7 +480,16 @@ const processOutboxBatch = async (emailSender: IEmailSender): Promise<void> => {
     }
   };
 
-  const concurrency = Math.max(1, Math.min(4, rows.length));
+  /**
+   * Worker concurrency is bounded by the env knob (default 4 for legacy
+   * single-replica behaviour). Generous profile sets 8+ when the SMTP
+   * provider and connection pool tolerate parallel sends. Never exceed
+   * `rows.length` so a small batch does not start more workers than rows.
+   */
+  const concurrency = Math.max(
+    1,
+    Math.min(env.registrationEmailOutboxWorkerConcurrency, rows.length),
+  );
   let nextIndex = 0;
   await Promise.all(
     Array.from({ length: concurrency }, async () => {

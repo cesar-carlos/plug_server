@@ -9,9 +9,7 @@ import {
   buildRelayConversationEndedPayload,
   finalizeExpiredConversations,
 } from "./presentation/socket/hub/relay/rpc_bridge";
-import {
-  runConsumerSocketDisconnectCleanup as runConsumerSocketDisconnectCleanupImpl,
-} from "./presentation/socket/hub/register_consumer_socket_handlers";
+import { runConsumerSocketDisconnectCleanup as runConsumerSocketDisconnectCleanupImpl } from "./presentation/socket/hub/register_consumer_socket_handlers";
 import {
   noteAgentRoomDisconnectTriggered,
   noteConsumerRoomDisconnectTriggered,
@@ -24,6 +22,7 @@ import {
   type HubNamespace,
   type HubSocket,
   type RoomRecipientCount,
+  type RoomRemoteSocket,
   type SocketServerState,
 } from "./socket_state";
 
@@ -50,8 +49,25 @@ export const countSocketsInRoom = async (
   state: SocketServerState,
   namespace: Namespace,
   room: string,
+  options?: { readonly captureSockets?: boolean },
 ): Promise<RoomRecipientCount> => {
   const localRecipients = countLocalSocketsInRoom(namespace, room);
+  if (options?.captureSockets === true) {
+    /**
+     * Capture path: caller wants the underlying sockets so it can extract
+     * `principalId` (or other per-socket data) without paying a second
+     * `fetchSockets()` cluster RPC. We use `fetchDistributedSockets` so the
+     * count function returns `fetchedSockets` 1:1 with `recipients`.
+     */
+    return countDistributedRoomRecipients<RoomRemoteSocket>({
+      circuit: state.customEventDistributedCountCircuit,
+      localRecipients,
+      room,
+      fetchDistributedSockets: async () =>
+        (await namespace.in(room).fetchSockets()) as unknown as ReadonlyArray<RoomRemoteSocket>,
+      onCircuitReset: () => resetStateCustomEventDistributedCountCircuit(state),
+    });
+  }
   return countDistributedRoomRecipients({
     circuit: state.customEventDistributedCountCircuit,
     localRecipients,

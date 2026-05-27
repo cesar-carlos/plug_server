@@ -24,23 +24,29 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
   releaseSocketInflightSlot: vi.fn(),
 }));
 
-vi.mock("../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter", () => ({
-  allowAgentsCommandSocketAsync: vi.fn(() => Promise.resolve(true)),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter",
+  () => ({
+    allowAgentsCommandSocketAsync: vi.fn(() => Promise.resolve(true)),
+  }),
+);
 
-vi.mock("../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter", () => ({
-  allowAgentsStreamPullCredits: vi.fn(() =>
-    Promise.resolve({
-      allowed: true,
-      scope: "user",
-      limit: 0,
-      requestedCredits: 16,
-      grantedCredits: 16,
-      remainingCredits: Number.MAX_SAFE_INTEGER,
-    }),
-  ),
-  refundAgentsStreamPullCredits: vi.fn(),
-}));
+vi.mock(
+  "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter",
+  () => ({
+    allowAgentsStreamPullCredits: vi.fn(() =>
+      Promise.resolve({
+        allowed: true,
+        scope: "user",
+        limit: 0,
+        requestedCredits: 16,
+        grantedCredits: 16,
+        remainingCredits: Number.MAX_SAFE_INTEGER,
+      }),
+    ),
+    refundAgentsStreamPullCredits: vi.fn(),
+  }),
+);
 
 import { buildLegacySocketAppErrorPayload } from "../../../../../src/shared/constants/socket_app_error";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";

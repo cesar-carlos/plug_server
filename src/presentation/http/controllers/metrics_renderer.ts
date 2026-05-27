@@ -7,6 +7,8 @@ import type { getRestHttpRateLimitMetricsSnapshot } from "../../../application/s
 import type { getRestRateLimitRedisMetricsSnapshot } from "../../../application/services/rest_rate_limit_redis_metrics.service";
 import type { getSocketIoRedisAdapterMetricsSnapshot } from "../../../application/services/socket_io_redis_adapter_metrics.service";
 import type { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../../application/services/client_socket_event_idempotency_redis_metrics.service";
+import type { getAgentEventStreamMetricsSnapshot } from "../../../application/services/agent_event_stream_metrics.service";
+import type { getRedisAuthPingMetricsSnapshot } from "../../../application/services/redis_auth_ping_metrics.service";
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import type { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
 import type { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
@@ -34,6 +36,36 @@ const metricLine = (name: string, value: number, labels?: Record<string, string>
   return `${name}{${renderedLabels}} ${value}`;
 };
 
+/**
+ * Append Prometheus histogram lines (`_bucket`, `_sum`, `_count`) plus the
+ * pre-computed p50/p95/p99 gauges for a Redis command latency histogram
+ * snapshot. The `+Inf` bucket equals the total `count` so observations
+ * above the largest bucket are still represented.
+ */
+const appendRedisLatencyHistogram = (
+  lines: string[],
+  name: string,
+  snapshot: {
+    readonly buckets: readonly { readonly le: string; readonly count: number }[];
+    readonly count: number;
+    readonly sumMs: number;
+    readonly p50Ms: number;
+    readonly p95Ms: number;
+    readonly p99Ms: number;
+  },
+  labels?: Record<string, string>,
+): void => {
+  for (const bucket of snapshot.buckets) {
+    lines.push(metricLine(`${name}_bucket`, bucket.count, { ...(labels ?? {}), le: bucket.le }));
+  }
+  lines.push(metricLine(`${name}_bucket`, snapshot.count, { ...(labels ?? {}), le: "+Inf" }));
+  lines.push(metricLine(`${name}_sum`, snapshot.sumMs, labels));
+  lines.push(metricLine(`${name}_count`, snapshot.count, labels));
+  lines.push(metricLine(`${name}_p50`, snapshot.p50Ms, labels));
+  lines.push(metricLine(`${name}_p95`, snapshot.p95Ms, labels));
+  lines.push(metricLine(`${name}_p99`, snapshot.p99Ms, labels));
+};
+
 export interface MetricsSnapshots {
   readonly socket: SocketHubMetricsSnapshot;
   readonly restBridge: ReturnType<typeof getRestBridgeMetricsSnapshot>;
@@ -44,13 +76,21 @@ export interface MetricsSnapshots {
   readonly restHttpRl: ReturnType<typeof getRestHttpRateLimitMetricsSnapshot>;
   readonly restRateLimitRedis: ReturnType<typeof getRestRateLimitRedisMetricsSnapshot>;
   readonly socketIoRedisAdapter: ReturnType<typeof getSocketIoRedisAdapterMetricsSnapshot>;
-  readonly customEventIdempotencyRedis: ReturnType<typeof getClientSocketEventIdempotencyRedisMetricsSnapshot>;
+  readonly customEventIdempotencyRedis: ReturnType<
+    typeof getClientSocketEventIdempotencyRedisMetricsSnapshot
+  >;
+  readonly agentEventStream: ReturnType<typeof getAgentEventStreamMetricsSnapshot>;
+  readonly redisAuthPing: ReturnType<typeof getRedisAuthPingMetricsSnapshot>;
   readonly prismaTransactionRetry: ReturnType<typeof getPrismaTransactionRetryMetricsSnapshot>;
   readonly registrationFlow: ReturnType<typeof getRegistrationFlowMetricsSnapshot>;
   readonly authAccount: ReturnType<typeof getAuthAccountMetricsSnapshot>;
   readonly clientMeAgents: ReturnType<typeof getClientMeAgentsMetricsSnapshot>;
-  readonly clientAccessRequestPost: ReturnType<typeof getClientAgentAccessRequestPostMetricsSnapshot>;
-  readonly clientAccessPublicDecision: ReturnType<typeof getClientAgentAccessPublicDecisionMetricsSnapshot>;
+  readonly clientAccessRequestPost: ReturnType<
+    typeof getClientAgentAccessRequestPostMetricsSnapshot
+  >;
+  readonly clientAccessPublicDecision: ReturnType<
+    typeof getClientAgentAccessPublicDecisionMetricsSnapshot
+  >;
   readonly payloadFrame: ReturnType<typeof getPayloadFrameMetricsSnapshot>;
   readonly httpRed: HttpRedMetricsSnapshot;
 }
@@ -67,6 +107,8 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     restRateLimitRedis,
     socketIoRedisAdapter,
     customEventIdempotencyRedis,
+    agentEventStream,
+    redisAuthPing,
     prismaTransactionRetry,
     registrationFlow,
     authAccount,
@@ -232,6 +274,11 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       restRateLimitRedis.lastConnectionAtMs,
     ),
   );
+  appendRedisLatencyHistogram(
+    lines,
+    "plug_rest_http_rate_limit_redis_command_duration_ms",
+    restRateLimitRedis.latency,
+  );
 
   lines.push(
     metricLine(
@@ -283,8 +330,32 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
   );
   lines.push(
     metricLine(
-      "plug_socket_rate_limit_redis_tracked_keys_approx",
-      socketRateLimitRedis.trackedKeysApprox,
+      "plug_socket_rate_limit_window_resets_total",
+      socketRateLimitRedis.windowResetsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_window_saturations_total",
+      socketRateLimitRedis.saturationsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_consume_atomic_rollbacks_total",
+      socketRateLimitRedis.atomicRollbacksTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_tracked_keys_window_size",
+      socketRateLimitRedis.trackedKeysWindowSize,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_rate_limit_redis_tracked_keys_seen_total",
+      socketRateLimitRedis.trackedKeysSeenTotal,
     ),
   );
   lines.push(
@@ -299,6 +370,14 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       socketRateLimitRedis.lastConnectionAtMs,
     ),
   );
+  for (const op of ["consume", "refund"] as const) {
+    appendRedisLatencyHistogram(
+      lines,
+      "plug_socket_rate_limit_redis_command_duration_ms",
+      socketRateLimitRedis.latency[op],
+      { op },
+    );
+  }
   lines.push(
     metricLine(
       "plug_socket_io_redis_adapter_url_configured",
@@ -343,6 +422,11 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       "plug_socket_io_redis_adapter_attached_servers_total",
       socketIoRedisAdapter.attachedServersTotal,
     ),
+  );
+  appendRedisLatencyHistogram(
+    lines,
+    "plug_socket_io_redis_adapter_connect_duration_ms",
+    socketIoRedisAdapter.connectLatency,
   );
   lines.push(
     metricLine(
@@ -410,6 +494,105 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       customEventIdempotencyRedis.writesTotal,
     ),
   );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_idempotency_redis_lock_extensions_total",
+      customEventIdempotencyRedis.lockExtensionsTotal,
+    ),
+  );
+  for (const op of ["get", "set", "lock", "unlock", "extend"] as const) {
+    appendRedisLatencyHistogram(
+      lines,
+      "plug_socket_custom_event_idempotency_redis_command_duration_ms",
+      customEventIdempotencyRedis.latency[op],
+      { op },
+    );
+  }
+  lines.push(
+    metricLine("plug_agent_event_stream_url_configured", agentEventStream.redisUrlConfigured),
+  );
+  lines.push(metricLine("plug_agent_event_stream_active", agentEventStream.redisStoreActive));
+  lines.push(
+    metricLine(
+      "plug_agent_event_stream_connection_events_total",
+      agentEventStream.connectionEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_event_stream_fallback_events_total",
+      agentEventStream.fallbackEventsTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_event_stream_runtime_command_errors_total",
+      agentEventStream.runtimeCommandErrorEventsTotal,
+    ),
+  );
+  lines.push(metricLine("plug_agent_event_stream_appends_total", agentEventStream.appendsTotal));
+  lines.push(
+    metricLine("plug_agent_event_stream_backlog_reads_total", agentEventStream.backlogReadsTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_event_stream_backlog_entries_delivered_total",
+      agentEventStream.backlogEntriesDeliveredTotal,
+    ),
+  );
+  lines.push(metricLine("plug_agent_event_stream_acks_total", agentEventStream.acksTotal));
+  lines.push(metricLine("plug_agent_event_stream_dropped_total", agentEventStream.droppedTotal));
+  lines.push(
+    metricLine("plug_agent_event_stream_batch_appends_total", agentEventStream.batchAppendsTotal),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_event_stream_batch_partial_failures_total",
+      agentEventStream.batchPartialFailuresTotal,
+    ),
+  );
+  for (const bucket of agentEventStream.batchSize.buckets) {
+    lines.push(
+      metricLine("plug_agent_event_stream_batch_size_bucket", bucket.count, { le: bucket.le }),
+    );
+  }
+  lines.push(
+    metricLine("plug_agent_event_stream_batch_size_bucket", agentEventStream.batchSize.count, {
+      le: "+Inf",
+    }),
+  );
+  lines.push(metricLine("plug_agent_event_stream_batch_size_sum", agentEventStream.batchSize.sum));
+  lines.push(
+    metricLine("plug_agent_event_stream_batch_size_count", agentEventStream.batchSize.count),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_event_stream_last_connection_timestamp_ms",
+      agentEventStream.lastConnectionAtMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_agent_event_stream_last_fallback_timestamp_ms",
+      agentEventStream.lastFallbackAtMs,
+    ),
+  );
+  for (const op of ["append", "read", "ack", "trim"] as const) {
+    appendRedisLatencyHistogram(
+      lines,
+      "plug_agent_event_stream_command_duration_ms",
+      agentEventStream.latency[op],
+      { op },
+    );
+  }
+  for (const entry of redisAuthPing) {
+    lines.push(
+      metricLine("plug_redis_auth_ping_total", entry.count, {
+        module: entry.module,
+        outcome: entry.outcome,
+      }),
+    );
+  }
   lines.push(
     metricLine(
       "plug_prisma_transaction_retry_attempts_total",
@@ -1102,6 +1285,12 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     metricLine(
       "plug_socket_custom_event_publish_recipient_cap_unverified_total",
       consumerRuntime.customEvents.publishRecipientCapUnverifiedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_custom_event_publish_fetch_sockets_dedupes_total",
+      consumerRuntime.customEvents.publishFetchSocketsDedupesTotal,
     ),
   );
   lines.push(
