@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { env } from "../../../../../src/shared/config/env";
 import { resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
@@ -24,8 +24,17 @@ import {
   resetRelayStreamFlowState,
 } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
+import {
+  getSocketConsumerMetricsSnapshot,
+  resetSocketConsumerMetrics,
+} from "../../../../../src/shared/metrics/socket_consumer.metrics";
+import { decodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
 
 const fakeTimeout = {} as NodeJS.Timeout;
+
+beforeEach(() => {
+  resetSocketConsumerMetrics();
+});
 
 afterEach(() => {
   resetRelayStreamFlowState();
@@ -33,6 +42,7 @@ afterEach(() => {
   resetRelayRequestRegistry();
   resetActiveStreamRegistry();
   resetRelayOutboundQueueTails();
+  resetSocketConsumerMetrics();
 });
 
 const flushRelayOutbound = async (): Promise<void> => {
@@ -76,6 +86,20 @@ describe("rpc_bridge_relay_stream", () => {
     expect(emit).toHaveBeenCalledWith("cons1", socketEvents.relayRpcResponse, expect.anything());
     const updated = map.get("cid1");
     expect(updated?.responseFrame).toBeDefined();
+
+    // Regression guard: timeout synthetic response must echo the consumer's
+    // clientRequestId in body.id so consumers on `fastPath: true` can route
+    // it back to their pending. See `docs/plug_agente/01_relay_body_id_echo.md`.
+    const [, , frame] = emit.mock.calls[0] as [string, string, unknown];
+    const decoded = decodePayloadFrame(frame);
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) {
+      const data = decoded.value.data as Record<string, unknown>;
+      expect(data.id).toBe("cid1");
+      // Envelope still carries the wire-level hub requestId.
+      expect(decoded.value.frame.requestId).toBe("r99");
+    }
+    expect(getSocketConsumerMetricsSnapshot().relayOptIns.bodyIdEchoTotal).toBe(1);
   });
 
   it("createRelayStreamHandlers emits terminal complete on backpressure overflow", async () => {

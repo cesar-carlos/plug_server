@@ -40,6 +40,7 @@ import {
   registerAgentFailure,
   relayMetrics,
 } from "./bridge_relay_health_metrics";
+import { noteRelayBodyIdEcho } from "../../../../shared/metrics/socket_consumer.metrics";
 import { agentRegistry } from "../registries/agent_registry";
 import { encodeRelayOutboundFrame, enqueueRelayOutbound } from "./relay_outbound_queue";
 import { conversationRegistry } from "../registries/conversation_registry";
@@ -557,15 +558,20 @@ export const createRpcBridgeRelayDispatch = (
         const entry = idempotencyMap?.get(clientRequestId);
         const waiters = entry?.pendingReplayConsumerSocketIds;
         if (waiters && waiters.length > 0) {
+          // JSON-RPC 2.0 §5: echo the consumer's id on synthetic responses so
+          // waiters that opted into `fastPath: true` can route the error back
+          // to their pending — `relay:rpc.accepted` is never emitted on
+          // that path. See `docs/plug_agente/01_relay_body_id_echo.md`.
           const errorPayload = {
             jsonrpc: "2.0",
-            id: requestId,
+            id: clientRequestId,
             error: {
               code: -32000,
               message: err.message,
               data: { code: appErr?.code ?? "BRIDGE_ERROR" },
             },
           };
+          noteRelayBodyIdEcho();
           enqueueRelayOutbound(requestId, async () => {
             const frame = await encodeRelayOutboundFrame(errorPayload, requestId);
             for (const waiterSocketId of waiters) {

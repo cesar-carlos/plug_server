@@ -1207,6 +1207,40 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
   );
   lines.push(
     metricLine(
+      "plug_socket_relay_fast_path_forbidden_total",
+      consumerRuntime.relayOptIns.fastPathForbiddenTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_body_id_echo_total",
+      consumerRuntime.relayOptIns.bodyIdEchoTotal,
+    ),
+  );
+  // Overhead histogram-ish (sum + max + derived avg). Synthetic error builders
+  // do not measure overhead, so this only tracks the response-forwarder path
+  // where we sacrificed `canBypassReencode`. avg → ops-facing latency cost of
+  // staying on Option B (vs the future Option A negotiated `clientRequestIdEcho`).
+  lines.push(
+    metricLine(
+      "plug_socket_relay_body_id_echo_overhead_sum_ms",
+      consumerRuntime.relayOptIns.bodyIdEchoOverheadSumMs,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_body_id_echo_overhead_max_ms",
+      consumerRuntime.relayOptIns.bodyIdEchoOverheadMaxMs,
+    ),
+  );
+  {
+    const echoCount = consumerRuntime.relayOptIns.bodyIdEchoTotal;
+    const echoAvg =
+      echoCount > 0 ? consumerRuntime.relayOptIns.bodyIdEchoOverheadSumMs / echoCount : 0;
+    lines.push(metricLine("plug_socket_relay_body_id_echo_overhead_avg_ms", echoAvg));
+  }
+  lines.push(
+    metricLine(
       "plug_socket_relay_server_timings_opt_in_total",
       consumerRuntime.relayOptIns.serverTimingsRelayOptInTotal,
     ),

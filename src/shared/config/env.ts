@@ -1057,6 +1057,18 @@ const envSchema = z.object({
    */
   SOCKET_RELAY_BATCH_ENABLED: z.coerce.boolean().default(false),
   /**
+   * When `true`, the hub ignores `fastPath: true` on inbound
+   * `relay:rpc.request` envelopes and always emits `relay:rpc.accepted` for
+   * the response. Use in deployments where the legacy 3-event flow is
+   * mandatory (audit / compliance requirements that depend on the explicit
+   * server ack). Default `false` (fast-path honored when consumer opts in).
+   *
+   * Does NOT affect non-fast-path traffic. See
+   * `docs/socket_relay_protocol.md` ("Relay unary fast-path") and
+   * `docs/plug_agente/01_relay_body_id_echo.md` for context.
+   */
+  SOCKET_RELAY_FAST_PATH_FORBIDDEN: z.coerce.boolean().default(false),
+  /**
    * Maximum number of JSON-RPC items in a single `relay:rpc.request.batch`
    * envelope. Mirrors the REST/`agents:command` cap (`HUB_MAX_BATCH_SIZE`).
    */
@@ -1743,6 +1755,7 @@ export const env = {
   socketRelayAgentMaxQueue: parsedEnv.SOCKET_RELAY_AGENT_MAX_QUEUE,
   socketRelayAgentQueueWaitMs: parsedEnv.SOCKET_RELAY_AGENT_QUEUE_WAIT_MS,
   socketRelayBatchEnabled: parsedEnv.SOCKET_RELAY_BATCH_ENABLED,
+  socketRelayFastPathForbidden: parsedEnv.SOCKET_RELAY_FAST_PATH_FORBIDDEN,
   socketRelayBatchMaxItems: parsedEnv.SOCKET_RELAY_BATCH_MAX_ITEMS,
   socketAgentsStreamPullRateLimitMaxCredits:
     parsedEnv.SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS,

@@ -32,6 +32,10 @@ import {
   decodePayloadFrame,
   encodePayloadFrame,
 } from "../../../../../src/shared/utils/payload_frame";
+import {
+  getSocketConsumerMetricsSnapshot,
+  resetSocketConsumerMetrics,
+} from "../../../../../src/shared/metrics/socket_consumer.metrics";
 
 describe("rpc_bridge_agent_inbound", () => {
   const timeoutHandles: NodeJS.Timeout[] = [];
@@ -42,6 +46,7 @@ describe("rpc_bridge_agent_inbound", () => {
     resetRelayRequestRegistry();
     resetRelayHubHealthAndMetrics();
     resetSocketAgentMetrics();
+    resetSocketConsumerMetrics();
     vi.useRealTimers();
   });
 
@@ -51,6 +56,7 @@ describe("rpc_bridge_agent_inbound", () => {
     resetRelayRequestRegistry();
     resetRelayHubHealthAndMetrics();
     resetSocketAgentMetrics();
+    resetSocketConsumerMetrics();
     for (const handle of timeoutHandles.splice(0)) {
       clearTimeout(handle);
     }
@@ -287,9 +293,11 @@ describe("rpc_bridge_agent_inbound", () => {
       }
     }
 
+    // body.id is rewritten to the consumer's clientRequestId (JSON-RPC 2.0
+    // §5 / fast-path requirement). See `docs/plug_agente/01_relay_body_id_echo.md`.
     expect(decodedByConsumer.get("consumer-a")).toEqual({
       jsonrpc: "2.0",
-      id: "req-response-a",
+      id: "client-a",
       error: {
         code: -32009,
         message: "Relay does not support batch rpc:response",
@@ -301,7 +309,7 @@ describe("rpc_bridge_agent_inbound", () => {
     });
     expect(decodedByConsumer.get("consumer-b")).toEqual({
       jsonrpc: "2.0",
-      id: "req-response-b",
+      id: "client-b",
       error: {
         code: -32009,
         message: "Relay does not support batch rpc:response",
@@ -313,6 +321,8 @@ describe("rpc_bridge_agent_inbound", () => {
     });
     expect(getRelayRequestRoute("req-response-a")).toBeUndefined();
     expect(getRelayRequestRoute("req-response-b")).toBeUndefined();
+    // Two echoes (one per consumer).
+    expect(getSocketConsumerMetricsSnapshot().relayOptIns.bodyIdEchoTotal).toBe(2);
   });
 
   it("rejects relay batch rpc responses for the same consumer as isolated errors", async () => {
@@ -1097,6 +1107,165 @@ describe("rpc_bridge_agent_inbound", () => {
         // Envelope reassinado pelo hub com o mesmo requestId.
         expect(decoded.value.frame.requestId).toBe("req-bypass");
       }
+    });
+  });
+
+  describe("client_request_id echo (JSON-RPC 2.0 §5 / fast-path)", () => {
+    /**
+     * Regression guard for the relay unary fast-path defect (item 3 do
+     * Colmeia server_adjustments; ver
+     * `docs/plug_agente/01_relay_body_id_echo.md`). Quando a request relay
+     * carrega um `clientRequestId` diferente do `requestId` interno do hub,
+     * a resposta encaminhada ao consumer deve carregar `body.id =
+     * clientRequestId` (contrato JSON-RPC 2.0 §5) mesmo que o agente tenha
+     * respondido com o `requestId` da hub no body (comportamento legado).
+     *
+     * O envelope `PayloadFrame.requestId` continua sendo o `requestId` da
+     * hub para preservar correlator wire-level e correlation_id em ops.
+     */
+    it("rewrites body.id from hub requestId to clientRequestId on response forwarding", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+
+      registerRelayRequestRoute({
+        requestId: "hub-uuid-1",
+        clientRequestId: "client-id-abc",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+      });
+
+      // Agent echoes back the body.id it received, which was overwritten by
+      // the hub on dispatch to be `hub-uuid-1`. The fix rewrites that back
+      // to the consumer's original id before forwarding.
+      h.handleAgentRpcResponse(
+        "socket-test",
+        encodePayloadFrame(
+          {
+            jsonrpc: "2.0",
+            id: "hub-uuid-1",
+            result: { rows: [{ x: 1 }] },
+          },
+          { requestId: "hub-uuid-1" },
+        ),
+      );
+
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [, , frame] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        const data = decoded.value.data as Record<string, unknown>;
+        // body.id rewritten to consumer's id (JSON-RPC 2.0 §5 contract).
+        expect(data.id).toBe("client-id-abc");
+        // Envelope keeps the wire-level hub requestId for hub-internal
+        // correlation. This is the regression guard the Colmeia spec asks
+        // for in relay_unary_fast_path.md §1.
+        expect(decoded.value.frame.requestId).toBe("hub-uuid-1");
+      }
+      expect(getSocketConsumerMetricsSnapshot().relayOptIns.bodyIdEchoTotal).toBe(1);
+    });
+
+    it("preserves the agent body.id (=requestId) when clientRequestId is missing", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+
+      // Route registered without clientRequestId (e.g. internal sweep,
+      // healthcheck, or a legacy consumer that omitted JSON-RPC `id`).
+      registerRelayRequestRoute({
+        requestId: "hub-uuid-2",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+      });
+
+      h.handleAgentRpcResponse(
+        "socket-test",
+        encodePayloadFrame(
+          {
+            jsonrpc: "2.0",
+            id: "hub-uuid-2",
+            result: { ok: true },
+          },
+          { requestId: "hub-uuid-2" },
+        ),
+      );
+
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [, , frame] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        const data = decoded.value.data as Record<string, unknown>;
+        expect(data.id).toBe("hub-uuid-2");
+        expect(decoded.value.frame.requestId).toBe("hub-uuid-2");
+      }
+      // No rewrite happened, no metric tick.
+      expect(getSocketConsumerMetricsSnapshot().relayOptIns.bodyIdEchoTotal).toBe(0);
+    });
+
+    it("rewrites body.id on synthetic compression_failed error too", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+
+      registerRelayRequestRoute({
+        requestId: "hub-uuid-3",
+        clientRequestId: "client-id-xyz",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+      });
+
+      // Forces decompression failure (cmp=gzip with invalid payload bytes).
+      h.handleAgentRpcResponse("socket-test", {
+        schemaVersion: "1.0",
+        enc: "json",
+        cmp: "gzip",
+        contentType: "application/json",
+        originalSize: 32,
+        compressedSize: 3,
+        payload: [1, 2, 3],
+        requestId: "hub-uuid-3",
+      });
+
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [, , outboundFrame] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      const decoded = decodePayloadFrame(outboundFrame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        expect(decoded.value.data).toMatchObject({
+          jsonrpc: "2.0",
+          id: "client-id-xyz",
+          error: {
+            code: -32011,
+            data: {
+              reason: "compression_failed",
+              // correlation_id still references the hub UUID for ops/support
+              correlation_id: "corr-hub-uuid-3",
+            },
+          },
+        });
+        expect(decoded.value.frame.requestId).toBe("hub-uuid-3");
+      }
+      expect(getSocketConsumerMetricsSnapshot().relayOptIns.bodyIdEchoTotal).toBe(1);
     });
   });
 

@@ -33,6 +33,11 @@ Validacao automatizada no hub: `npm run test:contract`.
 - `docs/socket_client_sdk.md`
 - `docs/configuration.md`
 - `docs/performance_hub_agent.md`
+- [`docs/plug_agente/`](plug_agente/) — orientacoes especificas para o
+  time do agente: o que muda (ou nao muda) no agente para cada melhoria
+  do hub, **mais** roadmap proativo de melhorias cross-repo. Use como
+  porta de entrada quando uma mudanca no contrato afetar o
+  `plug_agente`.
 
 Regras de negocio de ownership de `Agent`, acesso de `Client` e aprovacao por
 owner nao sao mantidas neste resumo de sincronizacao; a fonte canonica para esse

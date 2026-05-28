@@ -11,6 +11,7 @@ vi.mock("../../../../../src/shared/metrics/socket_consumer.metrics", () => ({
   noteRelayFastPathHonored: vi.fn(),
   noteRelayFastPathFallbackDedup: vi.fn(),
   noteRelayFastPathFallbackError: vi.fn(),
+  noteRelayFastPathForbidden: vi.fn(),
   noteServerTimingsOptIn: vi.fn(),
 }));
 
@@ -65,10 +66,12 @@ import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors
 import {
   noteRelayFastPathFallbackDedup,
   noteRelayFastPathFallbackError,
+  noteRelayFastPathForbidden,
   noteRelayFastPathHonored,
   noteRelayFastPathRequested,
   noteServerTimingsOptIn,
 } from "../../../../../src/shared/metrics/socket_consumer.metrics";
+import { env } from "../../../../../src/shared/config/env";
 
 const mockedDispatchRelayRpcToAgent = vi.mocked(dispatchRelayRpcToAgent);
 const mockedFindConversation = vi.mocked(conversationRegistry.findInternalByConversationId);
@@ -141,6 +144,12 @@ describe("handleRelayRpcRequest", () => {
     mockedRefundRelayRpc.mockReset();
     mockedTryAcquire.mockReset();
     mockedReleaseInflight.mockReset();
+    vi.mocked(noteRelayFastPathRequested).mockReset();
+    vi.mocked(noteRelayFastPathHonored).mockReset();
+    vi.mocked(noteRelayFastPathFallbackDedup).mockReset();
+    vi.mocked(noteRelayFastPathFallbackError).mockReset();
+    vi.mocked(noteRelayFastPathForbidden).mockReset();
+    vi.mocked(noteServerTimingsOptIn).mockReset();
 
     mockedTryAcquire.mockReturnValue(true);
 
@@ -433,6 +442,83 @@ describe("handleRelayRpcRequest", () => {
           }),
         );
       });
+    });
+  });
+
+  describe("SOCKET_RELAY_FAST_PATH_FORBIDDEN deployment kill switch", () => {
+    /**
+     * Defesa para deployments com requirement de auditoria/compliance que
+     * exigem o `relay:rpc.accepted` explicito. Quando o env esta on, mesmo
+     * que o consumer envie `fastPath: true`, o hub forca o fluxo legado de
+     * 3 eventos. Counter `fastPathForbiddenTotal` torna a deteccao
+     * observavel em ops.
+     */
+    it("strips fastPath and emits relay:rpc.accepted when SOCKET_RELAY_FAST_PATH_FORBIDDEN is true", async () => {
+      const originalForbidden = env.socketRelayFastPathForbidden;
+      (env as { socketRelayFastPathForbidden: boolean }).socketRelayFastPathForbidden = true;
+      try {
+        const socket = buildSocket();
+        mockedDispatchRelayRpcToAgent.mockResolvedValue({
+          requestId: "req-1",
+          clientRequestId: "client-req-1",
+          // Dispatch does NOT receive fastPath because the handler stripped it.
+        });
+
+        handleRelayRpcRequest(socket as never, {
+          conversationId: "conv-1",
+          frame: { schemaVersion: "1.0" },
+          fastPath: true,
+        });
+
+        await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+
+        const dispatchInput = mockedDispatchRelayRpcToAgent.mock.calls[0]?.[0];
+        // Stripped at the handler boundary — dispatcher never sees fastPath.
+        expect(dispatchInput).not.toHaveProperty("fastPath");
+
+        // Counters: requested AND forbidden, but NOT honored.
+        expect(noteRelayFastPathRequested).toHaveBeenCalledTimes(1);
+        expect(noteRelayFastPathForbidden).toHaveBeenCalledTimes(1);
+        expect(noteRelayFastPathHonored).not.toHaveBeenCalled();
+
+        // Consumer receives the legacy `relay:rpc.accepted` event.
+        await vi.waitFor(() =>
+          expect(socket.emit).toHaveBeenCalledWith(
+            socketEvents.relayRpcAccepted,
+            expect.objectContaining({ success: true, requestId: "req-1" }),
+          ),
+        );
+      } finally {
+        (env as { socketRelayFastPathForbidden: boolean }).socketRelayFastPathForbidden =
+          originalForbidden;
+      }
+    });
+
+    it("does not count fastPathForbidden when the consumer did not request fast-path", async () => {
+      const originalForbidden = env.socketRelayFastPathForbidden;
+      (env as { socketRelayFastPathForbidden: boolean }).socketRelayFastPathForbidden = true;
+      try {
+        const socket = buildSocket();
+        mockedDispatchRelayRpcToAgent.mockResolvedValue({
+          requestId: "req-1",
+          clientRequestId: "client-req-1",
+        });
+
+        handleRelayRpcRequest(socket as never, {
+          conversationId: "conv-1",
+          frame: { schemaVersion: "1.0" },
+          // fastPath omitted
+        });
+
+        await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+
+        // Forbidden counter only ticks when there was a fast-path request to forbid.
+        expect(noteRelayFastPathRequested).not.toHaveBeenCalled();
+        expect(noteRelayFastPathForbidden).not.toHaveBeenCalled();
+      } finally {
+        (env as { socketRelayFastPathForbidden: boolean }).socketRelayFastPathForbidden =
+          originalForbidden;
+      }
     });
   });
 

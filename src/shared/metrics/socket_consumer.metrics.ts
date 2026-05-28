@@ -61,6 +61,34 @@ const relayOptInsCounters = {
    * misuse (consumer set fast-path on a streaming-capable method).
    */
   fastPathStreamInadvertentTotal: 0,
+  /**
+   * Counter: incremented when a consumer requested `fastPath: true` but the
+   * deployment had `SOCKET_RELAY_FAST_PATH_FORBIDDEN=true` and the hub forced
+   * the legacy 3-event flow. Should be `0` unless an operator explicitly set
+   * the env knob — non-zero values during normal operations indicate a
+   * misconfigured deployment.
+   */
+  fastPathForbiddenTotal: 0,
+  /**
+   * Counter: incremented when the hub rewrote the JSON-RPC `body.id` of a
+   * relay response from the hub-internal `requestId` back to the consumer's
+   * `client_request_id` before forwarding `relay:rpc.response`. Tracks the
+   * adoption of the JSON-RPC 2.0 §5 fix that unblocked relay `fastPath: true`.
+   * Should track ~1:1 with relay unary responses while we run Option B; will
+   * drop to ~0 if/when the agent-side `clientRequestIdEcho` extension ships
+   * (Option A, see `docs/plug_agente/01_relay_body_id_echo.md`).
+   */
+  bodyIdEchoTotal: 0,
+  /**
+   * Sum of milliseconds spent in the body.id rewrite path (parse JSON →
+   * mutate id → re-encode). Pairs with `bodyIdEchoTotal` to derive
+   * `avg_ms = sum / total`. Synthetic error builders (timeout, decode
+   * failure, etc.) skip this measurement because they do not pay the
+   * parse-mutate cost — they build a fresh object end-to-end.
+   */
+  bodyIdEchoOverheadSumMs: 0,
+  /** Max single-shot overhead (ms) — useful to detect tail regressions. */
+  bodyIdEchoOverheadMaxMs: 0,
   /** Counter: incremented when the consumer set `requestServerTimings: true` on `relay:rpc.request`. */
   serverTimingsRelayOptInTotal: 0,
   /** Counter: incremented when the consumer set `requestServerTimings: true` on `agents:command` (Socket). */
@@ -279,6 +307,30 @@ export const noteRelayFastPathFallbackError = (): void => {
 
 export const noteRelayFastPathStreamInadvertent = (): void => {
   relayOptInsCounters.fastPathStreamInadvertentTotal += 1;
+};
+
+export const noteRelayFastPathForbidden = (): void => {
+  relayOptInsCounters.fastPathForbiddenTotal += 1;
+};
+
+export const noteRelayBodyIdEcho = (): void => {
+  relayOptInsCounters.bodyIdEchoTotal += 1;
+};
+
+/**
+ * Like {@link noteRelayBodyIdEcho} but also records the wall-clock cost of
+ * the rewrite path. Use only on the **re-encode** call site
+ * (`rpc_bridge_agent_inbound.ts` forwarder). Synthetic error builders that
+ * already construct a fresh JSON object do not measure the overhead — for
+ * those callers, prefer {@link noteRelayBodyIdEcho}.
+ */
+export const observeRelayBodyIdEchoOverhead = (elapsedMs: number): void => {
+  relayOptInsCounters.bodyIdEchoTotal += 1;
+  const safe = Math.max(0, elapsedMs);
+  relayOptInsCounters.bodyIdEchoOverheadSumMs += safe;
+  if (safe > relayOptInsCounters.bodyIdEchoOverheadMaxMs) {
+    relayOptInsCounters.bodyIdEchoOverheadMaxMs = safe;
+  }
 };
 
 export const noteRelayBatchEnvelopeReceived = (): void => {
@@ -620,6 +672,10 @@ export const resetSocketConsumerMetrics = (): void => {
   relayOptInsCounters.fastPathFallbackDedupTotal = 0;
   relayOptInsCounters.fastPathFallbackErrorTotal = 0;
   relayOptInsCounters.fastPathStreamInadvertentTotal = 0;
+  relayOptInsCounters.fastPathForbiddenTotal = 0;
+  relayOptInsCounters.bodyIdEchoTotal = 0;
+  relayOptInsCounters.bodyIdEchoOverheadSumMs = 0;
+  relayOptInsCounters.bodyIdEchoOverheadMaxMs = 0;
   relayOptInsCounters.serverTimingsRelayOptInTotal = 0;
   relayOptInsCounters.serverTimingsAgentsCommandOptInTotal = 0;
   relayOptInsCounters.serverTimingsRestOptInTotal = 0;

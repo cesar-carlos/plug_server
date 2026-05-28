@@ -324,9 +324,51 @@ Regras atuais no servidor:
 - O `id` JSON-RPC enviado pelo consumer e tratado como `client_request_id`
   para idempotencia por conversa.
 - O servidor gera/normaliza um `requestId` interno e repassa esse valor como
-  `id` no payload enviado ao agente.
+  `id` no payload enviado **ao agente** (preserva `RpcRequestGuard` /
+  `rpc:request_ack` no agente).
+- **Na volta para o consumer**, o hub restaura o `id` JSON-RPC original do
+  consumer (`client_request_id`) no `body.id` da resposta antes de
+  encaminhar `relay:rpc.response`. Isso mantem o contrato JSON-RPC 2.0 §5
+  e e obrigatorio para `fastPath: true` (sem `relay:rpc.accepted` o
+  consumer so consegue rotear via o `id` original). Veja
+  [`docs/plug_agente/01_relay_body_id_echo.md`](plug_agente/01_relay_body_id_echo.md)
+  para o racional cross-repo.
 - Respostas `relay:rpc.response/chunk/complete` correlacionam pelo `requestId`
-  interno da conversa.
+  interno da conversa no **envelope PayloadFrame** (`envelope.requestId`).
+  Esse valor permanece sendo o UUID interno do hub e e a fonte de verdade
+  para correlator wire-level e para o `correlation_id` em erros sinteticos.
+- Metrica de adocao do echo: `plug_socket_relay_body_id_echo_total`
+  incrementa em cada resposta relay (sintetica ou nao) cuja reescrita de
+  `body.id` foi necessaria.
+
+### Caso degenerate: consumer sem `id` JSON-RPC
+
+Por contrato, `relay:rpc.request` **rejeita** notifications (`id: null`)
+explicitamente — o handler valida via `hasNotificationCommand` e devolve
+`relay:rpc.accepted { success: false, error: { code: "BAD_REQUEST" } }`.
+
+O caso degenerate residual e: consumer envia o request **sem** o campo
+`id` no JSON-RPC body. Hoje isso e bloqueado por `bridgeSingleCommandSchema`
+(que exige `id` para metodos nao-notification), entao na pratica nao
+acontece. Defensivamente, o `resolveOutboundBodyId` no hub
+(`rpc_bridge_agent_inbound.ts`) faz fallback para o `requestId` interno
+se `clientRequestId` for `undefined`, mantendo o `body.id` da resposta
+preenchido com o UUID do hub. Isso garante que erros sinteticos
+construidos antes do dispatch (decode failure, etc.) tambem tenham um
+`body.id` valido mesmo sem `client_request_id` resolvido.
+
+Comportamento esperado:
+
+| consumer enviou | `body.id` na resposta | `envelope.requestId` |
+| --------------- | --------------------- | -------------------- |
+| `id: "client-X"` | `"client-X"` (echo) | `"hub-Y"` (UUID interno) |
+| `id: 42` (numero) | `42` (echo) | `"hub-Y"` (UUID interno) |
+| `id` omitido | `"hub-Y"` (fallback) | `"hub-Y"` (mesmo valor) |
+| `id: null` | **rejeitado** (`BAD_REQUEST`) | n/a |
+| metodo invalido | erro sintetico com `body.id` = `client-X` se enviado, senao `hub-Y` | `"hub-Y"` |
+
+A metrica `plug_socket_relay_body_id_echo_total` so incrementa quando
+**houve** uma reescrita real (`body.id !== envelope.requestId`).
 
 ### Semantica de idempotencia (`relay:rpc.accepted`)
 
@@ -382,9 +424,15 @@ Regras do contrato:
   PayloadFrame do primeiro chunk antes de pedir pulls adicionais.
 - O cliente deve estar preparado para receber `relay:rpc.response` **antes**
   ou **sem** ter recebido `relay:rpc.accepted` quando enviou `fastPath: true`.
-  O `requestId` na resposta vem no envelope do PayloadFrame e no proprio
-  payload JSON-RPC, alem do mapeamento por `client_request_id` (= JSON-RPC
-  `id` original).
+  - O `body.id` da resposta JSON-RPC carrega o **`client_request_id`** original
+    (= JSON-RPC `id` enviado pelo consumer), conforme JSON-RPC 2.0 §5. E
+    seguro rotear a resposta direto pelo `id` que o consumer mantém em seu
+    mapa de pendings.
+  - O envelope PayloadFrame (`envelope.requestId`) continua sendo o UUID
+    interno do hub, util para correlacionar com `correlation_id` em logs
+    de ops.
+  - Veja [`docs/plug_agente/01_relay_body_id_echo.md`](plug_agente/01_relay_body_id_echo.md)
+    para o racional do fix (issue Colmeia `relay_unary_fast_path.md §1`).
 
 Sem cancelamento explicito: o relay nao possui evento `relay:rpc.cancel`.
 Cancelamento opera via desconexao do socket consumer (`abort` no inflight) ou

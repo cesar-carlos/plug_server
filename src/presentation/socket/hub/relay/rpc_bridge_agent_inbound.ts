@@ -14,7 +14,11 @@ import {
   attachServerTimingsToResponse,
   buildServerTimingsEnvelope,
 } from "../../../../application/services/server_timings_envelope";
-import { noteRelayFastPathStreamInadvertent } from "../../../../shared/metrics/socket_consumer.metrics";
+import {
+  noteRelayBodyIdEcho,
+  noteRelayFastPathStreamInadvertent,
+  observeRelayBodyIdEchoOverhead,
+} from "../../../../shared/metrics/socket_consumer.metrics";
 import { env } from "../../../../shared/config/env";
 import { HUB_MAX_BATCH_SIZE } from "../../../../shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../../shared/constants/socket_events";
@@ -164,16 +168,32 @@ export const createRpcBridgeAgentInboundHandlers = (
     return toRequestId(rawPayload.requestId);
   };
 
+  /**
+   * Resolve the JSON-RPC `body.id` to use on outbound synthetic responses.
+   *
+   * When a `RelayRequestRoute` is available we echo back the consumer's
+   * `client_request_id` (JSON-RPC 2.0 §5). When we only have the wire-level
+   * `requestId` (e.g. REST pending requests with no relay route), we fall
+   * back to the wire id so consumers can still correlate via the envelope.
+   * The hub-internal `requestId` continues to be used for `correlation_id`
+   * fields (ops-facing) so support keeps a stable identifier.
+   */
+  const resolveOutboundBodyId = (
+    requestId: string,
+    relayRoute: RelayRequestRoute | null,
+  ): string => relayRoute?.clientRequestId ?? requestId;
+
   const createRelayDecodeFailurePayload = (
     requestId: string,
     reasonMessage: string,
+    bodyId: string,
   ): Record<string, unknown> => {
     const timestamp = new Date().toISOString();
     const normalized = reasonMessage.toLowerCase();
     if (normalized.includes("signature")) {
       return {
         jsonrpc: "2.0",
-        id: requestId,
+        id: bodyId,
         error: {
           code: -32001,
           message: "Authentication failed",
@@ -192,7 +212,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     if (normalized.includes("decompress payloadframe payload")) {
       return {
         jsonrpc: "2.0",
-        id: requestId,
+        id: bodyId,
         error: {
           code: -32011,
           message: "Compression failed",
@@ -211,7 +231,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     if (normalized.includes("decode payloadframe json payload")) {
       return {
         jsonrpc: "2.0",
-        id: requestId,
+        id: bodyId,
         error: {
           code: -32010,
           message: "Decoding failed",
@@ -229,7 +249,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     }
     return {
       jsonrpc: "2.0",
-      id: requestId,
+      id: bodyId,
       error: {
         code: -32009,
         message: "Invalid payload",
@@ -247,11 +267,11 @@ export const createRpcBridgeAgentInboundHandlers = (
   };
 
   const createRelayUnexpectedFailurePayload = (
-    requestId: string,
+    bodyId: string,
     reasonMessage: string,
   ): Record<string, unknown> => ({
     jsonrpc: "2.0",
-    id: requestId,
+    id: bodyId,
     error: {
       code: -32000,
       message: "Internal bridge error",
@@ -264,10 +284,10 @@ export const createRpcBridgeAgentInboundHandlers = (
   });
 
   const createRelayBatchResponseUnsupportedPayload = (
-    requestId: string,
+    bodyId: string,
   ): Record<string, unknown> => ({
     jsonrpc: "2.0",
-    id: requestId,
+    id: bodyId,
     error: {
       code: -32009,
       message: "Relay does not support batch rpc:response",
@@ -354,9 +374,13 @@ export const createRpcBridgeAgentInboundHandlers = (
       httpStatus: 503,
       errorCode: "BRIDGE_INBOUND_PROCESSING_FAILED",
     });
+    const bodyId = resolveOutboundBodyId(requestId, relayRoute);
+    if (bodyId !== requestId) {
+      noteRelayBodyIdEcho();
+    }
     enqueueRelayOutbound(requestId, async () => {
       const frame = await encodeRelayOutboundFrame(
-        createRelayUnexpectedFailurePayload(requestId, reasonMessage),
+        createRelayUnexpectedFailurePayload(bodyId, reasonMessage),
         requestId,
       );
       emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
@@ -401,9 +425,13 @@ export const createRpcBridgeAgentInboundHandlers = (
       outcome: "error",
       errorCode: "AGENT_FRAME_DECODE_FAILED",
     });
+    const bodyId = resolveOutboundBodyId(requestId, relayRoute);
+    if (bodyId !== requestId) {
+      noteRelayBodyIdEcho();
+    }
     enqueueRelayOutbound(requestId, async () => {
       const frame = await encodeRelayOutboundFrame(
-        createRelayDecodeFailurePayload(requestId, reasonMessage),
+        createRelayDecodeFailurePayload(requestId, reasonMessage, bodyId),
         requestId,
       );
       emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
@@ -544,10 +572,14 @@ export const createRpcBridgeAgentInboundHandlers = (
       clearTimeout(route.timeoutHandle);
       conversationRegistry.touchInternal(route.conversationId);
 
+      const bodyId = resolveOutboundBodyId(requestId, route);
+      if (bodyId !== requestId) {
+        noteRelayBodyIdEcho();
+      }
       enqueueRelayOutbound(requestId, async () => {
         try {
           const frame = await encodeRelayOutboundFrame(
-            createRelayBatchResponseUnsupportedPayload(requestId),
+            createRelayBatchResponseUnsupportedPayload(bodyId),
             requestId,
           );
           emitToConsumer(route.consumerSocketId, socketEvents.relayRpcResponse, frame);
@@ -950,9 +982,13 @@ export const createRpcBridgeAgentInboundHandlers = (
           const errorCode = exceededAgentStreamLimit
             ? "AGENT_STREAM_CAPACITY_REACHED"
             : "RELAY_STREAM_CAPACITY_REACHED";
+          const outboundBodyId = resolveOutboundBodyId(responseId, relayRoute);
+          if (outboundBodyId !== responseId) {
+            noteRelayBodyIdEcho();
+          }
           const errorPayload = {
             jsonrpc: "2.0",
-            id: responseId,
+            id: outboundBodyId,
             error: {
               code: -32000,
               message: limitMessage,
@@ -1002,13 +1038,25 @@ export const createRpcBridgeAgentInboundHandlers = (
           // parse-stringify round-trip per response (significant on
           // streaming flows). Conditions:
           //   - consumer did NOT opt into `meta.serverTimings` (would mutate)
+          //   - we do NOT need to rewrite the JSON-RPC `body.id` back to the
+          //     consumer's original id (JSON-RPC 2.0 §5 / fast-path requirement,
+          //     see `docs/plug_agente/01_relay_body_id_echo.md`)
           //   - the response is NOT a stream open (already short-circuited
           //     above via `streamId`-driven path; we are in the unary leg
           //     when reaching this block)
           const shouldAttachServerTimings =
             relayRoute.requestServerTimings === true &&
             relayRoute.latencyTrace !== undefined;
-          const canBypassReencode = !shouldAttachServerTimings;
+          // The hub overwrites `body.id` with its internal `requestId` before
+          // dispatching to the agent (so `RpcRequestGuard` / `rpc:request_ack`
+          // keep working against legacy agents). On the way out we restore
+          // the consumer's `client_request_id` so the JSON-RPC response is
+          // routable end-to-end without relying on `relay:rpc.accepted`
+          // (required by `fastPath: true`).
+          const shouldEchoClientBodyId =
+            relayRoute.clientRequestId !== undefined &&
+            relayRoute.clientRequestId !== responseId;
+          const canBypassReencode = !shouldAttachServerTimings && !shouldEchoClientBodyId;
 
           let responseFrame: PayloadFrameEnvelope;
           if (canBypassReencode) {
@@ -1016,11 +1064,28 @@ export const createRpcBridgeAgentInboundHandlers = (
               inboundCmp: decoded.frame.cmp,
             });
           } else {
+            // Measure the wall-clock cost of the re-encode path (vs bypass)
+            // only when the cause is the body.id echo. If `shouldAttachServerTimings`
+            // is what forced the re-encode, attribute the cost to that
+            // pathway instead — bodyIdEcho overhead must reflect only its
+            // marginal contribution to ops decisions about Option A.
+            const reencodeStart = shouldEchoClientBodyId ? performance.now() : 0;
             const decodedResponse = toRecord(decoded.data);
             const baseOutboundResponse =
               decoded.frame.cmp === "gzip" && decodedResponse
                 ? markRelayOutboundForceGzip(decodedResponse)
                 : decoded.data;
+            if (shouldEchoClientBodyId && isRecord(baseOutboundResponse)) {
+              baseOutboundResponse.id = relayRoute.clientRequestId;
+              if (logger.isLevelEnabled("debug")) {
+                logger.debug("relay_body_id_rewritten", {
+                  requestId: responseId,
+                  clientRequestId: relayRoute.clientRequestId,
+                  jsonRpcMethod: relayRoute.jsonRpcMethod ?? null,
+                  conversationId: relayRoute.conversationId,
+                });
+              }
+            }
             // Opt-in `meta.serverTimings`: capture the snapshot just before
             // encoding so the values reflect the forwarder's contribution too.
             // For the dedup-replayed path the cached frame keeps the original
@@ -1033,6 +1098,9 @@ export const createRpcBridgeAgentInboundHandlers = (
                   )
                 : baseOutboundResponse;
             responseFrame = await encodeRelayOutboundFrame(outboundResponse, responseId);
+            if (shouldEchoClientBodyId) {
+              observeRelayBodyIdEchoOverhead(performance.now() - reencodeStart);
+            }
           }
           const tRelayForward = performance.now();
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);

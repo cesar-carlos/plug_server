@@ -1,6 +1,7 @@
 import { recordSocketAuditEvent } from "../../../../application/services/socket_audit.service";
 import { observeBridgeRpcMethod } from "../../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../../shared/config/env";
+import { noteRelayBodyIdEcho } from "../../../../shared/metrics/socket_consumer.metrics";
 import { sampledMetricDelta } from "../../../../shared/metrics/metrics_sample";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { logger } from "../../../../shared/utils/logger";
@@ -339,9 +340,16 @@ export const emitRelayTimeoutResponse = (
   /** Runs after the timeout frame is encoded and emitted (e.g. remove relay route). */
   afterEmit?: () => void,
 ): void => {
+  // JSON-RPC 2.0 §5 — synthetic responses must echo the consumer's `id` so
+  // the response is routable on `fastPath: true` (no `relay:rpc.accepted` to
+  // anchor the mapping). See `docs/plug_agente/01_relay_body_id_echo.md`.
+  const outboundBodyId = route.clientRequestId ?? route.requestId;
+  if (outboundBodyId !== route.requestId) {
+    noteRelayBodyIdEcho();
+  }
   const errorPayload = {
     jsonrpc: "2.0",
-    id: route.requestId,
+    id: outboundBodyId,
     error: {
       code: -32000,
       message: "Timed out waiting for agent response",

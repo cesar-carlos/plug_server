@@ -6,6 +6,157 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed (Relay unary fast-path — JSON-RPC 2.0 §5 body.id echo)
+
+Resposta ao defeito reportado pelo cliente Colmeia em
+`D:\Developer\Flutter\colmeia\docs\server_adjustments\relay_unary_fast_path.md §1`:
+a hub estava sobrescrevendo `body.id` da resposta relay com o `requestId`
+interno (UUID gerado pela hub), violando JSON-RPC 2.0 §5. No fluxo legado
+de 3 eventos isso era contornado pelo mapping em `relay:rpc.accepted`,
+mas com `fastPath: true` o consumer ficava sem como rotear a resposta de
+volta ao pending — `agent_sql_bridge_e2e_test.dart` ia de **7 s → 278 s**
+(3 retries por SQL antes de sobreviver via cache).
+
+**Mudancas:**
+
+- [`rpc_bridge_agent_inbound.ts`](src/presentation/socket/hub/relay/rpc_bridge_agent_inbound.ts):
+  novo `shouldEchoClientBodyId` no forwarder; quando `clientRequestId !==
+  responseId` o bypass `encodeRelayOutboundFrameFromBytes` e sacrificado
+  para reescrever `body.id` no payload do agente antes do encode final.
+  Helper `resolveOutboundBodyId` aplica a mesma logica nas funcoes
+  sinteticas de erro (`createRelayDecodeFailurePayload`,
+  `createRelayUnexpectedFailurePayload`,
+  `createRelayBatchResponseUnsupportedPayload`) e no caminho de erro de
+  capacidade de stream. `correlation_id` continua referenciando o
+  `requestId` da hub para diagnostico ops.
+- [`rpc_bridge_relay_stream.ts`](src/presentation/socket/hub/relay/rpc_bridge_relay_stream.ts):
+  `emitRelayTimeoutResponse` reescreve `body.id` para `clientRequestId`
+  quando disponivel — sem isso, consumers em `fastPath: true` nunca
+  conseguiam casar o timeout sintetico com o pending original.
+- [`rpc_bridge_dispatch_relay.ts`](src/presentation/socket/hub/relay/rpc_bridge_dispatch_relay.ts):
+  caminho de erro pos-dispatch (waiters de idempotency) tambem reescreve
+  `body.id` para `clientRequestId`.
+- [`socket_consumer.metrics.ts`](src/shared/metrics/socket_consumer.metrics.ts) +
+  [`metrics_renderer.ts`](src/presentation/http/controllers/metrics_renderer.ts):
+  novo counter `plug_socket_relay_body_id_echo_total` para acompanhar
+  adocao (deve trackear ~1:1 com respostas relay unary; cai a ~0 se/quando
+  a extensao agent-side `clientRequestIdEcho` shipar, Opcao A).
+
+**Documentacao:**
+
+- [`docs/socket_relay_protocol.md`](docs/socket_relay_protocol.md) — secao
+  "Correlacao de IDs no relay" atualizada para descrever a reescrita;
+  secao "Relay unary fast-path" deixa explicito que `body.id` da resposta
+  carrega o `client_request_id`.
+- Nova pasta [`docs/plug_agente/`](docs/plug_agente/) orientando o time do
+  agente: `README.md` (overview dos 4 itens),
+  `01_relay_body_id_echo.md` (motivacao + Opcao B atual + Opcao A
+  opcional via negociacao `clientRequestIdEcho` + tres diagramas mermaid
+  de sequencia comparando os fluxos),
+  `02_no_change_items.md` (itens 1, 2 e 4 — sem mudanca no agente),
+  `03_performance_roadmap.md` (oportunidades cross-repo priorizadas por
+  impacto/esforco com coluna **Status** rastreavel, incluindo dois bugs
+  de defaults divergentes hub × agente).
+- Cross-link em [`docs/communication_sync_plug_agente.md`](docs/communication_sync_plug_agente.md)
+  apontando para a nova pasta como porta de entrada quando uma mudanca
+  no contrato afetar o `plug_agente`.
+
+### Added (relay fast-path observability + deployment knobs)
+
+Complementos ao fix do fast-path:
+
+- Novo env [`SOCKET_RELAY_FAST_PATH_FORBIDDEN`](src/shared/config/env.ts)
+  (default `false`): quando `true`, a hub ignora `fastPath: true` em
+  envelopes `relay:rpc.request` inbound e forca o fluxo legado de 3
+  eventos. Util em deployments com requirements de auditoria /
+  compliance que dependem do `relay:rpc.accepted` explicito.
+- Novo counter `plug_socket_relay_fast_path_forbidden_total`: incrementa
+  quando o env acima trip nega um opt-in de consumer. Permite observar a
+  configuracao via Prometheus.
+- Novo histograma-pares `plug_socket_relay_body_id_echo_overhead_sum_ms`
+  + `_max_ms` + `_avg_ms` (derivado): quantificam o custo CPU da
+  reescrita de `body.id` que sacrifica `canBypassReencode`. Pareados com
+  `bodyIdEchoTotal`, formam o gate para a futura Opcao A (ver
+  [`docs/adrs/0009-client-request-id-echo.md`](docs/adrs/0009-client-request-id-echo.md)).
+  Sintetizados em [`rpc_bridge_agent_inbound.ts`](src/presentation/socket/hub/relay/rpc_bridge_agent_inbound.ts)
+  via novo helper `observeRelayBodyIdEchoOverhead(elapsedMs)`.
+- Novo log estruturado `relay_body_id_rewritten` gated em
+  `logger.isLevelEnabled("debug")` para facilitar diagnostico em
+  desenvolvimento (zero custo em producao com level=info).
+
+### Added (relay fast-path documentation)
+
+- Novo [`docs/adrs/0009-client-request-id-echo.md`](docs/adrs/0009-client-request-id-echo.md)
+  formaliza a Opcao A (negociacao `clientRequestIdEcho: "v1"`) como
+  roadmap. Define gates de reabertura, mudancas requeridas em ambos os
+  repos, alternativas consideradas (rejeitadas) e criterios de
+  aceitacao para o v1.
+- [`docs/relay_fastpath_study.md`](docs/relay_fastpath_study.md) atualizado
+  com status `SHIPPED` e secao "Resultado" linkando para o cliente
+  Colmeia + metricas pos-fix.
+- [`docs/socket_relay_protocol.md`](docs/socket_relay_protocol.md) ganhou
+  secao "Caso degenerate: consumer sem `id` JSON-RPC" com tabela
+  documentando o comportamento esperado em todos os edge cases
+  (`id` omitido, `id: null`, numero, string, metodo invalido).
+- [`docs/plug_agente/01_relay_body_id_echo.md`](docs/plug_agente/01_relay_body_id_echo.md)
+  ganhou tres diagramas mermaid de sequencia (antes, depois Opcao B,
+  futuro Opcao A) para acelerar leitura cross-team.
+
+### Added (tests + benchmark)
+
+- Novo cross-module test
+  [`tests/unit/presentation/socket/hub/relay_fast_path_body_id_echo.e2e.test.ts`](tests/unit/presentation/socket/hub/relay_fast_path_body_id_echo.e2e.test.ts)
+  exercita **handler → dispatch → registries → inbound forwarder** como
+  uma chain integrada (sem Socket.IO server, sem Redis). Valida:
+  - `rpc:request` ao agente carrega `body.id = hub_uuid` (contrato
+    agent-side preservado);
+  - `relay:rpc.response` ao consumer carrega
+    `body.id = client_request_id` (JSON-RPC 2.0 §5);
+  - `bodyIdEchoTotal` incrementa e `bodyIdEchoOverhead*` >= 0;
+  - quando `clientRequestId` esta ausente, metrica fica em 0 e o
+    fallback usa o `requestId` interno.
+- Novos testes em [`relay_rpc_request.handler.test.ts`](tests/unit/presentation/socket/consumers/relay_rpc_request.handler.test.ts)
+  cobrindo `SOCKET_RELAY_FAST_PATH_FORBIDDEN`: env on strip-a o flag,
+  conta `fastPathForbiddenTotal` e nao conta quando o consumer nao
+  pediu fast-path.
+- Novo script
+  [`scripts/bench-relay-body-id-echo.ts`](scripts/bench-relay-body-id-echo.ts)
+  (gated por `BENCH=1`) compara o custo CPU do caminho echo (parse +
+  mutate + re-encode) vs o bypass (`encodePayloadFrameFromBytes`) em
+  payloads de 1 KB a 1 MB. Resultado tipico medido em dev: +6 µs em
+  1 KB (~800%), +56 µs em 10 KB (~84%), +314 µs em 100 KB (~48%),
+  +3.77 ms em 1 MB sem gzip. Fornece o numero concreto para o gate de
+  reabertura do ADR 0009.
+
+### Fixed (typo na pasta de docs)
+
+- Renomeado `docs/pug_agente/` -> `docs/plug_agente/` (typo na criacao
+  da pasta). Todos os comentarios em codigo, testes, CHANGELOG e docs
+  atualizados.
+
+**Tests:**
+
+- [`tests/unit/presentation/socket/hub/rpc_bridge_agent_inbound.test.ts`](tests/unit/presentation/socket/hub/rpc_bridge_agent_inbound.test.ts)
+  novo describe `client_request_id echo (JSON-RPC 2.0 §5 / fast-path)`
+  com 3 testes (echo basico, fallback sem `clientRequestId`, echo no
+  erro sintetico). Teste existente
+  `rejects relay batch rpc responses per consumer without leaking
+  original payloads` ajustado para validar a reescrita.
+- [`tests/unit/presentation/socket/hub/rpc_bridge_relay_stream.test.ts`](tests/unit/presentation/socket/hub/rpc_bridge_relay_stream.test.ts)
+  o teste de `emitRelayTimeoutResponse` agora decoda o frame e valida
+  que `body.id === clientRequestId` e que `envelope.requestId` continua
+  sendo o UUID da hub.
+
+**Compat:**
+
+- Zero mudanca de contrato no canal `/agents`. O agente continua
+  recebendo `body.id = hub_uuid` e responde com o mesmo valor. A
+  reescrita acontece **so na borda hub→consumer**.
+- Para consumers que ja estavam no fluxo de 3 eventos: continua
+  funcional. A reescrita simplesmente entrega `body.id` igual ao
+  `client_request_id` que o `relay:rpc.accepted` ja indicava — nenhum
+  consumer existente quebra.
+
 ### Performance (Generous profile — Onda A/B: capacity headroom)
 
 Resposta ao perfil "generoso com os limites": eliminacao de chokepoints de

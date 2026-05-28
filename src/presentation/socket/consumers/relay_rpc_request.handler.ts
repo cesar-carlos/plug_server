@@ -23,6 +23,7 @@ import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
 import {
   noteRelayFastPathFallbackDedup,
   noteRelayFastPathFallbackError,
+  noteRelayFastPathForbidden,
   noteRelayFastPathHonored,
   noteRelayFastPathRequested,
   noteServerTimingsOptIn,
@@ -144,8 +145,18 @@ export const handleRelayRpcRequest = (
   // Track adoption for the relay opt-ins before any dispatch path can
   // short-circuit. Outcome counters (honored / fallback) are incremented
   // later once `dispatchRelayRpcToAgent` resolves.
+  // `SOCKET_RELAY_FAST_PATH_FORBIDDEN` is a deployment-level kill switch
+  // for environments that mandate the legacy 3-event flow (audit /
+  // compliance). When set, we strip the `fastPath` opt-in here so the rest
+  // of the pipeline behaves as if the consumer never asked for it. Counter
+  // `fastPathForbiddenTotal` makes the gate observable in Prometheus.
+  const effectiveFastPath =
+    envelope.fastPath === true && !env.socketRelayFastPathForbidden;
   if (envelope.fastPath === true) {
     noteRelayFastPathRequested();
+    if (!effectiveFastPath) {
+      noteRelayFastPathForbidden();
+    }
   }
   if (envelope.requestServerTimings === true) {
     noteServerTimingsOptIn("relay");
@@ -185,7 +196,7 @@ export const handleRelayRpcRequest = (
         ...(latencyTrace ? { latencyTrace } : {}),
         signal: abortController.signal,
         ...(envelope.requestServerTimings === true ? { requestServerTimings: true } : {}),
-        ...(envelope.fastPath === true ? { fastPath: true } : {}),
+        ...(effectiveFastPath ? { fastPath: true } : {}),
       });
 
       // Fast-path: when the consumer opted in AND the request was not
@@ -244,10 +255,12 @@ export const handleRelayRpcRequest = (
       });
     } catch (err: unknown) {
       const appError = err instanceof AppError ? err : undefined;
-      if (envelope.fastPath === true) {
+      if (effectiveFastPath) {
         // Even when the dispatcher rejected the request before honoring
         // fast-path, the consumer relies on `relay:rpc.accepted { success: false }`
         // for the error — track that to spot pathological fast-path usage.
+        // The forbidden-by-deployment path is tracked separately above to
+        // keep this counter scoped to true fast-path errors.
         noteRelayFastPathFallbackError();
       }
       if (shouldRefundRelayRpcRequestRateLimit(err)) {
