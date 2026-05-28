@@ -84,6 +84,18 @@ describe("agent event stream backlog integration", () => {
     const initialBacklog = await streamModule.readAgentEventBacklog(principalId, initialCursor);
     expect(initialBacklog).toHaveLength(0);
 
+    // Anchor the cursor at the current tail of the (still empty) stream so
+    // subsequent appends count as "frames published while the agent was
+    // offline". Production captures this anchor implicitly via the first
+    // online drain commit; here we bootstrap with "0-0" — XREAD treats "0-0"
+    // as "deliver every entry from the beginning of the stream", which is
+    // the desired semantic when the stream did not exist at anchor time.
+    //
+    // Without this anchor, `getAgentEventCursor` keeps returning "$" and
+    // `XREAD ... $` is defined as "only entries arriving AFTER this call",
+    // so an already-appended frame would never be observed by the read.
+    await cursorModule.commitAgentEventCursor(principalId, "0-0");
+
     // Append three frames to the principal stream while the agent is "offline".
     const frames = [
       {
@@ -112,8 +124,10 @@ describe("agent event stream backlog integration", () => {
       expect(typeof id).toBe("string");
     }
 
-    // Reconnect: cursor still "$", backlog read returns 3 frames in order.
+    // Reconnect: cursor returns the previously-committed "0-0" anchor;
+    // backlog read with that id returns the 3 just-appended frames in order.
     const cursorBeforeDrain = await cursorModule.getAgentEventCursor(principalId);
+    expect(cursorBeforeDrain).toBe("0-0");
     const backlog = await streamModule.readAgentEventBacklog(principalId, cursorBeforeDrain);
     expect(backlog).toHaveLength(3);
     expect(backlog.map((entry) => entry.eventId)).toEqual(["evt-1", "evt-2", "evt-3"]);
@@ -156,6 +170,13 @@ describe("agent event stream backlog integration", () => {
     expect(metrics.appendsTotal).toBeGreaterThanOrEqual(3);
     expect(metrics.backlogReadsTotal).toBeGreaterThanOrEqual(3);
     expect(metrics.acksTotal).toBeGreaterThanOrEqual(1);
-    expect(metrics.redisStoreActive).toBe(1);
+    // The `redisStoreActive` gauge is reset by `beforeEach`'s
+    // `resetAgentEventStreamMetricsForTests()` (unit tests in
+    // `agent_event_stream_metrics.service.test.ts` pin this contract), so the
+    // metrics snapshot cannot reflect connection state from `beforeAll`'s
+    // `initAgentEventStream`. Assert the live connection state via the
+    // dedicated predicate instead — it reads from the module's own state and
+    // is what the production drain consults.
+    expect(streamModule.isAgentEventStreamActive()).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type * as SocketRedisModule from "../../src/infrastructure/redis/socket_rate_limit_redis";
 
 import {
@@ -23,6 +23,12 @@ describe("socket Redis rate-limit integration", () => {
     }
 
     process.env.SOCKET_RATE_LIMIT_REDIS_URL = infrastructure.redisUrl;
+    // Reload the module graph so `shared/config/env` re-reads the URL above.
+    // Without this, an earlier transitive import (e.g. via `prismaClient` in
+    // the infrastructure probe helper) may have already snapshotted `env`
+    // with an empty URL, and `initSocketRateLimitRedis` would short-circuit
+    // without connecting — making every `consume*` return `null`.
+    vi.resetModules();
     redisModule = await import("../../src/infrastructure/redis/socket_rate_limit_redis");
     await redisModule.initSocketRateLimitRedis();
   }, integrationHookTimeoutMs);
