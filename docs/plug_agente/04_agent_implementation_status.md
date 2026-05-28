@@ -26,18 +26,21 @@
 ## TL;DR
 
 **6 de 10** itens do roadmap entregues pelo `plug_agente` em 2026-05-28
-(working tree, ainda **uncommitted**). 4 testes novos do lado do hub
-ja capturam a interacao; **0 mudancas adicionais necessarias** no hub
+no commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)
+(`perf(socket): align agent defaults with hub expectations + ack
+coalescing`), ja em `origin/main`. 4 testes novos do lado do hub ja
+capturam a interacao; **0 mudancas adicionais necessarias** no hub
 para destravar os 6 itens em producao.
 
 | status | itens | notas |
 | ------ | ----- | ----- |
-| ✅ shipped (working tree) | 1, 2, 3, 6, 8, 9 | 6 de 10 |
+| ✅ shipped (commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)) | 1, 2, 3, 6, 8, 9 | 6 de 10 |
 | proposed (no active gate) | 4, 5, 7, 10 | aguardam baseline / ADR / requirement externo |
 
-### Detalhes da entrega (working tree)
+### Detalhes da entrega (commit `7923e38c`)
 
-- **15 arquivos modificados, +393/-43 linhas** no `plug_agente`
+- **14 arquivos modificados** no `plug_agente` (lib + tests + docs +
+  .env.example + CHANGELOG)
 - **3 arquivos de teste tocados, 7 testes novos** cobrindo as mudancas
 - **CHANGELOG do `plug_agente`** atualizado em `## Unreleased > ### Changed`
   com sub-bullets para cada item, citando o roadmap por numero
@@ -45,19 +48,23 @@ para destravar os 6 itens em producao.
   com guidance LAN/cabo (16-32) vs mobile/celular (4-8)
 - **`docs/communication/socket_communication_standard.md`** atualizado
   (+69/-25 linhas) refletindo o novo contrato de pull window e acks
-  coalescidos
+  coalescidos, plus nova subsecao "Ajustes 2026-05" consolidando todas
+  as mudancas
+- **Validacao no `plug_agente`**: `dart format`: 0 changed;
+  `flutter analyze`: 0 issues; **`flutter test`: 3017 passed, 11
+  skipped (E2E gated), 0 failed**.
 
-> ⚠️ **Atencao operacional.** As 15 modificacoes estao em working tree
-> uncommitted. Recomendado commitar e pushar antes que vire perdido ou
-> conflite. Tambem ha edits adjacentes em `installer/setup.iss` e
-> `app_version.g.dart` que parecem ser bump de versao nao relacionado
-> ao roadmap — vale separar em commits distintos.
+> ℹ️ **Arquivos nao relacionados** (`installer/setup.iss` e
+> `lib/core/constants/app_version.g.dart`) tinham apenas diffs de CRLF
+> → LF (sem mudanca de conteudo); foram propositalmente excluidos do
+> commit do roadmap para manter atomicidade. Podem ser limpos numa
+> proxima passada por `git config core.autocrlf`.
 
 ## Itens entregues
 
 ### Item 1 — `enableSocketDeliveryGuarantees=true`
 
-**Status:** ✅ shipped (`plug_agente` working tree 2026-05-28)
+**Status:** ✅ shipped (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28)
 
 **Por que era 🚨 bug:** o hub default `SOCKET_AGENT_ACK_RETRY_ENABLED=true`
 com timeout de 1 s arma re-emit do `rpc:request` se nao receber
@@ -79,7 +86,7 @@ drasticamente apos rollout do agente. Counter ja existe no hub.
 
 ### Item 2 — `enableSocketStreamingChunks=true`
 
-**Status:** ✅ shipped (`plug_agente` working tree 2026-05-28)
+**Status:** ✅ shipped (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28)
 
 **Por que era 🚨 bug:** mesmo com `enableSocketStreamingFromDb=true` (le
 do ODBC em streaming), o resultado era bufferizado inteiro antes de
@@ -103,7 +110,7 @@ grandes; TTFB E2E observado pelo Colmeia melhora.
 
 ### Item 3 — Coalescing de `rpc:request_ack` em `rpc:batch_ack`
 
-**Status:** ✅ shipped (`plug_agente` working tree 2026-05-28)
+**Status:** ✅ shipped (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28)
 
 **Implementacao:**
 
@@ -130,7 +137,7 @@ volume de `rpc:batch_ack` sobe em workloads com bursts.
 
 ### Item 6 — `recommendedStreamPullWindowSize` default > 1
 
-**Status:** ✅ shipped (`plug_agente` working tree 2026-05-28)
+**Status:** ✅ shipped (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28)
 
 **Implementacao:**
 
@@ -153,7 +160,7 @@ query com 100 chunks e RTT 20 ms: ~1.8 s de melhora por query.
 
 ### Item 8 — Bug preventivo `prepareForSend`
 
-**Status:** ✅ shipped preventivamente (`plug_agente` working tree 2026-05-28)
+**Status:** ✅ shipped preventivamente (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28)
 
 **Por que preventivo:** hoje `body.id == response.id == meta.requestId
 == hub_uuid` (todos sao o mesmo valor). A reescrita atual em
@@ -176,7 +183,7 @@ shipping de item 7 nao precise tocar este arquivo.
 
 ### Item 9 — Pre-warm de schema validators
 
-**Status:** ✅ shipped (`plug_agente` working tree 2026-05-28)
+**Status:** ✅ shipped (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28)
 
 **Implementacao:**
 
@@ -251,26 +258,28 @@ mobile/3G.
 
 ## Acoes pendentes (post-entrega do agente)
 
-1. **`plug_agente` precisa commitar e pushar** os 15 arquivos
-   modificados. Recomendado separar em pelo menos 2 commits:
-   - `perf(socket): apply items 1, 2, 3, 6, 8, 9 from cross-repo roadmap`
-     (15 arquivos relacionados ao roadmap)
-   - `chore: version bump 1.8.x` (`installer/setup.iss`,
-     `app_version.g.dart`) — se nao for esse o caso, ignorar
+1. ~~**`plug_agente` precisa commitar e pushar**~~ ✅ **Feito em
+   [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)
+   (2026-05-28).** Commit unico cobrindo os 6 itens do roadmap. Arquivos
+   com diff apenas de CRLF (`installer/setup.iss`,
+   `app_version.g.dart`) foram propositalmente excluidos.
 2. **`plug_server` deve validar em ambiente de teste** apos o release
    do agente que:
    - `plug_socket_bridge_ack_retry_attempts_total{channel="relay"}` cai
      proximo a zero (item 1)
    - Latencia de streaming relay cai (item 6)
-   - `event_loop_lag_ms` p99 melhora em queries grandes (item 2)
-3. **Esta pagina precisa ser atualizada** assim que houver commit/PR no
-   `plug_agente` para mudar `working tree` → `<commit_sha>` / `<PR #>`
-4. **Quando o agente release shipar em prod**, atualizar a coluna
+   - `event_loop_lat_ms` p99 melhora em queries grandes (item 2)
+3. **Quando o agente release shipar em prod**, atualizar a coluna
    Status em [`03_performance_roadmap.md`](03_performance_roadmap.md)
-   de `shipped (working tree)` para `shipped (released vX.Y.Z)`
+   de `shipped (commit 7923e38c)` para `shipped (released vX.Y.Z)`
+   apontando para o tag/release do GitHub.
+4. **Acompanhar os 4 itens em `proposed (no active gate)`** (4, 5, 7,
+   10) — reabrir quando o gate especifico de cada um trip (ver seca
+   "Itens NAO entregues" abaixo).
 
 ## Historico de atualizacoes
 
 | data | autor | mudanca |
 | ---- | ----- | ------- |
-| 2026-05-28 | hub audit | criacao inicial; snapshot dos 6 itens entregues + 4 pendentes |
+| 2026-05-28 | hub audit | criacao inicial; snapshot dos 6 itens entregues + 4 pendentes (working tree) |
+| 2026-05-28 | hub audit | atualizado para refletir commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) shipado em `origin/main` |

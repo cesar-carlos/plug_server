@@ -136,13 +136,17 @@ Complementos ao fix do fast-path:
 
 ### Added (cross-repo sync — entrega `plug_agente` 2026-05-28)
 
-Audit do working tree do `plug_agente` confirmou que **6 dos 10 itens**
-do roadmap `docs/plug_agente/03_performance_roadmap.md` foram
-implementados em uma unica onda (uncommitted no momento do audit):
-itens **1** (`enableSocketDeliveryGuarantees=true`), **2**
+Audit cross-repo confirmou que **6 dos 10 itens** do roadmap
+`docs/plug_agente/03_performance_roadmap.md` foram implementados em
+uma unica onda no `plug_agente` — commit
+[`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)
+(`perf(socket): align agent defaults with hub expectations + ack
+coalescing`), ja em `origin/main`, validado com `flutter test` (3017
+passed, 0 failed). Itens shippados: **1**
+(`enableSocketDeliveryGuarantees=true`), **2**
 (`enableSocketStreamingChunks=true`), **3** (coalescing de
 `rpc:request_ack` em `rpc:batch_ack`), **6**
-(`recommendedStreamPullWindowSize 1->8` + env
+(`recommendedStreamPullWindowSize 1→8` + env
 `AGENT_STREAM_PULL_WINDOW_RECOMMENDED`), **8** (fix preventivo no
 `prepareForSend` preservando `meta.request_id`) e **9** (pre-warm de
 schema validators em `TransportSchemaLoader.loadAll()`).

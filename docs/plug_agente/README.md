@@ -44,19 +44,21 @@ em [`03_performance_roadmap.md`](03_performance_roadmap.md). Top items:
 
 | # | Item | Impacto | Esforco | Status |
 | - | ---- | ------- | ------- | ------ |
-| 🚨 1 | Default `enableSocketDeliveryGuarantees=true` (hub ja espera ack, retry de 1 s desperdicado hoje) | **high** | **low** | ✅ shipped (agent working tree 2026-05-28) |
-| 🚨 2 | Reavaliar default `enableSocketStreamingChunks=false` para queries grandes | **high** | **low** | ✅ shipped (agent working tree 2026-05-28) |
-| 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ shipped (agent working tree 2026-05-28) |
+| 🚨 1 | Default `enableSocketDeliveryGuarantees=true` (hub ja espera ack, retry de 1 s desperdicado hoje) | **high** | **low** | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
+| 🚨 2 | Reavaliar default `enableSocketStreamingChunks=false` para queries grandes | **high** | **low** | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
+| 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
 | 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | proposed (no active gate) |
-| 6 | `recommendedStreamPullWindowSize` default 1 → 8 + env override | medium | low | ✅ shipped (agent working tree 2026-05-28) |
-| 8 | `prepareForSend` preserva `meta.request_id` propagado | low | trivial | ✅ shipped preventivamente (agent working tree 2026-05-28) |
-| 9 | Pre-warm de schema validators / JSON schemas | low | medium | ✅ shipped (agent working tree 2026-05-28) |
+| 6 | `recommendedStreamPullWindowSize` default 1 → 8 + env override | medium | low | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
+| 8 | `prepareForSend` preserva `meta.request_id` propagado | low | trivial | ✅ shipped preventivamente (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
+| 9 | Pre-warm de schema validators / JSON schemas | low | medium | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
 
 Os itens 🚨 sao **divergencias de defaults entre hub e agente** que
 causavam perda de performance silenciosa em producao — foram tratados
-como bugs e shippados nesta onda. **Snapshot completo da entrega
-cross-repo** (arquivos tocados, testes adicionados, acoes pendentes
-para o release) em
+como bugs e shippados nesta onda no commit
+[`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)
+do `plug_agente` (validado com `flutter test`: 3017 passed, 0 failed).
+**Snapshot completo da entrega cross-repo** (arquivos tocados, testes
+adicionados, acoes pendentes para o release) em
 [`04_agent_implementation_status.md`](04_agent_implementation_status.md).
 
 ## Como ler estes docs

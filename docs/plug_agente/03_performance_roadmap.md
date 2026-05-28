@@ -30,10 +30,10 @@ shipped | rejected`. Atualizar quando o item mudar de fase no `plug_agente`
 ou no hub.
 
 > **Snapshot 2026-05-28 (agent-side).** Itens 1, 2, 3, 6, 8 e 9 (6 de 10)
-> entraram juntos em uma onda de bugfix/perf no `plug_agente`
-> (working tree, ainda uncommitted; ver
-> [`../plug_agente/CHANGELOG.md`](../../../plug_agente/CHANGELOG.md) em
-> `## Unreleased > ### Changed`). Itens 4, 5, 7 e 10 continuam
+> entraram juntos em uma onda de bugfix/perf no `plug_agente` no commit
+> [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)
+> (`perf(socket): align agent defaults with hub expectations + ack
+> coalescing`), ja em `origin/main`. Itens 4, 5, 7 e 10 continuam
 > `proposed (no active gate)` por dependerem de coordenacao de schema com
 > o hub (ADR) ou de baseline em producao que ainda nao foi capturado.
 >
@@ -43,15 +43,15 @@ ou no hub.
 
 | # | Item | Impacto | Esforco | Status | Gate | Hub coord? |
 | - | ---- | ------- | ------- | ------ | ---- | ---------- |
-| **1** | 🚨 `enableSocketDeliveryGuarantees=true` por defeito (ou negociar) | **high** | **low** | ✅ **shipped** (`plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-1--enablesocketdeliveryguaranteestrue) | nenhum (bug obvio) | Sim — flag ja existente |
-| 2 | 🚨 Reavaliar `enableSocketStreamingChunks=false` por defeito | **high** | low | ✅ **shipped** (`plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-2--enablesocketstreamingchunkstrue) | medir p95 SQL > N rows | Nao |
-| 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ **shipped** (`plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-3--coalescing-de-rpcrequest_ack) | volume de `request_ack` na metrica | Nao |
+| **1** | 🚨 `enableSocketDeliveryGuarantees=true` por defeito (ou negociar) | **high** | **low** | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-1--enablesocketdeliveryguaranteestrue) | nenhum (bug obvio) | Sim — flag ja existente |
+| 2 | 🚨 Reavaliar `enableSocketStreamingChunks=false` por defeito | **high** | low | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-2--enablesocketstreamingchunkstrue) | medir p95 SQL > N rows | Nao |
+| 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-3--coalescing-de-rpcrequest_ack) | volume de `request_ack` na metrica | Nao |
 | 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | proposed (no active gate) | item 4 ja shippado no hub; aguarda baseline de adocao do `requestServerTimings` | Sim — schema novo (ADR pendente) |
 | 5 | `agent.getHealth` piggyback em respostas RPC | medium | medium | proposed (no active gate) | aguarda volume atual de `agent.getHealth` em prod | Sim — schema novo (ADR pendente) |
-| 6 | Tunable `recommendedStreamPullWindowSize` + default > 1 | medium | low | ✅ **shipped** (default `1→8`, env `AGENT_STREAM_PULL_WINDOW_RECOMMENDED`, `plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-6--recommendedstreampullwindowsize-default--1) | medir p95 RTT × rows | Nao |
+| 6 | Tunable `recommendedStreamPullWindowSize` + default > 1 | medium | low | ✅ **shipped** (default `1→8`, env `AGENT_STREAM_PULL_WINDOW_RECOMMENDED`, `plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-6--recommendedstreampullwindowsize-default--1) | medir p95 RTT × rows | Nao |
 | 7 | Extension `clientRequestIdEcho: "v1"` (Opcao A do item 3) | low-medium | medium | proposed (no active gate) | adocao do fast-path em prod com `body_id_echo_overhead_avg_ms > 0.5 ms` ou requirement externo (ver [`ADR 0009`](../adrs/0009-client-request-id-echo.md) "Reabertura") | Sim — ver [`ADR 0009`](../adrs/0009-client-request-id-echo.md) e [01_relay_body_id_echo.md](01_relay_body_id_echo.md) |
-| 8 | Bug `prepareForSend` reescreve `meta.request_id` (so importa se item 7 for shipar) | low | trivial | ✅ **shipped preventivamente** (`plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-8--bug-preventivo-prepareforsend) | item 7 entrar em planning | Nao |
-| 9 | Pre-warm de schema validators / JSON schemas no `agent:ready` | low | medium | ✅ **shipped** (`TransportSchemaLoader.loadAll()._warmupHotSchemas`, `plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-9--pre-warm-de-schema-validators) | medir cold-start latency primeira request | Nao |
+| 8 | Bug `prepareForSend` reescreve `meta.request_id` (so importa se item 7 for shipar) | low | trivial | ✅ **shipped preventivamente** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-8--bug-preventivo-prepareforsend) | item 7 entrar em planning | Nao |
+| 9 | Pre-warm de schema validators / JSON schemas no `agent:ready` | low | medium | ✅ **shipped** (`TransportSchemaLoader.loadAll()._warmupHotSchemas`, `plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-9--pre-warm-de-schema-validators) | medir cold-start latency primeira request | Nao |
 | 10 | Compressao brotli (negociar `br` em `compressions`) | low | high | proposed (no active gate) | medir bytes-on-wire em prod; sem evidencia de banda como gargalo no Colmeia hoje | Sim — adicionar `br` nas `HUB_TRANSPORT_COMPRESSIONS` |
 
 > **Como mover de coluna**: quando o time do agente abrir issue ou PR,
