@@ -18,6 +18,13 @@
 > melhora observabilidade e CPU do hub esta documentada aqui como
 > roadmap. Outras melhorias cross-repo identificadas no audit estao
 > ranqueadas em [`03_performance_roadmap.md`](03_performance_roadmap.md).
+>
+> **Estado atual do agente** (2026-05-28): itens 1, 2, 3, 6, 8 e 9 do
+> roadmap proativo entraram em uma onda de bugfix/perf no `plug_agente`
+> (ver [`../plug_agente/CHANGELOG.md`](../../../plug_agente/CHANGELOG.md)
+> em `## Unreleased > ### Changed`). Itens 4, 5, 7 e 10 continuam
+> `proposed` por dependerem de coordenacao de schema (ADR) ou de
+> baseline em producao.
 
 ## Visao geral dos quatro itens do cliente Colmeia
 
@@ -32,19 +39,25 @@
 
 Alem dos 4 itens do cliente, foram identificadas oportunidades
 adicionais durante o audit dos hot paths cross-repo. Detalhe completo,
-priorizacao, gates e pseudocodigo em
-[`03_performance_roadmap.md`](03_performance_roadmap.md). Top items:
+priorizacao, gates, pseudocodigo **e status apos a onda de 2026-05-28**
+em [`03_performance_roadmap.md`](03_performance_roadmap.md). Top items:
 
-| # | Item | Impacto | Esforco |
-| - | ---- | ------- | ------- |
-| 🚨 1 | Default `enableSocketDeliveryGuarantees=true` (hub ja espera ack, retry de 1 s desperdicado hoje) | **high** | **low** |
-| 🚨 2 | Reavaliar default `enableSocketStreamingChunks=false` para queries grandes | **high** | **low** |
-| 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low |
-| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium |
+| # | Item | Impacto | Esforco | Status |
+| - | ---- | ------- | ------- | ------ |
+| 🚨 1 | Default `enableSocketDeliveryGuarantees=true` (hub ja espera ack, retry de 1 s desperdicado hoje) | **high** | **low** | ✅ shipped (agent working tree 2026-05-28) |
+| 🚨 2 | Reavaliar default `enableSocketStreamingChunks=false` para queries grandes | **high** | **low** | ✅ shipped (agent working tree 2026-05-28) |
+| 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ shipped (agent working tree 2026-05-28) |
+| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | proposed (no active gate) |
+| 6 | `recommendedStreamPullWindowSize` default 1 → 8 + env override | medium | low | ✅ shipped (agent working tree 2026-05-28) |
+| 8 | `prepareForSend` preserva `meta.request_id` propagado | low | trivial | ✅ shipped preventivamente (agent working tree 2026-05-28) |
+| 9 | Pre-warm de schema validators / JSON schemas | low | medium | ✅ shipped (agent working tree 2026-05-28) |
 
 Os itens 🚨 sao **divergencias de defaults entre hub e agente** que
-causam perda de performance silenciosa hoje em producao — devem ser
-tratados como bugs.
+causavam perda de performance silenciosa em producao — foram tratados
+como bugs e shippados nesta onda. **Snapshot completo da entrega
+cross-repo** (arquivos tocados, testes adicionados, acoes pendentes
+para o release) em
+[`04_agent_implementation_status.md`](04_agent_implementation_status.md).
 
 ## Como ler estes docs
 
@@ -59,6 +72,11 @@ tratados como bugs.
    destravar mais performance, leia
    [`03_performance_roadmap.md`](03_performance_roadmap.md) — itens
    ordenados por impacto vs esforco com gates de medicao.
+5. **Se quiser ver o estado atual da entrega cross-repo** (o que o
+   `plug_agente` ja shippou, em que arquivos, com que testes, e
+   acoes pendentes para o release), leia
+   [`04_agent_implementation_status.md`](04_agent_implementation_status.md).
+   Esta pagina e atualizada a cada nova onda de entrega.
 
 ## Documentos canonicos do contrato
 

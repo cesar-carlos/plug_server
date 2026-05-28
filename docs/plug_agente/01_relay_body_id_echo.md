@@ -149,6 +149,15 @@ caso queiramos evoluir o contrato.
 
 ### Contrato proposto
 
+> **Status no agente (2026-05-28).** A *Opcao A* nao esta no release
+> atual. O unico ajuste preventivo do contrato `body.id` ja shippado e
+> a preservacao do `meta.request_id` propagado em
+> `RpcResponsePreparer.prepareForSend` (item 8 do
+> [`03_performance_roadmap.md`](03_performance_roadmap.md)). Os demais
+> pontos abaixo (`_emitRequestAck`, `_emitBatchRequestAck`,
+> `RpcRequestGuard.evaluate`) **continuam pendentes** e so entram quando
+> a extensao `clientRequestIdEcho` for negociada.
+
 1. **Negociar extensao no handshake.** Nova entrada em
    `agent:capabilities.extensions`:
 
@@ -172,22 +181,24 @@ caso queiramos evoluir o contrato.
 
 3. **Quando a extensao esta negociada, o agente DEVE:**
 
-   - Em [`_emitRequestAck`](../../../plug_agente/lib/infrastructure/external_services/transport/rpc_inbound_handler.dart)
-     (linhas 446-453), passar a usar `meta.requestId` em vez de
-     `request.id.toString()`:
+   - Migrar o ack inbound para usar `meta.requestId` em vez de
+     `request.id.toString()`. Apos a onda de 2026-05-28, o ponto unico
+     a ser ajustado e [`_scheduleAck`/`_flushPendingAcks`](../../../plug_agente/lib/infrastructure/external_services/transport/rpc_inbound_handler.dart)
+     em `RpcInboundHandler` (que ja substituiu o `_emitRequestAck`
+     direto pelo coalescing do item 3 do roadmap). O id usado tanto no
+     `rpc:request_ack` (1 id) quanto no `rpc:batch_ack` (lista) deve
+     vir de `request.meta?.requestId`, com fallback para
+     `request.id?.toString()` quando o request veio sem meta.
 
      ```dart
-     Future<void> _emitRequestAck(RpcRequest request) async {
-       // Quando clientRequestIdEcho esta negociado, request.id pode ser
-       // um id arbitrario do consumer; o id wire usado pelo hub para
-       // correlacao e meta.requestId (hub UUID).
-       final ackId = request.meta?.requestId ?? request.id?.toString();
-       if (ackId == null) return;
-       final ackPayload = {
-         'request_id': ackId,
-         'received_at': DateTime.now().toIso8601String(),
-       };
-       await _emitEvent('rpc:request_ack', ackPayload);
+     // Esboco apos coalescing — substituir o `requestId.toString()` em
+     // _scheduleAck pelo id wire correto quando clientRequestIdEcho
+     // estiver negociado.
+     void _scheduleAck(RpcRequest request) {
+       if (request.id == null) return;
+       final wireAckId = request.meta?.requestId ?? request.id.toString();
+       _pendingAckIds.add(wireAckId);
+       // ...resto do coalescing igual ao shippado em 2026-05-28.
      }
      ```
 

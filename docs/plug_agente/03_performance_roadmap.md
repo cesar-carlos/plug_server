@@ -27,26 +27,44 @@
 
 Coluna **Status** segue o vocabulario `proposed | discussing | in-progress |
 shipped | rejected`. Atualizar quando o item mudar de fase no `plug_agente`
-ou no hub. **`-`** indica que ainda nao foi triado por ninguem.
+ou no hub.
+
+> **Snapshot 2026-05-28 (agent-side).** Itens 1, 2, 3, 6, 8 e 9 (6 de 10)
+> entraram juntos em uma onda de bugfix/perf no `plug_agente`
+> (working tree, ainda uncommitted; ver
+> [`../plug_agente/CHANGELOG.md`](../../../plug_agente/CHANGELOG.md) em
+> `## Unreleased > ### Changed`). Itens 4, 5, 7 e 10 continuam
+> `proposed (no active gate)` por dependerem de coordenacao de schema com
+> o hub (ADR) ou de baseline em producao que ainda nao foi capturado.
+>
+> **Relatorio detalhado da entrega** — arquivos tocados, testes
+> adicionados, observacoes operacionais e acoes pendentes:
+> [`04_agent_implementation_status.md`](04_agent_implementation_status.md).
 
 | # | Item | Impacto | Esforco | Status | Gate | Hub coord? |
 | - | ---- | ------- | ------- | ------ | ---- | ---------- |
-| **1** | 🚨 `enableSocketDeliveryGuarantees=true` por defeito (ou negociar) | **high** | **low** | **proposed (bugfix)** | nenhum (bug obvio) | Sim — flag ja existente |
-| 2 | 🚨 Reavaliar `enableSocketStreamingChunks=false` por defeito | **high** | low | **proposed (bugfix)** | medir p95 SQL > N rows | Nao |
-| 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | proposed | volume de `request_ack` na metrica | Nao |
-| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | proposed | item 4 ja shippado no hub | Sim — schema novo (ADR pendente) |
-| 5 | `agent.getHealth` piggyback em respostas RPC | medium | medium | proposed | freq atual de poll | Sim — schema novo (ADR pendente) |
-| 6 | Tunable `recommendedStreamPullWindowSize` + default > 1 | medium | low | proposed | medir p95 RTT × rows | Nao |
-| 7 | Extension `clientRequestIdEcho: "v1"` (Opcao A do item 3) | low-medium | medium | proposed | adocao do fast-path | Sim — ver [`ADR 0009`](../adrs/0009-client-request-id-echo.md) e [01_relay_body_id_echo.md](01_relay_body_id_echo.md) |
-| 8 | Bug `prepareForSend` reescreve `meta.request_id` (so importa se item 7 for shipar) | low | trivial | proposed (preventivo) | item 7 entrar em planning | Nao |
-| 9 | Pre-warm de schema validators / JSON schemas no `agent:ready` | low | medium | proposed | medir cold-start latency primeira request | Nao |
-| 10 | Compressao brotli (negociar `br` em `compressions`) | low | high | proposed | medir CPU vs gzip em frames > 64 KiB | Sim — adicionar `br` nas `HUB_TRANSPORT_COMPRESSIONS` |
+| **1** | 🚨 `enableSocketDeliveryGuarantees=true` por defeito (ou negociar) | **high** | **low** | ✅ **shipped** (`plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-1--enablesocketdeliveryguaranteestrue) | nenhum (bug obvio) | Sim — flag ja existente |
+| 2 | 🚨 Reavaliar `enableSocketStreamingChunks=false` por defeito | **high** | low | ✅ **shipped** (`plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-2--enablesocketstreamingchunkstrue) | medir p95 SQL > N rows | Nao |
+| 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ **shipped** (`plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-3--coalescing-de-rpcrequest_ack) | volume de `request_ack` na metrica | Nao |
+| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | proposed (no active gate) | item 4 ja shippado no hub; aguarda baseline de adocao do `requestServerTimings` | Sim — schema novo (ADR pendente) |
+| 5 | `agent.getHealth` piggyback em respostas RPC | medium | medium | proposed (no active gate) | aguarda volume atual de `agent.getHealth` em prod | Sim — schema novo (ADR pendente) |
+| 6 | Tunable `recommendedStreamPullWindowSize` + default > 1 | medium | low | ✅ **shipped** (default `1→8`, env `AGENT_STREAM_PULL_WINDOW_RECOMMENDED`, `plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-6--recommendedstreampullwindowsize-default--1) | medir p95 RTT × rows | Nao |
+| 7 | Extension `clientRequestIdEcho: "v1"` (Opcao A do item 3) | low-medium | medium | proposed (no active gate) | adocao do fast-path em prod com `body_id_echo_overhead_avg_ms > 0.5 ms` ou requirement externo (ver [`ADR 0009`](../adrs/0009-client-request-id-echo.md) "Reabertura") | Sim — ver [`ADR 0009`](../adrs/0009-client-request-id-echo.md) e [01_relay_body_id_echo.md](01_relay_body_id_echo.md) |
+| 8 | Bug `prepareForSend` reescreve `meta.request_id` (so importa se item 7 for shipar) | low | trivial | ✅ **shipped preventivamente** (`plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-8--bug-preventivo-prepareforsend) | item 7 entrar em planning | Nao |
+| 9 | Pre-warm de schema validators / JSON schemas no `agent:ready` | low | medium | ✅ **shipped** (`TransportSchemaLoader.loadAll()._warmupHotSchemas`, `plug_agente` working tree 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-9--pre-warm-de-schema-validators) | medir cold-start latency primeira request | Nao |
+| 10 | Compressao brotli (negociar `br` em `compressions`) | low | high | proposed (no active gate) | medir bytes-on-wire em prod; sem evidencia de banda como gargalo no Colmeia hoje | Sim — adicionar `br` nas `HUB_TRANSPORT_COMPRESSIONS` |
 
 > **Como mover de coluna**: quando o time do agente abrir issue ou PR,
 > mudar para `discussing` ou `in-progress` com link. Quando shippar,
-> mudar para `shipped` com link para o PR/release. Quando rejeitado por
-> nova evidencia, mover para a secao "Itens explicitamente recusados" no
-> final do documento.
+> mudar para `shipped (<repo> <ref> <date>)` com link para o PR/release
+> e atualizar tambem
+> [`04_agent_implementation_status.md`](04_agent_implementation_status.md).
+> Quando rejeitado por nova evidencia, mover para a secao "Itens
+> explicitamente recusados" no final do documento.
+>
+> **`proposed (no active gate)`** significa: documentado como direcao
+> conhecida, mas nenhuma metrica em producao hoje justifica acionar.
+> Reabre quando o gate especifico (na coluna ao lado) virar verdadeiro.
 
 ---
 
@@ -136,6 +154,22 @@ Antes e depois da mudanca, capturar:
 Nenhum — esta e uma divergencia de defaults documentada (hub espera ack,
 agente nao envia). Pode entrar como bugfix.
 
+### Status no `plug_agente` — shipped (2026-05-28)
+
+Aplicado conforme **Opcao A** (default flip, sem mudanca no hub).
+
+- `lib/core/config/feature_flags.dart` — `enableSocketDeliveryGuarantees`
+  default `?? false` -> `?? true`. `resetToDefaults()` tambem reescrito
+  para `true`.
+- Cobertura: novo teste `enforces socket delivery guarantees (ack/retry)
+  by default` em `test/core/config/feature_flags_test.dart` valida o
+  default, o setter e o reset.
+- Operadores que precisem desligar o ack continuam podendo via
+  `FeatureFlags` UI / SharedPreferences key.
+
+Ver `../plug_agente/CHANGELOG.md` em `## Unreleased > ### Changed`
+("Defaulted `enableSocketDeliveryGuarantees` to `true`...").
+
 ---
 
 ## 2. 🚨 Reavaliar `enableSocketStreamingChunks=false` por defeito
@@ -199,6 +233,33 @@ Em produccao, monitorar:
 
 Confirmar que o consumer (Colmeia) ja consome chunks. Pelo
 `socket_channel_performance_review.md` da Colmeia, eles ja consomem.
+
+### Status no `plug_agente` — shipped (2026-05-28)
+
+Aplicado.
+
+- `lib/core/config/feature_flags.dart` — `enableSocketStreamingChunks`
+  default `?? false` -> `?? true`. `resetToDefaults()` tambem reescrito
+  para `true`.
+- Streaming continua **gated** por
+  `negotiatedExtensions['streamingResults'] == true` em
+  `RpcInboundHandler._shouldCreateStreamEmitter()` e pelo
+  `HUB_STREAMING_ROW_THRESHOLD` do hub. Resultados pequenos seguem como
+  `rpc:response` unico — nada quebra para deployments que nao anunciam
+  `streamingResults`.
+- Cobertura: teste `enables DB streaming and ordered chunk streaming by
+  default` em `test/core/config/feature_flags_test.dart` substitui o
+  antigo `... when socket chunking is enabled separately` (que assumia
+  default `false`).
+- `enableSocketBackpressure` continua **off** por default
+  (esta e a flag que ativa `rpc:stream.pull` / janela de credits no
+  consumo). Para LANs onde o agente entrega tao rapido quanto o hub
+  consome, `streaming_chunks=true` + `backpressure=false` ja resolve. Em
+  cenarios mobile / fan-out, ligar `backpressure=true` separadamente.
+
+Ver `../plug_agente/CHANGELOG.md` em `## Unreleased > ### Changed`
+("Defaulted `enableSocketStreamingChunks` to `true`...") e
+`../plug_agente/.env.example` secao "Streaming chunks + backpressure".
 
 ---
 
@@ -268,6 +329,39 @@ Cap de `maxAckCoalesceBatch` deve respeitar `HUB_MAX_BATCH_SIZE` (32).
 Medir o volume atual de `rpc:request_ack` apos item 1 entrar. Se
 estiver < 100 acks/segundo em pico, o ganho e marginal. Acima disso,
 vale.
+
+### Status no `plug_agente` — shipped (2026-05-28)
+
+Aplicado essencialmente como o pseudocodigo da secao "Solucao" acima,
+com pequenos ajustes:
+
+- `lib/core/constants/connection_constants.dart`:
+  - `rpcAckCoalesceFlushInterval = Duration(milliseconds: 5)`
+  - `rpcAckCoalesceMaxBatch = 32` (espelha `HUB_MAX_BATCH_SIZE`)
+- `lib/infrastructure/external_services/transport/rpc_inbound_handler.dart`:
+  - Buffer `_pendingAckIds` + `_ackFlushTimer`. `_emitRequestAck`
+    inline removido — substituido por `_scheduleAck()` chamado a partir
+    do mesmo ponto do `handleRequest` (apos parse, antes do dispatch).
+  - `_flushPendingAcks()` emite `rpc:request_ack` quando `len == 1`,
+    `rpc:batch_ack` quando `len > 1` (preserva o wire shape canonico
+    legado para requests isolados).
+  - Novo `resetAckBuffer()` chamado por
+    `socket_io_transport_client_v2.dart::_closeSocket()` para evitar
+    Timer leak entre conexoes (handler e `late final`, reusado entre
+    reconnects).
+- Cobertura: 4 novos testes em
+  `test/infrastructure/external_services/transport/rpc_inbound_handler_test.dart`
+  (`group('rpc:request_ack coalescing (B2)')`):
+  - emit unico para 1 request,
+  - coalesce em `rpc:batch_ack` para burst de 3,
+  - silence quando `enableSocketDeliveryGuarantees=false`,
+  - `resetAckBuffer` descarta sem emitir.
+- Compatibilidade hub: o `rpc_bridge_agent_inbound.ts::handleAgentBatchAck`
+  ja aceita `rpc:batch_ack` desde o batch JSON-RPC nativo; nenhuma
+  mudanca no hub.
+
+Ver `../plug_agente/CHANGELOG.md` em `## Unreleased > ### Changed`
+("Coalesced inbound `rpc:request_ack` emission...").
 
 ---
 
@@ -439,6 +533,32 @@ Trivial — uma constante.
 Capturar baseline com window=1 (atual). Comparar com window=8 em load
 test. Documentar no `agent_perf_guidance.md`.
 
+### Status no `plug_agente` — shipped (2026-05-28)
+
+Aplicado com env override.
+
+- `lib/core/constants/connection_constants.dart`:
+  - `defaultRecommendedStreamPullWindowSize = 8` (era hardcoded `1`
+    inline no capabilities builder).
+  - Getter `recommendedStreamPullWindowSize` le env
+    `AGENT_STREAM_PULL_WINDOW_RECOMMENDED` (`_positiveIntEnv` helper),
+    clamp em `[1..maxBackpressureChunkQueueSize]`.
+- `lib/domain/protocol/protocol_capabilities.dart` linha 68 passa a
+  consumir `ConnectionConstants.recommendedStreamPullWindowSize` em vez
+  do literal `1`.
+- `.env.example` documenta a env nova com guidance:
+  - LAN/cabeado: `8` (default) -> `32` se baseline justificar
+  - Mobile/cellular: manter em `4..8` para nao explodir RAM em
+    backpressure
+- Sem testes novos: nenhum teste assertava o valor literal anterior; o
+  comportamento muda apenas no que o agente anuncia ao hub durante o
+  handshake (`agent:capabilities.extensions.recommendedStreamPullWindowSize`).
+  O hub continua livre para clamp via seu proprio teto.
+
+Ver `../plug_agente/CHANGELOG.md` em `## Unreleased > ### Changed`
+("Raised the agent-advertised `recommendedStreamPullWindowSize`...") e
+`../plug_agente/.env.example` (`AGENT_STREAM_PULL_WINDOW_RECOMMENDED`).
+
 ---
 
 ## 7. Extension `clientRequestIdEcho: "v1"` (Opcao A)
@@ -485,6 +605,46 @@ recebe `response`). Refactor pequeno.
 
 Trivial — mas so faz diferenca depois do item 7.
 
+### Status no `plug_agente` — shipped (preventivo, 2026-05-28)
+
+Aplicado sem precisar expor `request` ao `prepareForSend`: como o
+`attachRequestTrace` ja propaga `request.meta.requestId` para
+`response.meta.requestId` *antes* da chamada a `prepareForSend` (fluxo
+do `RpcInboundHandler.handleRequest`), basta preservar o
+`request_id` que ja vem em `existingMeta`:
+
+```dart
+// lib/infrastructure/external_services/transport/rpc_response_preparer.dart
+final propagatedRequestId = existingMeta['request_id'] as String?;
+json = <String, dynamic>{
+  // ...
+  'meta': <String, dynamic>{
+    ...existingMeta,
+    'agent_id': _agentIdProvider(),
+    'request_id': propagatedRequestId ?? response.id?.toString(),
+    'timestamp': DateTime.now().toUtc().toIso8601String(),
+  },
+};
+```
+
+- Comportamento atual nao muda: hoje
+  `existingMeta['request_id'] == response.id == hub_uuid`, entao o valor
+  emitido continua sendo o `hub_uuid`.
+- Quando o item 7 (Opcao A do `01_relay_body_id_echo.md`) shipar,
+  `response.id` passara a carregar o `client_request_id` enquanto
+  `meta.request_id` permanece `hub_uuid` — sem precisar de outra
+  refatoracao no preparer.
+- Cobertura: novo teste `preserves propagated meta.request_id when it
+  differs from response.id` em
+  `test/infrastructure/external_services/transport/rpc_response_preparer_test.dart`
+  monta uma `RpcResponse` com `id=client-req-42` e
+  `meta=RpcProtocolMeta(requestId='hub-uuid-1')` e valida que
+  `prepareForSend` preserva `meta.request_id='hub-uuid-1'`.
+
+Ver `../plug_agente/CHANGELOG.md` em `## Unreleased > ### Changed`
+("`RpcResponsePreparer.prepareForSend` now preserves a propagated
+`meta.request_id`...").
+
 ---
 
 ## 9. Pre-warm de schema validators / JSON schemas no `agent:ready`
@@ -525,6 +685,43 @@ expor um `precompileAll`.
 Medir `time_to_first_response_ms` apos reconnect em painel da Colmeia.
 Se p99 > 500 ms, vale. Se < 200 ms, baixa prioridade.
 
+### Status no `plug_agente` — shipped (2026-05-28)
+
+Aplicado de forma minima e pragmatica. **Atencao**: a hipotese da
+"Solucao" original — "schemas sao carregados lazily na primeira
+validacao" — nao se confirmou ao auditar o codigo:
+`lib/core/di/service_locator.dart` linhas 592-594 ja chama
+`await transportSchemaLoader.loadAll()` no boot, e `loadAll()` chama
+`JsonSchema.create(...)` para todos os ids em `TransportSchemaIds.all`
+imediatamente. O custo de compile ja era pago no boot, nao na primeira
+request.
+
+O que faltava era pagar tambem o custo de **primeira invocacao** de
+`schema.validate(...)` (inline cache / setup interno do `json_schema`).
+
+- `lib/infrastructure/validation/schema_loader.dart`:
+  - Novo `_warmupHotSchemas()` chamado no fim de `_loadAllInternal()`.
+  - Roda `schema.validate(<>)` (sentinel vazio) contra os schemas hot
+    path (`payload-frame`, `rpc.request`, `rpc.response`, `rpc.error`,
+    batch request/response). Try/catch silencioso — failures de schema
+    para payload vazio sao esperadas e descartadas; o objetivo e exercer
+    o caminho `validate(...)`.
+  - Nenhum reflexo no `agent:ready`/`app_initializer.dart`: como
+    `service_locator` ja roda no boot, mover o warmup para dentro do
+    proprio `loadAll()` deixa o efeito claro e nao depende de hooks de
+    apresentacao.
+- Sem testes novos especificos — testes de integracao de validacao
+  (`test/infrastructure/validation/`) ja exercitam o caminho
+  pos-warmup; uma regressao quebraria `loadAll()`.
+
+> **Nota para o hub.** Se em algum momento o hub passar a depender de
+> `agent:ready` para algum sinal de prontidao adicional, o warmup ja
+> esta concluido bem antes do socket conectar.
+
+Ver `../plug_agente/CHANGELOG.md` em `## Unreleased > ### Changed`
+("`TransportSchemaLoader.loadAll()` now exercises a sentinel
+`validate(...)` call...").
+
 ---
 
 ## 10. Compressao brotli (negociar `br` em `compressions`)
@@ -556,6 +753,31 @@ metric.
 Capturar baseline de **bytes-on-wire por request** em producao. Se o
 volume de banda nao for problema (caso comum em LAN), nao vale o
 esforco. Se for (mobile, fan-out massivo), reabrir.
+
+---
+
+## Itens deferidos nesta onda (2026-05-28)
+
+Para evitar leitura repetida do contexto, esta secao consolida os motivos
+documentados na propria pagina:
+
+- **Item 4 (`meta.agent_phases`)** e **Item 5 (`agent.getHealth`
+  piggyback)**: ambos requerem schema novo e merge no
+  `BridgeLatencyTraceSession` / `agentRegistry` do hub. A propria secao
+  "Onde discutir" recomenda **ADR no `plug_server/docs/adrs/` antes do
+  codigo no agente**. Sem o hub aceitar o campo, qualquer envio do
+  agente vira ruido. Status continua `proposed` ate ADR pendente
+  resolver.
+- **Item 7 (`clientRequestIdEcho` Opcao A)**: explicitamente gated por
+  `plug_socket_relay_body_id_echo_total > 1 K/s` em producao OU
+  requirement externo de observabilidade end-to-end por
+  `client_request_id`. Status continua `proposed`. O item 8 (preventivo)
+  ja foi shippado no agente, ou seja, quando o gate disparar, o trabalho
+  remanescente fica restrito a `_emitRequestAck`,
+  `_emitBatchRequestAck` e `RpcRequestGuard.evaluate`.
+- **Item 10 (brotli)**: esforco "high" + nova dependencia em Dart, gated
+  por baseline de bytes-on-wire. Sem evidencia ainda; status continua
+  `proposed`.
 
 ---
 

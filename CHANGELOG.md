@@ -134,6 +134,37 @@ Complementos ao fix do fast-path:
   da pasta). Todos os comentarios em codigo, testes, CHANGELOG e docs
   atualizados.
 
+### Added (cross-repo sync — entrega `plug_agente` 2026-05-28)
+
+Audit do working tree do `plug_agente` confirmou que **6 dos 10 itens**
+do roadmap `docs/plug_agente/03_performance_roadmap.md` foram
+implementados em uma unica onda (uncommitted no momento do audit):
+itens **1** (`enableSocketDeliveryGuarantees=true`), **2**
+(`enableSocketStreamingChunks=true`), **3** (coalescing de
+`rpc:request_ack` em `rpc:batch_ack`), **6**
+(`recommendedStreamPullWindowSize 1->8` + env
+`AGENT_STREAM_PULL_WINDOW_RECOMMENDED`), **8** (fix preventivo no
+`prepareForSend` preservando `meta.request_id`) e **9** (pre-warm de
+schema validators em `TransportSchemaLoader.loadAll()`).
+
+Itens **4** (`meta.agent_phases`), **5** (`agent.getHealth` piggyback),
+**7** (`clientRequestIdEcho`) e **10** (brotli) continuam `proposed
+(no active gate)` aguardando baseline / ADR / requirement externo.
+
+Mudancas no hub:
+
+- Nova pagina
+  [`docs/plug_agente/04_agent_implementation_status.md`](docs/plug_agente/04_agent_implementation_status.md)
+  consolida o relatorio do audit: arquivos tocados no `plug_agente`,
+  testes adicionados, instrucoes de validacao em prod, e acoes
+  pendentes (commit / push / release / monitoramento de metricas).
+- [`docs/plug_agente/03_performance_roadmap.md`](docs/plug_agente/03_performance_roadmap.md)
+  atualizado com coluna `Status` reformatada e refs precisas para o
+  `04`. Itens nao entregues agora marcados `proposed (no active gate)`
+  com gate explicito.
+- [`docs/plug_agente/README.md`](docs/plug_agente/README.md) ganhou um
+  5o passo no guia de leitura linkando para o `04`.
+
 **Tests:**
 
 - [`tests/unit/presentation/socket/hub/rpc_bridge_agent_inbound.test.ts`](tests/unit/presentation/socket/hub/rpc_bridge_agent_inbound.test.ts)
