@@ -1,3 +1,4 @@
+import type { ServerTimingsEnvelope } from "../../../application/services/server_timings_envelope";
 import { env } from "../../../shared/config/env";
 import type { PayloadFrameCompressionPreference } from "../../../shared/utils/payload_frame";
 import {
@@ -43,6 +44,12 @@ export type AgentsCommandResponsePayload =
       response: unknown;
       streamId?: string;
       retryAfterSeconds?: number;
+      /**
+       * Opt-in per-phase latency snapshot. Present only when the consumer
+       * sent `requestServerTimings: true` on the request body. See
+       * `application/services/server_timings_envelope.ts`.
+       */
+      serverTimings?: ServerTimingsEnvelope;
     }
   | {
       success: false;
@@ -53,6 +60,8 @@ export type AgentsCommandResponsePayload =
         statusCode?: number;
         retryAfterMs?: number;
       };
+      /** Opt-in per-phase latency snapshot — emitted on failure when available. */
+      serverTimings?: ServerTimingsEnvelope;
     };
 
 export type DecodeAgentsCommandInboundResult =

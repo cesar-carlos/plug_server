@@ -167,5 +167,92 @@ describe("agents.controller", () => {
       );
       expect(response.status).toHaveBeenCalledWith(200);
     });
+
+    describe("requestServerTimings opt-in", () => {
+      const buildResponseDouble = (): Response => {
+        return {
+          locals: {
+            authUser: { sub: "user-1", role: "user" },
+            validated: {
+              body: {
+                agentId: "agent-a",
+                command: { jsonrpc: "2.0", method: "ping", id: "1" },
+                requestServerTimings: true,
+              },
+            },
+          },
+          writableEnded: false,
+          on: vi.fn(),
+          off: vi.fn(),
+          once: vi.fn(),
+          setHeader: vi.fn(),
+          status: vi.fn().mockReturnThis(),
+          json: vi.fn(),
+        } as unknown as Response;
+      };
+
+      it("includes serverTimings on the REST success response when consumer opted in", async () => {
+        const dispatch = vi.fn();
+        mockGetDispatchCommand.mockReturnValue(dispatch);
+        mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+          requestId: "req-1",
+          response: { ok: true },
+        });
+
+        const response = buildResponseDouble();
+        await proxyCommandToAgent({} as never, response, vi.fn());
+
+        const lastJsonCall = vi.mocked(response.json).mock.calls.at(-1)?.[0] as Record<
+          string,
+          unknown
+        > | undefined;
+        expect(lastJsonCall).toBeDefined();
+        expect(lastJsonCall).toMatchObject({
+          mode: "bridge",
+          requestId: "req-1",
+          response: { ok: true },
+          serverTimings: {
+            schemaVersion: 1,
+            phasesMs: expect.any(Object),
+          },
+        });
+      });
+
+      it("does not include serverTimings on the REST success response when consumer opted out", async () => {
+        const dispatch = vi.fn();
+        mockGetDispatchCommand.mockReturnValue(dispatch);
+        mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+          requestId: "req-1",
+          response: { ok: true },
+        });
+
+        const response = {
+          locals: {
+            authUser: { sub: "user-1", role: "user" },
+            validated: {
+              body: {
+                agentId: "agent-a",
+                command: { jsonrpc: "2.0", method: "ping", id: "1" },
+              },
+            },
+          },
+          writableEnded: false,
+          on: vi.fn(),
+          off: vi.fn(),
+          once: vi.fn(),
+          setHeader: vi.fn(),
+          status: vi.fn().mockReturnThis(),
+          json: vi.fn(),
+        } as unknown as Response;
+        await proxyCommandToAgent({} as never, response, vi.fn());
+
+        const lastJsonCall = vi.mocked(response.json).mock.calls.at(-1)?.[0] as Record<
+          string,
+          unknown
+        > | undefined;
+        expect(lastJsonCall).toBeDefined();
+        expect(lastJsonCall).not.toHaveProperty("serverTimings");
+      });
+    });
   });
 });

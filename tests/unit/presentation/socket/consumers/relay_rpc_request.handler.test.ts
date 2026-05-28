@@ -2,6 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../../../src/application/services/bridge_latency_trace_builder", () => ({
   createBridgeLatencyTraceIfSampled: vi.fn(() => null),
+  createBridgeLatencyTraceForRequest: vi.fn(() => null),
+}));
+
+vi.mock("../../../../../src/shared/metrics/socket_consumer.metrics", () => ({
+  noteSocketErrorRetryAfterMsPropagated: vi.fn(),
+  noteRelayFastPathRequested: vi.fn(),
+  noteRelayFastPathHonored: vi.fn(),
+  noteRelayFastPathFallbackDedup: vi.fn(),
+  noteRelayFastPathFallbackError: vi.fn(),
+  noteServerTimingsOptIn: vi.fn(),
 }));
 
 vi.mock("../../../../../src/application/services/socket_audit.service", () => ({
@@ -52,6 +62,13 @@ import {
 } from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
+import {
+  noteRelayFastPathFallbackDedup,
+  noteRelayFastPathFallbackError,
+  noteRelayFastPathHonored,
+  noteRelayFastPathRequested,
+  noteServerTimingsOptIn,
+} from "../../../../../src/shared/metrics/socket_consumer.metrics";
 
 const mockedDispatchRelayRpcToAgent = vi.mocked(dispatchRelayRpcToAgent);
 const mockedFindConversation = vi.mocked(conversationRegistry.findInternalByConversationId);
@@ -310,5 +327,230 @@ describe("handleRelayRpcRequest", () => {
 
     expect(abortPendingConsumerCommands("consumer-1")).toBe(1);
     expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  describe("fast-path opt-in", () => {
+    it("accepts `fastPath: true` on the envelope schema", () => {
+      const result = parseRelayRpcRequestEnvelope({
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.fastPath).toBe(true);
+      }
+    });
+
+    it("forwards the `fastPath` flag to dispatchRelayRpcToAgent", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockResolvedValue({
+        requestId: "req-1",
+        clientRequestId: "client-req-1",
+        fastPath: true,
+      });
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+
+      await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+      expect(mockedDispatchRelayRpcToAgent.mock.calls[0]?.[0]).toMatchObject({
+        fastPath: true,
+      });
+    });
+
+    it("skips relay:rpc.accepted when fast-path is honored on the non-dedup happy path", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockResolvedValue({
+        requestId: "req-1",
+        clientRequestId: "client-req-1",
+        fastPath: true,
+      });
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+
+      await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+      // No `accepted` emit on the fast-path happy case.
+      expect(socket.emit).not.toHaveBeenCalledWith(
+        socketEvents.relayRpcAccepted,
+        expect.anything(),
+      );
+    });
+
+    it("falls back to emitting relay:rpc.accepted when the request was deduplicated", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockResolvedValue({
+        requestId: "req-original",
+        clientRequestId: "client-req-1",
+        deduplicated: true,
+        replayed: true,
+        fastPath: true,
+      });
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+
+      await vi.waitFor(() => {
+        expect(socket.emit).toHaveBeenCalledWith(
+          socketEvents.relayRpcAccepted,
+          expect.objectContaining({
+            success: true,
+            deduplicated: true,
+            replayed: true,
+          }),
+        );
+      });
+    });
+
+    it("still emits relay:rpc.accepted on errors so the consumer is not left hanging", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockRejectedValue(
+        new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 }),
+      );
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+
+      await vi.waitFor(() => {
+        expect(socket.emit).toHaveBeenCalledWith(
+          socketEvents.relayRpcAccepted,
+          expect.objectContaining({
+            success: false,
+            error: expect.objectContaining({ code: "NOT_FOUND", statusCode: 404 }),
+          }),
+        );
+      });
+    });
+  });
+
+  describe("requestServerTimings opt-in", () => {
+    it("accepts `requestServerTimings: true` on the envelope schema", () => {
+      const result = parseRelayRpcRequestEnvelope({
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        requestServerTimings: true,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.requestServerTimings).toBe(true);
+      }
+    });
+
+    it("forwards the `requestServerTimings` flag to dispatchRelayRpcToAgent", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockResolvedValue({
+        requestId: "req-1",
+        clientRequestId: "client-req-1",
+      });
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        requestServerTimings: true,
+      });
+
+      await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+      expect(mockedDispatchRelayRpcToAgent.mock.calls[0]?.[0]).toMatchObject({
+        requestServerTimings: true,
+      });
+    });
+  });
+
+  describe("opt-in adoption metrics", () => {
+    beforeEach(() => {
+      vi.mocked(noteRelayFastPathRequested).mockClear();
+      vi.mocked(noteRelayFastPathHonored).mockClear();
+      vi.mocked(noteRelayFastPathFallbackDedup).mockClear();
+      vi.mocked(noteRelayFastPathFallbackError).mockClear();
+      vi.mocked(noteServerTimingsOptIn).mockClear();
+    });
+
+    it("increments fast-path requested + honored on the happy non-dedup path", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockResolvedValue({
+        requestId: "req-1",
+        clientRequestId: "client-req-1",
+        fastPath: true,
+      });
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+
+      await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+      expect(noteRelayFastPathRequested).toHaveBeenCalledTimes(1);
+      expect(noteRelayFastPathHonored).toHaveBeenCalledTimes(1);
+      expect(noteRelayFastPathFallbackDedup).not.toHaveBeenCalled();
+      expect(noteRelayFastPathFallbackError).not.toHaveBeenCalled();
+    });
+
+    it("increments fast-path fallback_dedup when the request was deduplicated", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockResolvedValue({
+        requestId: "req-original",
+        clientRequestId: "client-req-1",
+        deduplicated: true,
+        replayed: true,
+        fastPath: true,
+      });
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+
+      await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+      expect(noteRelayFastPathHonored).not.toHaveBeenCalled();
+      expect(noteRelayFastPathFallbackDedup).toHaveBeenCalledTimes(1);
+    });
+
+    it("increments fast-path fallback_error when dispatch rejects", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockRejectedValue(
+        new AppError("Conversation not found", { code: "NOT_FOUND", statusCode: 404 }),
+      );
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+
+      await vi.waitFor(() => expect(noteRelayFastPathFallbackError).toHaveBeenCalled());
+      expect(noteRelayFastPathFallbackError).toHaveBeenCalledTimes(1);
+    });
+
+    it("increments server timings opt-in when consumer set requestServerTimings", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockResolvedValue({
+        requestId: "req-1",
+        clientRequestId: "client-req-1",
+      });
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        requestServerTimings: true,
+      });
+
+      await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+      expect(noteServerTimingsOptIn).toHaveBeenCalledWith("relay");
+    });
   });
 });

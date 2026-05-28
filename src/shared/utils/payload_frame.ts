@@ -149,6 +149,17 @@ export interface PayloadFrameEnvelope {
 export interface DecodedPayloadFrame {
   readonly frame: PayloadFrameEnvelope;
   readonly data: unknown;
+  /**
+   * UTF-8 JSON bytes of the decompressed payload. Same content as
+   * `JSON.stringify(data)` for the same shape but **without** the cost of a
+   * re-stringify on the forwarder hot path — see `encodePayloadFrameFromBytes`.
+   *
+   * Callers that need to forward the payload **as-is** (no mutation of
+   * `data`) should prefer reading these bytes over re-encoding `data` because
+   * the bytes were already produced by the source's serializer and validated
+   * by `finalizeDecodedPayloadBytes` (size cap + inflation guard).
+   */
+  readonly decodedBytes: Buffer;
 }
 
 const toBufferFromReadonlyNumberArray = (payload: readonly number[]): Buffer | null => {
@@ -571,6 +582,44 @@ export const preencodePayloadFrameJson = (
   return preencodeUtf8Buffer(encoded, opts);
 };
 
+/**
+ * Re-wrap **already-encoded UTF-8 JSON bytes** (typically obtained via
+ * {@link DecodedPayloadFrame.decodedBytes}) into a fresh `PayloadFrame`
+ * envelope **without** going through `JSON.stringify` again.
+ *
+ * Used by the relay forwarder hot path (`rpc_bridge_agent_inbound.ts`) when an
+ * agent's response/chunk is forwarded to a consumer without mutation of the
+ * JSON-RPC body. Saves one parse + one stringify per forwarded frame, which
+ * matters on streaming flows where chunks dominate volume.
+ *
+ * The caller is responsible for ensuring `bytes` is valid UTF-8 JSON; the
+ * resulting envelope still carries the signature/cmp/originalSize fields
+ * derived by the encoder, and the consumer's PayloadFrame decoder will catch
+ * any corruption via its existing size + inflation guards.
+ */
+export const encodePayloadFrameFromBytes = (
+  bytes: Buffer,
+  options?: EncodePayloadFrameOptions,
+): PayloadFrameEnvelope => {
+  const compressionThreshold = effectiveEncodeCompressionThreshold(
+    options?.compressionThreshold,
+    bytes.length,
+  );
+  const body = preencodeUtf8Buffer(bytes, {
+    compressionThreshold,
+    ...(options?.compressionPolicy !== undefined
+      ? { compressionPolicy: options.compressionPolicy }
+      : {}),
+    ...(options?.maxInflationRatio !== undefined
+      ? { maxInflationRatio: options.maxInflationRatio }
+      : {}),
+    ...(options?.maxGzipInputBytes !== undefined
+      ? { maxGzipInputBytes: options.maxGzipInputBytes }
+      : {}),
+  });
+  return finishPayloadFrameEnvelope(body, options);
+};
+
 export const finishPayloadFrameEnvelope = (
   body: PreencodedPayloadFrameBody,
   options?: {
@@ -775,6 +824,7 @@ const finalizeDecodedPayloadBytes = (
     return ok({
       frame: normalizedEnvelope,
       data: decoded,
+      decodedBytes,
     });
   } catch {
     return err(badRequest("Failed to decode PayloadFrame JSON payload"));

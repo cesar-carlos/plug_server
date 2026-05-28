@@ -14,6 +14,21 @@ export interface RelayRequestRoute {
   readonly clientRequestId?: string;
   readonly latencyTrace?: BridgeLatencyTraceSession;
   readonly releaseAgentDispatchSlot?: () => void;
+  /**
+   * When `true`, the hub injects `meta.serverTimings` into the outbound
+   * `relay:rpc.response` payload — see `relay_rpc_request.handler.ts` and
+   * `rpc_bridge_agent_inbound.ts`. Opt-in to keep response size unchanged for
+   * consumers that do not consume timings.
+   */
+  readonly requestServerTimings?: boolean;
+  /**
+   * When `true`, the consumer asked for the unary fast-path: the hub does NOT
+   * emit `relay:rpc.accepted` for this request, and `deduplicated` / `replayed`
+   * / `inFlight` state is signalled on `relay:rpc.response` instead. Streaming
+   * RPCs are forbidden when this flag is set — see
+   * `docs/socket_relay_protocol.md` ("Relay unary fast-path").
+   */
+  readonly fastPath?: boolean;
   acked?: boolean | undefined;
   ackRetryTimer?: NodeJS.Timeout | undefined;
   ackRetriesAttempted?: number | undefined;

@@ -32,6 +32,72 @@ const retryAfter = {
   agentsCommandRetryAfterSecondsTotal: 0,
 };
 
+/**
+ * Adoption / efficacy counters for the relay opt-ins shipped in the
+ * "Socket performance v2" workstream. See:
+ *
+ * - `docs/socket_relay_protocol.md` ("Relay unary fast-path")
+ * - `docs/socket_relay_protocol.md` ("Server-side phase diagnostics")
+ * - `docs/api_rest_bridge.md` ("Server-side phase diagnostics")
+ *
+ * Counters are cumulative per process. Use `rate()` in Prometheus to derive
+ * the in-window adoption percentage:
+ *
+ *   rate(plug_socket_relay_fast_path_total{outcome="honored"}[5m])
+ *     / sum without (outcome) (rate(plug_socket_relay_fast_path_total[5m]))
+ */
+const relayOptInsCounters = {
+  /** Counter: incremented when the consumer set `fastPath: true` on `relay:rpc.request`. */
+  fastPathRequestedTotal: 0,
+  /** Counter: incremented when the hub honored fast-path (no `relay:rpc.accepted` emitted). */
+  fastPathHonoredTotal: 0,
+  /** Counter: incremented when fast-path fell back to emit `relay:rpc.accepted` due to dedup. */
+  fastPathFallbackDedupTotal: 0,
+  /** Counter: incremented when fast-path emitted `relay:rpc.accepted` because dispatch errored. */
+  fastPathFallbackErrorTotal: 0,
+  /**
+   * Counter: incremented when the hub forwarded a streaming `relay:rpc.response`
+   * (`stream_id` present) for a route that had `fastPath: true`. Useful to spot
+   * misuse (consumer set fast-path on a streaming-capable method).
+   */
+  fastPathStreamInadvertentTotal: 0,
+  /** Counter: incremented when the consumer set `requestServerTimings: true` on `relay:rpc.request`. */
+  serverTimingsRelayOptInTotal: 0,
+  /** Counter: incremented when the consumer set `requestServerTimings: true` on `agents:command` (Socket). */
+  serverTimingsAgentsCommandOptInTotal: 0,
+  /** Counter: incremented when the consumer set `requestServerTimings: true` on `POST /api/v1/agents/commands` (REST). */
+  serverTimingsRestOptInTotal: 0,
+  /** Counter: any `relay:rpc.request.batch` envelope received (after socket-level Zod). */
+  batchEnvelopesReceivedTotal: 0,
+  /** Counter: batch envelopes that fully passed validation + acquired inflight slots + got dispatched. */
+  batchEnvelopesAcceptedTotal: 0,
+  /** Histogram-ish: cumulative sum of items across all accepted batches (rate = avg batch size when divided by accepted). */
+  batchItemsAcceptedTotal: 0,
+  /** Counter: items in accepted batches that resolved as deduplicated against an inflight or cached request. */
+  batchItemsDedupedTotal: 0,
+  /** Counter: items in accepted batches that failed dispatch with an error. */
+  batchItemsErrorTotal: 0,
+  /** Counter: envelopes rejected, labelled by reason. */
+  batchEnvelopesRejectedTotal: {
+    disabled: 0,
+    not_found: 0,
+    frame_decode_failed: 0,
+    not_array: 0,
+    validation_failed: 0,
+    inflight_gate: 0,
+    envelope_error: 0,
+  } as Record<RelayBatchRejectReason, number>,
+};
+
+export type RelayBatchRejectReason =
+  | "disabled"
+  | "not_found"
+  | "frame_decode_failed"
+  | "not_array"
+  | "validation_failed"
+  | "inflight_gate"
+  | "envelope_error";
+
 const profilePush = {
   batchesTotal: 0,
   coalescedTotal: 0,
@@ -193,6 +259,61 @@ export const noteConsumerProfilePushCoalesced = (): void => {
 
 export const noteSocketErrorRetryAfterMsPropagated = (): void => {
   retryAfter.socketErrorRetryAfterMsTotal += 1;
+};
+
+export const noteRelayFastPathRequested = (): void => {
+  relayOptInsCounters.fastPathRequestedTotal += 1;
+};
+
+export const noteRelayFastPathHonored = (): void => {
+  relayOptInsCounters.fastPathHonoredTotal += 1;
+};
+
+export const noteRelayFastPathFallbackDedup = (): void => {
+  relayOptInsCounters.fastPathFallbackDedupTotal += 1;
+};
+
+export const noteRelayFastPathFallbackError = (): void => {
+  relayOptInsCounters.fastPathFallbackErrorTotal += 1;
+};
+
+export const noteRelayFastPathStreamInadvertent = (): void => {
+  relayOptInsCounters.fastPathStreamInadvertentTotal += 1;
+};
+
+export const noteRelayBatchEnvelopeReceived = (): void => {
+  relayOptInsCounters.batchEnvelopesReceivedTotal += 1;
+};
+
+export const noteRelayBatchAccepted = (input: {
+  readonly itemCount: number;
+  readonly dedupedCount: number;
+  readonly errorCount: number;
+}): void => {
+  relayOptInsCounters.batchEnvelopesAcceptedTotal += 1;
+  relayOptInsCounters.batchItemsAcceptedTotal += input.itemCount;
+  relayOptInsCounters.batchItemsDedupedTotal += input.dedupedCount;
+  relayOptInsCounters.batchItemsErrorTotal += input.errorCount;
+};
+
+export const noteRelayBatchRejected = (reason: RelayBatchRejectReason): void => {
+  relayOptInsCounters.batchEnvelopesRejectedTotal[reason] += 1;
+};
+
+export const noteServerTimingsOptIn = (
+  channel: "relay" | "agents_command" | "rest",
+): void => {
+  switch (channel) {
+    case "relay":
+      relayOptInsCounters.serverTimingsRelayOptInTotal += 1;
+      return;
+    case "agents_command":
+      relayOptInsCounters.serverTimingsAgentsCommandOptInTotal += 1;
+      return;
+    case "rest":
+      relayOptInsCounters.serverTimingsRestOptInTotal += 1;
+      return;
+  }
 };
 
 export const noteAgentsCommandRetryAfterSecondsPropagated = (): void => {
@@ -392,6 +513,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   };
   readonly commandAbort: typeof commandAbort;
   readonly retryAfter: typeof retryAfter;
+  readonly relayOptIns: typeof relayOptInsCounters;
   readonly customEvents: typeof customEvents;
   readonly consumerClientAgentRoomGrant: typeof consumerClientAgentRoomGrant;
   readonly consumerClientAgentRoomReconcile: typeof consumerClientAgentRoomReconcile;
@@ -431,6 +553,7 @@ export const getSocketConsumerMetricsSnapshot = (): {
   },
   commandAbort: { ...commandAbort },
   retryAfter: { ...retryAfter },
+  relayOptIns: { ...relayOptInsCounters },
   customEvents: { ...customEvents },
   consumerClientAgentRoomGrant: { ...consumerClientAgentRoomGrant },
   consumerClientAgentRoomReconcile: { ...consumerClientAgentRoomReconcile },
@@ -492,6 +615,24 @@ export const resetSocketConsumerMetrics = (): void => {
   commandAbort.abortedCommandsTotal = 0;
   retryAfter.socketErrorRetryAfterMsTotal = 0;
   retryAfter.agentsCommandRetryAfterSecondsTotal = 0;
+  relayOptInsCounters.fastPathRequestedTotal = 0;
+  relayOptInsCounters.fastPathHonoredTotal = 0;
+  relayOptInsCounters.fastPathFallbackDedupTotal = 0;
+  relayOptInsCounters.fastPathFallbackErrorTotal = 0;
+  relayOptInsCounters.fastPathStreamInadvertentTotal = 0;
+  relayOptInsCounters.serverTimingsRelayOptInTotal = 0;
+  relayOptInsCounters.serverTimingsAgentsCommandOptInTotal = 0;
+  relayOptInsCounters.serverTimingsRestOptInTotal = 0;
+  relayOptInsCounters.batchEnvelopesReceivedTotal = 0;
+  relayOptInsCounters.batchEnvelopesAcceptedTotal = 0;
+  relayOptInsCounters.batchItemsAcceptedTotal = 0;
+  relayOptInsCounters.batchItemsDedupedTotal = 0;
+  relayOptInsCounters.batchItemsErrorTotal = 0;
+  for (const reason of Object.keys(
+    relayOptInsCounters.batchEnvelopesRejectedTotal,
+  ) as RelayBatchRejectReason[]) {
+    relayOptInsCounters.batchEnvelopesRejectedTotal[reason] = 0;
+  }
   profilePush.batchesTotal = 0;
   profilePush.coalescedTotal = 0;
   profilePush.fanoutTotal = 0;

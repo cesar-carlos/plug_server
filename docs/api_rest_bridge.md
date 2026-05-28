@@ -258,6 +258,7 @@ Os schemas em `src/presentation/docs/swagger.ts` (componentes em `src/presentati
 | `timeoutMs`               | number                                | nao         | 1..360000         | Espera do bridge (`computeBridgeWaitTimeoutMs`): `max` entre o valor do body (ou default **15000** ms) e, para `sql.execute` / `sql.executeBatch`, o maior `options.timeout_ms` do comando + **5000** ms; teto **360000** ms (`AGENT_TIMEOUT_MS_LIMIT` + **60000** ms; ver `command_transformers.ts`)                                                                                                                                                                                                                             |
 | `pagination`              | object                                | nao         | regras combinadas | Paginacao injetada em `command.params.options`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `payloadFrameCompression` | `"default"` \| `"none"` \| `"always"` | nao         | —                 | Politica de gzip do **PayloadFrame** que o hub emite no `rpc:request` para o agente (alinhado a `socket_communication_standard.md` / `socketio_client_binary_transport.md` do plug_agente). `default`: limiar 4096 bytes, modo **automatico** — gzip so se o bloco comprimido for **menor** que o JSON UTF-8 bruto e nao exceder a razao maxima de inflacao negociada; caso contrario `cmp: none`. `none`: nunca gzip. `always`: modo **sempre GZIP** — prefere gzip sempre que o payload couber no limite de entrada, mesmo se nao reduzir tamanho, mas cai para `cmp: none` quando o frame violaria a razao maxima de inflacao. Nao altera respostas do agente. |
+| `requestServerTimings`    | boolean                               | nao         | —                 | Opt-in para fases de latencia por request. Quando `true`, o hub anexa `serverTimings: { schemaVersion, phasesMs }` no envelope de resposta — ver "Server-side phase diagnostics" abaixo. Aplicavel ao **canal Socket `agents:command`**; o REST equivalente esta no roadmap. Forca a sessao de trace mesmo com `BRIDGE_LATENCY_TRACE_ENABLED=false`; persistencia em DB continua amostrada.                                                                                                                                                                                                                                                              |
 
 ### `command` (discriminated union por `method`)
 
@@ -491,6 +492,36 @@ Regras:
 
 **Canal Socket (`agents:command` no `/consumers`):** as mesmas regras de correlacao e de notifications aplicam-se ao comando validado; em vez de HTTP 202, o hub responde com `agents:command_response` em que `response.type === "notification"`, `accepted: true` e `acceptedCommands` igual ao numero de comandos aceites (fire-and-forget). Batch misto (`id: null` + itens com `id`) continua a aguardar `rpc:response` so para os ids correlacionados; o corpo normalizado `response.type === "batch"` pode ter **menos** itens do que o pedido (so entram respostas com `id` nao-nulo no payload do agente).
 
+### Limite de um `agentId` por envelope (REST e Socket)
+
+Tanto a rota REST quanto o evento Socket `agents:command` aceitam **exatamente
+um** `agentId` por envelope. Quando `command` e um array (batch JSON-RPC
+nativo), **todos os itens sao despachados para o mesmo agente** declarado no
+`agentId` do envelope.
+
+Consequencias praticas para fan-out cross-agent:
+
+- Um `mergeAll` que precisa consultar N agentes diferentes **deve emitir N
+  envelopes** (REST: N POSTs; Socket: N `agents:command` events), um para
+  cada `agentId`.
+- Empacotar requests de varios agentes num unico `agents:command` com array
+  de comandos resulta em **todos** os comandos sendo enviados ao mesmo
+  agente declarado no envelope. Comandos cujo `id` o agente alvo nao
+  reconhece nao retornarao `rpc:response`, e o cliente vera o request
+  "preso" ate o timeout (15s por padrao). **Isto e um erro de uso, nao um
+  defeito do hub.**
+- O batch nativo so faz sentido quando todos os itens compartilham o mesmo
+  agente alvo (ex.: rodar 32 selects no mesmo agente numa unica viagem).
+- Clientes que coordenam batches via componente como
+  `AgentCommandBatchCoordinator` devem **agrupar por `agentId` antes** de
+  empacotar — nunca colocar comandos de agentes diferentes no mesmo
+  envelope.
+
+Para fan-out cross-agent eficiente, recomenda-se o canal **relay**
+(`relay:rpc.request`) que ja associa conversa ao `agentId` no
+`relay:conversation.start` e mantem correlacao por `conversationId`. O batch
+no relay esta no roadmap (ver `docs/adrs/0008-relay-batch-protocol.md`).
+
 ### Exemplo de batch JSON-RPC misto
 
 ```json
@@ -527,6 +558,64 @@ Regras:
   ]
 }
 ```
+
+---
+
+## Server-side phase diagnostics (`requestServerTimings`)
+
+Aplicavel ao canal **Socket `agents:command` no `/consumers`**. Quando o
+cliente envia `requestServerTimings: true` no body do `agents:command`, o hub
+anexa um snapshot de fases ao envelope de resposta `agents:command_response`:
+
+```json
+{
+  "success": true,
+  "requestId": "...",
+  "response": { /* corpo JSON-RPC normalizado */ },
+  "serverTimings": {
+    "schemaVersion": 1,
+    "phasesMs": {
+      "transform_ms": 0.42,
+      "queue_wait_ms": 0.01,
+      "dispatch_preflight_ms": 0.18,
+      "encode_ms": 0.86,
+      "emit_to_socket_ms": 0.06,
+      "agent_to_hub_ms": 142.2,
+      "inbound_decode_ms": 0.41,
+      "pending_resolve_ms": 0.18,
+      "normalize_ms": 0.05,
+      "response_write_ms": 0.04
+    }
+  }
+}
+```
+
+Em erro, `serverTimings` aparece como **sibling** do campo `error` na mesma
+posicao do envelope (`{ success: false, requestId?, error, serverTimings? }`).
+
+Regras do contrato:
+
+- Todos os valores em **milissegundos**, arredondados a 3 casas decimais.
+- `schemaVersion` espelha `BRIDGE_LATENCY_PHASES_SCHEMA_VERSION` no hub
+  (atualmente `1`). Consumers **devem** tolerar chaves desconhecidas em
+  `phasesMs` — novas fases podem ser adicionadas em versoes minor.
+- Custo por resposta: ~120 bytes. O opt-in evita inflar fan-out de alto
+  throughput que nao consome timings.
+- Forca a criacao da sessao de trace mesmo com
+  `BRIDGE_LATENCY_TRACE_ENABLED=false`. A persistencia em DB continua
+  respeitando a amostragem global (`BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT`).
+- **Seguranca:** apenas valores de tempo sao expostos. `trace_id`,
+  `agentSocketId`, identificadores de fila e qualquer outro campo de
+  topologia operacional nao aparecem no envelope.
+- Variante REST: a rota `POST /api/v1/agents/commands` ainda nao aceita o
+  flag — esta no roadmap. Quando aplicado, manter-se-a a mesma forma de
+  envelope (campo top-level `serverTimings`).
+
+Para o canal **relay** (`relay:rpc.request` no `/consumers`), o opt-in
+equivalente vive no envelope do request e injeta `meta.serverTimings` no
+JSON-RPC da resposta. Ver
+[`docs/socket_relay_protocol.md`](socket_relay_protocol.md) ("Server-side
+phase diagnostics").
 
 ---
 

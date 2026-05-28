@@ -176,7 +176,7 @@ export const createDispatchRpcCommandToAgent = (
         );
       }
       const clamped = clampCommandMaxRows(rawCommand, effectivePolicy.maxRows);
-      if (clamped.adjusted) {
+      if (clamped.adjusted && logger.isLevelEnabled("debug")) {
         logger.debug("bridge_command_max_rows_clamped", {
           agentId: input.agentId,
           maxRows: effectivePolicy.maxRows,

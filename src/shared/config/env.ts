@@ -1050,6 +1050,18 @@ const envSchema = z.object({
   /** Max time a relay RPC request waits for an agent dispatch slot before failing with retryAfterMs. */
   SOCKET_RELAY_AGENT_QUEUE_WAIT_MS: z.coerce.number().int().positive().default(200),
   /**
+   * Feature flag for the relay batch protocol (`relay:rpc.request.batch`). When
+   * `false` (default), the event is rejected with `RELAY_BATCH_DISABLED`. See
+   * `docs/adrs/0008-relay-batch-protocol.md` and the implementation in
+   * `src/presentation/socket/consumers/relay_rpc_request_batch.handler.ts`.
+   */
+  SOCKET_RELAY_BATCH_ENABLED: z.coerce.boolean().default(false),
+  /**
+   * Maximum number of JSON-RPC items in a single `relay:rpc.request.batch`
+   * envelope. Mirrors the REST/`agents:command` cap (`HUB_MAX_BATCH_SIZE`).
+   */
+  SOCKET_RELAY_BATCH_MAX_ITEMS: z.coerce.number().int().min(1).max(32).default(32),
+  /**
    * Credits granted per window for legacy `/consumers` `agents:stream_pull`.
    * `0` disables the credit limiter and preserves pre-credit-limit behavior.
    */
@@ -1730,6 +1742,8 @@ export const env = {
   socketRelayAgentMaxInflight: parsedEnv.SOCKET_RELAY_AGENT_MAX_INFLIGHT,
   socketRelayAgentMaxQueue: parsedEnv.SOCKET_RELAY_AGENT_MAX_QUEUE,
   socketRelayAgentQueueWaitMs: parsedEnv.SOCKET_RELAY_AGENT_QUEUE_WAIT_MS,
+  socketRelayBatchEnabled: parsedEnv.SOCKET_RELAY_BATCH_ENABLED,
+  socketRelayBatchMaxItems: parsedEnv.SOCKET_RELAY_BATCH_MAX_ITEMS,
   socketAgentsStreamPullRateLimitMaxCredits:
     parsedEnv.SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS,
   socketConnectionReadyCompatMode: parsedEnv.SOCKET_CONNECTION_READY_COMPAT_MODE,

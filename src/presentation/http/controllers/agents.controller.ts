@@ -1,7 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { executeAuthorizedAgentCommand } from "../../../application/agent_commands/execute_authorized_agent_command";
-import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
+import { createBridgeLatencyTraceForRequest } from "../../../application/services/bridge_latency_trace_builder";
+import { buildServerTimingsEnvelope } from "../../../application/services/server_timings_envelope";
+import { noteServerTimingsOptIn } from "../../../shared/metrics/socket_consumer.metrics";
 import {
   incrementRestBridgeRequest,
   incrementRestBridgeRequestFailed,
@@ -212,10 +214,18 @@ export const proxyCommandToAgent = async (
 
   incrementRestBridgeRequest();
 
-  const latencyTrace = createBridgeLatencyTraceIfSampled({
+  if (body.requestServerTimings === true) {
+    noteServerTimingsOptIn("rest");
+  }
+  // Force-active the trace when the consumer opted into `serverTimings`,
+  // even if the global sampling toggle is off; otherwise fall back to the
+  // sampled factory so production cost is unchanged for opt-out consumers.
+  const latencyTrace = createBridgeLatencyTraceForRequest({
     channel: "rest",
     userId: authUser.sub,
+    forceActive: body.requestServerTimings === true,
   });
+  const includeServerTimings = body.requestServerTimings === true && latencyTrace !== null;
 
   const startMs = Date.now();
   try {
@@ -251,6 +261,9 @@ export const proxyCommandToAgent = async (
         requestId: result.requestId,
         notification: true,
         acceptedCommands: result.acceptedCommands,
+        ...(includeServerTimings
+          ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
+          : {}),
       });
       latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWrite);
       latencyTrace?.finalizeOnce({ outcome: "notification", httpStatus: 202 });
@@ -276,6 +289,9 @@ export const proxyCommandToAgent = async (
       agentId: body.agentId,
       requestId: result.requestId,
       response: result.response,
+      ...(includeServerTimings
+        ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
+        : {}),
     });
     latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWriteOk);
     latencyTrace?.finalizeOnce({ outcome: "success", httpStatus: 200 });
@@ -307,6 +323,9 @@ export const proxyCommandToAgent = async (
         agentId: error.agentId,
         requestId,
         response: offlineRpcEnvelope,
+        ...(includeServerTimings
+          ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
+          : {}),
       });
       latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWriteOffline);
       latencyTrace?.finalizeOnce({ outcome: "success", httpStatus: 200 });

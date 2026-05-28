@@ -653,6 +653,15 @@ export const agentCommandBodySchema = z
      * unless the frame would exceed the negotiated inflation-ratio guard.
      */
     payloadFrameCompression: payloadFrameCompressionSchema.optional(),
+    /**
+     * Opt-in for `meta.serverTimings` on `agents:command_response`. When `true`,
+     * the hub attaches the per-phase latency snapshot collected for this
+     * request to the response envelope. See `docs/api_rest_bridge.md`
+     * ("Server-side phase diagnostics"). Costs roughly ~120 bytes per response,
+     * so the flag is opt-in to avoid inflating high-throughput consumers that
+     * do not consume timings.
+     */
+    requestServerTimings: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     if (!value.pagination) {

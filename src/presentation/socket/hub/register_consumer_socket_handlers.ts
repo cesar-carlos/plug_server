@@ -20,6 +20,10 @@ import {
   parseRelayRpcRequestEnvelope,
 } from "../consumers/relay_rpc_request.handler";
 import {
+  handleRelayRpcRequestBatch,
+  parseRelayRpcRequestBatchEnvelope,
+} from "../consumers/relay_rpc_request_batch.handler";
+import {
   handleRelayRpcStreamPull,
   parseRelayRpcStreamPullEnvelope,
 } from "../consumers/relay_rpc_stream_pull.handler";
@@ -345,6 +349,59 @@ export const registerConsumerSocketConnectionHandlers = ({
         handleRelayRpcRequest(socket, envelope.data);
       })().catch((error: unknown) => {
         logger.warn("relay_rpc_request_handler_failed", {
+          socketId: socket.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    });
+
+    // Batch variant — `relay:rpc.request.batch`. Gated by
+    // `SOCKET_RELAY_BATCH_ENABLED`. See `docs/adrs/0008-relay-batch-protocol.md`.
+    socket.on(socketEvents.relayRpcRequestBatch, (rawPayload: unknown) => {
+      void (async (): Promise<void> => {
+        const tOverload = performance.now();
+        const overload = getRelayOutboundQueueOverloadState();
+        observeRelayOverloadCheck(performance.now() - tOverload);
+        if (overload.overloaded) {
+          noteRelayOutboundQueueOverloadRejected();
+          socket.emit(socketEvents.relayRpcBatchAccepted, {
+            success: false,
+            error: buildConsumerOverloadError(
+              overload.retryAfterMs,
+              overload.reason ?? "relay_outbound_queue",
+            ),
+          });
+          return;
+        }
+
+        const envelope = parseRelayRpcRequestBatchEnvelope(rawPayload);
+        if (!envelope.success) {
+          socket.emit(socketEvents.relayRpcBatchAccepted, {
+            success: false,
+            error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
+          });
+          return;
+        }
+
+        // Per-item rate-limit accounting: tracking N items but consuming the
+        // single-envelope quota once. v1 keeps the single-envelope check;
+        // per-item refund happens inside the handler for deduplicated items.
+        const userSub = socket.data.user?.sub;
+        if (!(await allowRelayRpcRequestAsync(userSub, socket.id))) {
+          socket.emit(socketEvents.relayRpcBatchAccepted, {
+            success: false,
+            error: {
+              code: "RATE_LIMITED",
+              message: "Rate limit exceeded for relay:rpc.request.batch",
+              statusCode: 429,
+            },
+          });
+          return;
+        }
+
+        handleRelayRpcRequestBatch(socket, envelope.data);
+      })().catch((error: unknown) => {
+        logger.warn("relay_rpc_request_batch_handler_failed", {
           socketId: socket.id,
           message: error instanceof Error ? error.message : String(error),
         });

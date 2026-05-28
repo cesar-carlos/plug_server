@@ -101,6 +101,19 @@ export interface DispatchRelayRpcInput {
   readonly payloadFrameCompression?: PayloadFrameCompression;
   readonly latencyTrace?: BridgeLatencyTraceSession;
   readonly signal?: AbortSignal;
+  /**
+   * When `true`, consumer requested `meta.serverTimings` on
+   * `relay:rpc.response`. Persisted on the route so the inbound forwarder can
+   * inject the snapshot before encoding.
+   */
+  readonly requestServerTimings?: boolean;
+  /**
+   * When `true`, consumer requested the unary fast-path (skip
+   * `relay:rpc.accepted`). The hub MUST refuse the flag for streaming-capable
+   * methods to keep the window/credit handshake intact — enforced by the
+   * dispatcher itself.
+   */
+  readonly fastPath?: boolean;
 }
 
 export interface DispatchRelayRpcResult {
@@ -116,6 +129,12 @@ export interface DispatchRelayRpcResult {
    * request id. `replayed` will be `false` when `inFlight` is `true`.
    */
   readonly inFlight?: boolean;
+  /**
+   * Echoes the consumer's `fastPath` opt-in. When `true`, the handler MUST
+   * skip emitting `relay:rpc.accepted`; dedup state is signalled via
+   * `relay:rpc.response` instead.
+   */
+  readonly fastPath?: boolean;
 }
 
 export interface RequestRelayStreamPullInput {
@@ -413,6 +432,8 @@ export const createRpcBridgeRelayDispatch = (
       ...(clientRequestId !== null ? { clientRequestId } : {}),
       ...(trace ? { latencyTrace: trace } : {}),
       releaseAgentDispatchSlot,
+      ...(input.requestServerTimings === true ? { requestServerTimings: true } : {}),
+      ...(input.fastPath === true ? { fastPath: true } : {}),
       acked: false,
       ackRetriesAttempted: 0,
     };
@@ -563,6 +584,7 @@ export const createRpcBridgeRelayDispatch = (
     return {
       requestId,
       ...(clientRequestId !== null ? { clientRequestId } : {}),
+      ...(input.fastPath === true ? { fastPath: true } : {}),
     };
   };
 

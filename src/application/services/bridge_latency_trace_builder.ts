@@ -14,7 +14,37 @@ import {
   recordBridgeLatencyTracePersistSkipped,
 } from "./bridge_latency_trace.service";
 
+/**
+ * Schema version for the per-phase latency snapshot surfaced to consumers via
+ * `meta.serverTimings` (relay) and the sibling `serverTimings` field on
+ * `agents:command_response` / `POST /api/v1/agents/commands`.
+ *
+ * Versioning policy (also documented in `docs/socket_relay_protocol.md`):
+ *
+ * - **No bump** (`minor` evolution): adding **new** phase keys under
+ *   `phasesMs`. Consumers MUST tolerate unknown keys, so introducing new
+ *   timing buckets is non-breaking.
+ * - **Bump** (`major` evolution): renaming or removing keys, changing the
+ *   unit (currently ms), changing the rounding precision, or altering the
+ *   envelope shape (e.g. nesting `phasesMs` differently). Document the
+ *   migration in `docs/socket_relay_protocol.md` and consider a deprecation
+ *   window before removing the old key.
+ *
+ * Consumers SHOULD check `schemaVersion` and degrade gracefully (ignore
+ * `phasesMs`) on a major version they do not understand.
+ */
 export const BRIDGE_LATENCY_PHASES_SCHEMA_VERSION = 1;
+
+/**
+ * Defensive cap on the number of distinct phase keys retained per session.
+ * Today the hub only writes a small, fixed set of phase names; this guard
+ * exists so a future regression (eg. accidentally feeding user input into
+ * `addPhaseMs`) cannot inflate the snapshot unbounded. When the cap is hit,
+ * additional `addPhaseMs` calls overwrite existing keys but never insert
+ * new ones — making the cap O(1) without dropping live signal for known
+ * keys.
+ */
+const PHASES_MAP_MAX_KEYS = 64;
 
 export type BridgeLatencyChannel = "rest" | "consumer_socket" | "relay";
 
@@ -123,7 +153,28 @@ export class BridgeLatencyTraceSession {
     if (this.finalized) {
       return;
     }
+    const isNewKey = !Object.prototype.hasOwnProperty.call(this.phases, phase);
+    if (isNewKey && Object.keys(this.phases).length >= PHASES_MAP_MAX_KEYS) {
+      // Cap reached: refuse new keys but still accept updates to existing
+      // ones. See `PHASES_MAP_MAX_KEYS` for rationale.
+      return;
+    }
     this.phases[phase] = roundMs(ms);
+  }
+
+  /**
+   * Returns a defensive copy of the phase map collected so far. Intended for
+   * consumer-facing `meta.serverTimings` opt-in (see
+   * `docs/socket_relay_protocol.md` and `docs/api_rest_bridge.md`). Values are
+   * milliseconds with the same rounding as DB persistence.
+   *
+   * Keys are stable hub-internal phase names (`emit_to_socket_ms`,
+   * `consumer_frame_decode_ms`, `encode_ms`, etc.) — the contract is documented
+   * alongside the schema. New phases may be added at minor versions; consumers
+   * must tolerate unknown keys.
+   */
+  getPhasesSnapshot(): Record<string, number> {
+    return { ...this.phases };
   }
 
   markEmitComplete(emitMs: number, emitEndedAtPerf: number): void {
@@ -242,4 +293,22 @@ export const createBridgeLatencyTraceIfSampled = (input: {
     return null;
   }
   return new BridgeLatencyTraceSession(input.channel, input.userId);
+};
+
+/**
+ * Variant that **always** creates a trace session, regardless of the
+ * `BRIDGE_LATENCY_TRACE_ENABLED` global toggle. Used by handlers that need a
+ * trace to honor a per-request opt-in such as `meta.serverTimings` even when
+ * the global trace toggle is off. Falsy `forceActive` falls back to the
+ * sampled behaviour, so callers can simply pass the opt-in flag through.
+ */
+export const createBridgeLatencyTraceForRequest = (input: {
+  readonly channel: BridgeLatencyChannel;
+  readonly userId: string | undefined;
+  readonly forceActive: boolean;
+}): BridgeLatencyTraceSession | null => {
+  if (input.forceActive) {
+    return new BridgeLatencyTraceSession(input.channel, input.userId);
+  }
+  return createBridgeLatencyTraceIfSampled({ channel: input.channel, userId: input.userId });
 };

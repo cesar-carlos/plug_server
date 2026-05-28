@@ -75,6 +75,11 @@ const log = (
  * ingestion by structured log shippers. The legacy `[timestamp] LEVEL message
  * { ...context }` format was synchronous and allocation-heavy on every call;
  * pino writes via an asynchronous internal buffer.
+ *
+ * Hot-path callers SHOULD wrap context-heavy log calls with
+ * {@link logger.isLevelEnabled} when the `context` object construction itself
+ * dominates the cost — pino short-circuits the wire write below the effective
+ * level, but JavaScript still allocates the object literal at the call site.
  */
 export const logger = {
   info(message: string, context?: Record<string, unknown>): void {
@@ -92,5 +97,27 @@ export const logger = {
       return;
     }
     log("debug", message, context);
+  },
+  /**
+   * Cheap check (microsecond, no allocations) for whether a given level would
+   * emit to the wire. Use it to gate context construction on hot paths:
+   *
+   * ```ts
+   * if (logger.isLevelEnabled("debug")) {
+   *   logger.debug("rpc_ack_received", { requestId, socketId, attempt });
+   * }
+   * ```
+   *
+   * `debug` always returns `false` outside `development` to mirror the
+   * existing `logger.debug` short-circuit.
+   */
+  isLevelEnabled(level: "info" | "warn" | "error" | "debug"): boolean {
+    if (level === "debug" && process.env.NODE_ENV !== "development") {
+      return false;
+    }
+    if (level === "info" && silenceE2eInfoLogs()) {
+      return false;
+    }
+    return pinoInstance.isLevelEnabled(level);
   },
 };

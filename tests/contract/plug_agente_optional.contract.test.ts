@@ -57,14 +57,32 @@ function readHubPlugProfileMajorMinor(profile: string): string {
   return match?.[1] ?? "";
 }
 
+/**
+ * Methods whose OpenRPC `summary` contains this token are intentionally NOT
+ * implemented by the hub yet. See `tests/integration/agent_rpc_contract.integration.test.ts`
+ * for the rationale; the same marker is honored here so the optional contract
+ * test does not fail on intentional drift while still catching accidental
+ * additions on the hub side.
+ */
+const PENDING_HUB_WIRING_MARKER = "pending hub-side wiring";
+
+const isPendingHubWiringMethod = (method: { summary?: string }): boolean =>
+  typeof method.summary === "string" && method.summary.includes(PENDING_HUB_WIRING_MARKER);
+
 contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () => {
   it("exposes expected OpenRPC methods and a parsable semver-like version", () => {
     const raw = readFileSync(openRpcPath, "utf8");
     const doc = JSON.parse(raw) as {
-      methods?: { name: string }[];
+      methods?: { name: string; summary?: string }[];
       info?: { version?: string };
     };
-    const names = [...new Set((doc.methods ?? []).map((m) => m.name))].sort();
+    const names = [
+      ...new Set(
+        (doc.methods ?? [])
+          .filter((m) => !isPendingHubWiringMethod(m))
+          .map((m) => m.name),
+      ),
+    ].sort();
     expect(names).toEqual([...supportedAgentRpcMethods].sort());
 
     const version = doc.info?.version;

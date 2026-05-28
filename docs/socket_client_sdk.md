@@ -225,10 +225,88 @@ negociada (ver `plug_agente/docs/communication/socketio_client_binary_transport.
 1. `relay:conversation.start` com `{ agentId }` ou `{ requestId, agentId }`
 2. Recebe `relay:conversation.started` com `conversationId` e o mesmo `requestId` quando enviado
 3. Envia `relay:rpc.request` com `{ conversationId, frame }` (opcional: `payloadFrameCompression`: `default` \| `none` \| `always` — `default` = auto: gzip ao agente so se menor que JSON bruto e dentro da guarda de inflacao; `always` = prefere gzip quando elegivel, alinhado ao plug_agente, mas ainda respeita a guarda de inflacao)
-4. Recebe `relay:rpc.accepted` (JSON)
+4. Recebe `relay:rpc.accepted` (JSON) — **pode ser omitido** se voce setou `fastPath: true`, ver "Opt-ins de performance" abaixo
 5. Recebe dados (`relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`) em `PayloadFrame`
 6. Em streaming, envia `relay:rpc.stream.pull` com `{ conversationId, frame }`
 7. Finaliza com `relay:conversation.end` (opcionalmente `{ requestId, conversationId }`; o agente tambem recebe `relay:conversation.ended` com `reason: "consumer_ended"`)
+
+## Opt-ins de performance e diagnostico (relay e agents:command)
+
+Dois flags opcionais no envelope reduzem latencia / dao visibilidade sem mudar o contrato base. Ambos sao **opt-in** (`undefined` = comportamento legado preservado).
+
+### `fastPath: boolean` — relay unary fast-path
+
+Aplicavel a `relay:rpc.request`. Quando `true`, o hub **nao emite** `relay:rpc.accepted` no caminho feliz unary. O consumer recebe diretamente `relay:rpc.response` (ou stream events). Salva uma viagem de wire por RPC; o ganho compoe em `mergeAll` cross-agent.
+
+```json
+{
+  "conversationId": "<conv-id>",
+  "frame": "<PayloadFrame>",
+  "fastPath": true
+}
+```
+
+Regras essenciais:
+
+- O cliente **deve** estar preparado para receber `relay:rpc.response` sem ter recebido `accepted` antes. O `requestId` do hub vem no envelope PayloadFrame da resposta e tambem no proprio JSON-RPC.
+- Em **dedupe** (`replayed` / `inFlight`), o hub **ainda** emite `accepted` mesmo com `fastPath: true` — preserva diagnostico do dedupe na borda sem custo no caminho comum.
+- Em **erros** (validacao, conversa nao encontrada, autorizacao, rate-limit), o hub **sempre** emite `relay:rpc.accepted { success: false, error }`. Caso contrario o consumer ficaria sem sinal.
+- Para **streaming** (`sql.execute` com `prefer_db_streaming` / `multi_result`, `sql.executeBatch`), evite `fastPath: true`. Sem `accepted` para ancorar o `requestId`, o `relay:rpc.stream.pull` so podera ser emitido depois do primeiro chunk. O hub registra `plug_socket_relay_fast_path_stream_inadvertent_total` quando detecta este cenario.
+- Cancelamento e desconexao funcionam normalmente: o relay nao tem `rpc.cancel`; aborts vem por socket disconnect ou `sql.cancel` por `stream_id`.
+
+Detalhes completos do contrato em [`docs/socket_relay_protocol.md`](socket_relay_protocol.md) ("Relay unary fast-path").
+
+### `requestServerTimings: boolean` — fases de latencia no envelope
+
+Aplicavel a `relay:rpc.request`, ao Socket `agents:command` e ao REST `POST /api/v1/agents/commands`. Quando `true`, o hub anexa um snapshot de fases de latencia a resposta, permitindo correlacionar wall-clock fim-a-fim com tempo gasto internamente no hub e no agente.
+
+**Onde aparece a resposta:**
+
+- `relay:rpc.response` (PayloadFrame) → injetado no `meta.serverTimings` do JSON-RPC interno.
+- `agents:command_response` (Socket) → campo top-level `serverTimings` no envelope.
+- `POST /api/v1/agents/commands` (REST) → campo top-level `serverTimings` no corpo JSON da resposta.
+
+```json
+{
+  "serverTimings": {
+    "schemaVersion": 1,
+    "phasesMs": {
+      "consumer_frame_decode_ms": 0.42,
+      "encode_ms": 0.85,
+      "emit_to_socket_ms": 0.07,
+      "agent_to_hub_ms": 142.1,
+      "inbound_decode_ms": 0.41,
+      "pending_resolve_ms": 0.18,
+      "relay_forward_to_consumer_ms": 0.06
+    }
+  }
+}
+```
+
+Regras:
+
+- Todos os valores em **milissegundos**, arredondados a 3 casas. Esperado ~120 bytes por resposta.
+- Chaves de `phasesMs` sao estaveis mas o conjunto pode crescer em versoes minor; consumers **devem tolerar chaves desconhecidas**.
+- `schemaVersion` bumpea apenas em remocoes/renames/mudancas de unidade. Bump = major break — consumers devem degradar (ignorar `phasesMs`) na presenca de uma versao nao compreendida.
+- A persistencia em DB continua respeitando `BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT`. O flag forca a criacao da sessao para o envelope, mas nao infla persistencia.
+
+Para consumers que combinem ambos os flags:
+
+```json
+{
+  "conversationId": "<conv-id>",
+  "frame": "<PayloadFrame>",
+  "fastPath": true,
+  "requestServerTimings": true
+}
+```
+
+Esta combinacao corta o hop do `accepted` **e** permite medir o ganho com a mesma granularidade que o REST baseline.
+
+Metricas Prometheus relacionadas:
+
+- `plug_socket_relay_fast_path_requested_total` / `plug_socket_relay_fast_path_honored_total` / `plug_socket_relay_fast_path_fallback_dedup_total` / `plug_socket_relay_fast_path_fallback_error_total` / `plug_socket_relay_fast_path_stream_inadvertent_total`
+- `plug_socket_relay_server_timings_opt_in_total` / `plug_socket_agents_command_server_timings_opt_in_total` / `plug_rest_agents_command_server_timings_opt_in_total`
 
 ## Escolha de canal
 
@@ -245,6 +323,8 @@ caminho recomendado para carga alta, streaming, idempotencia e backpressure.
 | `sql.bulkInsert` ou batch read-only sob carga | `agents:command` ou `relay:*`; quebrar imports acima de `AGENT_SQL_BULK_INSERT_MAX_ROWS` ou `AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES` |
 | Comandos simples sem estado de conversa | REST ou `agents:command` |
 | Bootstrap, auth, catalogo, admin, health HTTP, metricas | REST |
+| Fan-out cross-agent unary com baixa latencia | `relay:*` com `fastPath: true` (ver "Opt-ins de performance" abaixo) |
+| Medicao A/B REST vs Socket por fase | qualquer canal com `requestServerTimings: true` |
 
 Helper de referencia para clientes TypeScript: [`docs/snippets/agent_command_performance_options.ts`](snippets/agent_command_performance_options.ts).
 

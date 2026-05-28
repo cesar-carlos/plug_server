@@ -60,6 +60,60 @@ export const releaseSocketInflightSlot = (socket: SocketWithInflightCounter): vo
   ctx.inflightCount = Math.max(0, ctx.inflightCount - 1);
 };
 
+export interface AcquireSocketInflightSlotsResult {
+  readonly ok: boolean;
+  readonly availableSlots: number;
+  readonly requestedSlots: number;
+}
+
+/**
+ * Atomic all-or-nothing acquisition of `count` inflight slots for `socket`.
+ * When the gate cannot fit the full batch (cap minus current count < `count`),
+ * **no** slot is acquired — the caller can then reject the entire batch with
+ * `RATE_LIMITED` and surface `availableSlots` / `requestedSlots` to the
+ * consumer. Used by `relay:rpc.request.batch` (see `docs/adrs/0008-relay-batch-protocol.md`).
+ *
+ * When `max <= 0` the gate is disabled and acquisition always succeeds.
+ */
+export const tryAcquireSocketInflightSlots = (
+  socket: SocketWithInflightCounter,
+  count: number,
+  max: number,
+): AcquireSocketInflightSlotsResult => {
+  if (count <= 0) {
+    return { ok: true, availableSlots: max, requestedSlots: count };
+  }
+  if (max <= 0) {
+    return { ok: true, availableSlots: Number.POSITIVE_INFINITY, requestedSlots: count };
+  }
+  const ctx = socket.data.inflightCounter ?? (socket.data.inflightCounter = { inflightCount: 0 });
+  const availableSlots = Math.max(0, max - ctx.inflightCount);
+  if (availableSlots < count) {
+    return { ok: false, availableSlots, requestedSlots: count };
+  }
+  ctx.inflightCount += count;
+  return { ok: true, availableSlots, requestedSlots: count };
+};
+
+/**
+ * Releases `count` inflight slots in one operation. Idempotent against
+ * missing context. Pairs with {@link tryAcquireSocketInflightSlots}; call
+ * from a `finally` block to release whatever was acquired.
+ */
+export const releaseSocketInflightSlots = (
+  socket: SocketWithInflightCounter,
+  count: number,
+): void => {
+  if (count <= 0) {
+    return;
+  }
+  const ctx = socket.data.inflightCounter;
+  if (!ctx) {
+    return;
+  }
+  ctx.inflightCount = Math.max(0, ctx.inflightCount - count);
+};
+
 interface CustomPublishInflightContext {
   inflightCount: number;
 }

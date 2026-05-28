@@ -80,8 +80,10 @@ Controle:
 
 Dados:
 
-- `relay:rpc.request`
+- `relay:rpc.request` — envelope JSON: `{ conversationId, frame, payloadFrameCompression?, requestServerTimings?, fastPath? }`. Os dois ultimos sao opt-in documentados em "Relay unary fast-path" e "Server-side phase diagnostics" abaixo.
+- `relay:rpc.request.batch` — batch variant. Envelope JSON: `{ conversationId, frame, payloadFrameCompression?, requestServerTimings?, fastPath? }` onde `frame.data` decodifica para um array de 1..32 JSON-RPC requests. Gated por `SOCKET_RELAY_BATCH_ENABLED` (default `false`). Ver "Relay JSON-RPC batch" abaixo.
 - `relay:rpc.accepted`
+- `relay:rpc.batch_accepted` — ack unico para o batch envelope acima, carrega per-item `clientRequestId → requestId` + dedup state.
 - `relay:rpc.response`
 - `relay:rpc.chunk`
 - `relay:rpc.complete`
@@ -348,6 +350,218 @@ Capacidade operacional:
 - entradas **in-flight** nao sao removidas so para abrir espaco
 - se o cap estiver cheio e so existirem entradas in-flight nao-evictables, o hub
   rejeita a nova request com erro de capacidade (`503`) em vez de crescer sem limite
+
+### Relay unary fast-path (`fastPath` no envelope)
+
+`relay:rpc.request` aceita o campo opcional `fastPath: boolean` no envelope
+(alem de `conversationId`, `frame`, `payloadFrameCompression?` e
+`requestServerTimings?`). Quando `true`, o hub **nao emite** `relay:rpc.accepted`
+no caminho feliz unary — o consumer ve diretamente `relay:rpc.response` (ou
+`relay:rpc.chunk` / `relay:rpc.complete` se a resposta abrir um stream).
+
+Salva-se uma viagem de wire por RPC. Em `mergeAll` cross-agent o ganho compoe
+proporcionalmente ao numero de RPCs por onda.
+
+Regras do contrato:
+
+- `fastPath` aplica-se apenas ao caminho feliz **nao-deduplicado**. Quando o
+  hub determina que o request e duplicado de outro `client_request_id` (cached
+  ou in-flight) ele continua emitindo `relay:rpc.accepted` para sinalizar
+  `deduplicated/replayed/inFlight` — o cliente nao tem como reconstruir esse
+  estado a partir do `relay:rpc.response` cacheado original. Isso preserva
+  diagnostico sem custo extra no caminho comum.
+- Erros (validacao, conversa nao encontrada, autorizacao, rate-limit, etc.)
+  **sempre** sao reportados via `relay:rpc.accepted { success: false, error }`
+  mesmo com `fastPath: true`. Caso contrario o consumer ficaria sem sinal.
+- Para **streaming** (`sql.execute` com `prefer_db_streaming` ou `multi_result`,
+  `sql.executeBatch`), recomenda-se **nao** definir `fastPath: true`. O
+  handshake de window/credit (`relay:rpc.stream.pull`) precisa do `requestId`
+  ancorado por `relay:rpc.accepted` antes do primeiro pull. O hub nao rejeita
+  o flag para esses metodos — apenas avisa pelos logs — mas consumers que
+  quiserem usar `fastPath` aqui terao que extrair o `requestId` do envelope
+  PayloadFrame do primeiro chunk antes de pedir pulls adicionais.
+- O cliente deve estar preparado para receber `relay:rpc.response` **antes**
+  ou **sem** ter recebido `relay:rpc.accepted` quando enviou `fastPath: true`.
+  O `requestId` na resposta vem no envelope do PayloadFrame e no proprio
+  payload JSON-RPC, alem do mapeamento por `client_request_id` (= JSON-RPC
+  `id` original).
+
+Sem cancelamento explicito: o relay nao possui evento `relay:rpc.cancel`.
+Cancelamento opera via desconexao do socket consumer (`abort` no inflight) ou
+via comando `sql.cancel` com o `stream_id` retornado para streams ativos.
+Nenhum dos dois depende do `requestId` ancorado por `relay:rpc.accepted`, entao
+`fastPath` nao afeta o cancelamento.
+
+### Server-side phase diagnostics (`requestServerTimings` no envelope)
+
+`relay:rpc.request` aceita o campo opcional `requestServerTimings: boolean` no
+envelope. Quando `true`, o hub anexa um snapshot de latencias por fase ao
+**JSON-RPC `meta`** da resposta antes de codificar o `PayloadFrame` de saida.
+
+Forma do envelope:
+
+```json
+{
+  "meta": {
+    "serverTimings": {
+      "schemaVersion": 1,
+      "phasesMs": {
+        "consumer_frame_decode_ms": 0.42,
+        "relay_preflight_ms": 0.13,
+        "encode_ms": 0.85,
+        "emit_to_socket_ms": 0.07,
+        "agent_to_hub_ms": 142.1,
+        "inbound_decode_ms": 0.41,
+        "pending_resolve_ms": 0.18,
+        "relay_forward_to_consumer_ms": 0.06
+      }
+    }
+  }
+}
+```
+
+Regras do contrato:
+
+- `schemaVersion` espelha `BRIDGE_LATENCY_PHASES_SCHEMA_VERSION` no hub.
+  Atualmente `1`. Novas fases podem ser adicionadas em versoes minor; consumers
+  **devem** tolerar chaves desconhecidas.
+- Todos os valores estao em **milissegundos**, com arredondamento a 3 casas
+  decimais (mesma precisao usada na persistencia em DB).
+- O snapshot e capturado **logo antes** do encode da resposta de saida — inclui
+  o tempo do hub→consumer forwarder ate o instante do snapshot.
+- O custo de payload e ~120 bytes por resposta. O opt-in evita inflar consumers
+  de alto throughput que nao consomem timings.
+- Quando `requestServerTimings` esta ativo, o hub **forca** a criacao da sessao
+  de trace mesmo que `BRIDGE_LATENCY_TRACE_ENABLED=false` — para honrar o
+  opt-in. A persistencia em DB continua respeitando a amostragem global.
+- No caminho de **dedup-replayed** (resposta cacheada do request original), o
+  envelope refletira as timings do request original, nao do duplicado. E
+  intencional: o hub reutiliza o frame cacheado para evitar reprocessar.
+- **Seguranca:** apenas valores de tempo sao expostos. `trace_id`,
+  `agentSocketId`, identificadores de fila e qualquer outro campo de topologia
+  operacional **nao** sao incluidos (vide
+  `application/services/server_timings_envelope.ts`).
+
+### Relay JSON-RPC batch (`relay:rpc.request.batch`)
+
+> **Disponivel em v1** desde 2026-05-28; gated por `SOCKET_RELAY_BATCH_ENABLED`
+> (default `false`). Ver `docs/adrs/0008-relay-batch-protocol.md` para o
+> registro de decisoes e
+> `docs/runbooks/socket_perf_investigation.md` para o procedimento de
+> medicao de adocao.
+
+Variante batch do `relay:rpc.request` que permite ao consumer empacotar 1..N
+JSON-RPC requests em um unico envelope, eliminando a sobrecarga de N emits
+no canal `relay:rpc.request`. O ganho aparece principalmente em `mergeAll`
+cross-agent.
+
+Envelope JSON (mesma forma do single, com `frame.data` carregando array):
+
+```text
+event: relay:rpc.request.batch
+payload (JSON):
+{
+  conversationId: string,
+  frame: PayloadFrame,                 // payload.data = JSON-RPC array (1..32 items)
+  payloadFrameCompression?: "default" | "none" | "always",
+  requestServerTimings?: boolean,       // accepted in v1 envelope schema, NO-OP per-item
+  fastPath?: boolean                    // accepted in v1 envelope schema, NO-OP per-item
+}
+```
+
+Resposta: `relay:rpc.batch_accepted` (JSON, **uma vez por envelope**):
+
+```text
+{
+  success: true,
+  conversationId: string,
+  batchSize: number,
+  items: [
+    {
+      clientRequestId: string,
+      requestId: string,
+      deduplicated?: boolean,
+      replayed?: boolean,
+      inFlight?: boolean
+    },
+    // OU, em caso de erro per-item:
+    {
+      clientRequestId: string,
+      error: { code, message, statusCode?, itemIndex }
+    },
+    ...
+  ]
+}
+```
+
+Em rejeicao do envelope (sem dispatch de itens):
+
+```text
+{
+  success: false,
+  error: {
+    code: "RELAY_BATCH_DISABLED" | "BATCH_TOO_LARGE" | "BATCH_EMPTY"
+        | "BATCH_ITEM_INVALID" | "BATCH_ITEM_REQUIRES_ID" | "BATCH_DUPLICATE_ID"
+        | "BATCH_STREAMING_ITEM_REJECTED" | "RATE_LIMITED" | "NOT_FOUND"
+        | "BAD_REQUEST" | "VALIDATION_ERROR",
+    message: string,
+    statusCode?: number,
+    details?: Record<string, unknown>
+  }
+}
+```
+
+Per-item responses continuam chegando via **`relay:rpc.response` existente**
+— um por item, correlacionados via `requestId` na envelope ou `id` no
+JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
+**inteira** no `batch_accepted.items[]` para correlacao no client.
+
+### Regras do contrato v1
+
+- **Cap de items**: 1..`SOCKET_RELAY_BATCH_MAX_ITEMS` (default `32`). Excede
+  retorna `BATCH_TOO_LARGE`.
+- **Cada item DEVE ter JSON-RPC `id`** (notifications NAO suportadas em v1).
+  Faltando retorna `BATCH_ITEM_REQUIRES_ID`.
+- **IDs DEVEM ser unicos** dentro do batch. Duplicados retornam
+  `BATCH_DUPLICATE_ID`.
+- **Streaming-capable items rejeitados** (`sql.executeBatch`,
+  `sql.execute` com `prefer_db_streaming: true` ou `multi_result: true`)
+  com `BATCH_STREAMING_ITEM_REJECTED` (carrega `details.itemIndex` e
+  `details.method`).
+- **Per-socket inflight gate all-or-nothing**: se o batch precisa de N
+  slots e so K < N estao disponiveis, rejeita o envelope inteiro com
+  `RATE_LIMITED` carregando `details.availableSlots` e `details.requestedSlots`.
+  Nenhum item e despachado. O cliente pode retentar com batch menor.
+- **Per-agent dispatch slot** continua sendo per-item: itens do mesmo
+  agente serializam internamente na fila `SOCKET_RELAY_AGENT_MAX_INFLIGHT`.
+- **Idempotency runs per item**: se um `client_request_id` colide com uma
+  entrada cacheada/inflight, esse item especifico vem com
+  `deduplicated/replayed/inFlight` no `batch_accepted.items[k]`. Os outros
+  continuam normalmente. Partial dedup e o caminho feliz.
+- **Falha per-item nao aborta o batch**: cada item resolve independentemente.
+  Erros aparecem em `batch_accepted.items[k].error`; sucessos aparecem em
+  `batch_accepted.items[k].requestId`.
+
+### Limitacoes v1 (planejadas para v2)
+
+- `requestServerTimings` e `fastPath` no envelope sao aceitos pelo schema
+  mas **nao** propagam para os itens individualmente. Para usar timings ou
+  fast-path por item em v1, envie como `relay:rpc.request` single (1 por
+  RPC).
+- Cada item passa por um round-trip extra de encode/decode interno porque
+  e sintetizado como `PayloadFrame` individual antes de chamar o
+  dispatcher de RPC unica. Custo: ~N `JSON.stringify` + ~N `JSON.parse`
+  por batch. v2 vai expor entry point pre-decoded no dispatcher e
+  eliminar esse overhead.
+
+### Metricas relacionadas em `/metrics`
+
+- `plug_socket_relay_batch_envelopes_received_total`
+- `plug_socket_relay_batch_envelopes_accepted_total`
+- `plug_socket_relay_batch_items_accepted_total`
+- `plug_socket_relay_batch_items_deduped_total`
+- `plug_socket_relay_batch_items_error_total`
+- `plug_socket_relay_batch_envelopes_rejected_total{reason="disabled|not_found|frame_decode_failed|not_array|validation_failed|inflight_gate|envelope_error"}`
 
 ## Isolamento por conversa
 

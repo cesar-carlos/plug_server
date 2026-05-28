@@ -59,22 +59,33 @@ const OUTBOUND_RPC_META_KEYS = [
  * The hub may accept extra metadata from callers for compatibility, but it must
  * not forward hub-only or undocumented fields to the agent.
  */
+/**
+ * Frozen sentinel for the common "no caller-provided meta" path. Spreading a
+ * frozen empty object into another object is a no-op without the allocation
+ * cost of building a fresh `{}` per dispatch — hot for `sql.executeBatch`
+ * with N items where most items omit `meta`.
+ */
+const EMPTY_OUTBOUND_RPC_META: Readonly<Record<string, unknown>> = Object.freeze({});
+
 export const sanitizeOutboundRpcMeta = (
   meta: Record<string, unknown> | null | undefined,
-): Record<string, unknown> => {
+): Readonly<Record<string, unknown>> => {
   if (!meta) {
-    return {};
+    return EMPTY_OUTBOUND_RPC_META;
   }
 
-  const sanitized: Record<string, unknown> = {};
+  let sanitized: Record<string, unknown> | null = null;
   for (const key of OUTBOUND_RPC_META_KEYS) {
     const value = meta[key];
     if (typeof value === "string" && value.trim() !== "") {
+      if (sanitized === null) {
+        sanitized = {};
+      }
       sanitized[key] = value.trim();
     }
   }
 
-  return sanitized;
+  return sanitized ?? EMPTY_OUTBOUND_RPC_META;
 };
 
 export const withBridgeMeta = (
@@ -87,19 +98,28 @@ export const withBridgeMeta = (
   },
 ): BridgeCommand => {
   if (isBatchCommand(command)) {
+    // Hoist the per-dispatch constants once. For 32-item batches this saves
+    // 31 redundant property reads + the implicit allocation of a transient
+    // sub-object per item before spreading. See `.cursor/rules/performance.mdc`
+    // ("Avoid accidental quadratic work in controllers, handlers, serializers,
+    // and mappers when processing lists or streams").
+    const agentId = input.agentId;
+    const traceId = input.traceId;
+    const timestamp = input.timestamp;
+    const fallbackRequestId = input.requestId;
     return command.map((item) => {
       const itemRecord = item as unknown as Record<string, unknown>;
       const existingMeta = sanitizeOutboundRpcMeta(toRecord(item.meta));
-      const itemRequestId = toRequestId(item.id) ?? input.requestId;
+      const itemRequestId = toRequestId(item.id) ?? fallbackRequestId;
       return {
         ...item,
         api_version: resolveOutboundApiVersion(itemRecord),
         meta: {
           ...existingMeta,
           request_id: itemRequestId,
-          agent_id: input.agentId,
-          timestamp: input.timestamp,
-          trace_id: input.traceId,
+          agent_id: agentId,
+          timestamp,
+          trace_id: traceId,
         },
       };
     });

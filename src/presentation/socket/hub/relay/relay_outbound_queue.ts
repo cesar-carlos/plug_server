@@ -6,6 +6,7 @@
 import { env } from "../../../../shared/config/env";
 import {
   encodePayloadFrameBridge,
+  encodePayloadFrameFromBytes,
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import { logger } from "../../../../shared/utils/logger";
@@ -379,6 +380,33 @@ export const encodeRelayOutboundFrame = async (
     requestId,
     omitTraceId: true,
     ...(shouldForceRelayOutboundGzip(data)
+      ? {
+          compressionThreshold: 1,
+          compressionPolicy: "always_gzip" as const,
+        }
+      : {}),
+  });
+
+/**
+ * Fast-path encoder for relay forward when the agent's payload bytes are
+ * forwarded **unchanged**. Skips `JSON.stringify` by reusing the decoded
+ * UTF-8 bytes from {@link DecodedPayloadFrame.decodedBytes}. The compression
+ * policy follows the inbound `cmp` so that bytes the agent already sent
+ * compressed are re-compressed (with hub keys) on the way out.
+ *
+ * Use only when the JSON-RPC payload is **not mutated** — e.g. no
+ * `meta.serverTimings` injection and the response was not transformed by a
+ * stream merger. See `rpc_bridge_agent_inbound.ts`.
+ */
+export const encodeRelayOutboundFrameFromBytes = (
+  bytes: Buffer,
+  requestId: string,
+  options: { readonly inboundCmp: "none" | "gzip" },
+): PayloadFrameEnvelope =>
+  encodePayloadFrameFromBytes(bytes, {
+    requestId,
+    omitTraceId: true,
+    ...(options.inboundCmp === "gzip"
       ? {
           compressionThreshold: 1,
           compressionPolicy: "always_gzip" as const,

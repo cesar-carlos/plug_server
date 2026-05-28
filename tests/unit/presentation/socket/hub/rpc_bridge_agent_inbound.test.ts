@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BridgeLatencyTraceSession } from "../../../../../src/application/services/bridge_latency_trace_builder";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { createRpcBridgeAgentInboundHandlers } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_agent_inbound";
 import {
@@ -1050,5 +1051,172 @@ describe("rpc_bridge_agent_inbound", () => {
     expect(getActiveStreamRouteByRequestId("req-stream-cap")).toBeUndefined();
     expect(getRestPendingRequestByCorrelationId("req-stream-cap")).toBeUndefined();
     policySpy.mockRestore();
+  });
+
+  describe("relay forward bypass (perf optimization)", () => {
+    /**
+     * Cobre o caminho onde a route NÃO tem `requestServerTimings`: o forwarder
+     * usa `encodeRelayOutboundFrameFromBytes` evitando re-stringify. O teste
+     * verifica que o payload chega ao consumer com `id` original do agente
+     * (preservado), e que o envelope carrega o `requestId` reassinado pelo hub.
+     */
+    it("forwards an unmodified response by reusing the decoded bytes when no mutation is needed", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+
+      registerRelayRequestRoute({
+        requestId: "req-bypass",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+      });
+
+      const agentPayload = {
+        jsonrpc: "2.0",
+        id: "req-bypass",
+        result: { rows: [{ x: 1 }, { x: 2 }] },
+      };
+      h.handleAgentRpcResponse(
+        "socket-test",
+        encodePayloadFrame(agentPayload, { requestId: "req-bypass" }),
+      );
+
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [, , frame] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        // Conteúdo exato do payload preservado bit a bit (sem mutação no meta).
+        expect(decoded.value.data).toEqual(agentPayload);
+        // Envelope reassinado pelo hub com o mesmo requestId.
+        expect(decoded.value.frame.requestId).toBe("req-bypass");
+      }
+    });
+  });
+
+  describe("meta.serverTimings injection (relay opt-in)", () => {
+    const buildAgentResponseFrame = (id: string): unknown =>
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id,
+          result: { ok: true },
+        },
+        { requestId: id },
+      );
+
+    it("does not attach meta.serverTimings when route did not opt in", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+
+      registerRelayRequestRoute({
+        requestId: "req-no-timings",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+      });
+
+      h.handleAgentRpcResponse("socket-test", buildAgentResponseFrame("req-no-timings"));
+
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [, , frame] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        const data = decoded.value.data as Record<string, unknown>;
+        // No meta at all, or meta without serverTimings.
+        const meta = data.meta as Record<string, unknown> | undefined;
+        expect(meta?.serverTimings).toBeUndefined();
+      }
+    });
+
+    it("attaches meta.serverTimings when route opted in and has an attached trace", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+
+      // Build a real trace session and pre-populate phases so the snapshot
+      // is observable.
+      const trace = new BridgeLatencyTraceSession("relay", "user-1");
+      trace.addPhaseMs("consumer_frame_decode_ms", 0.42);
+      trace.addPhaseMs("encode_ms", 0.85);
+
+      registerRelayRequestRoute({
+        requestId: "req-with-timings",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+        requestServerTimings: true,
+        latencyTrace: trace,
+      });
+
+      h.handleAgentRpcResponse("socket-test", buildAgentResponseFrame("req-with-timings"));
+
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [, , frame] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        const data = decoded.value.data as Record<string, unknown>;
+        const meta = data.meta as { serverTimings?: { schemaVersion?: number; phasesMs?: Record<string, number> } } | undefined;
+        expect(meta?.serverTimings).toBeDefined();
+        expect(meta?.serverTimings?.schemaVersion).toBe(1);
+        expect(meta?.serverTimings?.phasesMs).toMatchObject({
+          consumer_frame_decode_ms: 0.42,
+          encode_ms: 0.85,
+        });
+      }
+    });
+
+    it("does not attach meta.serverTimings when opt-in is on but trace is missing", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+
+      // Defensive case: requestServerTimings set but no trace attached.
+      // The forwarder must not throw and must not attach a partial envelope.
+      registerRelayRequestRoute({
+        requestId: "req-timings-no-trace",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+        requestServerTimings: true,
+        // latencyTrace intentionally omitted
+      });
+
+      h.handleAgentRpcResponse("socket-test", buildAgentResponseFrame("req-timings-no-trace"));
+
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [, , frame] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      const decoded = decodePayloadFrame(frame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        const data = decoded.value.data as Record<string, unknown>;
+        const meta = data.meta as Record<string, unknown> | undefined;
+        expect(meta?.serverTimings).toBeUndefined();
+      }
+    });
   });
 });

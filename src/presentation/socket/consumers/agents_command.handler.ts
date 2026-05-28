@@ -12,7 +12,8 @@ import type { Socket } from "socket.io";
 
 import { executeAuthorizedAgentCommand } from "../../../application/agent_commands/execute_authorized_agent_command";
 import { container } from "../../../shared/di/container";
-import { createBridgeLatencyTraceIfSampled } from "../../../application/services/bridge_latency_trace_builder";
+import { createBridgeLatencyTraceForRequest } from "../../../application/services/bridge_latency_trace_builder";
+import { buildServerTimingsEnvelope } from "../../../application/services/server_timings_envelope";
 import { dispatchRpcCommandToAgent } from "../hub/relay/rpc_bridge";
 import { buildAgentOfflineNormalizedResponse } from "../../http/serializers/agent_offline_bridge_response";
 import { normalizeAgentRpcResponse } from "../../http/serializers/agent_rpc_response.serializer";
@@ -37,6 +38,7 @@ import { toCorrelationIds } from "../hub/relay/rpc_bridge_command_helpers";
 import { resolveAppErrorRetryAfterMs, resolveRpcRetryAfterSeconds } from "./socket_retry_after";
 import {
   noteAgentsCommandRetryAfterSecondsPropagated,
+  noteServerTimingsOptIn,
   noteSocketErrorRetryAfterMsPropagated,
 } from "../../../shared/metrics/socket_consumer.metrics";
 import {
@@ -141,10 +143,18 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
     return;
   }
 
-  const latencyTrace = createBridgeLatencyTraceIfSampled({
+  if (body.requestServerTimings === true) {
+    noteServerTimingsOptIn("agents_command");
+  }
+  // Force-active the trace when the consumer opted into `meta.serverTimings`,
+  // even if the global sampling toggle is off; otherwise fall back to the
+  // sampled factory so production cost is unchanged for opt-out consumers.
+  const latencyTrace = createBridgeLatencyTraceForRequest({
     channel: "consumer_socket",
     userId: userSub,
+    forceActive: body.requestServerTimings === true,
   });
+  const includeServerTimings = body.requestServerTimings === true && latencyTrace !== null;
   const rateLimitCost = estimateAgentsCommandRateLimitCost(body.command);
   const abortController = new AbortController();
   const unregisterAbortController = registerConsumerCommandAbortController(
@@ -230,6 +240,9 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
               accepted: true,
               acceptedCommands: result.acceptedCommands,
             },
+            ...(includeServerTimings
+              ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
+              : {}),
           },
           responseWireOptions,
         );
@@ -263,6 +276,9 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
           response: normalizedResponse,
           ...(streamId ? { streamId } : {}),
           ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+          ...(includeServerTimings
+            ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
+            : {}),
         },
         responseWireOptions,
       );
@@ -287,6 +303,9 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
                 message: `Agent ${err.agentId} is disconnected`,
                 statusCode: 503,
               },
+              ...(includeServerTimings
+                ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
+                : {}),
             },
             responseWireOptions,
           );
@@ -304,6 +323,9 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
             success: true,
             requestId,
             response: offlineRpcEnvelope,
+            ...(includeServerTimings
+              ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
+              : {}),
           },
           responseWireOptions,
         );
@@ -340,6 +362,9 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
             ...(typeof statusCode === "number" ? { statusCode } : {}),
             ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
           },
+          ...(includeServerTimings
+            ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
+            : {}),
         },
         responseWireOptions,
       );

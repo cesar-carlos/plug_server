@@ -10,6 +10,11 @@ import {
   observeBridgeRpcMethod,
   type BridgeRpcMethodMetricOutcome,
 } from "../../../../application/services/bridge_rpc_method_metrics.service";
+import {
+  attachServerTimingsToResponse,
+  buildServerTimingsEnvelope,
+} from "../../../../application/services/server_timings_envelope";
+import { noteRelayFastPathStreamInadvertent } from "../../../../shared/metrics/socket_consumer.metrics";
 import { env } from "../../../../shared/config/env";
 import { HUB_MAX_BATCH_SIZE } from "../../../../shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../../shared/constants/socket_events";
@@ -19,10 +24,12 @@ import { logger } from "../../../../shared/utils/logger";
 import {
   decodePayloadFrameAsync,
   isPayloadFrameEnvelope,
+  type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
+  encodeRelayOutboundFrameFromBytes,
   markRelayOutboundForceGzip,
 } from "./relay_outbound_queue";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
@@ -515,10 +522,12 @@ export const createRpcBridgeAgentInboundHandlers = (
 
     for (const route of relayRoutes) {
       if (route.timedOut === true) {
-        logger.debug("relay_late_batch_response_ignored_after_timeout", {
-          requestId: route.requestId,
-          socketId,
-        });
+        if (logger.isLevelEnabled("debug")) {
+          logger.debug("relay_late_batch_response_ignored_after_timeout", {
+            requestId: route.requestId,
+            socketId,
+          });
+        }
         continue;
       }
 
@@ -849,11 +858,13 @@ export const createRpcBridgeAgentInboundHandlers = (
               streamHandlers: pendingRequest.streamHandlers,
               streamId,
             });
-            logger.debug("rpc_stream_registered", {
-              requestId: pendingRequestId,
-              streamId,
-              socketId,
-            });
+            if (logger.isLevelEnabled("debug")) {
+              logger.debug("rpc_stream_registered", {
+                requestId: pendingRequestId,
+                streamId,
+                socketId,
+              });
+            }
           } else {
             const existingStream = getActiveStreamRouteByRequestId(pendingRequestId);
             if (existingStream && existingStream.agentSocketId === socketId) {
@@ -889,10 +900,12 @@ export const createRpcBridgeAgentInboundHandlers = (
         return;
       }
       if (relayRoute.timedOut === true) {
-        logger.debug("relay_late_response_ignored_after_timeout", {
-          requestId: relayRoute.requestId,
-          socketId,
-        });
+        if (logger.isLevelEnabled("debug")) {
+          logger.debug("relay_late_response_ignored_after_timeout", {
+            requestId: relayRoute.requestId,
+            socketId,
+          });
+        }
         return;
       }
 
@@ -905,6 +918,25 @@ export const createRpcBridgeAgentInboundHandlers = (
       registerAgentSuccess(relayRoute.agentId);
       clearTimeout(relayRoute.timeoutHandle);
       conversationRegistry.touchInternal(relayRoute.conversationId);
+
+      if (streamId && relayRoute.fastPath === true) {
+        // Fast-path is intended for unary RPCs only — but the determination
+        // whether a request will stream lives on the agent side. Log + count
+        // here so SREs can spot consumers that set `fastPath: true` for
+        // streaming-capable methods. The request still proceeds normally;
+        // the consumer just may not have the `requestId` mapping that
+        // `relay:rpc.accepted` would have provided.
+        noteRelayFastPathStreamInadvertent();
+        if (logger.isLevelEnabled("warn")) {
+          logger.warn("relay_fast_path_with_stream_response", {
+            requestId: responseId,
+            conversationId: relayRoute.conversationId,
+            clientRequestId: relayRoute.clientRequestId ?? null,
+            method: relayRoute.jsonRpcMethod ?? null,
+            streamId,
+          });
+        }
+      }
 
       if (streamId) {
         const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(relayRoute.agentId);
@@ -965,12 +997,43 @@ export const createRpcBridgeAgentInboundHandlers = (
       enqueueRelayOutbound(responseId, async () => {
         let forwardedResponse = false;
         try {
-          const decodedResponse = toRecord(decoded.data);
-          const outboundResponse =
-            decoded.frame.cmp === "gzip" && decodedResponse
-              ? markRelayOutboundForceGzip(decodedResponse)
-              : decoded.data;
-          const responseFrame = await encodeRelayOutboundFrame(outboundResponse, responseId);
+          // Hot-path bypass: forward the agent's already-encoded bytes
+          // verbatim when no payload mutation is needed. Skips one JSON
+          // parse-stringify round-trip per response (significant on
+          // streaming flows). Conditions:
+          //   - consumer did NOT opt into `meta.serverTimings` (would mutate)
+          //   - the response is NOT a stream open (already short-circuited
+          //     above via `streamId`-driven path; we are in the unary leg
+          //     when reaching this block)
+          const shouldAttachServerTimings =
+            relayRoute.requestServerTimings === true &&
+            relayRoute.latencyTrace !== undefined;
+          const canBypassReencode = !shouldAttachServerTimings;
+
+          let responseFrame: PayloadFrameEnvelope;
+          if (canBypassReencode) {
+            responseFrame = encodeRelayOutboundFrameFromBytes(decoded.decodedBytes, responseId, {
+              inboundCmp: decoded.frame.cmp,
+            });
+          } else {
+            const decodedResponse = toRecord(decoded.data);
+            const baseOutboundResponse =
+              decoded.frame.cmp === "gzip" && decodedResponse
+                ? markRelayOutboundForceGzip(decodedResponse)
+                : decoded.data;
+            // Opt-in `meta.serverTimings`: capture the snapshot just before
+            // encoding so the values reflect the forwarder's contribution too.
+            // For the dedup-replayed path the cached frame keeps the original
+            // request's timings — by design (see `server_timings_envelope.ts`).
+            const outboundResponse =
+              shouldAttachServerTimings && isRecord(baseOutboundResponse)
+                ? attachServerTimingsToResponse(
+                    baseOutboundResponse,
+                    buildServerTimingsEnvelope(relayRoute.latencyTrace!),
+                  )
+                : baseOutboundResponse;
+            responseFrame = await encodeRelayOutboundFrame(outboundResponse, responseId);
+          }
           const tRelayForward = performance.now();
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
           forwardedResponse = true;
@@ -1211,7 +1274,9 @@ export const createRpcBridgeAgentInboundHandlers = (
           clearTimeout(pending.ackRetryTimer);
           delete pending.ackRetryTimer;
         }
-        logger.debug("rpc_ack_received", { requestId, socketId });
+        if (logger.isLevelEnabled("debug")) {
+          logger.debug("rpc_ack_received", { requestId, socketId });
+        }
       }
 
       const relayRoute = getRelayRequestRoute(requestId);
@@ -1322,7 +1387,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           emitToConsumer(consumerSocketId, socketEvents.relayRpcBatchAck, frame);
         });
       }
-      if (ackedCount > 0) {
+      if (ackedCount > 0 && logger.isLevelEnabled("debug")) {
         logger.debug("rpc_batch_ack_received", {
           requestIds: requestIds.slice(0, 5),
           ackedCount,

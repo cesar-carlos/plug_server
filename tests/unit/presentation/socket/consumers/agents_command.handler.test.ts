@@ -16,6 +16,8 @@ vi.mock("../../../../../src/application/agent_commands/execute_authorized_agent_
 
 vi.mock("../../../../../src/application/services/bridge_latency_trace_builder", () => ({
   createBridgeLatencyTraceIfSampled: vi.fn(),
+  createBridgeLatencyTraceForRequest: vi.fn(),
+  BRIDGE_LATENCY_PHASES_SCHEMA_VERSION: 1,
 }));
 
 vi.mock(
@@ -35,8 +37,17 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
   releaseSocketInflightSlot: vi.fn(),
 }));
 
+vi.mock("../../../../../src/shared/metrics/socket_consumer.metrics", () => ({
+  noteSocketErrorRetryAfterMsPropagated: vi.fn(),
+  noteAgentsCommandRetryAfterSecondsPropagated: vi.fn(),
+  noteServerTimingsOptIn: vi.fn(),
+}));
+
 import { executeAuthorizedAgentCommand } from "../../../../../src/application/agent_commands/execute_authorized_agent_command";
-import { createBridgeLatencyTraceIfSampled } from "../../../../../src/application/services/bridge_latency_trace_builder";
+import {
+  createBridgeLatencyTraceForRequest,
+  createBridgeLatencyTraceIfSampled,
+} from "../../../../../src/application/services/bridge_latency_trace_builder";
 import { handleAgentsCommand } from "../../../../../src/presentation/socket/consumers/agents_command.handler";
 import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
@@ -44,9 +55,11 @@ import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,
 } from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
+import { noteServerTimingsOptIn } from "../../../../../src/shared/metrics/socket_consumer.metrics";
 
 const mockedExecuteAuthorizedAgentCommand = vi.mocked(executeAuthorizedAgentCommand);
 const mockedCreateBridgeLatencyTraceIfSampled = vi.mocked(createBridgeLatencyTraceIfSampled);
+const mockedCreateBridgeLatencyTraceForRequest = vi.mocked(createBridgeLatencyTraceForRequest);
 const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocketAsync);
 const mockedAssertConsumerSocketAgentAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
@@ -99,6 +112,7 @@ describe("handleAgentsCommand", () => {
   beforeEach(() => {
     mockedExecuteAuthorizedAgentCommand.mockReset();
     mockedCreateBridgeLatencyTraceIfSampled.mockReset();
+    mockedCreateBridgeLatencyTraceForRequest.mockReset();
     mockedAllowAgentsCommandSocket.mockReset();
     mockedAssertConsumerSocketAgentAccess.mockReset();
     mockedTryAcquire.mockReset();
@@ -112,11 +126,14 @@ describe("handleAgentsCommand", () => {
       id: "user-1",
       role: "user",
     });
-    mockedCreateBridgeLatencyTraceIfSampled.mockReturnValue({
+    const traceStub = {
       addPhaseMs: vi.fn(),
       finalizeOnce: vi.fn(),
       isFinalized: vi.fn(() => false),
-    } as never);
+      getPhasesSnapshot: vi.fn(() => ({ encode_ms: 1.5, emit_to_socket_ms: 0.2 })),
+    } as never;
+    mockedCreateBridgeLatencyTraceIfSampled.mockReturnValue(traceStub);
+    mockedCreateBridgeLatencyTraceForRequest.mockReturnValue(traceStub);
   });
 
   it("emits protocol error when payload is not an object or PayloadFrame", () => {
@@ -390,6 +407,110 @@ describe("handleAgentsCommand", () => {
           statusCode: 503,
         },
       });
+    });
+  });
+
+  describe("requestServerTimings opt-in", () => {
+    it("does not include serverTimings on the response when the flag is absent", async () => {
+      const socket = buildSocket();
+      mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+        requestId: "req-1",
+        response: {
+          type: "single",
+          success: true,
+          item: { id: "req-1", result: { ok: true } },
+        },
+      } as never);
+
+      handleAgentsCommand(socket as never, validPayload);
+
+      await vi.waitFor(() => {
+        const wirePayload = socket.emit.mock.calls.find(
+          (call) => call[0] === socketEvents.agentsCommandResponse,
+        )?.[1];
+        expect(wirePayload).toBeDefined();
+        const decoded = decodePayloadFrame(wirePayload);
+        expect(decoded.ok).toBe(true);
+        if (decoded.ok) {
+          expect(decoded.value.data).not.toHaveProperty("serverTimings");
+        }
+      });
+    });
+
+    it("attaches serverTimings to the success envelope when the flag is set", async () => {
+      const socket = buildSocket();
+      mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+        requestId: "req-1",
+        response: {
+          type: "single",
+          success: true,
+          item: { id: "req-1", result: { ok: true } },
+        },
+      } as never);
+
+      handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
+
+      await vi.waitFor(() => {
+        const wirePayload = socket.emit.mock.calls.find(
+          (call) => call[0] === socketEvents.agentsCommandResponse,
+        )?.[1];
+        expect(wirePayload).toBeDefined();
+        const decoded = decodePayloadFrame(wirePayload);
+        expect(decoded.ok).toBe(true);
+        if (decoded.ok) {
+          expect(decoded.value.data).toMatchObject({
+            success: true,
+            serverTimings: {
+              schemaVersion: 1,
+              phasesMs: expect.any(Object),
+            },
+          });
+        }
+      });
+    });
+
+    it("forces an active latency trace when the consumer requested serverTimings", () => {
+      const socket = buildSocket();
+      mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+        requestId: "req-1",
+        response: { type: "single", success: true, item: { id: "req-1", result: {} } },
+      } as never);
+
+      handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
+
+      expect(mockedCreateBridgeLatencyTraceForRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "consumer_socket",
+          userId: "user-1",
+          forceActive: true,
+        }),
+      );
+    });
+
+    it("increments serverTimings opt-in counter for the agents_command channel", () => {
+      vi.mocked(noteServerTimingsOptIn).mockClear();
+      const socket = buildSocket();
+      mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+        requestId: "req-1",
+        response: { type: "single", success: true, item: { id: "req-1", result: {} } },
+      } as never);
+
+      handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
+
+      expect(noteServerTimingsOptIn).toHaveBeenCalledWith("agents_command");
+    });
+
+    it("does not increment serverTimings opt-in counter when the flag is absent", () => {
+      vi.mocked(noteServerTimingsOptIn).mockClear();
+      const socket = buildSocket();
+      mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
+        requestId: "req-1",
+        response: { type: "single", success: true, item: { id: "req-1", result: {} } },
+      } as never);
+
+      handleAgentsCommand(socket as never, validPayload);
+
+      expect(noteServerTimingsOptIn).not.toHaveBeenCalled();
     });
   });
 });

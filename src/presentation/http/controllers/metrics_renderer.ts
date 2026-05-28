@@ -1173,6 +1173,95 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       consumerRuntime.retryAfter.agentsCommandRetryAfterSecondsTotal,
     ),
   );
+  // Relay opt-ins adoption / efficacy (Socket performance v2). See
+  // `docs/socket_relay_protocol.md` for the operational interpretation.
+  lines.push(
+    metricLine(
+      "plug_socket_relay_fast_path_requested_total",
+      consumerRuntime.relayOptIns.fastPathRequestedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_fast_path_honored_total",
+      consumerRuntime.relayOptIns.fastPathHonoredTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_fast_path_fallback_dedup_total",
+      consumerRuntime.relayOptIns.fastPathFallbackDedupTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_fast_path_fallback_error_total",
+      consumerRuntime.relayOptIns.fastPathFallbackErrorTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_fast_path_stream_inadvertent_total",
+      consumerRuntime.relayOptIns.fastPathStreamInadvertentTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_server_timings_opt_in_total",
+      consumerRuntime.relayOptIns.serverTimingsRelayOptInTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_agents_command_server_timings_opt_in_total",
+      consumerRuntime.relayOptIns.serverTimingsAgentsCommandOptInTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_rest_agents_command_server_timings_opt_in_total",
+      consumerRuntime.relayOptIns.serverTimingsRestOptInTotal,
+    ),
+  );
+  // Relay batch protocol (`relay:rpc.request.batch`) — see
+  // `docs/adrs/0008-relay-batch-protocol.md`.
+  lines.push(
+    metricLine(
+      "plug_socket_relay_batch_envelopes_received_total",
+      consumerRuntime.relayOptIns.batchEnvelopesReceivedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_batch_envelopes_accepted_total",
+      consumerRuntime.relayOptIns.batchEnvelopesAcceptedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_batch_items_accepted_total",
+      consumerRuntime.relayOptIns.batchItemsAcceptedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_batch_items_deduped_total",
+      consumerRuntime.relayOptIns.batchItemsDedupedTotal,
+    ),
+  );
+  lines.push(
+    metricLine(
+      "plug_socket_relay_batch_items_error_total",
+      consumerRuntime.relayOptIns.batchItemsErrorTotal,
+    ),
+  );
+  for (const [reason, count] of Object.entries(
+    consumerRuntime.relayOptIns.batchEnvelopesRejectedTotal,
+  )) {
+    lines.push(
+      metricLine("plug_socket_relay_batch_envelopes_rejected_total", count, { reason }),
+    );
+  }
   lines.push(
     metricLine(
       "plug_socket_custom_event_subscriptions_active",

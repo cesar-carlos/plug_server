@@ -31,6 +31,55 @@ describe("agentCommandBodySchema", () => {
     }
   });
 
+  it("should accept optional requestServerTimings boolean opt-in", () => {
+    for (const flag of [true, false]) {
+      const parsed = agentCommandBodySchema.safeParse({
+        agentId: "agent-1",
+        requestServerTimings: flag,
+        command: {
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: "q1",
+          params: { sql: "SELECT 1", client_token: "t" },
+        },
+      });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.requestServerTimings).toBe(flag);
+      }
+    }
+  });
+
+  it("should default requestServerTimings to undefined when omitted", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q1",
+        params: { sql: "SELECT 1", client_token: "t" },
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.requestServerTimings).toBeUndefined();
+    }
+  });
+
+  it("should reject non-boolean requestServerTimings", () => {
+    const parsed = agentCommandBodySchema.safeParse({
+      agentId: "agent-1",
+      requestServerTimings: "yes",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "q1",
+        params: { sql: "SELECT 1", client_token: "t" },
+      },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
   it("should reject invalid payloadFrameCompression", () => {
     const parsed = agentCommandBodySchema.safeParse({
       agentId: "agent-1",

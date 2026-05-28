@@ -37,7 +37,21 @@ export const socketEvents = {
   relayConversationEnd: "relay:conversation.end",
   relayConversationEnded: "relay:conversation.ended",
   relayRpcRequest: "relay:rpc.request",
+  /**
+   * Batch variant of `relay:rpc.request` carrying 1..N JSON-RPC items in a
+   * single envelope. See `docs/adrs/0008-relay-batch-protocol.md`. Gated by
+   * `SOCKET_RELAY_BATCH_ENABLED` (default `false`). Per-item responses still
+   * arrive on `relay:rpc.response`; the batch ack is delivered as a single
+   * `relay:rpc.batch_accepted` event.
+   */
+  relayRpcRequestBatch: "relay:rpc.request.batch",
   relayRpcAccepted: "relay:rpc.accepted",
+  /**
+   * Single ack covering an entire `relay:rpc.request.batch`. Carries the
+   * per-item `clientRequestId → requestId` correlation plus dedup state for
+   * each item. Emitted exactly once per inbound batch envelope.
+   */
+  relayRpcBatchAccepted: "relay:rpc.batch_accepted",
   relayRpcResponse: "relay:rpc.response",
   relayRpcChunk: "relay:rpc.chunk",
   relayRpcComplete: "relay:rpc.complete",
