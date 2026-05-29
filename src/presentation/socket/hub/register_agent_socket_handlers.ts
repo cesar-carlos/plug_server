@@ -413,6 +413,113 @@ const handleAgentProfileUpdate = async (
   }
 };
 
+// ─── agent:heartbeat / agent:ready handlers ───────────────────────────────────
+
+/**
+ * Handles `agent:heartbeat`: validates the canonical registered agent, marks
+ * the protocol ready / touches liveness, and emits `hub:heartbeat_ack`
+ * (mirroring the `trace_id` so the agent can correlate without a synced clock).
+ */
+const handleAgentHeartbeat = async (
+  socket: AgentHubSocket,
+  rawPayload: unknown,
+): Promise<void> => {
+  const decoded = await decodePayloadFrameAsync(rawPayload);
+  if (!decoded.ok) {
+    emitAppError(socket, decoded.error.message);
+    return;
+  }
+
+  const payloadData = isRecord(decoded.value.data) ? decoded.value.data : {};
+  const payloadAgentId = payloadData.agent_id;
+  // Mirror trace_id back so the agent can correlate emission with ack
+  // without requiring a synchronised clock (spec: socket_communication_standard.md § heartbeat).
+  const payloadTraceId =
+    typeof payloadData.trace_id === "string" && payloadData.trace_id.trim() !== ""
+      ? payloadData.trace_id
+      : undefined;
+
+  const currentAgentId = resolveCanonicalRegisteredAgentId(
+    socket,
+    socketEvents.agentHeartbeat,
+    payloadAgentId,
+  );
+  if (!currentAgentId) {
+    return;
+  }
+
+  agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
+
+  socket.emit(
+    socketEvents.hubHeartbeatAck,
+    encodePayloadFrameHotPath(
+      {
+        agent_id: currentAgentId,
+        timestamp: new Date().toISOString(),
+        status: "ok",
+        ...(payloadTraceId !== undefined ? { trace_id: payloadTraceId } : {}),
+      },
+      withOptionalRequestId(decoded.value.frame.requestId),
+    ),
+  );
+};
+
+/**
+ * Handles `agent:ready`: parses the (possibly legacy) ready payload, validates
+ * the canonical agent, marks protocol ready, and—when the agent opted into the
+ * explicit `protocol_ready_ack` handshake—schedules the deferred profile sync.
+ */
+const handleAgentReady = async (socket: AgentHubSocket, rawPayload: unknown): Promise<void> => {
+  const decoded = await decodePayloadFrameAsync(rawPayload);
+  if (!decoded.ok) {
+    emitAppError(socket, decoded.error.message);
+    return;
+  }
+
+  const parsedReadyPayload = parseAgentReadyPayload(decoded.value.data);
+  if (!parsedReadyPayload.ok) {
+    if (parsedReadyPayload.reason === "invalid_partial_payload") {
+      noteAgentReadyInvalidPartialPayload();
+      logger.warn("agent_ready_invalid_partial_payload", {
+        socketId: socket.id,
+      });
+    }
+    emitAppError(socket, "agent:ready payload is invalid");
+    return;
+  }
+  if (parsedReadyPayload.legacy) {
+    noteAgentReadyLegacyPayload();
+    logger.warn("agent_ready_legacy_payload", {
+      socketId: socket.id,
+      agentId: parsedReadyPayload.agentId,
+      missingTimestamp: true,
+      missingProtocol: true,
+    });
+  }
+
+  const currentAgentId = resolveCanonicalRegisteredAgentId(
+    socket,
+    socketEvents.agentReady,
+    parsedReadyPayload.agentId,
+  );
+  if (!currentAgentId) {
+    return;
+  }
+
+  agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
+
+  const capabilities = isRecord(socket.data.capabilities) ? socket.data.capabilities : null;
+  if (capabilities && resolveRequiresExplicitProtocolReadyAck(capabilities)) {
+    scheduleAgentProfileSync({
+      agentId: currentAgentId,
+      userId: getUserId(socket),
+      ...(socket.data.agentRegisterProfileSnapshot !== undefined
+        ? { snapshot: socket.data.agentRegisterProfileSnapshot }
+        : {}),
+    });
+  }
+};
+
 // ─── Connection handler ───────────────────────────────────────────────────────
 
 export type RegisterAgentSocketHandlersInput = {
@@ -653,96 +760,12 @@ export const registerAgentSocketConnectionHandlers = ({
       }
     });
 
-    socket.on(socketEvents.agentHeartbeat, async (rawPayload: unknown) => {
-      const decoded = await decodePayloadFrameAsync(rawPayload);
-      if (!decoded.ok) {
-        emitAppError(socket, decoded.error.message);
-        return;
-      }
-
-      const payloadData = isRecord(decoded.value.data) ? decoded.value.data : {};
-      const payloadAgentId = payloadData.agent_id;
-      // Mirror trace_id back so the agent can correlate emission with ack
-      // without requiring a synchronised clock (spec: socket_communication_standard.md § heartbeat).
-      const payloadTraceId =
-        typeof payloadData.trace_id === "string" && payloadData.trace_id.trim() !== ""
-          ? payloadData.trace_id
-          : undefined;
-
-      const currentAgentId = resolveCanonicalRegisteredAgentId(
-        socket,
-        socketEvents.agentHeartbeat,
-        payloadAgentId,
-      );
-      if (!currentAgentId) {
-        return;
-      }
-
-      agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
-
-      socket.emit(
-        socketEvents.hubHeartbeatAck,
-        encodePayloadFrameHotPath(
-          {
-            agent_id: currentAgentId,
-            timestamp: new Date().toISOString(),
-            status: "ok",
-            ...(payloadTraceId !== undefined ? { trace_id: payloadTraceId } : {}),
-          },
-          withOptionalRequestId(decoded.value.frame.requestId),
-        ),
-      );
+    socket.on(socketEvents.agentHeartbeat, (rawPayload: unknown) => {
+      void handleAgentHeartbeat(socket, rawPayload);
     });
 
-    socket.on(socketEvents.agentReady, async (rawPayload: unknown) => {
-      const decoded = await decodePayloadFrameAsync(rawPayload);
-      if (!decoded.ok) {
-        emitAppError(socket, decoded.error.message);
-        return;
-      }
-
-      const parsedReadyPayload = parseAgentReadyPayload(decoded.value.data);
-      if (!parsedReadyPayload.ok) {
-        if (parsedReadyPayload.reason === "invalid_partial_payload") {
-          noteAgentReadyInvalidPartialPayload();
-          logger.warn("agent_ready_invalid_partial_payload", {
-            socketId: socket.id,
-          });
-        }
-        emitAppError(socket, "agent:ready payload is invalid");
-        return;
-      }
-      if (parsedReadyPayload.legacy) {
-        noteAgentReadyLegacyPayload();
-        logger.warn("agent_ready_legacy_payload", {
-          socketId: socket.id,
-          agentId: parsedReadyPayload.agentId,
-          missingTimestamp: true,
-          missingProtocol: true,
-        });
-      }
-
-      const currentAgentId = resolveCanonicalRegisteredAgentId(
-        socket,
-        socketEvents.agentReady,
-        parsedReadyPayload.agentId,
-      );
-      if (!currentAgentId) {
-        return;
-      }
-
-      agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
-
-      const capabilities = isRecord(socket.data.capabilities) ? socket.data.capabilities : null;
-      if (capabilities && resolveRequiresExplicitProtocolReadyAck(capabilities)) {
-        scheduleAgentProfileSync({
-          agentId: currentAgentId,
-          userId: getUserId(socket),
-          ...(socket.data.agentRegisterProfileSnapshot !== undefined
-            ? { snapshot: socket.data.agentRegisterProfileSnapshot }
-            : {}),
-        });
-      }
+    socket.on(socketEvents.agentReady, (rawPayload: unknown) => {
+      void handleAgentReady(socket, rawPayload);
     });
 
     socket.on(socketEvents.agentProfileUpdate, (rawPayload: unknown) => {
