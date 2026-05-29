@@ -1,3 +1,4 @@
+---
 description: "Universal coding standards"
 globs: ["src/**/*.ts", "tests/**/*.ts"]
 alwaysApply: true

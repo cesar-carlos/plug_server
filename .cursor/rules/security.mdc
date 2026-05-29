@@ -1,3 +1,4 @@
+---
 description: "Stack-specific security rules for the REST and WebSocket backend"
 globs: ["src/**/*.ts"]
 alwaysApply: true

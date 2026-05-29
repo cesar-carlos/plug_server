@@ -1,3 +1,4 @@
+---
 description: "Universal testing strategy"
 globs: ["tests/**/*.ts", "**/*.test.ts", "**/*.spec.ts"]
 alwaysApply: true

@@ -1,3 +1,4 @@
+---
 description: "Stack-specific libraries and conventions for this backend"
 globs: ["src/**/*.ts", "tests/**/*.ts"]
 alwaysApply: true
@@ -12,5 +13,4 @@ alwaysApply: true
 - Utility stack: `uuid`, `moment`.
 - Prefer `uuid` for externally visible identifiers and correlation ids when a generated unique id is needed.
 - Use `moment` only for date and time formatting or calculations that are clearer with it; avoid spreading date logic across the codebase.
-- Centralize environment parsing, JWT helpers, password hashing, cookie handling, logger setup, Swagger setup, and Socket.IO bootstrap in dedicated modules.
 - Keep third-party library usage behind small adapters or helpers when that improves reuse or testability.

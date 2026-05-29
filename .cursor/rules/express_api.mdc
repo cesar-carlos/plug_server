@@ -1,3 +1,4 @@
+---
 description: "Express-specific HTTP and routing conventions"
 globs: ["src/app.ts", "src/**/*.controller.ts", "src/**/*.routes.ts", "src/**/*.middleware.ts", "src/presentation/**/*.ts"]
 alwaysApply: true
@@ -24,7 +25,6 @@ alwaysApply: true
 ## Controllers
 
 - Keep controllers thin: retrieve validated input via `getValidated`, call the application/service layer, check the `Result`, and map to the appropriate HTTP status code.
-- Never access repositories, domain entities, or infrastructure adapters directly from a controller.
 - Use serializers or response helpers when a feature exposes multiple endpoints with the same response shape or when legacy compatibility fields must be preserved.
 
 ## Validation
@@ -49,7 +49,6 @@ alwaysApply: true
 
 ## Testing
 
-- Keep `app` separate from the network listener so HTTP tests can import the real Express app without opening a port.
 - Use `Supertest` or equivalent for HTTP-level tests against the real app.
 - Add contract tests for response envelopes, centralized error shapes, `requestId` propagation, and any documented legacy response exceptions.
 - When auth flows accept cookies or more than one token source, add transport-level tests for precedence and CSRF or origin protections.

@@ -1,3 +1,4 @@
+---
 description: "Project-specific architecture rules for this TypeScript backend"
 globs: ["src/**/*.ts"]
 alwaysApply: true
@@ -5,12 +6,16 @@ alwaysApply: true
 
 # Backend Communication Architecture
 
-- This is a project-specific rule file. It defines runtime flow and dependency direction for this backend. Folder placement, verification workflow, and detailed layer responsibilities live in their own rule files.
-- Build the project in `TypeScript` with `Express` for REST and `socket.io` for real-time communication.
+- This is a project-specific rule file. It defines runtime flow, dependency direction, and layer import boundaries for this backend. Folder placement, verification workflow, and detailed layer responsibilities live in their own rule files.
+- Expose two transports over a shared application core: a REST API and a real-time (WebSocket) channel.
 - Keep `app.ts` and the HTTP server bootstrap separate so tests can import the app without opening a port.
 - Preferred REST flow: `route -> middleware -> controller -> use_case/service -> repository -> datasource`.
 - Preferred WebSocket flow: `connection/auth -> event handler -> use_case/service -> repository -> datasource`.
 - Transport layers must stay thin. Controllers and socket handlers translate protocol input/output only.
 - Business rules should live in shared use cases or services so REST and WebSocket do not duplicate behavior.
 - Prefer inward dependency flow even when organizing by feature.
+- `src/domain` must not import `application`, `presentation`, `infrastructure`, or framework libraries.
+- `src/application` must not import `presentation` or concrete `infrastructure` implementations.
+- `src/presentation` must not call repositories or datasources directly; it enters through application services or use cases.
+- Tests may use helpers or fixtures that cross boundaries when necessary, but production code must keep the architectural imports clean.
 - API documentation should be exposed through `Swagger`/`OpenAPI` and kept aligned with the real request and response contracts.

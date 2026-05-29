@@ -107,6 +107,12 @@ export const getRelayMetricsSnapshot = (): RelayHubMetricsSnapshot =>
   buildRelayHubMetricsSnapshot({
     activeStreams: getActiveStreamRouteCount(),
     restMaterializeStreamsInFlight: countRestMaterializeStreamsInFlight(),
+    // Use the fast (cached) outbound-queue snapshot on the metrics-read path:
+    // the heavy percentile + orphan-tail scan is owned by the conversation
+    // sweep timer (`sweepRelayOutboundQueueState` -> overload state refresh),
+    // so the `/metrics` scrape and the periodic logger reuse those cached
+    // values instead of recomputing them on every read. Same output shape.
+    useFastQueueSnapshot: true,
   });
 
 export { stopRelayHubMetricsLogger as stopRelayMetricsLogger };

@@ -49,6 +49,15 @@ const connection = createManagedRedisConnection();
  */
 const XADD_PIPELINE_CHUNK_SIZE = 500;
 
+/**
+ * Stream keys whose consumer group has already been ensured in this process.
+ * Skips the redundant `XGROUP CREATE` round-trip (which only ever returns
+ * `BUSYGROUP` after the first call) on every subsequent backlog read. Cleared
+ * on teardown/reconnect, and invalidated per-key on `NOGROUP` (e.g. the stream
+ * was trimmed away or a failover dropped the group) so the next read recreates.
+ */
+const ensuredConsumerGroups = new Set<string>();
+
 const toSafeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
@@ -342,6 +351,9 @@ const parseStreamMessage = (
  * no append has happened yet.
  */
 const ensureConsumerGroup = async (client: InstrumentedRedisClient, key: string): Promise<void> => {
+  if (ensuredConsumerGroups.has(key)) {
+    return;
+  }
   try {
     await client.sendCommand([
       "XGROUP",
@@ -351,8 +363,10 @@ const ensureConsumerGroup = async (client: InstrumentedRedisClient, key: string)
       "$",
       "MKSTREAM",
     ]);
+    ensuredConsumerGroups.add(key);
   } catch (error: unknown) {
     if (error instanceof Error && /BUSYGROUP/i.test(error.message ?? "")) {
+      ensuredConsumerGroups.add(key);
       return;
     }
     throw error;
@@ -478,6 +492,12 @@ const readAgentEventBacklogConsumerGroup = async (
     noteAgentEventStreamBacklogRead(entries.length);
     return entries;
   } catch (error: unknown) {
+    // The group may have been dropped server-side (stream trimmed away or a
+    // failover to a replica without the group). Invalidate the cache entry so
+    // the next read recreates the group instead of looping on NOGROUP.
+    if (error instanceof Error && /NOGROUP/i.test(error.message ?? "")) {
+      ensuredConsumerGroups.delete(key);
+    }
     noteAgentEventStreamCommandError();
     logger.warn("agent_event_stream_xreadgroup_failed", {
       principalId,
@@ -591,6 +611,9 @@ export async function initAgentEventStream(): Promise<void> {
 
 export async function closeAgentEventStream(): Promise<void> {
   const hadClient = connection.getClient() !== undefined;
+  // Drop the consumer-group cache: a fresh connection (or a different Redis
+  // endpoint after failover) must not assume groups created by the old one.
+  ensuredConsumerGroups.clear();
   await connection.teardown();
   if (hadClient) {
     noteAgentEventStreamDisconnected();

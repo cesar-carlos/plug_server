@@ -97,6 +97,10 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
+/** Distributed-idempotency lock-contention poll backoff window (full jitter). */
+const IDEMPOTENCY_POLL_INITIAL_BACKOFF_MS = 10;
+const IDEMPOTENCY_POLL_MAX_BACKOFF_MS = 100;
+
 export interface ClientSocketEventPublishOutcome {
   readonly success: true;
   readonly eventId: string;
@@ -240,8 +244,17 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
       if (distributedIdempotencyStore !== undefined) {
         noteClientSocketEventIdempotencyRedisLockContention();
         const deadlineMs = Date.now() + env.restSocketEventIdempotencyRedisWaitMs;
+        // Exponential backoff with full jitter (capped), instead of a fixed
+        // 50ms poll: fewer `getEntry` round-trips under sustained contention and
+        // de-synchronized retries across replicas (thundering-herd avoidance),
+        // while staying responsive on the first few attempts. Each sleep is
+        // clamped to the remaining budget so the deadline is still honored.
+        let backoffMs = IDEMPOTENCY_POLL_INITIAL_BACKOFF_MS;
         while (Date.now() < deadlineMs) {
-          await sleep(Math.min(50, Math.max(1, deadlineMs - Date.now())));
+          const remainingMs = deadlineMs - Date.now();
+          const jittered = Math.random() * backoffMs;
+          await sleep(Math.min(remainingMs, Math.max(1, Math.round(jittered))));
+          backoffMs = Math.min(IDEMPOTENCY_POLL_MAX_BACKOFF_MS, backoffMs * 2);
           const waitedEntry = await distributedIdempotencyStore.getEntry(clientId, idempotencyKey);
           const waitedReplay = resolveExistingIdempotencyEntry(
             waitedEntry,

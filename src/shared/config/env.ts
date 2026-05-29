@@ -401,6 +401,14 @@ const envSchema = z.object({
   JWT_VERIFY_CACHE_TTL_MS: z.coerce.number().int().min(0).max(300_000).default(30_000),
   JWT_VERIFY_CACHE_MAX_SIZE: z.coerce.number().int().min(0).max(50_000).default(2_000),
   /**
+   * TTL for the `/metrics` response Buffer cache. On a cache hit the endpoint
+   * skips the (synchronous) Prometheus render of thousands of lines. Default
+   * 500ms collapses bursts from a single scraper; raise it on busy hubs with
+   * aggressive scrape intervals to keep the heavy render off user-facing
+   * requests. `0` disables the cache (every scrape re-renders).
+   */
+  METRICS_RESPONSE_CACHE_TTL_MS: z.coerce.number().int().min(0).max(60_000).default(500),
+  /**
    * Opt-in flag for OpenTelemetry auto-instrumentation of HTTP/Express/Prisma.
    * When enabled, the SDK is bootstrapped before `createApp` and emits spans
    * to the OTLP HTTP endpoint configured by `OTEL_EXPORTER_OTLP_ENDPOINT`
@@ -955,6 +963,20 @@ const envSchema = z.object({
     .min(0)
     .max(60_000)
     .default(1_000),
+  /**
+   * TTL (ms) for caching `listApprovedAgentIds(clientId)` across reconcile
+   * ticks and consumer bootstrap. The reconcile is a safety net (live
+   * grant/revoke already push room updates), so reusing approved-agent sets
+   * for a short window cuts repeated DB reads for the same client. Trades a
+   * bounded convergence delay for fewer queries. `0` (default) disables the
+   * cache — every tick/bootstrap fetches fresh (current behavior).
+   */
+  SOCKET_CONSUMER_RECONCILE_APPROVED_AGENTS_CACHE_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(300_000)
+    .default(0),
   SOCKET_RELAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   SOCKET_RELAY_STREAM_MAX_LIFETIME_MS: z.coerce.number().int().positive().default(300_000),
@@ -1653,6 +1675,7 @@ export const env = {
   jwtRefreshSecret: parsedEnv.JWT_REFRESH_SECRET,
   jwtRefreshExpiresIn: parsedEnv.JWT_REFRESH_EXPIRES_IN,
   jwtVerifyCacheTtlMs: parsedEnv.JWT_VERIFY_CACHE_TTL_MS,
+  metricsResponseCacheTtlMs: parsedEnv.METRICS_RESPONSE_CACHE_TTL_MS,
   jwtVerifyCacheMaxSize: parsedEnv.JWT_VERIFY_CACHE_MAX_SIZE,
   otelTracesEnabled: parsedEnv.OTEL_TRACES_ENABLED,
   redisOtelSpansEnabled: parsedEnv.REDIS_OTEL_SPANS_ENABLED,
@@ -1721,6 +1744,8 @@ export const env = {
     parsedEnv.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_MAX_CLIENTS_PER_TICK,
   socketConsumerClientAgentRoomReconcileStartJitterMs:
     parsedEnv.SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS,
+  socketConsumerReconcileApprovedAgentsCacheTtlMs:
+    parsedEnv.SOCKET_CONSUMER_RECONCILE_APPROVED_AGENTS_CACHE_TTL_MS,
   socketRelayRequestTimeoutMs: parsedEnv.SOCKET_RELAY_REQUEST_TIMEOUT_MS,
   socketRelayStreamIdleTimeoutMs: parsedEnv.SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS,
   socketRelayStreamMaxLifetimeMs: parsedEnv.SOCKET_RELAY_STREAM_MAX_LIFETIME_MS,

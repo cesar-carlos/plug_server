@@ -21,10 +21,10 @@ import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/regi
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import type { SocketHubMetricsSnapshot } from "../../adapters/socket_metrics_snapshot.adapter";
 import { container } from "../../../shared/di/container";
+import { env } from "../../../shared/config/env";
 
 import { buildMetricsLines } from "./metrics_renderer";
 
-const metricsResponseCacheTtlMs = 500;
 /**
  * Cache holds the **Buffer** rather than the source string so cache hits skip
  * the UTF-8 encoding pass that `response.send(string)` would do otherwise.
@@ -36,8 +36,9 @@ let metricsResponseCache: {
 
 export const getMetrics = (_request: Request, response: Response): void => {
   const nowMs = Date.now();
+  const metricsResponseCacheTtlMs = env.metricsResponseCacheTtlMs;
   const cached = metricsResponseCache;
-  if (cached && cached.expiresAtMs > nowMs) {
+  if (metricsResponseCacheTtlMs > 0 && cached && cached.expiresAtMs > nowMs) {
     response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
     response.setHeader("Cache-Control", "no-store");
     response.status(200).send(cached.body);

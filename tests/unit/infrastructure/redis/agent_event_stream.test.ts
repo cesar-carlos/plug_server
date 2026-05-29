@@ -378,6 +378,63 @@ describe("agent_event_stream", () => {
     expect(xreadgroupCalls).toHaveLength(1);
   });
 
+  it("consumer-groups path: caches the group so repeated reads skip XGROUP CREATE", async () => {
+    const { module, client } = await setupModule({ useConsumerGroups: true });
+    client.sendCommand.mockImplementation(async (args: unknown) => {
+      if (Array.isArray(args) && args[0] === "XGROUP" && args[1] === "CREATE") {
+        return "OK";
+      }
+      if (Array.isArray(args) && args[0] === "XREADGROUP") {
+        return null;
+      }
+      return undefined;
+    });
+
+    await module.initAgentEventStream();
+    await module.readAgentEventBacklog("agent-cg-cache", "$");
+    await module.readAgentEventBacklog("agent-cg-cache", "$");
+    await module.readAgentEventBacklog("agent-cg-cache", "$");
+
+    const xgroupCalls = client.sendCommand.mock.calls.filter(
+      (c: unknown[]) => Array.isArray(c[0]) && (c[0] as string[])[0] === "XGROUP",
+    );
+    const xreadgroupCalls = client.sendCommand.mock.calls.filter(
+      (c: unknown[]) => Array.isArray(c[0]) && (c[0] as string[])[0] === "XREADGROUP",
+    );
+    // XGROUP CREATE only on the first read; XREADGROUP on every read.
+    expect(xgroupCalls).toHaveLength(1);
+    expect(xreadgroupCalls).toHaveLength(3);
+  });
+
+  it("consumer-groups path: NOGROUP on read invalidates the cache so the next read recreates the group", async () => {
+    const { module, client } = await setupModule({ useConsumerGroups: true });
+    let xreadgroupCallCount = 0;
+    client.sendCommand.mockImplementation(async (args: unknown) => {
+      if (Array.isArray(args) && args[0] === "XGROUP" && args[1] === "CREATE") {
+        return "OK";
+      }
+      if (Array.isArray(args) && args[0] === "XREADGROUP") {
+        xreadgroupCallCount += 1;
+        if (xreadgroupCallCount === 1) {
+          throw new Error("NOGROUP No such key or consumer group");
+        }
+        return null;
+      }
+      return undefined;
+    });
+
+    await module.initAgentEventStream();
+    await module.readAgentEventBacklog("agent-cg-nogroup", "$");
+    await module.readAgentEventBacklog("agent-cg-nogroup", "$");
+
+    const xgroupCalls = client.sendCommand.mock.calls.filter(
+      (c: unknown[]) => Array.isArray(c[0]) && (c[0] as string[])[0] === "XGROUP",
+    );
+    // First read created the group then hit NOGROUP (cache invalidated); the
+    // second read recreates it -> two XGROUP CREATE calls.
+    expect(xgroupCalls).toHaveLength(2);
+  });
+
   it("consumer-groups path: ack uses XACK instead of XDEL", async () => {
     const { module, client } = await setupModule({ useConsumerGroups: true });
     client.sendCommand.mockResolvedValue(2);

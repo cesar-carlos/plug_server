@@ -1,3 +1,4 @@
+---
 description: "TypeScript-specific coding standards"
 globs: ["src/**/*.ts", "tests/**/*.ts"]
 alwaysApply: true
@@ -13,8 +14,7 @@ alwaysApply: true
 - Use `interface` for object contracts and `type` for unions, mapped types, and branded primitives.
 - Prefer types that communicate domain intent clearly at the call site instead of broad structural shapes that hide meaning.
 - Prefer named exports and `import type` where appropriate.
-- Model API states and domain outcomes with unions or result objects instead of magic strings.
-- Prefer discriminated unions for finite state or message variants, and enforce exhaustive handling with `never` when branching on them.
+- Model API states, domain outcomes, and finite message variants with discriminated unions or result objects instead of magic strings, and enforce exhaustive handling with `never` when branching on them.
 - Prefer utility types such as `Pick`, `Omit`, `Readonly`, `Partial`, `Record`, and `Awaited` over manually duplicating type shapes.
 - Validate external data at the boundary before treating it as a trusted TypeScript type.
 - Catch errors as `unknown` and narrow them before reading properties.

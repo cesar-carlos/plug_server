@@ -1,3 +1,4 @@
+---
 description: "Project-specific folder structure conventions for this backend"
 globs: ["src/**/*.ts"]
 alwaysApply: true

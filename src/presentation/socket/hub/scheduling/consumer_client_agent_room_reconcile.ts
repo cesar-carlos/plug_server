@@ -27,7 +27,7 @@ import {
   encodePayloadFrameHotPath,
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
-import type { TtlCache } from "../../../../shared/utils/ttl_cache";
+import { TtlCache } from "../../../../shared/utils/ttl_cache";
 import {
   buildConsumerAgentProfileRoom,
   buildConsumerClientAgentRoom,
@@ -51,6 +51,32 @@ export type AgentProfilePushSocketServerState = {
 };
 
 const clientAgentProfilePushDebounceMs = 25;
+
+/**
+ * Optional short-lived cache of `listApprovedAgentIds(clientId)` shared by the
+ * reconcile tick and the consumer bootstrap. Disabled (TTL `0`) by default so
+ * behavior is unchanged; when enabled it reuses approved-agent sets for a small
+ * window, cutting repeated DB reads for the same client at the cost of a bounded
+ * convergence delay (live grant/revoke still push room updates immediately).
+ */
+const approvedAgentIdsCache = new TtlCache<string, readonly string[]>(
+  Math.max(0, env.socketConsumerReconcileApprovedAgentsCacheTtlMs),
+  10_000,
+);
+
+const fetchApprovedAgentIdsForReconcile = async (clientId: string): Promise<readonly string[]> => {
+  if (env.socketConsumerReconcileApprovedAgentsCacheTtlMs <= 0) {
+    return container.clientAgentAccessQueryService.listApprovedAgentIds(clientId);
+  }
+  const cached = approvedAgentIdsCache.get(clientId);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const approvedAgentIds =
+    await container.clientAgentAccessQueryService.listApprovedAgentIds(clientId);
+  approvedAgentIdsCache.set(clientId, approvedAgentIds);
+  return approvedAgentIds;
+};
 
 /** Unions `changedFields` and keeps the highest `profileVersion` within a debounce window. */
 export const mergeCoalescedAgentProfileBroadcastEvent = (
@@ -272,7 +298,7 @@ export const backfillConsumerApprovedAgentRooms = async (
       existingFetch ??
       (async (): Promise<readonly string[]> => {
         try {
-          return await container.clientAgentAccessQueryService.listApprovedAgentIds(clientId);
+          return await fetchApprovedAgentIdsForReconcile(clientId);
         } finally {
           state.pendingApprovedAgentIdsByClientId.delete(clientId);
         }
@@ -472,8 +498,7 @@ export const reconcileConsumerClientAgentRooms = async (
       env.socketConsumerClientAgentRoomReconcileConcurrency,
       async ([clientId, sockets]) => {
         try {
-          const approvedAgentIds =
-            await container.clientAgentAccessQueryService.listApprovedAgentIds(clientId);
+          const approvedAgentIds = await fetchApprovedAgentIdsForReconcile(clientId);
           for (const socket of sockets) {
             const result = await reconcileConsumerClientAgentRoomsForSocket(
               socket,

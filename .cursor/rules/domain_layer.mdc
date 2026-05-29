@@ -1,3 +1,4 @@
+---
 description: "Universal domain and application layer guidelines"
 globs: ["src/domain/**/*.ts", "src/application/**/*.ts"]
 alwaysApply: true
