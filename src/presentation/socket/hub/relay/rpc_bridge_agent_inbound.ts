@@ -270,6 +270,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     route: ActiveStreamRoute;
     data: Record<string, unknown>;
     frame: DecodedPayloadFrame["frame"];
+    decodedBytes: Buffer;
   } | null> => {
     const tDecode = performance.now();
     const result = await decodePayloadFrameAsync(rawPayload);
@@ -309,7 +310,7 @@ export const createRpcBridgeAgentInboundHandlers = (
       conversationRegistry.touchInternal(route.conversationId);
     }
 
-    return { route, data, frame: result.value.frame };
+    return { route, data, frame: result.value.frame, decodedBytes: result.value.decodedBytes };
   };
 
   const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void => {
@@ -322,9 +323,17 @@ export const createRpcBridgeAgentInboundHandlers = (
       if (!resolved) {
         return;
       }
-      const { route, data, frame } = resolved;
+      const { route, data, frame, decodedBytes } = resolved;
       try {
-        route.onChunk(data, streamChunkMetadataFromPayloadFrame(frame));
+        // Forward the agent's original decoded frame bytes verbatim so the
+        // relay drain can skip a re-`JSON.stringify` + gzip per chunk. The
+        // chunk payload is never mutated on the relay path (no body-id echo /
+        // serverTimings — those are response-only), and the inbound `cmp` is
+        // preserved so the outbound compression decision is unchanged.
+        route.onChunk(data, streamChunkMetadataFromPayloadFrame(frame), {
+          bytes: decodedBytes,
+          cmp: frame.cmp,
+        });
       } catch {
         logger.warn("rpc_stream_chunk_forward_failed", {
           requestId: route.requestId,

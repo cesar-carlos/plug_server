@@ -3,10 +3,24 @@
  * Relay handlers in `rpc_bridge.ts` own emission/audit; this module only holds the maps.
  */
 
+/**
+ * Original agent frame bytes captured for the byte-forward fast path: when a
+ * relay chunk is forwarded **unchanged**, the drain re-emits these decoded
+ * UTF-8 bytes (preserving the inbound `cmp` compression decision) instead of
+ * re-running `JSON.stringify` + gzip on the parsed record. `undefined` for
+ * chunks that have no forwardable source (e.g. REST-materialized chunks built
+ * server-side), which fall back to the encode-from-record path.
+ */
+export interface RelayChunkRawForward {
+  readonly bytes: Buffer;
+  readonly cmp: "none" | "gzip";
+}
+
 export interface RelayStreamFlowEntry {
   credits: number;
   bufferedChunks: Record<string, unknown>[];
   bufferedChunkBytes: number[];
+  bufferedChunkRawForward: (RelayChunkRawForward | undefined)[];
   bufferedChunkHead: number;
   bufferedBytes: number;
   pendingComplete?: Record<string, unknown>;
@@ -31,6 +45,7 @@ export const ensureRelayStreamFlowEntry = (requestId: string): RelayStreamFlowEn
     credits: 0,
     bufferedChunks: [],
     bufferedChunkBytes: [],
+    bufferedChunkRawForward: [],
     bufferedChunkHead: 0,
     bufferedBytes: 0,
     forwardedRows: 0,
@@ -87,11 +102,13 @@ export const addRelayStreamBufferedChunk = (
   requestId: string,
   chunk: Record<string, unknown>,
   byteLength = 0,
+  rawForward?: RelayChunkRawForward,
 ): void => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   const normalizedByteLength = normalizeBufferedByteLength(byteLength);
   entry.bufferedChunks.push(chunk);
   entry.bufferedChunkBytes.push(normalizedByteLength);
+  entry.bufferedChunkRawForward.push(rawForward);
   entry.bufferedBytes += normalizedByteLength;
   globalTotalBufferedChunks += 1;
   globalTotalBufferedBytes += normalizedByteLength;
@@ -115,6 +132,7 @@ export const popRelayStreamBufferedChunk = (
   if (entry.bufferedChunkHead >= entry.bufferedChunks.length) {
     entry.bufferedChunks = [];
     entry.bufferedChunkBytes = [];
+    entry.bufferedChunkRawForward = [];
     entry.bufferedChunkHead = 0;
   } else if (
     entry.bufferedChunkHead >= 64 &&
@@ -122,6 +140,7 @@ export const popRelayStreamBufferedChunk = (
   ) {
     entry.bufferedChunks = entry.bufferedChunks.slice(entry.bufferedChunkHead);
     entry.bufferedChunkBytes = entry.bufferedChunkBytes.slice(entry.bufferedChunkHead);
+    entry.bufferedChunkRawForward = entry.bufferedChunkRawForward.slice(entry.bufferedChunkHead);
     entry.bufferedChunkHead = 0;
   }
 
@@ -134,6 +153,16 @@ const peekRelayStreamBufferedChunk = (requestId: string): Record<string, unknown
     return undefined;
   }
   return entry.bufferedChunks[entry.bufferedChunkHead];
+};
+
+const peekRelayStreamBufferedChunkRawForward = (
+  requestId: string,
+): RelayChunkRawForward | undefined => {
+  const entry = entriesByRequestId.get(requestId);
+  if (!entry || entry.bufferedChunkHead >= entry.bufferedChunks.length) {
+    return undefined;
+  }
+  return entry.bufferedChunkRawForward[entry.bufferedChunkHead];
 };
 
 export const getRelayStreamPendingComplete = (
@@ -254,6 +283,13 @@ export interface DrainRelayStreamBufferContext {
   readonly emitChunk: (frame: unknown) => void;
   readonly emitComplete: (frame: unknown) => void;
   readonly encodeFrame: (data: unknown) => Promise<unknown>;
+  /**
+   * Fast-path encoder that forwards the agent's original frame bytes unchanged
+   * (skips `JSON.stringify` + a re-gzip of the parsed record). Provided only by
+   * the relay path; when absent (or when a chunk has no captured bytes) the
+   * drain falls back to {@link encodeFrame}.
+   */
+  readonly encodeFrameFromBytes?: (rawForward: RelayChunkRawForward) => Promise<unknown>;
   readonly recordAudit: (eventType: string, extras?: Record<string, unknown>) => void;
   readonly isActive?: () => boolean;
   readonly onComplete?: (streamId: string | null) => void;
@@ -291,7 +327,11 @@ export const drainRelayStreamBuffer = async (
           break;
         }
 
-        const frame = await ctx.encodeFrame(chunk);
+        const rawForward = peekRelayStreamBufferedChunkRawForward(ctx.requestId);
+        const frame =
+          rawForward !== undefined && ctx.encodeFrameFromBytes !== undefined
+            ? await ctx.encodeFrameFromBytes(rawForward)
+            : await ctx.encodeFrame(chunk);
         if (!isDrainContextActive(ctx)) {
           return;
         }

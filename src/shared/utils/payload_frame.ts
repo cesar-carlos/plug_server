@@ -620,6 +620,57 @@ export const encodePayloadFrameFromBytes = (
   return finishPayloadFrameEnvelope(body, options);
 };
 
+/**
+ * Async sibling of {@link encodePayloadFrameFromBytes}: re-wraps already-encoded
+ * UTF-8 JSON bytes but offloads gzip to the libuv thread pool (via
+ * {@link preencodeUtf8BufferAsync}) for payloads at least
+ * `asyncGzipMinUtf8Bytes` (default `env.payloadFrameAsyncGzipMinUtf8Bytes`).
+ *
+ * The relay chunk byte-forward path uses this so large chunks keep their gzip
+ * off the event loop — matching {@link encodePayloadFrameBridge}'s policy — while
+ * still skipping the `JSON.stringify` that the from-record encoder would pay.
+ * Small frames stay on the synchronous path (async has its own overhead).
+ */
+export const encodePayloadFrameFromBytesAsync = async (
+  bytes: Buffer,
+  options?: EncodePayloadFrameOptions,
+): Promise<PayloadFrameEnvelope> => {
+  const minAsync = options?.asyncGzipMinUtf8Bytes ?? env.payloadFrameAsyncGzipMinUtf8Bytes;
+  const compressionThreshold = effectiveEncodeCompressionThreshold(
+    options?.compressionThreshold,
+    bytes.length,
+  );
+  const preOpts: PreencodePayloadFrameJsonOptions = {
+    compressionThreshold,
+    ...(options?.compressionPolicy !== undefined
+      ? { compressionPolicy: options.compressionPolicy }
+      : {}),
+    ...(options?.maxInflationRatio !== undefined
+      ? { maxInflationRatio: options.maxInflationRatio }
+      : {}),
+    ...(options?.maxGzipInputBytes !== undefined
+      ? { maxGzipInputBytes: options.maxGzipInputBytes }
+      : {}),
+  };
+
+  if (minAsync <= 0) {
+    return finishPayloadFrameEnvelope(preencodeUtf8Buffer(bytes, preOpts), options);
+  }
+
+  const threshold = preOpts.compressionThreshold ?? defaultCompressionThreshold;
+  const maxGzipInputBytes = preOpts.maxGzipInputBytes ?? env.payloadFrameMaxGzipInputBytes;
+  const belowThreshold = bytes.length < threshold;
+  const aboveMaxInput = bytes.length > maxGzipInputBytes;
+  const gzipEligible = !belowThreshold && !aboveMaxInput && threshold !== Number.POSITIVE_INFINITY;
+
+  const body =
+    gzipEligible && bytes.length >= minAsync
+      ? await preencodeUtf8BufferAsync(bytes, preOpts)
+      : preencodeUtf8Buffer(bytes, preOpts);
+
+  return finishPayloadFrameEnvelope(body, options);
+};
+
 export const finishPayloadFrameEnvelope = (
   body: PreencodedPayloadFrameBody,
   options?: {

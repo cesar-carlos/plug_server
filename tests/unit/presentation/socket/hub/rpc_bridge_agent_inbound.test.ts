@@ -545,11 +545,17 @@ describe("rpc_bridge_agent_inbound", () => {
     h.handleAgentRpcChunk("socket-test", frame);
 
     await vi.waitFor(() => expect(onChunk).toHaveBeenCalledTimes(1));
-    expect(onChunk).toHaveBeenCalledWith(chunkPayload, {
-      originalSizeBytes: frame.originalSize,
-      compressedSizeBytes: frame.compressedSize,
-      compression: frame.cmp,
-    });
+    expect(onChunk).toHaveBeenCalledWith(
+      chunkPayload,
+      {
+        originalSizeBytes: frame.originalSize,
+        compressedSizeBytes: frame.compressedSize,
+        compression: frame.cmp,
+      },
+      // Byte-forward fast path: the agent's decoded frame bytes + inbound cmp
+      // are threaded through so the relay drain can forward them unchanged.
+      { bytes: expect.any(Buffer), cmp: frame.cmp },
+    );
   });
 
   it("should fail fast and emit terminal error on invalid rpc:chunk frame for a legacy stream", async () => {

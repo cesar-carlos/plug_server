@@ -7,6 +7,7 @@ import { env } from "../../../../shared/config/env";
 import {
   encodePayloadFrameBridge,
   encodePayloadFrameFromBytes,
+  encodePayloadFrameFromBytesAsync,
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import { logger } from "../../../../shared/utils/logger";
@@ -404,6 +405,28 @@ export const encodeRelayOutboundFrameFromBytes = (
   options: { readonly inboundCmp: "none" | "gzip" },
 ): PayloadFrameEnvelope =>
   encodePayloadFrameFromBytes(bytes, {
+    requestId,
+    omitTraceId: true,
+    ...(options.inboundCmp === "gzip"
+      ? {
+          compressionThreshold: 1,
+          compressionPolicy: "always_gzip" as const,
+        }
+      : {}),
+  });
+
+/**
+ * Async sibling of {@link encodeRelayOutboundFrameFromBytes}: keeps gzip of
+ * large forwarded chunks off the event loop (libuv thread pool) the same way
+ * {@link encodeRelayOutboundFrame} does, while still skipping `JSON.stringify`.
+ * Used by the relay chunk byte-forward drain.
+ */
+export const encodeRelayOutboundFrameFromBytesAsync = async (
+  bytes: Buffer,
+  requestId: string,
+  options: { readonly inboundCmp: "none" | "gzip" },
+): Promise<PayloadFrameEnvelope> =>
+  encodePayloadFrameFromBytesAsync(bytes, {
     requestId,
     omitTraceId: true,
     ...(options.inboundCmp === "gzip"

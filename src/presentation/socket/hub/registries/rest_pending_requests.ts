@@ -1,11 +1,22 @@
 import type { BridgeLatencyTraceSession } from "../../../../application/services/bridge_latency_trace_builder";
 import type { StreamChunkMetadata } from "../relay/stream_chunk_metadata";
+import type { RelayChunkRawForward } from "../relay/relay_stream_flow_state";
 
 export interface StreamEventHandlers {
   readonly consumerSocketId: string;
   readonly conversationId?: string;
   readonly mode?: "legacy" | "relay";
-  readonly onChunk: (payload: Record<string, unknown>, metadata?: StreamChunkMetadata) => void;
+  /**
+   * `rawForward` carries the agent's original decoded frame bytes so the relay
+   * drain can forward them unchanged (skipping a re-`JSON.stringify` + gzip).
+   * Only the agent-inbound relay chunk path supplies it; server-built chunks
+   * (REST materialize) omit it and are re-encoded from the record.
+   */
+  readonly onChunk: (
+    payload: Record<string, unknown>,
+    metadata?: StreamChunkMetadata,
+    rawForward?: RelayChunkRawForward,
+  ) => void;
   readonly onComplete: (payload: Record<string, unknown>) => void;
 }
 

@@ -19,7 +19,11 @@ import {
   getRelayIdempotencyMap,
   setRelayIdempotencyEntry,
 } from "../registries/relay_idempotency_store";
-import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
+import {
+  enqueueRelayOutbound,
+  encodeRelayOutboundFrame,
+  encodeRelayOutboundFrameFromBytesAsync,
+} from "./relay_outbound_queue";
 import {
   getRelayStreamFlowCredits,
   getRelayStreamBufferedChunkCount,
@@ -31,6 +35,7 @@ import {
   getRelayStreamBufferedBytes,
   getRelayStreamTotalBufferedBytes,
   drainRelayStreamBuffer,
+  type RelayChunkRawForward,
 } from "./relay_stream_flow_state";
 import type { RelayRequestRoute } from "../registries/relay_request_registry";
 import {
@@ -174,6 +179,10 @@ export const createRelayStreamHandlers = (
               emitComplete: (frame) =>
                 emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
               encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
+              encodeFrameFromBytes: (rawForward) =>
+                encodeRelayOutboundFrameFromBytesAsync(rawForward.bytes, route.requestId, {
+                  inboundCmp: rawForward.cmp,
+                }),
               isActive: isRouteActive,
               recordAudit: (eventType, extras) => {
                 if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
@@ -241,6 +250,10 @@ export const createRelayStreamHandlers = (
           emitComplete: (frame) =>
             emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
           encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
+          encodeFrameFromBytes: (rawForward) =>
+            encodeRelayOutboundFrameFromBytesAsync(rawForward.bytes, route.requestId, {
+              inboundCmp: rawForward.cmp,
+            }),
           isActive: isRouteActive,
           recordAudit: (eventType, extras) => {
             if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
@@ -289,7 +302,7 @@ export const createRelayStreamHandlers = (
     consumerSocketId: route.consumerSocketId,
     conversationId: route.conversationId,
     mode: "relay",
-    onChunk: (payload, metadata?: StreamChunkMetadata) => {
+    onChunk: (payload, metadata?: StreamChunkMetadata, rawForward?: RelayChunkRawForward) => {
       touchRelayStreamTimeout(route.requestId);
       const available = getRelayStreamFlowCredits(route.requestId);
       const payloadBytes = resolveStreamChunkOriginalSizeBytes(
@@ -320,7 +333,7 @@ export const createRelayStreamHandlers = (
         return;
       }
 
-      addRelayStreamBufferedChunk(route.requestId, payload, payloadBytes);
+      addRelayStreamBufferedChunk(route.requestId, payload, payloadBytes, rawForward);
       if (available <= 0) {
         relayMetrics.chunksBuffered += sampledMetricDelta(1);
       }
