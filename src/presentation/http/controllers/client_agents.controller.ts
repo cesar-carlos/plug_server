@@ -5,12 +5,14 @@ import { env } from "../../../shared/config/env";
 import { getAuthClient } from "../middlewares/auth.middleware";
 import { negotiateApprovalHtmlLang } from "../helpers/approval_page_locale";
 import {
-  approvalDecisionEyebrow,
-  approvalHomeLabel,
   clientAccessDecisionCopy,
   clientAccessReviewCopy,
 } from "../helpers/approval_registration_i18n";
-import { renderApprovalDecisionPage, renderApprovalReviewPage } from "../helpers/approval_pages";
+import { renderApprovalReviewPage } from "../helpers/approval_pages";
+import {
+  approvalHome,
+  renderApprovalDecisionHtml,
+} from "../helpers/approval_decision_html";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   ClientAccessApproveBody,
@@ -28,31 +30,6 @@ import {
   recordClientMeAgentsListResponse,
 } from "../../../shared/metrics/client_me_agents.metrics";
 import { toClientAgentDto } from "../mappers/client_agent.mapper";
-
-const clientAccessHome = (
-  lang: ReturnType<typeof negotiateApprovalHtmlLang>,
-): { homeUrl: string; homeLabel: string } => {
-  const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
-  return { homeUrl, homeLabel: approvalHomeLabel(lang) };
-};
-
-const clientAccessDecisionHtml = (
-  lang: ReturnType<typeof negotiateApprovalHtmlLang>,
-  title: string,
-  bodyText: string,
-  tone: "success" | "danger" | "neutral",
-): string => {
-  const { homeUrl, homeLabel } = clientAccessHome(lang);
-  return renderApprovalDecisionPage({
-    title,
-    bodyText,
-    tone,
-    lang,
-    decisionEyebrow: approvalDecisionEyebrow(lang),
-    homeUrl,
-    homeLabel,
-  });
-};
 
 export const listMyClientAgents = async (_request: Request, response: Response): Promise<void> => {
   const authClient = getAuthClient(response);
@@ -91,19 +68,17 @@ export const getMyClientAgent = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
-  const result = await container.clientAgentAccessService.findApprovedAgent(
-    authClient.sub,
-    agentId,
-  );
+  // `findApprovedAgent` and `hasClientTokenForAgent` are independent reads; run
+  // them concurrently to halve the round-trips on the detail endpoint.
+  const [result, hasClientToken] = await Promise.all([
+    container.clientAgentAccessService.findApprovedAgent(authClient.sub, agentId),
+    container.clientAgentAccessService.hasClientTokenForAgent(authClient.sub, agentId),
+  ]);
   if (!result.ok) {
     next(result.error);
     return;
   }
   const isHubConnected = container.restAgentBridgeService.isAgentConnected(agentId);
-  const hasClientToken = await container.clientAgentAccessService.hasClientTokenForAgent(
-    authClient.sub,
-    agentId,
-  );
   recordClientMeAgentsDetailResponse(isHubConnected);
   response.status(200).json({
     agent: toClientAgentDto(result.value, isHubConnected, hasClientToken),
@@ -255,7 +230,7 @@ export const clientAccessReviewPage = async (
   const copy = clientAccessReviewCopy(lang);
   const { token } = getValidated<ClientAccessReviewTokenQuery>(response, "query");
   const base = env.appBaseUrl.replace(/\/+$/, "");
-  const { homeUrl, homeLabel } = clientAccessHome(lang);
+  const { homeUrl, homeLabel } = approvalHome(lang);
   const approveAction = `${base}/api/v1/client-access/approve`;
   const rejectAction = `${base}/api/v1/client-access/reject`;
   const summary = await container.clientAgentAccessService.getReviewSummaryByToken(token);
@@ -332,7 +307,7 @@ export const approveClientAccess = async (
     .status(200)
     .type("html")
     .send(
-      clientAccessDecisionHtml(
+      renderApprovalDecisionHtml(
         lang,
         decision.approvedTitle,
         decision.approvedBody(result.value.agentId),
@@ -361,7 +336,7 @@ export const rejectClientAccess = async (
     .status(200)
     .type("html")
     .send(
-      clientAccessDecisionHtml(
+      renderApprovalDecisionHtml(
         lang,
         decision.rejectedTitle,
         decision.rejectedBody(result.value.agentId),

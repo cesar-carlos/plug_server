@@ -86,6 +86,11 @@ import {
 } from "../registries/relay_request_registry";
 import { createRelayStreamHandlers, type EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 import { extractStreamIdFromRpcResponse, pickResponseIds } from "./rpc_bridge_command_helpers";
+import {
+  createRelayBatchResponseUnsupportedPayload,
+  createRelayDecodeFailurePayload,
+  createRelayUnexpectedFailurePayload,
+} from "./rpc_bridge_relay_error_payloads";
 
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
 const relayMaxActiveStreams = env.socketRelayMaxActiveStreams;
@@ -182,121 +187,6 @@ export const createRpcBridgeAgentInboundHandlers = (
     requestId: string,
     relayRoute: RelayRequestRoute | null,
   ): string => relayRoute?.clientRequestId ?? requestId;
-
-  const createRelayDecodeFailurePayload = (
-    requestId: string,
-    reasonMessage: string,
-    bodyId: string,
-  ): Record<string, unknown> => {
-    const timestamp = new Date().toISOString();
-    const normalized = reasonMessage.toLowerCase();
-    if (normalized.includes("signature")) {
-      return {
-        jsonrpc: "2.0",
-        id: bodyId,
-        error: {
-          code: -32001,
-          message: "Authentication failed",
-          data: {
-            reason: "invalid_signature",
-            category: "auth",
-            retryable: false,
-            user_message: "Não foi possível autenticar a resposta do agente.",
-            technical_message: reasonMessage,
-            correlation_id: `corr-${requestId}`,
-            timestamp,
-          },
-        },
-      };
-    }
-    if (normalized.includes("decompress payloadframe payload")) {
-      return {
-        jsonrpc: "2.0",
-        id: bodyId,
-        error: {
-          code: -32011,
-          message: "Compression failed",
-          data: {
-            reason: "compression_failed",
-            category: "transport",
-            retryable: false,
-            user_message: "Não foi possível descomprimir a resposta do agente.",
-            technical_message: reasonMessage,
-            correlation_id: `corr-${requestId}`,
-            timestamp,
-          },
-        },
-      };
-    }
-    if (normalized.includes("decode payloadframe json payload")) {
-      return {
-        jsonrpc: "2.0",
-        id: bodyId,
-        error: {
-          code: -32010,
-          message: "Decoding failed",
-          data: {
-            reason: "decoding_failed",
-            category: "transport",
-            retryable: false,
-            user_message: "Não foi possível decodificar a resposta do agente.",
-            technical_message: reasonMessage,
-            correlation_id: `corr-${requestId}`,
-            timestamp,
-          },
-        },
-      };
-    }
-    return {
-      jsonrpc: "2.0",
-      id: bodyId,
-      error: {
-        code: -32009,
-        message: "Invalid payload",
-        data: {
-          reason: "invalid_payload",
-          category: "transport",
-          retryable: false,
-          user_message: "O agente respondeu com um payload invalido.",
-          technical_message: reasonMessage,
-          correlation_id: `corr-${requestId}`,
-          timestamp,
-        },
-      },
-    };
-  };
-
-  const createRelayUnexpectedFailurePayload = (
-    bodyId: string,
-    reasonMessage: string,
-  ): Record<string, unknown> => ({
-    jsonrpc: "2.0",
-    id: bodyId,
-    error: {
-      code: -32000,
-      message: "Internal bridge error",
-      data: {
-        code: "BRIDGE_INBOUND_PROCESSING_FAILED",
-        retryable: true,
-        technical_message: reasonMessage,
-      },
-    },
-  });
-
-  const createRelayBatchResponseUnsupportedPayload = (
-    bodyId: string,
-  ): Record<string, unknown> => ({
-    jsonrpc: "2.0",
-    id: bodyId,
-    error: {
-      code: -32009,
-      message: "Relay does not support batch rpc:response",
-      data: {
-        code: "RELAY_BATCH_RESPONSE_UNSUPPORTED",
-        retryable: false,
-      },
-    },
-  });
 
   const findRelayRequestRoutesForAgentSocket = (
     candidateIds: readonly string[],

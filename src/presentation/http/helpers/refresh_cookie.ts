@@ -1,4 +1,4 @@
-import type { CookieOptions, Response } from "express";
+import type { CookieOptions, Request, Response } from "express";
 
 import { env } from "../../../shared/config/env";
 import { parseExpiryToMs } from "../../../shared/utils/date";
@@ -50,4 +50,26 @@ export const clearRefreshCookie = (response: Response, name: string): void => {
     sameSite: "strict",
     path: "/",
   });
+};
+
+/**
+ * Resolves the refresh token following the documented `RefreshTokenTransport`
+ * precedence: a non-empty JSON body field wins over the HttpOnly cookie
+ * (`body > cookie`). Shared by the user (`/auth`) and client (`/client-auth`)
+ * refresh/logout controllers so the precedence rule lives in one place.
+ */
+export const getRefreshTokenFromRequest = (
+  request: Request,
+  body: { readonly refreshToken?: string | undefined } | undefined,
+  cookieName: string,
+): string | undefined => {
+  const bodyToken = body?.refreshToken;
+  if (typeof bodyToken === "string" && bodyToken.trim() !== "") {
+    return bodyToken;
+  }
+  const cookieToken = (request.cookies as Record<string, unknown> | undefined)?.[cookieName];
+  if (typeof cookieToken === "string" && cookieToken.trim() !== "") {
+    return cookieToken;
+  }
+  return undefined;
 };

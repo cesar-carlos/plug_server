@@ -9,18 +9,18 @@ import { logger } from "../../../shared/utils/logger";
 import { getAuthClient } from "../middlewares/auth.middleware";
 import { negotiateApprovalHtmlLang } from "../helpers/approval_page_locale";
 import {
-  approvalDecisionEyebrow,
   approvalHomeLabel,
   clientPasswordResetReviewCopy,
   clientRegistrationDecisionCopy,
   clientRegistrationReviewCopy,
 } from "../helpers/approval_registration_i18n";
+import { renderApprovalReviewPage, renderPasswordResetFormPage } from "../helpers/approval_pages";
+import { renderApprovalDecisionHtml } from "../helpers/approval_decision_html";
 import {
-  renderApprovalDecisionPage,
-  renderApprovalReviewPage,
-  renderPasswordResetFormPage,
-} from "../helpers/approval_pages";
-import { clearRefreshCookie, setRefreshCookie } from "../helpers/refresh_cookie";
+  clearRefreshCookie,
+  getRefreshTokenFromRequest as getRefreshTokenFromRequestShared,
+  setRefreshCookie,
+} from "../helpers/refresh_cookie";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   ClientRegistrationApproveBody,
@@ -93,17 +93,7 @@ export const wrapMulterErrors = (handler: RequestHandler): RequestHandler => {
 const getRefreshTokenFromRequest = (
   request: Request,
   body: ClientRefreshBody | ClientLogoutBody,
-): string | undefined => {
-  const bodyToken = body.refreshToken;
-  if (typeof bodyToken === "string" && bodyToken.trim() !== "") {
-    return bodyToken;
-  }
-  const cookieToken = request.cookies?.[refreshTokenCookieName];
-  if (typeof cookieToken === "string" && cookieToken.trim() !== "") {
-    return cookieToken;
-  }
-  return undefined;
-};
+): string | undefined => getRefreshTokenFromRequestShared(request, body, refreshTokenCookieName);
 
 const setRefreshTokenCookie = (response: Response, token: string): void => {
   setRefreshCookie(response, refreshTokenCookieName, token);
@@ -118,24 +108,6 @@ const appHome = (
 ): { homeUrl: string; homeLabel: string } => {
   const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
   return { homeUrl, homeLabel: approvalHomeLabel(lang) };
-};
-
-const registrationDecisionHtml = (
-  lang: ReturnType<typeof negotiateApprovalHtmlLang>,
-  title: string,
-  bodyText: string,
-  tone: "success" | "danger" | "neutral",
-): string => {
-  const { homeUrl, homeLabel } = appHome(lang);
-  return renderApprovalDecisionPage({
-    title,
-    bodyText,
-    tone,
-    lang,
-    decisionEyebrow: approvalDecisionEyebrow(lang),
-    homeUrl,
-    homeLabel,
-  });
 };
 
 export const registerClient = async (
@@ -254,7 +226,7 @@ export const approveClientRegistration = async (
     .status(200)
     .type("html")
     .send(
-      registrationDecisionHtml(
+      renderApprovalDecisionHtml(
         lang,
         decision.approvedTitle,
         decision.approvedBody(result.value.clientEmail),
@@ -280,7 +252,7 @@ export const rejectClientRegistration = async (
     .status(200)
     .type("html")
     .send(
-      registrationDecisionHtml(
+      renderApprovalDecisionHtml(
         lang,
         decision.rejectedTitle,
         decision.rejectedBody(result.value.clientEmail),

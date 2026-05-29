@@ -226,18 +226,24 @@ const resetStateCustomEventDistributedCountCircuit = (
   );
 };
 
-const disconnectAgentSocketsInRoom = async (
+/**
+ * Emits a terminal `app_error` to every socket in `room` and force-disconnects
+ * them. Shared by the agent and consumer variants, which differ only in the
+ * metric counter and the structured-log event name.
+ */
+const disconnectSocketsInRoom = async (
   namespace: Namespace,
   room: string,
   payload: LegacySocketAppErrorPayload,
   logContext: Record<string, unknown>,
+  options: { readonly noteTriggered: () => void; readonly logEvent: string },
 ): Promise<number> => {
   const localRecipients = countLocalSocketsInRoom(namespace, room);
-  noteAgentRoomDisconnectTriggered();
+  options.noteTriggered();
   namespace.to(room).emit(socketEvents.appError, payload);
   namespace.in(room).disconnectSockets(true);
   if (localRecipients > 0) {
-    logger.info("agent_socket_sessions_disconnected", {
+    logger.info(options.logEvent, {
       room,
       localDisconnectedCount: localRecipients,
       ...logContext,
@@ -245,6 +251,17 @@ const disconnectAgentSocketsInRoom = async (
   }
   return localRecipients;
 };
+
+const disconnectAgentSocketsInRoom = async (
+  namespace: Namespace,
+  room: string,
+  payload: LegacySocketAppErrorPayload,
+  logContext: Record<string, unknown>,
+): Promise<number> =>
+  disconnectSocketsInRoom(namespace, room, payload, logContext, {
+    noteTriggered: noteAgentRoomDisconnectTriggered,
+    logEvent: "agent_socket_sessions_disconnected",
+  });
 
 const countSocketsInRoom = async (
   state: SocketServerState,
@@ -279,20 +296,11 @@ const disconnectConsumerSocketsInRoom = async (
   room: string,
   payload: LegacySocketAppErrorPayload,
   logContext: Record<string, unknown>,
-): Promise<number> => {
-  const localRecipients = countLocalSocketsInRoom(namespace, room);
-  noteConsumerRoomDisconnectTriggered();
-  namespace.to(room).emit(socketEvents.appError, payload);
-  namespace.in(room).disconnectSockets(true);
-  if (localRecipients > 0) {
-    logger.info("consumer_socket_sessions_disconnected", {
-      room,
-      localDisconnectedCount: localRecipients,
-      ...logContext,
-    });
-  }
-  return localRecipients;
-};
+): Promise<number> =>
+  disconnectSocketsInRoom(namespace, room, payload, logContext, {
+    noteTriggered: noteConsumerRoomDisconnectTriggered,
+    logEvent: "consumer_socket_sessions_disconnected",
+  });
 
 type HubNamespace = ReturnType<Server["of"]>;
 

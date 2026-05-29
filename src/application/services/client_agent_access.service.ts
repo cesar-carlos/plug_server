@@ -59,6 +59,12 @@ import {
   isClientAccessRequestRetryEligible,
 } from "../../domain/policies/client_agent_access_request.policy";
 import { toSafeLogContext } from "../../shared/utils/safe_log_context";
+import {
+  AgentSnapshotRefresher,
+  type ClientAgentLiveProfileDeps,
+} from "./agent_snapshot_refresher";
+
+export type { ClientAgentLiveProfileDeps } from "./agent_snapshot_refresher";
 
 /**
  * Audit event types for the per-(client, agent) bearer token storage.
@@ -152,26 +158,13 @@ export interface ClientAgentAccessReviewSummary {
   readonly tokenStatus: "pending" | "expired";
 }
 
-export interface ClientAgentLiveProfileDeps {
-  readonly isAgentOnline?: (agentId: string) => boolean;
-  readonly refreshAgentProfile?: (agentId: string) => Promise<Agent>;
-  /** Called after a client→agent access grant is removed (client-initiated or owner-initiated). */
-  readonly onAccessRevoked?: (clientId: string, agentId: string) => void;
-}
-
 interface ClientAccessTokenDecisionOptions {
   readonly requestId?: string;
 }
 
 export class ClientAgentAccessService {
-  private static readonly LIST_REFRESH_CONCURRENCY = 4;
-  private static readonly LIST_REFRESH_RECENT_TTL_MS = 30_000;
-
-  private readonly refreshInFlight = new Map<string, Promise<Agent>>();
-  private readonly recentlyRefreshedAgents = new Map<
-    string,
-    { readonly agent: Agent; readonly refreshedAtMs: number }
-  >();
+  /** Owns the live-profile refresh dedup/TTL caching concern. */
+  private readonly snapshotRefresher: AgentSnapshotRefresher;
 
   constructor(
     private readonly agentRepository: IAgentRepository,
@@ -185,7 +178,9 @@ export class ClientAgentAccessService {
     private readonly pendingAccessWriter: IPendingClientAgentAccessWriter,
     private readonly approvalTxn: IClientAgentAccessApprovalTxn,
     private readonly liveProfileDeps?: ClientAgentLiveProfileDeps,
-  ) {}
+  ) {
+    this.snapshotRefresher = new AgentSnapshotRefresher(agentRepository, liveProfileDeps);
+  }
 
   async listApprovedAgentIds(clientId: string): Promise<string[]> {
     return this.clientAgentAccessRepository.listAgentIdsByClientId(clientId);
@@ -230,7 +225,7 @@ export class ClientAgentAccessService {
       }
       return {
         ...pageResult,
-        items: await this.refreshApprovedAgentListItems(clientId, pageResult.items),
+        items: await this.snapshotRefresher.refreshListItems(clientId, pageResult.items),
       };
     }
 
@@ -243,7 +238,7 @@ export class ClientAgentAccessService {
       options?.refreshOnline !== true
         ? pageResult.items
         : (
-            await this.refreshApprovedAgentListItems(
+            await this.snapshotRefresher.refreshListItems(
               clientId,
               pageResult.items.map((agent) => ({ agent, hasClientToken: false })),
             )
@@ -273,7 +268,9 @@ export class ClientAgentAccessService {
       return err(notFound(`Agent ${agentId}`));
     }
 
-    return ok(await this.resolvePreferredAgentSnapshot(clientId, agentId, persistedAgent));
+    return ok(
+      await this.snapshotRefresher.resolvePreferredSnapshot(clientId, agentId, persistedAgent),
+    );
   }
 
   /**
@@ -1336,103 +1333,6 @@ export class ClientAgentAccessService {
       expiresAt: parseExpiryToDate(env.approvalTokenExpiresIn),
       createdAt: new Date(),
     };
-  }
-
-  private async refreshApprovedAgentListItems(
-    clientId: string,
-    items: readonly ApprovedClientAgentListItem[],
-  ): Promise<ApprovedClientAgentListItem[]> {
-    if (items.length === 0) {
-      return [];
-    }
-
-    const refreshedByAgentId = new Map<string, Agent>();
-    const candidates = items.filter(
-      (item) => this.liveProfileDeps?.isAgentOnline?.(item.agent.agentId) === true,
-    );
-
-    let nextIndex = 0;
-    const concurrency = Math.max(
-      1,
-      Math.min(ClientAgentAccessService.LIST_REFRESH_CONCURRENCY, candidates.length),
-    );
-    await Promise.all(
-      Array.from({ length: concurrency }, async () => {
-        while (nextIndex < candidates.length) {
-          const item = candidates[nextIndex];
-          nextIndex += 1;
-          if (!item) {
-            continue;
-          }
-          const refreshed = await this.resolvePreferredAgentSnapshotWithDedup(
-            clientId,
-            item.agent.agentId,
-            item.agent,
-          );
-          refreshedByAgentId.set(item.agent.agentId, refreshed);
-        }
-      }),
-    );
-
-    return items.map((item) => ({
-      ...item,
-      agent: refreshedByAgentId.get(item.agent.agentId) ?? item.agent,
-    }));
-  }
-
-  private async resolvePreferredAgentSnapshotWithDedup(
-    clientId: string,
-    agentId: string,
-    persistedAgent: Agent,
-  ): Promise<Agent> {
-    const nowMs = Date.now();
-    const recent = this.recentlyRefreshedAgents.get(agentId);
-    if (
-      recent !== undefined &&
-      nowMs - recent.refreshedAtMs < ClientAgentAccessService.LIST_REFRESH_RECENT_TTL_MS
-    ) {
-      return recent.agent;
-    }
-
-    const inFlight = this.refreshInFlight.get(agentId);
-    if (inFlight !== undefined) {
-      return inFlight;
-    }
-
-    const refreshPromise = this.resolvePreferredAgentSnapshot(clientId, agentId, persistedAgent)
-      .then((agent) => {
-        this.recentlyRefreshedAgents.set(agentId, { agent, refreshedAtMs: Date.now() });
-        return agent;
-      })
-      .finally(() => {
-        this.refreshInFlight.delete(agentId);
-      });
-    this.refreshInFlight.set(agentId, refreshPromise);
-    return refreshPromise;
-  }
-
-  private async resolvePreferredAgentSnapshot(
-    clientId: string,
-    agentId: string,
-    persistedAgent: Agent,
-  ): Promise<Agent> {
-    if (
-      this.liveProfileDeps?.refreshAgentProfile === undefined ||
-      this.liveProfileDeps.isAgentOnline?.(agentId) !== true
-    ) {
-      return persistedAgent;
-    }
-
-    try {
-      return await this.liveProfileDeps.refreshAgentProfile(agentId);
-    } catch (error) {
-      logger.warn("client_agent_live_profile_refresh_failed", {
-        clientId,
-        agentId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return (await this.agentRepository.findById(agentId)) ?? persistedAgent;
-    }
   }
 
   private async loadAgentsById(agentIds: readonly string[]): Promise<Map<string, Agent>> {

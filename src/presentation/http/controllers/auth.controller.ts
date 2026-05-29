@@ -8,13 +8,17 @@ import type { User } from "../../../domain/entities/user.entity";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { negotiateApprovalHtmlLang } from "../helpers/approval_page_locale";
 import {
-  approvalDecisionEyebrow,
   approvalHomeLabel,
   userRegistrationDecisionCopy,
   userRegistrationReviewCopy,
 } from "../helpers/approval_registration_i18n";
-import { renderApprovalDecisionPage, renderApprovalReviewPage } from "../helpers/approval_pages";
-import { clearRefreshCookie, setRefreshCookie } from "../helpers/refresh_cookie";
+import { renderApprovalReviewPage } from "../helpers/approval_pages";
+import { renderApprovalDecisionHtml } from "../helpers/approval_decision_html";
+import {
+  clearRefreshCookie,
+  getRefreshTokenFromRequest as getRefreshTokenFromRequestShared,
+  setRefreshCookie,
+} from "../helpers/refresh_cookie";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   AgentLoginBody,
@@ -40,19 +44,7 @@ type CompatibleAuthPayload<T extends AuthTokensDto> = T & {
 const getRefreshTokenFromRequest = (
   request: Request,
   body: RefreshBody | LogoutBody,
-): string | undefined => {
-  const bodyToken = body.refreshToken;
-  if (typeof bodyToken === "string" && bodyToken.trim() !== "") {
-    return bodyToken;
-  }
-
-  const cookieToken = request.cookies?.[refreshTokenCookieName];
-  if (typeof cookieToken === "string" && cookieToken.trim() !== "") {
-    return cookieToken;
-  }
-
-  return undefined;
-};
+): string | undefined => getRefreshTokenFromRequestShared(request, body, refreshTokenCookieName);
 
 const setRefreshTokenCookie = (response: Response, token: string): void => {
   setRefreshCookie(response, refreshTokenCookieName, token);
@@ -75,24 +67,6 @@ const appHome = (
 ): { homeUrl: string; homeLabel: string } => {
   const homeUrl = env.appBaseUrl.replace(/\/+$/, "");
   return { homeUrl, homeLabel: approvalHomeLabel(lang) };
-};
-
-const registrationDecisionHtml = (
-  lang: ReturnType<typeof negotiateApprovalHtmlLang>,
-  title: string,
-  bodyText: string,
-  tone: "success" | "danger" | "neutral",
-): string => {
-  const { homeUrl, homeLabel } = appHome(lang);
-  return renderApprovalDecisionPage({
-    title,
-    bodyText,
-    tone,
-    lang,
-    decisionEyebrow: approvalDecisionEyebrow(lang),
-    homeUrl,
-    homeLabel,
-  });
 };
 
 export const register = async (
@@ -220,7 +194,7 @@ export const approveRegistration = async (
     .status(200)
     .type("html")
     .send(
-      registrationDecisionHtml(
+      renderApprovalDecisionHtml(
         lang,
         decision.approvedTitle,
         decision.approvedBody(result.value.email),
@@ -249,7 +223,7 @@ export const rejectRegistration = async (
     .status(200)
     .type("html")
     .send(
-      registrationDecisionHtml(
+      renderApprovalDecisionHtml(
         lang,
         decision.rejectedTitle,
         decision.rejectedBody(result.value.email),
