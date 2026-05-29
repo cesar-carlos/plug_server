@@ -202,7 +202,9 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("should reject request when agent does not exist", async () => {
-    const result = await requestService.requestAccess(clientId, ["f6f3f9f2-2533-4bb7-b595-b078f5b742cb"]);
+    const result = await requestService.requestAccess(clientId, [
+      "f6f3f9f2-2533-4bb7-b595-b078f5b742cb",
+    ]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("NOT_FOUND");
@@ -515,7 +517,9 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("returns not found when client does not exist for requestAccess", async () => {
-    const result = await requestService.requestAccess("00000000-0000-4000-8000-000000000099", [agentId]);
+    const result = await requestService.requestAccess("00000000-0000-4000-8000-000000000099", [
+      agentId,
+    ]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("NOT_FOUND");
@@ -609,7 +613,9 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("returns null for unknown review token", async () => {
-    await expect(decisionService.getReviewSummaryByToken("totally-unknown-token")).resolves.toBeNull();
+    await expect(
+      decisionService.getReviewSummaryByToken("totally-unknown-token"),
+    ).resolves.toBeNull();
   });
 
   it("getRequestStatusByToken returns NOT_FOUND for unknown token", async () => {
@@ -1110,7 +1116,10 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("approveByOwner returns NOT_FOUND when request id is unknown", async () => {
-    const r = await decisionService.approveByOwner(ownerUserId, "00000000-0000-4000-8000-0000000000dd");
+    const r = await decisionService.approveByOwner(
+      ownerUserId,
+      "00000000-0000-4000-8000-0000000000dd",
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -1132,7 +1141,10 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("rejectByOwner returns NOT_FOUND when request id is unknown", async () => {
-    const r = await decisionService.rejectByOwner(ownerUserId, "00000000-0000-4000-8000-0000000000ee");
+    const r = await decisionService.rejectByOwner(
+      ownerUserId,
+      "00000000-0000-4000-8000-0000000000ee",
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");

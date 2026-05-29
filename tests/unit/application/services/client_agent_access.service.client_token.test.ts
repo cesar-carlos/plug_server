@@ -32,8 +32,7 @@ let identityRepository: InMemoryAgentIdentityRepository;
 let accessRepository: InMemoryClientAgentAccessRepository;
 let service: ClientAgentTokenService;
 
-const buildService = (): ClientAgentTokenService =>
-  new ClientAgentTokenService(accessRepository);
+const buildService = (): ClientAgentTokenService => new ClientAgentTokenService(accessRepository);
 
 const seedApprovedAccess = async (): Promise<void> => {
   await userRepository.save(

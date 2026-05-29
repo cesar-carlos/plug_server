@@ -214,11 +214,7 @@ export class AuthService {
     );
     if (!accessResult.ok) return accessResult;
 
-    const tokens = await issueUserTokens(
-      result.value,
-      this.refreshTokenRepository,
-      input.agentId,
-    );
+    const tokens = await issueUserTokens(result.value, this.refreshTokenRepository, input.agentId);
     return ok({
       user: {
         id: result.value.id,

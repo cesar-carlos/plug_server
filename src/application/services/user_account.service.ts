@@ -27,10 +27,7 @@ export class UserAccountService {
     private readonly adminSetUserStatusUseCase: AdminSetUserStatusUseCase,
     private readonly updateMyCelularUseCase: UpdateMyCelularUseCase,
     private readonly agentAccessService: AgentAccessService,
-    private readonly authService: Pick<
-      AuthService,
-      "getMeProfile" | "invalidateSnapshotCache"
-    >,
+    private readonly authService: Pick<AuthService, "getMeProfile" | "invalidateSnapshotCache">,
   ) {}
 
   async adminSetUserStatus(input: AdminSetUserStatusInput): Promise<Result<User>> {

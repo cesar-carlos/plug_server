@@ -96,7 +96,8 @@ const setupAdapterModule = async (options?: {
     Adapter: class MemoryAdapter {},
   }));
 
-  const module = await import("../../../../src/infrastructure/redis/adapter/socket_io_redis_adapter");
+  const module =
+    await import("../../../../src/infrastructure/redis/adapter/socket_io_redis_adapter");
   const metrics =
     await import("../../../../src/application/services/socket_io_redis_adapter_metrics.service");
   return { pubClient, subClient, createClientMock, createAdapterMock, io, module, metrics };

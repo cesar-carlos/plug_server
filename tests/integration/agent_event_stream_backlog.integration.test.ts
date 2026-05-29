@@ -48,7 +48,8 @@ describe("agent event stream backlog integration", () => {
 
     vi.resetModules();
     streamModule = await import("../../src/infrastructure/redis/event_stream/agent_event_stream");
-    cursorModule = await import("../../src/infrastructure/redis/event_stream/agent_event_stream_cursor");
+    cursorModule =
+      await import("../../src/infrastructure/redis/event_stream/agent_event_stream_cursor");
     metricsModule =
       await import("../../src/application/services/agent_event_stream_metrics.service");
     await streamModule.initAgentEventStream();

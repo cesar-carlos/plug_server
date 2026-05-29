@@ -212,9 +212,13 @@ export const rejectRegistration = async (
   const decision = userRegistrationDecisionCopy(lang);
   const body = getValidated<RegistrationRejectBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.userRegistrationService.rejectRegistration(body.token, body.reason, {
-    ...(requestId !== undefined ? { requestId } : {}),
-  });
+  const result = await container.userRegistrationService.rejectRegistration(
+    body.token,
+    body.reason,
+    {
+      ...(requestId !== undefined ? { requestId } : {}),
+    },
+  );
   if (!result.ok) {
     next(result.error);
     return;
@@ -337,7 +341,9 @@ export const patchMe = async (
 ): Promise<void> => {
   const authUser = response.locals.authUser as JwtAccessPayload;
   const body = getValidated<PatchMeBody>(response, "body");
-  const result = await container.userAccountService.updateMyCelular(authUser, { celular: body.celular });
+  const result = await container.userAccountService.updateMyCelular(authUser, {
+    celular: body.celular,
+  });
   if (!result.ok) {
     next(result.error);
     return;

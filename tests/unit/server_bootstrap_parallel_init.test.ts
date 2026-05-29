@@ -22,11 +22,14 @@ const setupBootstrapHarness = async (inits: {
     initSocketRateLimitRedis: inits.initSocketRateLimitRedis,
     closeSocketRateLimitRedis: vi.fn().mockResolvedValue(undefined),
   }));
-  vi.doMock("../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis", () => ({
-    initClientSocketEventPublishIdempotencyRedis:
-      inits.initClientSocketEventPublishIdempotencyRedis,
-    closeClientSocketEventPublishIdempotencyRedis: vi.fn().mockResolvedValue(undefined),
-  }));
+  vi.doMock(
+    "../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis",
+    () => ({
+      initClientSocketEventPublishIdempotencyRedis:
+        inits.initClientSocketEventPublishIdempotencyRedis,
+      closeClientSocketEventPublishIdempotencyRedis: vi.fn().mockResolvedValue(undefined),
+    }),
+  );
   vi.doMock("../../src/infrastructure/redis/event_stream/agent_event_stream", () => ({
     initAgentEventStream: inits.initAgentEventStream,
     closeAgentEventStream: vi.fn().mockResolvedValue(undefined),
@@ -42,7 +45,9 @@ describe("bootstrap parallel Redis init pattern", () => {
     vi.resetModules();
     vi.doUnmock("../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis");
     vi.doUnmock("../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis");
-    vi.doUnmock("../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis");
+    vi.doUnmock(
+      "../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis",
+    );
     vi.doUnmock("../../src/infrastructure/redis/event_stream/agent_event_stream");
   });
 
@@ -74,10 +79,12 @@ describe("bootstrap parallel Redis init pattern", () => {
     // mirroring the production `bootstrap()` block. We don't import the full
     // server.ts because it has additional side-effects we don't want to run.
     const restMod = await import("../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis");
-    const socketMod = await import("../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis");
+    const socketMod =
+      await import("../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis");
     const idemMod =
       await import("../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis");
-    const streamMod = await import("../../src/infrastructure/redis/event_stream/agent_event_stream");
+    const streamMod =
+      await import("../../src/infrastructure/redis/event_stream/agent_event_stream");
 
     const promise = Promise.all([
       restMod.initRestHttpRateLimitRedis(),
@@ -123,10 +130,12 @@ describe("bootstrap parallel Redis init pattern", () => {
      * pattern's behavior under the fail-soft contract).
      */
     const restMod = await import("../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis");
-    const socketMod = await import("../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis");
+    const socketMod =
+      await import("../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis");
     const idemMod =
       await import("../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis");
-    const streamMod = await import("../../src/infrastructure/redis/event_stream/agent_event_stream");
+    const streamMod =
+      await import("../../src/infrastructure/redis/event_stream/agent_event_stream");
 
     const outcomes = await Promise.allSettled([
       restMod.initRestHttpRateLimitRedis(),

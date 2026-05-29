@@ -26,10 +26,7 @@ import {
   isClientRegistrationRetryEligible,
   reopenRejectedClientRegistration,
 } from "../../domain/policies/client_registration_status.policy";
-import {
-  newClientRegistrationApprovalToken,
-  toClientAuthUserDto,
-} from "./client_auth_helpers";
+import { newClientRegistrationApprovalToken, toClientAuthUserDto } from "./client_auth_helpers";
 
 export interface RegisterClientServiceInput {
   readonly ownerEmail: string;

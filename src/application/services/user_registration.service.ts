@@ -16,10 +16,7 @@ import { redactEmail } from "../../shared/utils/pii_redaction";
 import { generateOpaqueRegistrationToken } from "../../shared/utils/registration_token";
 import { withRetry } from "../../shared/utils/retry";
 import { reopenRejectedUserRegistration } from "../../domain/policies/user_registration_status.policy";
-import type {
-  RegisterPendingResponseDto,
-  RegistrationStatusResponseDto,
-} from "../dtos/auth.dto";
+import type { RegisterPendingResponseDto, RegistrationStatusResponseDto } from "../dtos/auth.dto";
 
 export interface RegisterServiceInput {
   readonly email: string;
@@ -355,6 +352,4 @@ export class UserRegistrationService {
 
 // Re-export common type names so legacy imports from `auth.service.ts` keep
 // resolving until consumers migrate.
-export type {
-  RegistrationReviewSummary as UserRegistrationReviewSummary,
-};
+export type { RegistrationReviewSummary as UserRegistrationReviewSummary };

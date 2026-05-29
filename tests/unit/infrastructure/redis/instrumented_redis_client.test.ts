@@ -36,7 +36,8 @@ const setupFactory = async (
   }));
   vi.doMock("redis", () => ({ createClient: createClientMock }));
 
-  const module = await import("../../../../src/infrastructure/redis/connection/instrumented_redis_client");
+  const module =
+    await import("../../../../src/infrastructure/redis/connection/instrumented_redis_client");
   const authMetrics =
     await import("../../../../src/application/services/redis_auth_ping_metrics.service");
   authMetrics.resetRedisAuthPingMetricsForTests();

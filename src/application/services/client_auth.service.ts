@@ -13,12 +13,7 @@ import type {
   ClientAuthUserDto,
 } from "../dtos/client_auth.dto";
 import { env } from "../../shared/config/env";
-import {
-  badRequest,
-  invalidToken,
-  notFound,
-  unauthorized,
-} from "../../shared/errors/http_errors";
+import { badRequest, invalidToken, notFound, unauthorized } from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
 import { verifyRefreshToken } from "../../shared/utils/jwt";
 import { assertClientCanLogin } from "../../domain/policies/client_registration_status.policy";

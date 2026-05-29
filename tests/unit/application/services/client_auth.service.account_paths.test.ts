@@ -380,7 +380,9 @@ describe("ClientAuthService account and approval paths", () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    expect(await registrationService.getRegistrationReviewSummary("missing-owner-token")).toBeNull();
+    expect(
+      await registrationService.getRegistrationReviewSummary("missing-owner-token"),
+    ).toBeNull();
   });
 
   it("filters and paginates managed clients for an active owner", async () => {
@@ -436,7 +438,9 @@ describe("ClientAuthService account and approval paths", () => {
     expect(await managementService.listManagedClientsPage("missing-owner-id")).toMatchObject({
       ok: false,
     });
-    expect(await managementService.findManagedClient("blocked-owner-id", "client-id")).toMatchObject({
+    expect(
+      await managementService.findManagedClient("blocked-owner-id", "client-id"),
+    ).toMatchObject({
       ok: false,
     });
     expect(
@@ -476,7 +480,11 @@ describe("ClientAuthService account and approval paths", () => {
       }),
     );
 
-    const blocked = await managementService.setManagedClientStatus("owner-id", activeClient.id, "blocked");
+    const blocked = await managementService.setManagedClientStatus(
+      "owner-id",
+      activeClient.id,
+      "blocked",
+    );
     expect(blocked.ok).toBe(true);
     expect((await clientRepository.findById(activeClient.id))?.status).toBe("blocked");
     expect(disconnectPrincipal).toHaveBeenCalledTimes(1);
@@ -501,7 +509,11 @@ describe("ClientAuthService account and approval paths", () => {
       expect(refreshWhileBlocked.error.code).toBe("FORBIDDEN");
     }
 
-    const unblocked = await managementService.setManagedClientStatus("owner-id", activeClient.id, "active");
+    const unblocked = await managementService.setManagedClientStatus(
+      "owner-id",
+      activeClient.id,
+      "active",
+    );
     expect(unblocked.ok).toBe(true);
     expect((await clientRepository.findById(activeClient.id))?.status).toBe("active");
   });
@@ -520,7 +532,11 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(pendingClient);
     await clientRepository.save(activeClient);
 
-    const repeated = await managementService.setManagedClientStatus("owner-id", activeClient.id, "active");
+    const repeated = await managementService.setManagedClientStatus(
+      "owner-id",
+      activeClient.id,
+      "active",
+    );
     expect(repeated.ok).toBe(true);
 
     const invalidPending = await managementService.setManagedClientStatus(
@@ -552,7 +568,10 @@ describe("ClientAuthService account and approval paths", () => {
     });
     await clientRepository.save(blockedClient);
 
-    const missingLogin = await authService.login({ email: "missing@test.com", password: "ClientPwd1" });
+    const missingLogin = await authService.login({
+      email: "missing@test.com",
+      password: "ClientPwd1",
+    });
     const blockedLogin = await authService.login({
       email: blockedClient.email,
       password: "ClientPwd1",
@@ -914,7 +933,8 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const staleActiveStatus = await registrationService.getRegistrationStatus("stale-but-active-token");
+    const staleActiveStatus =
+      await registrationService.getRegistrationStatus("stale-but-active-token");
     expect(staleActiveStatus).toEqual({ ok: true, value: { status: "approved" } });
 
     const rejectedWithStaleToken = createClient({
@@ -929,7 +949,8 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const staleRejectedStatus = await registrationService.getRegistrationStatus("stale-rejected-token");
+    const staleRejectedStatus =
+      await registrationService.getRegistrationStatus("stale-rejected-token");
     expect(staleRejectedStatus).toEqual({ ok: true, value: { status: "rejected" } });
 
     await registrationApprovalTokenRepository.save({
@@ -942,14 +963,17 @@ describe("ClientAuthService account and approval paths", () => {
     expect(orphanStatusPoll.ok).toBe(false);
     expect(await registrationApprovalTokenRepository.findById("orphan-status-token")).toBeNull();
 
-    const inactiveRecovery = await passwordRecoveryService.requestPasswordRecovery(blockedClient.email);
+    const inactiveRecovery = await passwordRecoveryService.requestPasswordRecovery(
+      blockedClient.email,
+    );
     expect(inactiveRecovery).toEqual({ ok: true, value: undefined });
 
     emailSender.sendClientPasswordRecovery.mockRejectedValue(new Error("mail down"));
     const activeRecovery = await passwordRecoveryService.requestPasswordRecovery(client.email);
     expect(activeRecovery).toEqual({ ok: true, value: undefined });
 
-    const missingRecoveryStatus = await passwordRecoveryService.getPasswordRecoveryStatus("missing-recovery-token");
+    const missingRecoveryStatus =
+      await passwordRecoveryService.getPasswordRecoveryStatus("missing-recovery-token");
     expect(missingRecoveryStatus.ok).toBe(false);
 
     await passwordRecoveryTokenRepository.save({
@@ -958,7 +982,8 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
-    const expiredRecoveryStatus = await passwordRecoveryService.getPasswordRecoveryStatus("expired-recovery-token");
+    const expiredRecoveryStatus =
+      await passwordRecoveryService.getPasswordRecoveryStatus("expired-recovery-token");
     expect(expiredRecoveryStatus).toEqual({ ok: true, value: { status: "expired" } });
   });
 
@@ -975,7 +1000,10 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(activeClient);
     await clientRepository.save(blockedClient);
 
-    const missing = await passwordRecoveryService.resetPasswordByRecoveryToken("missing-reset-token", "NewPwd1");
+    const missing = await passwordRecoveryService.resetPasswordByRecoveryToken(
+      "missing-reset-token",
+      "NewPwd1",
+    );
     expect(missing.ok).toBe(false);
 
     await passwordRecoveryTokenRepository.save({
@@ -984,7 +1012,10 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
-    const expired = await passwordRecoveryService.resetPasswordByRecoveryToken("expired-reset-token", "NewPwd1");
+    const expired = await passwordRecoveryService.resetPasswordByRecoveryToken(
+      "expired-reset-token",
+      "NewPwd1",
+    );
     expect(expired.ok).toBe(false);
     expect(await passwordRecoveryTokenRepository.findById("expired-reset-token")).toBeNull();
 
@@ -1006,7 +1037,10 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const blocked = await passwordRecoveryService.resetPasswordByRecoveryToken("blocked-reset-token", "NewPwd1");
+    const blocked = await passwordRecoveryService.resetPasswordByRecoveryToken(
+      "blocked-reset-token",
+      "NewPwd1",
+    );
     expect(blocked.ok).toBe(false);
 
     await passwordRecoveryTokenRepository.save({
@@ -1015,7 +1049,10 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const success = await passwordRecoveryService.resetPasswordByRecoveryToken("active-reset-token", "NewPwd1");
+    const success = await passwordRecoveryService.resetPasswordByRecoveryToken(
+      "active-reset-token",
+      "NewPwd1",
+    );
     expect(success).toEqual({ ok: true, value: undefined });
   });
 
