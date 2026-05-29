@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Server } from "socket.io";
 
-import type * as SocketIoRedisAdapterModule from "../../../../src/infrastructure/redis/socket_io_redis_adapter";
+import type * as SocketIoRedisAdapterModule from "../../../../src/infrastructure/redis/adapter/socket_io_redis_adapter";
 import type * as SocketIoRedisAdapterMetricsModule from "../../../../src/application/services/socket_io_redis_adapter_metrics.service";
 
 const defaultSocketIoRedisAdapterEnv = {
@@ -96,7 +96,7 @@ const setupAdapterModule = async (options?: {
     Adapter: class MemoryAdapter {},
   }));
 
-  const module = await import("../../../../src/infrastructure/redis/socket_io_redis_adapter");
+  const module = await import("../../../../src/infrastructure/redis/adapter/socket_io_redis_adapter");
   const metrics =
     await import("../../../../src/application/services/socket_io_redis_adapter_metrics.service");
   return { pubClient, subClient, createClientMock, createAdapterMock, io, module, metrics };

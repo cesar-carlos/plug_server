@@ -18,7 +18,7 @@
  * Sentinel-style URLs that `createClient(url)` would otherwise reject.
  */
 
-import { logger } from "../../shared/utils/logger";
+import { logger } from "../../../shared/utils/logger";
 
 export interface ResolvedRedisUrl {
   /** URL acceptable to `node-redis@5 createClient({ url })`. */

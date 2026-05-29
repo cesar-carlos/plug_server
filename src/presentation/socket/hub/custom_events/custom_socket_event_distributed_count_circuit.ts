@@ -8,7 +8,7 @@ import {
   noteCustomSocketEventPublishDistributedRecipientCountSkipped,
 } from "../../../../shared/metrics/socket_consumer.metrics";
 import { logger } from "../../../../shared/utils/logger";
-import { isSocketIoRedisAdapterActive } from "../../../../infrastructure/redis/socket_io_redis_adapter";
+import { isSocketIoRedisAdapterActive } from "../../../../infrastructure/redis/adapter/socket_io_redis_adapter";
 import {
   resolveCustomSocketEventRoomRecipientCountStrategy,
   toRoomRecipientCountFromStrategy,

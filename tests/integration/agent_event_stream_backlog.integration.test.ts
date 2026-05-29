@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type * as AgentEventStreamModuleNs from "../../src/infrastructure/redis/agent_event_stream";
-import type * as AgentEventStreamCursorModuleNs from "../../src/infrastructure/redis/agent_event_stream_cursor";
+import type * as AgentEventStreamModuleNs from "../../src/infrastructure/redis/event_stream/agent_event_stream";
+import type * as AgentEventStreamCursorModuleNs from "../../src/infrastructure/redis/event_stream/agent_event_stream_cursor";
 import type * as AgentEventStreamMetricsModuleNs from "../../src/application/services/agent_event_stream_metrics.service";
 import {
   assertInfrastructureOrSkip,
@@ -47,8 +47,8 @@ describe("agent event stream backlog integration", () => {
     process.env.AGENT_EVENT_STREAM_DRAIN_ACK_TIMEOUT_MS = "1000";
 
     vi.resetModules();
-    streamModule = await import("../../src/infrastructure/redis/agent_event_stream");
-    cursorModule = await import("../../src/infrastructure/redis/agent_event_stream_cursor");
+    streamModule = await import("../../src/infrastructure/redis/event_stream/agent_event_stream");
+    cursorModule = await import("../../src/infrastructure/redis/event_stream/agent_event_stream_cursor");
     metricsModule =
       await import("../../src/application/services/agent_event_stream_metrics.service");
     await streamModule.initAgentEventStream();

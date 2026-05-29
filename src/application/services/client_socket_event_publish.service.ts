@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
-import { appendAgentEventFramesBatch } from "../../infrastructure/redis/agent_event_stream";
+import { appendAgentEventFramesBatch } from "../../infrastructure/redis/event_stream/agent_event_stream";
 import { publishConsumerSocketEvent } from "./consumer_socket_event_sink";
 import {
   buildClientSocketEventPublishFingerprint,
@@ -192,6 +192,10 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
       ? getClientSocketEventPublishDistributedIdempotencyStore()
       : undefined;
   let distributedLockToken: string | undefined;
+  // Set when the success path already released the lock via the combined
+  // `commitEntryAndReleaseLock` round-trip, so the `finally` skips a redundant
+  // `releaseLock`.
+  let distributedLockReleased = false;
   if (
     distributedIdempotencyStore !== undefined &&
     idempotencyKey !== undefined &&
@@ -460,11 +464,27 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
         response: idempotencyResponse,
       });
       if (distributedIdempotencyStore !== undefined) {
+        const entryToPersist = {
+          fingerprint,
+          response: idempotencyResponse,
+        };
+        // Fast path: when the store supports it and we still hold the lock, fold
+        // the entry write and the lock release into a single round-trip so the
+        // trailing `releaseLock` drops off the publish latency tail.
+        const lockToken = distributedLockToken;
+        const commitAndRelease =
+          lockToken !== undefined && env.restSocketEventIdempotencyTtlMs > 0
+            ? distributedIdempotencyStore.commitEntryAndReleaseLock?.bind(
+                distributedIdempotencyStore,
+              )
+            : undefined;
         try {
-          await distributedIdempotencyStore.setEntry(clientId, idempotencyKey, {
-            fingerprint,
-            response: idempotencyResponse,
-          });
+          if (commitAndRelease !== undefined && lockToken !== undefined) {
+            await commitAndRelease(clientId, idempotencyKey, entryToPersist, lockToken);
+            distributedLockReleased = true;
+          } else {
+            await distributedIdempotencyStore.setEntry(clientId, idempotencyKey, entryToPersist);
+          }
         } catch (error: unknown) {
           logger.warn("client_socket_event_distributed_idempotency_set_failed_after_emit", {
             clientId,
@@ -492,7 +512,8 @@ const executeClientSocketEventPublishUnsynchronized = async (params: {
     if (
       distributedIdempotencyStore !== undefined &&
       idempotencyKey !== undefined &&
-      distributedLockToken !== undefined
+      distributedLockToken !== undefined &&
+      !distributedLockReleased
     ) {
       await distributedIdempotencyStore.releaseLock(clientId, idempotencyKey, distributedLockToken);
     }

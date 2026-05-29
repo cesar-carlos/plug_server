@@ -1,5 +1,5 @@
 import { env } from "../../../../shared/config/env";
-import { consumeSocketRateLimitRedis } from "../../../../infrastructure/redis/socket_rate_limit_redis";
+import { consumeSocketRateLimitRedis } from "../../../../infrastructure/redis/rate_limit/socket_rate_limit_redis";
 
 const buckets = new Map<string, number[]>();
 

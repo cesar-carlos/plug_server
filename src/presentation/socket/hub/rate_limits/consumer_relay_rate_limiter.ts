@@ -2,7 +2,7 @@ import { env } from "../../../../shared/config/env";
 import {
   consumeSocketRateLimitRedis,
   refundSocketRateLimitRedis,
-} from "../../../../infrastructure/redis/socket_rate_limit_redis";
+} from "../../../../infrastructure/redis/rate_limit/socket_rate_limit_redis";
 
 interface ConsumerRateLimitWindowState {
   windowStartMs: number;

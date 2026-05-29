@@ -1,7 +1,7 @@
 import type { RedisClientOptions } from "redis";
 import { createClient } from "redis";
 
-import { logger } from "../../shared/utils/logger";
+import { logger } from "../../../shared/utils/logger";
 import type { InstrumentedRedisClient } from "./instrumented_redis_client";
 import { runRedisPostConnectAuthCheck, toSafeRedisErrorMessage } from "./redis_auth";
 

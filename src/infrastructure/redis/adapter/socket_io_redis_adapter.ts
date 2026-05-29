@@ -12,11 +12,11 @@ import {
   noteSocketIoRedisAdapterRuntimeError,
   noteSocketIoRedisAdapterSkippedEmptyUrl,
   observeSocketIoRedisAdapterConnectLatency,
-} from "../../application/services/socket_io_redis_adapter_metrics.service";
-import { env } from "../../shared/config/env";
-import { logger } from "../../shared/utils/logger";
-import type { InstrumentedRedisClient } from "./instrumented_redis_client";
-import { createPubSubInstrumentedRedisClients } from "./pubsub_instrumented_redis_client";
+} from "../../../application/services/socket_io_redis_adapter_metrics.service";
+import { env } from "../../../shared/config/env";
+import { logger } from "../../../shared/utils/logger";
+import type { InstrumentedRedisClient } from "../connection/instrumented_redis_client";
+import { createPubSubInstrumentedRedisClients } from "../connection/pubsub_instrumented_redis_client";
 
 type RedisClient = InstrumentedRedisClient;
 

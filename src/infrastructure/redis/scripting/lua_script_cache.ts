@@ -8,7 +8,7 @@
  * SHA1 instead of the full script body on every call).
  */
 
-import type { InstrumentedRedisClient } from "./instrumented_redis_client";
+import type { InstrumentedRedisClient } from "../connection/instrumented_redis_client";
 
 export interface CachedLuaScript {
   /** Stable identifier used for logs. */

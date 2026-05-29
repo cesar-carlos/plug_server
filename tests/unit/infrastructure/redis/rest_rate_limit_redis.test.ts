@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type * as RestRateLimitRedisModule from "../../../../src/infrastructure/redis/rest_rate_limit_redis";
+import type * as RestRateLimitRedisModule from "../../../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis";
 
 interface CapturedRedisStoreOptions {
   readonly prefix: string;
@@ -78,7 +78,7 @@ const setupRedisModuleWithStore = async (
     }),
   }));
 
-  const module = await import("../../../../src/infrastructure/redis/rest_rate_limit_redis");
+  const module = await import("../../../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis");
   return { client, clientSendCommand, createClientMock, envMock, capturedStores, module };
 };
 

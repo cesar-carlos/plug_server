@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { validateRedisClusterTopology } from "../../../../src/infrastructure/redis/cluster_topology_validator";
+import { validateRedisClusterTopology } from "../../../../src/infrastructure/redis/cluster/cluster_topology_validator";
 
 interface ClientStub {
   readonly sendCommand: ReturnType<typeof vi.fn>;

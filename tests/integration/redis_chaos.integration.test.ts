@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createClient } from "redis";
 
-import type * as AgentEventStreamModuleNs from "../../src/infrastructure/redis/agent_event_stream";
+import type * as AgentEventStreamModuleNs from "../../src/infrastructure/redis/event_stream/agent_event_stream";
 
 import {
   assertInfrastructureOrSkip,
@@ -66,7 +66,7 @@ describe("redis chaos integration", () => {
     process.env.AGENT_EVENT_STREAM_TTL_MS = "60000";
     process.env.AGENT_EVENT_STREAM_BACKLOG_MAX_ENTRIES = "50";
     vi.resetModules();
-    streamModule = await import("../../src/infrastructure/redis/agent_event_stream");
+    streamModule = await import("../../src/infrastructure/redis/event_stream/agent_event_stream");
     await streamModule.initAgentEventStream();
 
     unhandledHandler = (reason: unknown): void => {

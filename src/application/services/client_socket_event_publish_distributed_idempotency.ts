@@ -31,6 +31,22 @@ export interface ClientSocketEventPublishDistributedIdempotencyStore {
     ttlMs: number,
   ): Promise<boolean>;
   releaseLock(clientId: string, idempotencyKey: string, token: string): Promise<void>;
+  /**
+   * Optional fast path for the successful publish: atomically persists the entry
+   * and releases the caller's lock in a single round-trip (vs `setEntry` +
+   * `releaseLock`). When a store does not implement it, callers fall back to the
+   * two-step sequence. Throws on a backend failure so the caller can degrade to
+   * best-effort logging.
+   */
+  commitEntryAndReleaseLock?(
+    clientId: string,
+    idempotencyKey: string,
+    entry: {
+      readonly fingerprint: string;
+      readonly response: ClientSocketEventPublishIdempotencyResponse;
+    },
+    token: string,
+  ): Promise<void>;
 }
 
 let store: ClientSocketEventPublishDistributedIdempotencyStore | undefined;

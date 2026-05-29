@@ -6,11 +6,11 @@ import {
   tryConsumeAgentRegisterRateLimitAsync,
 } from "../../../../../src/presentation/socket/hub/rate_limits/agent_register_rate_limit";
 
-vi.mock("../../../../../src/infrastructure/redis/socket_rate_limit_redis", () => ({
+vi.mock("../../../../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis", () => ({
   consumeSocketRateLimitRedis: vi.fn(),
 }));
 
-import { consumeSocketRateLimitRedis } from "../../../../../src/infrastructure/redis/socket_rate_limit_redis";
+import { consumeSocketRateLimitRedis } from "../../../../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis";
 
 const mockedConsumeSocketRateLimitRedis = vi.mocked(consumeSocketRateLimitRedis);
 

@@ -18,11 +18,11 @@
 
 import { performance } from "node:perf_hooks";
 
-import { withRedisSpan } from "../observability/redis_span";
-import { validateRedisClusterTopology } from "./cluster_topology_validator";
-import type { InstrumentedRedisClient } from "./instrumented_redis_client";
-import { createManagedRedisConnection } from "./managed_redis_connection";
-import { redisKeyNamespace, sanitizeRedisKeySegment } from "./redis_key_namespace";
+import { withRedisSpan } from "../../observability/redis_span";
+import { validateRedisClusterTopology } from "../cluster/cluster_topology_validator";
+import type { InstrumentedRedisClient } from "../connection/instrumented_redis_client";
+import { createManagedRedisConnection } from "../connection/managed_redis_connection";
+import { redisKeyNamespace, sanitizeRedisKeySegment } from "../keyspace/redis_key_namespace";
 import {
   noteAgentEventStreamAck,
   noteAgentEventStreamAppend,
@@ -36,9 +36,9 @@ import {
   noteAgentEventStreamFallback,
   noteAgentEventStreamSkippedEmptyUrl,
   observeAgentEventStreamLatency,
-} from "../../application/services/agent_event_stream_metrics.service";
-import { env } from "../../shared/config/env";
-import { logger } from "../../shared/utils/logger";
+} from "../../../application/services/agent_event_stream_metrics.service";
+import { env } from "../../../shared/config/env";
+import { logger } from "../../../shared/utils/logger";
 
 const connection = createManagedRedisConnection();
 

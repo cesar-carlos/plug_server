@@ -15,7 +15,7 @@
  * module changes.
  */
 
-import { env } from "../../shared/config/env";
+import { env } from "../../../shared/config/env";
 
 /**
  * Returns the namespace string that goes between the literal module prefix

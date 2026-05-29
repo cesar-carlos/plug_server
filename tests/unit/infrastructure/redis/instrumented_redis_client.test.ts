@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as RedisAuthPingMetricsModuleNs from "../../../../src/application/services/redis_auth_ping_metrics.service";
-import type * as InstrumentedRedisClientModuleNs from "../../../../src/infrastructure/redis/instrumented_redis_client";
+import type * as InstrumentedRedisClientModuleNs from "../../../../src/infrastructure/redis/connection/instrumented_redis_client";
 
 const setupFactory = async (
   envOverrides: { readonly nodeEnv?: "development" | "test" | "production" } = {},
@@ -36,7 +36,7 @@ const setupFactory = async (
   }));
   vi.doMock("redis", () => ({ createClient: createClientMock }));
 
-  const module = await import("../../../../src/infrastructure/redis/instrumented_redis_client");
+  const module = await import("../../../../src/infrastructure/redis/connection/instrumented_redis_client");
   const authMetrics =
     await import("../../../../src/application/services/redis_auth_ping_metrics.service");
   authMetrics.resetRedisAuthPingMetricsForTests();

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createInitialDistributedCountCircuitState } from "../../../../../src/presentation/socket/hub/custom_events/custom_socket_event_distributed_count_circuit";
 
-vi.mock("../../../../../src/infrastructure/redis/socket_io_redis_adapter", () => ({
+vi.mock("../../../../../src/infrastructure/redis/adapter/socket_io_redis_adapter", () => ({
   isSocketIoRedisAdapterActive: vi.fn(() => true),
 }));
 

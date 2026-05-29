@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type * as SocketRedisModule from "../../../../src/infrastructure/redis/socket_rate_limit_redis";
+import type * as SocketRedisModule from "../../../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis";
 
 const setupSocketRedisModule = async (): Promise<{
   readonly client: {
@@ -71,7 +71,7 @@ const setupSocketRedisModule = async (): Promise<{
   vi.doMock("../../../../src/shared/config/env", () => ({ env: envMock }));
   vi.doMock("redis", () => ({ createClient: createClientMock }));
 
-  const module = await import("../../../../src/infrastructure/redis/socket_rate_limit_redis");
+  const module = await import("../../../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis");
   return { client, envMock, createClientMock, module };
 };
 

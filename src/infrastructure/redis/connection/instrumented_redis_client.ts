@@ -1,6 +1,6 @@
 import { createClient } from "redis";
 
-import { logger } from "../../shared/utils/logger";
+import { logger } from "../../../shared/utils/logger";
 import { buildResilientRedisClientOptions } from "./redis_client_options";
 import { runRedisPostConnectAuthCheck, toSafeRedisErrorMessage } from "./redis_auth";
 

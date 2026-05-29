@@ -13,9 +13,9 @@
  * `pubsub_instrumented_redis_client.ts` each kept.
  */
 
-import { noteRedisAuthPing } from "../../application/services/redis_auth_ping_metrics.service";
-import { env } from "../../shared/config/env";
-import { logger } from "../../shared/utils/logger";
+import { noteRedisAuthPing } from "../../../application/services/redis_auth_ping_metrics.service";
+import { env } from "../../../shared/config/env";
+import { logger } from "../../../shared/utils/logger";
 
 export const toSafeRedisErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

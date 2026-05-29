@@ -1,7 +1,7 @@
 import type { Options } from "express-rate-limit";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type * as RestRateLimitRedisModule from "../../src/infrastructure/redis/rest_rate_limit_redis";
+import type * as RestRateLimitRedisModule from "../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis";
 
 import {
   assertInfrastructureOrSkip,
@@ -33,7 +33,7 @@ describe("REST Redis rate-limit integration", () => {
 
     process.env.REST_RATE_LIMIT_REDIS_URL = infrastructure.redisUrl;
     vi.resetModules();
-    redisModule = await import("../../src/infrastructure/redis/rest_rate_limit_redis");
+    redisModule = await import("../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis");
     await redisModule.initRestHttpRateLimitRedis();
   }, integrationHookTimeoutMs);
 

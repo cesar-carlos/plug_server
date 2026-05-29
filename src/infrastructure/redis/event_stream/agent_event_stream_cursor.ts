@@ -19,11 +19,11 @@ import { performance } from "node:perf_hooks";
 import {
   noteAgentEventStreamCommandError,
   observeAgentEventStreamLatency,
-} from "../../application/services/agent_event_stream_metrics.service";
-import { env } from "../../shared/config/env";
-import { logger } from "../../shared/utils/logger";
+} from "../../../application/services/agent_event_stream_metrics.service";
+import { env } from "../../../shared/config/env";
+import { logger } from "../../../shared/utils/logger";
 import { getAgentEventStreamRedisClient } from "./agent_event_stream";
-import { redisKeyNamespace, sanitizeRedisKeySegment } from "./redis_key_namespace";
+import { redisKeyNamespace, sanitizeRedisKeySegment } from "../keyspace/redis_key_namespace";
 
 const sanitizePrincipalId = (principalId: string): string => sanitizeRedisKeySegment(principalId);
 

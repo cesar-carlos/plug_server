@@ -1,11 +1,11 @@
 import { performance } from "node:perf_hooks";
 
-import { withRedisSpan } from "../observability/redis_span";
-import { validateRedisClusterTopology } from "./cluster_topology_validator";
-import { LuaScriptCache, type CachedLuaScript } from "./lua_script_cache";
-import { createManagedRedisConnection } from "./managed_redis_connection";
-import { createRedisCircuitBreaker } from "./redis_circuit_breaker";
-import { redisKeyNamespace, sanitizeRedisKeySegment } from "./redis_key_namespace";
+import { withRedisSpan } from "../../observability/redis_span";
+import { validateRedisClusterTopology } from "../cluster/cluster_topology_validator";
+import { LuaScriptCache, type CachedLuaScript } from "../scripting/lua_script_cache";
+import { createManagedRedisConnection } from "../connection/managed_redis_connection";
+import { createRedisCircuitBreaker } from "../connection/redis_circuit_breaker";
+import { redisKeyNamespace, sanitizeRedisKeySegment } from "../keyspace/redis_key_namespace";
 import {
   noteSocketRateLimitRedisAtomicRollback,
   noteSocketRateLimitRedisCircuitClosed,
@@ -21,9 +21,9 @@ import {
   noteSocketRateLimitRedisTrackedKey,
   noteSocketRateLimitRedisWindowReset,
   observeSocketRateLimitRedisLatency,
-} from "../../application/services/socket_rate_limit_redis_metrics.service";
-import { env } from "../../shared/config/env";
-import { logger } from "../../shared/utils/logger";
+} from "../../../application/services/socket_rate_limit_redis_metrics.service";
+import { env } from "../../../shared/config/env";
+import { logger } from "../../../shared/utils/logger";
 
 const connection = createManagedRedisConnection();
 let scriptCache: LuaScriptCache | undefined;

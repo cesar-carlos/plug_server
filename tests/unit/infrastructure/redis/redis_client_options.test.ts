@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type * as RedisClientOptionsModuleNs from "../../../../src/infrastructure/redis/redis_client_options";
+import type * as RedisClientOptionsModuleNs from "../../../../src/infrastructure/redis/connection/redis_client_options";
 
 type RedisClientOptionsModule = typeof RedisClientOptionsModuleNs;
 
@@ -17,7 +17,7 @@ const setupHelper = async (envOverrides?: {
       redisDefaultReconnectMaxMs: envOverrides?.redisDefaultReconnectMaxMs ?? 5_000,
     },
   }));
-  return await import("../../../../src/infrastructure/redis/redis_client_options");
+  return await import("../../../../src/infrastructure/redis/connection/redis_client_options");
 };
 
 describe("buildResilientRedisClientOptions", () => {

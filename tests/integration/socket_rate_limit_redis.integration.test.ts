@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type * as SocketRedisModule from "../../src/infrastructure/redis/socket_rate_limit_redis";
+import type * as SocketRedisModule from "../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis";
 
 import {
   assertInfrastructureOrSkip,
@@ -29,7 +29,7 @@ describe("socket Redis rate-limit integration", () => {
     // with an empty URL, and `initSocketRateLimitRedis` would short-circuit
     // without connecting — making every `consume*` return `null`.
     vi.resetModules();
-    redisModule = await import("../../src/infrastructure/redis/socket_rate_limit_redis");
+    redisModule = await import("../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis");
     await redisModule.initSocketRateLimitRedis();
   }, integrationHookTimeoutMs);
 

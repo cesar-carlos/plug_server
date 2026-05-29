@@ -1,6 +1,6 @@
 import type { RedisClientOptions } from "redis";
 
-import { env } from "../../shared/config/env";
+import { env } from "../../../shared/config/env";
 import { resolveRedisUrlWithWarning } from "./redis_url_resolver";
 
 /**

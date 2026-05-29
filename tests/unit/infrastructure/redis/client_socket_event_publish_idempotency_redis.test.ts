@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ClientSocketEventPublishIdempotencyResponse } from "../../../../src/application/services/client_socket_event_idempotency_store";
-import type * as IdempotencyRedisModuleNs from "../../../../src/infrastructure/redis/client_socket_event_publish_idempotency_redis";
+import type * as IdempotencyRedisModuleNs from "../../../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis";
 import type * as DistributedIdempotencyRegistryNs from "../../../../src/application/services/client_socket_event_publish_distributed_idempotency";
 
 type IdempotencyRedisModule = typeof IdempotencyRedisModuleNs;
@@ -56,7 +56,7 @@ const setup = async (): Promise<{
   vi.doMock("redis", () => ({ createClient: () => client }));
 
   const module =
-    await import("../../../../src/infrastructure/redis/client_socket_event_publish_idempotency_redis");
+    await import("../../../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis");
   const registry =
     await import("../../../../src/application/services/client_socket_event_publish_distributed_idempotency");
   return { client, module, registry };
@@ -151,6 +151,43 @@ describe("client_socket_event_publish_idempotency_redis", () => {
 
     const extended = await store!.extendLock("client-1", "idem-1", "tok", 5_000);
     expect(extended).toBe(false);
+
+    await module.closeClientSocketEventPublishIdempotencyRedis();
+  });
+
+  it("commitEntryAndReleaseLock writes the entry and releases the lock in one Lua call", async () => {
+    const { client, module, registry } = await setup();
+    client.eval.mockResolvedValue(1);
+
+    await module.initClientSocketEventPublishIdempotencyRedis();
+    const store = registry.getClientSocketEventPublishDistributedIdempotencyStore();
+    expect(store?.commitEntryAndReleaseLock).toBeTypeOf("function");
+
+    const response: ClientSocketEventPublishIdempotencyResponse = {
+      success: true,
+      eventId: "e1",
+      eventName: "client:custom.test",
+      recipients: 2,
+    };
+    await store!.commitEntryAndReleaseLock!(
+      "client-1",
+      "idem-1",
+      { fingerprint: "fp", response },
+      "tok-xyz",
+    );
+
+    // GET_WITH_TTL + COMMIT_AND_RELEASE are not pre-cached in this mock (scriptLoad
+    // only resolves SHAs for release/extend), so the call falls back to EVAL.
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('SET', KEYS[1]"),
+      expect.objectContaining({
+        keys: [
+          expect.stringContaining("plug_socket_event_idem:{plug}:"),
+          expect.stringContaining("plug_socket_event_idem_lock:{plug}:"),
+        ],
+        arguments: [JSON.stringify({ fingerprint: "fp", response }), "60000", "tok-xyz"],
+      }),
+    );
 
     await module.closeClientSocketEventPublishIdempotencyRedis();
   });

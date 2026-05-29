@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type * as AgentEventStreamModule from "../../../../src/infrastructure/redis/agent_event_stream";
+import type * as AgentEventStreamModule from "../../../../src/infrastructure/redis/event_stream/agent_event_stream";
 
 const setupModule = async (
   options: {
@@ -88,7 +88,7 @@ const setupModule = async (
   }));
   vi.doMock("redis", () => ({ createClient: createClientMock }));
 
-  const module = await import("../../../../src/infrastructure/redis/agent_event_stream");
+  const module = await import("../../../../src/infrastructure/redis/event_stream/agent_event_stream");
   return { module, client, multiCalls, multiExecMock, createClientMock };
 };
 
@@ -518,7 +518,7 @@ describe("agent_event_stream", () => {
           },
         }),
       }));
-      const reloaded = await import("../../../../src/infrastructure/redis/agent_event_stream");
+      const reloaded = await import("../../../../src/infrastructure/redis/event_stream/agent_event_stream");
       multiExecMock.mockResolvedValue(["100-0", "300-0"]);
       await reloaded.initAgentEventStream();
 

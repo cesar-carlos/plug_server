@@ -2,7 +2,7 @@ import request from "supertest";
 import { io as ioClient } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { isSocketIoRedisAdapterActive } from "../../src/infrastructure/redis/socket_io_redis_adapter";
+import { isSocketIoRedisAdapterActive } from "../../src/infrastructure/redis/adapter/socket_io_redis_adapter";
 import { agentsNamespace } from "../../src/socket";
 import { SOCKET_NAMESPACES } from "../../src/shared/constants/socket_events";
 import { createTestServer, type TestServerResult } from "../helpers/test_server";

@@ -6,11 +6,11 @@ import { prismaClient } from "../../../src/infrastructure/database/prisma/client
 import {
   closeClientSocketEventPublishIdempotencyRedis,
   initClientSocketEventPublishIdempotencyRedis,
-} from "../../../src/infrastructure/redis/client_socket_event_publish_idempotency_redis";
+} from "../../../src/infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis";
 import {
   closeSocketIoRedisAdapter,
   initSocketIoRedisAdapter,
-} from "../../../src/infrastructure/redis/socket_io_redis_adapter";
+} from "../../../src/infrastructure/redis/adapter/socket_io_redis_adapter";
 import { closeSocketServer, createSocketServer } from "../../../src/socket";
 
 let httpServer: HttpServer | undefined;

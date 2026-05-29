@@ -15,8 +15,8 @@
  * validator returns immediately as a no-op.
  */
 
-import { logger } from "../../shared/utils/logger";
-import type { InstrumentedRedisClient } from "./instrumented_redis_client";
+import { logger } from "../../../shared/utils/logger";
+import type { InstrumentedRedisClient } from "../connection/instrumented_redis_client";
 
 export interface ClusterTopologyValidatorInput {
   readonly client: InstrumentedRedisClient;

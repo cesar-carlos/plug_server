@@ -17,7 +17,7 @@ import {
 import {
   createRestHttpRateLimitStore,
   type RestHttpRateLimitStoreScope,
-} from "../../../infrastructure/redis/rest_rate_limit_redis";
+} from "../../../infrastructure/redis/rate_limit/rest_rate_limit_redis";
 import { env } from "../../../shared/config/env";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { buildHttpErrorResponseBody } from "../helpers/http_error_response";

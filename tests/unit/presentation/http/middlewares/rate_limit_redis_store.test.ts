@@ -73,7 +73,7 @@ const setupRateLimitModule = async (withRedisStore: boolean): Promise<RateLimitM
   vi.doMock("../../../../../src/shared/config/env", () => ({
     env: envMock,
   }));
-  vi.doMock("../../../../../src/infrastructure/redis/rest_rate_limit_redis", () => ({
+  vi.doMock("../../../../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis", () => ({
     createRestHttpRateLimitStore: createStoreMock,
   }));
   vi.doMock("../../../../../src/application/services/rest_http_rate_limit_metrics.service", () => ({
@@ -103,7 +103,7 @@ describe("registerHttpRateLimits Redis store wiring", () => {
     vi.clearAllMocks();
     vi.doUnmock("express-rate-limit");
     vi.doUnmock("../../../../../src/shared/config/env");
-    vi.doUnmock("../../../../../src/infrastructure/redis/rest_rate_limit_redis");
+    vi.doUnmock("../../../../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis");
     vi.doUnmock("../../../../../src/application/services/rest_http_rate_limit_metrics.service");
   });
 

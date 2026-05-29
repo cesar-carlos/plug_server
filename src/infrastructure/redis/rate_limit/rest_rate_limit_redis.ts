@@ -3,10 +3,10 @@ import { performance } from "node:perf_hooks";
 import { RedisStore, type SendCommandFn } from "rate-limit-redis";
 import type { Store } from "express-rate-limit";
 
-import { validateRedisClusterTopology } from "./cluster_topology_validator";
-import { createManagedRedisConnection } from "./managed_redis_connection";
-import { createRedisCircuitBreaker } from "./redis_circuit_breaker";
-import { redisKeyNamespace } from "./redis_key_namespace";
+import { validateRedisClusterTopology } from "../cluster/cluster_topology_validator";
+import { createManagedRedisConnection } from "../connection/managed_redis_connection";
+import { createRedisCircuitBreaker } from "../connection/redis_circuit_breaker";
+import { redisKeyNamespace } from "../keyspace/redis_key_namespace";
 import {
   noteRestRateLimitRedisConnected,
   noteRestRateLimitRedisCircuitClosed,
@@ -17,9 +17,9 @@ import {
   noteRestRateLimitRedisRecovered,
   noteRestRateLimitRedisSkippedEmptyUrl,
   observeRestRateLimitRedisLatency,
-} from "../../application/services/rest_rate_limit_redis_metrics.service";
-import { env } from "../../shared/config/env";
-import { logger } from "../../shared/utils/logger";
+} from "../../../application/services/rest_rate_limit_redis_metrics.service";
+import { env } from "../../../shared/config/env";
+import { logger } from "../../../shared/utils/logger";
 
 const connection = createManagedRedisConnection();
 let redisSendCommand: SendCommandFn | undefined;

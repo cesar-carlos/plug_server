@@ -24,11 +24,11 @@ import {
   isAgentEventStreamActive,
   readAgentEventBacklog,
   type AgentEventStreamBacklogEntry,
-} from "../../../infrastructure/redis/agent_event_stream";
+} from "../../../infrastructure/redis/event_stream/agent_event_stream";
 import {
   commitAgentEventCursor,
   getAgentEventCursor,
-} from "../../../infrastructure/redis/agent_event_stream_cursor";
+} from "../../../infrastructure/redis/event_stream/agent_event_stream_cursor";
 import { env } from "../../../shared/config/env";
 import { logger } from "../../../shared/utils/logger";
 

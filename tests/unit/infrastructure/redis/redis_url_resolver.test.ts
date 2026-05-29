@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   resetRedisUrlWarningCacheForTests,
   resolveRedisUrl,
-} from "../../../../src/infrastructure/redis/redis_url_resolver";
+} from "../../../../src/infrastructure/redis/connection/redis_url_resolver";
 
 describe("resolveRedisUrl", () => {
   afterEach(() => {

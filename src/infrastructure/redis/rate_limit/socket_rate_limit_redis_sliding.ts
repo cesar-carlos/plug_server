@@ -34,7 +34,7 @@
 import { performance } from "node:perf_hooks";
 import { randomUUID } from "node:crypto";
 
-import type { InstrumentedRedisClient } from "./instrumented_redis_client";
+import type { InstrumentedRedisClient } from "../connection/instrumented_redis_client";
 
 export interface SlidingRateLimitInput {
   readonly key: string;

@@ -41,23 +41,23 @@ import {
 import {
   closeRestHttpRateLimitRedis,
   initRestHttpRateLimitRedis,
-} from "./infrastructure/redis/rest_rate_limit_redis";
+} from "./infrastructure/redis/rate_limit/rest_rate_limit_redis";
 import {
   closeSocketRateLimitRedis,
   initSocketRateLimitRedis,
-} from "./infrastructure/redis/socket_rate_limit_redis";
+} from "./infrastructure/redis/rate_limit/socket_rate_limit_redis";
 import {
   closeSocketIoRedisAdapter,
   initSocketIoRedisAdapter,
-} from "./infrastructure/redis/socket_io_redis_adapter";
+} from "./infrastructure/redis/adapter/socket_io_redis_adapter";
 import {
   closeClientSocketEventPublishIdempotencyRedis,
   initClientSocketEventPublishIdempotencyRedis,
-} from "./infrastructure/redis/client_socket_event_publish_idempotency_redis";
+} from "./infrastructure/redis/idempotency/client_socket_event_publish_idempotency_redis";
 import {
   closeAgentEventStream,
   initAgentEventStream,
-} from "./infrastructure/redis/agent_event_stream";
+} from "./infrastructure/redis/event_stream/agent_event_stream";
 import { prismaClient } from "./infrastructure/database/prisma/client";
 import {
   startAgentIdleTimeoutScheduler,

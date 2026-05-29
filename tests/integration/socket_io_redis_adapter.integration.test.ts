@@ -5,7 +5,7 @@ import type { Server as SocketServer } from "socket.io";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { resetSocketIoRedisAdapterMetricsForTests } from "../../src/application/services/socket_io_redis_adapter_metrics.service";
-import type * as SocketIoRedisAdapterModule from "../../src/infrastructure/redis/socket_io_redis_adapter";
+import type * as SocketIoRedisAdapterModule from "../../src/infrastructure/redis/adapter/socket_io_redis_adapter";
 
 import {
   assertInfrastructureOrSkip,
@@ -70,7 +70,7 @@ describe("socket IO Redis adapter integration", () => {
 
     const [{ createSocketServer }, adapter] = await Promise.all([
       import("../../src/socket"),
-      import("../../src/infrastructure/redis/socket_io_redis_adapter"),
+      import("../../src/infrastructure/redis/adapter/socket_io_redis_adapter"),
     ]);
     adapterModule = adapter;
 

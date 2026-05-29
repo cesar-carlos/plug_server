@@ -1,15 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
-import { withRedisSpan } from "../observability/redis_span";
-import { validateRedisClusterTopology } from "./cluster_topology_validator";
+import { withRedisSpan } from "../../observability/redis_span";
+import { validateRedisClusterTopology } from "../cluster/cluster_topology_validator";
 import {
   createInstrumentedRedisClient,
   type InstrumentedRedisClient,
-} from "./instrumented_redis_client";
-import { LuaScriptCache, type CachedLuaScript } from "./lua_script_cache";
-import { createManagedRedisConnection } from "./managed_redis_connection";
-import { redisKeyNamespace } from "./redis_key_namespace";
+} from "../connection/instrumented_redis_client";
+import { LuaScriptCache, type CachedLuaScript } from "../scripting/lua_script_cache";
+import { createManagedRedisConnection } from "../connection/managed_redis_connection";
+import { redisKeyNamespace } from "../keyspace/redis_key_namespace";
 import {
   noteClientSocketEventIdempotencyRedisCommandError,
   noteClientSocketEventIdempotencyRedisConnected,
@@ -20,17 +20,17 @@ import {
   noteClientSocketEventIdempotencyRedisSkippedEmptyUrl,
   noteClientSocketEventIdempotencyRedisWrite,
   observeClientSocketEventIdempotencyRedisLatency,
-} from "../../application/services/client_socket_event_idempotency_redis_metrics.service";
+} from "../../../application/services/client_socket_event_idempotency_redis_metrics.service";
 import {
   registerClientSocketEventPublishDistributedIdempotencyStore,
   type ClientSocketEventPublishDistributedIdempotencyStore,
-} from "../../application/services/client_socket_event_publish_distributed_idempotency";
+} from "../../../application/services/client_socket_event_publish_distributed_idempotency";
 import type {
   ClientSocketEventPublishIdempotencyEntry,
   ClientSocketEventPublishIdempotencyResponse,
-} from "../../application/services/client_socket_event_idempotency_store";
-import { env } from "../../shared/config/env";
-import { logger } from "../../shared/utils/logger";
+} from "../../../application/services/client_socket_event_idempotency_store";
+import { env } from "../../../shared/config/env";
+import { logger } from "../../../shared/utils/logger";
 
 type RedisClient = InstrumentedRedisClient;
 
@@ -47,6 +47,7 @@ let scriptCache: LuaScriptCache | undefined;
 const RELEASE_LOCK_CACHED: CachedLuaScript = { name: "idem_release_lock", source: "" };
 const EXTEND_LOCK_CACHED: CachedLuaScript = { name: "idem_extend_lock", source: "" };
 const GET_WITH_TTL_CACHED: CachedLuaScript = { name: "idem_get_with_ttl", source: "" };
+const COMMIT_AND_RELEASE_CACHED: CachedLuaScript = { name: "idem_commit_release", source: "" };
 
 const toSafeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -90,6 +91,25 @@ const GET_WITH_TTL_SCRIPT = `
 return {redis.call('GET', KEYS[1]), redis.call('PTTL', KEYS[1])}
 `;
 (GET_WITH_TTL_CACHED as { source: string }).source = GET_WITH_TTL_SCRIPT;
+
+/**
+ * Single round-trip write+unlock for the successful publish path: persists the
+ * idempotency entry (`SET ... PX`) and, in the same call, releases the lock iff
+ * the caller still owns it (compare-and-`DEL`). Both keys share the `{plug}`
+ * hash tag so the multi-key script is cluster-safe. Saves the trailing
+ * `releaseLock` round-trip on the publish latency tail.
+ *
+ *   KEYS[1] = entry key, KEYS[2] = lock key
+ *   ARGV[1] = entry JSON, ARGV[2] = entry PX ttl, ARGV[3] = lock token
+ */
+const COMMIT_AND_RELEASE_SCRIPT = `
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+if redis.call('GET', KEYS[2]) == ARGV[3] then
+  redis.call('DEL', KEYS[2])
+end
+return 1
+`;
+(COMMIT_AND_RELEASE_CACHED as { source: string }).source = COMMIT_AND_RELEASE_SCRIPT;
 
 interface StoredEntry {
   readonly fingerprint: string;
@@ -210,6 +230,55 @@ class RedisClientSocketEventPublishDistributedIdempotencyStore implements Client
     } catch (error: unknown) {
       noteClientSocketEventIdempotencyRedisCommandError();
       logger.warn("client_socket_event_idempotency_redis_set_failed", {
+        message: toSafeErrorMessage(error),
+      });
+      throw error;
+    } finally {
+      observeClientSocketEventIdempotencyRedisLatency("set", performance.now() - startedAtMs);
+    }
+  }
+
+  /**
+   * Atomic write+unlock for the successful publish path: persists the entry and
+   * releases the caller's lock in one round-trip (vs `setEntry` + `releaseLock`).
+   * No-op write when the TTL is disabled (still releases the lock). Throws on a
+   * Redis failure so the caller can fall back to its best-effort logging.
+   */
+  async commitEntryAndReleaseLock(
+    clientId: string,
+    idempotencyKey: string,
+    entry: {
+      readonly fingerprint: string;
+      readonly response: ClientSocketEventPublishIdempotencyResponse;
+    },
+    token: string,
+  ): Promise<void> {
+    if (env.restSocketEventIdempotencyTtlMs === 0) {
+      await this.releaseLock(clientId, idempotencyKey, token);
+      return;
+    }
+    const startedAtMs = performance.now();
+    try {
+      await withRedisSpan(
+        {
+          module: "client_socket_event_idempotency_redis",
+          op: "commit_release",
+          keyPrefix: "plug_socket_event_idem",
+        },
+        () => {
+          const args = {
+            keys: [entryKey(clientId, idempotencyKey), lockKey(clientId, idempotencyKey)],
+            arguments: [JSON.stringify(entry), String(env.restSocketEventIdempotencyTtlMs), token],
+          };
+          return scriptCache
+            ? scriptCache.invoke(COMMIT_AND_RELEASE_CACHED, args)
+            : this.client.eval(COMMIT_AND_RELEASE_SCRIPT, args);
+        },
+      );
+      noteClientSocketEventIdempotencyRedisWrite();
+    } catch (error: unknown) {
+      noteClientSocketEventIdempotencyRedisCommandError();
+      logger.warn("client_socket_event_idempotency_redis_commit_release_failed", {
         message: toSafeErrorMessage(error),
       });
       throw error;
@@ -428,6 +497,7 @@ export async function initClientSocketEventPublishIdempotencyRedis(): Promise<vo
       cache.load(RELEASE_LOCK_CACHED),
       cache.load(EXTEND_LOCK_CACHED),
       cache.load(GET_WITH_TTL_CACHED),
+      cache.load(COMMIT_AND_RELEASE_CACHED),
     ]);
     scriptCache = cache;
   } catch (error: unknown) {
