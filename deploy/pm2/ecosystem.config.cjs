@@ -17,9 +17,9 @@
 const path = require("node:path");
 
 const cwd = path.resolve(__dirname, "..", "..");
-// Producao padrao: 2 replicas (estavel). Requer SOCKET_IO_REDIS_ADAPTER_URL + presenca/forward (ADR-0010).
-// HUB_INSTANCE_ID=plug-{port}. Para 3 replicas: ports = [4000, 4001, 4002] apos validar em carga.
-const ports = [4000, 4001];
+// Producao padrao: 1 instancia (elimina roteamento cross-replica). Para 2+: SOCKET_IO_REDIS_ADAPTER_URL + presenca (ADR-0010).
+// HUB_INSTANCE_ID=plug-{port}. Multi-replica: ports = [4000, 4001] apos validar presenca/bridge.
+const ports = [4000];
 
 module.exports = {
   apps: ports.map((port) => ({
@@ -32,7 +32,7 @@ module.exports = {
       NODE_ENV: "production",
       PORT: String(port),
       HUB_INSTANCE_ID: `plug-${port}`,
-      AGENT_HUB_CLUSTER_INSTANCE_IDS: "plug-4000,plug-4001",
+      AGENT_HUB_CLUSTER_INSTANCE_IDS: "plug-4000",
     },
     max_memory_restart: "1G",
     kill_timeout: 10000,

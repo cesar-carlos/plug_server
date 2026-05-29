@@ -34,13 +34,12 @@ map $http_upgrade $connection_upgrade {
 #
 # Em deploy single-instance, um `server 127.0.0.1:4000;` basta (ip_hash opcional).
 #
-# Padrao producao: 2 portas (ecosystem.config.cjs). Terceira opcional apos validar carga.
+# Padrao producao: 1 porta (ecosystem.config.cjs). Multi-replica: descomente servidores + ip_hash.
 upstream plug_server_upstream {
-    ip_hash;                                                 # Opcao A (sticky)
-    # sticky cookie hub_node expires=1h path=/;              # Opcao B (alternativa)
+    # ip_hash;                                               # Multi-replica (sticky Socket.IO)
     server 127.0.0.1:4000;
-    server 127.0.0.1:4001;
-    # server 127.0.0.1:4002;                                 # Opcional (3 replicas)
+    # server 127.0.0.1:4001;
+    # server 127.0.0.1:4002;
     keepalive 64;
 }
 

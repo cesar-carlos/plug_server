@@ -41,7 +41,7 @@ grep "<agent-uuid>" /root/.pm2/logs/plug-server-4002-out*.log
 
 ### Imediata (recomendada hoje)
 
-**Padrão de produção neste servidor: 2 réplicas** (`4000`–`4001` em `deploy/pm2/ecosystem.config.cjs`).
+**Padrão de produção neste servidor: 1 instância** (`4000` em `deploy/pm2/ecosystem.config.cjs`). Multi-réplica só após validar presença Redis + bridge.
 
 Para isolar o problema:
 
