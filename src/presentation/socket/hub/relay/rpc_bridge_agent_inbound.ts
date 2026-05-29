@@ -2,7 +2,10 @@ import { HUB_MAX_BATCH_SIZE } from "../../../../shared/constants/agent_transport
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { serviceUnavailable } from "../../../../shared/errors/http_errors";
 import { logger } from "../../../../shared/utils/logger";
-import { decodePayloadFrameAsync } from "../../../../shared/utils/payload_frame";
+import {
+  decodePayloadFrameAsync,
+  type DecodedPayloadFrame,
+} from "../../../../shared/utils/payload_frame";
 import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
@@ -252,61 +255,72 @@ export const createRpcBridgeAgentInboundHandlers = (
     });
   };
 
+  /**
+   * Shared preamble for the ordered stream-inbound handlers (`rpc:chunk` /
+   * `rpc:complete`): decode the frame (with decode-latency metric), validate the
+   * inbound contract, normalize to a record, honor gzip force-flag, then resolve
+   * the active stream route and touch its conversation. On any short-circuit it
+   * runs the matching fail-fast/cleanup and returns `null`.
+   */
+  const decodeAndResolveStreamRoute = async (
+    eventName: Parameters<typeof validateAgentInboundContract>[0]["eventName"],
+    socketId: string,
+    rawPayload: unknown,
+  ): Promise<{
+    route: ActiveStreamRoute;
+    data: Record<string, unknown>;
+    frame: DecodedPayloadFrame["frame"];
+  } | null> => {
+    const tDecode = performance.now();
+    const result = await decodePayloadFrameAsync(rawPayload);
+    observeRelayFrameDecode(performance.now() - tDecode);
+    if (!result.ok) {
+      logRpcFrameDecodeFailure({ eventName, socketId, reason: result.error.message });
+      failFastInvalidAgentStreamFrame(eventName, socketId, rawPayload, result.error.message);
+      return null;
+    }
+
+    const contractValidation = validateAgentInboundContract({
+      eventName,
+      payload: result.value.data,
+      socketId,
+    });
+    if (!contractValidation.shouldProcess) {
+      const reason = `Inbound contract invalid: ${contractValidation.message}`;
+      logRpcFrameDecodeFailure({ eventName, socketId, reason });
+      failFastInvalidAgentStreamFrame(eventName, socketId, rawPayload, reason);
+      return null;
+    }
+
+    const data = toRecord(result.value.data);
+    if (!data) {
+      return null;
+    }
+    if (result.value.frame.cmp === "gzip") {
+      markRelayOutboundForceGzip(data);
+    }
+
+    const route = resolveActiveStreamRoute(socketId, data);
+    if (!route) {
+      return null;
+    }
+
+    if (route.conversationId) {
+      conversationRegistry.touchInternal(route.conversationId);
+    }
+
+    return { route, data, frame: result.value.frame };
+  };
+
   const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void => {
     enqueueOrderedStreamInbound(socketId, async () => {
-      const tDecode = performance.now();
-      const result = await decodePayloadFrameAsync(rawPayload);
-      observeRelayFrameDecode(performance.now() - tDecode);
-      if (!result.ok) {
-        logRpcFrameDecodeFailure({
-          eventName: socketEvents.rpcChunk,
-          socketId,
-          reason: result.error.message,
-        });
-        failFastInvalidAgentStreamFrame(
-          socketEvents.rpcChunk,
-          socketId,
-          rawPayload,
-          result.error.message,
-        );
+      const resolved = await decodeAndResolveStreamRoute(socketEvents.rpcChunk, socketId, rawPayload);
+      if (!resolved) {
         return;
       }
-
-      const contractValidation = validateAgentInboundContract({
-        eventName: socketEvents.rpcChunk,
-        payload: result.value.data,
-        socketId,
-      });
-      if (!contractValidation.shouldProcess) {
-        const reason = `Inbound contract invalid: ${contractValidation.message}`;
-        logRpcFrameDecodeFailure({
-          eventName: socketEvents.rpcChunk,
-          socketId,
-          reason,
-        });
-        failFastInvalidAgentStreamFrame(socketEvents.rpcChunk, socketId, rawPayload, reason);
-        return;
-      }
-
-      const data = toRecord(result.value.data);
-      if (!data) {
-        return;
-      }
-      if (result.value.frame.cmp === "gzip") {
-        markRelayOutboundForceGzip(data);
-      }
-
-      const route = resolveActiveStreamRoute(socketId, data);
-      if (!route) {
-        return;
-      }
-
-      if (route.conversationId) {
-        conversationRegistry.touchInternal(route.conversationId);
-      }
-
+      const { route, data, frame } = resolved;
       try {
-        route.onChunk(data, streamChunkMetadataFromPayloadFrame(result.value.frame));
+        route.onChunk(data, streamChunkMetadataFromPayloadFrame(frame));
       } catch {
         logger.warn("rpc_stream_chunk_forward_failed", {
           requestId: route.requestId,
@@ -319,56 +333,15 @@ export const createRpcBridgeAgentInboundHandlers = (
 
   const handleAgentRpcComplete = (socketId: string, rawPayload: unknown): void => {
     enqueueOrderedStreamInbound(socketId, async () => {
-      const tDecode = performance.now();
-      const result = await decodePayloadFrameAsync(rawPayload);
-      observeRelayFrameDecode(performance.now() - tDecode);
-      if (!result.ok) {
-        logRpcFrameDecodeFailure({
-          eventName: socketEvents.rpcComplete,
-          socketId,
-          reason: result.error.message,
-        });
-        failFastInvalidAgentStreamFrame(
-          socketEvents.rpcComplete,
-          socketId,
-          rawPayload,
-          result.error.message,
-        );
-        return;
-      }
-
-      const contractValidation = validateAgentInboundContract({
-        eventName: socketEvents.rpcComplete,
-        payload: result.value.data,
+      const resolved = await decodeAndResolveStreamRoute(
+        socketEvents.rpcComplete,
         socketId,
-      });
-      if (!contractValidation.shouldProcess) {
-        const reason = `Inbound contract invalid: ${contractValidation.message}`;
-        logRpcFrameDecodeFailure({
-          eventName: socketEvents.rpcComplete,
-          socketId,
-          reason,
-        });
-        failFastInvalidAgentStreamFrame(socketEvents.rpcComplete, socketId, rawPayload, reason);
+        rawPayload,
+      );
+      if (!resolved) {
         return;
       }
-
-      const data = toRecord(result.value.data);
-      if (!data) {
-        return;
-      }
-      if (result.value.frame.cmp === "gzip") {
-        markRelayOutboundForceGzip(data);
-      }
-
-      const route = resolveActiveStreamRoute(socketId, data);
-      if (!route) {
-        return;
-      }
-
-      if (route.conversationId) {
-        conversationRegistry.touchInternal(route.conversationId);
-      }
+      const { route, data } = resolved;
 
       if (route.mode === "relay") {
         route.onComplete(data);
