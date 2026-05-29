@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { BridgeLatencyTraceSession } from "../../../../application/services/bridge_latency_trace_builder";
 import { inferBridgeCommandMethod } from "../../../../application/services/bridge_latency_trace_builder";
 import { observeBridgeRpcMethod } from "../../../../application/services/bridge_rpc_method_metrics.service";
-import { normalizeCommandForAgent } from "../../../../application/agent_commands/command_transformers";
 import { env } from "../../../../shared/config/env";
 import { AppError } from "../../../../shared/errors/app_error";
 import {
@@ -12,11 +11,7 @@ import {
   serviceUnavailable,
   serviceUnavailableWithRetry,
 } from "../../../../shared/errors/http_errors";
-import {
-  bridgeSingleCommandSchema,
-  supportedAgentRpcMethods,
-  type PayloadFrameCompression,
-} from "../../../../shared/validators/agent_command";
+import type { PayloadFrameCompression } from "../../../../shared/validators/agent_command";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import {
   decodePayloadFrameAsync,
@@ -35,7 +30,6 @@ import {
   noteBridgeAckRetryAttempt,
   noteBridgeAckRetryExhausted,
   observeRelayBridgeEncode,
-  observeRelayCommandValidation,
   observeRelayFrameDecode,
   registerAgentFailure,
   relayMetrics,
@@ -63,11 +57,14 @@ import {
 } from "../registries/relay_request_registry";
 import {
   clampCommandMaxRows,
-  hasNotificationCommand,
   resolveOutboundApiVersion,
   sanitizeOutboundRpcMeta,
 } from "./rpc_bridge_command_helpers";
 import { emitRelayTimeoutResponse, type EmitToConsumerFn } from "./rpc_bridge_relay_stream";
+import {
+  relayRpcRefundableBadRequest,
+  validateAndNormalizeRelayCommand,
+} from "./relay_command_validation";
 import type {
   PreparedAgentStreamPull,
   RequestAgentStreamPullInput,
@@ -84,15 +81,6 @@ const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
 
 const isRouteAcked = (route: RelayRequestRoute): boolean => route.acked === true;
-
-const supportedMethodSet = new Set<string>(supportedAgentRpcMethods);
-
-const relayRpcRefundableBadRequestDetails = {
-  refundRelayRpcRequestRateLimit: true,
-} as const;
-
-const relayRpcRefundableBadRequest = (message: string): AppError =>
-  badRequest(message, relayRpcRefundableBadRequestDetails);
 
 export interface DispatchRelayRpcInput {
   readonly conversationId: string;
@@ -217,41 +205,7 @@ export const createRpcBridgeRelayDispatch = (
       throw relayRpcRefundableBadRequest(decoded.error.message);
     }
 
-    const rawCommand = toRecord(decoded.value.data);
-    if (!rawCommand) {
-      throw relayRpcRefundableBadRequest(
-        "relay:rpc.request frame must contain a JSON object payload",
-      );
-    }
-
-    if (Array.isArray(rawCommand)) {
-      throw relayRpcRefundableBadRequest(
-        "relay:rpc.request does not support batch; send a single JSON-RPC request",
-      );
-    }
-    const method = typeof rawCommand.method === "string" ? rawCommand.method : "";
-    if (!supportedMethodSet.has(method)) {
-      throw relayRpcRefundableBadRequest("command.method: Unsupported RPC method");
-    }
-
-    const validateStart = performance.now();
-    const parsed = bridgeSingleCommandSchema.safeParse(rawCommand);
-    observeRelayCommandValidation(performance.now() - validateStart);
-    if (!parsed.success) {
-      const firstIssue = parsed.error.issues[0];
-      const message = firstIssue
-        ? `${firstIssue.path.join(".") || "command"}: ${firstIssue.message}`
-        : "Invalid RPC command";
-      throw relayRpcRefundableBadRequest(message);
-    }
-
-    const command = parsed.data;
-    if (hasNotificationCommand(command)) {
-      throw relayRpcRefundableBadRequest(
-        "relay:rpc.request does not support JSON-RPC notifications (`id: null`); provide a request id",
-      );
-    }
-    const normalizedCommand = normalizeCommandForAgent(command);
+    const { command, normalizedCommand } = validateAndNormalizeRelayCommand(decoded.value.data);
 
     const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
     if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
