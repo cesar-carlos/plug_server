@@ -65,6 +65,7 @@ import {
   relayRpcRefundableBadRequest,
   validateAndNormalizeRelayCommand,
 } from "./relay_command_validation";
+import { resolveAgentCompressionPreference } from "./relay_compression_preference";
 import type {
   PreparedAgentStreamPull,
   RequestAgentStreamPullInput,
@@ -318,19 +319,13 @@ export const createRpcBridgeRelayDispatch = (
       agentId: conversation.agentId,
     });
 
-    if (!effectivePolicy.allowsNoneCompression && !effectivePolicy.allowsGzip) {
-      throw badRequest("Agent capabilities do not support any advertised PayloadFrame compression");
-    }
-    if (input.payloadFrameCompression === "always" && !effectivePolicy.allowsGzip) {
-      throw badRequest("Agent capabilities do not allow gzip compression for PayloadFrame");
-    }
-    if (input.payloadFrameCompression === "none" && !effectivePolicy.allowsNoneCompression) {
-      throw badRequest("Agent capabilities do not allow uncompressed PayloadFrame");
-    }
-    const relayCompressionPreference =
-      input.payloadFrameCompression === undefined && !effectivePolicy.allowsGzip
-        ? "none"
-        : input.payloadFrameCompression;
+    const relayCompressionPreference = resolveAgentCompressionPreference({
+      preference: input.payloadFrameCompression,
+      allowsNoneCompression: effectivePolicy.allowsNoneCompression,
+      allowsGzip: effectivePolicy.allowsGzip,
+      buildUnsupportedError: () =>
+        badRequest("Agent capabilities do not support any advertised PayloadFrame compression"),
+    });
 
     const releaseAgentDispatchSlot = await acquireRelayAgentDispatchSlot(
       conversation.agentId,

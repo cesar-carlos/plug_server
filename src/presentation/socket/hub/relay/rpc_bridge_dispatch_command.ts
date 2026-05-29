@@ -44,6 +44,7 @@ import {
   relayMetrics,
 } from "./bridge_relay_health_metrics";
 import { acquireRestAgentDispatchSlot } from "./rest_agent_dispatch_queue";
+import { resolveAgentCompressionPreference } from "./relay_compression_preference";
 import type { PendingRequest, StreamEventHandlers } from "../registries/rest_pending_requests";
 import {
   clearRestPendingRequest,
@@ -147,24 +148,13 @@ export const createDispatchRpcCommandToAgent = (
       }
 
       const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(input.agentId);
-      const compressionPreference = input.payloadFrameCompression;
-      if (!effectivePolicy.allowsNoneCompression && !effectivePolicy.allowsGzip) {
-        throw serviceUnavailable(
-          "Agent transport capabilities are incompatible with hub compression",
-        );
-      }
-      if (compressionPreference === "always" && !effectivePolicy.allowsGzip) {
-        throw badRequest("Agent capabilities do not allow gzip compression for PayloadFrame");
-      }
-      if (compressionPreference === "none" && !effectivePolicy.allowsNoneCompression) {
-        throw badRequest("Agent capabilities do not allow uncompressed PayloadFrame");
-      }
-      const effectiveCompressionPreference =
-        compressionPreference === undefined
-          ? effectivePolicy.allowsGzip
-            ? undefined
-            : "none"
-          : compressionPreference;
+      const effectiveCompressionPreference = resolveAgentCompressionPreference({
+        preference: input.payloadFrameCompression,
+        allowsNoneCompression: effectivePolicy.allowsNoneCompression,
+        allowsGzip: effectivePolicy.allowsGzip,
+        buildUnsupportedError: () =>
+          serviceUnavailable("Agent transport capabilities are incompatible with hub compression"),
+      });
 
       const rawCommand = input.command;
       if (
