@@ -13,6 +13,17 @@ export class InMemoryClientRepository implements IClientRepository {
     return this.store.get(id) ?? null;
   }
 
+  async findByIds(ids: readonly string[]): Promise<Client[]> {
+    const out: Client[] = [];
+    for (const id of new Set(ids)) {
+      const client = this.store.get(id);
+      if (client) {
+        out.push(client);
+      }
+    }
+    return out;
+  }
+
   async findActiveSnapshotById(id: string): Promise<ClientActiveSnapshot | null> {
     const client = this.store.get(id);
     if (!client) return null;

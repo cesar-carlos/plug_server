@@ -20,6 +20,15 @@ export class PrismaClientRepository implements IClientRepository {
     return client ? this.toDomain(client) : null;
   }
 
+  async findByIds(ids: readonly string[]): Promise<Client[]> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) {
+      return [];
+    }
+    const rows = await prismaClient.client.findMany({ where: { id: { in: unique } } });
+    return rows.map((row) => this.toDomain(row));
+  }
+
   /**
    * Hot-path projection: only the columns the active-account check needs.
    * Avoids fetching `password_hash`, profile/address blobs, and timestamps for

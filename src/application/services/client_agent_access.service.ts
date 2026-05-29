@@ -1342,15 +1342,10 @@ export class ClientAgentAccessService {
   }
 
   private async loadClientsById(clientIds: readonly string[]): Promise<Map<string, Client>> {
-    const uniqueClientIds = [...new Set(clientIds)];
-    const clients = await Promise.all(
-      uniqueClientIds.map((clientId) => this.clientRepository.findById(clientId)),
-    );
+    const clients = await this.clientRepository.findByIds(clientIds);
     const map = new Map<string, Client>();
     for (const client of clients) {
-      if (client) {
-        map.set(client.id, client);
-      }
+      map.set(client.id, client);
     }
     return map;
   }

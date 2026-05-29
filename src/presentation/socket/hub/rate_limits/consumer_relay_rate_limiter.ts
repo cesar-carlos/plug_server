@@ -273,22 +273,35 @@ export const allowRelayRpcRequestAsync = async (
   return allowRelayRpcRequest(userSub, socketId);
 };
 
-export const refundRelayRpcRequest = (userSub: string | undefined, socketId: string): void => {
+export const refundRelayRpcRequest = (
+  userSub: string | undefined,
+  socketId: string,
+  count = 1,
+): void => {
+  const refund = Math.max(0, Math.floor(count));
+  if (refund === 0) {
+    return;
+  }
   const { key } = buildIdentityKey(userSub, socketId);
   const state = statesByIdentityKey.get(key);
   if (!state || state.relayRequests <= 0) {
     return;
   }
-  state.relayRequests -= 1;
+  state.relayRequests = Math.max(0, state.relayRequests - refund);
 };
 
 export const refundRelayRpcRequestAsync = async (
   userSub: string | undefined,
   socketId: string,
+  count = 1,
 ): Promise<void> => {
+  const refund = Math.max(0, Math.floor(count));
+  if (refund === 0) {
+    return;
+  }
   const { key } = buildIdentityKey(userSub, socketId);
-  await refundSocketRateLimitRedis({ scope: "relay_rpc_request", key });
-  refundRelayRpcRequest(userSub, socketId);
+  await refundSocketRateLimitRedis({ scope: "relay_rpc_request", key, cost: refund });
+  refundRelayRpcRequest(userSub, socketId, refund);
 };
 
 const allowCreditWindow = (input: {

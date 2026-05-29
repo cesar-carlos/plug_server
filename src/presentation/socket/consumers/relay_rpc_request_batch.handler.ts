@@ -416,10 +416,10 @@ export const handleRelayRpcRequestBatch = (
 
         // Refund per-item rate limit budget for any items that turned out to
         // be deduplicated (mirror of the single-RPC handler refund path).
+        // Single batched refund (`count = dedupedCount`) instead of N awaited
+        // Redis round-trips.
         if (dedupedCount > 0) {
-          for (let i = 0; i < dedupedCount; i += 1) {
-            await refundRelayRpcRequestAsync(userSub, socket.id);
-          }
+          await refundRelayRpcRequestAsync(userSub, socket.id, dedupedCount);
         }
 
         emitBatchAccepted(socket, {

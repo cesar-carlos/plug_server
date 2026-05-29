@@ -23,6 +23,7 @@ import {
   allowRelayStreamPull,
   clearRelayRateLimitStateByConsumerSocket,
   getRelayRateLimitMetricsSnapshot,
+  refundRelayRpcRequest,
   resetRelayRateLimiterState,
   sweepRelayRateLimitState,
 } from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
@@ -109,6 +110,39 @@ describe("consumer_relay_rate_limiter", () => {
     sweepRelayRateLimitState();
     stub.mockRestore();
     expect(getRelayRateLimitMetricsSnapshot().activeIdentitiesTracked).toBe(0);
+  });
+
+  it("refundRelayRpcRequest with a count restores exactly that many request slots in one call", () => {
+    const userSub = "user-refund-count";
+    const socketId = "consumer-refund";
+    const max = env.socketRelayRateLimitMaxRequests;
+
+    for (let index = 0; index < max; index += 1) {
+      expect(allowRelayRpcRequest(userSub, socketId)).toBe(true);
+    }
+    expect(allowRelayRpcRequest(userSub, socketId)).toBe(false);
+
+    // Single batched refund of 3 slots (mirrors the deduped-batch refund path).
+    refundRelayRpcRequest(userSub, socketId, 3);
+
+    expect(allowRelayRpcRequest(userSub, socketId)).toBe(true);
+    expect(allowRelayRpcRequest(userSub, socketId)).toBe(true);
+    expect(allowRelayRpcRequest(userSub, socketId)).toBe(true);
+    expect(allowRelayRpcRequest(userSub, socketId)).toBe(false);
+  });
+
+  it("refundRelayRpcRequest clamps below zero and ignores non-positive counts", () => {
+    const userSub = "user-refund-clamp";
+    const socketId = "consumer-clamp";
+
+    expect(allowRelayRpcRequest(userSub, socketId)).toBe(true);
+    // Over-refund must not push the counter negative (no extra budget granted).
+    refundRelayRpcRequest(userSub, socketId, 10);
+    refundRelayRpcRequest(userSub, socketId, 0);
+    for (let index = 0; index < env.socketRelayRateLimitMaxRequests; index += 1) {
+      expect(allowRelayRpcRequest(userSub, socketId)).toBe(true);
+    }
+    expect(allowRelayRpcRequest(userSub, socketId)).toBe(false);
   });
 
   it("allowRelayStreamPull returns remaining credits for accepted and rejected pulls", () => {

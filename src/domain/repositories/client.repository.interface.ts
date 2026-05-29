@@ -26,6 +26,8 @@ export interface ManagedClientListPage {
 
 export interface IClientRepository {
   findById(id: string): Promise<Client | null>;
+  /** Batch load clients by id (de-duplicated). Order is not guaranteed; missing ids are omitted. */
+  findByIds(ids: readonly string[]): Promise<Client[]>;
   findByEmail(email: string): Promise<Client | null>;
   listByUserId(userId: string): Promise<Client[]>;
   listByUserIdPage(
