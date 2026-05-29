@@ -35,3 +35,12 @@ export const redisKeyNamespace = (): string => {
   }
   return `{plug}:${tenant}`;
 };
+
+/**
+ * Normalises a user-supplied key segment (rate-limit identity, principal id)
+ * into the safe `[A-Za-z0-9:_-]` alphabet, replacing every other character
+ * with `_`. Centralised so every module shares one definition instead of each
+ * re-declaring the same regex (`normalizeKey` / `sanitizePrincipalId`).
+ */
+export const sanitizeRedisKeySegment = (segment: string): string =>
+  segment.replace(/[^A-Za-z0-9:_-]/g, "_");

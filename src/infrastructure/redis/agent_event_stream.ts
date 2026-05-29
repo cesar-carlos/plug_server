@@ -20,11 +20,9 @@ import { performance } from "node:perf_hooks";
 
 import { withRedisSpan } from "../observability/redis_span";
 import { validateRedisClusterTopology } from "./cluster_topology_validator";
-import {
-  createInstrumentedRedisClient,
-  type InstrumentedRedisClient,
-} from "./instrumented_redis_client";
-import { redisKeyNamespace } from "./redis_key_namespace";
+import type { InstrumentedRedisClient } from "./instrumented_redis_client";
+import { createManagedRedisConnection } from "./managed_redis_connection";
+import { redisKeyNamespace, sanitizeRedisKeySegment } from "./redis_key_namespace";
 import {
   noteAgentEventStreamAck,
   noteAgentEventStreamAppend,
@@ -42,15 +40,19 @@ import {
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
-let redisClient: InstrumentedRedisClient | undefined;
-let redisUrlInUse: string | undefined;
-let generation = 0;
+const connection = createManagedRedisConnection();
+
+/**
+ * Max recipients packed into a single `MULTI/EXEC` fan-out. Larger fan-outs
+ * are split across multiple pipelined transactions so neither the client-side
+ * command queue nor the server reply array grows unbounded.
+ */
+const XADD_PIPELINE_CHUNK_SIZE = 500;
 
 const toSafeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const sanitizePrincipalId = (principalId: string): string =>
-  principalId.replace(/[^A-Za-z0-9:_-]/g, "_");
+const sanitizePrincipalId = (principalId: string): string => sanitizeRedisKeySegment(principalId);
 
 const streamKey = (principalId: string): string =>
   `plug_agent_stream:${redisKeyNamespace()}:${sanitizePrincipalId(principalId)}`;
@@ -81,7 +83,7 @@ export interface AgentEventStreamBacklogEntry extends AgentEventStreamFrame {
 }
 
 export const isAgentEventStreamActive = (): boolean =>
-  redisClient !== undefined && env.agentEventStreamEnabled;
+  connection.getClient() !== undefined && env.agentEventStreamEnabled;
 
 /**
  * Internal accessor used by `agent_event_stream_cursor.ts` so the cursor
@@ -89,7 +91,7 @@ export const isAgentEventStreamActive = (): boolean =>
  * `undefined` when the stream module is disabled / disconnected.
  */
 export const getAgentEventStreamRedisClient = (): InstrumentedRedisClient | undefined =>
-  redisClient;
+  connection.getClient();
 
 const isPrincipalInAllowlist = (principalId: string): boolean => {
   const allowlist = env.agentEventStreamAgentAllowlist;
@@ -141,7 +143,7 @@ export const appendAgentEventFramesBatch = async (
   if (entries.length === 0) {
     return [];
   }
-  const client = redisClient;
+  const client = connection.getClient();
   if (!client || !env.agentEventStreamEnabled) {
     return entries.map(() => undefined);
   }
@@ -166,77 +168,93 @@ export const appendAgentEventFramesBatch = async (
 
   noteAgentEventStreamBatchAppend(accepted.length);
 
+  /**
+   * MULTI replies are positional and interleaved (XADD, [PEXPIRE]) per entry.
+   * Step `cmdsPerEntry` slots at a time so we can recover the `XADD` reply
+   * regardless of whether `PEXPIRE` was queued for this batch.
+   */
+  const cmdsPerEntry = env.agentEventStreamTtlMs > 0 ? 2 : 1;
+  let appendedCount = 0;
+  let failedCount = 0;
+
   const startedAtMs = performance.now();
   try {
-    const replies = await withRedisSpan(
-      {
-        module: "agent_event_stream",
-        op: "xadd_batch",
-        keyPrefix: "plug_agent_stream",
-      },
-      async () => {
-        /**
-         * `node-redis` `multi()` queues commands client-side and ships them
-         * to the server in one frame on `.exec()`. Stream id parsing is
-         * unchanged from the single-call path; PEXPIRE replies are positional
-         * but discarded — we only care about `XADD` results.
-         */
-        const tx = client.multi();
-        for (const { entry, key } of accepted) {
-          tx.xAdd(
-            key,
-            "*",
-            {
-              schemaVersion: String(AGENT_EVENT_STREAM_FRAME_SCHEMA_VERSION),
-              eventId: entry.frame.eventId,
-              eventName: entry.frame.eventName,
-              emittedAt: entry.frame.emittedAt,
-              payload: entry.frame.payload,
-            },
-            {
-              TRIM: {
-                strategy: "MAXLEN",
-                strategyModifier: "~",
-                threshold: env.agentEventStreamMaxLen,
-              },
-            },
-          );
-          if (env.agentEventStreamTtlMs > 0) {
-            tx.pExpire(key, env.agentEventStreamTtlMs);
-          }
-        }
-        return tx.exec();
-      },
-    );
-
     /**
-     * MULTI replies are positional and interleaved (XADD, [PEXPIRE]) per entry.
-     * Step `cmdsPerEntry` slots at a time so we can recover the `XADD` reply
-     * regardless of whether `PEXPIRE` was queued for this batch.
+     * Pipeline the fan-out in bounded chunks: a single `MULTI/EXEC` per chunk
+     * keeps the client-side queue and the server `EXEC` reply array bounded
+     * for very large fan-outs (thousands of recipients) instead of one giant
+     * transaction. A chunk-level `EXEC` failure is isolated (other chunks still
+     * flush) and counted once via `noteAgentEventStreamCommandError`.
      */
-    const cmdsPerEntry = env.agentEventStreamTtlMs > 0 ? 2 : 1;
-    let appendedCount = 0;
-    let failedCount = 0;
-    if (Array.isArray(replies)) {
-      for (let i = 0; i < accepted.length; i += 1) {
-        const slot = accepted[i];
-        if (slot === undefined) {
-          continue;
-        }
-        const xaddReply = replies[i * cmdsPerEntry];
-        if (typeof xaddReply === "string" && xaddReply !== "") {
-          result[slot.resultIndex] = xaddReply;
-          appendedCount += 1;
+    for (let start = 0; start < accepted.length; start += XADD_PIPELINE_CHUNK_SIZE) {
+      const chunk = accepted.slice(start, start + XADD_PIPELINE_CHUNK_SIZE);
+      try {
+        const replies = await withRedisSpan(
+          {
+            module: "agent_event_stream",
+            op: "xadd_batch",
+            keyPrefix: "plug_agent_stream",
+          },
+          async () => {
+            const tx = client.multi();
+            for (const { entry, key } of chunk) {
+              tx.xAdd(
+                key,
+                "*",
+                {
+                  schemaVersion: String(AGENT_EVENT_STREAM_FRAME_SCHEMA_VERSION),
+                  eventId: entry.frame.eventId,
+                  eventName: entry.frame.eventName,
+                  emittedAt: entry.frame.emittedAt,
+                  payload: entry.frame.payload,
+                },
+                {
+                  TRIM: {
+                    strategy: "MAXLEN",
+                    strategyModifier: "~",
+                    threshold: env.agentEventStreamMaxLen,
+                  },
+                },
+              );
+              if (env.agentEventStreamTtlMs > 0) {
+                tx.pExpire(key, env.agentEventStreamTtlMs);
+              }
+            }
+            return tx.exec();
+          },
+        );
+
+        if (Array.isArray(replies)) {
+          for (let i = 0; i < chunk.length; i += 1) {
+            const slot = chunk[i];
+            if (slot === undefined) {
+              continue;
+            }
+            const xaddReply = replies[i * cmdsPerEntry];
+            if (typeof xaddReply === "string" && xaddReply !== "") {
+              result[slot.resultIndex] = xaddReply;
+              appendedCount += 1;
+            } else {
+              failedCount += 1;
+            }
+          }
         } else {
-          failedCount += 1;
+          // Defensive: `multi().exec()` always returns an array, but if it ever
+          // doesn't (e.g. mocked client in tests), treat the chunk as failed.
+          failedCount += chunk.length;
         }
+      } catch (error: unknown) {
+        // Isolated chunk EXEC failure: its entries stay `undefined`, counted as
+        // a command error (not a per-entry partial failure) to mirror the
+        // pre-chunking whole-batch semantics.
+        noteAgentEventStreamCommandError();
+        logger.warn("agent_event_stream_append_batch_failed", {
+          batchSize: chunk.length,
+          message: toSafeErrorMessage(error),
+        });
       }
-    } else {
-      // Defensive: `multi().exec()` always returns an array, but if it ever
-      // doesn't (e.g. mocked client in tests), treat every entry as failed
-      // rather than silently masking the issue.
-      failedCount = accepted.length;
     }
+
     if (appendedCount > 0) {
       // Mirror the per-frame counter so existing dashboards keep working.
       for (let i = 0; i < appendedCount; i += 1) {
@@ -246,13 +264,6 @@ export const appendAgentEventFramesBatch = async (
     if (failedCount > 0) {
       noteAgentEventStreamBatchPartialFailure(failedCount);
     }
-    return result;
-  } catch (error: unknown) {
-    noteAgentEventStreamCommandError();
-    logger.warn("agent_event_stream_append_batch_failed", {
-      batchSize: accepted.length,
-      message: toSafeErrorMessage(error),
-    });
     return result;
   } finally {
     observeAgentEventStreamLatency("append", performance.now() - startedAtMs);
@@ -364,7 +375,7 @@ export const readAgentEventBacklog = async (
   principalId: string,
   lastSeenStreamId: string,
 ): Promise<readonly AgentEventStreamBacklogEntry[]> => {
-  const client = redisClient;
+  const client = connection.getClient();
   if (!client || !env.agentEventStreamEnabled) {
     return [];
   }
@@ -491,7 +502,7 @@ export const ackAgentEventFrames = async (
   principalId: string,
   streamIds: readonly string[],
 ): Promise<void> => {
-  const client = redisClient;
+  const client = connection.getClient();
   if (!client || !env.agentEventStreamEnabled || streamIds.length === 0) {
     return;
   }
@@ -533,21 +544,16 @@ export async function initAgentEventStream(): Promise<void> {
     return;
   }
 
-  if (redisClient !== undefined && redisUrlInUse === url) {
+  if (connection.isConnectedTo(url)) {
     return;
   }
 
   await closeAgentEventStream();
 
-  generation += 1;
-  const currentGeneration = generation;
-  redisUrlInUse = url;
-  const isCurrent = (): boolean => generation === currentGeneration;
-
-  const client = await createInstrumentedRedisClient({
+  const result = await connection.connect({
     url,
     logName: "agent_event_stream",
-    callbacks: {
+    buildCallbacks: (isCurrent) => ({
       onConnected: () => {
         noteAgentEventStreamConnected();
         logger.info("agent_event_stream_connected");
@@ -567,16 +573,14 @@ export async function initAgentEventStream(): Promise<void> {
       onFallback: () => {
         noteAgentEventStreamFallback();
       },
-    },
+    }),
   });
 
-  if (client === undefined) {
-    redisUrlInUse = undefined;
+  if (result === undefined) {
     return;
   }
-  redisClient = client;
   await validateRedisClusterTopology({
-    client,
+    client: result.client,
     logName: "agent_event_stream",
     sampleKeys: [
       `plug_agent_stream:${redisKeyNamespace()}:probe-agent-1`,
@@ -586,18 +590,9 @@ export async function initAgentEventStream(): Promise<void> {
 }
 
 export async function closeAgentEventStream(): Promise<void> {
-  generation += 1;
-  if (redisClient === undefined) {
-    redisUrlInUse = undefined;
-    return;
+  const hadClient = connection.getClient() !== undefined;
+  await connection.teardown();
+  if (hadClient) {
+    noteAgentEventStreamDisconnected();
   }
-  const client = redisClient;
-  redisClient = undefined;
-  redisUrlInUse = undefined;
-  try {
-    await client.quit();
-  } catch {
-    /* ignore */
-  }
-  noteAgentEventStreamDisconnected();
 }

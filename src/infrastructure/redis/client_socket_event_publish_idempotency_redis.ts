@@ -8,6 +8,7 @@ import {
   type InstrumentedRedisClient,
 } from "./instrumented_redis_client";
 import { LuaScriptCache, type CachedLuaScript } from "./lua_script_cache";
+import { createManagedRedisConnection } from "./managed_redis_connection";
 import { redisKeyNamespace } from "./redis_key_namespace";
 import {
   noteClientSocketEventIdempotencyRedisCommandError,
@@ -33,20 +34,19 @@ import { logger } from "../../shared/utils/logger";
 
 type RedisClient = InstrumentedRedisClient;
 
-let redisClient: RedisClient | undefined;
+const connection = createManagedRedisConnection();
 let redisReadClient: RedisClient | undefined;
 /**
- * Tracked for parity with `redisUrlInUse` even though we do not yet check it
+ * Tracked for parity with the primary URL even though we do not yet check it
  * to skip re-init (the read client follows the primary's lifecycle). Kept so
  * future logic can detect URL changes without a fresh diff.
  */
 let _redisReadUrlInUse: string | undefined;
-let redisUrlInUse: string | undefined;
-let redisClientGeneration = 0;
 let scriptCache: LuaScriptCache | undefined;
 
 const RELEASE_LOCK_CACHED: CachedLuaScript = { name: "idem_release_lock", source: "" };
 const EXTEND_LOCK_CACHED: CachedLuaScript = { name: "idem_extend_lock", source: "" };
+const GET_WITH_TTL_CACHED: CachedLuaScript = { name: "idem_get_with_ttl", source: "" };
 
 const toSafeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -80,6 +80,16 @@ end
 return 0
 `;
 (EXTEND_LOCK_CACHED as { source: string }).source = EXTEND_LOCK_SCRIPT;
+
+/**
+ * Single round-trip read: returns `{value, pttl}` so `getEntry` no longer issues
+ * a separate `GET` + `PTTL` (2 RTT → 1 RTT on the read path). A missing key
+ * yields `{false → nil, -2}` which decodes to `[null, -2]` in node-redis.
+ */
+const GET_WITH_TTL_SCRIPT = `
+return {redis.call('GET', KEYS[1]), redis.call('PTTL', KEYS[1])}
+`;
+(GET_WITH_TTL_CACHED as { source: string }).source = GET_WITH_TTL_SCRIPT;
 
 interface StoredEntry {
   readonly fingerprint: string;
@@ -130,6 +140,26 @@ class RedisClientSocketEventPublishDistributedIdempotencyStore implements Client
     private readonly readClient: RedisClient,
   ) {}
 
+  /**
+   * Single round-trip `GET`+`PTTL` via Lua. Uses the cached `EVALSHA` when the
+   * read path is the primary connection (no separate replica); a dedicated
+   * replica connection falls back to `EVAL` (the module script cache is bound
+   * to the primary client). Returns `{ raw, ttl }` with `raw=null` on miss.
+   */
+  private async readWithTtl(key: string): Promise<{ raw: string | null; ttl: number }> {
+    const cache = scriptCache;
+    const reply: unknown =
+      cache !== undefined && this.readClient === this.client
+        ? await cache.invoke(GET_WITH_TTL_CACHED, { keys: [key], arguments: [] })
+        : await this.readClient.eval(GET_WITH_TTL_SCRIPT, { keys: [key], arguments: [] });
+    const tuple = Array.isArray(reply) ? (reply as readonly unknown[]) : [];
+    const rawValue = tuple[0];
+    const raw = typeof rawValue === "string" ? rawValue : null;
+    const ttlValue = Number(tuple[1]);
+    const ttl = Number.isFinite(ttlValue) ? ttlValue : -2;
+    return { raw, ttl };
+  }
+
   async getEntry(
     clientId: string,
     idempotencyKey: string,
@@ -137,7 +167,7 @@ class RedisClientSocketEventPublishDistributedIdempotencyStore implements Client
     const key = entryKey(clientId, idempotencyKey);
     const startedAtMs = performance.now();
     try {
-      const [raw, ttl] = await Promise.all([this.readClient.get(key), this.readClient.pTTL(key)]);
+      const { raw, ttl } = await this.readWithTtl(key);
       const parsed = parseStoredEntry(raw);
       if (parsed === undefined) {
         if (raw !== null) {
@@ -316,33 +346,28 @@ export async function initClientSocketEventPublishIdempotencyRedis(): Promise<vo
     return;
   }
 
-  if (redisClient !== undefined && redisUrlInUse === url) {
+  if (connection.isConnectedTo(url)) {
     return;
   }
 
   await closeClientSocketEventPublishIdempotencyRedis();
 
-  redisClientGeneration += 1;
-  const generation = redisClientGeneration;
-  redisUrlInUse = url;
-  const isCurrentClient = (): boolean => redisClientGeneration === generation;
-
-  const client = await createInstrumentedRedisClient({
+  const result = await connection.connect({
     url,
     logName: "client_socket_event_idempotency_redis",
-    callbacks: {
+    buildCallbacks: (isCurrent) => ({
       onConnected: () => {
         noteClientSocketEventIdempotencyRedisConnected();
         logger.info("client_socket_event_idempotency_redis_connected");
       },
       onError: () => {
-        if (!isCurrentClient()) {
+        if (!isCurrent()) {
           return;
         }
         noteClientSocketEventIdempotencyRedisCommandError();
       },
       onEnd: () => {
-        if (!isCurrentClient()) {
+        if (!isCurrent()) {
           return;
         }
         noteClientSocketEventIdempotencyRedisDisconnected();
@@ -350,14 +375,13 @@ export async function initClientSocketEventPublishIdempotencyRedis(): Promise<vo
       onFallback: () => {
         noteClientSocketEventIdempotencyRedisFallback();
       },
-    },
+    }),
   });
 
-  if (client === undefined) {
-    redisUrlInUse = undefined;
+  if (result === undefined) {
     return;
   }
-  redisClient = client;
+  const { client, isCurrent: isCurrentClient } = result;
 
   /**
    * Optional read-replica client. Independently fail-open: if the replica
@@ -400,7 +424,11 @@ export async function initClientSocketEventPublishIdempotencyRedis(): Promise<vo
   );
   const cache = new LuaScriptCache(client);
   try {
-    await Promise.all([cache.load(RELEASE_LOCK_CACHED), cache.load(EXTEND_LOCK_CACHED)]);
+    await Promise.all([
+      cache.load(RELEASE_LOCK_CACHED),
+      cache.load(EXTEND_LOCK_CACHED),
+      cache.load(GET_WITH_TTL_CACHED),
+    ]);
     scriptCache = cache;
   } catch (error: unknown) {
     logger.warn("client_socket_event_idempotency_redis_script_preload_failed", {
@@ -419,26 +447,19 @@ export async function initClientSocketEventPublishIdempotencyRedis(): Promise<vo
 }
 
 export async function closeClientSocketEventPublishIdempotencyRedis(): Promise<void> {
-  redisClientGeneration += 1;
   scriptCache = undefined;
   registerClientSocketEventPublishDistributedIdempotencyStore(undefined);
   const readClient = redisReadClient;
   redisReadClient = undefined;
   _redisReadUrlInUse = undefined;
+  const hadClient = connection.getClient() !== undefined;
+  // `teardown` bumps the generation (invalidating both primary and read-replica
+  // callbacks) before we quit the read client below.
+  await connection.teardown();
   if (readClient !== undefined) {
     void readClient.quit().catch(() => undefined);
   }
-  if (redisClient === undefined) {
-    redisUrlInUse = undefined;
-    return;
+  if (hadClient) {
+    noteClientSocketEventIdempotencyRedisDisconnected();
   }
-  const client = redisClient;
-  redisClient = undefined;
-  try {
-    await client.quit();
-  } catch {
-    /* ignore */
-  }
-  redisUrlInUse = undefined;
-  noteClientSocketEventIdempotencyRedisDisconnected();
 }

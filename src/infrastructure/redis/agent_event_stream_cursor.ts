@@ -23,10 +23,9 @@ import {
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 import { getAgentEventStreamRedisClient } from "./agent_event_stream";
-import { redisKeyNamespace } from "./redis_key_namespace";
+import { redisKeyNamespace, sanitizeRedisKeySegment } from "./redis_key_namespace";
 
-const sanitizePrincipalId = (principalId: string): string =>
-  principalId.replace(/[^A-Za-z0-9:_-]/g, "_");
+const sanitizePrincipalId = (principalId: string): string => sanitizeRedisKeySegment(principalId);
 
 const cursorKey = (principalId: string): string =>
   `plug_agent_stream_cursor:${redisKeyNamespace()}:${sanitizePrincipalId(principalId)}`;

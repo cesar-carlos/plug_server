@@ -1,10 +1,9 @@
 import type { RedisClientOptions } from "redis";
 import { createClient } from "redis";
 
-import { noteRedisAuthPing } from "../../application/services/redis_auth_ping_metrics.service";
-import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 import type { InstrumentedRedisClient } from "./instrumented_redis_client";
+import { runRedisPostConnectAuthCheck, toSafeRedisErrorMessage } from "./redis_auth";
 
 /**
  * Pub/Sub flavour of the instrumented Redis client factory: creates the
@@ -59,16 +58,6 @@ export interface PubSubInstrumentedRedisClientsInput {
   readonly isCurrent?: () => boolean;
 }
 
-const toSafeErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
-const isRedisAuthError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  return /WRONGPASS|NOAUTH|Client sent AUTH/i.test(error.message ?? "");
-};
-
 export const createPubSubInstrumentedRedisClients = async (
   input: PubSubInstrumentedRedisClientsInput,
 ): Promise<PubSubInstrumentedRedisClients | undefined> => {
@@ -105,7 +94,7 @@ export const createPubSubInstrumentedRedisClients = async (
     await Promise.all([pub.connect(), sub.connect()]);
   } catch (error: unknown) {
     logger.warn(`${input.logName}_fallback_memory`, {
-      message: toSafeErrorMessage(error),
+      message: toSafeRedisErrorMessage(error),
     });
     void pub.quit().catch(() => undefined);
     void sub.quit().catch(() => undefined);
@@ -115,23 +104,14 @@ export const createPubSubInstrumentedRedisClients = async (
 
   // Post-connect AUTH validation: pub-side ping is sufficient (sub uses the
   // same credentials via `pub.duplicate()`).
-  try {
-    await pub.ping();
-    noteRedisAuthPing(input.logName, "ok");
-  } catch (pingError: unknown) {
-    const authError = isRedisAuthError(pingError);
-    noteRedisAuthPing(input.logName, authError ? "auth_error" : "other_error");
-    if (authError && env.nodeEnv === "production") {
-      const message = `${input.logName}: Redis authentication failed (${toSafeErrorMessage(pingError)})`;
+  await runRedisPostConnectAuthCheck({
+    ping: () => pub.ping(),
+    logName: input.logName,
+    cleanup: () => {
       void pub.quit().catch(() => undefined);
       void sub.quit().catch(() => undefined);
-      throw new Error(message);
-    }
-    logger.warn(`${input.logName}_post_connect_ping_failed`, {
-      message: toSafeErrorMessage(pingError),
-      authError,
-    });
-  }
+    },
+  });
 
   input.callbacks.onConnected();
   return {

@@ -1,9 +1,8 @@
 import { createClient } from "redis";
 
-import { noteRedisAuthPing } from "../../application/services/redis_auth_ping_metrics.service";
-import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 import { buildResilientRedisClientOptions } from "./redis_client_options";
+import { runRedisPostConnectAuthCheck, toSafeRedisErrorMessage } from "./redis_auth";
 
 export type InstrumentedRedisClient = ReturnType<typeof createClient>;
 
@@ -47,24 +46,6 @@ export interface InstrumentedRedisClientInput {
    */
   readonly isCurrent?: () => boolean;
 }
-
-const toSafeErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
-/**
- * Detects Redis authentication failures (`WRONGPASS`, `NOAUTH`, `AUTH`).
- * `node-redis` surfaces them as `Error` whose `.message` matches one of:
- *   - `WRONGPASS invalid username-password pair or user is disabled.`
- *   - `NOAUTH Authentication required.`
- *   - `ERR Client sent AUTH, but no password is set...`
- */
-const isRedisAuthError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const message = error.message ?? "";
-  return /WRONGPASS|NOAUTH|Client sent AUTH/i.test(message);
-};
 
 /**
  * Centralises the boilerplate every Redis-backed module repeats: build a
@@ -128,39 +109,20 @@ export const createInstrumentedRedisClient = async (
     initialConnectSucceeded = true;
   } catch (error: unknown) {
     logger.warn(`${input.logName}_fallback_memory`, {
-      message: toSafeErrorMessage(error),
+      message: toSafeRedisErrorMessage(error),
     });
     void client.quit().catch(() => undefined);
     input.callbacks.onFallback(error);
     return undefined;
   }
 
-  /**
-   * Post-connect AUTH validation: a `PING` after `connect()` confirms the
-   * credentials work end-to-end (a misconfigured password fails here even
-   * if the TCP handshake succeeded). We do not gate `connect()` itself on
-   * the ping — that would re-introduce the unbounded boot stall the
-   * connectTimeout helper exists to prevent. Instead, we abort hard in
-   * production when the ping reveals a WRONGPASS/NOAUTH; outside production
-   * we log and continue (operators may run `redis-cli` to fix locally
-   * without a hard restart).
-   */
-  try {
-    await client.ping();
-    noteRedisAuthPing(input.logName, "ok");
-  } catch (pingError: unknown) {
-    const authError = isRedisAuthError(pingError);
-    noteRedisAuthPing(input.logName, authError ? "auth_error" : "other_error");
-    if (authError && env.nodeEnv === "production") {
-      const authMessage = `${input.logName}: Redis authentication failed (${toSafeErrorMessage(pingError)})`;
+  await runRedisPostConnectAuthCheck({
+    ping: () => client.ping(),
+    logName: input.logName,
+    cleanup: () => {
       void client.quit().catch(() => undefined);
-      throw new Error(authMessage);
-    }
-    logger.warn(`${input.logName}_post_connect_ping_failed`, {
-      message: toSafeErrorMessage(pingError),
-      authError,
-    });
-  }
+    },
+  });
   input.callbacks.onConnected();
   return client;
 };

@@ -2,12 +2,10 @@ import { performance } from "node:perf_hooks";
 
 import { withRedisSpan } from "../observability/redis_span";
 import { validateRedisClusterTopology } from "./cluster_topology_validator";
-import {
-  createInstrumentedRedisClient,
-  type InstrumentedRedisClient,
-} from "./instrumented_redis_client";
 import { LuaScriptCache, type CachedLuaScript } from "./lua_script_cache";
-import { redisKeyNamespace } from "./redis_key_namespace";
+import { createManagedRedisConnection } from "./managed_redis_connection";
+import { createRedisCircuitBreaker } from "./redis_circuit_breaker";
+import { redisKeyNamespace, sanitizeRedisKeySegment } from "./redis_key_namespace";
 import {
   noteSocketRateLimitRedisAtomicRollback,
   noteSocketRateLimitRedisCircuitClosed,
@@ -27,7 +25,7 @@ import {
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
-let redisClient: InstrumentedRedisClient | undefined;
+const connection = createManagedRedisConnection();
 let scriptCache: LuaScriptCache | undefined;
 
 const CONSUME_SCRIPT: CachedLuaScript = {
@@ -44,13 +42,24 @@ const REFUND_SCRIPT: CachedLuaScript = {
   name: "socket_rate_limit_refund",
   source: "", // assigned after script body declaration below
 };
-let redisCommandFailures = 0;
-let circuitOpenUntilMs = 0;
-let redisUrlInUse: string | undefined;
-let redisClientGeneration = 0;
-
-const redisCircuitFailureThreshold = 3;
-const redisCircuitOpenMs = 5_000;
+const circuitBreaker = createRedisCircuitBreaker({
+  getFailureThreshold: () => env.redisRateLimitCircuitFailureThreshold,
+  getOpenMs: () => env.redisRateLimitCircuitOpenMs,
+  callbacks: {
+    onCommandError: () => noteSocketRateLimitRedisCommandError(),
+    onOpened: (error: unknown) => {
+      noteSocketRateLimitRedisCircuitOpened();
+      logger.warn("socket_rate_limit_redis_circuit_opened", {
+        message: toSafeErrorMessage(error),
+      });
+    },
+    onClosed: () => {
+      noteSocketRateLimitRedisCircuitClosed();
+      logger.info("socket_rate_limit_redis_circuit_closed");
+    },
+    onRecovered: () => noteSocketRateLimitRedisRecovered(),
+  },
+});
 
 export type SocketRateLimitScope =
   | "agents_command"
@@ -79,33 +88,17 @@ export interface SocketRateLimitRedisConsumeResult {
 const toSafeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const isRedisCircuitOpen = (): boolean => Date.now() < circuitOpenUntilMs;
+const isRedisCircuitOpen = (): boolean => circuitBreaker.isOpen();
 
 const recordRedisCommandFailure = (error: unknown): void => {
-  redisCommandFailures += 1;
-  noteSocketRateLimitRedisCommandError();
-  if (redisCommandFailures >= redisCircuitFailureThreshold) {
-    circuitOpenUntilMs = Date.now() + redisCircuitOpenMs;
-    redisCommandFailures = 0;
-    noteSocketRateLimitRedisCircuitOpened();
-    logger.warn("socket_rate_limit_redis_circuit_opened", {
-      openMs: redisCircuitOpenMs,
-      message: toSafeErrorMessage(error),
-    });
-  }
+  circuitBreaker.recordFailure(error);
 };
 
 const recordRedisCommandSuccess = (): void => {
-  redisCommandFailures = 0;
-  if (circuitOpenUntilMs !== 0) {
-    circuitOpenUntilMs = 0;
-    noteSocketRateLimitRedisCircuitClosed();
-    logger.info("socket_rate_limit_redis_circuit_closed");
-  }
-  noteSocketRateLimitRedisRecovered();
+  circuitBreaker.recordSuccess();
 };
 
-const normalizeKey = (key: string): string => key.replace(/[^A-Za-z0-9:_-]/g, "_");
+const normalizeKey = (key: string): string => sanitizeRedisKeySegment(key);
 
 /** Single round-trip: avoids a successful `DECRBY` followed by a failed `DEL` retrying and decrementing twice. */
 const SOCKET_RATE_LIMIT_REFUND_SCRIPT = `
@@ -188,7 +181,7 @@ return {1, v}
 export const consumeSocketRateLimitRedis = async (
   input: SocketRateLimitRedisConsumeInput,
 ): Promise<SocketRateLimitRedisConsumeResult | null> => {
-  const client = redisClient;
+  const client = connection.getClient();
   if (!client || input.max <= 0 || input.windowMs <= 0) {
     return null;
   }
@@ -279,7 +272,7 @@ export const refundSocketRateLimitRedis = async (input: {
   readonly key: string;
   readonly cost?: number;
 }): Promise<void> => {
-  const client = redisClient;
+  const client = connection.getClient();
   if (!client || isRedisCircuitOpen()) {
     return;
   }
@@ -339,55 +332,47 @@ export async function initSocketRateLimitRedis(): Promise<void> {
     return;
   }
 
-  if (redisClient !== undefined && redisUrlInUse === url) {
+  if (connection.isConnectedTo(url)) {
     return;
   }
 
   await closeSocketRateLimitRedis();
 
-  redisClientGeneration += 1;
-  const generation = redisClientGeneration;
-  redisUrlInUse = url;
-  const isCurrentClient = (): boolean => redisClientGeneration === generation;
-
-  const client = await createInstrumentedRedisClient({
+  const result = await connection.connect({
     url,
     logName: "socket_rate_limit_redis",
-    callbacks: {
+    buildCallbacks: (isCurrent) => ({
       onConnected: () => {
         noteSocketRateLimitRedisConnected();
         logger.info("socket_rate_limit_redis_connected");
       },
       onError: () => {
-        if (!isCurrentClient()) {
+        if (!isCurrent()) {
           return;
         }
         noteSocketRateLimitRedisFallback();
       },
       onEnd: () => {
-        if (!isCurrentClient()) {
+        if (!isCurrent()) {
           return;
         }
         noteSocketRateLimitRedisDisconnected();
       },
       onReadyAfterReconnect: () => {
-        redisCommandFailures = 0;
-        circuitOpenUntilMs = 0;
+        circuitBreaker.reset();
         noteSocketRateLimitRedisConnected();
         logger.info("socket_rate_limit_redis_ready");
       },
       onFallback: () => {
         noteSocketRateLimitRedisFallback();
       },
-    },
+    }),
   });
 
-  if (client === undefined) {
-    redisUrlInUse = undefined;
+  if (result === undefined) {
     return;
   }
-  redisClient = client;
-  const cache = new LuaScriptCache(client);
+  const cache = new LuaScriptCache(result.client);
   try {
     await Promise.all([
       cache.load(CONSUME_SCRIPT),
@@ -403,7 +388,7 @@ export async function initSocketRateLimitRedis(): Promise<void> {
     scriptCache = undefined;
   }
   await validateRedisClusterTopology({
-    client,
+    client: result.client,
     logName: "socket_rate_limit_redis",
     sampleKeys: [
       `plug_socket_rl:${redisKeyNamespace()}:agents_command:probe`,
@@ -413,23 +398,11 @@ export async function initSocketRateLimitRedis(): Promise<void> {
 }
 
 export async function closeSocketRateLimitRedis(): Promise<void> {
-  redisClientGeneration += 1;
   scriptCache = undefined;
-  if (redisClient === undefined) {
-    redisCommandFailures = 0;
-    circuitOpenUntilMs = 0;
-    redisUrlInUse = undefined;
-    return;
+  const hadClient = connection.getClient() !== undefined;
+  await connection.teardown();
+  circuitBreaker.reset();
+  if (hadClient) {
+    noteSocketRateLimitRedisDisconnected();
   }
-  const client = redisClient;
-  redisClient = undefined;
-  try {
-    await client.quit();
-  } catch {
-    /* ignore */
-  }
-  redisCommandFailures = 0;
-  circuitOpenUntilMs = 0;
-  redisUrlInUse = undefined;
-  noteSocketRateLimitRedisDisconnected();
 }

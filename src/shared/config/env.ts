@@ -665,6 +665,14 @@ const envSchema = z.object({
   /** Maximum delay (ms) between reconnect attempts. */
   REDIS_DEFAULT_RECONNECT_MAX_MS: z.coerce.number().int().positive().max(600_000).default(5_000),
   /**
+   * Consecutive Redis command failures before the rate-limit modules open a
+   * short local circuit (fail-open to the in-memory limiter). Shared by the
+   * socket and REST rate-limit modules. `0` disables the circuit breaker.
+   */
+  REDIS_RATE_LIMIT_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().min(0).max(1_000).default(3),
+  /** How long (ms) the rate-limit Redis circuit stays open before retrying. */
+  REDIS_RATE_LIMIT_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().max(600_000).default(5_000),
+  /**
    * When `true` and `NODE_ENV=production`, refuse to boot if any *_REDIS_URL uses plain
    * `redis://` without password. Use `rediss://` (TLS) or `redis://default:<password>@host`
    * instead. Default `false` keeps current behavior.
@@ -1791,6 +1799,8 @@ export const env = {
   redisDefaultConnectTimeoutMs: parsedEnv.REDIS_DEFAULT_CONNECT_TIMEOUT_MS,
   redisDefaultReconnectBaseMs: parsedEnv.REDIS_DEFAULT_RECONNECT_BASE_MS,
   redisDefaultReconnectMaxMs: parsedEnv.REDIS_DEFAULT_RECONNECT_MAX_MS,
+  redisRateLimitCircuitFailureThreshold: parsedEnv.REDIS_RATE_LIMIT_CIRCUIT_FAILURE_THRESHOLD,
+  redisRateLimitCircuitOpenMs: parsedEnv.REDIS_RATE_LIMIT_CIRCUIT_OPEN_MS,
   strictRedisAuth: parsedEnv.STRICT_REDIS_AUTH,
   redisTenantId: parsedEnv.REDIS_TENANT_ID,
   agentEventStreamRedisUrl: parsedEnv.AGENT_EVENT_STREAM_REDIS_URL,

@@ -4,10 +4,8 @@ import { RedisStore, type SendCommandFn } from "rate-limit-redis";
 import type { Store } from "express-rate-limit";
 
 import { validateRedisClusterTopology } from "./cluster_topology_validator";
-import {
-  createInstrumentedRedisClient,
-  type InstrumentedRedisClient,
-} from "./instrumented_redis_client";
+import { createManagedRedisConnection } from "./managed_redis_connection";
+import { createRedisCircuitBreaker } from "./redis_circuit_breaker";
 import { redisKeyNamespace } from "./redis_key_namespace";
 import {
   noteRestRateLimitRedisConnected,
@@ -23,15 +21,27 @@ import {
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
-let redisClient: InstrumentedRedisClient | undefined;
+const connection = createManagedRedisConnection();
 let redisSendCommand: SendCommandFn | undefined;
-let redisCommandFailures = 0;
-let circuitOpenUntilMs = 0;
-let redisUrlInUse: string | undefined;
-let redisClientGeneration = 0;
 
-const redisCircuitFailureThreshold = 3;
-const redisCircuitOpenMs = 5_000;
+const circuitBreaker = createRedisCircuitBreaker({
+  getFailureThreshold: () => env.redisRateLimitCircuitFailureThreshold,
+  getOpenMs: () => env.redisRateLimitCircuitOpenMs,
+  callbacks: {
+    onCommandError: () => noteRestRateLimitRedisCommandError(),
+    onOpened: (error: unknown) => {
+      noteRestRateLimitRedisCircuitOpened();
+      logger.warn("rest_rate_limit_redis_circuit_opened", {
+        message: toSafeErrorMessage(error),
+      });
+    },
+    onClosed: () => {
+      noteRestRateLimitRedisCircuitClosed();
+      logger.info("rest_rate_limit_redis_circuit_closed");
+    },
+    onRecovered: () => noteRestRateLimitRedisRecovered(),
+  },
+});
 
 export type RestHttpRateLimitStoreScope =
   | "global"
@@ -55,42 +65,22 @@ const recordRedisStoreUnavailable = (message: string, error: unknown): void => {
 };
 
 const disableRedisStoreClient = (): void => {
-  redisClientGeneration += 1;
-  const client = redisClient;
-  redisClient = undefined;
+  const client = connection.detach();
   redisSendCommand = undefined;
-  redisCommandFailures = 0;
-  circuitOpenUntilMs = 0;
-  redisUrlInUse = undefined;
+  circuitBreaker.reset();
   if (client !== undefined) {
     void client.quit().catch(() => undefined);
   }
 };
 
-const isRedisCircuitOpen = (): boolean => Date.now() < circuitOpenUntilMs;
+const isRedisCircuitOpen = (): boolean => circuitBreaker.isOpen();
 
 const recordRedisCommandFailure = (error: unknown): void => {
-  redisCommandFailures += 1;
-  noteRestRateLimitRedisCommandError();
-  if (redisCommandFailures >= redisCircuitFailureThreshold) {
-    circuitOpenUntilMs = Date.now() + redisCircuitOpenMs;
-    redisCommandFailures = 0;
-    noteRestRateLimitRedisCircuitOpened();
-    logger.warn("rest_rate_limit_redis_circuit_opened", {
-      openMs: redisCircuitOpenMs,
-      message: toSafeErrorMessage(error),
-    });
-  }
+  circuitBreaker.recordFailure(error);
 };
 
 const recordRedisCommandSuccess = (): void => {
-  redisCommandFailures = 0;
-  if (circuitOpenUntilMs !== 0) {
-    circuitOpenUntilMs = 0;
-    noteRestRateLimitRedisCircuitClosed();
-    logger.info("rest_rate_limit_redis_circuit_closed");
-  }
-  noteRestRateLimitRedisRecovered();
+  circuitBreaker.recordSuccess();
 };
 
 const markRedisStoreWarmupHandled = (store: RedisStore): void => {
@@ -136,57 +126,50 @@ export async function initRestHttpRateLimitRedis(): Promise<void> {
     return;
   }
 
-  if (redisClient !== undefined && redisSendCommand !== undefined && redisUrlInUse === url) {
+  if (connection.isConnectedTo(url) && redisSendCommand !== undefined) {
     return;
   }
 
   await closeRestHttpRateLimitRedis();
 
-  redisClientGeneration += 1;
-  const generation = redisClientGeneration;
-  redisUrlInUse = url;
-  const isCurrentClient = (): boolean => redisClientGeneration === generation;
-
-  const client = await createInstrumentedRedisClient({
+  const result = await connection.connect({
     url,
     logName: "rest_rate_limit_redis",
-    callbacks: {
+    buildCallbacks: (isCurrent) => ({
       onConnected: () => {
         noteRestRateLimitRedisConnected();
         logger.info("rest_rate_limit_redis_connected");
       },
       onError: () => {
-        if (!isCurrentClient()) {
+        if (!isCurrent()) {
           return;
         }
         noteRestRateLimitRedisFallback();
       },
       onEnd: () => {
-        if (!isCurrentClient()) {
+        if (!isCurrent()) {
           return;
         }
         noteRestRateLimitRedisDisconnected();
       },
       onReadyAfterReconnect: () => {
-        redisCommandFailures = 0;
-        circuitOpenUntilMs = 0;
+        circuitBreaker.reset();
         noteRestRateLimitRedisConnected();
         logger.info("rest_rate_limit_redis_ready");
       },
       onFallback: (error: unknown) => {
         recordRedisStoreUnavailable("rest_rate_limit_redis_fallback_memory", error);
       },
-    },
+    }),
   });
 
-  if (client === undefined) {
-    redisUrlInUse = undefined;
+  if (result === undefined) {
     return;
   }
-  redisClient = client;
+  const { client, isCurrent } = result;
 
   redisSendCommand = async (...args: string[]) => {
-    if (!isCurrentClient() || redisClient !== client) {
+    if (!isCurrent() || connection.getClient() !== client) {
       throw new Error("Redis rate-limit store unavailable");
     }
     if (isRedisCircuitOpen()) {
@@ -194,9 +177,9 @@ export async function initRestHttpRateLimitRedis(): Promise<void> {
     }
     const startedAtMs = performance.now();
     try {
-      const result = await client.sendCommand(args);
+      const commandResult = await client.sendCommand(args);
       recordRedisCommandSuccess();
-      return result as unknown as Awaited<ReturnType<SendCommandFn>>;
+      return commandResult as unknown as Awaited<ReturnType<SendCommandFn>>;
     } catch (error: unknown) {
       recordRedisCommandFailure(error);
       logger.warn("rest_rate_limit_redis_command_error", {
@@ -218,24 +201,11 @@ export async function initRestHttpRateLimitRedis(): Promise<void> {
 }
 
 export async function closeRestHttpRateLimitRedis(): Promise<void> {
-  redisClientGeneration += 1;
-  if (redisClient === undefined) {
-    redisSendCommand = undefined;
-    redisCommandFailures = 0;
-    circuitOpenUntilMs = 0;
-    redisUrlInUse = undefined;
-    return;
-  }
-  const client = redisClient;
-  redisClient = undefined;
-  try {
-    await client.quit();
-  } catch {
-    /* ignore */
-  }
+  const hadClient = connection.getClient() !== undefined;
+  await connection.teardown();
   redisSendCommand = undefined;
-  redisCommandFailures = 0;
-  circuitOpenUntilMs = 0;
-  redisUrlInUse = undefined;
-  noteRestRateLimitRedisDisconnected();
+  circuitBreaker.reset();
+  if (hadClient) {
+    noteRestRateLimitRedisDisconnected();
+  }
 }
