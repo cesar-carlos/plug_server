@@ -1388,4 +1388,166 @@ describe("rpc_bridge_agent_inbound", () => {
       }
     });
   });
+
+  describe("handleAgentRpcComplete", () => {
+    it("invokes onComplete and removes a non-relay stream route", async () => {
+      const onComplete = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer: vi.fn(),
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+      upsertActiveStreamRoute({
+        requestId: "req-complete",
+        agentSocketId: "socket-test",
+        streamHandlers: {
+          consumerSocketId: "consumer-1",
+          onChunk: vi.fn(),
+          onComplete,
+        },
+        streamId: "stream-complete-1",
+      });
+
+      // `rpc:complete` is the stream terminal frame; per the inbound contract
+      // `terminal_status` must be `aborted` or `error` and `total_rows` a
+      // non-negative integer (normal row delivery happens via `rpc:chunk`).
+      const completePayload = {
+        request_id: "req-complete",
+        stream_id: "stream-complete-1",
+        total_rows: 0,
+        terminal_status: "aborted",
+      };
+      h.handleAgentRpcComplete(
+        "socket-test",
+        encodePayloadFrame(completePayload, { requestId: "req-complete" }),
+      );
+
+      await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+      expect(onComplete.mock.calls[0]?.[0]).toMatchObject(completePayload);
+      expect(getActiveStreamRouteByRequestId("req-complete")).toBeUndefined();
+    });
+
+    it("ignores a complete frame with no matching active stream route", async () => {
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer: vi.fn(),
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+
+      // No route registered: handler must be a no-op (no throw, no leak).
+      h.handleAgentRpcComplete(
+        "socket-test",
+        encodePayloadFrame(
+          {
+            request_id: "req-missing",
+            stream_id: "stream-missing",
+            total_rows: 0,
+            terminal_status: "aborted",
+          },
+          { requestId: "req-missing" },
+        ),
+      );
+
+      await vi.waitFor(() =>
+        expect(getActiveStreamRouteByRequestId("req-missing")).toBeUndefined(),
+      );
+    });
+  });
+
+  describe("handleAgentRpcAck", () => {
+    it("marks a matching REST pending request acked and clears its retry timer", async () => {
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer: vi.fn(),
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+      registerRestPendingRequest({
+        primaryRequestId: "req-ack",
+        correlationIds: ["req-ack"],
+        socketId: "socket-test",
+        agentId: "agent-1",
+        createdAtMs: Date.now(),
+        resolve: vi.fn(),
+        reject: vi.fn(),
+        timeoutHandle: createTimeoutHandle(),
+        acked: false,
+        ackRetryTimer: createTimeoutHandle(),
+      });
+
+      h.handleAgentRpcAck(
+        "socket-test",
+        encodePayloadFrame(
+          { request_id: "req-ack", received_at: "2026-05-25T13:00:00.000Z" },
+          { requestId: "req-ack" },
+        ),
+      );
+
+      await vi.waitFor(() =>
+        expect(getRestPendingRequestByCorrelationId("req-ack")?.acked).toBe(true),
+      );
+      expect(getRestPendingRequestByCorrelationId("req-ack")).not.toHaveProperty("ackRetryTimer");
+    });
+
+    it("marks a matching relay route acked and forwards relayRpcRequestAck to its consumer", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+      registerRelayRequestRoute({
+        requestId: "req-ack-relay",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+        acked: false,
+        ackRetryTimer: createTimeoutHandle(),
+      });
+
+      h.handleAgentRpcAck(
+        "socket-test",
+        encodePayloadFrame(
+          { request_id: "req-ack-relay", received_at: "2026-05-25T13:00:00.000Z" },
+          { requestId: "req-ack-relay" },
+        ),
+      );
+
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [consumerSocketId, eventName] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      expect(consumerSocketId).toBe("consumer-1");
+      expect(eventName).toBe(socketEvents.relayRpcRequestAck);
+      const route = getRelayRequestRoute("req-ack-relay");
+      expect(route?.acked).toBe(true);
+      expect(route).not.toHaveProperty("ackRetryTimer");
+    });
+
+    it("does not ack a relay route whose agentSocketId differs from the inbound socket", async () => {
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+      registerRelayRequestRoute({
+        requestId: "req-ack-mismatch",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-owner",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+        acked: false,
+      });
+
+      h.handleAgentRpcAck(
+        "socket-attacker",
+        encodePayloadFrame(
+          { request_id: "req-ack-mismatch", received_at: "2026-05-25T13:00:00.000Z" },
+          { requestId: "req-ack-mismatch" },
+        ),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(emitToConsumer).not.toHaveBeenCalled();
+      expect(getRelayRequestRoute("req-ack-mismatch")?.acked).toBe(false);
+    });
+  });
 });

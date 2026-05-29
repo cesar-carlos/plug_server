@@ -7,10 +7,6 @@ import {
 } from "../../../../application/agent_commands/merge_sql_stream_rpc_response";
 import { recordSocketAuditEvent } from "../../../../application/services/socket_audit.service";
 import {
-  observeBridgeRpcMethod,
-  type BridgeRpcMethodMetricOutcome,
-} from "../../../../application/services/bridge_rpc_method_metrics.service";
-import {
   attachServerTimingsToResponse,
   buildServerTimingsEnvelope,
 } from "../../../../application/services/server_timings_envelope";
@@ -27,7 +23,6 @@ import { noteAgentHealthRpcResponse } from "../../../../shared/metrics/socket_ag
 import { logger } from "../../../../shared/utils/logger";
 import {
   decodePayloadFrameAsync,
-  isPayloadFrameEnvelope,
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import {
@@ -73,42 +68,26 @@ import {
   streamChunkMetadataFromPayloadFrame,
   type StreamChunkMetadata,
 } from "./stream_chunk_metadata";
-import {
-  getOrCreateRelayIdempotencyMap,
-  setRelayIdempotencyEntry,
-} from "../registries/relay_idempotency_store";
-import { setRelayStreamFlowCredits, getRelayStreamForwardedRows } from "./relay_stream_flow_state";
+import { setRelayStreamFlowCredits } from "./relay_stream_flow_state";
 import {
   findRelayRequestRouteForAgentSocket,
   getRelayRequestRoute,
-  type RelayRequestRoute,
   removeRelayRequestRoute,
 } from "../registries/relay_request_registry";
 import { createRelayStreamHandlers, type EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 import { extractStreamIdFromRpcResponse, pickResponseIds } from "./rpc_bridge_command_helpers";
+import { createOrderedStreamInboundQueue } from "./ordered_stream_inbound_queue";
+import { createRelayFailFastEmitters } from "./rpc_bridge_relay_fail_fast";
 import {
-  createRelayBatchResponseUnsupportedPayload,
-  createRelayDecodeFailurePayload,
-  createRelayUnexpectedFailurePayload,
-} from "./rpc_bridge_relay_error_payloads";
+  observeRelayRouteOutcome,
+  persistRelayIdempotentResponseFrame,
+  resolveOutboundBodyId,
+} from "./rpc_bridge_relay_route_helpers";
 
-const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
 const relayMaxActiveStreams = env.socketRelayMaxActiveStreams;
 
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
-
-const observeRelayRouteOutcome = (
-  route: RelayRequestRoute,
-  outcome: BridgeRpcMethodMetricOutcome,
-): void => {
-  observeBridgeRpcMethod({
-    channel: "relay",
-    method: route.jsonRpcMethod ?? "unknown",
-    outcome,
-    elapsedMs: Date.now() - route.createdAtMs,
-  });
-};
 
 export interface RpcBridgeAgentInboundDeps {
   readonly emitToConsumer: EmitToConsumerFn;
@@ -137,376 +116,15 @@ export const createRpcBridgeAgentInboundHandlers = (
   deps: RpcBridgeAgentInboundDeps,
 ): RpcBridgeAgentInboundHandlers => {
   const { emitToConsumer, emitRpcStreamPullForRoute } = deps;
-  const streamInboundTailBySocketId = new Map<string, Promise<void>>();
+  const orderedStreamInbound = createOrderedStreamInboundQueue();
+  const enqueueOrderedStreamInbound = orderedStreamInbound.enqueue;
 
-  const enqueueOrderedStreamInbound = (socketId: string, work: () => Promise<void>): void => {
-    const prev = streamInboundTailBySocketId.get(socketId) ?? Promise.resolve();
-    const next = prev
-      .catch(() => undefined)
-      .then(work)
-      .catch((error: unknown) => {
-        logger.warn("rpc_stream_inbound_processing_failed", {
-          socketId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-    streamInboundTailBySocketId.set(socketId, next);
-    void next.finally(() => {
-      if (streamInboundTailBySocketId.get(socketId) === next) {
-        streamInboundTailBySocketId.delete(socketId);
-      }
-    });
-  };
-
-  const cleanupSocketInboundState = (socketId: string): void => {
-    streamInboundTailBySocketId.delete(socketId);
-  };
-
-  const resetInboundState = (): void => {
-    streamInboundTailBySocketId.clear();
-  };
-
-  const extractFrameRequestId = (rawPayload: unknown): string | null => {
-    if (!isPayloadFrameEnvelope(rawPayload)) {
-      return null;
-    }
-    return toRequestId(rawPayload.requestId);
-  };
-
-  /**
-   * Resolve the JSON-RPC `body.id` to use on outbound synthetic responses.
-   *
-   * When a `RelayRequestRoute` is available we echo back the consumer's
-   * `client_request_id` (JSON-RPC 2.0 §5). When we only have the wire-level
-   * `requestId` (e.g. REST pending requests with no relay route), we fall
-   * back to the wire id so consumers can still correlate via the envelope.
-   * The hub-internal `requestId` continues to be used for `correlation_id`
-   * fields (ops-facing) so support keeps a stable identifier.
-   */
-  const resolveOutboundBodyId = (
-    requestId: string,
-    relayRoute: RelayRequestRoute | null,
-  ): string => relayRoute?.clientRequestId ?? requestId;
-
-  const findRelayRequestRoutesForAgentSocket = (
-    candidateIds: readonly string[],
-    agentSocketId: string,
-  ): RelayRequestRoute[] => {
-    const routes: RelayRequestRoute[] = [];
-    const seen = new Set<string>();
-    for (const requestId of candidateIds) {
-      if (seen.has(requestId)) {
-        continue;
-      }
-      seen.add(requestId);
-      const route = getRelayRequestRoute(requestId);
-      if (route && route.agentSocketId === agentSocketId) {
-        routes.push(route);
-      }
-    }
-    return routes;
-  };
-
-  const persistRelayIdempotentResponseFrame = (
-    route: RelayRequestRoute,
-    responseFrame: unknown,
-  ): readonly string[] | undefined => {
-    if (!route.clientRequestId) {
-      return undefined;
-    }
-
-    const idempotencyMap = getOrCreateRelayIdempotencyMap(route.conversationId);
-    const previousEntry = idempotencyMap.get(route.clientRequestId);
-    setRelayIdempotencyEntry(route.conversationId, route.clientRequestId, {
-      requestId: route.requestId,
-      expiresAtMs: Date.now() + relayIdempotencyTtlMs,
-      responseFrame,
-    });
-    return previousEntry?.pendingReplayConsumerSocketIds;
-  };
-
-  const failFastUnexpectedAgentResponseError = (
-    socketId: string,
-    rawPayload: unknown,
-    error: unknown,
-  ): void => {
-    const reasonMessage =
-      error instanceof Error ? error.message : "Unexpected agent rpc:response processing failure";
-    logger.error("agent_rpc_response_processing_failed", {
-      socketId,
-      message: reasonMessage,
-    });
-
-    const requestId = extractFrameRequestId(rawPayload);
-    if (!requestId) {
-      return;
-    }
-
-    const pendingRequest = getRestPendingRequestByCorrelationId(requestId);
-    if (pendingRequest && pendingRequest.socketId === socketId) {
-      clearTimeout(pendingRequest.timeoutHandle);
-      clearRestPendingRequest(pendingRequest);
-      const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
-      if (existingStream && existingStream.agentSocketId === socketId) {
-        removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
-      }
-      registerAgentFailure(pendingRequest.agentId);
-      pendingRequest.reject(serviceUnavailable(reasonMessage));
-    }
-
-    const relayRoute = getRelayRequestRoute(requestId);
-    if (!relayRoute || relayRoute.agentSocketId !== socketId) {
-      return;
-    }
-
-    relayRoute.latencyTrace?.finalizeOnce({
-      outcome: "error",
-      httpStatus: 503,
-      errorCode: "BRIDGE_INBOUND_PROCESSING_FAILED",
-    });
-    const bodyId = resolveOutboundBodyId(requestId, relayRoute);
-    if (bodyId !== requestId) {
-      noteRelayBodyIdEcho();
-    }
-    enqueueRelayOutbound(requestId, async () => {
-      const frame = await encodeRelayOutboundFrame(
-        createRelayUnexpectedFailurePayload(bodyId, reasonMessage),
-        requestId,
-      );
-      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
-      const existingStream = getActiveStreamRouteByRequestId(requestId);
-      if (existingStream && existingStream.agentSocketId === socketId) {
-        removeActiveStreamRoute(existingStream);
-      }
-      removeRelayRequestRoute(requestId);
-    });
-  };
-
-  const failFastInvalidAgentResponseFrame = (
-    socketId: string,
-    rawPayload: unknown,
-    reasonMessage: string,
-  ): void => {
-    const requestId = extractFrameRequestId(rawPayload);
-    if (!requestId) {
-      return;
-    }
-
-    const pendingRequest = getRestPendingRequestByCorrelationId(requestId);
-    if (pendingRequest && pendingRequest.socketId === socketId) {
-      clearTimeout(pendingRequest.timeoutHandle);
-      clearRestPendingRequest(pendingRequest);
-      const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
-      if (existingStream && existingStream.agentSocketId === socketId) {
-        removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
-      }
-      registerAgentFailure(pendingRequest.agentId);
-      pendingRequest.reject(
-        serviceUnavailable(`Failed to decode agent rpc:response frame: ${reasonMessage}`),
-      );
-    }
-
-    const relayRoute = getRelayRequestRoute(requestId);
-    if (!relayRoute || relayRoute.agentSocketId !== socketId) {
-      return;
-    }
-
-    relayRoute.latencyTrace?.finalizeOnce({
-      outcome: "error",
-      errorCode: "AGENT_FRAME_DECODE_FAILED",
-    });
-    const bodyId = resolveOutboundBodyId(requestId, relayRoute);
-    if (bodyId !== requestId) {
-      noteRelayBodyIdEcho();
-    }
-    enqueueRelayOutbound(requestId, async () => {
-      const frame = await encodeRelayOutboundFrame(
-        createRelayDecodeFailurePayload(requestId, reasonMessage, bodyId),
-        requestId,
-      );
-      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
-      const existingStream = getActiveStreamRouteByRequestId(requestId);
-      if (existingStream && existingStream.agentSocketId === socketId) {
-        removeActiveStreamRoute(existingStream);
-      }
-      removeRelayRequestRoute(requestId);
-    });
-  };
-
-  const emitRelayTerminalFailure = (
-    route: ActiveStreamRoute,
-    socketId: string,
-    reasonMessage: string,
-  ): void => {
-    const relayRoute = getRelayRequestRoute(route.requestId);
-    if (!relayRoute || relayRoute.agentSocketId !== socketId) {
-      return;
-    }
-
-    relayMetrics.streamTerminalCompletions += 1;
-    relayRoute.latencyTrace?.finalizeOnce({
-      outcome: "error",
-      httpStatus: 503,
-      errorCode: "AGENT_STREAM_FRAME_DECODE_FAILED",
-    });
-    enqueueRelayOutbound(route.requestId, async () => {
-      try {
-        const terminalPayload: Record<string, unknown> = {
-          request_id: route.requestId,
-          total_rows: getRelayStreamForwardedRows(route.requestId),
-          terminal_status: "error",
-          ...(route.streamId ? { stream_id: route.streamId } : {}),
-        };
-        const frame = await encodeRelayOutboundFrame(terminalPayload, route.requestId);
-        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcComplete, frame);
-        void recordSocketAuditEvent({
-          eventType: socketEvents.relayRpcComplete,
-          actorSocketId: socketId,
-          direction: "agent_to_consumer",
-          conversationId: relayRoute.conversationId,
-          agentId: relayRoute.agentId,
-          requestId: route.requestId,
-          ...(route.streamId ? { streamId: route.streamId } : {}),
-        });
-      } finally {
-        const existingStream = getActiveStreamRouteByRequestId(route.requestId);
-        if (existingStream && existingStream.agentSocketId === socketId) {
-          removeActiveStreamRoute(existingStream);
-        }
-        removeRelayRequestRoute(route.requestId);
-        logger.warn("relay_stream_failed_fast", {
-          requestId: route.requestId,
-          conversationId: relayRoute.conversationId,
-          socketId,
-          reason: reasonMessage,
-        });
-      }
-    });
-  };
-
-  const failFastInvalidAgentStreamFrame = (
-    eventName: string,
-    socketId: string,
-    rawPayload: unknown,
-    reasonMessage: string,
-  ): void => {
-    const requestId = extractFrameRequestId(rawPayload);
-    if (!requestId) {
-      return;
-    }
-
-    const route = getActiveStreamRouteByRequestId(requestId);
-    if (!route || route.agentSocketId !== socketId) {
-      return;
-    }
-
-    const failureMessage = `Failed to decode agent ${eventName} frame: ${reasonMessage}`;
-    if (route.restMaterializeState && !route.restMaterializeState.settled) {
-      route.restMaterializeState.settled = true;
-      clearTimeout(route.restMaterializeState.timeoutHandle);
-      registerAgentFailure(route.restMaterializeState.agentId);
-      removeActiveStreamRoute(route, { restMaterialize: "detach" });
-      route.restMaterializeState.reject(serviceUnavailable(failureMessage));
-      return;
-    }
-
-    if (route.mode === "relay") {
-      emitRelayTerminalFailure(route, socketId, reasonMessage);
-      return;
-    }
-
-    try {
-      route.onComplete({
-        request_id: route.requestId,
-        total_rows: 0,
-        terminal_status: "error",
-        ...(route.streamId ? { stream_id: route.streamId } : {}),
-      });
-    } finally {
-      removeActiveStreamRoute(route);
-    }
-  };
-
-  const rejectRelayBatchResponse = (
-    socketId: string,
-    candidateIds: readonly string[],
-    inboundSyncStart: number,
-    decodeMs: number,
-  ): boolean => {
-    const relayRoutes = findRelayRequestRoutesForAgentSocket(candidateIds, socketId);
-    if (relayRoutes.length === 0) {
-      return false;
-    }
-
-    for (const route of relayRoutes) {
-      if (route.timedOut === true) {
-        if (logger.isLevelEnabled("debug")) {
-          logger.debug("relay_late_batch_response_ignored_after_timeout", {
-            requestId: route.requestId,
-            socketId,
-          });
-        }
-        continue;
-      }
-
-      const requestId = route.requestId;
-      route.latencyTrace?.markInboundArrival(inboundSyncStart);
-      route.latencyTrace?.recordInboundDecodeMs(decodeMs);
-      route.latencyTrace?.finalizeOnce({
-        outcome: "error",
-        httpStatus: 502,
-        errorCode: "RELAY_BATCH_RESPONSE_UNSUPPORTED",
-      });
-      observeRelayRouteOutcome(route, "error");
-      registerAgentFailure(route.agentId);
-      clearTimeout(route.timeoutHandle);
-      conversationRegistry.touchInternal(route.conversationId);
-
-      const bodyId = resolveOutboundBodyId(requestId, route);
-      if (bodyId !== requestId) {
-        noteRelayBodyIdEcho();
-      }
-      enqueueRelayOutbound(requestId, async () => {
-        try {
-          const frame = await encodeRelayOutboundFrame(
-            createRelayBatchResponseUnsupportedPayload(bodyId),
-            requestId,
-          );
-          emitToConsumer(route.consumerSocketId, socketEvents.relayRpcResponse, frame);
-          relayMetrics.responsesForwarded += 1;
-
-          const waiters = persistRelayIdempotentResponseFrame(route, frame);
-          if (waiters && waiters.length > 0) {
-            for (const waiterSocketId of waiters) {
-              if (waiterSocketId === route.consumerSocketId) {
-                continue;
-              }
-              emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, frame);
-              relayMetrics.responsesForwarded += 1;
-            }
-          }
-
-          void recordSocketAuditEvent({
-            eventType: socketEvents.relayRpcResponse,
-            actorSocketId: socketId,
-            direction: "agent_to_consumer",
-            conversationId: route.conversationId,
-            agentId: route.agentId,
-            requestId,
-            payload: { errorCode: "RELAY_BATCH_RESPONSE_UNSUPPORTED" },
-          });
-        } finally {
-          const existingStream = getActiveStreamRouteByRequestId(requestId);
-          if (existingStream && existingStream.agentSocketId === socketId) {
-            removeActiveStreamRoute(existingStream);
-          }
-          removeRelayRequestRoute(requestId);
-        }
-      });
-    }
-
-    return true;
-  };
+  const {
+    failFastUnexpectedAgentResponseError,
+    failFastInvalidAgentResponseFrame,
+    failFastInvalidAgentStreamFrame,
+    rejectRelayBatchResponse,
+  } = createRelayFailFastEmitters({ emitToConsumer });
 
   const handleAgentRpcResponse = (
     socketId: string,
@@ -1361,7 +979,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     handleAgentRpcComplete,
     handleAgentRpcAck,
     handleAgentBatchAck,
-    cleanupSocketInboundState,
-    resetInboundState,
+    cleanupSocketInboundState: orderedStreamInbound.cleanup,
+    resetInboundState: orderedStreamInbound.reset,
   };
 };
