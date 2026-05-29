@@ -9,18 +9,9 @@ const makeService = (userRepo: { findById: ReturnType<typeof vi.fn> }): AuthServ
     { execute: vi.fn() } as never,
     { execute: vi.fn() } as never,
     { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { save: vi.fn(), findById: vi.fn(), deleteById: vi.fn(), deleteByUserId: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { hash: vi.fn(), compare: vi.fn() } as never,
     { save: vi.fn() } as never,
-    {} as never,
-    {} as never,
     userRepo as never,
+    {} as never,
   );
 
 describe("AuthService getActiveAccountUser", () => {

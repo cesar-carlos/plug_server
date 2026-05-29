@@ -15,7 +15,7 @@ export const patchUserStatus = async (
   const body = getValidated<AdminSetUserStatusBody>(response, "body");
   const authUser = response.locals.authUser as JwtAccessPayload;
 
-  const result = await container.authService.adminSetUserStatus({
+  const result = await container.userAccountService.adminSetUserStatus({
     targetUserId: id,
     status: body.status,
   });

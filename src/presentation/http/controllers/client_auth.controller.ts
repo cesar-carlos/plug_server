@@ -116,7 +116,7 @@ export const registerClient = async (
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<ClientRegisterBody>(response, "body");
-  const result = await container.clientAuthService.register({
+  const result = await container.clientRegistrationService.register({
     ownerEmail: body.ownerEmail,
     email: body.email,
     password: body.password,
@@ -143,7 +143,7 @@ export const clientRegistrationReviewPage = async (
   const { homeUrl, homeLabel } = appHome(lang);
   const approveAction = `${base}/api/v1/client-auth/registration/approve`;
   const rejectAction = `${base}/api/v1/client-auth/registration/reject`;
-  const summary = await container.clientAuthService.getRegistrationReviewSummary(token);
+  const summary = await container.clientRegistrationService.getRegistrationReviewSummary(token);
   const html = renderApprovalReviewPage({
     title: copy.title,
     eyebrow: copy.eyebrow,
@@ -181,7 +181,7 @@ export const clientRegistrationStatus = async (
   next: NextFunction,
 ): Promise<void> => {
   const { token } = getValidated<ClientRegistrationTokenQuery>(response, "query");
-  const result = await container.clientAuthService.getRegistrationStatus(token);
+  const result = await container.clientRegistrationService.getRegistrationStatus(token);
   if (!result.ok) {
     next(result.error);
     return;
@@ -195,7 +195,7 @@ export const retryClientRegistration = async (
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<ClientRegistrationRetryBody>(response, "body");
-  const result = await container.clientAuthService.retryRejectedRegistration({
+  const result = await container.clientRegistrationService.retryRejectedRegistration({
     ownerEmail: body.ownerEmail,
     email: body.email,
     password: body.password,
@@ -217,7 +217,7 @@ export const approveClientRegistration = async (
   const lang = negotiateApprovalHtmlLang(request);
   const decision = clientRegistrationDecisionCopy(lang);
   const body = getValidated<ClientRegistrationApproveBody>(response, "body");
-  const result = await container.clientAuthService.approveRegistration(body.token);
+  const result = await container.clientRegistrationService.approveRegistration(body.token);
   if (!result.ok) {
     next(result.error);
     return;
@@ -243,7 +243,10 @@ export const rejectClientRegistration = async (
   const lang = negotiateApprovalHtmlLang(request);
   const decision = clientRegistrationDecisionCopy(lang);
   const body = getValidated<ClientRegistrationRejectBody>(response, "body");
-  const result = await container.clientAuthService.rejectRegistration(body.token, body.reason);
+  const result = await container.clientRegistrationService.rejectRegistration(
+    body.token,
+    body.reason,
+  );
   if (!result.ok) {
     next(result.error);
     return;
@@ -353,7 +356,7 @@ export const patchClientMe = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const body = getValidated<ClientPatchMeBody>(response, "body");
-  const result = await container.clientAuthService.updateMyProfile(
+  const result = await container.clientProfileService.updateMyProfile(
     authClient.sub,
     {
       ...(body.name !== undefined ? { name: body.name } : {}),
@@ -426,7 +429,7 @@ export const uploadClientThumbnail = async (
     return;
   }
 
-  const result = await container.clientAuthService.updateThumbnail(
+  const result = await container.clientProfileService.updateThumbnail(
     authClient.sub,
     {
       buffer: file.buffer,
@@ -447,7 +450,7 @@ export const clientPasswordRecoveryRequest = async (
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<ClientPasswordRecoveryRequestBody>(response, "body");
-  const result = await container.clientAuthService.requestPasswordRecovery(body.email);
+  const result = await container.clientPasswordRecoveryService.requestPasswordRecovery(body.email);
   if (!result.ok) {
     next(result.error);
     return;
@@ -487,7 +490,7 @@ export const clientPasswordRecoveryStatus = async (
   next: NextFunction,
 ): Promise<void> => {
   const { token } = getValidated<ClientPasswordRecoveryTokenQuery>(response, "query");
-  const result = await container.clientAuthService.getPasswordRecoveryStatus(token);
+  const result = await container.clientPasswordRecoveryService.getPasswordRecoveryStatus(token);
   if (!result.ok) {
     next(result.error);
     return;
@@ -501,7 +504,7 @@ export const clientPasswordRecoveryReset = async (
   next: NextFunction,
 ): Promise<void> => {
   const body = getValidated<ClientPasswordRecoveryResetBody>(response, "body");
-  const result = await container.clientAuthService.resetPasswordByRecoveryToken(
+  const result = await container.clientPasswordRecoveryService.resetPasswordByRecoveryToken(
     body.token,
     body.newPassword,
   );

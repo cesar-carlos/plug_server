@@ -1,14 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ClientAuthService } from "../../../../src/application/services/client_auth.service";
+import { ClientRegistrationService } from "../../../../src/application/services/client_registration.service";
 import { Client } from "../../../../src/domain/entities/client.entity";
 import { User } from "../../../../src/domain/entities/user.entity";
 import type {
   ClientRegistrationApprovalToken,
   IClientRegistrationApprovalTokenRepository,
 } from "../../../../src/domain/repositories/client_registration_approval_token.repository.interface";
-import { InMemoryClientPasswordRecoveryTokenRepository } from "../../../../src/infrastructure/repositories/in_memory_client_password_recovery_token.repository";
-import { InMemoryClientRefreshTokenRepository } from "../../../../src/infrastructure/repositories/in_memory_client_refresh_token.repository";
 import { InMemoryClientRepository } from "../../../../src/infrastructure/repositories/in_memory_client.repository";
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
 import { InMemoryClientRegistrationDecisionTxn } from "../../../../src/infrastructure/persistence/in_memory_client_registration_decision_txn";
@@ -77,7 +75,7 @@ describe("ClientAuthService registration flow", () => {
   let userRepository: InMemoryUserRepository;
   let clientRepository: InMemoryClientRepository;
   let clientRegistrationApprovalTokenRepository: TestClientRegistrationApprovalTokenRepository;
-  let service: ClientAuthService;
+  let service: ClientRegistrationService;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -88,10 +86,8 @@ describe("ClientAuthService registration flow", () => {
     clientRepository = new InMemoryClientRepository();
     clientRegistrationApprovalTokenRepository = new TestClientRegistrationApprovalTokenRepository();
 
-    service = new ClientAuthService(
+    service = new ClientRegistrationService(
       clientRepository,
-      new InMemoryClientRefreshTokenRepository(),
-      new InMemoryClientPasswordRecoveryTokenRepository(),
       clientRegistrationApprovalTokenRepository,
       new InMemoryClientRegistrationDecisionTxn(
         clientRegistrationApprovalTokenRepository,
@@ -111,13 +107,6 @@ describe("ClientAuthService registration flow", () => {
         sendClientRegistrationApproved,
         sendClientRegistrationRejected,
         sendClientPasswordRecovery: async () => {},
-      },
-      {
-        saveClientThumbnail: async () => ({
-          url: "http://test.local/uploads/client-thumbnails/mock.webp",
-          storageKey: "client-thumbnails/mock.webp",
-        }),
-        delete: async () => {},
       },
     );
 

@@ -76,7 +76,7 @@ export const register = async (
 ): Promise<void> => {
   const body = getValidated<RegisterBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.authService.register(
+  const result = await container.userRegistrationService.register(
     {
       email: body.email,
       password: body.password,
@@ -105,7 +105,7 @@ export const registrationReviewPage = async (
   const { homeUrl, homeLabel } = appHome(lang);
   const approveAction = `${base}/api/v1/auth/registration/approve`;
   const rejectAction = `${base}/api/v1/auth/registration/reject`;
-  const summary = await container.authService.getRegistrationReviewSummary(token);
+  const summary = await container.userRegistrationService.getRegistrationReviewSummary(token);
   const html = renderApprovalReviewPage({
     title: copy.title,
     eyebrow: copy.eyebrow,
@@ -141,7 +141,7 @@ export const registrationStatus = async (
   next: NextFunction,
 ): Promise<void> => {
   const { token } = getValidated<RegistrationTokenQuery>(response, "query");
-  const result = await container.authService.getRegistrationStatus(token);
+  const result = await container.userRegistrationService.getRegistrationStatus(token);
   if (!result.ok) {
     next(result.error);
     return;
@@ -156,7 +156,7 @@ export const retryRegistration = async (
 ): Promise<void> => {
   const body = getValidated<RegistrationRetryBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.authService.retryRejectedRegistration(
+  const result = await container.userRegistrationService.retryRejectedRegistration(
     {
       email: body.email,
       password: body.password,
@@ -183,7 +183,7 @@ export const approveRegistration = async (
   const decision = userRegistrationDecisionCopy(lang);
   const body = getValidated<RegistrationApproveBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.authService.approveRegistration(body.token, {
+  const result = await container.userRegistrationService.approveRegistration(body.token, {
     ...(requestId !== undefined ? { requestId } : {}),
   });
   if (!result.ok) {
@@ -212,7 +212,7 @@ export const rejectRegistration = async (
   const decision = userRegistrationDecisionCopy(lang);
   const body = getValidated<RegistrationRejectBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.authService.rejectRegistration(body.token, body.reason, {
+  const result = await container.userRegistrationService.rejectRegistration(body.token, body.reason, {
     ...(requestId !== undefined ? { requestId } : {}),
   });
   if (!result.ok) {
@@ -337,7 +337,7 @@ export const patchMe = async (
 ): Promise<void> => {
   const authUser = response.locals.authUser as JwtAccessPayload;
   const body = getValidated<PatchMeBody>(response, "body");
-  const result = await container.authService.updateMyCelular(authUser, { celular: body.celular });
+  const result = await container.userAccountService.updateMyCelular(authUser, { celular: body.celular });
   if (!result.ok) {
     next(result.error);
     return;

@@ -1,14 +1,24 @@
 import { AuthService } from "../../application/services/auth.service";
+import { UserRegistrationService } from "../../application/services/user_registration.service";
+import { UserAccountService } from "../../application/services/user_account.service";
 import { AgentAccessService } from "../../application/services/agent_access.service";
 import { AgentCatalogService } from "../../application/services/agent_catalog.service";
 import { AgentProfileSyncService } from "../../application/services/agent_profile_sync.service";
 import { AgentSelfProfileService } from "../../application/services/agent_self_profile.service";
-import { ClientAgentAccessService } from "../../application/services/client_agent_access.service";
+import { ClientAgentAccessQueryService } from "../../application/services/client_agent_access_query.service";
+import { ClientAgentAccessRequestService } from "../../application/services/client_agent_access_request.service";
+import { ClientAgentAccessDecisionService } from "../../application/services/client_agent_access_decision.service";
+import { ClientAgentTokenService } from "../../application/services/client_agent_token.service";
+import type { ClientAgentLiveProfileDeps } from "../../application/services/agent_snapshot_refresher";
 import {
   invalidateConsumerAgentAccessSnapshotsByAgentId,
   invalidateConsumerClientAgentAccessSnapshots,
 } from "../../application/services/consumer_socket_control_sink";
 import { ClientAuthService } from "../../application/services/client_auth.service";
+import { ClientRegistrationService } from "../../application/services/client_registration.service";
+import { ClientProfileService } from "../../application/services/client_profile.service";
+import { ClientManagementService } from "../../application/services/client_management.service";
+import { ClientPasswordRecoveryService } from "../../application/services/client_password_recovery.service";
 import { HealthReadinessService } from "../../application/services/health_readiness.service";
 import { UserAgentService } from "../../application/services/user_agent.service";
 import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
@@ -212,12 +222,34 @@ const clientAuthService = new ClientAuthService(
   clientRepository,
   clientRefreshTokenRepository,
   clientPasswordRecoveryTokenRepository,
+  passwordHasher,
+);
+const clientRegistrationService = new ClientRegistrationService(
+  clientRepository,
   clientRegistrationApprovalTokenRepository,
   clientRegistrationDecisionTxn,
   userRepository,
   passwordHasher,
   emailSender,
+);
+const clientProfileService = new ClientProfileService(
+  clientRepository,
   fileStorage,
+  clientAuthService,
+);
+const clientManagementService = new ClientManagementService(
+  userRepository,
+  clientRepository,
+  clientRefreshTokenRepository,
+  clientAuthService,
+);
+const clientPasswordRecoveryService = new ClientPasswordRecoveryService(
+  clientRepository,
+  clientPasswordRecoveryTokenRepository,
+  clientRefreshTokenRepository,
+  passwordHasher,
+  emailSender,
+  clientAuthService,
 );
 const restAgentBridgeService = new RestAgentBridgeService(
   connectedAgentsRegistryAdapter,
@@ -226,7 +258,29 @@ const restAgentBridgeService = new RestAgentBridgeService(
 );
 const socketMetricsSnapshotProvider = createSocketMetricsSnapshotProvider();
 
-const clientAgentAccessService = new ClientAgentAccessService(
+const clientAgentLiveProfileDeps: ClientAgentLiveProfileDeps = {
+  isAgentOnline: isAgentConnectedToHub,
+  refreshAgentProfile: (agentId) =>
+    agentProfileSyncService.syncFromConnectedAgent({
+      agentId,
+      dispatch: dispatchRpcCommandToAgent,
+      timeoutMs: 10_000,
+    }),
+  onAccessRevoked: (clientId, agentId) => {
+    agentAccessService.invalidateAccessCache("client", clientId, agentId);
+    void invalidateConsumerClientAgentAccessSnapshots({ clientId, agentId });
+  },
+};
+
+const clientAgentAccessQueryService = new ClientAgentAccessQueryService(
+  agentRepository,
+  clientRepository,
+  clientAgentAccessRepository,
+  clientAgentAccessRequestRepository,
+  clientAgentLiveProfileDeps,
+);
+
+const clientAgentAccessRequestService = new ClientAgentAccessRequestService(
   agentRepository,
   agentIdentityRepository,
   clientRepository,
@@ -236,41 +290,53 @@ const clientAgentAccessService = new ClientAgentAccessService(
   clientAgentAccessApprovalTokenRepository,
   emailSender,
   pendingClientAgentAccessWriter,
+  clientAgentLiveProfileDeps,
+);
+
+const clientAgentAccessDecisionService = new ClientAgentAccessDecisionService(
+  agentRepository,
+  agentIdentityRepository,
+  clientRepository,
+  clientAgentAccessRepository,
+  clientAgentAccessRequestRepository,
+  clientAgentAccessApprovalTokenRepository,
+  emailSender,
   clientAgentAccessApprovalTxn,
-  {
-    isAgentOnline: isAgentConnectedToHub,
-    refreshAgentProfile: (agentId) =>
-      agentProfileSyncService.syncFromConnectedAgent({
-        agentId,
-        dispatch: dispatchRpcCommandToAgent,
-        timeoutMs: 10_000,
-      }),
-    onAccessRevoked: (clientId, agentId) => {
-      agentAccessService.invalidateAccessCache("client", clientId, agentId);
-      void invalidateConsumerClientAgentAccessSnapshots({ clientId, agentId });
-    },
-  },
+  clientAgentLiveProfileDeps,
+);
+
+const clientAgentTokenService = new ClientAgentTokenService(clientAgentAccessRepository);
+
+const authService = new AuthService(
+  loginUseCase,
+  changePasswordUseCase,
+  refreshTokenUseCase,
+  logoutUseCase,
+  refreshTokenRepository,
+  userRepository,
+  agentAccessService,
+);
+const userRegistrationService = new UserRegistrationService(
+  registerUseCase,
+  approveRegistrationUseCase,
+  rejectRegistrationUseCase,
+  getRegistrationStatusUseCase,
+  registrationApprovalTokenRepository,
+  userRepository,
+  passwordHasher,
+  emailSender,
+);
+const userAccountService = new UserAccountService(
+  adminSetUserStatusUseCase,
+  updateMyCelularUseCase,
+  agentAccessService,
+  authService,
 );
 
 export const container = {
-  authService: new AuthService(
-    registerUseCase,
-    loginUseCase,
-    changePasswordUseCase,
-    refreshTokenUseCase,
-    logoutUseCase,
-    approveRegistrationUseCase,
-    rejectRegistrationUseCase,
-    getRegistrationStatusUseCase,
-    registrationApprovalTokenRepository,
-    adminSetUserStatusUseCase,
-    updateMyCelularUseCase,
-    passwordHasher,
-    refreshTokenRepository,
-    agentAccessService,
-    emailSender,
-    userRepository,
-  ),
+  authService,
+  userRegistrationService,
+  userAccountService,
   emailSender,
   agentAccessService,
   agentCatalogService,
@@ -278,7 +344,14 @@ export const container = {
   agentProfileSyncService,
   userAgentService,
   clientAuthService,
-  clientAgentAccessService,
+  clientRegistrationService,
+  clientProfileService,
+  clientManagementService,
+  clientPasswordRecoveryService,
+  clientAgentAccessQueryService,
+  clientAgentAccessRequestService,
+  clientAgentAccessDecisionService,
+  clientAgentTokenService,
   healthReadinessService,
   isAgentConnectedToHub,
   restAgentBridgeService,

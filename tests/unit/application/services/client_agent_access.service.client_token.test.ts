@@ -7,38 +7,19 @@ vi.mock("../../../../src/application/services/socket_audit.service", () => ({
 import { Agent } from "../../../../src/domain/entities/agent.entity";
 import { Client } from "../../../../src/domain/entities/client.entity";
 import { User } from "../../../../src/domain/entities/user.entity";
-import type { IEmailSender } from "../../../../src/domain/ports/email_sender.port";
 import {
   CLIENT_TOKEN_AUDIT_EVENT_TYPE_CLEARED,
   CLIENT_TOKEN_AUDIT_EVENT_TYPE_SET,
-  ClientAgentAccessService,
-} from "../../../../src/application/services/client_agent_access.service";
+} from "../../../../src/application/services/client_agent_access_types";
+import { ClientAgentTokenService } from "../../../../src/application/services/client_agent_token.service";
 import { recordSocketAuditEvent } from "../../../../src/application/services/socket_audit.service";
 import { InMemoryAgentIdentityRepository } from "../../../../src/infrastructure/repositories/in_memory_agent_identity.repository";
 import { InMemoryAgentRepository } from "../../../../src/infrastructure/repositories/in_memory_agent.repository";
-import { InMemoryClientAgentAccessApprovalTokenRepository } from "../../../../src/infrastructure/repositories/in_memory_client_agent_access_approval_token.repository";
 import { InMemoryClientAgentAccessRepository } from "../../../../src/infrastructure/repositories/in_memory_client_agent_access.repository";
-import { InMemoryClientAgentAccessRequestRepository } from "../../../../src/infrastructure/repositories/in_memory_client_agent_access_request.repository";
 import { InMemoryClientRepository } from "../../../../src/infrastructure/repositories/in_memory_client.repository";
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
-import { SequentialPendingClientAgentAccessWriter } from "../../../../src/infrastructure/persistence/sequential_pending_client_agent_access.writer";
-import { InMemoryClientAgentAccessApprovalTxn } from "../../../../src/infrastructure/persistence/in_memory_client_agent_access_approval_txn";
 
 const mockedAudit = vi.mocked(recordSocketAuditEvent);
-
-class NoopEmailSender implements IEmailSender {
-  async sendAdminApprovalRequest(): Promise<void> {}
-  async sendUserPendingRegistration(): Promise<void> {}
-  async sendUserApproved(): Promise<void> {}
-  async sendUserRejected(): Promise<void> {}
-  async sendClientAccessRequestToOwner(): Promise<void> {}
-  async sendClientAccessApproved(): Promise<void> {}
-  async sendClientAccessRejected(): Promise<void> {}
-  async sendClientRegistrationRequestToOwner(): Promise<void> {}
-  async sendClientRegistrationApproved(): Promise<void> {}
-  async sendClientRegistrationRejected(): Promise<void> {}
-  async sendClientPasswordRecovery(): Promise<void> {}
-}
 
 const ownerUserId = "1f1c0bdc-7c41-4f86-9a4f-2d73d4d50e21";
 const clientId = "f1f6db4c-a1a3-4f1d-a8a2-1b4c0f4f0001";
@@ -49,33 +30,10 @@ let clientRepository: InMemoryClientRepository;
 let agentRepository: InMemoryAgentRepository;
 let identityRepository: InMemoryAgentIdentityRepository;
 let accessRepository: InMemoryClientAgentAccessRepository;
-let requestRepository: InMemoryClientAgentAccessRequestRepository;
-let tokenRepository: InMemoryClientAgentAccessApprovalTokenRepository;
-let service: ClientAgentAccessService;
+let service: ClientAgentTokenService;
 
-const buildService = (): ClientAgentAccessService => {
-  const pendingWriter = new SequentialPendingClientAgentAccessWriter(
-    requestRepository,
-    tokenRepository,
-  );
-  const approvalTxn = new InMemoryClientAgentAccessApprovalTxn(
-    requestRepository,
-    accessRepository,
-    tokenRepository,
-  );
-  return new ClientAgentAccessService(
-    agentRepository,
-    identityRepository,
-    clientRepository,
-    userRepository,
-    accessRepository,
-    requestRepository,
-    tokenRepository,
-    new NoopEmailSender(),
-    pendingWriter,
-    approvalTxn,
-  );
-};
+const buildService = (): ClientAgentTokenService =>
+  new ClientAgentTokenService(accessRepository);
 
 const seedApprovedAccess = async (): Promise<void> => {
   await userRepository.save(
@@ -111,12 +69,6 @@ describe("ClientAgentAccessService client_token audit", () => {
     agentRepository = new InMemoryAgentRepository();
     identityRepository = new InMemoryAgentIdentityRepository();
     accessRepository = new InMemoryClientAgentAccessRepository();
-    requestRepository = new InMemoryClientAgentAccessRequestRepository();
-    tokenRepository = new InMemoryClientAgentAccessApprovalTokenRepository({
-      findRequestById: (id) => requestRepository.findById(id),
-      findClientById: (id) => clientRepository.findById(id),
-      findAgentById: (id) => agentRepository.findById(id),
-    });
     service = buildService();
     await seedApprovedAccess();
   });

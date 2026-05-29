@@ -17,7 +17,7 @@ const mockGetConnectedAgentIdSet = vi.fn();
 
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
-    clientAgentAccessService: {
+    clientAgentAccessQueryService: {
       listApprovedAgentsPage: (...args: unknown[]) => mockListApprovedAgentsPage(...args),
       findApprovedAgent: (...args: unknown[]) => mockFindApprovedAgent(...args),
       hasClientTokenForAgent: (...args: unknown[]) => mockHasClientTokenForAgent(...args),

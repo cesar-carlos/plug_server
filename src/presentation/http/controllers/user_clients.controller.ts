@@ -22,7 +22,7 @@ export const listMyClients = async (
 ): Promise<void> => {
   const authUser = getAuthUser(response);
   const query = getValidated<UserListClientsQuery>(response, "query");
-  const result = await container.clientAuthService.listManagedClientsPage(authUser.sub, {
+  const result = await container.clientManagementService.listManagedClientsPage(authUser.sub, {
     ...(query.status !== undefined ? { status: query.status } : {}),
     ...(query.search !== undefined ? { search: query.search } : {}),
     ...(query.page !== undefined ? { page: query.page } : {}),
@@ -48,7 +48,7 @@ export const getMyClient = async (
 ): Promise<void> => {
   const authUser = getAuthUser(response);
   const { clientId } = getValidated<UserClientIdParam>(response, "params");
-  const result = await container.clientAuthService.findManagedClient(authUser.sub, clientId);
+  const result = await container.clientManagementService.findManagedClient(authUser.sub, clientId);
   if (!result.ok) {
     next(result.error);
     return;
@@ -64,7 +64,7 @@ export const setMyClientStatus = async (
   const authUser = getAuthUser(response);
   const { clientId } = getValidated<UserClientIdParam>(response, "params");
   const body = getValidated<UserSetClientStatusBody>(response, "body");
-  const result = await container.clientAuthService.setManagedClientStatus(
+  const result = await container.clientManagementService.setManagedClientStatus(
     authUser.sub,
     clientId,
     body.status,
@@ -83,14 +83,17 @@ export const listMyClientAccessRequests = async (
 ): Promise<void> => {
   const authUser = getAuthUser(response);
   const query = getValidated<UserListClientAccessRequestsQuery>(response, "query");
-  const result = await container.clientAgentAccessService.listRequestsByOwnerPage(authUser.sub, {
-    ...(query.status !== undefined ? { status: query.status } : {}),
-    ...(query.search !== undefined ? { search: query.search } : {}),
-    ...(query.agentId !== undefined ? { agentId: query.agentId } : {}),
-    ...(query.clientId !== undefined ? { clientId: query.clientId } : {}),
-    ...(query.page !== undefined ? { page: query.page } : {}),
-    ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-  });
+  const result = await container.clientAgentAccessDecisionService.listRequestsByOwnerPage(
+    authUser.sub,
+    {
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.search !== undefined ? { search: query.search } : {}),
+      ...(query.agentId !== undefined ? { agentId: query.agentId } : {}),
+      ...(query.clientId !== undefined ? { clientId: query.clientId } : {}),
+      ...(query.page !== undefined ? { page: query.page } : {}),
+      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+    },
+  );
   if (!result.ok) {
     next(result.error);
     return;
@@ -111,7 +114,10 @@ export const approveMyClientAccessRequest = async (
 ): Promise<void> => {
   const authUser = getAuthUser(response);
   const { requestId } = getValidated<UserClientAccessRequestIdParam>(response, "params");
-  const result = await container.clientAgentAccessService.approveByOwner(authUser.sub, requestId);
+  const result = await container.clientAgentAccessDecisionService.approveByOwner(
+    authUser.sub,
+    requestId,
+  );
   if (!result.ok) {
     next(result.error);
     return;
@@ -131,7 +137,7 @@ export const rejectMyClientAccessRequest = async (
   const authUser = getAuthUser(response);
   const { requestId } = getValidated<UserClientAccessRequestIdParam>(response, "params");
   const body = getValidated<UserRejectClientAccessRequestBody>(response, "body");
-  const result = await container.clientAgentAccessService.rejectByOwner(
+  const result = await container.clientAgentAccessDecisionService.rejectByOwner(
     authUser.sub,
     requestId,
     body.reason,
@@ -155,7 +161,7 @@ export const listMyAgentClients = async (
   const authUser = getAuthUser(response);
   const { agentId } = getValidated<UserAgentIdParam>(response, "params");
   const query = getValidated<UserListAgentClientsQuery>(response, "query");
-  const result = await container.clientAgentAccessService.listAgentClientsByOwnerPage(
+  const result = await container.clientAgentAccessDecisionService.listAgentClientsByOwnerPage(
     authUser.sub,
     agentId,
     {
@@ -188,7 +194,7 @@ export const revokeMyAgentClientAccess = async (
 ): Promise<void> => {
   const authUser = getAuthUser(response);
   const { agentId, clientId } = getValidated<UserAgentClientParam>(response, "params");
-  const result = await container.clientAgentAccessService.revokeAccessByOwner(
+  const result = await container.clientAgentAccessDecisionService.revokeAccessByOwner(
     authUser.sub,
     agentId,
     clientId,

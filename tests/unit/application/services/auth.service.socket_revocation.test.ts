@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AuthService } from "../../../../src/application/services/auth.service";
+import { UserAccountService } from "../../../../src/application/services/user_account.service";
 import { registerAgentSocketControlHandler } from "../../../../src/application/services/agent_socket_control_sink";
 import { registerConsumerSocketControlHandler } from "../../../../src/application/services/consumer_socket_control_sink";
 import { User } from "../../../../src/domain/entities/user.entity";
@@ -10,24 +10,15 @@ const makeService = (
   agentAccessService: { invalidateAccessCacheForUser: ReturnType<typeof vi.fn> } = {
     invalidateAccessCacheForUser: vi.fn(),
   },
-): AuthService =>
-  new AuthService(
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { execute: vi.fn() } as never,
-    { save: vi.fn(), findById: vi.fn(), deleteById: vi.fn(), deleteByUserId: vi.fn() } as never,
+): UserAccountService =>
+  new UserAccountService(
     { execute: vi.fn().mockResolvedValue(adminSetUserStatusResult) } as never,
     { execute: vi.fn() } as never,
-    { hash: vi.fn(), compare: vi.fn() } as never,
-    { save: vi.fn() } as never,
     agentAccessService as never,
-    {} as never,
-    { findById: vi.fn() } as never,
+    {
+      invalidateSnapshotCache: vi.fn(),
+      getMeProfile: vi.fn(),
+    } as never,
   );
 
 describe("AuthService socket revocation", () => {

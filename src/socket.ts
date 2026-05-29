@@ -47,21 +47,11 @@ import { registerAgentProfileBroadcastHandler } from "./application/services/age
 import { registerAgentSocketControlHandler } from "./application/services/agent_socket_control_sink";
 import { registerConsumerSocketControlHandler } from "./application/services/consumer_socket_control_sink";
 import { registerConsumerSocketEventHandler } from "./application/services/consumer_socket_event_sink";
-import {
-  clearAllConsumerSocketAgentAccessSnapshots,
-  clearConsumerSocketAgentAccessSnapshot,
-  getSocketIdsWithAgentAccessSnapshot,
-} from "./presentation/socket/consumers/consumer_socket_guard";
-import {
-  buildConsumerClientAgentRoom,
-  buildConsumerClientRoom as buildClientRoomName,
-  joinConsumerClientAgentRoom,
-} from "./presentation/socket/hub/consumer_identity_rooms";
-import { shouldSkipCustomSocketEventZeroRecipientEarlyReturn } from "./presentation/socket/hub/custom_events/custom_socket_event_room_recipient_count";
+import { buildConsumerSocketControlHandlers } from "./presentation/socket/hub/build_consumer_socket_control_handlers";
+import { buildConsumerSocketPublishHandler } from "./presentation/socket/hub/build_consumer_socket_publish_handler";
 import {
   countDistributedRoomRecipients,
   createInitialDistributedCountCircuitState,
-  enforceCustomEventDistributedCountCircuit,
   resetCustomEventDistributedCountCircuit,
   type DistributedCountCircuitState,
 } from "./presentation/socket/hub/custom_events/custom_socket_event_distributed_count_circuit";
@@ -80,14 +70,12 @@ import {
   resetAgentProfileSyncScheduler,
 } from "./presentation/socket/hub/register_agent_socket_handlers";
 import { registerSocketHubErrorHandlers } from "./presentation/socket/hub/socket_hub_error_handlers";
-import { buildCustomSocketEventRoom } from "./presentation/socket/hub/custom_events/custom_socket_event_rooms";
 import { resetCustomSocketEventSubscriptionRateLimitState } from "./presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
 import { resetCustomSocketEventSubscriptions } from "./presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { resetBridgeRpcMethodMetrics } from "./application/services/bridge_rpc_method_metrics.service";
 import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
-import { AppError } from "./shared/errors/app_error";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import {
   buildLegacySocketAppErrorPayload,
@@ -95,13 +83,6 @@ import {
 } from "./shared/constants/socket_app_error";
 import {
   getSocketConsumerMetricsSnapshot,
-  noteConsumerClientAgentRoomGrantAttempt,
-  noteConsumerClientAgentRoomGrantFetchFailed,
-  noteConsumerClientAgentRoomGrantJoinFailed,
-  noteConsumerClientAgentRoomGrantSocketsJoined,
-  noteCustomSocketEventPublishFetchSocketsDedupe,
-  noteCustomSocketEventPublishRecipientCapUnverified,
-  noteCustomSocketEventPublishRecipientCountBestEffort,
   noteAgentRoomDisconnectTriggered,
   noteConsumerRoomDisconnectTriggered,
   resetSocketConsumerMetrics,
@@ -117,10 +98,6 @@ import {
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
 import { TtlCache } from "./shared/utils/ttl_cache";
-import {
-  encodePayloadFrameBridge,
-  payloadFrameEncodeOptionsFromPreference,
-} from "./shared/utils/payload_frame";
 import { resetAgentRegisterRateLimitState } from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
 import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
 
@@ -641,253 +618,24 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   );
 
   state.sinkDisposers.push(
-    registerConsumerSocketControlHandler({
-      disconnectPrincipal: async (event) => {
-        const room = `consumer:principal:${event.principalType}:${event.principalId}`;
-        await disconnectConsumerSocketsInRoom(
-          consumersNsp,
-          room,
-          buildLegacySocketAppErrorPayload(
-            "ACCOUNT_BLOCKED",
-            event.principalType === "client" ? "Client account is blocked" : "Account is blocked",
-          ),
-          {
-            principalType: event.principalType,
-            principalId: event.principalId,
-            reason: event.reason,
-          },
-        );
-      },
-      revokeClientAccess: async (event) => {
-        state.clientProfileRecipientsCacheByAgentId.delete(event.agentId);
-        await disconnectConsumerSocketsInRoom(
-          consumersNsp,
-          buildConsumerClientAgentRoom({
-            clientId: event.clientId,
-            agentId: event.agentId,
-          }),
-          buildLegacySocketAppErrorPayload(
-            "AGENT_ACCESS_REVOKED",
-            `Client access to agent ${event.agentId} was revoked`,
-          ),
-          {
-            clientId: event.clientId,
-            agentId: event.agentId,
-            reason: event.reason,
-          },
-        );
-      },
-      invalidateClientAgentAccessSnapshot: async (event) => {
-        try {
-          const sockets = await consumersNsp.in(buildClientRoomName(event.clientId)).fetchSockets();
-          for (const remote of sockets) {
-            clearConsumerSocketAgentAccessSnapshot(remote, event.agentId);
-          }
-        } catch (error: unknown) {
-          logger.warn("consumer_socket_agent_access_snapshot_invalidate_failed", {
-            clientId: event.clientId,
-            agentId: event.agentId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      },
-      invalidateAgentAccessSnapshot: async (event) => {
-        const targetSocketIds = Array.from(getSocketIdsWithAgentAccessSnapshot(event.agentId));
-        if (targetSocketIds.length === 0) {
-          return;
-        }
-        for (const socketId of targetSocketIds) {
-          const remote = consumersNsp.sockets.get(socketId);
-          if (remote) {
-            clearConsumerSocketAgentAccessSnapshot(remote, event.agentId);
-          }
-        }
-      },
-      invalidateUserAccessSnapshot: async (event) => {
-        const room = `consumer:principal:user:${event.userId}`;
-        try {
-          const sockets = await consumersNsp.in(room).fetchSockets();
-          for (const remote of sockets) {
-            clearAllConsumerSocketAgentAccessSnapshots(remote);
-          }
-        } catch (error: unknown) {
-          logger.warn("consumer_socket_agent_access_snapshot_invalidate_by_user_failed", {
-            userId: event.userId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      },
-      grantClientAccess: async (event) => {
-        noteConsumerClientAgentRoomGrantAttempt();
-        const clientRoom = buildClientRoomName(event.clientId);
-        try {
-          const sockets = await consumersNsp.in(clientRoom).fetchSockets();
-          for (const remote of sockets) {
-            try {
-              await joinConsumerClientAgentRoom(remote, {
-                clientId: event.clientId,
-                agentId: event.agentId,
-              });
-              noteConsumerClientAgentRoomGrantSocketsJoined(1);
-            } catch (error: unknown) {
-              noteConsumerClientAgentRoomGrantJoinFailed();
-              logger.warn("consumer_socket_client_agent_room_grant_failed", {
-                clientId: event.clientId,
-                agentId: event.agentId,
-                socketId: remote.id,
-                message: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
-        } catch (error: unknown) {
-          noteConsumerClientAgentRoomGrantFetchFailed();
-          logger.warn("consumer_socket_client_agent_room_grant_fetch_failed", {
-            clientId: event.clientId,
-            agentId: event.agentId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      },
-    }),
+    registerConsumerSocketControlHandler(
+      buildConsumerSocketControlHandlers({
+        consumersNsp,
+        clientProfileRecipientsCacheByAgentId: state.clientProfileRecipientsCacheByAgentId,
+        disconnectConsumerSocketsInRoom,
+      }),
+    ),
   );
 
   state.sinkDisposers.push(
-    registerConsumerSocketEventHandler({
-      publish: async (event) => {
-        const room = buildCustomSocketEventRoom(event.eventName);
-        enforceCustomEventDistributedCountCircuit(
-          state.customEventDistributedCountCircuit,
-          event.eventName,
-        );
-        /**
-         * When the agent-event stream is active, capture the sockets while
-         * counting so the principal-id resolution below can reuse the same
-         * `fetchSockets()` RPC. When the stream is off, the legacy count-only
-         * path keeps its lighter-weight signature.
-         */
-        const recipientCount = await countSocketsInRoom(state, consumersNsp, room, {
-          captureSockets: env.agentEventStreamEnabled,
-        });
-        if (
-          !recipientCount.recipientCountBestEffort &&
-          !shouldSkipCustomSocketEventZeroRecipientEarlyReturn(recipientCount) &&
-          recipientCount.recipients === 0
-        ) {
-          return { recipients: 0 };
-        }
-        if (
-          !recipientCount.recipientCountBestEffort &&
-          env.restSocketEventMaxRecipients > 0 &&
-          recipientCount.recipients > env.restSocketEventMaxRecipients
-        ) {
-          throw new AppError("socket event recipient fan-out limit exceeded", {
-            statusCode: 503,
-            code: "SERVICE_UNAVAILABLE",
-            details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
-          });
-        }
-        if (recipientCount.recipientCountBestEffort) {
-          enforceCustomEventDistributedCountCircuit(
-            state.customEventDistributedCountCircuit,
-            event.eventName,
-          );
-          if (
-            env.restSocketEventBestEffortLocalMaxRecipients > 0 &&
-            recipientCount.recipients > env.restSocketEventBestEffortLocalMaxRecipients
-          ) {
-            logger.warn("socket_custom_event_publish_best_effort_local_cap_exceeded", {
-              eventName: event.eventName,
-              localRecipients: recipientCount.recipients,
-              localCap: env.restSocketEventBestEffortLocalMaxRecipients,
-            });
-            throw new AppError("socket event recipient fan-out limit exceeded", {
-              statusCode: 503,
-              code: "SERVICE_UNAVAILABLE",
-              details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
-            });
-          }
-          noteCustomSocketEventPublishRecipientCountBestEffort();
-          noteCustomSocketEventPublishRecipientCapUnverified();
-          logger.warn("socket_custom_event_publish_recipient_count_best_effort", {
-            eventName: event.eventName,
-            localRecipients: recipientCount.recipients,
-          });
-        }
-        let frame;
-        try {
-          frame = await encodePayloadFrameBridge(
-            {
-              eventId: event.eventId,
-              eventName: event.eventName,
-              emittedAt: event.emittedAt,
-              publisher: event.publisher,
-              payload: event.payload,
-              attachments: event.attachments,
-            },
-            {
-              ...payloadFrameEncodeOptionsFromPreference(event.payloadFrameCompression),
-              requestId:
-                typeof event.publishRequestId === "string" && event.publishRequestId.trim() !== ""
-                  ? event.publishRequestId.trim()
-                  : event.eventId,
-              omitTraceId: true,
-            },
-          );
-        } catch {
-          throw new AppError("Failed to encode custom socket event PayloadFrame", {
-            statusCode: 503,
-            code: "SERVICE_UNAVAILABLE",
-            details: { retry_after_ms: env.restSocketEventFanoutRetryAfterMs },
-          });
-        }
-        /**
-         * When the durable agent-event stream is active, resolve the local
-         * recipient principal ids (consumer Client `sub`) BEFORE the emit so
-         * the publish caller can append the frame to each recipient's backlog
-         * stream. `fetchSockets` is a cluster-wide RPC; we only do it when
-         * streams are enabled (default off) to avoid extra round-trips on
-         * the hot publish path.
-         */
-        let recipientPrincipalIds: string[] | undefined;
-        if (env.agentEventStreamEnabled) {
-          try {
-            /**
-             * Reuse the sockets fetched during recipient-count when available
-             * (single cluster-wide RPC for both count and principal-id
-             * resolution). Falls back to a dedicated `fetchSockets()` only
-             * when the count path took a local-only branch (e.g.
-             * `restSocketEventMaxRecipients=0`) and never paid the RPC.
-             */
-            let principalSockets: ReadonlyArray<{ readonly data: unknown }>;
-            if (recipientCount.fetchedSockets !== undefined) {
-              principalSockets = recipientCount.fetchedSockets;
-              noteCustomSocketEventPublishFetchSocketsDedupe();
-            } else {
-              principalSockets = await consumersNsp.in(room).fetchSockets();
-            }
-            const ids = new Set<string>();
-            for (const recipient of principalSockets) {
-              const principalSub = (recipient.data as { user?: { sub?: unknown } })?.user?.sub;
-              if (typeof principalSub === "string" && principalSub.trim() !== "") {
-                ids.add(principalSub.trim());
-              }
-            }
-            recipientPrincipalIds = Array.from(ids);
-          } catch (error: unknown) {
-            logger.warn("custom_socket_event_recipient_principal_resolution_failed", {
-              eventName: event.eventName,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-        consumersNsp.to(room).emit(event.eventName, frame);
-        return {
-          recipients: recipientCount.recipients,
-          ...(recipientCount.recipientCountBestEffort ? { recipientCountBestEffort: true } : {}),
-          ...(recipientPrincipalIds !== undefined ? { recipientPrincipalIds } : {}),
-        };
-      },
-    }),
+    registerConsumerSocketEventHandler(
+      buildConsumerSocketPublishHandler({
+        consumersNsp,
+        customEventDistributedCountCircuit: state.customEventDistributedCountCircuit,
+        countSocketsInRoom: (namespace, room, options) =>
+          countSocketsInRoom(state, namespace, room, options),
+      }),
+    ),
   );
 
   return io;

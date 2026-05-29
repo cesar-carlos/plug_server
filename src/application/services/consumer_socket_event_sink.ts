@@ -31,7 +31,7 @@ export interface PublishConsumerSocketEventResult {
   readonly recipientPrincipalIds?: ReadonlyArray<string>;
 }
 
-interface ConsumerSocketEventHandler {
+export interface ConsumerSocketEventHandler {
   publish(input: PublishConsumerSocketEventInput): Promise<PublishConsumerSocketEventResult>;
 }
 

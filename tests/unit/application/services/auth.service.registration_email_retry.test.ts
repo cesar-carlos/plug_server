@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthService } from "../../../../src/application/services/auth.service";
+import { UserRegistrationService } from "../../../../src/application/services/user_registration.service";
 import { RegistrationApprovalToken } from "../../../../src/domain/entities/registration_approval_token.entity";
 import { User } from "../../../../src/domain/entities/user.entity";
 import { env } from "../../../../src/shared/config/env";
@@ -10,41 +10,31 @@ describe("AuthService registration email retry", () => {
   const registerExecute = vi.fn();
   const hash = vi.fn();
   const compare = vi.fn();
-  const refreshSave = vi.fn();
-  const assertAccess = vi.fn();
   const sendAdminApprovalRequest = vi.fn();
   const sendUserPendingRegistration = vi.fn();
   const sendUserApproved = vi.fn();
   const sendUserRejected = vi.fn();
 
-  const buildService = (): AuthService =>
-    new AuthService(
+  const buildService = (): UserRegistrationService =>
+    new UserRegistrationService(
       { execute: registerExecute } as never,
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
       { save: vi.fn(), findById: vi.fn(), deleteById: vi.fn(), deleteByUserId: vi.fn() } as never,
-      { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
-      { hash, compare } as never,
-      { save: refreshSave } as never,
-      { assertAccess } as never,
-      {
-        sendAdminApprovalRequest,
-        sendUserPendingRegistration,
-        sendUserApproved,
-        sendUserRejected,
-      } as never,
       {
         findById: vi.fn(),
         findByEmail: vi.fn(),
         findByCelular: vi.fn(),
         findActiveSnapshotById: vi.fn(),
         save: vi.fn(),
+      } as never,
+      { hash, compare } as never,
+      {
+        sendAdminApprovalRequest,
+        sendUserPendingRegistration,
+        sendUserApproved,
+        sendUserRejected,
       } as never,
     );
 
@@ -56,8 +46,6 @@ describe("AuthService registration email retry", () => {
 
     hash.mockResolvedValue("hashed-password");
     compare.mockResolvedValue(false);
-    refreshSave.mockResolvedValue(undefined);
-    assertAccess.mockResolvedValue(ok(undefined));
 
     const user = User.create({
       id: "f7a5f000-7c03-4fca-8fca-c9cf216bb3f4",

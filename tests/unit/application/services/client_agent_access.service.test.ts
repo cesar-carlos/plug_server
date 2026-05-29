@@ -10,7 +10,9 @@ import type {
   ClientAgentAccessRejectTxnInput,
   IClientAgentAccessApprovalTxn,
 } from "../../../../src/domain/ports/client_agent_access_approval_txn.port";
-import { ClientAgentAccessService } from "../../../../src/application/services/client_agent_access.service";
+import { ClientAgentAccessQueryService } from "../../../../src/application/services/client_agent_access_query.service";
+import { ClientAgentAccessRequestService } from "../../../../src/application/services/client_agent_access_request.service";
+import { ClientAgentAccessDecisionService } from "../../../../src/application/services/client_agent_access_decision.service";
 import { InMemoryAgentIdentityRepository } from "../../../../src/infrastructure/repositories/in_memory_agent_identity.repository";
 import { InMemoryAgentRepository } from "../../../../src/infrastructure/repositories/in_memory_agent.repository";
 import { InMemoryClientAgentAccessApprovalTokenRepository } from "../../../../src/infrastructure/repositories/in_memory_client_agent_access_approval_token.repository";
@@ -91,7 +93,9 @@ describe("ClientAgentAccessService", () => {
   let tokenRepository: InMemoryClientAgentAccessApprovalTokenRepository;
   let emailSender: FakeEmailSender;
   let approvalTxn: InMemoryClientAgentAccessApprovalTxn;
-  let service: ClientAgentAccessService;
+  let queryService: ClientAgentAccessQueryService;
+  let requestService: ClientAgentAccessRequestService;
+  let decisionService: ClientAgentAccessDecisionService;
   const socketControlDisposers: Array<() => void> = [];
 
   beforeEach(async () => {
@@ -121,7 +125,13 @@ describe("ClientAgentAccessService", () => {
       accessRepository,
       tokenRepository,
     );
-    service = new ClientAgentAccessService(
+    queryService = new ClientAgentAccessQueryService(
+      agentRepository,
+      clientRepository,
+      accessRepository,
+      requestRepository,
+    );
+    requestService = new ClientAgentAccessRequestService(
       agentRepository,
       identityRepository,
       clientRepository,
@@ -131,6 +141,15 @@ describe("ClientAgentAccessService", () => {
       tokenRepository,
       emailSender,
       pendingWriter,
+    );
+    decisionService = new ClientAgentAccessDecisionService(
+      agentRepository,
+      identityRepository,
+      clientRepository,
+      accessRepository,
+      requestRepository,
+      tokenRepository,
+      emailSender,
       approvalTxn,
     );
 
@@ -183,7 +202,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("should reject request when agent does not exist", async () => {
-    const result = await service.requestAccess(clientId, ["f6f3f9f2-2533-4bb7-b595-b078f5b742cb"]);
+    const result = await requestService.requestAccess(clientId, ["f6f3f9f2-2533-4bb7-b595-b078f5b742cb"]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("NOT_FOUND");
@@ -191,7 +210,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("should create request and notify owner", async () => {
-    const result = await service.requestAccess(clientId, [agentId]);
+    const result = await requestService.requestAccess(clientId, [agentId]);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.requested).toEqual([agentId]);
@@ -206,12 +225,12 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("should approve request and notify client", async () => {
-    const requestResult = await service.requestAccess(clientId, [agentId]);
+    const requestResult = await requestService.requestAccess(clientId, [agentId]);
     expect(requestResult.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
 
-    const approved = await service.approveByToken(token!);
+    const approved = await decisionService.approveByToken(token!);
     expect(approved.ok).toBe(true);
     expect(emailSender.clientApproved).toHaveLength(1);
 
@@ -229,12 +248,12 @@ describe("ClientAgentAccessService", () => {
       }),
     );
 
-    const requestResult = await service.requestAccess(clientId, [agentId]);
+    const requestResult = await requestService.requestAccess(clientId, [agentId]);
     expect(requestResult.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
 
-    const approved = await service.approveByToken(token!);
+    const approved = await decisionService.approveByToken(token!);
     expect(approved.ok).toBe(true);
     expect(grantClientAccess).toHaveBeenCalledWith({
       clientId,
@@ -243,12 +262,12 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("reopens pending when access row was removed after a prior approval", async () => {
-    const requestResult = await service.requestAccess(clientId, [agentId]);
+    const requestResult = await requestService.requestAccess(clientId, [agentId]);
     expect(requestResult.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
 
-    const approved = await service.approveByToken(token!);
+    const approved = await decisionService.approveByToken(token!);
     expect(approved.ok).toBe(true);
     expect(await accessRepository.hasAccess(clientId, agentId)).toBe(true);
 
@@ -257,7 +276,7 @@ describe("ClientAgentAccessService", () => {
 
     emailSender.ownerAccessRequests = [];
 
-    const again = await service.requestAccess(clientId, [agentId]);
+    const again = await requestService.requestAccess(clientId, [agentId]);
     expect(again.ok).toBe(true);
     if (!again.ok) {
       return;
@@ -274,14 +293,14 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("marks access request revoked when client removes approved access", async () => {
-    const requestResult = await service.requestAccess(clientId, [agentId]);
+    const requestResult = await requestService.requestAccess(clientId, [agentId]);
     expect(requestResult.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
-    const approved = await service.approveByToken(token!);
+    const approved = await decisionService.approveByToken(token!);
     expect(approved.ok).toBe(true);
 
-    const remove = await service.removeApprovedAccess(clientId, [agentId]);
+    const remove = await requestService.removeApprovedAccess(clientId, [agentId]);
     expect(remove.ok).toBe(true);
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored?.status).toBe("revoked");
@@ -303,7 +322,7 @@ describe("ClientAgentAccessService", () => {
     await accessRepository.addAccess(clientId, agentId);
 
     const missingAgentId = "d74b7e1b-1b7d-4420-8751-b7a6d0df59bc";
-    const remove = await service.removeApprovedAccess(clientId, [agentId, missingAgentId]);
+    const remove = await requestService.removeApprovedAccess(clientId, [agentId, missingAgentId]);
 
     expect(remove.ok).toBe(true);
     expect(revokedEvents).toEqual([{ clientId, agentId }]);
@@ -319,23 +338,23 @@ describe("ClientAgentAccessService", () => {
       }),
     );
 
-    const remove = await service.removeApprovedAccess(clientId, [agentId]);
+    const remove = await requestService.removeApprovedAccess(clientId, [agentId]);
 
     expect(remove.ok).toBe(true);
     expect(revokeClientAccess).not.toHaveBeenCalled();
   });
 
   it("should reset decision metadata when reopening a processed request", async () => {
-    const initialRequest = await service.requestAccess(clientId, [agentId]);
+    const initialRequest = await requestService.requestAccess(clientId, [agentId]);
     expect(initialRequest.ok).toBe(true);
 
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
 
-    const rejected = await service.rejectByToken(token!, "Needs review");
+    const rejected = await decisionService.rejectByToken(token!, "Needs review");
     expect(rejected.ok).toBe(true);
 
-    const reopened = await service.requestAccess(clientId, [agentId]);
+    const reopened = await requestService.requestAccess(clientId, [agentId]);
     expect(reopened.ok).toBe(true);
     if (!reopened.ok) {
       return;
@@ -351,13 +370,13 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("returns 404 when another client tries to retry the request", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
 
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
 
-    const retried = await service.retryRequestByClient(otherClientId, stored!.id);
+    const retried = await requestService.retryRequestByClient(otherClientId, stored!.id);
     expect(retried.ok).toBe(false);
     if (!retried.ok) {
       expect(retried.error.code).toBe("NOT_FOUND");
@@ -365,14 +384,14 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("debounces retry while the request is still pending", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     emailSender.ownerAccessRequests = [];
 
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
 
-    const retried = await service.retryRequestByClient(clientId, stored!.id);
+    const retried = await requestService.retryRequestByClient(clientId, stored!.id);
     expect(retried.ok).toBe(true);
     if (!retried.ok) {
       return;
@@ -383,19 +402,19 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("returns alreadyApproved when retrying an approved request with active access", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
 
-    const approved = await service.approveByToken(token!);
+    const approved = await decisionService.approveByToken(token!);
     expect(approved.ok).toBe(true);
     emailSender.ownerAccessRequests = [];
 
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored?.status).toBe("approved");
 
-    const retried = await service.retryRequestByClient(clientId, stored!.id);
+    const retried = await requestService.retryRequestByClient(clientId, stored!.id);
     expect(retried.ok).toBe(true);
     if (!retried.ok) {
       return;
@@ -411,7 +430,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("removes the public approval token when the owner approves by inbox route", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
@@ -419,13 +438,13 @@ describe("ClientAgentAccessService", () => {
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
 
-    const approved = await service.approveByOwner(ownerUserId, stored!.id);
+    const approved = await decisionService.approveByOwner(ownerUserId, stored!.id);
     expect(approved.ok).toBe(true);
     await expect(tokenRepository.findById(token!)).resolves.toBeNull();
   });
 
   it("removes the public approval token when the owner rejects by inbox route", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
@@ -433,7 +452,7 @@ describe("ClientAgentAccessService", () => {
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
 
-    const rejected = await service.rejectByOwner(ownerUserId, stored!.id, "No access");
+    const rejected = await decisionService.rejectByOwner(ownerUserId, stored!.id, "No access");
     expect(rejected.ok).toBe(true);
     await expect(tokenRepository.findById(token!)).resolves.toBeNull();
   });
@@ -447,28 +466,18 @@ describe("ClientAgentAccessService", () => {
       document: "11222333000181",
     });
     const refreshAgentProfile = vi.fn(async () => refreshed);
-    const pendingWriter = new SequentialPendingClientAgentAccessWriter(
-      requestRepository,
-      tokenRepository,
-    );
-    service = new ClientAgentAccessService(
+    queryService = new ClientAgentAccessQueryService(
       agentRepository,
-      identityRepository,
       clientRepository,
-      userRepository,
       accessRepository,
       requestRepository,
-      tokenRepository,
-      emailSender,
-      pendingWriter,
-      approvalTxn,
       {
         isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
         refreshAgentProfile,
       },
     );
 
-    const result = await service.findApprovedAgent(clientId, agentId);
+    const result = await queryService.findApprovedAgent(clientId, agentId);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -484,28 +493,18 @@ describe("ClientAgentAccessService", () => {
     const refreshAgentProfile = vi.fn(async () => {
       throw new Error("agent.getProfile failed");
     });
-    const pendingWriter = new SequentialPendingClientAgentAccessWriter(
-      requestRepository,
-      tokenRepository,
-    );
-    service = new ClientAgentAccessService(
+    queryService = new ClientAgentAccessQueryService(
       agentRepository,
-      identityRepository,
       clientRepository,
-      userRepository,
       accessRepository,
       requestRepository,
-      tokenRepository,
-      emailSender,
-      pendingWriter,
-      approvalTxn,
       {
         isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
         refreshAgentProfile,
       },
     );
 
-    const result = await service.findApprovedAgent(clientId, agentId);
+    const result = await queryService.findApprovedAgent(clientId, agentId);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -516,7 +515,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("returns not found when client does not exist for requestAccess", async () => {
-    const result = await service.requestAccess("00000000-0000-4000-8000-000000000099", [agentId]);
+    const result = await requestService.requestAccess("00000000-0000-4000-8000-000000000099", [agentId]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("NOT_FOUND");
@@ -535,7 +534,7 @@ describe("ClientAgentAccessService", () => {
         status: "blocked",
       }),
     );
-    const result = await service.requestAccess(clientId, [agentId]);
+    const result = await requestService.requestAccess(clientId, [agentId]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("FORBIDDEN");
@@ -552,7 +551,7 @@ describe("ClientAgentAccessService", () => {
       }),
     );
     await identityRepository.bindIfUnbound(inactiveAgentId, ownerUserId);
-    const result = await service.requestAccess(clientId, [inactiveAgentId]);
+    const result = await requestService.requestAccess(clientId, [inactiveAgentId]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("CONFLICT");
@@ -560,7 +559,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("approveByToken returns forbidden when client account is no longer active", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests.at(-1)?.token;
     expect(tokenId).toBeTruthy();
     await clientRepository.save(
@@ -574,7 +573,7 @@ describe("ClientAgentAccessService", () => {
         status: "blocked",
       }),
     );
-    const r = await service.approveByToken(tokenId!);
+    const r = await decisionService.approveByToken(tokenId!);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("FORBIDDEN");
@@ -582,10 +581,10 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("returns review summary by approval token (findReviewSummaryById path)", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
-    const summary = await service.getReviewSummaryByToken(tokenId!);
+    const summary = await decisionService.getReviewSummaryByToken(tokenId!);
     expect(summary).not.toBeNull();
     expect(summary?.clientEmail).toBe("client@example.com");
     expect(summary?.agentId).toBe(agentId);
@@ -595,7 +594,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("getReviewSummaryByToken marks tokenStatus expired when summary expiresAt is past", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
     const stored = await tokenRepository.findById(tokenId!);
@@ -604,17 +603,17 @@ describe("ClientAgentAccessService", () => {
       ...stored!,
       expiresAt: new Date(Date.now() - 60_000),
     });
-    const summary = await service.getReviewSummaryByToken(tokenId!);
+    const summary = await decisionService.getReviewSummaryByToken(tokenId!);
     expect(summary?.tokenStatus).toBe("expired");
     expect(summary?.requestStatus).toBe("pending");
   });
 
   it("returns null for unknown review token", async () => {
-    await expect(service.getReviewSummaryByToken("totally-unknown-token")).resolves.toBeNull();
+    await expect(decisionService.getReviewSummaryByToken("totally-unknown-token")).resolves.toBeNull();
   });
 
   it("getRequestStatusByToken returns NOT_FOUND for unknown token", async () => {
-    const r = await service.getRequestStatusByToken("missing-token");
+    const r = await decisionService.getRequestStatusByToken("missing-token");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -622,7 +621,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("getRequestStatusByToken returns expired when token is past expiresAt", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
@@ -632,7 +631,7 @@ describe("ClientAgentAccessService", () => {
       ...stored!,
       expiresAt: new Date(Date.now() - 60_000),
     });
-    const r = await service.getRequestStatusByToken(tokenId!);
+    const r = await decisionService.getRequestStatusByToken(tokenId!);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.status).toBe("expired");
@@ -640,10 +639,10 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("getRequestStatusByToken returns request status when token is valid", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
-    const r = await service.getRequestStatusByToken(tokenId!);
+    const r = await decisionService.getRequestStatusByToken(tokenId!);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.status).toBe("pending");
@@ -657,7 +656,7 @@ describe("ClientAgentAccessService", () => {
       expiresAt: new Date(Date.now() + 3600_000),
       createdAt: new Date(),
     });
-    const r = await service.getRequestStatusByToken("orphan-access-token");
+    const r = await decisionService.getRequestStatusByToken("orphan-access-token");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -665,8 +664,8 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("lists access requests for owner inbox", async () => {
-    await service.requestAccess(clientId, [agentId]);
-    const page = await service.listRequestsByOwnerPage(ownerUserId, {
+    await requestService.requestAccess(clientId, [agentId]);
+    const page = await decisionService.listRequestsByOwnerPage(ownerUserId, {
       status: "pending",
       page: 1,
       pageSize: 10,
@@ -679,14 +678,14 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("lists clients connected to an agent for the owning user with search", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
-    const approved = await service.approveByToken(token!);
+    const approved = await decisionService.approveByToken(token!);
     expect(approved.ok).toBe(true);
 
-    const page = await service.listAgentClientsByOwnerPage(ownerUserId, agentId, {
+    const page = await decisionService.listAgentClientsByOwnerPage(ownerUserId, agentId, {
       search: "client@exam",
       page: 1,
       pageSize: 10,
@@ -703,11 +702,11 @@ describe("ClientAgentAccessService", () => {
     await accessRepository.addAccess(otherClientId, agentId, approvedAt);
     await accessRepository.addAccess(clientId, agentId, approvedAt);
 
-    const firstPage = await service.listAgentClientsByOwnerPage(ownerUserId, agentId, {
+    const firstPage = await decisionService.listAgentClientsByOwnerPage(ownerUserId, agentId, {
       page: 1,
       pageSize: 1,
     });
-    const secondPage = await service.listAgentClientsByOwnerPage(ownerUserId, agentId, {
+    const secondPage = await decisionService.listAgentClientsByOwnerPage(ownerUserId, agentId, {
       page: 2,
       pageSize: 1,
     });
@@ -726,14 +725,14 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("revokes approved access by owner", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
-    await service.approveByToken(token!);
+    await decisionService.approveByToken(token!);
     expect(await accessRepository.hasAccess(clientId, agentId)).toBe(true);
 
-    const revoked = await service.revokeAccessByOwner(ownerUserId, agentId, clientId);
+    const revoked = await decisionService.revokeAccessByOwner(ownerUserId, agentId, clientId);
     expect(revoked.ok).toBe(true);
     expect(await accessRepository.hasAccess(clientId, agentId)).toBe(false);
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
@@ -751,7 +750,7 @@ describe("ClientAgentAccessService", () => {
         status: "active",
       }),
     );
-    const revoked = await service.revokeAccessByOwner(otherOwnerId, agentId, clientId);
+    const revoked = await decisionService.revokeAccessByOwner(otherOwnerId, agentId, clientId);
     expect(revoked.ok).toBe(false);
     if (!revoked.ok) {
       expect(revoked.error.code).toBe("AGENT_ACCESS_DENIED");
@@ -759,17 +758,17 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("reopens request when status is approved but the access row was removed", async () => {
-    const created = await service.requestAccess(clientId, [agentId]);
+    const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);
     const token = emailSender.ownerAccessRequests[0]?.token;
     expect(token).toBeTruthy();
-    await service.approveByToken(token!);
+    await decisionService.approveByToken(token!);
     await accessRepository.removeAccess(clientId, agentId);
 
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored?.status).toBe("approved");
 
-    const retried = await service.retryRequestByClient(clientId, stored!.id);
+    const retried = await requestService.retryRequestByClient(clientId, stored!.id);
     expect(retried.ok).toBe(true);
     if (retried.ok) {
       expect(retried.value.reopened).toEqual([agentId]);
@@ -792,7 +791,7 @@ describe("ClientAgentAccessService", () => {
     });
     await requestRepository.save(existing);
 
-    const result = await service.requestAccess(clientId, [agentId]);
+    const result = await requestService.requestAccess(clientId, [agentId]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("CONFLICT");
@@ -800,7 +799,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("returns registration expired when approveByToken is past expiresAt", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
     const stored = await tokenRepository.findById(tokenId!);
@@ -809,7 +808,7 @@ describe("ClientAgentAccessService", () => {
       ...stored!,
       expiresAt: new Date(Date.now() - 1000),
     });
-    const r = await service.approveByToken(tokenId!);
+    const r = await decisionService.approveByToken(tokenId!);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("REGISTRATION_TOKEN_EXPIRED");
@@ -817,13 +816,13 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("returns conflict when owner approves the same request twice", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
 
-    const first = await service.approveByOwner(ownerUserId, stored!.id);
+    const first = await decisionService.approveByOwner(ownerUserId, stored!.id);
     expect(first.ok).toBe(true);
-    const second = await service.approveByOwner(ownerUserId, stored!.id);
+    const second = await decisionService.approveByOwner(ownerUserId, stored!.id);
     expect(second.ok).toBe(false);
     if (!second.ok) {
       expect(second.error.code).toBe("CONFLICT");
@@ -831,10 +830,10 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("rejectByToken notifies client and sets request rejected", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
-    const rejected = await service.rejectByToken(tokenId!, "Policy");
+    const rejected = await decisionService.rejectByToken(tokenId!, "Policy");
     expect(rejected.ok).toBe(true);
     expect(emailSender.clientRejected).toHaveLength(1);
     expect(emailSender.clientRejected[0]).toMatchObject({
@@ -848,7 +847,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("rejectByToken returns REGISTRATION_TOKEN_EXPIRED when link is past expiresAt", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
     const stored = await tokenRepository.findById(tokenId!);
@@ -856,7 +855,7 @@ describe("ClientAgentAccessService", () => {
       ...stored!,
       expiresAt: new Date(Date.now() - 1000),
     });
-    const r = await service.rejectByToken(tokenId!);
+    const r = await decisionService.rejectByToken(tokenId!);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("REGISTRATION_TOKEN_EXPIRED");
@@ -864,14 +863,14 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("rejectByToken returns CONFLICT when request is no longer pending", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
     await requestRepository.setStatus(stored!.id, "approved");
 
-    const r = await service.rejectByToken(tokenId!);
+    const r = await decisionService.rejectByToken(tokenId!);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("CONFLICT");
@@ -890,11 +889,11 @@ describe("ClientAgentAccessService", () => {
         status: "active",
       }),
     );
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
 
-    const r = await service.rejectByOwner(otherOwnerId, stored!.id, "No");
+    const r = await decisionService.rejectByOwner(otherOwnerId, stored!.id, "No");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("AGENT_ACCESS_DENIED");
@@ -902,13 +901,13 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("rejectByOwner returns CONFLICT when request was already processed", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
 
-    const first = await service.rejectByOwner(ownerUserId, stored!.id, "Once");
+    const first = await decisionService.rejectByOwner(ownerUserId, stored!.id, "Once");
     expect(first.ok).toBe(true);
-    const second = await service.rejectByOwner(ownerUserId, stored!.id, "Twice");
+    const second = await decisionService.rejectByOwner(ownerUserId, stored!.id, "Twice");
     expect(second.ok).toBe(false);
     if (!second.ok) {
       expect(second.error.code).toBe("CONFLICT");
@@ -916,7 +915,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("approveByToken returns NOT_FOUND for unknown token", async () => {
-    const r = await service.approveByToken("unknown-approval-token");
+    const r = await decisionService.approveByToken("unknown-approval-token");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -930,7 +929,7 @@ describe("ClientAgentAccessService", () => {
       expiresAt: new Date(Date.now() + 3600_000),
       createdAt: new Date(),
     });
-    const r = await service.approveByToken("orphan-approve-token");
+    const r = await decisionService.approveByToken("orphan-approve-token");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -939,14 +938,14 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("approveByToken returns CONFLICT when request is no longer pending", async () => {
-    await service.requestAccess(clientId, [agentId]);
+    await requestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests[0]?.token;
     expect(tokenId).toBeTruthy();
     const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
     expect(stored).not.toBeNull();
     await requestRepository.setStatus(stored!.id, "rejected", { reason: "x" });
 
-    const r = await service.approveByToken(tokenId!);
+    const r = await decisionService.approveByToken(tokenId!);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("CONFLICT");
@@ -967,7 +966,7 @@ describe("ClientAgentAccessService", () => {
       expiresAt: new Date(Date.now() + 3600_000),
       createdAt: new Date(),
     });
-    const r = await service.approveByToken("approve-missing-client-token");
+    const r = await decisionService.approveByToken("approve-missing-client-token");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -975,7 +974,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("rejectByToken returns NOT_FOUND for unknown token", async () => {
-    const r = await service.rejectByToken("missing-reject-token");
+    const r = await decisionService.rejectByToken("missing-reject-token");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -989,7 +988,7 @@ describe("ClientAgentAccessService", () => {
       expiresAt: new Date(Date.now() + 3600_000),
       createdAt: new Date(),
     });
-    const r = await service.rejectByToken("orphan-reject-token");
+    const r = await decisionService.rejectByToken("orphan-reject-token");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -1010,7 +1009,7 @@ describe("ClientAgentAccessService", () => {
       expiresAt: new Date(Date.now() + 3600_000),
       createdAt: new Date(),
     });
-    const r = await service.rejectByToken("reject-missing-client-token");
+    const r = await decisionService.rejectByToken("reject-missing-client-token");
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.agentId).toBe(agentId);
@@ -1029,7 +1028,7 @@ describe("ClientAgentAccessService", () => {
       accessRepository,
       bareTokenRepo,
     );
-    const fallbackService = new ClientAgentAccessService(
+    const fallbackRequestService = new ClientAgentAccessRequestService(
       agentRepository,
       identityRepository,
       clientRepository,
@@ -1039,12 +1038,21 @@ describe("ClientAgentAccessService", () => {
       bareTokenRepo,
       emailSender,
       pendingWriter,
+    );
+    const fallbackDecisionService = new ClientAgentAccessDecisionService(
+      agentRepository,
+      identityRepository,
+      clientRepository,
+      accessRepository,
+      requestRepository,
+      bareTokenRepo,
+      emailSender,
       fallbackApprovalTxn,
     );
-    await fallbackService.requestAccess(clientId, [agentId]);
+    await fallbackRequestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests.at(-1)?.token;
     expect(tokenId).toBeTruthy();
-    const summary = await fallbackService.getReviewSummaryByToken(tokenId!);
+    const summary = await fallbackDecisionService.getReviewSummaryByToken(tokenId!);
     expect(summary).not.toBeNull();
     expect(summary?.clientEmail).toBe("client@example.com");
     expect(summary?.agentName).toBe("Agent A");
@@ -1061,7 +1069,7 @@ describe("ClientAgentAccessService", () => {
       accessRepository,
       bareTokenRepo,
     );
-    const fallbackService = new ClientAgentAccessService(
+    const fallbackRequestService = new ClientAgentAccessRequestService(
       agentRepository,
       identityRepository,
       clientRepository,
@@ -1071,17 +1079,26 @@ describe("ClientAgentAccessService", () => {
       bareTokenRepo,
       emailSender,
       pendingWriter,
+    );
+    const fallbackDecisionService = new ClientAgentAccessDecisionService(
+      agentRepository,
+      identityRepository,
+      clientRepository,
+      accessRepository,
+      requestRepository,
+      bareTokenRepo,
+      emailSender,
       fallbackApprovalTxn,
     );
-    await fallbackService.requestAccess(clientId, [agentId]);
+    await fallbackRequestService.requestAccess(clientId, [agentId]);
     const tokenId = emailSender.ownerAccessRequests.at(-1)?.token;
     expect(tokenId).toBeTruthy();
     await clientRepository.deleteById(clientId);
-    await expect(fallbackService.getReviewSummaryByToken(tokenId!)).resolves.toBeNull();
+    await expect(fallbackDecisionService.getReviewSummaryByToken(tokenId!)).resolves.toBeNull();
   });
 
   it("revokeAccessByOwner returns NOT_FOUND when client does not exist", async () => {
-    const r = await service.revokeAccessByOwner(
+    const r = await decisionService.revokeAccessByOwner(
       ownerUserId,
       agentId,
       "00000000-0000-4000-8000-0000000000cc",
@@ -1093,7 +1110,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("approveByOwner returns NOT_FOUND when request id is unknown", async () => {
-    const r = await service.approveByOwner(ownerUserId, "00000000-0000-4000-8000-0000000000dd");
+    const r = await decisionService.approveByOwner(ownerUserId, "00000000-0000-4000-8000-0000000000dd");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -1107,7 +1124,7 @@ describe("ClientAgentAccessService", () => {
       agentId,
     });
     await requestRepository.save(pending);
-    const r = await service.approveByOwner(ownerUserId, pending.id);
+    const r = await decisionService.approveByOwner(ownerUserId, pending.id);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -1115,7 +1132,7 @@ describe("ClientAgentAccessService", () => {
   });
 
   it("rejectByOwner returns NOT_FOUND when request id is unknown", async () => {
-    const r = await service.rejectByOwner(ownerUserId, "00000000-0000-4000-8000-0000000000ee");
+    const r = await decisionService.rejectByOwner(ownerUserId, "00000000-0000-4000-8000-0000000000ee");
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe("NOT_FOUND");
@@ -1129,7 +1146,7 @@ describe("ClientAgentAccessService", () => {
       agentId,
     });
     await requestRepository.save(pending);
-    const r = await service.rejectByOwner(ownerUserId, pending.id, "x");
+    const r = await decisionService.rejectByOwner(ownerUserId, pending.id, "x");
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.agentId).toBe(agentId);
@@ -1154,22 +1171,20 @@ describe("ClientAgentAccessService", () => {
 
     const createServiceWithApprovalTxn = (
       txn: IClientAgentAccessApprovalTxn,
-    ): ClientAgentAccessService =>
-      new ClientAgentAccessService(
+    ): ClientAgentAccessDecisionService =>
+      new ClientAgentAccessDecisionService(
         agentRepository,
         identityRepository,
         clientRepository,
-        userRepository,
         accessRepository,
         requestRepository,
         tokenRepository,
         emailSender,
-        new SequentialPendingClientAgentAccessWriter(requestRepository, tokenRepository),
         txn,
       );
 
     it("approveByToken returns SERVICE_UNAVAILABLE when txn throws", async () => {
-      const requestResult = await service.requestAccess(clientId, [agentId]);
+      const requestResult = await requestService.requestAccess(clientId, [agentId]);
       expect(requestResult.ok).toBe(true);
       const token = emailSender.ownerAccessRequests.at(-1)?.token;
       expect(token).toBeTruthy();
@@ -1182,7 +1197,7 @@ describe("ClientAgentAccessService", () => {
     });
 
     it("rejectByToken returns SERVICE_UNAVAILABLE when txn throws", async () => {
-      const requestResult = await service.requestAccess(clientId, [agentId]);
+      const requestResult = await requestService.requestAccess(clientId, [agentId]);
       expect(requestResult.ok).toBe(true);
       const token = emailSender.ownerAccessRequests.at(-1)?.token;
       expect(token).toBeTruthy();
@@ -1195,7 +1210,7 @@ describe("ClientAgentAccessService", () => {
     });
 
     it("approveByOwner returns SERVICE_UNAVAILABLE when txn throws", async () => {
-      const requestResult = await service.requestAccess(clientId, [agentId]);
+      const requestResult = await requestService.requestAccess(clientId, [agentId]);
       expect(requestResult.ok).toBe(true);
       const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
       expect(stored).not.toBeNull();
@@ -1211,7 +1226,7 @@ describe("ClientAgentAccessService", () => {
     });
 
     it("rejectByOwner returns SERVICE_UNAVAILABLE when txn throws", async () => {
-      const requestResult = await service.requestAccess(clientId, [agentId]);
+      const requestResult = await requestService.requestAccess(clientId, [agentId]);
       expect(requestResult.ok).toBe(true);
       const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
       expect(stored).not.toBeNull();

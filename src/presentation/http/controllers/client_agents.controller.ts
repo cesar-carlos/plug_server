@@ -31,7 +31,7 @@ import { toClientAgentDto } from "../mappers/client_agent.mapper";
 export const listMyClientAgents = async (_request: Request, response: Response): Promise<void> => {
   const authClient = getAuthClient(response);
   const query = getValidated<ClientListAgentsQuery>(response, "query");
-  const pageResult = await container.clientAgentAccessService.listApprovedAgentsPage(
+  const pageResult = await container.clientAgentAccessQueryService.listApprovedAgentsPage(
     authClient.sub,
     {
       ...(query.status !== undefined ? { status: query.status } : {}),
@@ -68,8 +68,8 @@ export const getMyClientAgent = async (
   // `findApprovedAgent` and `hasClientTokenForAgent` are independent reads; run
   // them concurrently to halve the round-trips on the detail endpoint.
   const [result, hasClientToken] = await Promise.all([
-    container.clientAgentAccessService.findApprovedAgent(authClient.sub, agentId),
-    container.clientAgentAccessService.hasClientTokenForAgent(authClient.sub, agentId),
+    container.clientAgentAccessQueryService.findApprovedAgent(authClient.sub, agentId),
+    container.clientAgentAccessQueryService.hasClientTokenForAgent(authClient.sub, agentId),
   ]);
   if (!result.ok) {
     next(result.error);
@@ -89,7 +89,7 @@ export const getMyClientAgentToken = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
-  const result = await container.clientAgentAccessService.getClientTokenForAgent(
+  const result = await container.clientAgentTokenService.getClientTokenForAgent(
     authClient.sub,
     agentId,
   );
@@ -111,7 +111,7 @@ export const setMyClientAgentToken = async (
   const authClient = getAuthClient(response);
   const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
   const body = getValidated<ClientAgentTokenBody>(response, "body");
-  const result = await container.clientAgentAccessService.setClientTokenForAgent(
+  const result = await container.clientAgentTokenService.setClientTokenForAgent(
     authClient.sub,
     agentId,
     body.clientToken,
@@ -133,7 +133,7 @@ export const requestMyClientAgents = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const body = getValidated<ClientAgentIdsBody>(response, "body");
-  const result = await container.clientAgentAccessService.requestAccess(
+  const result = await container.clientAgentAccessRequestService.requestAccess(
     authClient.sub,
     body.agentIds,
   );
@@ -151,7 +151,7 @@ export const removeMyClientAgents = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const body = getValidated<ClientAgentIdsBody>(response, "body");
-  const result = await container.clientAgentAccessService.removeApprovedAccess(
+  const result = await container.clientAgentAccessRequestService.removeApprovedAccess(
     authClient.sub,
     body.agentIds,
   );
@@ -169,9 +169,10 @@ export const removeMyClientAgentByParam = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
-  const result = await container.clientAgentAccessService.removeApprovedAccess(authClient.sub, [
-    agentId,
-  ]);
+  const result = await container.clientAgentAccessRequestService.removeApprovedAccess(
+    authClient.sub,
+    [agentId],
+  );
   if (!result.ok) {
     next(result.error);
     return;
@@ -185,12 +186,15 @@ export const listMyClientAgentAccessRequests = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const query = getValidated<ClientListAgentAccessRequestsQuery>(response, "query");
-  const pageResult = await container.clientAgentAccessService.listRequestsPage(authClient.sub, {
-    ...(query.status !== undefined ? { status: query.status } : {}),
-    ...(query.search !== undefined ? { search: query.search } : {}),
-    ...(query.page !== undefined ? { page: query.page } : {}),
-    ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-  });
+  const pageResult = await container.clientAgentAccessRequestService.listRequestsPage(
+    authClient.sub,
+    {
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(query.search !== undefined ? { search: query.search } : {}),
+      ...(query.page !== undefined ? { page: query.page } : {}),
+      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+    },
+  );
   response.status(200).json({
     requests: pageResult.items.map(toClientAgentAccessRequestDto),
     count: pageResult.items.length,
@@ -207,7 +211,7 @@ export const retryMyClientAgentAccessRequest = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const { requestId } = getValidated<ClientAgentAccessRequestIdParam>(response, "params");
-  const result = await container.clientAgentAccessService.retryRequestByClient(
+  const result = await container.clientAgentAccessRequestService.retryRequestByClient(
     authClient.sub,
     requestId,
   );
@@ -230,7 +234,7 @@ export const clientAccessReviewPage = async (
   const { homeUrl, homeLabel } = approvalHome(lang);
   const approveAction = `${base}/api/v1/client-access/approve`;
   const rejectAction = `${base}/api/v1/client-access/reject`;
-  const summary = await container.clientAgentAccessService.getReviewSummaryByToken(token);
+  const summary = await container.clientAgentAccessDecisionService.getReviewSummaryByToken(token);
 
   let showActionForms = true;
   let readOnlyMessage: string | undefined;
@@ -293,7 +297,7 @@ export const approveClientAccess = async (
   const decision = clientAccessDecisionCopy(lang);
   const body = getValidated<ClientAccessApproveBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.clientAgentAccessService.approveByToken(body.token, {
+  const result = await container.clientAgentAccessDecisionService.approveByToken(body.token, {
     ...(requestId !== undefined ? { requestId } : {}),
   });
   if (!result.ok) {
@@ -322,9 +326,13 @@ export const rejectClientAccess = async (
   const decision = clientAccessDecisionCopy(lang);
   const body = getValidated<ClientAccessRejectBody>(response, "body");
   const requestId = response.locals.requestId as string | undefined;
-  const result = await container.clientAgentAccessService.rejectByToken(body.token, body.reason, {
-    ...(requestId !== undefined ? { requestId } : {}),
-  });
+  const result = await container.clientAgentAccessDecisionService.rejectByToken(
+    body.token,
+    body.reason,
+    {
+      ...(requestId !== undefined ? { requestId } : {}),
+    },
+  );
   if (!result.ok) {
     next(result.error);
     return;
@@ -348,7 +356,7 @@ export const clientAccessStatus = async (
   next: NextFunction,
 ): Promise<void> => {
   const { token } = getValidated<ClientAccessReviewTokenQuery>(response, "query");
-  const result = await container.clientAgentAccessService.getRequestStatusByToken(token);
+  const result = await container.clientAgentAccessDecisionService.getRequestStatusByToken(token);
   if (!result.ok) {
     next(result.error);
     return;

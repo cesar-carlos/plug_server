@@ -31,7 +31,7 @@ export interface ConsumerSocketInvalidateUserAccessSnapshotEvent {
   readonly userId: string;
 }
 
-interface ConsumerSocketControlHandler {
+export interface ConsumerSocketControlHandler {
   disconnectPrincipal(input: ConsumerSocketDisconnectPrincipalEvent): Promise<void>;
   revokeClientAccess(input: ConsumerSocketRevokeClientAccessEvent): Promise<void>;
   grantClientAccess(input: ConsumerSocketGrantClientAccessEvent): Promise<void>;

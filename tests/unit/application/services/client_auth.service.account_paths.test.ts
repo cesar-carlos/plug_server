@@ -6,6 +6,10 @@ vi.mock("../../../../src/application/services/registration_email_outbox.service"
 
 import { enqueueClientRegistrationApprovalEmail } from "../../../../src/application/services/registration_email_outbox.service";
 import { ClientAuthService } from "../../../../src/application/services/client_auth.service";
+import { ClientRegistrationService } from "../../../../src/application/services/client_registration.service";
+import { ClientProfileService } from "../../../../src/application/services/client_profile.service";
+import { ClientManagementService } from "../../../../src/application/services/client_management.service";
+import { ClientPasswordRecoveryService } from "../../../../src/application/services/client_password_recovery.service";
 import { registerConsumerSocketControlHandler } from "../../../../src/application/services/consumer_socket_control_sink";
 import { Client } from "../../../../src/domain/entities/client.entity";
 import { ClientRefreshToken } from "../../../../src/domain/entities/client_refresh_token.entity";
@@ -180,7 +184,11 @@ describe("ClientAuthService account and approval paths", () => {
   let registrationApprovalTokenRepository: TestClientRegistrationApprovalTokenRepository;
   let emailSender: ReturnType<typeof createEmailSender>;
   let fileStorage: TestFileStorage;
-  let service: ClientAuthService;
+  let authService: ClientAuthService;
+  let registrationService: ClientRegistrationService;
+  let profileService: ClientProfileService;
+  let managementService: ClientManagementService;
+  let passwordRecoveryService: ClientPasswordRecoveryService;
   const socketControlDisposers: Array<() => void> = [];
 
   beforeEach(async () => {
@@ -192,19 +200,38 @@ describe("ClientAuthService account and approval paths", () => {
     registrationApprovalTokenRepository = new TestClientRegistrationApprovalTokenRepository();
     emailSender = createEmailSender();
     fileStorage = new TestFileStorage();
-    service = new ClientAuthService(
+    const passwordHasher = new FakePasswordHasher();
+    authService = new ClientAuthService(
       clientRepository,
       refreshTokenRepository,
       passwordRecoveryTokenRepository,
+      passwordHasher,
+    );
+    registrationService = new ClientRegistrationService(
+      clientRepository,
       registrationApprovalTokenRepository,
       new InMemoryClientRegistrationDecisionTxn(
         registrationApprovalTokenRepository,
         clientRepository,
       ),
       userRepository,
-      new FakePasswordHasher(),
+      passwordHasher,
       emailSender,
-      fileStorage,
+    );
+    profileService = new ClientProfileService(clientRepository, fileStorage, authService);
+    managementService = new ClientManagementService(
+      userRepository,
+      clientRepository,
+      refreshTokenRepository,
+      authService,
+    );
+    passwordRecoveryService = new ClientPasswordRecoveryService(
+      clientRepository,
+      passwordRecoveryTokenRepository,
+      refreshTokenRepository,
+      passwordHasher,
+      emailSender,
+      authService,
     );
 
     (env as { registrationEmailAsync: boolean }).registrationEmailAsync = false;
@@ -233,7 +260,7 @@ describe("ClientAuthService account and approval paths", () => {
     vi.mocked(enqueueClientRegistrationApprovalEmail).mockResolvedValue(true);
     (env as { registrationEmailAsync: boolean }).registrationEmailAsync = true;
 
-    const result = await service.register({
+    const result = await registrationService.register({
       ownerEmail: "owner@test.com",
       email: "queued@test.com",
       password: "ClientPwd1",
@@ -249,7 +276,7 @@ describe("ClientAuthService account and approval paths", () => {
   it("surfaces duplicate client registration as conflict", async () => {
     await clientRepository.save(createClient());
 
-    const result = await service.register({
+    const result = await registrationService.register({
       ownerEmail: "owner@test.com",
       email: "client@test.com",
       password: "ClientPwd1",
@@ -264,7 +291,7 @@ describe("ClientAuthService account and approval paths", () => {
   });
 
   it("resolves owner email case-insensitively for register and retry", async () => {
-    const reg = await service.register({
+    const reg = await registrationService.register({
       ownerEmail: "OWNER@TEST.COM",
       email: `case-owner-${Date.now()}@test.com`,
       password: "ClientPwd1",
@@ -280,7 +307,7 @@ describe("ClientAuthService account and approval paths", () => {
       status: "rejected",
     });
     await clientRepository.save(rejectedClient);
-    const retry = await service.retryRejectedRegistration({
+    const retry = await registrationService.retryRejectedRegistration({
       ownerEmail: "Owner@Test.Com",
       email: rejectedClient.email,
       password: "ClientPwd1",
@@ -297,7 +324,7 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(client);
     emailSender.sendClientRegistrationRequestToOwner.mockRejectedValue(new Error("smtp offline"));
 
-    const result = await service.retryRejectedRegistration({
+    const result = await registrationService.retryRejectedRegistration({
       ownerEmail: "owner@test.com",
       email: client.email,
       password: "ClientPwd1",
@@ -317,8 +344,8 @@ describe("ClientAuthService account and approval paths", () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    const summary = await service.getRegistrationReviewSummary("summary-token");
-    const missing = await service.getRegistrationReviewSummary("missing-summary-token");
+    const summary = await registrationService.getRegistrationReviewSummary("summary-token");
+    const missing = await registrationService.getRegistrationReviewSummary("missing-summary-token");
 
     expect(summary).toEqual({
       ownerEmail: "owner@test.com",
@@ -337,7 +364,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    expect(await service.getRegistrationReviewSummary("orphan-token")).toBeNull();
+    expect(await registrationService.getRegistrationReviewSummary("orphan-token")).toBeNull();
 
     const missingOwnerClient = createClient({
       id: "missing-owner-client-id",
@@ -353,7 +380,7 @@ describe("ClientAuthService account and approval paths", () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    expect(await service.getRegistrationReviewSummary("missing-owner-token")).toBeNull();
+    expect(await registrationService.getRegistrationReviewSummary("missing-owner-token")).toBeNull();
   });
 
   it("filters and paginates managed clients for an active owner", async () => {
@@ -375,7 +402,7 @@ describe("ClientAuthService account and approval paths", () => {
       }),
     );
 
-    const result = await service.listManagedClientsPage("owner-id", {
+    const result = await managementService.listManagedClientsPage("owner-id", {
       status: "blocked",
       search: "beta",
       page: 1,
@@ -406,14 +433,14 @@ describe("ClientAuthService account and approval paths", () => {
     });
     await userRepository.save(blockedOwner);
 
-    expect(await service.listManagedClientsPage("missing-owner-id")).toMatchObject({
+    expect(await managementService.listManagedClientsPage("missing-owner-id")).toMatchObject({
       ok: false,
     });
-    expect(await service.findManagedClient("blocked-owner-id", "client-id")).toMatchObject({
+    expect(await managementService.findManagedClient("blocked-owner-id", "client-id")).toMatchObject({
       ok: false,
     });
     expect(
-      await service.setManagedClientStatus("owner-id", "missing-client-id", "active"),
+      await managementService.setManagedClientStatus("owner-id", "missing-client-id", "active"),
     ).toMatchObject({
       ok: false,
     });
@@ -432,7 +459,7 @@ describe("ClientAuthService account and approval paths", () => {
     const activeClient = createClient({ id: "managed-client-id", email: "managed@test.com" });
     await clientRepository.save(activeClient);
 
-    const loginResult = await service.login({
+    const loginResult = await authService.login({
       email: activeClient.email,
       password: "ClientPwd1",
     });
@@ -449,7 +476,7 @@ describe("ClientAuthService account and approval paths", () => {
       }),
     );
 
-    const blocked = await service.setManagedClientStatus("owner-id", activeClient.id, "blocked");
+    const blocked = await managementService.setManagedClientStatus("owner-id", activeClient.id, "blocked");
     expect(blocked.ok).toBe(true);
     expect((await clientRepository.findById(activeClient.id))?.status).toBe("blocked");
     expect(disconnectPrincipal).toHaveBeenCalledTimes(1);
@@ -468,13 +495,13 @@ describe("ClientAuthService account and approval paths", () => {
       }),
     );
 
-    const refreshWhileBlocked = await service.refresh(blockedRefreshPayload);
+    const refreshWhileBlocked = await authService.refresh(blockedRefreshPayload);
     expect(refreshWhileBlocked.ok).toBe(false);
     if (!refreshWhileBlocked.ok) {
       expect(refreshWhileBlocked.error.code).toBe("FORBIDDEN");
     }
 
-    const unblocked = await service.setManagedClientStatus("owner-id", activeClient.id, "active");
+    const unblocked = await managementService.setManagedClientStatus("owner-id", activeClient.id, "active");
     expect(unblocked.ok).toBe(true);
     expect((await clientRepository.findById(activeClient.id))?.status).toBe("active");
   });
@@ -493,10 +520,10 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(pendingClient);
     await clientRepository.save(activeClient);
 
-    const repeated = await service.setManagedClientStatus("owner-id", activeClient.id, "active");
+    const repeated = await managementService.setManagedClientStatus("owner-id", activeClient.id, "active");
     expect(repeated.ok).toBe(true);
 
-    const invalidPending = await service.setManagedClientStatus(
+    const invalidPending = await managementService.setManagedClientStatus(
       "owner-id",
       pendingClient.id,
       "blocked",
@@ -506,7 +533,7 @@ describe("ClientAuthService account and approval paths", () => {
       expect(invalidPending.error.code).toBe("CONFLICT");
     }
 
-    const invalidTargetStatus = await service.setManagedClientStatus(
+    const invalidTargetStatus = await managementService.setManagedClientStatus(
       "owner-id",
       activeClient.id,
       "rejected",
@@ -525,12 +552,12 @@ describe("ClientAuthService account and approval paths", () => {
     });
     await clientRepository.save(blockedClient);
 
-    const missingLogin = await service.login({ email: "missing@test.com", password: "ClientPwd1" });
-    const blockedLogin = await service.login({
+    const missingLogin = await authService.login({ email: "missing@test.com", password: "ClientPwd1" });
+    const blockedLogin = await authService.login({
       email: blockedClient.email,
       password: "ClientPwd1",
     });
-    const badPassword = await service.login({
+    const badPassword = await authService.login({
       email: blockedClient.email,
       password: "WrongPwd1",
     });
@@ -538,7 +565,7 @@ describe("ClientAuthService account and approval paths", () => {
     expect(blockedLogin.ok).toBe(false);
     expect(badPassword.ok).toBe(false);
 
-    const invalidRefresh = await service.refresh("not-a-jwt");
+    const invalidRefresh = await authService.refresh("not-a-jwt");
     expect(invalidRefresh.ok).toBe(false);
 
     const wrongPrincipalToken = signRefreshToken({
@@ -547,11 +574,11 @@ describe("ClientAuthService account and approval paths", () => {
       principal_type: "user",
       tokenType: "refresh",
     });
-    const wrongPrincipalRefresh = await service.refresh(wrongPrincipalToken);
+    const wrongPrincipalRefresh = await authService.refresh(wrongPrincipalToken);
     expect(wrongPrincipalRefresh.ok).toBe(false);
 
-    const logoutInvalid = await service.logout("not-a-jwt");
-    const logoutWrongPrincipal = await service.logout(wrongPrincipalToken);
+    const logoutInvalid = await authService.logout("not-a-jwt");
+    const logoutWrongPrincipal = await authService.logout(wrongPrincipalToken);
     expect(logoutInvalid).toEqual({ ok: true, value: undefined });
     expect(logoutWrongPrincipal).toEqual({ ok: true, value: undefined });
   });
@@ -583,7 +610,7 @@ describe("ClientAuthService account and approval paths", () => {
         expiresAt: new Date(Date.now() + 60_000),
       }),
     );
-    const missingRefresh = await service.refresh(missingRefreshToken);
+    const missingRefresh = await authService.refresh(missingRefreshToken);
     expect(missingRefresh.ok).toBe(false);
 
     const rejectedRefreshToken = signRefreshToken({
@@ -599,17 +626,17 @@ describe("ClientAuthService account and approval paths", () => {
         expiresAt: new Date(Date.now() + 60_000),
       }),
     );
-    const rejectedRefresh = await service.refresh(rejectedRefreshToken);
+    const rejectedRefresh = await authService.refresh(rejectedRefreshToken);
     expect(rejectedRefresh.ok).toBe(false);
 
-    const missingClient = await service.getActiveClient("missing-client-id");
-    const rejectedActive = await service.getActiveClient(rejectedClient.id);
-    const staleToken = await service.getActiveClient(
+    const missingClient = await authService.getActiveClient("missing-client-id");
+    const rejectedActive = await authService.getActiveClient(rejectedClient.id);
+    const staleToken = await authService.getActiveClient(
       activeClient.id,
       undefined,
       activeClient.credentialsUpdatedAt.getTime() + 1,
     );
-    const usingPreloaded = await service.getActiveClient(activeClient.id, activeClient);
+    const usingPreloaded = await authService.getActiveClient(activeClient.id, activeClient);
     expect(missingClient.ok).toBe(false);
     expect(rejectedActive.ok).toBe(false);
     expect(staleToken.ok).toBe(false);
@@ -630,17 +657,17 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(activeClient);
     await clientRepository.save(blockedClient);
 
-    const first = await service.getActiveClientSnapshot(
+    const first = await authService.getActiveClientSnapshot(
       activeClient.id,
       activeClient.credentialsUpdatedAt.getTime(),
     );
-    const second = await service.getActiveClientSnapshot(
+    const second = await authService.getActiveClientSnapshot(
       activeClient.id,
       activeClient.credentialsUpdatedAt.getTime(),
     );
-    const missing = await service.getActiveClientSnapshot("missing-snapshot-id");
-    const blocked = await service.getActiveClientSnapshot(blockedClient.id);
-    const stale = await service.getActiveClientSnapshot(
+    const missing = await authService.getActiveClientSnapshot("missing-snapshot-id");
+    const blocked = await authService.getActiveClientSnapshot(blockedClient.id);
+    const stale = await authService.getActiveClientSnapshot(
       activeClient.id,
       activeClient.credentialsUpdatedAt.getTime() + 10,
     );
@@ -652,8 +679,8 @@ describe("ClientAuthService account and approval paths", () => {
     expect(blocked.ok).toBe(false);
     expect(stale.ok).toBe(false);
 
-    service.invalidateSnapshotCache(activeClient.id);
-    await service.getActiveClientSnapshot(
+    authService.invalidateSnapshotCache(activeClient.id);
+    await authService.getActiveClientSnapshot(
       activeClient.id,
       activeClient.credentialsUpdatedAt.getTime(),
     );
@@ -669,10 +696,10 @@ describe("ClientAuthService account and approval paths", () => {
     });
     await clientRepository.save(client);
 
-    const noChanges = await service.updateMyProfile(client.id, {}, client);
+    const noChanges = await profileService.updateMyProfile(client.id, {}, client);
     expect(noChanges).toMatchObject({ ok: true });
 
-    const removedThumbnail = await service.updateMyProfile(
+    const removedThumbnail = await profileService.updateMyProfile(
       client.id,
       {
         name: "Updated",
@@ -690,7 +717,7 @@ describe("ClientAuthService account and approval paths", () => {
       status: "blocked",
     });
     await clientRepository.save(blocked);
-    const blockedUpdate = await service.updateMyProfile(blocked.id, { name: "Nope" });
+    const blockedUpdate = await profileService.updateMyProfile(blocked.id, { name: "Nope" });
     expect(blockedUpdate.ok).toBe(false);
   });
 
@@ -702,7 +729,7 @@ describe("ClientAuthService account and approval paths", () => {
     });
     await clientRepository.save(client);
 
-    const success = await service.updateThumbnail(
+    const success = await profileService.updateThumbnail(
       client.id,
       {
         buffer: Buffer.from("image"),
@@ -714,7 +741,7 @@ describe("ClientAuthService account and approval paths", () => {
     expect(fileStorage.deleted).toContain("client-thumbnails/previous.webp");
 
     fileStorage.failOnSave = new Error("invalid image");
-    const invalid = await service.updateThumbnail(client.id, {
+    const invalid = await profileService.updateThumbnail(client.id, {
       buffer: Buffer.from("bad"),
       mimeType: "image/png",
     });
@@ -726,7 +753,7 @@ describe("ClientAuthService account and approval paths", () => {
       status: "blocked",
     });
     await clientRepository.save(blocked);
-    const blockedUpdate = await service.updateThumbnail(blocked.id, {
+    const blockedUpdate = await profileService.updateThumbnail(blocked.id, {
       buffer: Buffer.from("blocked"),
       mimeType: "image/png",
     });
@@ -746,17 +773,17 @@ describe("ClientAuthService account and approval paths", () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    const missing = await service.changePassword({
+    const missing = await authService.changePassword({
       clientId: "missing-password-client-id",
       currentPassword: "ClientPwd1",
       newPassword: "NewPass1",
     });
-    const wrongPassword = await service.changePassword({
+    const wrongPassword = await authService.changePassword({
       clientId: client.id,
       currentPassword: "WrongPwd1",
       newPassword: "NewPass1",
     });
-    const success = await service.changePassword({
+    const success = await authService.changePassword({
       clientId: client.id,
       currentPassword: "ClientPwd1",
       newPassword: "NewPass1",
@@ -782,7 +809,7 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(pending);
     await clientRepository.save(active);
 
-    const missingApprove = await service.approveRegistration("missing-approve-token");
+    const missingApprove = await registrationService.approveRegistration("missing-approve-token");
     expect(missingApprove.ok).toBe(false);
 
     await registrationApprovalTokenRepository.save({
@@ -791,7 +818,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const orphanApprove = await service.approveRegistration("orphan-approve-token");
+    const orphanApprove = await registrationService.approveRegistration("orphan-approve-token");
     expect(orphanApprove.ok).toBe(false);
 
     await registrationApprovalTokenRepository.save({
@@ -800,7 +827,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
-    const expiredApprove = await service.approveRegistration("expired-approve-token");
+    const expiredApprove = await registrationService.approveRegistration("expired-approve-token");
     expect(expiredApprove.ok).toBe(false);
 
     await registrationApprovalTokenRepository.save({
@@ -809,10 +836,10 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const conflictApprove = await service.approveRegistration("already-approved-token");
+    const conflictApprove = await registrationService.approveRegistration("already-approved-token");
     expect(conflictApprove.ok).toBe(false);
 
-    const missingReject = await service.rejectRegistration("missing-reject-token");
+    const missingReject = await registrationService.rejectRegistration("missing-reject-token");
     expect(missingReject.ok).toBe(false);
 
     await registrationApprovalTokenRepository.save({
@@ -821,7 +848,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const orphanReject = await service.rejectRegistration("orphan-reject-token");
+    const orphanReject = await registrationService.rejectRegistration("orphan-reject-token");
     expect(orphanReject.ok).toBe(false);
 
     await registrationApprovalTokenRepository.save({
@@ -830,7 +857,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
-    const expiredReject = await service.rejectRegistration("expired-reject-token");
+    const expiredReject = await registrationService.rejectRegistration("expired-reject-token");
     expect(expiredReject.ok).toBe(false);
 
     await registrationApprovalTokenRepository.save({
@@ -839,7 +866,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const conflictReject = await service.rejectRegistration("already-rejected-token");
+    const conflictReject = await registrationService.rejectRegistration("already-rejected-token");
     expect(conflictReject.ok).toBe(false);
   });
 
@@ -863,7 +890,7 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(client);
     await clientRepository.save(blockedClient);
 
-    const missingStatus = await service.getRegistrationStatus("missing-status-token");
+    const missingStatus = await registrationService.getRegistrationStatus("missing-status-token");
     expect(missingStatus.ok).toBe(false);
 
     await registrationApprovalTokenRepository.save({
@@ -872,7 +899,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
-    const expiredStatus = await service.getRegistrationStatus("expired-status-token");
+    const expiredStatus = await registrationService.getRegistrationStatus("expired-status-token");
     expect(expiredStatus).toEqual({ ok: true, value: { status: "expired" } });
 
     const activeWithStaleToken = createClient({
@@ -887,7 +914,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const staleActiveStatus = await service.getRegistrationStatus("stale-but-active-token");
+    const staleActiveStatus = await registrationService.getRegistrationStatus("stale-but-active-token");
     expect(staleActiveStatus).toEqual({ ok: true, value: { status: "approved" } });
 
     const rejectedWithStaleToken = createClient({
@@ -902,7 +929,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const staleRejectedStatus = await service.getRegistrationStatus("stale-rejected-token");
+    const staleRejectedStatus = await registrationService.getRegistrationStatus("stale-rejected-token");
     expect(staleRejectedStatus).toEqual({ ok: true, value: { status: "rejected" } });
 
     await registrationApprovalTokenRepository.save({
@@ -911,18 +938,18 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const orphanStatusPoll = await service.getRegistrationStatus("orphan-status-token");
+    const orphanStatusPoll = await registrationService.getRegistrationStatus("orphan-status-token");
     expect(orphanStatusPoll.ok).toBe(false);
     expect(await registrationApprovalTokenRepository.findById("orphan-status-token")).toBeNull();
 
-    const inactiveRecovery = await service.requestPasswordRecovery(blockedClient.email);
+    const inactiveRecovery = await passwordRecoveryService.requestPasswordRecovery(blockedClient.email);
     expect(inactiveRecovery).toEqual({ ok: true, value: undefined });
 
     emailSender.sendClientPasswordRecovery.mockRejectedValue(new Error("mail down"));
-    const activeRecovery = await service.requestPasswordRecovery(client.email);
+    const activeRecovery = await passwordRecoveryService.requestPasswordRecovery(client.email);
     expect(activeRecovery).toEqual({ ok: true, value: undefined });
 
-    const missingRecoveryStatus = await service.getPasswordRecoveryStatus("missing-recovery-token");
+    const missingRecoveryStatus = await passwordRecoveryService.getPasswordRecoveryStatus("missing-recovery-token");
     expect(missingRecoveryStatus.ok).toBe(false);
 
     await passwordRecoveryTokenRepository.save({
@@ -931,7 +958,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
-    const expiredRecoveryStatus = await service.getPasswordRecoveryStatus("expired-recovery-token");
+    const expiredRecoveryStatus = await passwordRecoveryService.getPasswordRecoveryStatus("expired-recovery-token");
     expect(expiredRecoveryStatus).toEqual({ ok: true, value: { status: "expired" } });
   });
 
@@ -948,7 +975,7 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(activeClient);
     await clientRepository.save(blockedClient);
 
-    const missing = await service.resetPasswordByRecoveryToken("missing-reset-token", "NewPwd1");
+    const missing = await passwordRecoveryService.resetPasswordByRecoveryToken("missing-reset-token", "NewPwd1");
     expect(missing.ok).toBe(false);
 
     await passwordRecoveryTokenRepository.save({
@@ -957,7 +984,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
-    const expired = await service.resetPasswordByRecoveryToken("expired-reset-token", "NewPwd1");
+    const expired = await passwordRecoveryService.resetPasswordByRecoveryToken("expired-reset-token", "NewPwd1");
     expect(expired.ok).toBe(false);
     expect(await passwordRecoveryTokenRepository.findById("expired-reset-token")).toBeNull();
 
@@ -967,7 +994,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const missingClient = await service.resetPasswordByRecoveryToken(
+    const missingClient = await passwordRecoveryService.resetPasswordByRecoveryToken(
       "missing-client-reset-token",
       "NewPwd1",
     );
@@ -979,7 +1006,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const blocked = await service.resetPasswordByRecoveryToken("blocked-reset-token", "NewPwd1");
+    const blocked = await passwordRecoveryService.resetPasswordByRecoveryToken("blocked-reset-token", "NewPwd1");
     expect(blocked.ok).toBe(false);
 
     await passwordRecoveryTokenRepository.save({
@@ -988,7 +1015,7 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 60_000),
     });
-    const success = await service.resetPasswordByRecoveryToken("active-reset-token", "NewPwd1");
+    const success = await passwordRecoveryService.resetPasswordByRecoveryToken("active-reset-token", "NewPwd1");
     expect(success).toEqual({ ok: true, value: undefined });
   });
 
@@ -1005,8 +1032,8 @@ describe("ClientAuthService account and approval paths", () => {
     await clientRepository.save(activeClient);
     await clientRepository.save(rejectedClient);
 
-    const success = await service.getMeProfile(activeClient.id, activeClient);
-    const rejected = await service.getMeProfile(rejectedClient.id);
+    const success = await authService.getMeProfile(activeClient.id, activeClient);
+    const rejected = await authService.getMeProfile(rejectedClient.id);
 
     expect(success).toMatchObject({ ok: true });
     expect(rejected.ok).toBe(false);
@@ -1020,7 +1047,7 @@ describe("ClientAuthService account and approval paths", () => {
     );
 
     await expect(
-      service.register({
+      registrationService.register({
         ownerEmail: "owner@test.com",
         email: "cleanup-fail@test.com",
         password: "ClientPwd1",

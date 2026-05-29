@@ -120,7 +120,7 @@ const getCachedProfilePushRecipients = async (
   const fetchPromise = (async (): Promise<readonly string[]> => {
     try {
       const clientIds =
-        await container.clientAgentAccessService.listActiveApprovedClientIdsForAgent(agentId);
+        await container.clientAgentAccessQueryService.listActiveApprovedClientIdsForAgent(agentId);
       state.clientProfileRecipientsCacheByAgentId.set(agentId, clientIds);
       return clientIds;
     } finally {
@@ -272,7 +272,7 @@ export const backfillConsumerApprovedAgentRooms = async (
       existingFetch ??
       (async (): Promise<readonly string[]> => {
         try {
-          return await container.clientAgentAccessService.listApprovedAgentIds(clientId);
+          return await container.clientAgentAccessQueryService.listApprovedAgentIds(clientId);
         } finally {
           state.pendingApprovedAgentIdsByClientId.delete(clientId);
         }
@@ -473,7 +473,7 @@ export const reconcileConsumerClientAgentRooms = async (
       async ([clientId, sockets]) => {
         try {
           const approvedAgentIds =
-            await container.clientAgentAccessService.listApprovedAgentIds(clientId);
+            await container.clientAgentAccessQueryService.listApprovedAgentIds(clientId);
           for (const socket of sockets) {
             const result = await reconcileConsumerClientAgentRoomsForSocket(
               socket,

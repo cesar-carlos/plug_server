@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthService } from "../../../../src/application/services/auth.service";
+import { UserRegistrationService } from "../../../../src/application/services/user_registration.service";
 import { User } from "../../../../src/domain/entities/user.entity";
 import { env } from "../../../../src/shared/config/env";
 
@@ -23,12 +23,8 @@ describe("AuthService retryRejectedRegistration", () => {
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
   });
 
-  const buildService = (): AuthService =>
-    new AuthService(
-      { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
+  const buildService = (): UserRegistrationService =>
+    new UserRegistrationService(
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
       { execute: vi.fn() } as never,
@@ -41,23 +37,19 @@ describe("AuthService retryRejectedRegistration", () => {
         deleteById: vi.fn(),
         deleteByUserId: deleteApprovalTokensByUserId,
       } as never,
-      { execute: vi.fn() } as never,
-      { execute: vi.fn() } as never,
-      { hash: vi.fn(), compare } as never,
-      { save: vi.fn() } as never,
-      { assertAccess: vi.fn() } as never,
-      {
-        sendAdminApprovalRequest,
-        sendUserPendingRegistration,
-        sendUserApproved: vi.fn(),
-        sendUserRejected: vi.fn(),
-      } as never,
       {
         findById: vi.fn(),
         findByEmail: findUserByEmail,
         findByCelular: vi.fn(),
         findActiveSnapshotById: vi.fn(),
         save: saveUser,
+      } as never,
+      { hash: vi.fn(), compare } as never,
+      {
+        sendAdminApprovalRequest,
+        sendUserPendingRegistration,
+        sendUserApproved: vi.fn(),
+        sendUserRejected: vi.fn(),
       } as never,
     );
 

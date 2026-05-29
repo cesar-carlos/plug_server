@@ -634,15 +634,15 @@ describe("Client Socket socket:event.publish pub/sub", () => {
     const session = await registerOwnerAndClientSession(server.httpServer, {
       suffix: "socket-bootstrap-dedupe",
     });
-    const original = container.clientAgentAccessService.listApprovedAgentIds.bind(
-      container.clientAgentAccessService,
+    const original = container.clientAgentAccessQueryService.listApprovedAgentIds.bind(
+      container.clientAgentAccessQueryService,
     );
     let releaseFetch: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
     const listSpy = vi
-      .spyOn(container.clientAgentAccessService, "listApprovedAgentIds")
+      .spyOn(container.clientAgentAccessQueryService, "listApprovedAgentIds")
       .mockImplementation(async (clientId: string) => {
         await gate;
         return original(clientId);
@@ -672,15 +672,16 @@ describe("Client Socket socket:event.publish pub/sub", () => {
 
   it("should deduplicate profile push recipient fetches in flight for the same agent", async () => {
     const agentId = "agent-profile-dedupe";
-    const original = container.clientAgentAccessService.listActiveApprovedClientIdsForAgent.bind(
-      container.clientAgentAccessService,
-    );
+    const original =
+      container.clientAgentAccessQueryService.listActiveApprovedClientIdsForAgent.bind(
+        container.clientAgentAccessQueryService,
+      );
     let releaseFetch: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
     const listSpy = vi
-      .spyOn(container.clientAgentAccessService, "listActiveApprovedClientIdsForAgent")
+      .spyOn(container.clientAgentAccessQueryService, "listActiveApprovedClientIdsForAgent")
       .mockImplementation(async (candidateAgentId: string) => {
         await gate;
         return original(candidateAgentId);

@@ -554,7 +554,7 @@ describe("Client agent access API", () => {
         getClientAgentAccessPublicDecisionMetricsSnapshot().approve.outcomes.service_unavailable,
     };
 
-    const service = container.clientAgentAccessService as unknown as {
+    const service = container.clientAgentAccessDecisionService as unknown as {
       approvalTxn: {
         approvePendingAndGrantAccess: (input: unknown) => Promise<boolean>;
       };

@@ -1,70 +1,27 @@
-import { v4 as uuidv4 } from "uuid";
-
-import { RegistrationApprovalToken } from "../../domain/entities/registration_approval_token.entity";
-import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import { User } from "../../domain/entities/user.entity";
 import { TtlCache } from "../../shared/utils/ttl_cache";
-import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
-import type { IEmailSender } from "../../domain/ports/email_sender.port";
-import type { AdminSetUserStatusInput } from "../../domain/use_cases/admin_set_user_status.use_case";
 import type { IRefreshTokenRepository } from "../../domain/repositories/refresh_token.repository.interface";
-import type { IRegistrationApprovalTokenRepository } from "../../domain/repositories/registration_approval_token.repository.interface";
 import type {
   IUserRepository,
   UserActiveSnapshot,
 } from "../../domain/repositories/user.repository.interface";
-import type { AdminSetUserStatusUseCase } from "../../domain/use_cases/admin_set_user_status.use_case";
-import type { ApproveRegistrationUseCase } from "../../domain/use_cases/approve_registration.use_case";
 import type { ChangePasswordUseCase } from "../../domain/use_cases/change_password.use_case";
-import type { GetRegistrationStatusUseCase } from "../../domain/use_cases/get_registration_status.use_case";
 import type { LoginUseCase } from "../../domain/use_cases/login.use_case";
 import type { LogoutUseCase } from "../../domain/use_cases/logout.use_case";
 import type { RefreshTokenUseCase } from "../../domain/use_cases/refresh_token.use_case";
-import type { RegisterUseCase } from "../../domain/use_cases/register.use_case";
-import type { RejectRegistrationUseCase } from "../../domain/use_cases/reject_registration.use_case";
-import type { UpdateMyCelularUseCase } from "../../domain/use_cases/update_my_celular.use_case";
 import type { AgentAccessService } from "./agent_access.service";
-import { disconnectAgentPrincipalSockets } from "./agent_socket_control_sink";
-import {
-  disconnectConsumerPrincipalSockets,
-  invalidateConsumerUserAccessSnapshots,
-} from "./consumer_socket_control_sink";
-import { enqueueRegistrationApprovalEmails } from "./registration_email_outbox.service";
 import { env } from "../../shared/config/env";
 import { forbidden, invalidToken, notFound } from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
-import { isExpired, parseExpiryToDate } from "../../shared/utils/date";
-import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../shared/utils/jwt";
+import { verifyRefreshToken } from "../../shared/utils/jwt";
 import type { JwtAccessPayload } from "../../shared/utils/jwt";
-import { logger } from "../../shared/utils/logger";
-import { redactEmail } from "../../shared/utils/pii_redaction";
-import { generateOpaqueRegistrationToken } from "../../shared/utils/registration_token";
-import { withRetry } from "../../shared/utils/retry";
-import { reopenRejectedUserRegistration } from "../../domain/policies/user_registration_status.policy";
 import type {
   AgentAuthResponseDto,
   AuthResponseDto,
   AuthTokensDto,
-  AuthUserDto,
   MeUserResponseDto,
-  RegisterPendingResponseDto,
-  RegistrationStatusResponseDto,
 } from "../dtos/auth.dto";
-
-export interface RegisterServiceInput {
-  readonly email: string;
-  readonly password: string;
-  /** E.164 when provided (validated at HTTP layer) */
-  readonly celular?: string;
-}
-
-export interface RegisterServiceOptions {
-  readonly requestId?: string;
-}
-
-export interface RegistrationActionOptions {
-  readonly requestId?: string;
-}
+import { issueUserTokens, toUserAuthDto } from "./user_auth_helpers";
 
 export interface LoginServiceInput {
   readonly email: string;
@@ -83,21 +40,12 @@ export interface AgentLoginServiceInput {
   readonly agentId: string;
 }
 
-export interface RetryRegistrationServiceInput {
-  readonly email: string;
-  readonly password: string;
-}
-
-export interface RetryRegistrationServiceResult {
-  readonly retried: boolean;
-}
-
-export interface RegistrationReviewSummary {
-  readonly email: string;
-  readonly status: "pending" | "active" | "rejected" | "blocked";
-  readonly tokenStatus: "pending" | "expired";
-}
-
+/**
+ * Session-oriented auth service for users: login, agent-login, refresh,
+ * logout, active-account lookups with TTL-cached snapshot, `changePassword`
+ * and `getMeProfile`. Registration and admin/account-mutation flows now
+ * live in `UserRegistrationService` and `UserAccountService`.
+ */
 export class AuthService {
   /**
    * Short-lived cache for `getActiveAccountUserSnapshot`.
@@ -112,22 +60,13 @@ export class AuthService {
   );
 
   constructor(
-    private readonly registerUseCase: RegisterUseCase,
     private readonly loginUseCase: LoginUseCase,
     private readonly changePasswordUseCase: ChangePasswordUseCase,
     private readonly refreshTokenUseCase: RefreshTokenUseCase,
     private readonly logoutUseCase: LogoutUseCase,
-    private readonly approveRegistrationUseCase: ApproveRegistrationUseCase,
-    private readonly rejectRegistrationUseCase: RejectRegistrationUseCase,
-    private readonly getRegistrationStatusUseCase: GetRegistrationStatusUseCase,
-    private readonly approvalTokenRepository: IRegistrationApprovalTokenRepository,
-    private readonly adminSetUserStatusUseCase: AdminSetUserStatusUseCase,
-    private readonly updateMyCelularUseCase: UpdateMyCelularUseCase,
-    private readonly passwordHasher: IPasswordHasher,
     private readonly refreshTokenRepository: IRefreshTokenRepository,
-    private readonly agentAccessService: AgentAccessService,
-    private readonly emailSender: IEmailSender,
     private readonly userRepository: IUserRepository,
+    private readonly agentAccessService: AgentAccessService,
   ) {}
 
   /**
@@ -220,42 +159,6 @@ export class AuthService {
     this.snapshotCache.deleteWhere((key) => key.startsWith(`${userId}:`));
   }
 
-  async adminSetUserStatus(input: AdminSetUserStatusInput): Promise<Result<User>> {
-    const result = await this.adminSetUserStatusUseCase.execute(input);
-    if (result.ok && input.status === "blocked") {
-      const userId = result.value.id;
-      this.invalidateSnapshotCache(userId);
-      this.agentAccessService.invalidateAccessCacheForUser(userId);
-      await Promise.all([
-        disconnectConsumerPrincipalSockets({
-          principalType: "user",
-          principalId: userId,
-          reason: "account_blocked",
-        }),
-        disconnectAgentPrincipalSockets({
-          userId,
-          reason: "account_blocked",
-        }),
-        invalidateConsumerUserAccessSnapshots({ userId }),
-      ]);
-    }
-    return result;
-  }
-
-  async updateMyCelular(
-    jwtUser: JwtAccessPayload,
-    input: { celular: string | null },
-  ): Promise<Result<MeUserResponseDto>> {
-    const result = await this.updateMyCelularUseCase.execute({
-      userId: jwtUser.sub,
-      celular: input.celular,
-    });
-    if (!result.ok) {
-      return result;
-    }
-    return this.getMeProfile(jwtUser, result.value);
-  }
-
   async getMeProfile(
     jwtUser: JwtAccessPayload,
     preloadedUser?: User,
@@ -287,264 +190,6 @@ export class AuthService {
     });
   }
 
-  async register(
-    input: RegisterServiceInput,
-    options?: RegisterServiceOptions,
-  ): Promise<Result<RegisterPendingResponseDto>> {
-    const passwordHash = await this.passwordHasher.hash(input.password);
-    const approvalTokenExpiresAt = parseExpiryToDate(env.approvalTokenExpiresIn);
-    const approvalTokenId = generateOpaqueRegistrationToken();
-
-    const result = await this.registerUseCase.execute({
-      email: input.email,
-      passwordHash,
-      approvalTokenExpiresAt,
-      approvalTokenId,
-      ...(input.celular !== undefined ? { celular: input.celular } : {}),
-    });
-    if (!result.ok) return result;
-
-    const { user, approvalToken } = result.value;
-    const requestId = options?.requestId;
-    const tokenPrefix = approvalToken.id.slice(0, 8);
-
-    if (env.registrationEmailAsync) {
-      const queued = await enqueueRegistrationApprovalEmails({
-        userEmail: user.email,
-        reviewToken: approvalToken.id,
-      });
-
-      if (!queued) {
-        void this.dispatchRegistrationApprovalEmails({
-          userEmail: user.email,
-          reviewToken: approvalToken.id,
-        }).catch((error: unknown) => {
-          logger.error("registration_email_dispatch_failed", {
-            requestId,
-            tokenPrefix,
-            userId: user.id,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        });
-      }
-    } else {
-      try {
-        await this.dispatchRegistrationApprovalEmails({
-          userEmail: user.email,
-          reviewToken: approvalToken.id,
-        });
-      } catch (error: unknown) {
-        logger.error("registration_email_dispatch_failed", {
-          requestId,
-          tokenPrefix,
-          userId: user.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-    }
-
-    logger.info("registration_pending_created", {
-      requestId,
-      tokenPrefix,
-      userId: user.id,
-    });
-
-    const dto: RegisterPendingResponseDto = {
-      message:
-        "Registration submitted. You will receive an email notification once your account is reviewed.",
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        status: user.status,
-        ...(user.celular !== undefined ? { celular: user.celular } : {}),
-      },
-    };
-
-    if (env.nodeEnv !== "production") {
-      return ok({ ...dto, approvalToken: approvalToken.id });
-    }
-
-    return ok(dto);
-  }
-
-  async retryRejectedRegistration(
-    input: RetryRegistrationServiceInput,
-    options?: RegisterServiceOptions,
-  ): Promise<Result<RetryRegistrationServiceResult>> {
-    const user = await this.userRepository.findByEmail(input.email);
-    if (!user || user.status !== "rejected") {
-      return ok({ retried: false });
-    }
-
-    const passwordMatch = await this.passwordHasher.compare(input.password, user.passwordHash);
-    if (!passwordMatch) {
-      return ok({ retried: false });
-    }
-
-    const approvalToken = RegistrationApprovalToken.create({
-      id: generateOpaqueRegistrationToken(),
-      userId: user.id,
-      expiresAt: parseExpiryToDate(env.approvalTokenExpiresIn),
-    });
-    const pendingUserResult = reopenRejectedUserRegistration(user);
-    if (!pendingUserResult.ok) {
-      return ok({ retried: false });
-    }
-    const pendingUser = pendingUserResult.value;
-
-    try {
-      await this.approvalTokenRepository.replaceForUserRetry(pendingUser, approvalToken);
-      await this.userRepository.save(pendingUser);
-    } catch (error: unknown) {
-      await this.approvalTokenRepository.deleteByUserId(user.id);
-      await this.userRepository.save(user);
-      logger.error("registration_retry_persist_failed", {
-        requestId: options?.requestId,
-        userId: user.id,
-        emailRedacted: redactEmail(user.email),
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return ok({ retried: false });
-    }
-
-    try {
-      if (env.registrationEmailAsync) {
-        const queued = await enqueueRegistrationApprovalEmails({
-          userEmail: user.email,
-          reviewToken: approvalToken.id,
-        });
-        if (!queued) {
-          void this.dispatchRegistrationApprovalEmails({
-            userEmail: user.email,
-            reviewToken: approvalToken.id,
-          }).catch((error: unknown) => {
-            logger.error("registration_retry_email_dispatch_failed", {
-              requestId: options?.requestId,
-              tokenPrefix: approvalToken.id.slice(0, 8),
-              userId: user.id,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          });
-        }
-        return ok({ retried: true });
-      }
-
-      await this.dispatchRegistrationApprovalEmails({
-        userEmail: user.email,
-        reviewToken: approvalToken.id,
-      });
-      return ok({ retried: true });
-    } catch (error: unknown) {
-      await this.approvalTokenRepository.deleteByUserId(user.id);
-      await this.userRepository.save(user);
-      logger.error("registration_retry_email_dispatch_failed", {
-        requestId: options?.requestId,
-        tokenPrefix: approvalToken.id.slice(0, 8),
-        userId: user.id,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return ok({ retried: false });
-    }
-  }
-
-  async getRegistrationReviewSummary(tokenId: string): Promise<RegistrationReviewSummary | null> {
-    const summary = await this.approvalTokenRepository.findReviewSummaryById(tokenId);
-    if (summary) {
-      return {
-        email: summary.email,
-        status: summary.status,
-        tokenStatus: isExpired(summary.expiresAt) ? "expired" : "pending",
-      };
-    }
-
-    const token = await this.approvalTokenRepository.findById(tokenId);
-    if (!token) {
-      return null;
-    }
-
-    const user = await this.userRepository.findById(token.userId);
-    if (!user) {
-      return null;
-    }
-
-    return {
-      email: user.email,
-      status: user.status,
-      tokenStatus: isExpired(token.expiresAt) ? "expired" : "pending",
-    };
-  }
-
-  async approveRegistration(
-    tokenId: string,
-    options?: RegistrationActionOptions,
-  ): Promise<Result<{ email: string }>> {
-    logger.info("registration_approve_request", {
-      requestId: options?.requestId,
-      tokenPrefix: tokenId.slice(0, 8),
-    });
-
-    const result = await this.approveRegistrationUseCase.execute(tokenId);
-    if (!result.ok) return result;
-
-    try {
-      await this.emailSender.sendUserApproved({ email: result.value.email });
-    } catch (error: unknown) {
-      logger.error("registration_approve_user_email_failed", {
-        requestId: options?.requestId,
-        emailRedacted: redactEmail(result.value.email),
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    logger.info("registration_approved", {
-      requestId: options?.requestId,
-      userId: result.value.id,
-    });
-
-    return ok({ email: result.value.email });
-  }
-
-  async rejectRegistration(
-    tokenId: string,
-    reason?: string,
-    options?: RegistrationActionOptions,
-  ): Promise<Result<{ email: string }>> {
-    logger.info("registration_reject_request", {
-      requestId: options?.requestId,
-      tokenPrefix: tokenId.slice(0, 8),
-    });
-
-    const result = await this.rejectRegistrationUseCase.execute(tokenId);
-    if (!result.ok) return result;
-
-    try {
-      const trimmedReason = reason?.trim();
-      await this.emailSender.sendUserRejected({
-        email: result.value.email,
-        ...(trimmedReason ? { reason: trimmedReason } : {}),
-      });
-    } catch (error: unknown) {
-      logger.error("registration_reject_user_email_failed", {
-        requestId: options?.requestId,
-        emailRedacted: redactEmail(result.value.email),
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    logger.info("registration_rejected", {
-      requestId: options?.requestId,
-      userId: result.value.id,
-    });
-
-    return ok({ email: result.value.email });
-  }
-
-  async getRegistrationStatus(tokenId: string): Promise<Result<RegistrationStatusResponseDto>> {
-    return this.getRegistrationStatusUseCase.execute(tokenId);
-  }
-
   async login(input: LoginServiceInput): Promise<Result<AuthResponseDto>> {
     const result = await this.loginUseCase.execute({
       email: input.email,
@@ -552,8 +197,8 @@ export class AuthService {
     });
     if (!result.ok) return result;
 
-    const tokens = await this.issueTokens(result.value);
-    return ok({ user: this.toUserDto(result.value), ...tokens });
+    const tokens = await issueUserTokens(result.value, this.refreshTokenRepository);
+    return ok({ user: toUserAuthDto(result.value), ...tokens });
   }
 
   async agentLogin(input: AgentLoginServiceInput): Promise<Result<AgentAuthResponseDto>> {
@@ -569,7 +214,11 @@ export class AuthService {
     );
     if (!accessResult.ok) return accessResult;
 
-    const tokens = await this.issueAgentTokens(result.value, input.agentId);
+    const tokens = await issueUserTokens(
+      result.value,
+      this.refreshTokenRepository,
+      input.agentId,
+    );
     return ok({
       user: {
         id: result.value.id,
@@ -619,9 +268,9 @@ export class AuthService {
     if (!result.ok) return result;
 
     if (typeof agentId === "string" && agentId.trim() !== "") {
-      return ok(await this.issueAgentTokens(result.value, agentId));
+      return ok(await issueUserTokens(result.value, this.refreshTokenRepository, agentId));
     }
-    return ok(await this.issueTokens(result.value));
+    return ok(await issueUserTokens(result.value, this.refreshTokenRepository));
   }
 
   async logout(rawRefreshToken: string): Promise<Result<void>> {
@@ -633,89 +282,5 @@ export class AuthService {
     }
 
     return this.logoutUseCase.execute(verifyResult.value.jti);
-  }
-
-  private async dispatchRegistrationApprovalEmails(input: {
-    readonly userEmail: string;
-    readonly reviewToken: string;
-  }): Promise<void> {
-    await Promise.all([
-      this.sendWithRetry("sendAdminApprovalRequest", async () =>
-        this.emailSender.sendAdminApprovalRequest({
-          userEmail: input.userEmail,
-          reviewToken: input.reviewToken,
-        }),
-      ),
-      this.sendWithRetry("sendUserPendingRegistration", async () =>
-        this.emailSender.sendUserPendingRegistration({ email: input.userEmail }),
-      ),
-    ]);
-  }
-
-  private async issueTokens(user: User): Promise<AuthTokensDto> {
-    const jti = uuidv4();
-    const expiresAt = parseExpiryToDate(env.jwtRefreshExpiresIn);
-
-    const accessToken = signAccessToken({
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      principal_type: "user",
-      credentials_version: user.credentialsUpdatedAt.getTime(),
-      tokenType: "access",
-    });
-    const refreshToken = signRefreshToken({
-      sub: user.id,
-      jti,
-      principal_type: "user",
-      tokenType: "refresh",
-    });
-
-    await this.refreshTokenRepository.save(
-      RefreshToken.create({ id: jti, userId: user.id, expiresAt }),
-    );
-
-    return { accessToken, refreshToken };
-  }
-
-  private async issueAgentTokens(user: User, agentId: string): Promise<AuthTokensDto> {
-    const jti = uuidv4();
-    const expiresAt = parseExpiryToDate(env.jwtRefreshExpiresIn);
-
-    const accessToken = signAccessToken({
-      sub: user.id,
-      email: user.email,
-      role: "agent",
-      principal_type: "user",
-      agent_id: agentId,
-      credentials_version: user.credentialsUpdatedAt.getTime(),
-      tokenType: "access",
-    });
-    const refreshToken = signRefreshToken({
-      sub: user.id,
-      jti,
-      principal_type: "user",
-      tokenType: "refresh",
-      agent_id: agentId,
-    });
-
-    await this.refreshTokenRepository.save(
-      RefreshToken.create({ id: jti, userId: user.id, expiresAt }),
-    );
-
-    return { accessToken, refreshToken };
-  }
-
-  private toUserDto(user: User): AuthUserDto {
-    return { id: user.id, email: user.email, role: user.role };
-  }
-
-  private async sendWithRetry(operation: string, action: () => Promise<void>): Promise<void> {
-    return withRetry(operation, action, {
-      maxAttempts: env.registrationEmailMaxRetries,
-      delayMs: env.registrationEmailRetryDelayMs,
-      exponential: true,
-      maxDelayMs: 30_000,
-    });
   }
 }
