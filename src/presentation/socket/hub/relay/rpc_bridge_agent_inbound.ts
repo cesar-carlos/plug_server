@@ -356,32 +356,43 @@ export const createRpcBridgeAgentInboundHandlers = (
     });
   };
 
-  const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void => {
-    void decodePayloadFrameAsync(rawPayload).then((result) => {
-      if (!result.ok) {
-        logRpcFrameDecodeFailure({
-          eventName: socketEvents.rpcRequestAck,
-          socketId,
-          reason: result.error.message,
-        });
-        return;
-      }
+  /**
+   * Shared preamble for the ack handlers (`rpc:request_ack` / `rpc:batch_ack`):
+   * decode the frame, validate the inbound contract and normalize to a record.
+   * Unlike the stream preamble it does not fail-fast or resolve a stream route —
+   * a bad ack frame is logged and dropped. Returns `null` on any short-circuit.
+   */
+  const decodeAndValidateAckFrame = async (
+    eventName: Parameters<typeof validateAgentInboundContract>[0]["eventName"],
+    socketId: string,
+    rawPayload: unknown,
+  ): Promise<Record<string, unknown> | null> => {
+    const result = await decodePayloadFrameAsync(rawPayload);
+    if (!result.ok) {
+      logRpcFrameDecodeFailure({ eventName, socketId, reason: result.error.message });
+      return null;
+    }
 
-      const contractValidation = validateAgentInboundContract({
-        eventName: socketEvents.rpcRequestAck,
-        payload: result.value.data,
+    const contractValidation = validateAgentInboundContract({
+      eventName,
+      payload: result.value.data,
+      socketId,
+    });
+    if (!contractValidation.shouldProcess) {
+      logRpcFrameDecodeFailure({
+        eventName,
         socketId,
+        reason: `Inbound contract invalid: ${contractValidation.message}`,
       });
-      if (!contractValidation.shouldProcess) {
-        logRpcFrameDecodeFailure({
-          eventName: socketEvents.rpcRequestAck,
-          socketId,
-          reason: `Inbound contract invalid: ${contractValidation.message}`,
-        });
-        return;
-      }
+      return null;
+    }
 
-      const data = toRecord(result.value.data);
+    return toRecord(result.value.data);
+  };
+
+  const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void => {
+    void (async () => {
+      const data = await decodeAndValidateAckFrame(socketEvents.rpcRequestAck, socketId, rawPayload);
       if (!data) {
         return;
       }
@@ -415,35 +426,12 @@ export const createRpcBridgeAgentInboundHandlers = (
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcRequestAck, frame);
         });
       }
-    });
+    })();
   };
 
   const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void => {
-    void decodePayloadFrameAsync(rawPayload).then((result) => {
-      if (!result.ok) {
-        logRpcFrameDecodeFailure({
-          eventName: socketEvents.rpcBatchAck,
-          socketId,
-          reason: result.error.message,
-        });
-        return;
-      }
-
-      const contractValidation = validateAgentInboundContract({
-        eventName: socketEvents.rpcBatchAck,
-        payload: result.value.data,
-        socketId,
-      });
-      if (!contractValidation.shouldProcess) {
-        logRpcFrameDecodeFailure({
-          eventName: socketEvents.rpcBatchAck,
-          socketId,
-          reason: `Inbound contract invalid: ${contractValidation.message}`,
-        });
-        return;
-      }
-
-      const data = toRecord(result.value.data);
+    void (async () => {
+      const data = await decodeAndValidateAckFrame(socketEvents.rpcBatchAck, socketId, rawPayload);
       if (!data) {
         return;
       }
@@ -518,7 +506,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           socketId,
         });
       }
-    });
+    })();
   };
 
   return {
