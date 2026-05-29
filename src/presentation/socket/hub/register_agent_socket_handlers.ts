@@ -251,6 +251,168 @@ export const runAgentSocketDisconnectCleanup = (
   }
 };
 
+// ─── agent:profile.update handler ─────────────────────────────────────────────
+
+/**
+ * Handles a self-service `agent:profile.update` from an authenticated agent
+ * socket: decodes the frame, enforces identity (socket agent == token agent ==
+ * payload agent) and the socket rate limit, validates the payload, then
+ * persists the profile patch (with optimistic version / idempotency) and emits
+ * the updated snapshot back to the agent. All failure paths emit a structured
+ * `agent:profile.updated` error frame.
+ */
+const handleAgentProfileUpdate = async (
+  socket: AgentHubSocket,
+  rawPayload: unknown,
+): Promise<void> => {
+  const decoded = await decodePayloadFrameAsync(rawPayload);
+  if (!decoded.ok) {
+    await emitAgentProfileUpdateError(socket, {
+      requestId: undefined,
+      error: badRequest(decoded.error.message),
+    });
+    return;
+  }
+
+  const requestId = decoded.value.frame.requestId;
+
+  if (!isRecord(decoded.value.data)) {
+    await emitAgentProfileUpdateError(socket, {
+      requestId,
+      error: badRequest("agent:profile.update payload must be an object"),
+    });
+    return;
+  }
+
+  const authenticatedAgentId = socket.data.agentId;
+  const tokenAgentId = socket.data.user?.agent_id;
+  const userId = getUserId(socket);
+
+  if (!authenticatedAgentId) {
+    await emitAgentProfileUpdateError(socket, {
+      requestId,
+      error: badRequest("agent:profile.update received before agent registration"),
+    });
+    return;
+  }
+
+  if (!tokenAgentId || tokenAgentId !== authenticatedAgentId) {
+    logger.warn("agent_self_profile_socket_token_mismatch", {
+      userId,
+      socketId: socket.id,
+      socketAgentId: authenticatedAgentId,
+      tokenAgentId,
+    });
+    await emitAgentProfileUpdateError(socket, {
+      requestId,
+      agentId: authenticatedAgentId,
+      error: forbidden("Authenticated socket is not allowed to update this agent profile"),
+    });
+    return;
+  }
+
+  if (!allowAgentProfileSocketUpdate(authenticatedAgentId, socket.id)) {
+    logger.warn("agent_self_profile_socket_rate_limited", {
+      userId,
+      socketId: socket.id,
+      agentId: authenticatedAgentId,
+    });
+    await emitAgentProfileUpdateError(socket, {
+      requestId,
+      agentId: authenticatedAgentId,
+      error: tooManyRequests("Rate limit exceeded for agent:profile.update"),
+    });
+    return;
+  }
+
+  const parsed = agentSelfProfileSocketSchema.safeParse(decoded.value.data);
+  if (!parsed.success) {
+    await emitAgentProfileUpdateError(socket, {
+      requestId,
+      agentId: authenticatedAgentId,
+      error: badRequest(parsed.error.issues[0]?.message ?? "Invalid agent:profile.update payload"),
+    });
+    return;
+  }
+
+  if (
+    parsed.data.agent_id !== undefined &&
+    (parsed.data.agent_id !== authenticatedAgentId || parsed.data.agent_id !== tokenAgentId)
+  ) {
+    logger.warn("agent_self_profile_socket_identity_mismatch", {
+      userId,
+      socketId: socket.id,
+      socketAgentId: authenticatedAgentId,
+      tokenAgentId,
+      payloadAgentId: parsed.data.agent_id,
+    });
+    await emitAgentProfileUpdateError(socket, {
+      requestId,
+      agentId: authenticatedAgentId,
+      error: forbidden("agent:profile.update agent_id does not match the authenticated agent"),
+    });
+    return;
+  }
+
+  try {
+    const expectedProfileVersion =
+      parsed.data.expected_profile_version ?? parsed.data.profile_version;
+    const dedupeKey =
+      parsed.data.idempotency_key !== undefined && parsed.data.idempotency_key.trim() !== ""
+        ? `idem:${parsed.data.idempotency_key.trim()}`
+        : typeof requestId === "string" && requestId.trim() !== ""
+          ? `socket:req:${requestId}`
+          : undefined;
+
+    const updated = await container.agentSelfProfileService.persistProfilePatch({
+      agentId: authenticatedAgentId,
+      patch: container.agentSelfProfileService.toPatchFromSocketPayload(parsed.data),
+      source: "socket",
+      ...(userId !== null ? { lastLoginUserId: userId } : {}),
+      ...(expectedProfileVersion !== undefined ? { expectedProfileVersion } : {}),
+      ...(dedupeKey !== undefined ? { dedupeKey } : {}),
+      ...(typeof requestId === "string" ? { requestId } : {}),
+      ...(parsed.data.idempotency_key !== undefined
+        ? { idempotencyKey: parsed.data.idempotency_key }
+        : {}),
+    });
+
+    logger.info("agent_self_profile_socket_updated", {
+      userId,
+      socketId: socket.id,
+      agentId: updated.agentId,
+    });
+    await emitAgentProfileUpdated(socket, requestId, {
+      success: true,
+      agent_id: updated.agentId,
+      profileVersion: updated.profileVersion,
+      profileUpdatedAt: updated.profileUpdatedAt?.toISOString() ?? null,
+      agent: toAgentCatalogDto(updated),
+    });
+  } catch (error: unknown) {
+    const appError =
+      error instanceof AppError
+        ? error
+        : new AppError("Internal server error", {
+            statusCode: 500,
+            code: "INTERNAL_SERVER_ERROR",
+          });
+    logger.warn("agent_self_profile_socket_failed", {
+      userId,
+      socketId: socket.id,
+      agentId: authenticatedAgentId,
+      code: appError.code,
+      statusCode: appError.statusCode,
+      message: appError.message,
+    });
+    await emitAgentProfileUpdateError(socket, {
+      requestId,
+      agentId: authenticatedAgentId,
+      error: appError,
+    });
+  }
+};
+
 // ─── Connection handler ───────────────────────────────────────────────────────
 
 export type RegisterAgentSocketHandlersInput = {
@@ -583,155 +745,8 @@ export const registerAgentSocketConnectionHandlers = ({
       }
     });
 
-    socket.on(socketEvents.agentProfileUpdate, async (rawPayload: unknown) => {
-      const decoded = await decodePayloadFrameAsync(rawPayload);
-      if (!decoded.ok) {
-        await emitAgentProfileUpdateError(socket, {
-          requestId: undefined,
-          error: badRequest(decoded.error.message),
-        });
-        return;
-      }
-
-      const requestId = decoded.value.frame.requestId;
-
-      if (!isRecord(decoded.value.data)) {
-        await emitAgentProfileUpdateError(socket, {
-          requestId,
-          error: badRequest("agent:profile.update payload must be an object"),
-        });
-        return;
-      }
-
-      const authenticatedAgentId = socket.data.agentId;
-      const tokenAgentId = socket.data.user?.agent_id;
-      const userId = getUserId(socket);
-
-      if (!authenticatedAgentId) {
-        await emitAgentProfileUpdateError(socket, {
-          requestId,
-          error: badRequest("agent:profile.update received before agent registration"),
-        });
-        return;
-      }
-
-      if (!tokenAgentId || tokenAgentId !== authenticatedAgentId) {
-        logger.warn("agent_self_profile_socket_token_mismatch", {
-          userId,
-          socketId: socket.id,
-          socketAgentId: authenticatedAgentId,
-          tokenAgentId,
-        });
-        await emitAgentProfileUpdateError(socket, {
-          requestId,
-          agentId: authenticatedAgentId,
-          error: forbidden("Authenticated socket is not allowed to update this agent profile"),
-        });
-        return;
-      }
-
-      if (!allowAgentProfileSocketUpdate(authenticatedAgentId, socket.id)) {
-        logger.warn("agent_self_profile_socket_rate_limited", {
-          userId,
-          socketId: socket.id,
-          agentId: authenticatedAgentId,
-        });
-        await emitAgentProfileUpdateError(socket, {
-          requestId,
-          agentId: authenticatedAgentId,
-          error: tooManyRequests("Rate limit exceeded for agent:profile.update"),
-        });
-        return;
-      }
-
-      const parsed = agentSelfProfileSocketSchema.safeParse(decoded.value.data);
-      if (!parsed.success) {
-        await emitAgentProfileUpdateError(socket, {
-          requestId,
-          agentId: authenticatedAgentId,
-          error: badRequest(
-            parsed.error.issues[0]?.message ?? "Invalid agent:profile.update payload",
-          ),
-        });
-        return;
-      }
-
-      if (
-        parsed.data.agent_id !== undefined &&
-        (parsed.data.agent_id !== authenticatedAgentId || parsed.data.agent_id !== tokenAgentId)
-      ) {
-        logger.warn("agent_self_profile_socket_identity_mismatch", {
-          userId,
-          socketId: socket.id,
-          socketAgentId: authenticatedAgentId,
-          tokenAgentId,
-          payloadAgentId: parsed.data.agent_id,
-        });
-        await emitAgentProfileUpdateError(socket, {
-          requestId,
-          agentId: authenticatedAgentId,
-          error: forbidden("agent:profile.update agent_id does not match the authenticated agent"),
-        });
-        return;
-      }
-
-      try {
-        const expectedProfileVersion =
-          parsed.data.expected_profile_version ?? parsed.data.profile_version;
-        const dedupeKey =
-          parsed.data.idempotency_key !== undefined && parsed.data.idempotency_key.trim() !== ""
-            ? `idem:${parsed.data.idempotency_key.trim()}`
-            : typeof requestId === "string" && requestId.trim() !== ""
-              ? `socket:req:${requestId}`
-              : undefined;
-
-        const updated = await container.agentSelfProfileService.persistProfilePatch({
-          agentId: authenticatedAgentId,
-          patch: container.agentSelfProfileService.toPatchFromSocketPayload(parsed.data),
-          source: "socket",
-          ...(userId !== null ? { lastLoginUserId: userId } : {}),
-          ...(expectedProfileVersion !== undefined ? { expectedProfileVersion } : {}),
-          ...(dedupeKey !== undefined ? { dedupeKey } : {}),
-          ...(typeof requestId === "string" ? { requestId } : {}),
-          ...(parsed.data.idempotency_key !== undefined
-            ? { idempotencyKey: parsed.data.idempotency_key }
-            : {}),
-        });
-
-        logger.info("agent_self_profile_socket_updated", {
-          userId,
-          socketId: socket.id,
-          agentId: updated.agentId,
-        });
-        await emitAgentProfileUpdated(socket, requestId, {
-          success: true,
-          agent_id: updated.agentId,
-          profileVersion: updated.profileVersion,
-          profileUpdatedAt: updated.profileUpdatedAt?.toISOString() ?? null,
-          agent: toAgentCatalogDto(updated),
-        });
-      } catch (error: unknown) {
-        const appError =
-          error instanceof AppError
-            ? error
-            : new AppError("Internal server error", {
-                statusCode: 500,
-                code: "INTERNAL_SERVER_ERROR",
-              });
-        logger.warn("agent_self_profile_socket_failed", {
-          userId,
-          socketId: socket.id,
-          agentId: authenticatedAgentId,
-          code: appError.code,
-          statusCode: appError.statusCode,
-          message: appError.message,
-        });
-        await emitAgentProfileUpdateError(socket, {
-          requestId,
-          agentId: authenticatedAgentId,
-          error: appError,
-        });
-      }
+    socket.on(socketEvents.agentProfileUpdate, (rawPayload: unknown) => {
+      void handleAgentProfileUpdate(socket, rawPayload);
     });
 
     socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: () => void) => {
