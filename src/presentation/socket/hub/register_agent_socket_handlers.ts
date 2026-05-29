@@ -72,6 +72,10 @@ import {
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import type { AgentRegisterProfileSnapshot } from "../../../application/services/agent_profile_sync.service";
 import {
+  resolveAgentRegisterProfileSnapshot,
+  resolveRequiresExplicitProtocolReadyAck,
+} from "./agent_register_payload";
+import {
   agentRegisterPayloadSchema,
   type AgentRegisterPayload,
 } from "../../../shared/validators/agent_register";
@@ -119,16 +123,6 @@ const joinAgentIdentityRooms = async (socket: AgentHubSocket): Promise<void> => 
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
-
-const resolveRequiresExplicitProtocolReadyAck = (capabilities: AgentCapabilities): boolean => {
-  const extensions = isRecord(capabilities.extensions) ? capabilities.extensions : null;
-  return (
-    extensions?.protocolReadyAck === true ||
-    extensions?.protocol_ready_ack === true ||
-    capabilities.protocolReadyAck === true ||
-    capabilities.protocol_ready_ack === true
-  );
-};
 
 const withOptionalRequestId = (
   requestId: string | null | undefined,
@@ -184,29 +178,6 @@ const resolveCanonicalRegisteredAgentId = (
     return null;
   }
   return registeredAgentId;
-};
-
-const resolveAgentRegisterProfileSnapshot = (payload: {
-  readonly profile: Record<string, unknown> | undefined;
-  readonly profile_version: number | undefined;
-  readonly profile_updated_at: string | undefined;
-}): AgentRegisterProfileSnapshot | undefined => {
-  if (
-    payload.profile === undefined ||
-    payload.profile_version === undefined ||
-    payload.profile_updated_at === undefined
-  ) {
-    return undefined;
-  }
-  const profileUpdatedAt = new Date(payload.profile_updated_at);
-  if (Number.isNaN(profileUpdatedAt.getTime())) {
-    return undefined;
-  }
-  return {
-    profile: payload.profile,
-    profileVersion: payload.profile_version,
-    profileUpdatedAt,
-  };
 };
 
 // ─── Profile sync scheduler ───────────────────────────────────────────────────
