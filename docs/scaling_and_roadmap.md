@@ -7,11 +7,15 @@ o que ainda depende de sticky sessions e o que permanece como roadmap.
 as dependencias declaradas no repositorio** (Node, Express, Socket.IO, Prisma,
 Redis opcional, etc.). Redis ja e suportado para rate limits HTTP/Socket, adapter
 distribuido do Socket.IO (`SOCKET_IO_REDIS_ADAPTER_URL`) e idempotencia distribuida
-de `client:custom.*` (`REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`). Presenca de
-agente em REST (`isHubConnected`), `agentRegistry`, conversas relay e pending
-requests continuam em memoria por processo; em multi-instancia, mantenha
-afinidade de sessao / mesma base URL e header opcional `HUB_INSTANCE_ID` (ver
-`docs/client_agent_business_rules.md`).
+de `client:custom.*` (`REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`). Com
+`SOCKET_IO_REDIS_ADAPTER_URL` (ou `AGENT_HUB_PRESENCE_REDIS_URL`), **presenca
+de agente + forward de `POST /api/v1/agents/commands`** atravessam replicas
+(ADR-0010; ver `docs/runbooks/multi_replica_n8n_agent_404.md`). O socket do
+agente continua na replica onde ligou; REST/n8n noutra replica encaminha via
+Redis. Conversas relay, pending requests REST e grande parte do relay seguem
+em memoria por processo — sticky em `/consumers` e `/agents` continua
+recomendado para esses fluxos. Use `HUB_INSTANCE_ID` unico por processo em
+multi-replica (ver `docs/configuration.md`).
 
 ## Multi-instancia HTTP / estado em memoria
 
@@ -41,7 +45,8 @@ Estado explicitamente **por processo** hoje:
 - estado em memoria do limitador `socket:event.publish`
   (`client_socket_event_publish_socket_rate_limiter`; Redis opcional com scope
   `client_socket_event_publish`, chave de identidade `client:<JWT sub do Client>`)
-- `agentRegistry` e readiness/circuit local
+- `agentRegistry` e readiness/circuit local (dispatch local; presenca Redis +
+  forward cobrem `POST /agents/commands` entre replicas quando configurado)
 - mapa de idempotencia relay
 - filas outbound hub -> consumer e buffers de stream
 - fila relay por agente (`SOCKET_RELAY_AGENT_*`)

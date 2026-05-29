@@ -19,18 +19,28 @@ map $http_upgrade $connection_upgrade {
 
 # --- /etc/nginx/conf.d/02-plug-upstream.conf (multi-replica) ---
 # Sticky session OBRIGATORIA para Socket.IO em multi-replica (relay/bridge guardam
-# estado por processo): com ip_hash, o mesmo IP cai sempre na mesma replica.
-# - Opcao A (built-in): `ip_hash` (abaixo). Simples, sem modulo extra.
-# - Opcao B (cookie):   requer `nginx-sticky-module-ng` ou nginx Plus.
-# Em deploy single-instance, deixe so um `server 127.0.0.1:4000;` e remova ip_hash.
+# estado por processo), sobretudo `agentRegistry` usado por POST /agents/commands.
 #
-# As 3 portas batem com deploy/pm2/ecosystem.config.cjs (uma fork por core).
+# POST /api/v1/agents/commands (n8n, REST): com AGENT_HUB_PRESENCE + Redis adapter
+# (ADR-0010), round-robin ou ip_hash funcionam — o hub encaminha para a replica
+# que detem o socket. Requisitos: SOCKET_IO_REDIS_ADAPTER_URL (ou
+# AGENT_HUB_PRESENCE_REDIS_URL), HUB_INSTANCE_ID unico por porta PM2, Redis up.
+# Sem presenca Redis: o 404 "Agent not found" volta se n8n e plug_agente caem
+# em replicas diferentes (ver docs/runbooks/multi_replica_n8n_agent_404.md).
+#
+# Relay /consumers: sticky continua importante (conversationRegistry, pending
+# local). ip_hash ajuda o Socket do agente a voltar a mesma replica; nao substitui
+# presenca para REST cross-replica.
+#
+# Em deploy single-instance, um `server 127.0.0.1:4000;` basta (ip_hash opcional).
+#
+# Padrao producao: 2 portas (ecosystem.config.cjs). Terceira opcional apos validar carga.
 upstream plug_server_upstream {
     ip_hash;                                                 # Opcao A (sticky)
     # sticky cookie hub_node expires=1h path=/;              # Opcao B (alternativa)
     server 127.0.0.1:4000;
     server 127.0.0.1:4001;
-    server 127.0.0.1:4002;
+    # server 127.0.0.1:4002;                                 # Opcional (3 replicas)
     keepalive 64;
 }
 

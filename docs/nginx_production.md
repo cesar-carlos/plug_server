@@ -337,10 +337,13 @@ Snippet em `deploy/nginx/plug_server.conf.example` (`03-plug-gzip.conf`).
 
 Quando ha mais de uma replica do `plug_server` por tras do mesmo upstream,
 **todas as conexoes Socket.IO de um cliente tem de cair na mesma replica**.
-O hub mantem estado em memoria por instancia (registro de agentes, conversacoes
-de relay, pending requests REST/socket); sem afinidade de sessao, fluxos como
-`relay:conversation.start` -> `relay:rpc.request` quebram de forma
-nao-deterministica (`protocol_not_ready` ou conversa perdida).
+O hub mantem estado em memoria por instancia (conversas de relay, pending
+requests REST/socket, etc.). **`POST /api/v1/agents/commands`** com presenca
+Redis activa (ADR-0010) pode atravessar replicas; o socket `/agents` regista-se
+na replica onde ligou. Sem afinidade de sessao, fluxos relay como
+`relay:conversation.start` -> `relay:rpc.request` ainda quebram de forma
+nao-deterministica (`protocol_not_ready` ou conversa perdida). Ver
+`docs/runbooks/multi_replica_n8n_agent_404.md`.
 
 **Se ha apenas 1 replica**, este passo e dispensavel. Confirme antes de pular
 (ver verificacao com `X-Hub-Instance-Id` mais adiante).

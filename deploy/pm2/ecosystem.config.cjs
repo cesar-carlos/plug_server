@@ -2,7 +2,7 @@
  * Multi-replica runner for the plug_server hub (uses all CPU cores).
  *
  * The hub is single-threaded per process, so we run one fork per core on
- * separate ports and let nginx load-balance with sticky sessions (ip_hash).
+ * separate ports; nginx load-balances across 4000/4001 by default (round-robin).
  * Cross-replica Socket.IO fan-out, shared rate limits and distributed
  * idempotency require Redis (see SOCKET_IO_REDIS_ADAPTER_URL etc. in .env).
  *
@@ -17,7 +17,9 @@
 const path = require("node:path");
 
 const cwd = path.resolve(__dirname, "..", "..");
-const ports = [4000, 4001, 4002];
+// Producao padrao: 2 replicas (estavel). Requer SOCKET_IO_REDIS_ADAPTER_URL + presenca/forward (ADR-0010).
+// HUB_INSTANCE_ID=plug-{port}. Para 3 replicas: ports = [4000, 4001, 4002] apos validar em carga.
+const ports = [4000, 4001];
 
 module.exports = {
   apps: ports.map((port) => ({
@@ -29,6 +31,8 @@ module.exports = {
     env: {
       NODE_ENV: "production",
       PORT: String(port),
+      HUB_INSTANCE_ID: `plug-${port}`,
+      AGENT_HUB_CLUSTER_INSTANCE_IDS: "plug-4000,plug-4001",
     },
     max_memory_restart: "1G",
     kill_timeout: 10000,

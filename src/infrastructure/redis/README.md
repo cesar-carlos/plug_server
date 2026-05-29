@@ -17,6 +17,7 @@ the hub continues running with degraded local-only behaviour and emits
 | `event_stream/` | Per-recipient durable backlog stream + cursor | `agent_event_stream.ts`, `agent_event_stream_cursor.ts` |
 | `idempotency/` | Distributed idempotency for `client:custom.*` publishes | `client_socket_event_publish_idempotency_redis.ts` |
 | `adapter/` | Cross-replica Socket.IO pub/sub adapter | `socket_io_redis_adapter.ts` |
+| `presence/` | Distributed agent presence + inter-replica bridge forward | `agent_hub_presence_redis.ts`, `agent_hub_presence_keys.ts` |
 
 ```mermaid
 flowchart TB
@@ -68,6 +69,7 @@ flowchart TB
 | Module | Purpose | Public env |
 | --- | --- | --- |
 | [adapter/socket_io_redis_adapter.ts](adapter/socket_io_redis_adapter.ts) | Cross-replica pub/sub for Socket.IO rooms | `SOCKET_IO_REDIS_ADAPTER_URL` |
+| [presence/agent_hub_presence_redis.ts](presence/agent_hub_presence_redis.ts) | Agent presence keys + `POST /agents/commands` forward between replicas | `AGENT_HUB_PRESENCE_REDIS_URL` (fallback: adapter URL) |
 | [rate_limit/socket_rate_limit_redis.ts](rate_limit/socket_rate_limit_redis.ts) | Distributed socket-event rate limit (atomic consume-or-rollback Lua, circuit breaker) | `SOCKET_RATE_LIMIT_REDIS_URL` |
 | [rate_limit/rest_rate_limit_redis.ts](rate_limit/rest_rate_limit_redis.ts) | `express-rate-limit` shared store with circuit breaker | `REST_RATE_LIMIT_REDIS_URL` |
 | [idempotency/client_socket_event_publish_idempotency_redis.ts](idempotency/client_socket_event_publish_idempotency_redis.ts) | Distributed idempotency for `client:custom.*` (1-RTT `getEntry`, commit+release Lua, lock extend); read-replica via `_READ_URL` | `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`, `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_READ_URL` |

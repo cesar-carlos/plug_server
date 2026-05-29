@@ -27,7 +27,7 @@ import { touchRelayStreamTimeout } from "../registries/relay_stream_timeout_regi
 import { wireRestAgentDispatchQueueMetrics } from "./rest_agent_dispatch_queue";
 import { scheduleRelayIdempotencyCleanupTimer } from "../registries/relay_idempotency_store";
 import { createRpcBridgeAgentInboundHandlers } from "./rpc_bridge_agent_inbound";
-import { createDispatchRpcCommandToAgent } from "./rpc_bridge_dispatch_command";
+import { createAgentHubBridgeDispatch } from "./agent_hub_bridge_wiring";
 import { createRpcBridgeRelayDispatch } from "./rpc_bridge_dispatch_relay";
 import {
   createPrepareAgentStreamPull,
@@ -262,7 +262,7 @@ export const dispatchRelayRpcToAgent = relayRpcHandlers.dispatchRelayRpcToAgent;
 export const prepareRelayStreamPull = relayRpcHandlers.prepareRelayStreamPull;
 export const requestRelayStreamPull = relayRpcHandlers.requestRelayStreamPull;
 
-export const dispatchRpcCommandToAgent = createDispatchRpcCommandToAgent({
+export const dispatchRpcCommandToAgent = createAgentHubBridgeDispatch({
   hasRegisteredAgentSocketBridge,
   findAgentSocketById,
 });

@@ -8,7 +8,7 @@ import { logger } from "../../shared/utils/logger";
  * consumer) so the dedup/refresh concern owns its own contract.
  */
 export interface ClientAgentLiveProfileDeps {
-  readonly isAgentOnline?: (agentId: string) => boolean;
+  readonly isAgentOnline?: (agentId: string) => boolean | Promise<boolean>;
   readonly refreshAgentProfile?: (agentId: string) => Promise<Agent>;
   /** Called after a client→agent access grant is removed (client-initiated or owner-initiated). */
   readonly onAccessRevoked?: (clientId: string, agentId: string) => void;
@@ -58,9 +58,13 @@ export class AgentSnapshotRefresher {
     }
 
     const refreshedByAgentId = new Map<string, Agent>();
-    const candidates = items.filter(
-      (item) => this.liveProfileDeps?.isAgentOnline?.(item.agent.agentId) === true,
+    const onlineChecks = await Promise.all(
+      items.map(async (item) => ({
+        item,
+        online: (await this.liveProfileDeps?.isAgentOnline?.(item.agent.agentId)) === true,
+      })),
     );
+    const candidates = onlineChecks.filter((entry) => entry.online).map((entry) => entry.item);
 
     let nextIndex = 0;
     const concurrency = Math.max(
@@ -101,10 +105,10 @@ export class AgentSnapshotRefresher {
     agentId: string,
     persistedAgent: Agent,
   ): Promise<Agent> {
-    if (
-      this.liveProfileDeps?.refreshAgentProfile === undefined ||
-      this.liveProfileDeps.isAgentOnline?.(agentId) !== true
-    ) {
+    if (this.liveProfileDeps?.refreshAgentProfile === undefined) {
+      return persistedAgent;
+    }
+    if ((await this.liveProfileDeps.isAgentOnline?.(agentId)) !== true) {
       return persistedAgent;
     }
 

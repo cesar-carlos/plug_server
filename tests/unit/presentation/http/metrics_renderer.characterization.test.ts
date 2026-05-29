@@ -6,6 +6,7 @@ import { getAgentDataMaintenanceMetricsSnapshot } from "../../../../src/applicat
 import { getPrismaTransactionRetryMetricsSnapshot } from "../../../../src/application/services/prisma_transaction_retry_metrics.service";
 import { getRestBridgeMetricsSnapshot } from "../../../../src/application/services/rest_bridge_metrics.service";
 import { getRestHttpRateLimitMetricsSnapshot } from "../../../../src/application/services/rest_http_rate_limit_metrics.service";
+import { getAgentHubPresenceRedisMetricsSnapshot } from "../../../../src/application/services/agent_hub_presence_redis_metrics.service";
 import { getRestRateLimitRedisMetricsSnapshot } from "../../../../src/application/services/rest_rate_limit_redis_metrics.service";
 import { getSocketIoRedisAdapterMetricsSnapshot } from "../../../../src/application/services/socket_io_redis_adapter_metrics.service";
 import { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../../../src/application/services/client_socket_event_idempotency_redis_metrics.service";
@@ -35,6 +36,7 @@ const buildSnapshots = (): MetricsSnapshots => ({
   agentDataMaintenance: getAgentDataMaintenanceMetricsSnapshot(),
   restHttpRl: getRestHttpRateLimitMetricsSnapshot(),
   restRateLimitRedis: getRestRateLimitRedisMetricsSnapshot(),
+  agentHubPresenceRedis: getAgentHubPresenceRedisMetricsSnapshot(),
   socketIoRedisAdapter: getSocketIoRedisAdapterMetricsSnapshot(),
   customEventIdempotencyRedis: getClientSocketEventIdempotencyRedisMetricsSnapshot(),
   agentEventStream: getAgentEventStreamMetricsSnapshot(),

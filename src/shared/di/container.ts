@@ -89,7 +89,10 @@ import {
   connectedAgentsRegistryAdapter,
 } from "../../presentation/adapters/rest_agent_bridge.adapters";
 import { createSocketMetricsSnapshotProvider } from "../../presentation/adapters/socket_metrics_snapshot.adapter";
-import { isAgentConnectedToHub } from "../../presentation/socket/hub/agent_hub_connection";
+import {
+  isAgentConnectedToHub,
+  resolveClusterHubConnectedAgentIds,
+} from "../../presentation/socket/hub/agent_hub_connection";
 import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/relay/rpc_bridge";
 import { env } from "../config/env";
 
@@ -256,6 +259,8 @@ const restAgentBridgeService = new RestAgentBridgeService(
   agentsHubDiagnosticsAdapter,
   dispatchRpcCommandToAgent,
 );
+restAgentBridgeService.isAgentConnectedCluster = isAgentConnectedToHub;
+restAgentBridgeService.resolveClusterConnectedAgentIds = resolveClusterHubConnectedAgentIds;
 const socketMetricsSnapshotProvider = createSocketMetricsSnapshotProvider();
 
 const clientAgentLiveProfileDeps: ClientAgentLiveProfileDeps = {

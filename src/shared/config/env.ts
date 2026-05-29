@@ -1339,6 +1339,44 @@ const envSchema = z.object({
     .positive()
     .max(600_000)
     .default(30_000),
+  /**
+   * Optional Redis for distributed agent presence and inter-replica bridge
+   * forward. When empty, falls back to `SOCKET_IO_REDIS_ADAPTER_URL`.
+   */
+  AGENT_HUB_PRESENCE_REDIS_URL: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
+  /**
+   * When false, presence and bridge forward stay disabled even if a Redis URL
+   * resolves. Default true.
+   */
+  AGENT_HUB_PRESENCE_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  /** TTL (ms) for presence keys; renewed on register and touch. */
+  AGENT_HUB_PRESENCE_TTL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(600_000)
+    .default(120_000),
+  /** Max wait (ms) for a bridge forward reply from the owning replica. */
+  AGENT_HUB_BRIDGE_FORWARD_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(120_000)
+    .default(15_000),
+  /**
+   * Comma-separated hub instance ids in this cluster (e.g. plug-4000,plug-4001).
+   * Used for peer bridge forward when Redis presence is missing or stale.
+   */
+  AGENT_HUB_CLUSTER_INSTANCE_IDS: z.preprocess(
+    (val) => (val === undefined || val === null ? "" : String(val).trim()),
+    z.string(),
+  ),
   SOCKET_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   SOCKET_AUDIT_RETENTION_INTERVAL_MINUTES: z.coerce.number().int().positive().default(1440),
   SOCKET_AUDIT_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
@@ -1522,6 +1560,9 @@ if (parsedEnv.NODE_ENV === "production") {
   }
 
   if (parsedEnv.STRICT_REDIS_AUTH) {
+    const agentHubPresenceRedisUrlForAuth =
+      parsedEnv.AGENT_HUB_PRESENCE_REDIS_URL.trim() ||
+      parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL.trim();
     const redisUrlsByName: ReadonlyArray<readonly [string, string]> = [
       ["SOCKET_IO_REDIS_ADAPTER_URL", parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL],
       ["REST_RATE_LIMIT_REDIS_URL", parsedEnv.REST_RATE_LIMIT_REDIS_URL],
@@ -1530,6 +1571,7 @@ if (parsedEnv.NODE_ENV === "production") {
         "REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL",
         parsedEnv.REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL,
       ],
+      ["AGENT_HUB_PRESENCE_REDIS_URL", agentHubPresenceRedisUrlForAuth],
     ];
     for (const [name, raw] of redisUrlsByName) {
       const url = raw.trim();
@@ -1567,7 +1609,27 @@ if (parsedEnv.NODE_ENV === "production") {
       "Invalid production config: SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE must not be raw_json in production.",
     );
   }
+
+  const agentHubPresenceRedisUrlResolved =
+    parsedEnv.AGENT_HUB_PRESENCE_REDIS_URL.trim() ||
+    parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL.trim();
+  const agentHubPresenceEnabled =
+    parsedEnv.AGENT_HUB_PRESENCE_ENABLED && agentHubPresenceRedisUrlResolved !== "";
+  if (
+    agentHubPresenceEnabled &&
+    parsedEnv.AGENT_HUB_PRESENCE_REDIS_URL.trim() !== "" &&
+    parsedEnv.HUB_INSTANCE_ID.trim() === ""
+  ) {
+    throw new Error(
+      "Invalid production config: HUB_INSTANCE_ID is required when AGENT_HUB_PRESENCE_REDIS_URL is set.",
+    );
+  }
 }
+
+const agentHubPresenceRedisUrlResolved =
+  parsedEnv.AGENT_HUB_PRESENCE_REDIS_URL.trim() || parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL.trim();
+const agentHubPresenceEnabled =
+  parsedEnv.AGENT_HUB_PRESENCE_ENABLED && agentHubPresenceRedisUrlResolved !== "";
 
 export const env = {
   appName: parsedEnv.APP_NAME,
@@ -1821,6 +1883,13 @@ export const env = {
   socketIoRedisAdapterConnectTimeoutMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_CONNECT_TIMEOUT_MS,
   socketIoRedisAdapterReconnectBaseMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_RECONNECT_BASE_MS,
   socketIoRedisAdapterReconnectMaxMs: parsedEnv.SOCKET_IO_REDIS_ADAPTER_RECONNECT_MAX_MS,
+  agentHubPresenceRedisUrl: agentHubPresenceRedisUrlResolved,
+  agentHubPresenceEnabled,
+  agentHubPresenceTtlMs: parsedEnv.AGENT_HUB_PRESENCE_TTL_MS,
+  agentHubBridgeForwardTimeoutMs: parsedEnv.AGENT_HUB_BRIDGE_FORWARD_TIMEOUT_MS,
+  agentHubClusterInstanceIds: parsedEnv.AGENT_HUB_CLUSTER_INSTANCE_IDS.split(",")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0),
   redisDefaultConnectTimeoutMs: parsedEnv.REDIS_DEFAULT_CONNECT_TIMEOUT_MS,
   redisDefaultReconnectBaseMs: parsedEnv.REDIS_DEFAULT_RECONNECT_BASE_MS,
   redisDefaultReconnectMaxMs: parsedEnv.REDIS_DEFAULT_RECONNECT_MAX_MS,

@@ -58,6 +58,10 @@ import {
   closeAgentEventStream,
   initAgentEventStream,
 } from "./infrastructure/redis/event_stream/agent_event_stream";
+import {
+  closeAgentHubPresenceRedis,
+  initAgentHubPresenceRedis,
+} from "./infrastructure/redis/presence/agent_hub_presence_redis";
 import { prismaClient } from "./infrastructure/database/prisma/client";
 import {
   startAgentIdleTimeoutScheduler,
@@ -110,7 +114,15 @@ const bootstrap = async (): Promise<void> => {
     initSocketRateLimitRedis(),
     initClientSocketEventPublishIdempotencyRedis(),
     initAgentEventStream(),
+    initAgentHubPresenceRedis(),
   ]);
+
+  if (env.agentHubPresenceEnabled && env.hubInstanceId.trim() === "") {
+    logger.warn("agent_hub_presence_hub_instance_id_missing", {
+      message:
+        "HUB_INSTANCE_ID is empty while agent hub presence is enabled; multi-replica bridge forward and presence routing require a unique id per process.",
+    });
+  }
 
   const { registerHttpRateLimits } =
     await import("./presentation/http/middlewares/rate_limit.middleware");
@@ -289,6 +301,7 @@ const shutdown = async (signal: string): Promise<void> => {
       closeSocketIoRedisAdapter(),
       closeClientSocketEventPublishIdempotencyRedis(),
       closeAgentEventStream(),
+      closeAgentHubPresenceRedis(),
       closeRestHttpRateLimitRedis(),
       closeSocketRateLimitRedis(),
     ]);

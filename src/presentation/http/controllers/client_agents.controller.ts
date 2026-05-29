@@ -43,7 +43,10 @@ export const listMyClientAgents = async (_request: Request, response: Response):
       refreshOnline: query.refresh === true,
     },
   );
-  const connectedAgentIds = container.restAgentBridgeService.getConnectedAgentIdSet();
+  const agentIdsOnPage = pageResult.items.map((item) => item.agent.agentId);
+  const connectedAgentIds =
+    (await container.restAgentBridgeService.resolveClusterConnectedAgentIds?.(agentIdsOnPage)) ??
+    container.restAgentBridgeService.getConnectedAgentIdSet();
   const agents = pageResult.items.map((item) =>
     toClientAgentDto(item.agent, connectedAgentIds.has(item.agent.agentId), item.hasClientToken),
   );
@@ -75,7 +78,9 @@ export const getMyClientAgent = async (
     next(result.error);
     return;
   }
-  const isHubConnected = container.restAgentBridgeService.isAgentConnected(agentId);
+  const isHubConnected =
+    (await container.restAgentBridgeService.isAgentConnectedCluster?.(agentId)) ??
+    container.restAgentBridgeService.isAgentConnected(agentId);
   recordClientMeAgentsDetailResponse(isHubConnected);
   response.status(200).json({
     agent: toClientAgentDto(result.value, isHubConnected, hasClientToken),

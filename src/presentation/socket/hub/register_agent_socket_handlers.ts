@@ -11,6 +11,10 @@
 
 import type { Namespace } from "socket.io";
 
+import {
+  syncAgentHubPresenceOnDisconnect,
+  syncAgentHubPresenceOnTouch,
+} from "../../../application/services/agent_hub_presence_sync";
 import { AgentProfileSyncScheduler } from "./scheduling/agent_profile_sync_scheduler";
 import { agentRegistry } from "./registries/agent_registry";
 import {
@@ -197,6 +201,10 @@ export const runAgentSocketDisconnectCleanup = (
 
   const removedAgent = agentRegistry.removeBySocketId(socket.id);
   if (removedAgent) {
+    void syncAgentHubPresenceOnDisconnect({
+      agentId: removedAgent.agentId,
+      socketId: socket.id,
+    });
     clearAgentProfileSyncState(removedAgent.agentId);
     clearAgentProfileSocketRateLimitStateForAgentId(removedAgent.agentId);
     logger.info("Agent disconnected from hub", {
@@ -403,6 +411,7 @@ const handleAgentHeartbeat = async (socket: AgentHubSocket, rawPayload: unknown)
   }
 
   agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
+  void syncAgentHubPresenceOnTouch(currentAgentId);
 
   socket.emit(
     socketEvents.hubHeartbeatAck,
@@ -461,6 +470,7 @@ const handleAgentReady = async (socket: AgentHubSocket, rawPayload: unknown): Pr
   }
 
   agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
+  void syncAgentHubPresenceOnTouch(currentAgentId);
 
   const capabilities = isRecord(socket.data.capabilities) ? socket.data.capabilities : null;
   if (capabilities && resolveRequiresExplicitProtocolReadyAck(capabilities)) {

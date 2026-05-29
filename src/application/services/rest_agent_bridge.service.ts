@@ -22,6 +22,13 @@ export class RestAgentBridgeService {
     return this.connectedAgentsRegistry.isConnected(agentId);
   }
 
+  /** Cluster-aware connectivity when {@link isAgentConnectedToHub} is injected. */
+  isAgentConnectedCluster?: (agentId: string) => Promise<boolean>;
+
+  resolveClusterConnectedAgentIds?: (
+    agentIds: readonly string[],
+  ) => Promise<ReadonlySet<string>>;
+
   /**
    * Returns a Set of all currently connected agent IDs in O(N) time.
    * Use when checking connectivity for multiple agents in a single request

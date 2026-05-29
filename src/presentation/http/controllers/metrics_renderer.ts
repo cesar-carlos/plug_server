@@ -4,6 +4,7 @@ import type { getAgentDataMaintenanceMetricsSnapshot } from "../../../applicatio
 import type { getPrismaTransactionRetryMetricsSnapshot } from "../../../application/services/prisma_transaction_retry_metrics.service";
 import type { getRestBridgeMetricsSnapshot } from "../../../application/services/rest_bridge_metrics.service";
 import type { getRestHttpRateLimitMetricsSnapshot } from "../../../application/services/rest_http_rate_limit_metrics.service";
+import type { getAgentHubPresenceRedisMetricsSnapshot } from "../../../application/services/agent_hub_presence_redis_metrics.service";
 import type { getRestRateLimitRedisMetricsSnapshot } from "../../../application/services/rest_rate_limit_redis_metrics.service";
 import type { getSocketIoRedisAdapterMetricsSnapshot } from "../../../application/services/socket_io_redis_adapter_metrics.service";
 import type { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../../application/services/client_socket_event_idempotency_redis_metrics.service";
@@ -75,6 +76,7 @@ export interface MetricsSnapshots {
   readonly agentDataMaintenance: ReturnType<typeof getAgentDataMaintenanceMetricsSnapshot>;
   readonly restHttpRl: ReturnType<typeof getRestHttpRateLimitMetricsSnapshot>;
   readonly restRateLimitRedis: ReturnType<typeof getRestRateLimitRedisMetricsSnapshot>;
+  readonly agentHubPresenceRedis: ReturnType<typeof getAgentHubPresenceRedisMetricsSnapshot>;
   readonly socketIoRedisAdapter: ReturnType<typeof getSocketIoRedisAdapterMetricsSnapshot>;
   readonly customEventIdempotencyRedis: ReturnType<
     typeof getClientSocketEventIdempotencyRedisMetricsSnapshot
@@ -105,6 +107,7 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     agentDataMaintenance,
     restHttpRl,
     restRateLimitRedis,
+    agentHubPresenceRedis,
     socketIoRedisAdapter,
     customEventIdempotencyRedis,
     agentEventStream,
@@ -288,6 +291,54 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       lines,
       "plug_rest_http_rate_limit_redis_command_duration_ms",
       restRateLimitRedis.latency,
+    );
+
+    lines.push(
+      metricLine("plug_agent_hub_presence_redis_url_configured", agentHubPresenceRedis.presenceUrlConfigured),
+    );
+    lines.push(
+      metricLine("plug_agent_hub_presence_redis_active", agentHubPresenceRedis.presenceActive),
+    );
+    lines.push(
+      metricLine(
+        "plug_agent_hub_presence_redis_fallback_events_total",
+        agentHubPresenceRedis.presenceFallbackEventsTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_bridge_forward_requests_total",
+        agentHubPresenceRedis.bridgeForwardRequestsTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_bridge_forward_success_total",
+        agentHubPresenceRedis.bridgeForwardSuccessTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_bridge_forward_timeout_total",
+        agentHubPresenceRedis.bridgeForwardTimeoutTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_bridge_forward_error_total",
+        agentHubPresenceRedis.bridgeForwardErrorTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_bridge_command_handled_total",
+        agentHubPresenceRedis.bridgeCommandHandledTotal,
+      ),
+    );
+    appendRedisLatencyHistogram(
+      lines,
+      "plug_agent_hub_presence_redis_command_duration_ms",
+      agentHubPresenceRedis.commandLatency,
     );
 
     lines.push(
