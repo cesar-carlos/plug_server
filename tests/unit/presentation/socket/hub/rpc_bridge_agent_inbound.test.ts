@@ -1344,7 +1344,9 @@ describe("rpc_bridge_agent_inbound", () => {
       expect(decoded.ok).toBe(true);
       if (decoded.ok) {
         const data = decoded.value.data as Record<string, unknown>;
-        const meta = data.meta as { serverTimings?: { schemaVersion?: number; phasesMs?: Record<string, number> } } | undefined;
+        const meta = data.meta as
+          | { serverTimings?: { schemaVersion?: number; phasesMs?: Record<string, number> } }
+          | undefined;
         expect(meta?.serverTimings).toBeDefined();
         expect(meta?.serverTimings?.schemaVersion).toBe(1);
         expect(meta?.serverTimings?.phasesMs).toMatchObject({
@@ -1512,7 +1514,11 @@ describe("rpc_bridge_agent_inbound", () => {
       );
 
       await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
-      const [consumerSocketId, eventName] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+      const [consumerSocketId, eventName] = emitToConsumer.mock.calls[0] as [
+        string,
+        string,
+        unknown,
+      ];
       expect(consumerSocketId).toBe("consumer-1");
       expect(eventName).toBe(socketEvents.relayRpcRequestAck);
       const route = getRelayRequestRoute("req-ack-relay");

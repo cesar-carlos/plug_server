@@ -420,10 +420,7 @@ const handleAgentProfileUpdate = async (
  * the protocol ready / touches liveness, and emits `hub:heartbeat_ack`
  * (mirroring the `trace_id` so the agent can correlate without a synced clock).
  */
-const handleAgentHeartbeat = async (
-  socket: AgentHubSocket,
-  rawPayload: unknown,
-): Promise<void> => {
+const handleAgentHeartbeat = async (socket: AgentHubSocket, rawPayload: unknown): Promise<void> => {
   const decoded = await decodePayloadFrameAsync(rawPayload);
   if (!decoded.ok) {
     emitAppError(socket, decoded.error.message);

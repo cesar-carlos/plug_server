@@ -3,19 +3,13 @@ import { socketEvents } from "../../../../shared/constants/socket_events";
 import { serviceUnavailable } from "../../../../shared/errors/http_errors";
 import { noteRelayBodyIdEcho } from "../../../../shared/metrics/socket_consumer.metrics";
 import { logger } from "../../../../shared/utils/logger";
-import {
-  enqueueRelayOutbound,
-  encodeRelayOutboundFrame,
-} from "./relay_outbound_queue";
+import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import {
   getActiveStreamRouteByRequestId,
   removeActiveStreamRoute,
   type ActiveStreamRoute,
 } from "../registries/active_stream_registry";
-import {
-  registerAgentFailure,
-  relayMetrics,
-} from "./bridge_relay_health_metrics";
+import { registerAgentFailure, relayMetrics } from "./bridge_relay_health_metrics";
 import { conversationRegistry } from "../registries/conversation_registry";
 import {
   clearRestPendingRequest,

@@ -9,10 +9,7 @@ import {
   clientAccessReviewCopy,
 } from "../helpers/approval_registration_i18n";
 import { renderApprovalReviewPage } from "../helpers/approval_pages";
-import {
-  approvalHome,
-  renderApprovalDecisionHtml,
-} from "../helpers/approval_decision_html";
+import { approvalHome, renderApprovalDecisionHtml } from "../helpers/approval_decision_html";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   ClientAccessApproveBody,

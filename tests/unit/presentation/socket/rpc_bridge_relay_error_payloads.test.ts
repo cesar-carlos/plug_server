@@ -60,7 +60,11 @@ describe("createRelayDecodeFailurePayload", () => {
   });
 
   it("falls back to -32009 / invalid_payload for unrecognized reasons", () => {
-    const payload = createRelayDecodeFailurePayload("req-4", "something else", "body-4") as RpcError;
+    const payload = createRelayDecodeFailurePayload(
+      "req-4",
+      "something else",
+      "body-4",
+    ) as RpcError;
 
     expect(payload.error.code).toBe(-32009);
     expect(payload.error.data).toMatchObject({

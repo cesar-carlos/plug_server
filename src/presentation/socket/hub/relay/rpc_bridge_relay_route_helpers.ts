@@ -5,10 +5,7 @@ import {
 import { env } from "../../../../shared/config/env";
 import { isPayloadFrameEnvelope } from "../../../../shared/utils/payload_frame";
 import { toRequestId } from "../../../../shared/utils/rpc_types";
-import {
-  getRelayRequestRoute,
-  type RelayRequestRoute,
-} from "../registries/relay_request_registry";
+import { getRelayRequestRoute, type RelayRequestRoute } from "../registries/relay_request_registry";
 import {
   getOrCreateRelayIdempotencyMap,
   setRelayIdempotencyEntry,

@@ -8,7 +8,12 @@ import {
 type Capabilities = Parameters<typeof resolveRequiresExplicitProtocolReadyAck>[0];
 
 const capabilities = (overrides: Record<string, unknown>): Capabilities =>
-  ({ protocols: ["jsonrpc-v2"], encodings: ["json"], compressions: ["none"], ...overrides }) as Capabilities;
+  ({
+    protocols: ["jsonrpc-v2"],
+    encodings: ["json"],
+    compressions: ["none"],
+    ...overrides,
+  }) as Capabilities;
 
 describe("resolveRequiresExplicitProtocolReadyAck", () => {
   it("returns true for the top-level camelCase flag", () => {

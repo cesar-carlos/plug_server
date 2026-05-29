@@ -1,0 +1,7 @@
+style: aplica Prettier nos arquivos com drift de formatação
+
+Roda `prettier --write` para zerar o `format:check`: 18 arquivos (alguns tocados nas
+refatorações recentes, outros com drift pré-existente) passam a seguir o estilo do projeto.
+Apenas reformatação (quebras de linha/colapso de expressões); sem mudança de lógica.
+
+Verificação: format:check, lint e typecheck limpos.

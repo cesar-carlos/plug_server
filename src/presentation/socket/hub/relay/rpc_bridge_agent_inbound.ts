@@ -314,7 +314,11 @@ export const createRpcBridgeAgentInboundHandlers = (
 
   const handleAgentRpcChunk = (socketId: string, rawPayload: unknown): void => {
     enqueueOrderedStreamInbound(socketId, async () => {
-      const resolved = await decodeAndResolveStreamRoute(socketEvents.rpcChunk, socketId, rawPayload);
+      const resolved = await decodeAndResolveStreamRoute(
+        socketEvents.rpcChunk,
+        socketId,
+        rawPayload,
+      );
       if (!resolved) {
         return;
       }
@@ -392,7 +396,11 @@ export const createRpcBridgeAgentInboundHandlers = (
 
   const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void => {
     void (async () => {
-      const data = await decodeAndValidateAckFrame(socketEvents.rpcRequestAck, socketId, rawPayload);
+      const data = await decodeAndValidateAckFrame(
+        socketEvents.rpcRequestAck,
+        socketId,
+        rawPayload,
+      );
       if (!data) {
         return;
       }

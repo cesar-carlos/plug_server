@@ -31,15 +31,9 @@ import { createRpcBridgeRelayDispatch } from "../../../../../src/presentation/so
 import { createRpcBridgeAgentInboundHandlers } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_agent_inbound";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
-import {
-  resetActiveStreamRegistry,
-} from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
-import {
-  resetRelayRequestRegistry,
-} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
-import {
-  resetRelayHubHealthAndMetrics,
-} from "../../../../../src/presentation/socket/hub/relay/bridge_relay_health_metrics";
+import { resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
+import { resetRelayRequestRegistry } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
+import { resetRelayHubHealthAndMetrics } from "../../../../../src/presentation/socket/hub/relay/bridge_relay_health_metrics";
 import {
   getSocketConsumerMetricsSnapshot,
   resetSocketConsumerMetrics,
@@ -209,8 +203,8 @@ describe("relay fast-path + body.id echo (hub cross-module)", () => {
 
     // 4. Wait for the consumer-side emit and inspect the rewritten frame.
     await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
-    const [consumerSocketId, consumerEventName, consumerFramePayload] =
-      emitToConsumer.mock.calls[0] as [string, string, unknown];
+    const [consumerSocketId, consumerEventName, consumerFramePayload] = emitToConsumer.mock
+      .calls[0] as [string, string, unknown];
 
     expect(consumerSocketId).toBe(CONSUMER_SOCKET_ID);
     expect(consumerEventName).toBe(socketEvents.relayRpcResponse);

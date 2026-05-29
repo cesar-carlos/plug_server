@@ -127,7 +127,10 @@ export class AgentSnapshotRefresher {
   ): Promise<Agent> {
     const nowMs = Date.now();
     const recent = this.recentlyRefreshed.get(agentId);
-    if (recent !== undefined && nowMs - recent.refreshedAtMs < AgentSnapshotRefresher.RECENT_TTL_MS) {
+    if (
+      recent !== undefined &&
+      nowMs - recent.refreshedAtMs < AgentSnapshotRefresher.RECENT_TTL_MS
+    ) {
       return recent.agent;
     }
 

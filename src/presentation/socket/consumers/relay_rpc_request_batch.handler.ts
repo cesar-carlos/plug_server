@@ -31,9 +31,7 @@ import { z } from "zod";
 
 import { dispatchRelayRpcToAgent } from "../hub/relay/rpc_bridge";
 import { conversationRegistry } from "../hub/registries/conversation_registry";
-import {
-  refundRelayRpcRequestAsync,
-} from "../hub/rate_limits/consumer_relay_rate_limiter";
+import { refundRelayRpcRequestAsync } from "../hub/rate_limits/consumer_relay_rate_limiter";
 import { AppError } from "../../../shared/errors/app_error";
 import { badRequest } from "../../../shared/errors/http_errors";
 import { env } from "../../../shared/config/env";
@@ -43,10 +41,7 @@ import {
   bridgeSingleCommandSchema,
   payloadFrameCompressionSchema,
 } from "../../../shared/validators/agent_command";
-import {
-  decodePayloadFrameAsync,
-  encodePayloadFrame,
-} from "../../../shared/utils/payload_frame";
+import { decodePayloadFrameAsync, encodePayloadFrame } from "../../../shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import {
@@ -400,8 +395,7 @@ export const handleRelayRpcRequestBatch = (
             clientRequestId: item.clientRequestId,
             error: {
               code: appError?.code ?? "BATCH_ITEM_DISPATCH_FAILED",
-              message:
-                reason instanceof Error ? reason.message : "Failed to dispatch batch item",
+              message: reason instanceof Error ? reason.message : "Failed to dispatch batch item",
               ...(typeof appError?.statusCode === "number"
                 ? { statusCode: appError.statusCode }
                 : {}),

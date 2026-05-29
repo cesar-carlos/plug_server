@@ -150,8 +150,7 @@ export const handleRelayRpcRequest = (
   // compliance). When set, we strip the `fastPath` opt-in here so the rest
   // of the pipeline behaves as if the consumer never asked for it. Counter
   // `fastPathForbiddenTotal` makes the gate observable in Prometheus.
-  const effectiveFastPath =
-    envelope.fastPath === true && !env.socketRelayFastPathForbidden;
+  const effectiveFastPath = envelope.fastPath === true && !env.socketRelayFastPathForbidden;
   if (envelope.fastPath === true) {
     noteRelayFastPathRequested();
     if (!effectiveFastPath) {

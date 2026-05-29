@@ -352,9 +352,7 @@ export const noteRelayBatchRejected = (reason: RelayBatchRejectReason): void => 
   relayOptInsCounters.batchEnvelopesRejectedTotal[reason] += 1;
 };
 
-export const noteServerTimingsOptIn = (
-  channel: "relay" | "agents_command" | "rest",
-): void => {
+export const noteServerTimingsOptIn = (channel: "relay" | "agents_command" | "rest"): void => {
   switch (channel) {
     case "relay":
       relayOptInsCounters.serverTimingsRelayOptInTotal += 1;

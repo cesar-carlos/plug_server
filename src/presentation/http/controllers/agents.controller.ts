@@ -289,9 +289,7 @@ export const proxyCommandToAgent = async (
       agentId: body.agentId,
       requestId: result.requestId,
       response: result.response,
-      ...(includeServerTimings
-        ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) }
-        : {}),
+      ...(includeServerTimings ? { serverTimings: buildServerTimingsEnvelope(latencyTrace!) } : {}),
     });
     latencyTrace?.addPhaseMs("response_write_ms", performance.now() - tWriteOk);
     latencyTrace?.finalizeOnce({ outcome: "success", httpStatus: 200 });

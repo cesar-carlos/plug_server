@@ -50,9 +50,7 @@ const overrides = globalThis.__batchEnvOverrides;
 import type * as EnvModule from "../../../../../src/shared/config/env";
 
 vi.mock("../../../../../src/shared/config/env", async () => {
-  const actual = await vi.importActual<typeof EnvModule>(
-    "../../../../../src/shared/config/env",
-  );
+  const actual = await vi.importActual<typeof EnvModule>("../../../../../src/shared/config/env");
   return {
     ...actual,
     env: new Proxy(actual.env as Record<string, unknown>, {
@@ -124,7 +122,10 @@ const validCommand = (
 });
 
 const buildBatchFrame = (ids: readonly string[]): unknown =>
-  encodePayloadFrame(ids.map((id) => validCommand(id)), { omitTraceId: true });
+  encodePayloadFrame(
+    ids.map((id) => validCommand(id)),
+    { omitTraceId: true },
+  );
 
 describe("parseRelayRpcRequestBatchEnvelope", () => {
   it("accepts a minimal envelope with only conversationId + frame", () => {

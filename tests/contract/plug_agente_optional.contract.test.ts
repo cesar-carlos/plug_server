@@ -78,9 +78,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     };
     const names = [
       ...new Set(
-        (doc.methods ?? [])
-          .filter((m) => !isPendingHubWiringMethod(m))
-          .map((m) => m.name),
+        (doc.methods ?? []).filter((m) => !isPendingHubWiringMethod(m)).map((m) => m.name),
       ),
     ].sort();
     expect(names).toEqual([...supportedAgentRpcMethods].sort());

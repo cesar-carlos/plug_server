@@ -43,9 +43,7 @@ const resolveOpenRpcPath = (): string | null => {
  */
 const PENDING_HUB_WIRING_MARKER = "pending hub-side wiring";
 
-const isPendingHubWiringMethod = (
-  methodRecord: Record<string, unknown> | null,
-): boolean => {
+const isPendingHubWiringMethod = (methodRecord: Record<string, unknown> | null): boolean => {
   if (!methodRecord) {
     return false;
   }
