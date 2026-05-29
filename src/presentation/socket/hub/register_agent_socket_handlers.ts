@@ -1,13 +1,15 @@
 /**
  * Agent namespace connection and event handlers.
  *
- * Extracted from `src/socket.ts` to keep the orchestrator thin. All agent-side
- * protocol logic lives here: register, heartbeat, ready, profile update, and the
- * five RPC inbound events (response, ack, batch-ack, chunk, complete).
+ * Extracted from `src/socket.ts` to keep the orchestrator thin. The
+ * `agent:register` handler lives in `handlers/agent_register.handler.ts`
+ * (extracted because it is the largest and most distinct flow); the
+ * remaining protocol handlers (heartbeat, ready, profile.update) and the
+ * RPC listeners stay here because they share the profile-sync scheduler
+ * and the canonical-registration helpers.
  */
 
-import type { DefaultEventsMap } from "@socket.io/component-emitter";
-import type { Namespace, Socket } from "socket.io";
+import type { Namespace } from "socket.io";
 
 import { AgentProfileSyncScheduler } from "./scheduling/agent_profile_sync_scheduler";
 import { agentRegistry } from "./registries/agent_registry";
@@ -20,13 +22,6 @@ import {
   clearAgentProfileSocketRateLimitStateForAgentId,
   clearAgentProfileSocketRateLimitStateForSocketId,
 } from "./rate_limits/agent_profile_socket_rate_limiter";
-import {
-  AGENT_REGISTER_RATE_LIMIT_MESSAGE,
-  AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
-  AGENT_SESSION_SUPERSEDED_MESSAGE,
-  emitAgentRegisterError,
-} from "./handshake/agent_register_error";
-import { tryConsumeAgentRegisterRateLimitAsync } from "./rate_limits/agent_register_rate_limit";
 import { parseAgentReadyPayload } from "./handshake/agent_ready_payload";
 import { emitConnectionReady } from "./handshake/connection_ready_handshake";
 import { conversationRegistry } from "./registries/conversation_registry";
@@ -48,19 +43,13 @@ import {
   unregisterAgentBridgeSocket,
 } from "./relay/rpc_bridge";
 import { container } from "../../../shared/di/container";
-import { env } from "../../../shared/config/env";
 import { AppError } from "../../../shared/errors/app_error";
 import { badRequest, forbidden, tooManyRequests } from "../../../shared/errors/http_errors";
-import { buildHubServerCapabilities } from "../../../shared/constants/agent_transport_contract";
 import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import {
-  noteAgentCapabilityProfile,
   noteAgentReadyInvalidPartialPayload,
   noteAgentReadyLegacyPayload,
-  noteAgentRegisterRateLimited,
-  noteAgentSessionRejectedActive,
-  noteAgentSessionTakeoverDisconnect,
 } from "../../../shared/metrics/socket_agent.metrics";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { logger } from "../../../shared/utils/logger";
@@ -71,45 +60,20 @@ import {
 } from "../../../shared/utils/payload_frame";
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import type { AgentRegisterProfileSnapshot } from "../../../application/services/agent_profile_sync.service";
-import {
-  resolveAgentRegisterProfileSnapshot,
-  resolveRequiresExplicitProtocolReadyAck,
-} from "./agent_register_payload";
-import {
-  agentRegisterPayloadSchema,
-  type AgentRegisterPayload,
-} from "../../../shared/validators/agent_register";
+import { resolveRequiresExplicitProtocolReadyAck } from "./agent_register_payload";
 import { agentSelfProfileSocketSchema } from "../../../shared/validators/agent_self_profile_socket";
 import { toAgentCatalogDto } from "../../http/serializers/agent_catalog.serializer";
+import {
+  type AgentHubNamespace,
+  type AgentHubSocket,
+  emitAppError,
+  getUserId,
+  isRecord,
+  withOptionalRequestId,
+} from "./handlers/_shared";
+import { handleAgentRegister } from "./handlers/agent_register.handler";
 
-type AgentCapabilities = AgentRegisterPayload["capabilities"];
-
-type SocketData = {
-  user?: JwtAccessPayload;
-  agentId?: string;
-  capabilities?: AgentCapabilities;
-  agentRegisterProfileSnapshot?: AgentRegisterProfileSnapshot;
-};
-
-export type AgentHubSocket = Socket<
-  DefaultEventsMap,
-  DefaultEventsMap,
-  DefaultEventsMap,
-  SocketData
->;
-type HubNamespace = Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const emitAppError = (socket: AgentHubSocket, message: string): void => {
-  socket.emit(
-    socketEvents.appError,
-    buildLegacySocketAppErrorPayload("SOCKET_PROTOCOL_ERROR", message),
-  );
-};
-
-const getUserId = (socket: AgentHubSocket): string | null =>
-  typeof socket.data.user?.sub === "string" ? socket.data.user.sub : null;
+export type { AgentHubSocket } from "./handlers/_shared";
 
 const buildAgentPrincipalRoom = (user: JwtAccessPayload | undefined): string | null =>
   typeof user?.sub === "string" && user.sub.trim() !== "" ? `agent:principal:${user.sub}` : null;
@@ -120,13 +84,6 @@ const joinAgentIdentityRooms = async (socket: AgentHubSocket): Promise<void> => 
     await socket.join(room);
   }
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const withOptionalRequestId = (
-  requestId: string | null | undefined,
-): { readonly requestId?: string } => (requestId ? { requestId } : {});
 
 const emitAgentProfileUpdated = async (
   socket: AgentHubSocket,
@@ -518,216 +475,16 @@ const handleAgentReady = async (socket: AgentHubSocket, rawPayload: unknown): Pr
 };
 
 // ─── agent:register handler ───────────────────────────────────────────────────
-
-/**
- * Handles `agent:register`: validates the payload and token/agent identity,
- * enforces the per-user register rate limit, binds ownership, registers the
- * session (honoring the configured session policy, including takeover of a
- * superseded socket via `agentsNsp`), stores capabilities/profile snapshot,
- * emits `agent:capabilities`, and—unless the agent opted into the explicit
- * `protocol_ready_ack` handshake—schedules the profile sync.
- */
-const handleAgentRegister = async (
-  socket: AgentHubSocket,
-  rawPayload: unknown,
-  agentsNsp: HubNamespace,
-): Promise<void> => {
-  const decoded = await decodePayloadFrameAsync(rawPayload);
-  if (!decoded.ok) {
-    emitAgentRegisterError(socket, "invalid_payload", decoded.error.message);
-    return;
-  }
-
-  const parsed = agentRegisterPayloadSchema.safeParse(decoded.value.data);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const path = issue?.path.join(".");
-    const detail = issue ? `${path ? `${path}: ` : ""}${issue.message}` : "validation failed";
-    emitAgentRegisterError(
-      socket,
-      "invalid_request",
-      `agent:register payload is invalid (${detail})`,
-    );
-    return;
-  }
-
-  const { agentId, capabilities } = parsed.data;
-
-  if (socket.data.agentId && socket.data.agentId !== agentId) {
-    emitAgentRegisterError(
-      socket,
-      "invalid_request",
-      "agent:register cannot change agentId for an already registered socket",
-      {
-        currentAgentId: socket.data.agentId,
-        requestedAgentId: agentId,
-      },
-    );
-    return;
-  }
-
-  const tokenAgentId = socket.data.user?.agent_id;
-  if (typeof tokenAgentId === "string" && tokenAgentId.trim() !== "" && tokenAgentId !== agentId) {
-    emitAgentRegisterError(
-      socket,
-      "authentication_failed",
-      "agent:register agentId does not match token claim",
-      { agentId, tokenAgentId },
-    );
-    return;
-  }
-
-  const userId = getUserId(socket);
-  if (!userId) {
-    emitAgentRegisterError(
-      socket,
-      "authentication_failed",
-      "agent:register requires authenticated user context",
-      { agentId },
-    );
-    return;
-  }
-
-  const rateLimitOk = await tryConsumeAgentRegisterRateLimitAsync(userId, agentId);
-  if (!rateLimitOk.ok) {
-    noteAgentRegisterRateLimited();
-    emitAgentRegisterError(socket, "rate_limited", AGENT_REGISTER_RATE_LIMIT_MESSAGE, {
-      agentId,
-      userId,
-      policy: env.socketAgentSessionPolicy,
-    });
-    return;
-  }
-
-  let bindResult: Awaited<ReturnType<typeof container.agentAccessService.bindOwnershipOnRegister>>;
-  try {
-    bindResult = await container.agentAccessService.bindOwnershipOnRegister(userId, agentId);
-  } catch (error: unknown) {
-    logger.warn("agent_register_ownership_bind_failed", {
-      socketId: socket.id,
-      agentId,
-      userId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    emitAgentRegisterError(
-      socket,
-      "transient_failure",
-      "agent:register failed while validating agent ownership",
-      { agentId, userId },
-    );
-    return;
-  }
-  if (!bindResult.ok) {
-    emitAgentRegisterError(socket, "unauthorized", bindResult.error.message, {
-      agentId,
-      userId,
-    });
-    return;
-  }
-
-  const registration = agentRegistry.registerAgentSession({
-    agentId,
-    socketId: socket.id,
-    userId,
-    capabilities,
-    policy: env.socketAgentSessionPolicy,
-    isPeerConnected: (sid) => agentsNsp.sockets.has(sid),
-  });
-
-  if (!registration.ok) {
-    if (registration.reason === "SESSION_ACTIVE") {
-      noteAgentSessionRejectedActive();
-      emitAgentRegisterError(
-        socket,
-        "session_active",
-        AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
-        {
-          agentId,
-          userId,
-          policy: env.socketAgentSessionPolicy,
-        },
-        { code: "same_agent_session_active" },
-      );
-      return;
-    }
-    emitAgentRegisterError(
-      socket,
-      "unauthorized",
-      "agent:register denied because this agentId belongs to another user",
-      { agentId, userId },
-    );
-    return;
-  }
-
-  if (registration.replacedSocketId !== undefined) {
-    noteAgentSessionTakeoverDisconnect();
-    const previousSocket = agentsNsp.sockets.get(registration.replacedSocketId);
-    if (previousSocket) {
-      previousSocket.emit(socketEvents.agentSessionSuperseded, {
-        reason: "session_superseded",
-        message: AGENT_SESSION_SUPERSEDED_MESSAGE,
-        policy: env.socketAgentSessionPolicy,
-      });
-      previousSocket.disconnect(true);
-    }
-    logger.info("agent_session_takeover_disconnect", {
-      agentId,
-      userId,
-      policy: env.socketAgentSessionPolicy,
-      previousSocketId: registration.replacedSocketId,
-      newSocketId: socket.id,
-    });
-  }
-
-  socket.data.agentId = agentId;
-  socket.data.capabilities = capabilities;
-  const registerProfileSnapshot = resolveAgentRegisterProfileSnapshot({
-    profile: parsed.data.profile,
-    profile_version: parsed.data.profile_version,
-    profile_updated_at: parsed.data.profile_updated_at,
-  });
-  if (registerProfileSnapshot !== undefined) {
-    socket.data.agentRegisterProfileSnapshot = registerProfileSnapshot;
-  } else {
-    delete socket.data.agentRegisterProfileSnapshot;
-  }
-  noteAgentCapabilityProfile(capabilities);
-  const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
-
-  logger.info("Agent registered on hub", {
-    socketId: socket.id,
-    agentId,
-    userId,
-  });
-
-  socket.emit(
-    socketEvents.agentCapabilities,
-    encodePayloadFrameHotPath(
-      {
-        capabilities: buildHubServerCapabilities({
-          recommendedStreamPullWindowSize: env.socketRestStreamPullWindowSize,
-          maxStreamPullWindowSize: env.socketRestStreamPullMaxWindowSize,
-        }),
-      },
-      withOptionalRequestId(decoded.value.frame.requestId),
-    ),
-  );
-
-  if (!requiresExplicitReadyAck) {
-    scheduleAgentProfileSync({
-      agentId,
-      userId,
-      ...(socket.data.agentRegisterProfileSnapshot !== undefined
-        ? { snapshot: socket.data.agentRegisterProfileSnapshot }
-        : {}),
-    });
-  }
-};
+//
+// The `agent:register` handler now lives in
+// [./handlers/agent_register.handler.ts](./handlers/agent_register.handler.ts).
+// It is invoked from `registerAgentSocketConnectionHandlers` below with the
+// namespace and `scheduleAgentProfileSync` passed in as an explicit context.
 
 // ─── Connection handler ───────────────────────────────────────────────────────
 
 export type RegisterAgentSocketHandlersInput = {
-  readonly agentsNsp: HubNamespace;
+  readonly agentsNsp: AgentHubNamespace;
   readonly consumersNsp: Namespace;
 };
 
@@ -766,7 +523,10 @@ export const registerAgentSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.agentRegister, (rawPayload: unknown) => {
-      void handleAgentRegister(socket, rawPayload, agentsNsp);
+      void handleAgentRegister(socket, rawPayload, {
+        agentsNsp,
+        scheduleAgentProfileSync,
+      });
     });
 
     socket.on(socketEvents.agentHeartbeat, (rawPayload: unknown) => {
