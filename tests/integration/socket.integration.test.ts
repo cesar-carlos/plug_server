@@ -1286,6 +1286,95 @@ describe("Socket namespaces", () => {
       }
     });
 
+    it("should return replay_detected for repeated agents:command id without a second dispatch", async () => {
+      const consumerSocket = await connectConsumer(baseUrl, accessToken);
+      const agentSocket = await connectAgent(baseUrl, agentAccessToken);
+
+      try {
+        await registerAgentAndWaitReady(agentSocket, {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        });
+
+        const rpcId = `socket-replay-${randomUUID()}`;
+        let dispatchCount = 0;
+        const onRpcRequest = (rawPayload: unknown): void => {
+          const decoded = decodePayloadFrame(rawPayload);
+          if (!decoded.ok || !isRecord(decoded.value.data)) {
+            return;
+          }
+
+          const requestId = toRequestId(decoded.value.data.id);
+          if (requestId !== rpcId) {
+            return;
+          }
+
+          dispatchCount += 1;
+          agentSocket.emit(
+            "rpc:response",
+            encodePayloadFrame({
+              jsonrpc: "2.0",
+              id: requestId,
+              result: { ok: true, dispatchCount },
+            }),
+          );
+        };
+        agentSocket.on("rpc:request", onRpcRequest);
+
+        const emitCommand = (): void => {
+          consumerSocket.emit("agents:command", {
+            agentId: testAgentId,
+            command: {
+              jsonrpc: "2.0",
+              id: rpcId,
+              method: "sql.execute",
+              params: {
+                sql: "SELECT 1",
+                client_token: "token-value",
+              },
+            },
+          });
+        };
+
+        const firstResponsePromise = waitForAgentsCommandResponse<{
+          success: boolean;
+          response?: { success?: boolean; item?: { result?: { dispatchCount?: number } } };
+        }>(consumerSocket);
+        emitCommand();
+        const firstResponse = await firstResponsePromise;
+        expect(firstResponse.success).toBe(true);
+        expect(firstResponse.response?.success).toBe(true);
+        expect(firstResponse.response?.item?.result?.dispatchCount).toBe(1);
+        expect(dispatchCount).toBe(1);
+
+        const secondResponsePromise = waitForAgentsCommandResponse<{
+          success: boolean;
+          response?: {
+            type?: string;
+            success?: boolean;
+            item?: { error?: { code?: number; data?: { reason?: string } } };
+          };
+        }>(consumerSocket);
+        emitCommand();
+        const secondResponse = await secondResponsePromise;
+
+        expect(secondResponse.success).toBe(true);
+        expect(secondResponse.response?.type).toBe("single");
+        expect(secondResponse.response?.success).toBe(false);
+        expect(secondResponse.response?.item?.error?.code).toBe(-32014);
+        expect(secondResponse.response?.item?.error?.data?.reason).toBe("replay_detected");
+        expect(dispatchCount).toBe(1);
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(dispatchCount).toBe(1);
+        agentSocket.off("rpc:request", onRpcRequest);
+      } finally {
+        consumerSocket.disconnect();
+        agentSocket.disconnect();
+      }
+    });
+
     it("should stream agent chunks to consumer and allow stream pull", async () => {
       const consumerSocket = await connectConsumer(baseUrl, accessToken);
       const agentSocket = await connectAgent(baseUrl, agentAccessToken);

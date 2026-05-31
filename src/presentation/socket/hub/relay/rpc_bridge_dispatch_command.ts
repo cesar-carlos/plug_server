@@ -8,6 +8,12 @@ import {
   observeBridgeRpcMethod,
   type BridgeRpcMethodMetricOutcome,
 } from "../../../../application/services/bridge_rpc_method_metrics.service";
+import {
+  buildBridgeCommandReplayDetectedResponse,
+  getCompletedBridgeCommandReplay,
+  getSingleBridgeCommandReplayId,
+  rememberCompletedBridgeCommand,
+} from "../../../../application/agent_commands/bridge_command_replay_guard";
 import { env } from "../../../../shared/config/env";
 import { AgentDisconnectedBeforeDispatchError } from "../../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../../shared/errors/app_error";
@@ -179,12 +185,6 @@ export const createDispatchRpcCommandToAgent = (
       const requestId =
         !isBatchCommand(command) && firstCorrelationId ? firstCorrelationId : randomUUID();
       const traceId = randomUUID();
-      const commandPayload = withBridgeMeta(command, {
-        requestId,
-        agentId: input.agentId,
-        traceId,
-        timestamp: new Date().toISOString(),
-      });
       input.latencyTrace?.attachDispatchMeta({
         requestId,
         traceId,
@@ -195,6 +195,29 @@ export const createDispatchRpcCommandToAgent = (
       const payloadFrameEncodeOpts = payloadFrameEncodeOptionsFromPreference(
         effectiveCompressionPreference,
       );
+      const replayId = getSingleBridgeCommandReplayId(command);
+
+      const completedReplay = getCompletedBridgeCommandReplay({
+        agentId: input.agentId,
+        command,
+      });
+      if (completedReplay) {
+        input.latencyTrace?.addPhaseMs(
+          "dispatch_preflight_ms",
+          performance.now() - dispatchWallStart,
+        );
+        logger.info("bridge_command_replay_detected", {
+          agentId: input.agentId,
+          requestId,
+          idType: completedReplay.replayId.idType,
+          source: "completed_window",
+        });
+        metricOutcome = "success";
+        return {
+          requestId,
+          response: completedReplay.response,
+        };
+      }
 
       for (const correlationId of correlationIds) {
         if (
@@ -202,9 +225,33 @@ export const createDispatchRpcCommandToAgent = (
           hasActiveStreamRouteForRequestId(correlationId) ||
           hasRelayRequestRoute(correlationId)
         ) {
+          if (replayId && replayId.requestId === correlationId) {
+            input.latencyTrace?.addPhaseMs(
+              "dispatch_preflight_ms",
+              performance.now() - dispatchWallStart,
+            );
+            logger.info("bridge_command_replay_detected", {
+              agentId: input.agentId,
+              requestId,
+              idType: replayId.idType,
+              source: "in_flight",
+            });
+            metricOutcome = "success";
+            return {
+              requestId,
+              response: buildBridgeCommandReplayDetectedResponse(replayId),
+            };
+          }
           throw badRequest("A request with this JSON-RPC id is already pending");
         }
       }
+
+      const commandPayload = withBridgeMeta(command, {
+        requestId,
+        agentId: input.agentId,
+        traceId,
+        timestamp: new Date().toISOString(),
+      });
 
       if (correlationIds.length === 0) {
         input.latencyTrace?.addPhaseMs(
@@ -540,6 +587,10 @@ export const createDispatchRpcCommandToAgent = (
         }
 
         const response = await responsePromise;
+        rememberCompletedBridgeCommand({
+          agentId: input.agentId,
+          command,
+        });
 
         if (!isBatchCommand(command) && command.method === "agent.getHealth") {
           noteAgentHealthRpcResponse(response);

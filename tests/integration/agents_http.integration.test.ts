@@ -265,6 +265,71 @@ describe("Agents HTTP bridge", () => {
     expect(forbiddenResponse.body.code).toBe("AGENT_ACCESS_DENIED");
   });
 
+  it("should return replay_detected for repeated REST command id without a second dispatch", async () => {
+    if (!agentSocket) {
+      throw new Error("Agent socket not initialized");
+    }
+
+    const rpcId = `rest-replay-${randomUUID()}`;
+    let dispatchCount = 0;
+    const onRpcRequest = (rawPayload: unknown): void => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok || !isRecord(decoded.value.data)) {
+        return;
+      }
+
+      const requestId = toRequestId(decoded.value.data.id);
+      if (requestId !== rpcId) {
+        return;
+      }
+
+      dispatchCount += 1;
+      agentSocket?.emit(
+        "rpc:response",
+        encodePayloadFrame({
+          jsonrpc: "2.0",
+          id: requestId,
+          result: { ok: true, dispatchCount },
+        }),
+      );
+    };
+    agentSocket.on("rpc:request", onRpcRequest);
+
+    try {
+      const body = {
+        agentId: testAgentId,
+        command: {
+          jsonrpc: "2.0",
+          id: rpcId,
+          method: "sql.execute",
+          params: { sql: "SELECT 1" },
+        },
+      };
+
+      const first = await request(baseUrl)
+        .post("/api/v1/agents/commands")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send(body);
+      expect(first.status).toBe(200);
+      expect(first.body.response?.success).toBe(true);
+      expect(first.body.response?.item?.result).toEqual({ ok: true, dispatchCount: 1 });
+      expect(dispatchCount).toBe(1);
+
+      const second = await request(baseUrl)
+        .post("/api/v1/agents/commands")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send(body);
+      expect(second.status).toBe(200);
+      expect(second.body.response?.type).toBe("single");
+      expect(second.body.response?.success).toBe(false);
+      expect(second.body.response?.item?.error?.code).toBe(-32014);
+      expect(second.body.response?.item?.error?.data?.reason).toBe("replay_detected");
+      expect(dispatchCount).toBe(1);
+    } finally {
+      agentSocket.off("rpc:request", onRpcRequest);
+    }
+  });
+
   it("should return HTTP 200 with JSON-RPC agent_offline when hub has no live /agents socket", async () => {
     if (!agentSocket) {
       throw new Error("Agent socket not initialized");

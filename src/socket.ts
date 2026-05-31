@@ -74,6 +74,7 @@ import { resetCustomSocketEventSubscriptionRateLimitState } from "./presentation
 import { resetCustomSocketEventSubscriptions } from "./presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { resetBridgeRpcMethodMetrics } from "./application/services/bridge_rpc_method_metrics.service";
+import { resetBridgeCommandReplayGuard } from "./application/agent_commands/bridge_command_replay_guard";
 import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
@@ -488,6 +489,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
     resetSocketBridgeState();
     resetRestBridgeMetrics();
     resetBridgeRpcMethodMetrics();
+    resetBridgeCommandReplayGuard();
     resetSocketHubErrorMetrics();
     conversationRegistry.clear();
     agentRegistry.clear();
