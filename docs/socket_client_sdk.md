@@ -33,7 +33,7 @@ acima de alguns MiB), preferir Socket/relay e sinalizar
 - **Handshake `/consumers`**: exige JWT valido mesmo que `SOCKET_AUTH_REQUIRED=false` noutros canais; nao existe modo anonimo suportado para operacao real do namespace.
 - **Capacidade ao conectar (principal `client`)**: `connection:ready` sai cedo, depois do hub entrar nas rooms base de identidade (`principal` e `client`). As rooms derivadas por acesso aprovado (`consumer:client-agent:*` e `consumer:agent-profile:*`) sao preenchidas de forma assincrona logo apos o ready, com dedupe por `clientId` para evitar rajadas em reconnect storm. Durante essa janela curta, `grantClientAccess` e o reconcile periodico garantem convergencia; clientes que precisam do catalogo completo devem usar os endpoints REST de listagem como fonte de verdade e tratar pushes iniciais como best-effort.
 - **REST offline**: `POST /api/v1/agents/commands` com `id` correlacionável e agente conhecido em memória mas sem socket → **HTTP 200** e `response.item.error` com `code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (não confundir com **503** de overload / notification-only / disconnect a meio de request).
-- **Multi-réplica**: validar sticky + `X-Hub-Instance-Id` — `docs/nginx_production.md` (secção **12) Sticky session para Socket.IO (multi-replica)**) e checklist em `docs/configuration.md` (*Checklist produção*).
+- **`X-Hub-Instance-Id`**: deploy de instância única — `docs/nginx_production.md` (secção **13) Upstream e `X-Hub-Instance-Id`**) e checklist em `docs/configuration.md` (*Checklist produção*).
 
 ## Eventos e formato
 

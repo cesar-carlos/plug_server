@@ -2,7 +2,7 @@
 
 Este guia documenta os ajustes recomendados de Nginx para o `plug_server`.
 
-**Ficheiro pronto a copiar:** [`deploy/nginx/plug_server.conf.example`](../deploy/nginx/plug_server.conf.example) (ajustar `server_name`, SSL e caminhos).
+**Ficheiros prontos a copiar:** [`deploy/nginx/conf.d/`](../deploy/nginx/conf.d/), [`deploy/nginx/snippets/`](../deploy/nginx/snippets/), [`deploy/nginx/sites/plug-server.example.conf`](../deploy/nginx/sites/plug-server.example.conf) (ajustar `server_name`, SSL e caminhos). Indice em [`deploy/nginx/plug_server.conf.example`](../deploy/nginx/plug_server.conf.example).
 
 Cobertura:
 
@@ -44,7 +44,7 @@ map $http_upgrade $connection_upgrade {
 }
 
 upstream plug_server_upstream {
-    server 127.0.0.1:3000;
+    server 127.0.0.1:4000;
     keepalive 64;
 }
 ```
@@ -333,67 +333,19 @@ Snippet em `deploy/nginx/plug_server.conf.example` (`03-plug-gzip.conf`).
 - **Logs:** em Ubuntu o pacote `nginx` costuma instalar rotacao em `/etc/logrotate.d/nginx`; confirmar espaco em disco e retencao.
 - **Multi-instancia / balanceador:** se houver varios processos Node, o storage em `UPLOADS_DIR` tem de ser **partilhado** (NFS, object storage) ou o Nginx tem de servir sempre o mesmo volume; caso contrario thumbnails podem falhar apos mudanca de instancia.
 
-## 13) Sticky session para Socket.IO (multi-replica)
+## 13) Upstream e `X-Hub-Instance-Id`
 
-Quando ha mais de uma replica do `plug_server` por tras do mesmo upstream,
-**todas as conexoes Socket.IO de um cliente tem de cair na mesma replica**.
-O hub mantem estado em memoria por instancia (conversas de relay, pending
-requests REST/socket, etc.). **`POST /api/v1/agents/commands`** com presenca
-Redis activa (ADR-0010) pode atravessar replicas; o socket `/agents` regista-se
-na replica onde ligou. Sem afinidade de sessao, fluxos relay como
-`relay:conversation.start` -> `relay:rpc.request` ainda quebram de forma
-nao-deterministica (`protocol_not_ready` ou conversa perdida). Ver
-`docs/runbooks/multi_replica_n8n_agent_404.md`.
+O deploy suportado e **um unico processo** em `127.0.0.1:4000` (ver
+`deploy/pm2/ecosystem.config.cjs` e `deploy/nginx/plug_server.conf.example`).
+Nao e necessario `ip_hash` nem cookie de afinidade no Nginx.
 
-**Se ha apenas 1 replica**, este passo e dispensavel. Confirme antes de pular
-(ver verificacao com `X-Hub-Instance-Id` mais adiante).
-
-### Opcao A — `ip_hash` (modulo built-in)
-
-Mais simples; funciona bem quando cada cliente tem IP publico estavel.
-Distribui mal sob NAT corporativo / mobile carrier-grade NAT.
-
-```nginx
-upstream plug_server_upstream {
-    ip_hash;
-    server 10.0.0.11:3000;
-    server 10.0.0.12:3000;
-    keepalive 64;
-}
-```
-
-### Opcao B — Cookie de afinidade (preferida para mobile)
-
-Requer `nginx-sticky-module-ng` ou nginx Plus (`sticky cookie ...`).
-
-```nginx
-upstream plug_server_upstream {
-    sticky cookie hub_node expires=1h domain=api.seudominio.com path=/;
-    server 10.0.0.11:3000;
-    server 10.0.0.12:3000;
-    keepalive 64;
-}
-```
-
-O cookie e fixado na primeira resposta e mantem o cliente preso a mesma
-replica enquanto ele existir.
-
-### Verificacao com `X-Hub-Instance-Id`
-
-Defina `HUB_INSTANCE_ID` em cada replica (ex.: hostname / pod name). A partir
-desse momento **toda resposta Express** carrega o header `X-Hub-Instance-Id`,
-emitido pelo middleware global `hubInstanceIdMiddleware` (REST, Swagger,
-`/metrics`, 404). Em chamadas consecutivas autenticadas:
+Defina `HUB_INSTANCE_ID` (ex.: `plug-4000`) para observabilidade. **Toda resposta
+Express** pode incluir `X-Hub-Instance-Id` via `hubInstanceIdMiddleware`:
 
 ```bash
-for i in 1 2 3 4 5; do
-  curl -sI -H "Authorization: Bearer $TOKEN" \
-    https://api.seudominio.com/api/v1/client/me/agents \
-    | grep -i x-hub-instance-id
-done
+curl -sI -H "Authorization: Bearer $TOKEN" \
+  https://api.seudominio.com/api/v1/client/me/agents \
+  | grep -i x-hub-instance-id
 ```
 
-- **1 replica:** mesmo valor sempre. Sticky N/A.
-- **Multi-replica + sticky funcionando:** mesmo valor para o mesmo cliente.
-- **Multi-replica sem sticky:** valores variando -> **NAO** habilitar Socket
-  ate corrigir o upstream.
+O valor deve ser estavel (sempre o mesmo hub).

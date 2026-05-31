@@ -1,42 +1,45 @@
 /**
- * Multi-replica runner for the plug_server hub (uses all CPU cores).
+ * Production PM2 profile: single hub process on port 4000.
  *
- * The hub is single-threaded per process, so we run one fork per core on
- * separate ports; nginx load-balances across 4000/4001 by default (round-robin).
- * Cross-replica Socket.IO fan-out, shared rate limits and distributed
- * idempotency require Redis (see SOCKET_IO_REDIS_ADAPTER_URL etc. in .env).
- *
- * `dotenv` does NOT override variables already present in the environment, so
- * the per-app PORT below takes precedence over PORT in .env.
+ * `dotenv` does not override variables already present in the environment, so
+ * the PORT below takes precedence over PORT in .env.
  *
  * Usage:
+ *   npm run build
  *   pm2 start deploy/pm2/ecosystem.config.cjs
- *   pm2 save && pm2 startup        # persist across reboots
- *   pm2 reload plug_server          # zero-downtime rolling restart
+ *   pm2 save && pm2 startup
+ *   pm2 reload plug_server
  */
+const fs = require("node:fs");
 const path = require("node:path");
 
 const cwd = path.resolve(__dirname, "..", "..");
-// Producao padrao: 1 instancia (elimina roteamento cross-replica). Para 2+: SOCKET_IO_REDIS_ADAPTER_URL + presenca (ADR-0010).
-// HUB_INSTANCE_ID=plug-{port}. Multi-replica: ports = [4000, 4001] apos validar presenca/bridge.
-const ports = [4000];
+const nvmrcVersion = fs.readFileSync(path.join(cwd, ".nvmrc"), "utf8").trim();
+const nvmNode = path.join(
+  process.env.HOME || "/root",
+  ".nvm/versions/node",
+  `v${nvmrcVersion}`,
+  "bin/node",
+);
 
 module.exports = {
-  apps: ports.map((port) => ({
-    name: `plug_server-${port}`,
-    cwd,
-    script: "dist/server.js",
-    exec_mode: "fork",
-    instances: 1,
-    env: {
-      NODE_ENV: "production",
-      PORT: String(port),
-      HUB_INSTANCE_ID: `plug-${port}`,
-      AGENT_HUB_CLUSTER_INSTANCE_IDS: "plug-4000",
+  apps: [
+    {
+      name: "plug_server",
+      cwd,
+      script: "dist/server.js",
+      interpreter: fs.existsSync(nvmNode) ? nvmNode : "node",
+      exec_mode: "fork",
+      instances: 1,
+      env: {
+        NODE_ENV: "production",
+        PORT: "4000",
+        HUB_INSTANCE_ID: "plug-4000",
+      },
+      max_memory_restart: "1G",
+      kill_timeout: 10000,
+      wait_ready: false,
+      autorestart: true,
     },
-    max_memory_restart: "1G",
-    kill_timeout: 10000,
-    wait_ready: false,
-    autorestart: true,
-  })),
+  ],
 };

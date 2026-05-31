@@ -8,14 +8,12 @@ as dependencias declaradas no repositorio** (Node, Express, Socket.IO, Prisma,
 Redis opcional, etc.). Redis ja e suportado para rate limits HTTP/Socket, adapter
 distribuido do Socket.IO (`SOCKET_IO_REDIS_ADAPTER_URL`) e idempotencia distribuida
 de `client:custom.*` (`REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`). Com
-`SOCKET_IO_REDIS_ADAPTER_URL` (ou `AGENT_HUB_PRESENCE_REDIS_URL`), **presenca
-de agente + forward de `POST /api/v1/agents/commands`** atravessam replicas
-(ADR-0010; ver `docs/runbooks/multi_replica_n8n_agent_404.md`). O socket do
-agente continua na replica onde ligou; REST/n8n noutra replica encaminha via
-Redis. Conversas relay, pending requests REST e grande parte do relay seguem
-em memoria por processo — sticky em `/consumers` e `/agents` continua
-recomendado para esses fluxos. Use `HUB_INSTANCE_ID` unico por processo em
-multi-replica (ver `docs/configuration.md`).
+`SOCKET_IO_REDIS_ADAPTER_URL` (ou `AGENT_HUB_PRESENCE_REDIS_URL`), presenca de
+agente e forward de `POST /api/v1/agents/commands` podem atravessar replicas
+(ADR-0010) — codigo de suporte, nao o perfil de deploy deste repositorio.
+**Producao:** um unico processo (`deploy/pm2/ecosystem.config.cjs`, porta 4000).
+Conversas relay, pending requests REST e grande parte do relay seguem em memoria
+por processo. Defina `HUB_INSTANCE_ID` para observabilidade (`docs/configuration.md`).
 
 ## Multi-instancia HTTP / estado em memoria
 
