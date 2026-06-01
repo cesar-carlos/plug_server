@@ -49,12 +49,26 @@ describe("buildCorsOptions", () => {
     const previousCorsOrigin = process.env.CORS_ORIGIN;
     const previousAccessSecret = process.env.JWT_ACCESS_SECRET;
     const previousRefreshSecret = process.env.JWT_REFRESH_SECRET;
+    const previousSmtpUser = process.env.SMTP_USER;
+    const previousSmtpPass = process.env.SMTP_PASS;
+    const previousSocketAuthRequired = process.env.SOCKET_AUTH_REQUIRED;
 
     afterEach(() => {
-      process.env.NODE_ENV = previousNodeEnv;
-      process.env.CORS_ORIGIN = previousCorsOrigin;
-      process.env.JWT_ACCESS_SECRET = previousAccessSecret;
-      process.env.JWT_REFRESH_SECRET = previousRefreshSecret;
+      const restore = (key: string, value: string | undefined): void => {
+        if (value === undefined) {
+          delete process.env[key];
+          return;
+        }
+        process.env[key] = value;
+      };
+
+      restore("NODE_ENV", previousNodeEnv);
+      restore("CORS_ORIGIN", previousCorsOrigin);
+      restore("JWT_ACCESS_SECRET", previousAccessSecret);
+      restore("JWT_REFRESH_SECRET", previousRefreshSecret);
+      restore("SMTP_USER", previousSmtpUser);
+      restore("SMTP_PASS", previousSmtpPass);
+      restore("SOCKET_AUTH_REQUIRED", previousSocketAuthRequired);
       vi.resetModules();
     });
 
@@ -63,6 +77,9 @@ describe("buildCorsOptions", () => {
       process.env.CORS_ORIGIN = "https://app.example.com";
       process.env.JWT_ACCESS_SECRET = "production-access-secret-32chars";
       process.env.JWT_REFRESH_SECRET = "production-refresh-secret-32chars";
+      process.env.SMTP_USER = "ci@example.com";
+      process.env.SMTP_PASS = "ci-smtp-password";
+      process.env.SOCKET_AUTH_REQUIRED = "true";
       vi.resetModules();
 
       const { buildCorsOptions: buildProd } = await import("../../../../src/shared/config/cors");
