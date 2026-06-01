@@ -90,6 +90,10 @@ describe("redis chaos integration", () => {
   });
 
   it("survives broker connection kill and recovers without unhandledRejection", async (ctx) => {
+    if (!isChaosEnabled()) {
+      ctx.skip("INTEGRATION_REDIS_CHAOS_TESTS_ENABLED is not 'true'");
+      return;
+    }
     assertInfrastructureOrSkip(ctx, infrastructureProbe);
     if (!streamModule) {
       throw new Error("module not initialised");

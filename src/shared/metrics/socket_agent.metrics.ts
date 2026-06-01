@@ -33,6 +33,14 @@ const inboundContractValidation = {
   warnTotal: 0,
 };
 
+const autoUpdateDiagnostics = {
+  received: 0,
+  accepted: 0,
+  rateLimitedDrop: 0,
+  validationDrop: 0,
+  persistFailed: 0,
+};
+
 const capabilityProfiles = {
   current: 0,
   older: 0,
@@ -166,6 +174,26 @@ export const noteAgentInboundContractValidationFailed = (mode: "strict" | "warn"
   }
 };
 
+export const noteAgentAutoUpdateDiagnosticsReceived = (): void => {
+  autoUpdateDiagnostics.received += 1;
+};
+
+export const noteAgentAutoUpdateDiagnosticsAccepted = (): void => {
+  autoUpdateDiagnostics.accepted += 1;
+};
+
+export const noteAgentAutoUpdateDiagnosticsRateLimitedDrop = (): void => {
+  autoUpdateDiagnostics.rateLimitedDrop += 1;
+};
+
+export const noteAgentAutoUpdateDiagnosticsValidationDrop = (): void => {
+  autoUpdateDiagnostics.validationDrop += 1;
+};
+
+export const noteAgentAutoUpdateDiagnosticsPersistFailed = (): void => {
+  autoUpdateDiagnostics.persistFailed += 1;
+};
+
 export const noteAgentCapabilityProfile = (capabilities: Record<string, unknown>): void => {
   const version = readPlugProfileVersion(readProfileString(capabilities));
   if (!version || !currentPlugProfileVersion) {
@@ -241,6 +269,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   readonly agentReadyLegacyPayloadTotal: number;
   readonly agentReadyInvalidPartialPayloadTotal: number;
   readonly inboundContractValidation: typeof inboundContractValidation;
+  readonly autoUpdateDiagnostics: typeof autoUpdateDiagnostics;
   readonly capabilityProfiles: typeof capabilityProfiles;
   readonly capabilityAgentGetHealthCapableTotal: number;
   readonly agentHealth: typeof agentHealth;
@@ -253,6 +282,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   agentReadyLegacyPayloadTotal,
   agentReadyInvalidPartialPayloadTotal,
   inboundContractValidation: { ...inboundContractValidation },
+  autoUpdateDiagnostics: { ...autoUpdateDiagnostics },
   capabilityProfiles: { ...capabilityProfiles },
   capabilityAgentGetHealthCapableTotal,
   agentHealth: { ...agentHealth },
@@ -272,6 +302,11 @@ export const resetSocketAgentMetrics = (): void => {
   agentReadyInvalidPartialPayloadTotal = 0;
   inboundContractValidation.failedTotal = 0;
   inboundContractValidation.warnTotal = 0;
+  autoUpdateDiagnostics.received = 0;
+  autoUpdateDiagnostics.accepted = 0;
+  autoUpdateDiagnostics.rateLimitedDrop = 0;
+  autoUpdateDiagnostics.validationDrop = 0;
+  autoUpdateDiagnostics.persistFailed = 0;
   capabilityProfiles.current = 0;
   capabilityProfiles.older = 0;
   capabilityProfiles.unknown = 0;

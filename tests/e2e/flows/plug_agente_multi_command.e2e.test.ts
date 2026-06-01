@@ -6,7 +6,7 @@
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { connectConsumerSocket } from "../helpers/consumer_socket";
+import { connectConsumerSocket, decodeConsumerSocketPayload } from "../helpers/consumer_socket";
 import { startE2EHubFixture, type E2EHubFixture } from "../helpers/e2e_hub_fixture";
 import {
   connectPlugAgenteSocket,
@@ -230,10 +230,15 @@ describe("E2E plug_agente multi-command (batch)", () => {
         });
       });
 
-      const responsePromise = waitForSocketEvent<{
-        success: boolean;
-        response?: { type?: string; items?: unknown[]; success?: boolean };
-      }>(consumer, "agents:command_response");
+      const responsePromise = waitForSocketEvent<unknown>(
+        consumer,
+        "agents:command_response",
+      ).then((raw) =>
+        decodeConsumerSocketPayload<{
+          success: boolean;
+          response?: { type?: string; items?: unknown[]; success?: boolean };
+        }>(raw),
+      );
 
       consumer.emit("agents:command", {
         agentId: ctx.agentId,
@@ -513,10 +518,15 @@ describe("E2E plug_agente multi-command (batch)", () => {
         });
       });
 
-      const responsePromise = waitForSocketEvent<{
-        success: boolean;
-        response?: { type?: string; item?: { result?: { source?: string } } };
-      }>(consumer, "agents:command_response");
+      const responsePromise = waitForSocketEvent<unknown>(
+        consumer,
+        "agents:command_response",
+      ).then((raw) =>
+        decodeConsumerSocketPayload<{
+          success: boolean;
+          response?: { type?: string; item?: { result?: { source?: string } } };
+        }>(raw),
+      );
 
       consumer.emit("agents:command", {
         agentId: ctx.agentId,
@@ -561,11 +571,16 @@ describe("E2E plug_agente multi-command (batch)", () => {
         });
       });
 
-      const responsePromise = waitForSocketEvent<{
-        success: boolean;
-        requestId?: string;
-        response?: { type?: string; accepted?: boolean; acceptedCommands?: number };
-      }>(consumer, "agents:command_response");
+      const responsePromise = waitForSocketEvent<unknown>(
+        consumer,
+        "agents:command_response",
+      ).then((raw) =>
+        decodeConsumerSocketPayload<{
+          success: boolean;
+          requestId?: string;
+          response?: { type?: string; accepted?: boolean; acceptedCommands?: number };
+        }>(raw),
+      );
 
       consumer.emit("agents:command", {
         agentId: ctx.agentId,
@@ -620,10 +635,15 @@ describe("E2E plug_agente multi-command (batch)", () => {
         });
       });
 
-      const responsePromise = waitForSocketEvent<{
-        success: boolean;
-        response?: { type?: string; acceptedCommands?: number };
-      }>(consumer, "agents:command_response");
+      const responsePromise = waitForSocketEvent<unknown>(
+        consumer,
+        "agents:command_response",
+      ).then((raw) =>
+        decodeConsumerSocketPayload<{
+          success: boolean;
+          response?: { type?: string; acceptedCommands?: number };
+        }>(raw),
+      );
 
       consumer.emit("agents:command", {
         agentId: ctx.agentId,
@@ -700,10 +720,15 @@ describe("E2E plug_agente multi-command (batch)", () => {
         });
       });
 
-      const responsePromise = waitForSocketEvent<{
-        success: boolean;
-        response?: { type?: string; items?: { id?: string }[] };
-      }>(consumer, "agents:command_response");
+      const responsePromise = waitForSocketEvent<unknown>(
+        consumer,
+        "agents:command_response",
+      ).then((raw) =>
+        decodeConsumerSocketPayload<{
+          success: boolean;
+          response?: { type?: string; items?: { id?: string }[] };
+        }>(raw),
+      );
 
       consumer.emit("agents:command", {
         agentId: ctx.agentId,

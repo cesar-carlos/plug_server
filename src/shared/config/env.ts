@@ -611,6 +611,44 @@ const envSchema = z.object({
     .positive()
     .max(10 * 1024 * 1024)
     .default(10 * 1024 * 1024),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60_000),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(1),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_INTERVAL_MINUTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(1440),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_PRUNE_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5_000),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_MAX_PAYLOAD_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(1024 * 1024)
+    .default(16 * 1024),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_MAX_MESSAGE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 * 1024)
+    .default(64 * 1024),
   SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION: z.enum(["strict", "warn", "off"]).default("strict"),
   SOCKET_AGENT_ACK_RETRY_ENABLED: z
     .enum(["true", "false"])
@@ -1759,6 +1797,21 @@ export const env = {
     parsedEnv.PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES,
   agentSqlBulkInsertMaxRows: parsedEnv.AGENT_SQL_BULK_INSERT_MAX_ROWS,
   agentSqlBulkInsertMaxJsonBytes: parsedEnv.AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES,
+  agentAutoUpdateDiagnosticsEnabled: parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_ENABLED,
+  agentAutoUpdateDiagnosticsRateLimitWindowMs:
+    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_WINDOW_MS,
+  agentAutoUpdateDiagnosticsRateLimitMax:
+    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_MAX,
+  agentAutoUpdateDiagnosticsRetentionDays:
+    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_DAYS,
+  agentAutoUpdateDiagnosticsRetentionIntervalMinutes:
+    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_INTERVAL_MINUTES,
+  agentAutoUpdateDiagnosticsPruneBatchSize:
+    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_PRUNE_BATCH_SIZE,
+  agentAutoUpdateDiagnosticsMaxPayloadBytes:
+    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_MAX_PAYLOAD_BYTES,
+  agentAutoUpdateDiagnosticsMaxMessageBytes:
+    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_MAX_MESSAGE_BYTES,
   socketAgentInboundContractValidation: parsedEnv.SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION,
   socketAgentAckRetryEnabled: parsedEnv.SOCKET_AGENT_ACK_RETRY_ENABLED,
   socketAgentAckTimeoutMs: parsedEnv.SOCKET_AGENT_ACK_TIMEOUT_MS,

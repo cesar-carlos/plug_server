@@ -1104,6 +1104,36 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     );
     lines.push(
       metricLine(
+        "plug_agent_auto_update_diagnostics_push_received_total",
+        agentRuntime.autoUpdateDiagnostics.received,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_agent_auto_update_diagnostics_push_accepted_total",
+        agentRuntime.autoUpdateDiagnostics.accepted,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_agent_auto_update_diagnostics_push_rate_limited_drop_total",
+        agentRuntime.autoUpdateDiagnostics.rateLimitedDrop,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_agent_auto_update_diagnostics_push_validation_drop_total",
+        agentRuntime.autoUpdateDiagnostics.validationDrop,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_agent_auto_update_diagnostics_push_persist_failed_total",
+        agentRuntime.autoUpdateDiagnostics.persistFailed,
+      ),
+    );
+    lines.push(
+      metricLine(
         "plug_socket_agents_capability_profiles_total",
         agentRuntime.capabilityProfiles.current,
         { status: "current" },

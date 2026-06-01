@@ -32,23 +32,18 @@ const resolveOpenRpcPath = (): string | null => {
   return null;
 };
 
-/**
- * Methods whose OpenRPC `summary` contains this token are intentionally NOT
- * implemented by the hub yet — they are documented as future work in
- * `plug_agente`. The hub team will wire them in a dedicated change once the
- * plan referenced in each method's summary is approved. Ignoring them here
- * prevents the contract test from failing on **intentional** drift while
- * still catching **accidental** drift (any method the hub declares that the
- * OpenRPC does NOT declare still fails the test).
- */
+/** Agent -> hub notifications are not REST bridge client commands. */
 const PENDING_HUB_WIRING_MARKER = "pending hub-side wiring";
 
-const isPendingHubWiringMethod = (methodRecord: Record<string, unknown> | null): boolean => {
+const isHubToAgentOpenRpcMethod = (methodRecord: Record<string, unknown> | null): boolean => {
   if (!methodRecord) {
     return false;
   }
+  if (methodRecord["x-direction"] === "agent_to_hub") {
+    return false;
+  }
   const summary = methodRecord.summary;
-  return typeof summary === "string" && summary.includes(PENDING_HUB_WIRING_MARKER);
+  return !(typeof summary === "string" && summary.includes(PENDING_HUB_WIRING_MARKER));
 };
 
 const readOpenRpcMethods = (): readonly string[] => {
@@ -64,7 +59,7 @@ const readOpenRpcMethods = (): readonly string[] => {
 
   const methods = record.methods
     .map((item) => toRecord(item))
-    .filter((methodRecord) => methodRecord !== null && !isPendingHubWiringMethod(methodRecord))
+    .filter((methodRecord) => isHubToAgentOpenRpcMethod(methodRecord))
     .map((methodRecord) => methodRecord!.name)
     .filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 

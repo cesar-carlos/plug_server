@@ -38,6 +38,7 @@ export const PLUG_AGENTE_SCHEMA_FILES = [
   "rpc.result.agent-get-profile.schema.json",
   "rpc.params.client-token-get-policy.schema.json",
   "rpc.result.client-token-get-policy.schema.json",
+  "auto_update_diagnostics.schema.json",
 ] as const;
 
 export interface PlugAgenteContractPaths {
@@ -107,12 +108,14 @@ export const registerPlugAgenteSchemas = (ajv: PlugAgenteAjv, schemasDir: string
   ajv.addSchema(read("rpc.batch.response.schema.json"));
 
   for (const name of PLUG_AGENTE_SCHEMA_FILES) {
+    // The diagnostics push schema is agent->hub and draft-07; hub->agent AJV checks do not use it.
     if (
       name.startsWith("rpc.error") ||
       name.startsWith("rpc.request") ||
       name.startsWith("rpc.response") ||
       name === "rpc.batch.request.schema.json" ||
-      name === "rpc.batch.response.schema.json"
+      name === "rpc.batch.response.schema.json" ||
+      name === "auto_update_diagnostics.schema.json"
     ) {
       continue;
     }

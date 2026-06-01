@@ -62,7 +62,7 @@ describe("E2E client-access public approval token", () => {
         .send({ token });
       expect(approveResponse.status).toBe(200);
       expect(approveResponse.headers["content-type"]).toContain("text/html");
-      expect(approveResponse.text).toContain("Acesso aprovado");
+      expect(approveResponse.text).toContain("Access approved");
       expect(approveResponse.text).toContain(ctx.agentId);
 
       const approvedAgents = await request(ctx.baseUrl)

@@ -76,6 +76,52 @@ const waitForEvent = <T>(
   });
 };
 
+const waitForRpcRequestId = (
+  socket: ReturnType<typeof ioClient>,
+  targetRequestId: string,
+  options: {
+    readonly label: string;
+    readonly timeoutMs?: number;
+    readonly onMatch?: (data: Record<string, unknown>) => void;
+  },
+): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.off("rpc:request", onRpcRequest);
+      reject(new Error(`Timed out waiting for ${options.label} rpc:request ${targetRequestId}`));
+    }, options.timeoutMs ?? agentsHttpRpcWaitMs);
+
+    const fail = (error: Error): void => {
+      clearTimeout(timeout);
+      socket.off("rpc:request", onRpcRequest);
+      reject(error);
+    };
+
+    const onRpcRequest = (rawPayload: unknown): void => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok || !isRecord(decoded.value.data)) {
+        return;
+      }
+
+      const requestId = toRequestId(decoded.value.data.id);
+      if (requestId !== targetRequestId) {
+        return;
+      }
+
+      try {
+        options.onMatch?.(decoded.value.data);
+      } catch (error: unknown) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      clearTimeout(timeout);
+      socket.off("rpc:request", onRpcRequest);
+      resolve();
+    };
+
+    socket.on("rpc:request", onRpcRequest);
+  });
+
 const registerApprovedClient = async (
   baseUrl: string,
   ownerEmail: string,
@@ -949,21 +995,10 @@ describe("Agents HTTP bridge", () => {
       throw new Error("Agent socket not initialized");
     }
 
-    const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid rpc:request payload"));
-          return;
-        }
-
-        const data = decoded.value.data as Record<string, unknown>;
+    const targetRequestId = "req-preserve-sql-1";
+    const rpcHandled = waitForRpcRequestId(agentSocket, targetRequestId, {
+      label: "preserve-sql normalization",
+      onMatch: (data) => {
         const params = isRecord(data.params) ? data.params : {};
         const options = isRecord(params.options) ? params.options : {};
         expect(options.execution_mode).toBe("preserve");
@@ -992,9 +1027,7 @@ describe("Agents HTTP bridge", () => {
             },
           }),
         );
-        clearTimeout(timeout);
-        resolve();
-      });
+      },
     });
 
     const responsePromise = request(baseUrl)
@@ -1005,7 +1038,7 @@ describe("Agents HTTP bridge", () => {
         command: {
           jsonrpc: "2.0",
           method: "sql.execute",
-          id: "req-preserve-sql-1",
+          id: targetRequestId,
           params: {
             sql: "SELECT 1",
             client_token: "token-value",
@@ -1089,29 +1122,34 @@ describe("Agents HTTP bridge", () => {
       throw new Error("Agent socket not initialized");
     }
 
+    const notificationSql = "INSERT INTO logs (msg) VALUES ('ping')";
     const rpcHandled = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
+        () => {
+          agentSocket?.off("rpc:request", onRpcRequest);
+          reject(new Error("Timed out waiting for notification rpc:request"));
+        },
         agentsHttpRpcWaitMs,
       );
 
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+      const onRpcRequest = (rawPayload: unknown): void => {
         const decoded = decodePayloadFrame(rawPayload);
         if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid rpc:request payload"));
           return;
         }
 
-        if (decoded.value.data.id !== null) {
-          clearTimeout(timeout);
-          reject(new Error("Expected id: null for notification"));
+        const data = decoded.value.data;
+        const params = isRecord(data.params) ? data.params : {};
+        if (data.id !== null || data.method !== "sql.execute" || params.sql !== notificationSql) {
           return;
         }
 
         clearTimeout(timeout);
+        agentSocket?.off("rpc:request", onRpcRequest);
         resolve();
-      });
+      };
+
+      agentSocket?.on("rpc:request", onRpcRequest);
     });
 
     const responsePromise = request(baseUrl)
@@ -1124,7 +1162,7 @@ describe("Agents HTTP bridge", () => {
           method: "sql.execute",
           id: null,
           params: {
-            sql: "INSERT INTO logs (msg) VALUES ('ping')",
+            sql: notificationSql,
             client_token: "token-value",
           },
         },
@@ -1145,33 +1183,42 @@ describe("Agents HTTP bridge", () => {
     }
 
     const rpcHandled = new Promise<void>((resolve, reject) => {
+      const fail = (error: Error): void => {
+        clearTimeout(timeout);
+        agentSocket?.off("rpc:request", onRpcRequest);
+        reject(error);
+      };
+      const finish = (): void => {
+        clearTimeout(timeout);
+        agentSocket?.off("rpc:request", onRpcRequest);
+        resolve();
+      };
       const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
+        () => fail(new Error("Timed out waiting for batch rpc:request")),
         agentsHttpRpcWaitMs,
       );
 
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
+      const onRpcRequest = (rawPayload: unknown): void => {
         const decoded = decodePayloadFrame(rawPayload);
         if (!decoded.ok || !Array.isArray(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Batch payload was not forwarded as array"));
           return;
         }
 
         const requestIds = decoded.value.data
           .map((item) => (isRecord(item) ? toRequestId(item.id) : null))
           .filter((id): id is string => id !== null);
+        if (!requestIds.includes("batch-q1") || !requestIds.includes("batch-q2")) {
+          return;
+        }
 
         if (requestIds.length !== 2) {
-          clearTimeout(timeout);
-          reject(new Error("Expected exactly two batch IDs"));
+          fail(new Error("Expected exactly two batch IDs"));
           return;
         }
         const firstId = requestIds.at(0);
         const secondId = requestIds.at(1);
         if (!firstId || !secondId) {
-          clearTimeout(timeout);
-          reject(new Error("Missing batch correlation ids"));
+          fail(new Error("Missing batch correlation ids"));
           return;
         }
 
@@ -1191,9 +1238,10 @@ describe("Agents HTTP bridge", () => {
           ]),
         );
 
-        clearTimeout(timeout);
-        resolve();
-      });
+        finish();
+      };
+
+      agentSocket?.on("rpc:request", onRpcRequest);
     });
 
     const responsePromise = request(baseUrl)
@@ -1477,30 +1525,11 @@ describe("Agents HTTP bridge", () => {
     }
 
     const abortedRequestId = "aborted-request-id";
-    const firstRequestSeen = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for first rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid first rpc:request payload"));
-          return;
-        }
-
-        const requestId = toRequestId(decoded.value.data.id);
-        if (requestId !== abortedRequestId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected first request id: ${requestId ?? "<null>"}`));
-          return;
-        }
-
-        clearTimeout(timeout);
-        resolve();
-      });
+    for (let index = 0; index < 40; index += 1) {
+      agentSocket.emit("rpc:response", "not-a-payload-frame");
+    }
+    const firstRequestSeen = waitForRpcRequestId(agentSocket, abortedRequestId, {
+      label: "first aborted",
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -1557,38 +1586,18 @@ describe("Agents HTTP bridge", () => {
         .catch(reject);
     });
 
-    const secondRequestHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for second rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid second rpc:request payload"));
-          return;
-        }
-
-        const requestId = toRequestId(decoded.value.data.id);
-        if (requestId !== abortedRequestId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected second request id: ${requestId ?? "<null>"}`));
-          return;
-        }
-
+    const secondRequestHandled = waitForRpcRequestId(agentSocket, abortedRequestId, {
+      label: "second reused-id",
+      onMatch: () => {
         agentSocket?.emit(
           "rpc:response",
           encodePayloadFrame({
             jsonrpc: "2.0",
-            id: requestId,
+            id: abortedRequestId,
             result: { ok: true },
           }),
         );
-        clearTimeout(timeout);
-        resolve();
-      });
+      },
     });
 
     const secondResponsePromise = request(baseUrl)

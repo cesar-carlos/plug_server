@@ -278,6 +278,13 @@ describe("metrics.controller", () => {
         agentReadyLegacyPayloadTotal: 0,
         agentReadyInvalidPartialPayloadTotal: 0,
         inboundContractValidation: { failedTotal: 0, warnTotal: 0 },
+        autoUpdateDiagnostics: {
+          received: 0,
+          accepted: 0,
+          rateLimitedDrop: 0,
+          validationDrop: 0,
+          persistFailed: 0,
+        },
         capabilityProfiles: { current: 0, older: 0, unknown: 0 },
         capabilityAgentGetHealthCapableTotal: 0,
         agentHealth: {

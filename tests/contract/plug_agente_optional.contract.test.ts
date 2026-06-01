@@ -58,16 +58,18 @@ function readHubPlugProfileMajorMinor(profile: string): string {
 }
 
 /**
- * Methods whose OpenRPC `summary` contains this token are intentionally NOT
- * implemented by the hub yet. See `tests/integration/agent_rpc_contract.integration.test.ts`
- * for the rationale; the same marker is honored here so the optional contract
- * test does not fail on intentional drift while still catching accidental
- * additions on the hub side.
+ * Agent -> hub notifications are not REST bridge client commands. Newer
+ * OpenRPC docs mark them with `x-direction: agent_to_hub`; the legacy pending
+ * marker remains as a temporary fallback until plug_agente docs are updated.
  */
 const PENDING_HUB_WIRING_MARKER = "pending hub-side wiring";
 
-const isPendingHubWiringMethod = (method: { summary?: string }): boolean =>
-  typeof method.summary === "string" && method.summary.includes(PENDING_HUB_WIRING_MARKER);
+const isHubToAgentOpenRpcMethod = (method: {
+  summary?: string;
+  "x-direction"?: string;
+}): boolean =>
+  method["x-direction"] !== "agent_to_hub" &&
+  !(typeof method.summary === "string" && method.summary.includes(PENDING_HUB_WIRING_MARKER));
 
 contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () => {
   it("exposes expected OpenRPC methods and a parsable semver-like version", () => {
@@ -78,7 +80,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
     };
     const names = [
       ...new Set(
-        (doc.methods ?? []).filter((m) => !isPendingHubWiringMethod(m)).map((m) => m.name),
+        (doc.methods ?? []).filter((m) => isHubToAgentOpenRpcMethod(m)).map((m) => m.name),
       ),
     ].sort();
     expect(names).toEqual([...supportedAgentRpcMethods].sort());

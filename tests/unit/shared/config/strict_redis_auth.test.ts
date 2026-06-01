@@ -13,6 +13,8 @@ const PRODUCTION_ENV_KEYS = [
   "CORS_ORIGIN",
   "JWT_ACCESS_SECRET",
   "JWT_REFRESH_SECRET",
+  "SMTP_USER",
+  "SMTP_PASS",
   "SOCKET_AUTH_REQUIRED",
   "STRICT_REDIS_AUTH",
   "SOCKET_IO_REDIS_ADAPTER_URL",
@@ -36,6 +38,8 @@ const setValidProductionEnv = (): void => {
   process.env.CORS_ORIGIN = "https://example.com";
   process.env.JWT_ACCESS_SECRET = "production-access-secret-32chars";
   process.env.JWT_REFRESH_SECRET = "production-refresh-secret-32chars";
+  process.env.SMTP_USER = "ci@example.com";
+  process.env.SMTP_PASS = "ci-smtp-password";
   process.env.SOCKET_AUTH_REQUIRED = "true";
   delete process.env.STRICT_REDIS_AUTH;
   delete process.env.SOCKET_IO_REDIS_ADAPTER_URL;
