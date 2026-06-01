@@ -42,6 +42,40 @@ const isPositiveInteger = (value: unknown): value is number =>
 
 const reject = (message: string): ContractValidationFailure => ({ message });
 
+const RPC_META_ALLOWED_KEYS = new Set([
+  "trace_id",
+  "traceparent",
+  "tracestate",
+  "request_id",
+  "agent_id",
+  "timestamp",
+]);
+
+const RPC_CHUNK_ALLOWED_KEYS = new Set([
+  "stream_id",
+  "request_id",
+  "chunk_index",
+  "rows",
+  "total_chunks",
+  "column_metadata",
+]);
+
+const RPC_COMPLETE_ALLOWED_KEYS = new Set([
+  "stream_id",
+  "request_id",
+  "total_rows",
+  "affected_rows",
+  "execution_id",
+  "started_at",
+  "finished_at",
+  "terminal_status",
+]);
+
+const RPC_COMPLETE_OPTIONAL_STRING_KEYS = ["execution_id", "started_at", "finished_at"] as const;
+const RPC_COMPLETE_TERMINAL_STATUSES = new Set(["aborted", "error"]);
+const RPC_REQUEST_ACK_ALLOWED_KEYS = new Set(["request_id", "received_at"]);
+const RPC_BATCH_ACK_ALLOWED_KEYS = new Set(["request_ids", "received_at"]);
+
 const ensureOnlyKeys = (
   payload: Record<string, unknown>,
   allowedKeys: ReadonlySet<string>,
@@ -58,15 +92,7 @@ const validateRpcMeta = (meta: unknown): ContractValidationFailure | null => {
   if (!isRecord(meta)) {
     return reject("meta must be an object");
   }
-  const allowedKeys = new Set([
-    "trace_id",
-    "traceparent",
-    "tracestate",
-    "request_id",
-    "agent_id",
-    "timestamp",
-  ]);
-  const extraKey = ensureOnlyKeys(meta, allowedKeys);
+  const extraKey = ensureOnlyKeys(meta, RPC_META_ALLOWED_KEYS);
   if (extraKey !== null) {
     return reject(`meta.${extraKey.message}`);
   }
@@ -170,10 +196,7 @@ const validateRpcChunk = (payload: unknown): ContractValidationFailure | null =>
   if (!isRecord(payload)) {
     return reject("rpc:chunk payload must be an object");
   }
-  const extraKey = ensureOnlyKeys(
-    payload,
-    new Set(["stream_id", "request_id", "chunk_index", "rows", "total_chunks", "column_metadata"]),
-  );
+  const extraKey = ensureOnlyKeys(payload, RPC_CHUNK_ALLOWED_KEYS);
   if (extraKey !== null) {
     return extraKey;
   }
@@ -209,19 +232,7 @@ const validateRpcComplete = (payload: unknown): ContractValidationFailure | null
   if (!isRecord(payload)) {
     return reject("rpc:complete payload must be an object");
   }
-  const extraKey = ensureOnlyKeys(
-    payload,
-    new Set([
-      "stream_id",
-      "request_id",
-      "total_rows",
-      "affected_rows",
-      "execution_id",
-      "started_at",
-      "finished_at",
-      "terminal_status",
-    ]),
-  );
+  const extraKey = ensureOnlyKeys(payload, RPC_COMPLETE_ALLOWED_KEYS);
   if (extraKey !== null) {
     return extraKey;
   }
@@ -237,15 +248,14 @@ const validateRpcComplete = (payload: unknown): ContractValidationFailure | null
   if (payload.affected_rows !== undefined && !isNonNegativeInteger(payload.affected_rows)) {
     return reject("rpc:complete affected_rows must be a non-negative integer");
   }
-  for (const key of ["execution_id", "started_at", "finished_at"] as const) {
+  for (const key of RPC_COMPLETE_OPTIONAL_STRING_KEYS) {
     if (payload[key] !== undefined && typeof payload[key] !== "string") {
       return reject(`rpc:complete ${key} must be a string`);
     }
   }
   if (
     payload.terminal_status !== undefined &&
-    payload.terminal_status !== "aborted" &&
-    payload.terminal_status !== "error"
+    !RPC_COMPLETE_TERMINAL_STATUSES.has(String(payload.terminal_status))
   ) {
     return reject("rpc:complete terminal_status must be aborted or error");
   }
@@ -256,7 +266,7 @@ const validateRpcRequestAck = (payload: unknown): ContractValidationFailure | nu
   if (!isRecord(payload)) {
     return reject("rpc:request_ack payload must be an object");
   }
-  const extraKey = ensureOnlyKeys(payload, new Set(["request_id", "received_at"]));
+  const extraKey = ensureOnlyKeys(payload, RPC_REQUEST_ACK_ALLOWED_KEYS);
   if (extraKey !== null) {
     return extraKey;
   }
@@ -273,7 +283,7 @@ const validateRpcBatchAck = (payload: unknown): ContractValidationFailure | null
   if (!isRecord(payload)) {
     return reject("rpc:batch_ack payload must be an object");
   }
-  const extraKey = ensureOnlyKeys(payload, new Set(["request_ids", "received_at"]));
+  const extraKey = ensureOnlyKeys(payload, RPC_BATCH_ACK_ALLOWED_KEYS);
   if (extraKey !== null) {
     return extraKey;
   }

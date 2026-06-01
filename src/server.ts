@@ -64,6 +64,10 @@ import {
 } from "./infrastructure/redis/presence/agent_hub_presence_redis";
 import { prismaClient } from "./infrastructure/database/prisma/client";
 import {
+  MAINTENANCE_LOCK_IDS,
+  runWithAdvisoryLock,
+} from "./infrastructure/database/advisory_lock";
+import {
   startAgentIdleTimeoutScheduler,
   stopAgentIdleTimeoutScheduler,
 } from "./presentation/socket/hub/scheduling/agent_idle_timeout_scheduler";
@@ -86,8 +90,41 @@ import { logger } from "./shared/utils/logger";
 
 let httpServer: HttpServer | undefined;
 let io: SocketIoServer | undefined;
+let agentAutoUpdateDiagnosticsRetentionTimer: NodeJS.Timeout | undefined;
 
 let shutdownInProgress = false;
+
+const startAgentAutoUpdateDiagnosticsRetentionScheduler = (): void => {
+  if (agentAutoUpdateDiagnosticsRetentionTimer !== undefined) {
+    return;
+  }
+  const run = (): void => {
+    void runWithAdvisoryLock(
+      MAINTENANCE_LOCK_IDS.agentAutoUpdateDiagnosticsPrune,
+      "agent_auto_update_diagnostics_prune",
+      () =>
+        container.agentAutoUpdateDiagnosticsService.pruneOlderThanDays({
+          retentionDays: env.agentAutoUpdateDiagnosticsRetentionDays,
+          batchSize: env.agentAutoUpdateDiagnosticsPruneBatchSize,
+        }),
+    );
+  };
+
+  run();
+  agentAutoUpdateDiagnosticsRetentionTimer = setInterval(
+    run,
+    env.agentAutoUpdateDiagnosticsRetentionIntervalMinutes * 60 * 1000,
+  );
+  agentAutoUpdateDiagnosticsRetentionTimer.unref?.();
+};
+
+const stopAgentAutoUpdateDiagnosticsRetentionScheduler = (): void => {
+  if (agentAutoUpdateDiagnosticsRetentionTimer === undefined) {
+    return;
+  }
+  clearInterval(agentAutoUpdateDiagnosticsRetentionTimer);
+  agentAutoUpdateDiagnosticsRetentionTimer = undefined;
+};
 
 const bootstrap = async (): Promise<void> => {
   /**
@@ -189,6 +226,9 @@ const bootstrap = async (): Promise<void> => {
       batchSize: env.clientAgentAccessExpirySweepBatchSize,
     }),
   );
+  bootSafe("agent_auto_update_diagnostics_retention", () =>
+    startAgentAutoUpdateDiagnosticsRetentionScheduler(),
+  );
   bootSafe("registration_email_outbox_worker", () =>
     startRegistrationEmailOutboxWorker(container.emailSender),
   );
@@ -259,6 +299,7 @@ const shutdown = async (signal: string): Promise<void> => {
     stopBridgeLatencyTraceRollupScheduler();
     stopAgentProfileMaintenanceScheduler();
     stopClientAgentAccessExpiryScheduler();
+    stopAgentAutoUpdateDiagnosticsRetentionScheduler();
     stopRegistrationEmailOutboxWorker();
     stopRegistrationEmailOutboxDeadLetterScheduler();
     stopAgentIdleTimeoutScheduler();

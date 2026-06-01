@@ -76,6 +76,7 @@ import {
   withOptionalRequestId,
 } from "./handlers/_shared";
 import { handleAgentRegister } from "./handlers/agent_register.handler";
+import { handleAgentAutoUpdateDiagnosticsRpcRequest } from "./handlers/agent_auto_update_diagnostics.handler";
 
 export type { AgentHubSocket } from "./handlers/_shared";
 
@@ -549,6 +550,10 @@ export const registerAgentSocketConnectionHandlers = ({
 
     socket.on(socketEvents.agentProfileUpdate, (rawPayload: unknown) => {
       void handleAgentProfileUpdate(socket, rawPayload);
+    });
+
+    socket.on(socketEvents.rpcRequest, (rawPayload: unknown) => {
+      void handleAgentAutoUpdateDiagnosticsRpcRequest(socket, rawPayload);
     });
 
     socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: () => void) => {

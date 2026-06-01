@@ -115,14 +115,15 @@ describe("rpc_bridge_dispatch_command", () => {
     ).rejects.toBeInstanceOf(AgentDisconnectedBeforeDispatchError);
   });
 
-  it("rejects duplicate JSON-RPC ids that are already pending", async () => {
+  it("returns replay_detected for duplicate idempotent JSON-RPC ids that are already pending", async () => {
     const agentId = "agent-dup";
     const socketId = "socket-dup";
+    const emit = vi.fn();
     registerReadyAgent(agentId, socketId);
 
     const dispatch = createDispatchRpcCommandToAgent({
       hasRegisteredAgentSocketBridge: () => true,
-      findAgentSocketById: (id) => (id === socketId ? { emit: vi.fn() } : null),
+      findAgentSocketById: (id) => (id === socketId ? { emit } : null),
     });
 
     const command = {
@@ -135,9 +136,23 @@ describe("rpc_bridge_dispatch_command", () => {
     const first = dispatch({ agentId, command, timeoutMs: 60_000 });
     await vi.waitFor(() => expect(getRestPendingRequestCount()).toBe(1));
 
-    await expect(dispatch({ agentId, command, timeoutMs: 60_000 })).rejects.toThrow(
-      /already pending/i,
-    );
+    await expect(dispatch({ agentId, command, timeoutMs: 60_000 })).resolves.toMatchObject({
+      requestId: "dup-id",
+      response: {
+        jsonrpc: "2.0",
+        id: "dup-id",
+        error: {
+          code: -32014,
+          message: "Replay detected",
+          data: {
+            reason: "replay_detected",
+            retryable: false,
+          },
+        },
+      },
+    });
+    expect(getRestPendingRequestCount()).toBe(1);
+    expect(emit).toHaveBeenCalledTimes(1);
 
     const pending = getRestPendingRequestByCorrelationId("dup-id");
     pending?.resolve({ ok: true });

@@ -32,6 +32,7 @@ export const MAINTENANCE_LOCK_IDS = {
   clientAgentAccessExpirySweep: 11_004n,
   registrationOutboxDeadLetterPrune: 11_005n,
   bridgeLatencyHourlyRollupRefresh: 11_006n,
+  agentAutoUpdateDiagnosticsPrune: 11_007n,
 } as const;
 
 export interface AdvisoryLockOutcome<T> {

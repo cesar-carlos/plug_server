@@ -76,6 +76,52 @@ const waitForEvent = <T>(
   });
 };
 
+const waitForRpcRequestId = (
+  socket: ReturnType<typeof ioClient>,
+  targetRequestId: string,
+  options: {
+    readonly label: string;
+    readonly timeoutMs?: number;
+    readonly onMatch?: () => void;
+  },
+): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.off("rpc:request", onRpcRequest);
+      reject(new Error(`Timed out waiting for ${options.label} rpc:request ${targetRequestId}`));
+    }, options.timeoutMs ?? agentsHttpRpcWaitMs);
+
+    const fail = (error: Error): void => {
+      clearTimeout(timeout);
+      socket.off("rpc:request", onRpcRequest);
+      reject(error);
+    };
+
+    const onRpcRequest = (rawPayload: unknown): void => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok || !isRecord(decoded.value.data)) {
+        return;
+      }
+
+      const requestId = toRequestId(decoded.value.data.id);
+      if (requestId !== targetRequestId) {
+        return;
+      }
+
+      try {
+        options.onMatch?.();
+      } catch (error: unknown) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      clearTimeout(timeout);
+      socket.off("rpc:request", onRpcRequest);
+      resolve();
+    };
+
+    socket.on("rpc:request", onRpcRequest);
+  });
+
 const registerApprovedClient = async (
   baseUrl: string,
   ownerEmail: string,
@@ -1477,30 +1523,11 @@ describe("Agents HTTP bridge", () => {
     }
 
     const abortedRequestId = "aborted-request-id";
-    const firstRequestSeen = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for first rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid first rpc:request payload"));
-          return;
-        }
-
-        const requestId = toRequestId(decoded.value.data.id);
-        if (requestId !== abortedRequestId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected first request id: ${requestId ?? "<null>"}`));
-          return;
-        }
-
-        clearTimeout(timeout);
-        resolve();
-      });
+    for (let index = 0; index < 40; index += 1) {
+      agentSocket.emit("rpc:response", "not-a-payload-frame");
+    }
+    const firstRequestSeen = waitForRpcRequestId(agentSocket, abortedRequestId, {
+      label: "first aborted",
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -1557,38 +1584,18 @@ describe("Agents HTTP bridge", () => {
         .catch(reject);
     });
 
-    const secondRequestHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for second rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid second rpc:request payload"));
-          return;
-        }
-
-        const requestId = toRequestId(decoded.value.data.id);
-        if (requestId !== abortedRequestId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected second request id: ${requestId ?? "<null>"}`));
-          return;
-        }
-
+    const secondRequestHandled = waitForRpcRequestId(agentSocket, abortedRequestId, {
+      label: "second reused-id",
+      onMatch: () => {
         agentSocket?.emit(
           "rpc:response",
           encodePayloadFrame({
             jsonrpc: "2.0",
-            id: requestId,
+            id: abortedRequestId,
             result: { ok: true },
           }),
         );
-        clearTimeout(timeout);
-        resolve();
-      });
+      },
     });
 
     const secondResponsePromise = request(baseUrl)

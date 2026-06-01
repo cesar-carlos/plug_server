@@ -3,6 +3,11 @@
 exports[`buildMetricsLines characterization > pins the emitted metric-name surface (refactor safety net) 1`] = `
 [
   "plug_admin_user_status_set_total",
+  "plug_agent_auto_update_diagnostics_push_accepted_total",
+  "plug_agent_auto_update_diagnostics_push_persist_failed_total",
+  "plug_agent_auto_update_diagnostics_push_rate_limited_drop_total",
+  "plug_agent_auto_update_diagnostics_push_received_total",
+  "plug_agent_auto_update_diagnostics_push_validation_drop_total",
   "plug_agent_data_maintenance_pending_operations",
   "plug_agent_event_stream_acks_total",
   "plug_agent_event_stream_active",
@@ -859,6 +864,11 @@ exports[`buildMetricsLines characterization > pins the full emission structure: 
   "plug_socket_agents_ready_invalid_partial_payload_total <v>",
   "plug_socket_agents_inbound_contract_validation_failed_total <v>",
   "plug_socket_agents_inbound_contract_validation_warn_total <v>",
+  "plug_agent_auto_update_diagnostics_push_received_total <v>",
+  "plug_agent_auto_update_diagnostics_push_accepted_total <v>",
+  "plug_agent_auto_update_diagnostics_push_rate_limited_drop_total <v>",
+  "plug_agent_auto_update_diagnostics_push_validation_drop_total <v>",
+  "plug_agent_auto_update_diagnostics_push_persist_failed_total <v>",
   "plug_socket_agents_capability_profiles_total{status="current"} <v>",
   "plug_socket_agents_capability_profiles_total{status="older"} <v>",
   "plug_socket_agents_capability_profiles_total{status="unknown"} <v>",

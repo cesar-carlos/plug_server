@@ -196,11 +196,43 @@ model Agent {
   clientAccessRequests ClientAgentAccessRequest[]
   profileRevisions     AgentProfileRevision[]
   profileWriteIdempotencies AgentProfileWriteIdempotency[]
+  autoUpdateDiagnostics AgentAutoUpdateDiagnostics[]
 
   @@index([lastLoginUserId])
   @@index([status])
 
   @@map("agents")
+}
+
+model AgentAutoUpdateDiagnostics {
+  id                    String   @id @default(uuid())
+  agentId               String   @map("agent_id") @db.VarChar(36)
+  agent                 Agent    @relation(fields: [agentId], references: [agentId], onDelete: Cascade, onUpdate: Cascade)
+  appVersion            String   @map("app_version") @db.VarChar(64)
+  checkId               String?  @map("check_id") @db.VarChar(128)
+  checkedAt             DateTime @map("checked_at")
+  source                String   @db.VarChar(32)
+  completionSource      String?  @map("completion_source") @db.VarChar(64)
+  remoteVersion         String?  @map("remote_version") @db.VarChar(64)
+  updateAvailable       Boolean? @map("update_available")
+  channel               String?  @db.VarChar(32)
+  rolloutBucket         Int?     @map("rollout_bucket")
+  feedSignatureStatus   String?  @map("feed_signature_status") @db.VarChar(64)
+  feedSignatureRequired Boolean? @map("feed_signature_required")
+  helperSignatureStatus String?  @map("helper_signature_status") @db.VarChar(64)
+  probeDurationMs       Int?     @map("probe_duration_ms")
+  downloadDurationMs    Int?     @map("download_duration_ms")
+  automaticFailureCount Int?     @map("automatic_failure_count")
+  errorMessage          String?  @map("error_message") @db.VarChar(1024)
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@index([agentId])
+  @@index([checkedAt])
+  @@index([appVersion])
+  @@index([completionSource])
+  @@index([source])
+  @@index([agentId, checkedAt])
+  @@map("agent_auto_update_diagnostics")
 }
 
 model AgentProfileRevision {

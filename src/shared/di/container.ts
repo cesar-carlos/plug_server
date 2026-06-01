@@ -5,6 +5,7 @@ import { AgentAccessService } from "../../application/services/agent_access.serv
 import { AgentCatalogService } from "../../application/services/agent_catalog.service";
 import { AgentProfileSyncService } from "../../application/services/agent_profile_sync.service";
 import { AgentSelfProfileService } from "../../application/services/agent_self_profile.service";
+import { AgentAutoUpdateDiagnosticsService } from "../../application/services/agent_auto_update_diagnostics.service";
 import { ClientAgentAccessQueryService } from "../../application/services/client_agent_access_query.service";
 import { ClientAgentAccessRequestService } from "../../application/services/client_agent_access_request.service";
 import { ClientAgentAccessDecisionService } from "../../application/services/client_agent_access_decision.service";
@@ -52,6 +53,7 @@ import { NoopEmailSender } from "../../infrastructure/adapters/noop_email_sender
 import { NodemailerEmailSender } from "../../infrastructure/adapters/nodemailer_email_sender";
 import { InMemoryAgentIdentityRepository } from "../../infrastructure/repositories/in_memory_agent_identity.repository";
 import { InMemoryAgentRepository } from "../../infrastructure/repositories/in_memory_agent.repository";
+import { InMemoryAgentAutoUpdateDiagnosticsRepository } from "../../infrastructure/repositories/in_memory_agent_auto_update_diagnostics.repository";
 import { InMemoryClientAgentAccessApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_client_agent_access_approval_token.repository";
 import { InMemoryClientAgentAccessRepository } from "../../infrastructure/repositories/in_memory_client_agent_access.repository";
 import { InMemoryClientAgentAccessRequestRepository } from "../../infrastructure/repositories/in_memory_client_agent_access_request.repository";
@@ -64,6 +66,7 @@ import { InMemoryRegistrationApprovalTokenRepository } from "../../infrastructur
 import { InMemoryUserRepository } from "../../infrastructure/repositories/in_memory_user.repository";
 import { PrismaAgentIdentityRepository } from "../../infrastructure/repositories/prisma_agent_identity.repository";
 import { PrismaAgentRepository } from "../../infrastructure/repositories/prisma_agent.repository";
+import { PrismaAgentAutoUpdateDiagnosticsRepository } from "../../infrastructure/repositories/prisma_agent_auto_update_diagnostics.repository";
 import { PrismaClientAgentAccessApprovalTokenRepository } from "../../infrastructure/repositories/prisma_client_agent_access_approval_token.repository";
 import { PrismaClientAgentAccessRepository } from "../../infrastructure/repositories/prisma_client_agent_access.repository";
 import { PrismaClientAgentAccessRequestRepository } from "../../infrastructure/repositories/prisma_client_agent_access_request.repository";
@@ -112,6 +115,9 @@ const agentIdentityRepository: IAgentIdentityRepository = shouldUseInMemoryPersi
 const agentRepository: IAgentRepository = shouldUseInMemoryPersistence
   ? new InMemoryAgentRepository()
   : new PrismaAgentRepository();
+const agentAutoUpdateDiagnosticsRepository = shouldUseInMemoryPersistence
+  ? new InMemoryAgentAutoUpdateDiagnosticsRepository()
+  : new PrismaAgentAutoUpdateDiagnosticsRepository();
 const registrationApprovalTokenRepository = shouldUseInMemoryPersistence
   ? new InMemoryRegistrationApprovalTokenRepository()
   : new PrismaRegistrationApprovalTokenRepository();
@@ -220,6 +226,9 @@ const agentCatalogService = new AgentCatalogService(agentRepository, {
 });
 const agentSelfProfileService = new AgentSelfProfileService(agentRepository);
 const agentProfileSyncService = new AgentProfileSyncService(agentSelfProfileService);
+const agentAutoUpdateDiagnosticsService = new AgentAutoUpdateDiagnosticsService(
+  agentAutoUpdateDiagnosticsRepository,
+);
 const userAgentService = new UserAgentService(agentRepository, agentIdentityRepository);
 const clientAuthService = new ClientAuthService(
   clientRepository,
@@ -347,6 +356,7 @@ export const container = {
   agentCatalogService,
   agentSelfProfileService,
   agentProfileSyncService,
+  agentAutoUpdateDiagnosticsService,
   userAgentService,
   clientAuthService,
   clientRegistrationService,
@@ -367,6 +377,7 @@ export const getTestRepositoryAccess = (): {
   readonly user: IUserRepository;
   readonly agentIdentity: IAgentIdentityRepository;
   readonly agent: IAgentRepository;
+  readonly agentAutoUpdateDiagnostics: typeof agentAutoUpdateDiagnosticsRepository;
   readonly client: IClientRepository;
   readonly clientAgentAccess: IClientAgentAccessRepository;
   readonly clientAgentAccessRequest: IClientAgentAccessRequestRepository;
@@ -383,6 +394,7 @@ export const getTestRepositoryAccess = (): {
     user: userRepository,
     agentIdentity: agentIdentityRepository,
     agent: agentRepository,
+    agentAutoUpdateDiagnostics: agentAutoUpdateDiagnosticsRepository,
     client: clientRepository,
     clientAgentAccess: clientAgentAccessRepository,
     clientAgentAccessRequest: clientAgentAccessRequestRepository,
