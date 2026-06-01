@@ -73,6 +73,7 @@ flowchart LR
 ### Operacao
 
 - `docs/configuration.md`
+- `docs/limits/` — limites de acesso, quotas e respostas quando atingidos ([`limites_acesso_e_quotas.md`](limits/limites_acesso_e_quotas.md))
 - `docs/nginx_production.md`
 - `docs/performance_hub_agent.md`
 - `docs/observability.md`
@@ -86,6 +87,7 @@ flowchart LR
 - `docs/redis_streams_agent_backlog.md` — entrega at-least-once `client:custom.*` (inclui batch fan-out P1).
 - `docs/grafana/redis_dashboard.json` — dashboard Prometheus pronto.
 - `docs/observability/alerts/redis.yml` — regras de alerta.
+- `docs/observability/alerts/rate_limits.yml` — rejeições sustentadas de rate limit HTTP/Socket (429).
 - `docs/runbooks/redis_cluster_migration.md` — runbook standalone -> Cluster.
 - `docs/spikes/_README.md` — index de spikes (NO-GO docs).
 - ADRs: `docs/adrs/0001-fail-open-default.md`, `0002-hash-tag-prefix.md`, `0003-streams-vs-pubsub.md`, `0004-circuit-breaker-thresholds.md`, `0005-instrumented-redis-client-factory.md`, `0006-redis-multi-tenancy.md`, `0007-parallel-redis-init.md`.
@@ -104,5 +106,6 @@ flowchart LR
 - `socket_relay_protocol.md`: contrato relay e PayloadFrame no consumidor.
 - `socket_client_sdk.md`: guia de implementacao, sem repetir o contrato completo.
 - `configuration.md`: fonte narrativa de configuracao; defaults formais vivem em `env.ts`.
+- `limits/limites_acesso_e_quotas.md`: limites HTTP/Socket/Nginx, login e respostas ao atingir quotas.
 - `observability.md`, `performance_hub_agent.md`, `nginx_production.md`: operacao.
 - `scaling_and_roadmap.md`, `relay_fastpath_study.md`, `db_partitioning_study.md`: material nao normativo.

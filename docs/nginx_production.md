@@ -278,12 +278,24 @@ Se aparecer `503` em qualquer asset de `/docs/*`, o bloqueio e de borda (Nginx/C
 
 ## 10) Rate limit e timeouts na borda
 
-- **limit_req** em **/metrics**, rotas de **login/registo/refresh** (paths alinhados ao Express) e **API geral** — complementa o rate limit da aplicacao.
-- **Sem `limit_req` em `/docs/`** — Swagger UI carrega assets em paralelo; proteja a documentacao por IP/firewall se necessario.
-- **limit_conn** por IP no `server` — teto de conexoes simultaneas por cliente.
-- **Timeouts curtos** (15s/60s) por defeito; **Socket.IO** usa regex `^/socket\.io(/|$)` e timeouts longos (24h) so nesse bloco.
+A **aplicação** (`REST_*_RATE_LIMIT_*`) é a autoridade — respostas **429 JSON** com `RateLimit-*`. O Nginx complementa com tectos altos anti-abuso.
 
-Ajuste as zonas (`rate`, `burst`) se houver falsos positivos ou trafego interno legitimo (ex.: health checks em massa).
+| Componente | Valor | Notas |
+| ---------- | ----- | ----- |
+| `plug_auth_strict` | 30/min, burst 10 | Só **register** e **password-recovery/request** |
+| `plug_api` | **50/s**, burst **300** | Login, refresh, API geral |
+| `plug_conn` | **80** conexões/IP | Subido de 20 para dashboards com muitos sockets |
+| `plug_metrics` | 120/min, burst 20 | `/metrics` |
+| `POST .../agents/commands` | `proxy_read_timeout` **180s** | Evita 503 por timeout de 60s em RPC longos |
+| Resto da API | 15s connect / **60s** read | Default no `server` block |
+| Socket.IO | 24h read/send | Regex `^/socket\.io(/|$)` |
+
+- **Sem `limit_req` em `/docs/`** — Swagger carrega assets em paralelo.
+- Ficheiros: `deploy/nginx/conf.d/01-plug-rate-limit.conf`, `deploy/nginx/sites/plug-server.example.conf`.
+- Guia completo: [`docs/limits/limites_acesso_e_quotas.md`](limits/limites_acesso_e_quotas.md).
+- Alertas Prometheus: [`docs/observability/alerts/rate_limits.yml`](observability/alerts/rate_limits.yml).
+
+Ajuste `rate`/`burst` se houver falsos positivos; prefira subir limites **na app** antes de apertar Nginx em login/refresh.
 
 ## 11) Compressao coordenada (gzip)
 

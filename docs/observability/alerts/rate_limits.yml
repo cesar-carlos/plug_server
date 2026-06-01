@@ -1,0 +1,68 @@
+## Prometheus alerting rules for Plug hub HTTP/Socket rate limits.
+##
+## Drop into your Prometheus rules directory (e.g.
+## `/etc/prometheus/rules.d/plug_rate_limits.yml`) and reload Prometheus.
+## Pair with Nginx access/error log alerts for `limiting requests` (503 HTML).
+groups:
+  - name: plug_rate_limits
+    rules:
+      - alert: PlugRestGlobalRateLimitSustained
+        expr: rate(plug_rest_http_rate_limit_global_rejected_total[5m]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: rest_rate_limit
+        annotations:
+          summary: "Sustained REST global rate-limit rejections (429)"
+          description: |
+            More than 0.5 global rejections/s for 10 minutes. Clients hit
+            `REST_GLOBAL_RATE_LIMIT_*`. Check dashboards behind shared NAT and
+            `RateLimit-*` headers. See docs/limits/limites_acesso_e_quotas.md.
+
+      - alert: PlugRestCredentialAuthRateLimitSustained
+        expr: rate(plug_rest_http_rate_limit_credential_auth_rejected_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: rest_rate_limit
+        annotations:
+          summary: "Sustained login/register rate-limit rejections"
+          description: |
+            Credential-auth limiter rejecting traffic (`REST_CREDENTIAL_AUTH_RATE_LIMIT_*`).
+            May indicate brute force or automation retrying login too fast.
+
+      - alert: PlugRestTokenRefreshRateLimitSustained
+        expr: rate(plug_rest_http_rate_limit_token_refresh_rejected_total[5m]) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          component: rest_rate_limit
+        annotations:
+          summary: "Sustained token refresh rate-limit rejections"
+          description: |
+            Many agents on one IP may need higher `REST_TOKEN_REFRESH_RATE_LIMIT_MAX`
+            or fewer refresh calls (reuse access JWT until near exp).
+
+      - alert: PlugRestAgentsCommandsRateLimitSustained
+        expr: rate(plug_rest_http_rate_limit_agents_commands_user_rejected_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: rest_rate_limit
+        annotations:
+          summary: "Sustained agents/commands rate-limit rejections per user"
+          description: |
+            `REST_AGENTS_COMMANDS_RATE_LIMIT_*` rejecting POST /api/v1/agents/commands.
+            Consider Socket bridge or batching RPC calls.
+
+      - alert: PlugSocketAgentsCommandRateLimitSustained
+        expr: rate(plug_socket_agents_command_rate_limit_rejected_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: socket_rate_limit
+        annotations:
+          summary: "Sustained Socket agents:command rate-limit rejections"
+          description: |
+            Socket `agents:command` fixed-window limiter rejecting consumers.
+            Counter is independent from REST agents/commands bucket.

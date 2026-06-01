@@ -1,7 +1,11 @@
 # Observabilidade
 
 Este documento concentra metricas, traces, alertas e sinais operacionais do
-hub. Regras de negocio e semantica de autorizacao ficam em
+hub. Para **limites de acesso, quotas e respostas 429/503**, ver
+[`docs/limits/limites_acesso_e_quotas.md`](limits/limites_acesso_e_quotas.md).
+Regras Prometheus prontas para rate limits:
+[`docs/observability/alerts/rate_limits.yml`](observability/alerts/rate_limits.yml).
+Regras de negocio e semantica de autorizacao ficam em
 `docs/client_agent_business_rules.md`. Defaults e variaveis ficam em
 `docs/configuration.md`. Tuning operacional fica em
 `docs/performance_hub_agent.md`. Mapa geral: `docs/README.md`.
