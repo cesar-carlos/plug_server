@@ -632,11 +632,7 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(1440),
-  AGENT_AUTO_UPDATE_DIAGNOSTICS_PRUNE_BATCH_SIZE: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(5_000),
+  AGENT_AUTO_UPDATE_DIAGNOSTICS_PRUNE_BATCH_SIZE: z.coerce.number().int().positive().default(5_000),
   AGENT_AUTO_UPDATE_DIAGNOSTICS_MAX_PAYLOAD_BYTES: z.coerce
     .number()
     .int()
@@ -1394,12 +1390,7 @@ const envSchema = z.object({
     .default("true")
     .transform((v) => v === "true"),
   /** TTL (ms) for presence keys; renewed on register and touch. */
-  AGENT_HUB_PRESENCE_TTL_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .max(600_000)
-    .default(120_000),
+  AGENT_HUB_PRESENCE_TTL_MS: z.coerce.number().int().positive().max(600_000).default(120_000),
   /** Max wait (ms) for a bridge forward reply from the owning replica. */
   AGENT_HUB_BRIDGE_FORWARD_TIMEOUT_MS: z.coerce
     .number()
@@ -1599,8 +1590,7 @@ if (parsedEnv.NODE_ENV === "production") {
 
   if (parsedEnv.STRICT_REDIS_AUTH) {
     const agentHubPresenceRedisUrlForAuth =
-      parsedEnv.AGENT_HUB_PRESENCE_REDIS_URL.trim() ||
-      parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL.trim();
+      parsedEnv.AGENT_HUB_PRESENCE_REDIS_URL.trim() || parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL.trim();
     const redisUrlsByName: ReadonlyArray<readonly [string, string]> = [
       ["SOCKET_IO_REDIS_ADAPTER_URL", parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL],
       ["REST_RATE_LIMIT_REDIS_URL", parsedEnv.REST_RATE_LIMIT_REDIS_URL],
@@ -1649,8 +1639,7 @@ if (parsedEnv.NODE_ENV === "production") {
   }
 
   const agentHubPresenceRedisUrlResolved =
-    parsedEnv.AGENT_HUB_PRESENCE_REDIS_URL.trim() ||
-    parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL.trim();
+    parsedEnv.AGENT_HUB_PRESENCE_REDIS_URL.trim() || parsedEnv.SOCKET_IO_REDIS_ADAPTER_URL.trim();
   const agentHubPresenceEnabled =
     parsedEnv.AGENT_HUB_PRESENCE_ENABLED && agentHubPresenceRedisUrlResolved !== "";
   if (
@@ -1800,10 +1789,8 @@ export const env = {
   agentAutoUpdateDiagnosticsEnabled: parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_ENABLED,
   agentAutoUpdateDiagnosticsRateLimitWindowMs:
     parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_WINDOW_MS,
-  agentAutoUpdateDiagnosticsRateLimitMax:
-    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_MAX,
-  agentAutoUpdateDiagnosticsRetentionDays:
-    parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_DAYS,
+  agentAutoUpdateDiagnosticsRateLimitMax: parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_MAX,
+  agentAutoUpdateDiagnosticsRetentionDays: parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_DAYS,
   agentAutoUpdateDiagnosticsRetentionIntervalMinutes:
     parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_INTERVAL_MINUTES,
   agentAutoUpdateDiagnosticsPruneBatchSize:

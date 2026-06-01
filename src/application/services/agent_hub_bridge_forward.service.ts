@@ -268,7 +268,10 @@ export const createDispatchOrForwardRpcCommand = (
     } catch (error: unknown) {
       if (error instanceof Error && error.message.includes("timed out")) {
         noteBridgeForwardTimeout();
-      } else if (!(error instanceof AgentDisconnectedBeforeDispatchError) && !(error instanceof AppError)) {
+      } else if (
+        !(error instanceof AgentDisconnectedBeforeDispatchError) &&
+        !(error instanceof AppError)
+      ) {
         noteBridgeForwardError();
       }
       throw error;

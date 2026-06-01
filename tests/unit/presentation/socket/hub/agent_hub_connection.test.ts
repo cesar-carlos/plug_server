@@ -41,16 +41,12 @@ describe("isAgentConnectedToHub", () => {
       userId: null,
       capabilities: {},
     });
-    await expect(isAgentConnectedToHub("00000000-0000-4000-8000-000000000002")).resolves.toBe(
-      true,
-    );
+    await expect(isAgentConnectedToHub("00000000-0000-4000-8000-000000000002")).resolves.toBe(true);
     expect(presenceMock.resolveRoute).not.toHaveBeenCalled();
   });
 
   it("returns true when presence resolves a route on another replica", async () => {
     presenceMock.resolveRoute.mockResolvedValue({ hubInstanceId: "hub-remote" });
-    await expect(isAgentConnectedToHub("00000000-0000-4000-8000-000000000003")).resolves.toBe(
-      true,
-    );
+    await expect(isAgentConnectedToHub("00000000-0000-4000-8000-000000000003")).resolves.toBe(true);
   });
 });

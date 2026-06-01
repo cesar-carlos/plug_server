@@ -64,10 +64,7 @@ function readHubPlugProfileMajorMinor(profile: string): string {
  */
 const PENDING_HUB_WIRING_MARKER = "pending hub-side wiring";
 
-const isHubToAgentOpenRpcMethod = (method: {
-  summary?: string;
-  "x-direction"?: string;
-}): boolean =>
+const isHubToAgentOpenRpcMethod = (method: { summary?: string; "x-direction"?: string }): boolean =>
   method["x-direction"] !== "agent_to_hub" &&
   !(typeof method.summary === "string" && method.summary.includes(PENDING_HUB_WIRING_MARKER));
 

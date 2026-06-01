@@ -1,6 +1,9 @@
 import { performance } from "node:perf_hooks";
 
-import type { AgentHubPresencePort, AgentHubPresenceRecord } from "../../../domain/ports/agent_hub_presence.port";
+import type {
+  AgentHubPresencePort,
+  AgentHubPresenceRecord,
+} from "../../../domain/ports/agent_hub_presence.port";
 import {
   noteAgentHubPresenceConnected,
   noteAgentHubPresenceDisconnected,
@@ -33,8 +36,7 @@ let bridgeCommandHandler: ((message: string) => void) | undefined;
 const toSafeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const presenceTtlSeconds = (): number =>
-  Math.max(1, Math.ceil(env.agentHubPresenceTtlMs / 1000));
+const presenceTtlSeconds = (): number => Math.max(1, Math.ceil(env.agentHubPresenceTtlMs / 1000));
 
 const recordCommandLatency = async <T>(fn: () => Promise<T>): Promise<T> => {
   const startedAt = performance.now();
@@ -73,8 +75,7 @@ const parsePresenceRecord = (raw: string): AgentHubPresenceRecord | null => {
   }
 };
 
-const serializePresenceRecord = (record: AgentHubPresenceRecord): string =>
-  JSON.stringify(record);
+const serializePresenceRecord = (record: AgentHubPresenceRecord): string => JSON.stringify(record);
 
 class AgentHubPresenceRedis implements AgentHubPresencePort {
   readonly isEnabled: boolean;
@@ -215,7 +216,10 @@ export const publishBridgeCommand = async (
   return true;
 };
 
-export const publishBridgeReply = async (correlationId: string, payload: string): Promise<boolean> => {
+export const publishBridgeReply = async (
+  correlationId: string,
+  payload: string,
+): Promise<boolean> => {
   const pub = pubSubClients?.pub;
   if (pub === undefined) {
     return false;
@@ -273,14 +277,16 @@ const subscribeBridgeCommandChannel = (): void => {
     return;
   }
   const channel = agentHubBridgeCmdChannel(hubInstanceId);
-  void sub.subscribe(channel, (message) => {
-    bridgeCommandHandler?.(message);
-  }).catch((error: unknown) => {
-    logger.error("agent_hub_bridge_subscribe_failed", {
-      channel,
-      message: toSafeErrorMessage(error),
+  void sub
+    .subscribe(channel, (message) => {
+      bridgeCommandHandler?.(message);
+    })
+    .catch((error: unknown) => {
+      logger.error("agent_hub_bridge_subscribe_failed", {
+        channel,
+        message: toSafeErrorMessage(error),
+      });
     });
-  });
 };
 
 export const startBridgeCommandSubscriber = (handler: (message: string) => void): void => {

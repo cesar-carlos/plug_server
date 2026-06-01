@@ -1124,13 +1124,10 @@ describe("Agents HTTP bridge", () => {
 
     const notificationSql = "INSERT INTO logs (msg) VALUES ('ping')";
     const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => {
-          agentSocket?.off("rpc:request", onRpcRequest);
-          reject(new Error("Timed out waiting for notification rpc:request"));
-        },
-        agentsHttpRpcWaitMs,
-      );
+      const timeout = setTimeout(() => {
+        agentSocket?.off("rpc:request", onRpcRequest);
+        reject(new Error("Timed out waiting for notification rpc:request"));
+      }, agentsHttpRpcWaitMs);
 
       const onRpcRequest = (rawPayload: unknown): void => {
         const decoded = decodePayloadFrame(rawPayload);

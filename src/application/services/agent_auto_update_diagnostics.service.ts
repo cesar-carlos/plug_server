@@ -36,8 +36,7 @@ const updateCheckCompletionSourceSchema = z.enum([
   "automaticQuietHours",
 ]);
 
-const nullableOptional = <T extends z.ZodTypeAny>(schema: T): z.ZodNullable<T> =>
-  schema.nullable();
+const nullableOptional = <T extends z.ZodTypeAny>(schema: T): z.ZodNullable<T> => schema.nullable();
 
 const isoDateTimeStringSchema = z.string().refine((value) => Number.isFinite(Date.parse(value)), {
   message: "checkedAt must be an ISO-8601 date-time string",
@@ -83,9 +82,7 @@ export interface StoredAgentAutoUpdateDiagnostics {
   readonly updateAvailable: boolean | null;
   readonly channel: NullableParam<AutoUpdateDiagnosticsParams["channel"]>;
   readonly rolloutBucket: number | null;
-  readonly feedSignatureStatus: NullableParam<
-    AutoUpdateDiagnosticsParams["feedSignatureStatus"]
-  >;
+  readonly feedSignatureStatus: NullableParam<AutoUpdateDiagnosticsParams["feedSignatureStatus"]>;
   readonly feedSignatureRequired: boolean | null;
   readonly helperSignatureStatus: NullableParam<
     AutoUpdateDiagnosticsParams["helperSignatureStatus"]
@@ -200,10 +197,7 @@ export class AgentAutoUpdateDiagnosticsService {
     }
 
     const messageBytes = input.messageBytes ?? jsonByteLength(input.notification);
-    if (
-      messageBytes !== null &&
-      messageBytes > env.agentAutoUpdateDiagnosticsMaxMessageBytes
-    ) {
+    if (messageBytes !== null && messageBytes > env.agentAutoUpdateDiagnosticsMaxMessageBytes) {
       return this.validationDrop("message_too_large", input);
     }
 
@@ -218,17 +212,17 @@ export class AgentAutoUpdateDiagnosticsService {
       return this.validationDrop("unsupported agent-to-hub rpc method", input);
     }
     if (hasOwn(notification, "id")) {
-      return this.validationDrop("diagnostics push must be a JSON-RPC notification without id", input);
+      return this.validationDrop(
+        "diagnostics push must be a JSON-RPC notification without id",
+        input,
+      );
     }
     if (!hasOwn(notification, "params")) {
       return this.validationDrop("params is required", input);
     }
 
     const payloadBytes = jsonByteLength(notification.params);
-    if (
-      payloadBytes !== null &&
-      payloadBytes > env.agentAutoUpdateDiagnosticsMaxPayloadBytes
-    ) {
+    if (payloadBytes !== null && payloadBytes > env.agentAutoUpdateDiagnosticsMaxPayloadBytes) {
       return this.validationDrop("payload_too_large", input);
     }
 
@@ -304,10 +298,7 @@ export class AgentAutoUpdateDiagnosticsService {
     return { status: "validation_drop", reason };
   }
 
-  private tryReserveRateLimit(
-    agentId: string,
-    nowMs: number,
-  ): RateLimitReservation | null {
+  private tryReserveRateLimit(agentId: string, nowMs: number): RateLimitReservation | null {
     const maxAcceptedPerWindow = Math.floor(env.agentAutoUpdateDiagnosticsRateLimitMax);
     if (maxAcceptedPerWindow <= 0) {
       return { windowStartedAtMs: null };
@@ -331,10 +322,7 @@ export class AgentAutoUpdateDiagnosticsService {
     return { windowStartedAtMs: current.windowStartedAtMs };
   }
 
-  private rollbackRateLimitReservation(
-    agentId: string,
-    reservation: RateLimitReservation,
-  ): void {
+  private rollbackRateLimitReservation(agentId: string, reservation: RateLimitReservation): void {
     if (reservation.windowStartedAtMs === null) {
       return;
     }

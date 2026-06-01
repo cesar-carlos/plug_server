@@ -31,6 +31,22 @@ flowchart TB
 
 **Multi-réplica:** com `REST_RATE_LIMIT_REDIS_URL` / `SOCKET_RATE_LIMIT_REDIS_URL`, os contadores HTTP/Socket partilham estado via Redis. Sem URL, cada processo Node mantém contadores locais.
 
+### Perfil de produção activo (referência `.env`)
+
+Valores abaixo reflectem o servidor actual; confirmar com `grep REST_.*RATE_LIMIT / SOCKET_.*RATE_LIMIT .env` após cada alteração.
+
+| Grupo | Janela | Máximo | Notas |
+| ----- | ------ | ------ | ----- |
+| Global (`REST_GLOBAL_*`) | **2 min** | **2000** / IP | Todos `/api/v1` e `/auth` |
+| Credenciais (`REST_CREDENTIAL_AUTH_*`) | **5 min** | **120** / IP | Login, registo, logout, `client-access/*` (n8n: cachear token) |
+| Refresh (`REST_TOKEN_REFRESH_*`) | **15 min** | **800** / IP | Só rotas `.../refresh` |
+| Comandos (`REST_AGENTS_COMMANDS_*`) | **1 min** | **600** / JWT `sub` | `POST .../agents/commands` + `agents:command` (contador Socket separado) |
+| Password recovery (`REST_CLIENT_PASSWORD_RECOVERY_*`) | **5 min** | **20** / IP | Pedido de recovery |
+| Socket event / publish / relay / register | — | **0** | Limitadores por janela **desligados** (`*_MAX=0`) |
+| Perfil agente, admin status, client/me/agents, thumbnail | — | **0** | Desligados em produção |
+
+Redis: `REST_RATE_LIMIT_REDIS_URL` e `SOCKET_RATE_LIMIT_REDIS_URL` activos quando configurados (contadores partilhados entre réplicas).
+
 ---
 
 ## Respostas HTTP quando um limite é atingido
@@ -108,7 +124,7 @@ Valores **por defeito** vêm de `env.ts` / `.env.example`. A coluna **Produção
 | Variável | Default | Produção | Janela | Efeito |
 | -------- | ------- | -------- | ------ | ------ |
 | `REST_GLOBAL_RATE_LIMIT_WINDOW_MS` | 900000 (15 min) | **120000 (2 min)** | Deslizante | Conta **cada** pedido sob `/api/v1/*` e `/auth/*` |
-| `REST_GLOBAL_RATE_LIMIT_MAX` | 300 | **1000** | — | `0` = ilimitado |
+| `REST_GLOBAL_RATE_LIMIT_MAX` | 300 | **2000** | — | `0` = ilimitado |
 
 **Inclui:** listagens de agentes, `client-token`, comandos, health (excepto rotas isentas), etc.
 
@@ -120,8 +136,8 @@ Limitador dedicado: `credentialAuthRateLimit` (`REST_CREDENTIAL_AUTH_RATE_LIMIT_
 
 | Variável | Default | Produção |
 | -------- | ------- | -------- |
-| `REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS` | 900000 (15 min) | 900000 |
-| `REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX` | 25 | **50** |
+| `REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS` | 900000 (15 min) | **300000 (5 min)** |
+| `REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX` | 25 | **120** |
 
 **Rotas afectadas (além do global):**
 
@@ -150,7 +166,7 @@ Limitador: `tokenRefreshRateLimit` (`REST_TOKEN_REFRESH_RATE_LIMIT_*`).
 | Variável | Default | Produção |
 | -------- | ------- | -------- |
 | `REST_TOKEN_REFRESH_RATE_LIMIT_WINDOW_MS` | 900000 (15 min) | 900000 |
-| `REST_TOKEN_REFRESH_RATE_LIMIT_MAX` | 400 | **400** |
+| `REST_TOKEN_REFRESH_RATE_LIMIT_MAX` | 400 | **800** |
 
 **Rotas:**
 
@@ -166,7 +182,7 @@ Cenário típico: dezenas de agentes no **mesmo IP** a renovar token após queda
 | Variável | Default | Produção | Chave |
 | -------- | ------- | -------- | ----- |
 | `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` | 60000 | 60000 | — |
-| `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` | 100 | **200** | JWT `sub` (utilizador) |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` | 100 | **600** | JWT `sub` (utilizador) |
 | `REST_AGENTS_COMMANDS_RATE_LIMIT_IP_MAX` | 0 | **0** | IP (`0` = desligado) |
 
 **Rota:** `POST /api/v1/agents/commands`
@@ -213,7 +229,7 @@ Cenário típico: dezenas de agentes no **mesmo IP** a renovar token após queda
 | Grupo | Default (janela / max) | Produção (exemplo) |
 | ----- | ---------------------- | ------------------ |
 | `REST_CLIENT_THUMBNAIL_RATE_LIMIT_*` | 60s / 20 | **0** |
-| `REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_*` | 5 min / 10 | **10** |
+| `REST_CLIENT_PASSWORD_RECOVERY_RATE_LIMIT_*` | 5 min / 10 | **20** |
 
 **Respostas:** 429 com mensagens específicas de thumbnail ou password recovery.
 
@@ -256,16 +272,16 @@ sequenceDiagram
 | ------ | ------------- | -------- |
 | Nginx `plug_api` | **50 req/s por IP** (burst 300) — login e refresh | **503** (rajada extrema) |
 | Nginx `plug_auth_strict` | **30/min** — register e password-recovery/request | **503** |
-| App `REST_GLOBAL_RATE_LIMIT_*` | **1000 / 2 min por IP** | **429** |
-| App `REST_CREDENTIAL_AUTH_*` | **50 / 15 min por IP** | **429** |
-| App `REST_TOKEN_REFRESH_*` | **400 / 15 min por IP** | **429** |
+| App `REST_GLOBAL_RATE_LIMIT_*` | **2000 / 2 min por IP** | **429** |
+| App `REST_CREDENTIAL_AUTH_*` | **120 / 5 min por IP** | **429** |
+| App `REST_TOKEN_REFRESH_*` | **800 / 15 min por IP** | **429** |
 
 **Integradores:** dashboards com muitos agentes no mesmo IP devem:
 
 1. Reutilizar access tokens até perto do `exp` (`JWT_ACCESS_EXPIRES_IN`, ex. 4h).
 2. Usar **refresh** em vez de login repetido quando possível.
 3. Tratar **503** do Nginx como retryable com backoff (agora raro em login/refresh).
-4. Ler `RateLimit-*` em **429** da app (global 1000/5 min aplica-se também a login/refresh).
+4. Ler `RateLimit-*` em **429** da app (global **1000 / 2 min** e credenciais **50 / 5 min** aplicam-se também a login).
 
 ---
 
@@ -294,7 +310,7 @@ Ficheiros de referência: [`deploy/nginx/conf.d/01-plug-rate-limit.conf`](../../
 
 | Variável | Default | Produção (exemplo) | Evento / contexto |
 | -------- | ------- | ------------------ | ----------------- |
-| `REST_AGENTS_COMMANDS_RATE_LIMIT_*` | 60s / 100 | **0** | `agents:command` (contador **independente** do REST) |
+| `REST_AGENTS_COMMANDS_RATE_LIMIT_*` | 60s / 100 | **60s / 600** | `agents:command` (mesmos números; contador **independente** do REST) |
 | `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` | espelha REST socket event | **0** | `socket:event.publish` |
 | `SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_*` | 60s / 240 | **0** | `socket:event.subscribe` / `unsubscribe` |
 | `SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS` | 8 | **0** | `relay:conversation.start` |
@@ -333,9 +349,14 @@ Limita comandos **paralelos** na mesma ligação Socket. Acima do teto → `RATE
 | Variável | Produção (exemplo) | Efeito |
 | -------- | ------------------ | ------ |
 | `SOCKET_AGENT_SESSION_POLICY=reject_active` | activo | Segundo `agent:register` com mesmo `agentId` → `agent:register_error` |
-| `SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER` | 192 | Teto de conversas relay por consumidor |
-| `SOCKET_RELAY_AGENT_MAX_QUEUE` | 1024 | Fila relay por agente; cheia → rejeição |
+| `SOCKET_REST_MAX_PENDING_REQUESTS` | 20000 | Teto global de pedidos REST bridge pendentes |
+| `SOCKET_REST_AGENT_MAX_INFLIGHT` | 512 | Comandos REST em paralelo por `agentId` |
 | `SOCKET_REST_AGENT_MAX_QUEUE` | 1024 | Fila REST bridge por agente |
+| `SOCKET_REST_AGENT_QUEUE_WAIT_MS` | 2000 | Espera máxima na fila REST → **503** se expirar |
+| `SOCKET_RELAY_AGENT_MAX_INFLIGHT` | 512 | Paralelismo relay por agente |
+| `SOCKET_RELAY_AGENT_MAX_QUEUE` | 1024 | Fila relay por agente; cheia → rejeição |
+| `SOCKET_RELAY_AGENT_QUEUE_WAIT_MS` | 2000 | Espera máxima na fila relay |
+| `SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER` | 192 | Teto de conversas relay por consumidor |
 
 **`agent:register_error` (JSON plano, namespace `/agents`):**
 

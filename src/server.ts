@@ -63,10 +63,7 @@ import {
   initAgentHubPresenceRedis,
 } from "./infrastructure/redis/presence/agent_hub_presence_redis";
 import { prismaClient } from "./infrastructure/database/prisma/client";
-import {
-  MAINTENANCE_LOCK_IDS,
-  runWithAdvisoryLock,
-} from "./infrastructure/database/advisory_lock";
+import { MAINTENANCE_LOCK_IDS, runWithAdvisoryLock } from "./infrastructure/database/advisory_lock";
 import {
   startAgentIdleTimeoutScheduler,
   stopAgentIdleTimeoutScheduler,

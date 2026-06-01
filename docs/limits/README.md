@@ -18,6 +18,8 @@ Documentação orientada a **integradores e operadores** sobre tetos de tráfego
 
 1. Valores **em produção**: ficheiro `.env` do servidor (podem divergir dos defaults).
 2. Valores **por defeito do código**: [`src/shared/config/env.ts`](../../src/shared/config/env.ts).
-3. Exemplo local: [`.env.example`](../../.env.example).
+3. Exemplo de perfil dashboard: [`.env.example`](../../.env.example) (alinhado ao HTTP global 2 min, credenciais 5 min, commands 200/min).
 
 Quando esta documentação e o `.env` divergirem, **prevalece o `.env` activo** após restart do processo.
+
+Tabela resumida do perfil actual: secção **Perfil de produção activo** em [`limites_acesso_e_quotas.md`](limites_acesso_e_quotas.md).

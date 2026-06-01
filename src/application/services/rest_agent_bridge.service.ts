@@ -25,9 +25,7 @@ export class RestAgentBridgeService {
   /** Cluster-aware connectivity when {@link isAgentConnectedToHub} is injected. */
   isAgentConnectedCluster?: (agentId: string) => Promise<boolean>;
 
-  resolveClusterConnectedAgentIds?: (
-    agentIds: readonly string[],
-  ) => Promise<ReadonlySet<string>>;
+  resolveClusterConnectedAgentIds?: (agentIds: readonly string[]) => Promise<ReadonlySet<string>>;
 
   /**
    * Returns a Set of all currently connected agent IDs in O(N) time.

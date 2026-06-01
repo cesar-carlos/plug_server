@@ -4,9 +4,7 @@ import type {
   StoredAgentAutoUpdateDiagnostics,
 } from "../../application/services/agent_auto_update_diagnostics.service";
 
-export class PrismaAgentAutoUpdateDiagnosticsRepository
-  implements AgentAutoUpdateDiagnosticsRepository
-{
+export class PrismaAgentAutoUpdateDiagnosticsRepository implements AgentAutoUpdateDiagnosticsRepository {
   async create(record: StoredAgentAutoUpdateDiagnostics): Promise<void> {
     await prismaClient.agentAutoUpdateDiagnostics.create({
       data: {
@@ -85,4 +83,3 @@ export class PrismaAgentAutoUpdateDiagnosticsRepository
     return typeof deleted === "bigint" ? Number(deleted) : deleted;
   }
 }
-

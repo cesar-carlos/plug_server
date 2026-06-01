@@ -3,9 +3,7 @@ import type {
   StoredAgentAutoUpdateDiagnostics,
 } from "../../application/services/agent_auto_update_diagnostics.service";
 
-export class InMemoryAgentAutoUpdateDiagnosticsRepository
-  implements AgentAutoUpdateDiagnosticsRepository
-{
+export class InMemoryAgentAutoUpdateDiagnosticsRepository implements AgentAutoUpdateDiagnosticsRepository {
   private readonly rows: StoredAgentAutoUpdateDiagnostics[] = [];
 
   async create(record: StoredAgentAutoUpdateDiagnostics): Promise<void> {
@@ -26,7 +24,11 @@ export class InMemoryAgentAutoUpdateDiagnosticsRepository
   async pruneBefore(cutoff: Date, batchSize: number): Promise<number> {
     const safeBatchSize = Math.max(1, Math.floor(batchSize));
     const candidateIndexes: number[] = [];
-    for (let index = 0; index < this.rows.length && candidateIndexes.length < safeBatchSize; index += 1) {
+    for (
+      let index = 0;
+      index < this.rows.length && candidateIndexes.length < safeBatchSize;
+      index += 1
+    ) {
       if (this.rows[index]!.checkedAt < cutoff) {
         candidateIndexes.push(index);
       }
@@ -41,4 +43,3 @@ export class InMemoryAgentAutoUpdateDiagnosticsRepository
     this.rows.length = 0;
   }
 }
-

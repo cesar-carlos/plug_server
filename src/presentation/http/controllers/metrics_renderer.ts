@@ -294,7 +294,10 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     );
 
     lines.push(
-      metricLine("plug_agent_hub_presence_redis_url_configured", agentHubPresenceRedis.presenceUrlConfigured),
+      metricLine(
+        "plug_agent_hub_presence_redis_url_configured",
+        agentHubPresenceRedis.presenceUrlConfigured,
+      ),
     );
     lines.push(
       metricLine("plug_agent_hub_presence_redis_active", agentHubPresenceRedis.presenceActive),
@@ -324,10 +327,7 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       ),
     );
     lines.push(
-      metricLine(
-        "plug_bridge_forward_error_total",
-        agentHubPresenceRedis.bridgeForwardErrorTotal,
-      ),
+      metricLine("plug_bridge_forward_error_total", agentHubPresenceRedis.bridgeForwardErrorTotal),
     );
     lines.push(
       metricLine(
