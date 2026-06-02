@@ -12,6 +12,7 @@ import {
   incrementRestHttpClientThumbnailRateLimitRejected,
   incrementRestHttpCredentialAuthRateLimitRejected,
   incrementRestHttpGlobalRateLimitRejected,
+  incrementRestHttpLoginRateLimitRejected,
   incrementRestHttpTokenRefreshRateLimitRejected,
 } from "../../../application/services/rest_http_rate_limit_metrics.service";
 import {
@@ -74,6 +75,9 @@ export const globalRateLimitNotRegistered: RequestHandler = (_req, res) => {
 export let globalRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
 export let credentialAuthRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+/** Per IP on `POST /auth/login`, `POST /auth/agent-login`, `POST /client-auth/login`. */
+export let loginRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
 export let tokenRefreshRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
@@ -195,6 +199,25 @@ export function registerHttpRateLimits(): void {
           },
         });
 
+  const loginAuthRateLimit =
+    env.restLoginRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restLoginRateLimitWindowMs,
+          limit: env.restLoginRateLimitMax,
+          ...(optionalRedisStore("login") ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many login attempts, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpLoginRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
   const authRateLimit =
     env.restCredentialAuthRateLimitMax === 0
       ? passthrough
@@ -233,6 +256,7 @@ export function registerHttpRateLimits(): void {
           },
         });
 
+  loginRateLimit = isTestEnv() ? passthrough : loginAuthRateLimit;
   credentialAuthRateLimit = isTestEnv() ? passthrough : authRateLimit;
   tokenRefreshRateLimit = isTestEnv() ? passthrough : tokenRefreshAuthRateLimit;
 

@@ -173,6 +173,9 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       metricLine("plug_rest_http_rate_limit_global_rejected_total", restHttpRl.globalRejectedTotal),
     );
     lines.push(
+      metricLine("plug_rest_http_rate_limit_login_rejected_total", restHttpRl.loginRejectedTotal),
+    );
+    lines.push(
       metricLine(
         "plug_rest_http_rate_limit_credential_auth_rejected_total",
         restHttpRl.credentialAuthRejectedTotal,

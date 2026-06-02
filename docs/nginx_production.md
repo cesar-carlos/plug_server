@@ -282,10 +282,10 @@ A **aplicação** (`REST_*_RATE_LIMIT_*`) é a autoridade — respostas **429 JS
 
 | Componente | Valor | Notas |
 | ---------- | ----- | ----- |
-| `plug_auth_strict` | 30/min, burst 10 | Só **register** e **password-recovery/request** |
-| `plug_api` | **50/s**, burst **300** | Login, refresh, API geral |
-| `plug_conn` | **80** conexões/IP | Subido de 20 para dashboards com muitos sockets |
-| `plug_metrics` | 120/min, burst 20 | `/metrics` |
+| `plug_auth_strict` | 90/min, burst 30 | Só **register** e **password-recovery/request** |
+| `plug_api` | **150/s**, burst **900** | Login, refresh, API geral (afrouxado para NAT / muitos agentes) |
+| `plug_conn` | **240** conexões/IP | Dashboards com muitos sockets no mesmo IP |
+| `plug_metrics` | 360/min, burst 60 | `/metrics` |
 | `POST .../agents/commands` | `proxy_read_timeout` **180s** | Evita 503 por timeout de 60s em RPC longos |
 | Resto da API | 15s connect / **60s** read | Default no `server` block |
 | Socket.IO | 24h read/send | Regex `^/socket\.io(/|$)` |

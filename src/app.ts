@@ -15,6 +15,7 @@ import {
 import {
   credentialAuthRateLimit,
   globalRateLimit,
+  loginRateLimit,
   registerHttpRateLimits,
   tokenRefreshRateLimit,
 } from "./presentation/http/middlewares/rate_limit.middleware";
@@ -159,6 +160,7 @@ export const createApp = (): Express => {
   // Compat aliases were already mounted above; credential and token-refresh
   // rate limiters are applied per-route inside `authRouter` / `clientAuthRouter`.
   void credentialAuthRateLimit;
+  void loginRateLimit;
   void tokenRefreshRateLimit;
   setupSwagger(app);
 

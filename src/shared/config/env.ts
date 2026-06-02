@@ -147,8 +147,16 @@ const envSchema = z.object({
   /** `0` = unlimited. */
   REST_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(300),
   /**
-   * Per-IP rate-limit for credential-handling endpoints (password-based):
-   * `/login`, `/register`, `/agent-login`, `/registration/*`, `/password-recovery/*`, `/logout`.
+   * Per-IP rate-limit for password login only:
+   * `POST /auth/login`, `POST /auth/agent-login`, `POST /client-auth/login`.
+   * Token rotation uses `REST_TOKEN_REFRESH_RATE_LIMIT_*`; register/logout use `REST_CREDENTIAL_AUTH_RATE_LIMIT_*`.
+   */
+  REST_LOGIN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(300_000),
+  /** `0` = unlimited. */
+  REST_LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(200),
+  /**
+   * Per-IP rate-limit for credential-handling endpoints (password-based), excluding login:
+   * `/register`, `/registration/*`, `/password-recovery/*`, `/logout`, client-access review, etc.
    * Token rotation (`POST .../refresh`) uses `REST_TOKEN_REFRESH_RATE_LIMIT_*` instead.
    */
   REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
@@ -1696,6 +1704,8 @@ export const env = {
   restClientThumbnailRateLimitMax: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX,
   restGlobalRateLimitWindowMs: parsedEnv.REST_GLOBAL_RATE_LIMIT_WINDOW_MS,
   restGlobalRateLimitMax: parsedEnv.REST_GLOBAL_RATE_LIMIT_MAX,
+  restLoginRateLimitWindowMs: parsedEnv.REST_LOGIN_RATE_LIMIT_WINDOW_MS,
+  restLoginRateLimitMax: parsedEnv.REST_LOGIN_RATE_LIMIT_MAX,
   restCredentialAuthRateLimitWindowMs: parsedEnv.REST_CREDENTIAL_AUTH_RATE_LIMIT_WINDOW_MS,
   restCredentialAuthRateLimitMax: parsedEnv.REST_CREDENTIAL_AUTH_RATE_LIMIT_MAX,
   restTokenRefreshRateLimitWindowMs: parsedEnv.REST_TOKEN_REFRESH_RATE_LIMIT_WINDOW_MS,

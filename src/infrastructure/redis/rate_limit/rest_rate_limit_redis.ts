@@ -45,6 +45,7 @@ const circuitBreaker = createRedisCircuitBreaker({
 
 export type RestHttpRateLimitStoreScope =
   | "global"
+  | "login"
   | "credential_auth"
   | "token_refresh"
   | "agents_commands_ip"

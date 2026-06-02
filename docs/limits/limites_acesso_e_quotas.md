@@ -130,9 +130,28 @@ Valores **por defeito** vêm de `env.ts` / `.env.example`. A coluna **Produção
 
 **Resposta:** 429, mensagem `"Too many requests, please try again later."`
 
-### Login, registo e credenciais
+### Login (password)
 
-Limitador dedicado: `credentialAuthRateLimit` (`REST_CREDENTIAL_AUTH_RATE_LIMIT_*`).
+Limitador dedicado: `loginRateLimit` (`REST_LOGIN_RATE_LIMIT_*`).
+
+| Variável | Default | Produção |
+| -------- | ------- | -------- |
+| `REST_LOGIN_RATE_LIMIT_WINDOW_MS` | 300000 (5 min) | **300000 (5 min)** |
+| `REST_LOGIN_RATE_LIMIT_MAX` | 200 | **200** |
+
+**Rotas afectadas (além do global):**
+
+| Método | Caminho |
+| ------ | ------- |
+| POST | `/api/v1/auth/login`, `/auth/login` |
+| POST | `/api/v1/auth/agent-login` |
+| POST | `/api/v1/client-auth/login` |
+
+**Resposta:** 429, `"Too many login attempts, please try again later."`
+
+### Registo, logout e outras credenciais
+
+Limitador: `credentialAuthRateLimit` (`REST_CREDENTIAL_AUTH_RATE_LIMIT_*`).
 
 | Variável | Default | Produção |
 | -------- | ------- | -------- |
@@ -143,21 +162,18 @@ Limitador dedicado: `credentialAuthRateLimit` (`REST_CREDENTIAL_AUTH_RATE_LIMIT_
 
 | Método | Caminho |
 | ------ | ------- |
-| POST | `/api/v1/auth/login`, `/auth/login` |
 | POST | `/api/v1/auth/register`, `/auth/register` |
-| POST | `/api/v1/auth/agent-login` |
 | POST | `/api/v1/auth/logout`, `/api/v1/client-auth/logout` |
-| POST | `/api/v1/client-auth/login` |
 | POST | `/api/v1/client-auth/register` |
 | POST | `/api/v1/client-auth/password-recovery/reset` |
 | GET/POST | `/api/v1/auth/registration/*`, `/api/v1/client-auth/registration/*` |
 | GET/POST | `/api/v1/client-access/*` (review, approve, reject, status) |
 
-**Não inclui:** `POST .../refresh` (limitador separado abaixo).
+**Não inclui:** login (acima) nem `POST .../refresh` (limitador separado abaixo).
 
 **Resposta:** 429, `"Too many authentication attempts, please try again later."`
 
-> **Nginx:** `plug_auth_strict` (30/min) só em **register** e **password-recovery/request**. **Login e refresh** usam `plug_api` (**50/s**, burst **300**). Ver [Login na prática](#login-na-prática).
+> **Nginx:** `plug_auth_strict` (90/min) só em **register** e **password-recovery/request**. **Login e refresh** usam `plug_api` (**150/s**, burst **900**). Ver [Login na prática](#login-na-prática).
 
 ### Refresh de token
 
@@ -175,7 +191,7 @@ Limitador: `tokenRefreshRateLimit` (`REST_TOKEN_REFRESH_RATE_LIMIT_*`).
 
 **Resposta:** 429, `"Too many token refresh requests, please try again later."`
 
-Cenário típico: dezenas de agentes no **mesmo IP** a renovar token após queda — **400/15 min** na app; na borda, refresh segue `plug_api` (50/s).
+Cenário típico: dezenas de agentes no **mesmo IP** a renovar token após queda — **400/15 min** na app; na borda, refresh segue `plug_api` (150/s).
 
 ### Comandos de agente (REST)
 
@@ -254,14 +270,14 @@ sequenceDiagram
   participant A as plug_server
 
   C->>N: POST /api/v1/client-auth/login
-  alt plug_api excedido (50/s + burst)
+  alt plug_api excedido (150/s + burst)
     N-->>C: 503
   else OK na borda
     N->>A: proxy
     alt REST_GLOBAL excedido
       A-->>C: 429 TOO_MANY_REQUESTS
-    else REST_CREDENTIAL_AUTH excedido
-      A-->>C: 429 auth attempts
+    else REST_LOGIN excedido
+      A-->>C: 429 login attempts
     else OK
       A-->>C: 200 tokens
     end
@@ -270,10 +286,10 @@ sequenceDiagram
 
 | Camada | Limite típico | Resposta |
 | ------ | ------------- | -------- |
-| Nginx `plug_api` | **50 req/s por IP** (burst 300) — login e refresh | **503** (rajada extrema) |
-| Nginx `plug_auth_strict` | **30/min** — register e password-recovery/request | **503** |
+| Nginx `plug_api` | **150 req/s por IP** (burst 900) — login e refresh | **503** (rajada extrema) |
+| Nginx `plug_auth_strict` | **90/min** — register e password-recovery/request | **503** |
 | App `REST_GLOBAL_RATE_LIMIT_*` | **2000 / 2 min por IP** | **429** |
-| App `REST_CREDENTIAL_AUTH_*` | **120 / 5 min por IP** | **429** |
+| App `REST_LOGIN_*` | **200 / 5 min por IP** | **429** |
 | App `REST_TOKEN_REFRESH_*` | **800 / 15 min por IP** | **429** |
 
 **Integradores:** dashboards com muitos agentes no mesmo IP devem:
@@ -291,10 +307,10 @@ Ficheiros de referência: [`deploy/nginx/conf.d/01-plug-rate-limit.conf`](../../
 
 | Zona | Taxa | Burst | Onde aplica |
 | ---- | ---- | ----- | ----------- |
-| `plug_auth_strict` | **30/min** por IP | 10 | **Register** e **password-recovery/request** |
-| `plug_api` | **50/s** por IP | 300 | `/api/v1/`, `/auth/` — login, refresh, commands, listagens |
-| `plug_metrics` | **120/min** por IP | 20 | `GET /metrics` |
-| `plug_conn` | **80 conexões simultâneas** por IP | — | Todo o virtual host |
+| `plug_auth_strict` | **90/min** por IP | 30 | **Register** e **password-recovery/request** |
+| `plug_api` | **150/s** por IP | 900 | `/api/v1/`, `/auth/` — login, refresh, commands, listagens |
+| `plug_metrics` | **360/min** por IP | 60 | `GET /metrics` |
+| `plug_conn` | **240 conexões simultâneas** por IP | — | Todo o virtual host |
 
 **Timeout dedicado:** `POST /api/v1/agents/commands` — `proxy_read_timeout` / `proxy_send_timeout` **180s** (resto da API mantém 60s).
 
@@ -436,8 +452,8 @@ Ver [`docs/observability.md`](../observability.md).
 | Sintoma | Provável causa | O que fazer |
 | ------- | -------------- | ----------- |
 | **429** JSON `TOO_MANY_REQUESTS` | App (`REST_*_RATE_LIMIT_*`) | Ler `RateLimit-Reset`; ver [`alerts/rate_limits.yml`](../observability/alerts/rate_limits.yml) |
-| **503** HTML em login/refresh | Nginx `plug_api` (50/s) | Backoff; raro com perfil actual |
-| **503** HTML em register / password-recovery | Nginx `plug_auth_strict` (30/min) | Backoff intencional anti-abuso |
+| **503** HTML em login/refresh | Nginx `plug_api` (150/s) | Backoff; raro com perfil actual |
+| **503** HTML em register / password-recovery | Nginx `plug_auth_strict` (90/min) | Backoff intencional anti-abuso |
 | **429** / `RATE_LIMITED` no Socket | Janela ou inflight por socket | Esperar janela; reduzir paralelismo na mesma ligação |
 | **503** em `agents/commands` após ~180s | Agente lento ou offline | Retry; verificar agente online |
 | **`Retry-After`** em commands | Rate limit no **plug_agente** | Respeitar segundos indicados |

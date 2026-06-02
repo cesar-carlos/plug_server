@@ -20,6 +20,7 @@ import { asyncHandler } from "../middlewares/async_handler";
 import { requireAuthAndActiveAccount } from "../middlewares/auth.middleware";
 import {
   credentialAuthRateLimit,
+  loginRateLimit,
   tokenRefreshRateLimit,
 } from "../middlewares/rate_limit.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
@@ -373,7 +374,7 @@ authRouter.post(
  */
 authRouter.post(
   "/login",
-  credentialAuthRateLimit,
+  loginRateLimit,
   validateRequest({ body: loginBodySchema }),
   asyncHandler(login),
 );
@@ -436,7 +437,7 @@ authRouter.post(
  */
 authRouter.post(
   "/agent-login",
-  credentialAuthRateLimit,
+  loginRateLimit,
   validateRequest({ body: agentLoginBodySchema }),
   asyncHandler(agentLogin),
 );

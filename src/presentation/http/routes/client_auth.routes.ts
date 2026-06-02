@@ -27,6 +27,7 @@ import {
   clientPasswordRecoveryRequestRateLimit,
   clientThumbnailRateLimit,
   credentialAuthRateLimit,
+  loginRateLimit,
   tokenRefreshRateLimit,
 } from "../middlewares/rate_limit.middleware";
 import { requireClientAuthAndActiveAccount } from "../middlewares/auth.middleware";
@@ -296,7 +297,7 @@ clientAuthRouter.post(
  */
 clientAuthRouter.post(
   "/login",
-  credentialAuthRateLimit,
+  loginRateLimit,
   validateRequest({ body: clientLoginBodySchema }),
   asyncHandler(loginClient),
 );
