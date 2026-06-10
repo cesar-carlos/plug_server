@@ -13,10 +13,12 @@ import type { getRedisAuthPingMetricsSnapshot } from "../../../application/servi
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import type { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
 import type { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
+import type { getClientRegistrationPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_registration_public_decision.metrics";
 import type { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/metrics/client_agent_access_request.metrics";
 import type { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
 import type { HttpRedMetricsSnapshot } from "../../../shared/metrics/http_red.metrics";
 import type { getPayloadFrameMetricsSnapshot } from "../../../shared/metrics/payload_frame.metrics";
+import type { getClientPasswordRecoveryMetricsSnapshot } from "../../../shared/metrics/client_password_recovery.metrics";
 import type { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import type { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import { getClientSocketEventPublishIdempotencySerializationTrackedKeyCount } from "../../../application/services/client_socket_event_publish_idempotency_serialization";
@@ -85,6 +87,7 @@ export interface MetricsSnapshots {
   readonly redisAuthPing: ReturnType<typeof getRedisAuthPingMetricsSnapshot>;
   readonly prismaTransactionRetry: ReturnType<typeof getPrismaTransactionRetryMetricsSnapshot>;
   readonly registrationFlow: ReturnType<typeof getRegistrationFlowMetricsSnapshot>;
+  readonly clientPasswordRecovery: ReturnType<typeof getClientPasswordRecoveryMetricsSnapshot>;
   readonly authAccount: ReturnType<typeof getAuthAccountMetricsSnapshot>;
   readonly clientMeAgents: ReturnType<typeof getClientMeAgentsMetricsSnapshot>;
   readonly clientAccessRequestPost: ReturnType<
@@ -92,6 +95,9 @@ export interface MetricsSnapshots {
   >;
   readonly clientAccessPublicDecision: ReturnType<
     typeof getClientAgentAccessPublicDecisionMetricsSnapshot
+  >;
+  readonly clientRegistrationPublicDecision: ReturnType<
+    typeof getClientRegistrationPublicDecisionMetricsSnapshot
   >;
   readonly payloadFrame: ReturnType<typeof getPayloadFrameMetricsSnapshot>;
   readonly httpRed: HttpRedMetricsSnapshot;
@@ -114,10 +120,12 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     redisAuthPing,
     prismaTransactionRetry,
     registrationFlow,
+    clientPasswordRecovery,
     authAccount,
     clientMeAgents,
     clientAccessRequestPost,
     clientAccessPublicDecision,
+    clientRegistrationPublicDecision,
     payloadFrame,
     httpRed,
   } = snapshots;
@@ -227,6 +235,12 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       metricLine(
         "plug_rest_http_rate_limit_client_password_recovery_request_rejected_total",
         restHttpRl.clientPasswordRecoveryRequestRejectedTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_rest_http_rate_limit_client_password_recovery_poll_rejected_total",
+        restHttpRl.clientPasswordRecoveryPollRejectedTotal,
       ),
     );
     lines.push(
@@ -708,6 +722,12 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
         registrationFlow.registrationTokenExpiredTotal,
       ),
     );
+    lines.push(
+      metricLine(
+        "plug_client_password_recovery_email_cleanup_failed_total",
+        clientPasswordRecovery.emailCleanupFailedTotal,
+      ),
+    );
 
     lines.push(metricLine("plug_auth_login_blocked_total", authAccount.loginBlockedTotal));
     lines.push(metricLine("plug_auth_refresh_blocked_total", authAccount.refreshBlockedTotal));
@@ -949,6 +969,52 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       for (const [outcome, value] of Object.entries(decisionMetrics.outcomes)) {
         lines.push(
           metricLine("plug_client_agent_access_public_decision_outcomes_total", value, {
+            decision,
+            outcome,
+          }),
+        );
+      }
+    }
+    for (const decision of ["approve", "reject"] as const) {
+      const decisionMetrics = clientRegistrationPublicDecision[decision];
+      lines.push(
+        metricLine(
+          "plug_client_registration_decision_started_total",
+          decisionMetrics.startedTotal,
+          { decision },
+        ),
+      );
+      lines.push(
+        metricLine(
+          "plug_client_registration_decision_latency_count",
+          decisionMetrics.latencyCount,
+          { decision },
+        ),
+      );
+      lines.push(
+        metricLine(
+          "plug_client_registration_decision_latency_sum_ms",
+          decisionMetrics.latencySumMs,
+          { decision },
+        ),
+      );
+      lines.push(
+        metricLine(
+          "plug_client_registration_decision_latency_max_ms",
+          decisionMetrics.latencyMaxMs,
+          { decision },
+        ),
+      );
+      lines.push(
+        metricLine(
+          "plug_client_registration_decision_latency_avg_ms",
+          decisionMetrics.latencyAvgMs,
+          { decision },
+        ),
+      );
+      for (const [outcome, value] of Object.entries(decisionMetrics.outcomes)) {
+        lines.push(
+          metricLine("plug_client_registration_decision_outcomes_total", value, {
             decision,
             outcome,
           }),

@@ -23,14 +23,18 @@ export interface ClientAuthResponseDto extends ClientAuthTokensDto {
 
 export interface ClientRegistrationRequestResponseDto {
   readonly message: string;
-  readonly client: ClientAuthUserDto;
+  readonly client?: ClientAuthUserDto;
+  readonly registrationPollToken?: string;
+  /** Dev/test only — owner email approval link; never returned in production. */
   readonly approvalToken?: string;
+  readonly duplicate?: boolean;
 }
 
-/** `GET /client-auth/registration/status` — reflects client row when token is still present. */
+/** `GET /client-auth/registration/status` — reflects client row via poll token. */
 export type ClientRegistrationPollStatus =
   | "pending"
   | "expired"
   | "approved"
   | "rejected"
-  | "blocked";
+  | "blocked"
+  | "unknown";

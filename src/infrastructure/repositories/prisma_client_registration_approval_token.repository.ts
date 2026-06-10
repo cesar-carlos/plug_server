@@ -60,6 +60,13 @@ export class PrismaClientRegistrationApprovalTokenRepository implements IClientR
     return row ? this.toDomain(row) : null;
   }
 
+  async findByClientId(clientId: string): Promise<ClientRegistrationApprovalToken | null> {
+    const row = await prismaClient.clientRegistrationApprovalToken.findUnique({
+      where: { clientId },
+    });
+    return row ? this.toDomain(row) : null;
+  }
+
   async findReviewSummaryById(
     id: string,
   ): Promise<ClientRegistrationApprovalReviewSummaryRecord | null> {

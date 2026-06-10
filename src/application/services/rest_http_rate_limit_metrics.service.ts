@@ -13,6 +13,7 @@ let adminUserStatusRejectedTotal = 0;
 let clientMeAgentsPostRejectedTotal = 0;
 let clientThumbnailRejectedTotal = 0;
 let clientPasswordRecoveryRequestRejectedTotal = 0;
+let clientPasswordRecoveryPollRejectedTotal = 0;
 let clientSocketEventPublishRejectedTotal = 0;
 
 export const incrementRestHttpGlobalRateLimitRejected = (): void => {
@@ -59,6 +60,10 @@ export const incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected = (
   clientPasswordRecoveryRequestRejectedTotal += 1;
 };
 
+export const incrementRestHttpClientPasswordRecoveryPollRateLimitRejected = (): void => {
+  clientPasswordRecoveryPollRejectedTotal += 1;
+};
+
 export const incrementRestHttpClientSocketEventPublishRateLimitRejected = (): void => {
   clientSocketEventPublishRejectedTotal += 1;
 };
@@ -75,6 +80,7 @@ export const getRestHttpRateLimitMetricsSnapshot = (): {
   readonly clientMeAgentsPostRejectedTotal: number;
   readonly clientThumbnailRejectedTotal: number;
   readonly clientPasswordRecoveryRequestRejectedTotal: number;
+  readonly clientPasswordRecoveryPollRejectedTotal: number;
   readonly clientSocketEventPublishRejectedTotal: number;
 } => ({
   globalRejectedTotal,
@@ -88,6 +94,7 @@ export const getRestHttpRateLimitMetricsSnapshot = (): {
   clientMeAgentsPostRejectedTotal,
   clientThumbnailRejectedTotal,
   clientPasswordRecoveryRequestRejectedTotal,
+  clientPasswordRecoveryPollRejectedTotal,
   clientSocketEventPublishRejectedTotal,
 });
 
@@ -103,5 +110,6 @@ export const resetRestHttpRateLimitMetrics = (): void => {
   clientMeAgentsPostRejectedTotal = 0;
   clientThumbnailRejectedTotal = 0;
   clientPasswordRecoveryRequestRejectedTotal = 0;
+  clientPasswordRecoveryPollRejectedTotal = 0;
   clientSocketEventPublishRejectedTotal = 0;
 };

@@ -14,8 +14,10 @@ import { getAgentEventStreamMetricsSnapshot } from "../../../../src/application/
 import { getRedisAuthPingMetricsSnapshot } from "../../../../src/application/services/redis_auth_ping_metrics.service";
 import { getAuthAccountMetricsSnapshot } from "../../../../src/shared/metrics/auth_account.metrics";
 import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../../src/shared/metrics/client_agent_access_public_decision.metrics";
+import { getClientRegistrationPublicDecisionMetricsSnapshot } from "../../../../src/shared/metrics/client_registration_public_decision.metrics";
 import { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../../src/shared/metrics/client_agent_access_request.metrics";
 import { getClientMeAgentsMetricsSnapshot } from "../../../../src/shared/metrics/client_me_agents.metrics";
+import { getClientPasswordRecoveryMetricsSnapshot } from "../../../../src/shared/metrics/client_password_recovery.metrics";
 import { getHttpRedMetricsSnapshot } from "../../../../src/shared/metrics/http_red.metrics";
 import { getPayloadFrameMetricsSnapshot } from "../../../../src/shared/metrics/payload_frame.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../../src/shared/metrics/registration_flow.metrics";
@@ -45,8 +47,10 @@ const buildSnapshots = (): MetricsSnapshots => ({
   registrationFlow: getRegistrationFlowMetricsSnapshot(),
   authAccount: getAuthAccountMetricsSnapshot(),
   clientMeAgents: getClientMeAgentsMetricsSnapshot(),
+  clientPasswordRecovery: getClientPasswordRecoveryMetricsSnapshot(),
   clientAccessRequestPost: getClientAgentAccessRequestPostMetricsSnapshot(),
   clientAccessPublicDecision: getClientAgentAccessPublicDecisionMetricsSnapshot(),
+  clientRegistrationPublicDecision: getClientRegistrationPublicDecisionMetricsSnapshot(),
   payloadFrame: getPayloadFrameMetricsSnapshot(),
   httpRed: getHttpRedMetricsSnapshot(),
 });

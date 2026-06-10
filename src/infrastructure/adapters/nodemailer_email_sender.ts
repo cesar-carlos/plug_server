@@ -381,7 +381,7 @@ export class NodemailerEmailSender implements IEmailSender {
         "emailRedacted",
         params.clientEmail,
       );
-      return;
+      throw new Error("SMTP not configured");
     }
 
     const reviewUrl = this.clientPasswordRecoveryReviewPageUrl(params.recoveryToken);

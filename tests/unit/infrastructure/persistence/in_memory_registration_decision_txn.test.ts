@@ -123,7 +123,21 @@ describe("InMemoryClientRegistrationDecisionTxn", () => {
   ): Promise<ClientDecisionFixture> => {
     const clientRepository = new InMemoryClientRepository();
     const tokenRepository = new InMemoryClientRegistrationApprovalTokenRepository();
-    const txn = new InMemoryClientRegistrationDecisionTxn(tokenRepository, clientRepository);
+    const userRepository = new InMemoryUserRepository();
+    await userRepository.save(
+      User.create({
+        id: "owner-id",
+        email: "owner@test.com",
+        passwordHash: "hash",
+        role: "user",
+        status: "active",
+      }),
+    );
+    const txn = new InMemoryClientRegistrationDecisionTxn(
+      tokenRepository,
+      clientRepository,
+      userRepository,
+    );
     const client = Client.create({
       id: `client-${status}`,
       userId: "owner-id",
@@ -163,9 +177,20 @@ describe("InMemoryClientRegistrationDecisionTxn", () => {
 
     const clientRepository = new InMemoryClientRepository();
     const expiredTokenRepository = new InMemoryClientRegistrationApprovalTokenRepository();
+    const userRepository = new InMemoryUserRepository();
+    await userRepository.save(
+      User.create({
+        id: "owner-id",
+        email: "owner@test.com",
+        passwordHash: "hash",
+        role: "user",
+        status: "active",
+      }),
+    );
     const expiredTxn = new InMemoryClientRegistrationDecisionTxn(
       expiredTokenRepository,
       clientRepository,
+      userRepository,
     );
     await clientRepository.save(
       Client.create({

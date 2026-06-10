@@ -19,6 +19,7 @@ export interface IClientRegistrationApprovalTokenRepository {
   save(token: ClientRegistrationApprovalToken): Promise<void>;
   replaceForClientRetry(client: Client, token: ClientRegistrationApprovalToken): Promise<void>;
   findById(id: string): Promise<ClientRegistrationApprovalToken | null>;
+  findByClientId(clientId: string): Promise<ClientRegistrationApprovalToken | null>;
   findReviewSummaryById(id: string): Promise<ClientRegistrationApprovalReviewSummaryRecord | null>;
   deleteById(id: string): Promise<void>;
 }

@@ -66,6 +66,17 @@ export type UserRejectClientAccessRequestBody = z.infer<
   typeof userRejectClientAccessRequestBodySchema
 >;
 
+export const userRejectClientRegistrationBodySchema = z.object({
+  reason: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().trim().max(500).optional(),
+  ),
+});
+
+export type UserRejectClientRegistrationBody = z.infer<
+  typeof userRejectClientRegistrationBodySchema
+>;
+
 export const userListAgentClientsQuerySchema = z.object({
   status: z.enum(["active", "blocked"]).optional(),
   search: z.string().max(120).optional(),

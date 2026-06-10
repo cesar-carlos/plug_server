@@ -62,7 +62,7 @@ export type ClientRegistrationRejectBody = z.infer<typeof clientRegistrationReje
 export const clientRegistrationRetryBodySchema = z.object({
   ownerEmail: emailSchema,
   email: emailSchema,
-  password: nonEmptyStringSchema,
+  password: passwordSchema,
 });
 
 export type ClientRegistrationRetryBody = z.infer<typeof clientRegistrationRetryBodySchema>;

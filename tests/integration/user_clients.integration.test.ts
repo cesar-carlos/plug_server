@@ -2,13 +2,14 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../src/app";
-import { getTestNoopEmailSender } from "../../src/shared/di/container";
+import { getTestNoopEmailSender, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { registerOwnerSession } from "./helpers/client_sessions";
 import { approveClientRegistrationByToken } from "./helpers/approve_client_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 
 const app = createApp();
 const emailSender = getTestNoopEmailSender();
+const repositories = getTestRepositoryAccess();
 
 describe("User client governance API", () => {
   it("registers client under authenticated owner and lists owner clients", async () => {
@@ -83,6 +84,109 @@ describe("User client governance API", () => {
       .get(`/api/v1/me/clients/${registerClient.body.client.id as string}`)
       .set("Authorization", `Bearer ${otherOwner.accessToken}`);
     expect(hiddenResponse.status).toBe(404);
+  });
+
+  it("approves and rejects pending client registration via authenticated owner endpoints", async () => {
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
+    const pendingClient = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `owner-approve-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Owner",
+        lastName: "Approve",
+      });
+    expect(pendingClient.status).toBe(201);
+
+    const approveRes = await request(app)
+      .post(`/api/v1/me/clients/${pendingClient.body.client.id as string}/registration/approve`)
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(approveRes.status).toBe(200);
+    expect(approveRes.body.approved).toBe(true);
+
+    const rejectTarget = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `owner-reject-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Owner",
+        lastName: "Reject",
+      });
+    expect(rejectTarget.status).toBe(201);
+
+    const rejectRes = await request(app)
+      .post(`/api/v1/me/clients/${rejectTarget.body.client.id as string}/registration/reject`)
+      .set("Authorization", `Bearer ${owner.accessToken}`)
+      .send({ reason: "Not now" });
+    expect(rejectRes.status).toBe(200);
+    expect(rejectRes.body.rejected).toBe(true);
+  });
+
+  it("approves pending client via owner route when public approval token is expired", async () => {
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
+    const registerClient = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `owner-expired-token-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Expired",
+        lastName: "PublicToken",
+      });
+    expect(registerClient.status).toBe(201);
+
+    const clientId = registerClient.body.client.id as string;
+    const expiredToken = registerClient.body.approvalToken as string;
+    await repositories.clientRegistrationApprovalToken.save({
+      id: expiredToken,
+      clientId,
+      createdAt: new Date(Date.now() - 120_000),
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+
+    const approveRes = await request(app)
+      .post(`/api/v1/me/clients/${clientId}/registration/approve`)
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(approveRes.status).toBe(200);
+    expect(approveRes.body.approved).toBe(true);
+  });
+
+  it("returns 409 when owner approves a non-pending client registration", async () => {
+    const owner = await registerOwnerSession(app, { emailPrefix: "owner-clients" });
+    const ownerProfile = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    const ownerEmail = ownerProfile.body.user.email as string;
+
+    const registerClient = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail,
+        email: `already-approved-${Date.now()}@test.com`,
+        password: "ClientPwd1",
+        name: "Already",
+        lastName: "Approved",
+      });
+    expect(registerClient.status).toBe(201);
+    await approveClientRegistrationByToken(app, registerClient.body.approvalToken as string);
+
+    const approveAgain = await request(app)
+      .post(`/api/v1/me/clients/${registerClient.body.client.id as string}/registration/approve`)
+      .set("Authorization", `Bearer ${owner.accessToken}`);
+    expect(approveAgain.status).toBe(409);
+    expect(approveAgain.body.code).toBe("CONFLICT");
   });
 
   it("does not allow owner status endpoint to process pending registrations", async () => {

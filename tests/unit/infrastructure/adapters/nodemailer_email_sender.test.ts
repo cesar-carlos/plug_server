@@ -43,6 +43,27 @@ describe("NodemailerEmailSender", () => {
     expect(mail.html).toContain("user+&quot;danger&quot;@example.com");
   });
 
+  it("throws when SMTP is not configured for client password recovery", async () => {
+    const sender = new NodemailerEmailSender({
+      appName: "Plug",
+      appBaseUrl: "https://app.example.com",
+      adminEmail: "admin@example.com",
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpUser: "",
+      smtpPass: "",
+      smtpFrom: "",
+    });
+
+    await expect(
+      sender.sendClientPasswordRecovery({
+        clientEmail: "client@example.com",
+        recoveryToken: "recovery-token-012345678901234567890123456",
+      }),
+    ).rejects.toThrow("SMTP not configured");
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
   it("escapes client data in owner review emails", async () => {
     const sender = buildSender();
 

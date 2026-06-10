@@ -4,7 +4,7 @@ import { Client } from "../../../../src/domain/entities/client.entity";
 import {
   assertClientCanLogin,
   assertManagedClientStatusTransition,
-  isClientRegistrationRetryEligible,
+  isClientRegistrationResendEligible,
   reopenRejectedClientRegistration,
   transitionClientRegistrationToApproved,
   transitionClientRegistrationToRejected,
@@ -56,10 +56,10 @@ describe("client_registration_status.policy", () => {
     expect(assertManagedClientStatusTransition("rejected", "blocked").ok).toBe(false);
   });
 
-  it("only allows retry for rejected registrations", () => {
-    expect(isClientRegistrationRetryEligible("rejected")).toBe(true);
-    expect(isClientRegistrationRetryEligible("pending")).toBe(false);
-    expect(isClientRegistrationRetryEligible("active")).toBe(false);
-    expect(isClientRegistrationRetryEligible("blocked")).toBe(false);
+  it("allows resend for rejected or pending with expired approval link", () => {
+    expect(isClientRegistrationResendEligible("rejected", false)).toBe(true);
+    expect(isClientRegistrationResendEligible("pending", true)).toBe(true);
+    expect(isClientRegistrationResendEligible("pending", false)).toBe(false);
+    expect(isClientRegistrationResendEligible("active", true)).toBe(false);
   });
 });

@@ -2,11 +2,13 @@ import { Router } from "express";
 
 import {
   approveMyClientAccessRequest,
+  approveMyClientRegistration,
   getMyClient,
   listMyAgentClients,
   listMyClientAccessRequests,
   listMyClients,
   rejectMyClientAccessRequest,
+  rejectMyClientRegistration,
   revokeMyAgentClientAccess,
   setMyClientStatus,
 } from "../controllers/user_clients.controller";
@@ -22,6 +24,7 @@ import {
   userListClientAccessRequestsQuerySchema,
   userListClientsQuerySchema,
   userRejectClientAccessRequestBodySchema,
+  userRejectClientRegistrationBodySchema,
   userSetClientStatusBodySchema,
 } from "../validators/user_clients.validator";
 
@@ -87,6 +90,49 @@ userClientsRouter.patch(
   requireRole("user", "admin"),
   validateRequest({ params: userClientIdParamSchema, body: userSetClientStatusBodySchema }),
   asyncHandler(setMyClientStatus),
+);
+
+/**
+ * @openapi
+ * /me/clients/{clientId}/registration/approve:
+ *   post:
+ *     summary: Approve a pending client registration as authenticated owner
+ *     tags: [User clients]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Client registration approved
+ */
+userClientsRouter.post(
+  "/me/clients/:clientId/registration/approve",
+  ...requireAuthAndActiveAccount,
+  requireRole("user", "admin"),
+  validateRequest({ params: userClientIdParamSchema }),
+  asyncHandler(approveMyClientRegistration),
+);
+
+/**
+ * @openapi
+ * /me/clients/{clientId}/registration/reject:
+ *   post:
+ *     summary: Reject a pending client registration as authenticated owner
+ *     tags: [User clients]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Client registration rejected
+ */
+userClientsRouter.post(
+  "/me/clients/:clientId/registration/reject",
+  ...requireAuthAndActiveAccount,
+  requireRole("user", "admin"),
+  validateRequest({
+    params: userClientIdParamSchema,
+    body: userRejectClientRegistrationBodySchema,
+  }),
+  asyncHandler(rejectMyClientRegistration),
 );
 
 /**

@@ -32,6 +32,10 @@ export const agentNotFound = (agentId: string): AppError =>
 export const registrationTokenExpired = (message: string): AppError =>
   new AppError(message, { statusCode: 410, code: "REGISTRATION_TOKEN_EXPIRED" });
 
+/** Client password recovery token exists but is past `expiresAt`. */
+export const passwordRecoveryTokenExpired = (message: string): AppError =>
+  new AppError(message, { statusCode: 410, code: "PASSWORD_RECOVERY_TOKEN_EXPIRED" });
+
 // ─── 409 Conflict ────────────────────────────────────────────────────────────
 
 export const conflict = (message: string): AppError =>

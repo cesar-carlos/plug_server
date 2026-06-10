@@ -25,6 +25,7 @@ const envMock = {
 
 const expectedScopes = [
   "global",
+  "login",
   "credential_auth",
   "token_refresh",
   "agents_commands_ip",
@@ -35,6 +36,7 @@ const expectedScopes = [
   "client_socket_event_publish",
   "client_thumbnail",
   "client_password_recovery_request",
+  "client_password_recovery_poll",
 ];
 
 interface CapturedRateLimitOptions {

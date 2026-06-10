@@ -133,6 +133,37 @@ describe("Swagger docs", () => {
     expect(response.body.paths?.["/client-auth/registration/approve"]?.post).toBeDefined();
     expect(response.body.paths?.["/client-auth/registration/reject"]?.post).toBeDefined();
     expect(
+      response.body.paths?.["/me/clients/{clientId}/registration/approve"]?.post,
+    ).toBeDefined();
+    expect(
+      response.body.paths?.["/me/clients/{clientId}/registration/reject"]?.post,
+    ).toBeDefined();
+    expect(
+      response.body.paths?.["/client-auth/login"]?.post?.responses?.["200"]?.content?.[
+        "application/json"
+      ]?.schema?.$ref,
+    ).toBe("#/components/schemas/ClientAuthResponse");
+    expect(
+      response.body.paths?.["/client-auth/refresh"]?.post?.responses?.["200"]?.content?.[
+        "application/json"
+      ]?.schema?.$ref,
+    ).toBe("#/components/schemas/ClientAuthResponse");
+    expect(response.body.paths?.["/client-auth/login"]?.post?.responses?.["429"]).toBeDefined();
+    expect(response.body.paths?.["/client-auth/refresh"]?.post?.responses?.["429"]).toBeDefined();
+    expect(schemas?.ClientRegistrationStatusResponse?.properties?.status?.enum).toEqual([
+      "pending",
+      "expired",
+      "approved",
+      "rejected",
+      "blocked",
+      "unknown",
+    ]);
+    expect(
+      response.body.paths?.["/client-auth/registration/status"]?.get?.responses?.["200"]?.content?.[
+        "application/json"
+      ]?.schema?.$ref,
+    ).toBe("#/components/schemas/ClientRegistrationStatusResponse");
+    expect(
       response.body.paths?.["/auth/registration/retry"]?.post?.requestBody?.content?.[
         "application/json"
       ]?.schema?.required,

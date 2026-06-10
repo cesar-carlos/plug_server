@@ -28,8 +28,11 @@ import type { IClientAgentAccessRequestRepository } from "../../domain/repositor
 import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
 import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
+import type { IClientRegistrationPollTokenRepository } from "../../domain/repositories/client_registration_poll_token.repository.interface";
+import type { IClientRegistrationRegisterTxn } from "../../domain/ports/client_registration_register_txn.port";
 import type { IPendingClientAgentAccessWriter } from "../../domain/ports/pending_client_agent_access_writer.port";
 import type { IClientAgentAccessApprovalTxn } from "../../domain/ports/client_agent_access_approval_txn.port";
+import type { IClientPasswordRecoveryResetTxn } from "../../domain/ports/client_password_recovery_reset_txn.port";
 import type { IClientRegistrationDecisionTxn } from "../../domain/ports/client_registration_decision_txn.port";
 import type { IRegistrationDecisionTxn } from "../../domain/ports/registration_decision_txn.port";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
@@ -60,6 +63,7 @@ import { InMemoryClientAgentAccessRequestRepository } from "../../infrastructure
 import { InMemoryClientPasswordRecoveryTokenRepository } from "../../infrastructure/repositories/in_memory_client_password_recovery_token.repository";
 import { InMemoryClientRefreshTokenRepository } from "../../infrastructure/repositories/in_memory_client_refresh_token.repository";
 import { InMemoryClientRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_client_registration_approval_token.repository";
+import { InMemoryClientRegistrationPollTokenRepository } from "../../infrastructure/repositories/in_memory_client_registration_poll_token.repository";
 import { InMemoryClientRepository } from "../../infrastructure/repositories/in_memory_client.repository";
 import { InMemoryRefreshTokenRepository } from "../../infrastructure/repositories/in_memory_refresh_token.repository";
 import { InMemoryRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/in_memory_registration_approval_token.repository";
@@ -73,6 +77,7 @@ import { PrismaClientAgentAccessRequestRepository } from "../../infrastructure/r
 import { PrismaClientPasswordRecoveryTokenRepository } from "../../infrastructure/repositories/prisma_client_password_recovery_token.repository";
 import { PrismaClientRefreshTokenRepository } from "../../infrastructure/repositories/prisma_client_refresh_token.repository";
 import { PrismaClientRegistrationApprovalTokenRepository } from "../../infrastructure/repositories/prisma_client_registration_approval_token.repository";
+import { PrismaClientRegistrationPollTokenRepository } from "../../infrastructure/repositories/prisma_client_registration_poll_token.repository";
 import { PrismaClientRepository } from "../../infrastructure/repositories/prisma_client.repository";
 import { PrismaDatabaseReadinessProbe } from "../../infrastructure/database/prisma/prisma_database_readiness_probe";
 import { PrismaRefreshTokenRepository } from "../../infrastructure/repositories/prisma_refresh_token.repository";
@@ -81,9 +86,13 @@ import { PrismaUserRepository } from "../../infrastructure/repositories/prisma_u
 import { PrismaPendingClientAgentAccessWriter } from "../../infrastructure/persistence/prisma_pending_client_agent_access.writer";
 import { PrismaClientAgentAccessApprovalTxn } from "../../infrastructure/persistence/prisma_client_agent_access_approval_txn";
 import { InMemoryClientAgentAccessApprovalTxn } from "../../infrastructure/persistence/in_memory_client_agent_access_approval_txn";
+import { InMemoryClientPasswordRecoveryResetTxn } from "../../infrastructure/persistence/in_memory_client_password_recovery_reset_txn";
 import { InMemoryClientRegistrationDecisionTxn } from "../../infrastructure/persistence/in_memory_client_registration_decision_txn";
+import { InMemoryClientRegistrationRegisterTxn } from "../../infrastructure/persistence/in_memory_client_registration_register_txn";
 import { InMemoryRegistrationDecisionTxn } from "../../infrastructure/persistence/in_memory_registration_decision_txn";
+import { PrismaClientPasswordRecoveryResetTxn } from "../../infrastructure/persistence/prisma_client_password_recovery_reset_txn";
 import { PrismaClientRegistrationDecisionTxn } from "../../infrastructure/persistence/prisma_client_registration_decision_txn";
+import { PrismaClientRegistrationRegisterTxn } from "../../infrastructure/persistence/prisma_client_registration_register_txn";
 import { PrismaRegistrationDecisionTxn } from "../../infrastructure/persistence/prisma_registration_decision_txn";
 import { SequentialPendingClientAgentAccessWriter } from "../../infrastructure/persistence/sequential_pending_client_agent_access.writer";
 import { RestAgentBridgeService } from "../../application/services/rest_agent_bridge.service";
@@ -133,8 +142,12 @@ const clientPasswordRecoveryTokenRepository: IClientPasswordRecoveryTokenReposit
     : new PrismaClientPasswordRecoveryTokenRepository();
 const clientRegistrationApprovalTokenRepository: IClientRegistrationApprovalTokenRepository =
   shouldUseInMemoryPersistence
-    ? new InMemoryClientRegistrationApprovalTokenRepository()
+    ? new InMemoryClientRegistrationApprovalTokenRepository(clientRepository)
     : new PrismaClientRegistrationApprovalTokenRepository();
+const clientRegistrationPollTokenRepository: IClientRegistrationPollTokenRepository =
+  shouldUseInMemoryPersistence
+    ? new InMemoryClientRegistrationPollTokenRepository()
+    : new PrismaClientRegistrationPollTokenRepository();
 const clientAgentAccessRepository: IClientAgentAccessRepository = shouldUseInMemoryPersistence
   ? new InMemoryClientAgentAccessRepository()
   : new PrismaClientAgentAccessRepository();
@@ -170,8 +183,25 @@ const clientRegistrationDecisionTxn: IClientRegistrationDecisionTxn = shouldUseI
   ? new InMemoryClientRegistrationDecisionTxn(
       clientRegistrationApprovalTokenRepository,
       clientRepository,
+      userRepository,
     )
   : new PrismaClientRegistrationDecisionTxn();
+
+const clientRegistrationRegisterTxn: IClientRegistrationRegisterTxn = shouldUseInMemoryPersistence
+  ? new InMemoryClientRegistrationRegisterTxn(
+      clientRepository,
+      clientRegistrationApprovalTokenRepository,
+      clientRegistrationPollTokenRepository,
+    )
+  : new PrismaClientRegistrationRegisterTxn();
+
+const clientPasswordRecoveryResetTxn: IClientPasswordRecoveryResetTxn = shouldUseInMemoryPersistence
+  ? new InMemoryClientPasswordRecoveryResetTxn(
+      clientPasswordRecoveryTokenRepository,
+      clientRepository,
+      clientRefreshTokenRepository,
+    )
+  : new PrismaClientPasswordRecoveryResetTxn();
 
 const emailSender = shouldUseNoopEmailSender
   ? new NoopEmailSender()
@@ -239,6 +269,8 @@ const clientAuthService = new ClientAuthService(
 const clientRegistrationService = new ClientRegistrationService(
   clientRepository,
   clientRegistrationApprovalTokenRepository,
+  clientRegistrationPollTokenRepository,
+  clientRegistrationRegisterTxn,
   clientRegistrationDecisionTxn,
   userRepository,
   passwordHasher,
@@ -258,10 +290,9 @@ const clientManagementService = new ClientManagementService(
 const clientPasswordRecoveryService = new ClientPasswordRecoveryService(
   clientRepository,
   clientPasswordRecoveryTokenRepository,
-  clientRefreshTokenRepository,
+  clientPasswordRecoveryResetTxn,
   passwordHasher,
   emailSender,
-  clientAuthService,
 );
 const restAgentBridgeService = new RestAgentBridgeService(
   connectedAgentsRegistryAdapter,
@@ -384,6 +415,7 @@ export const getTestRepositoryAccess = (): {
   readonly clientAgentAccessApprovalToken: IClientAgentAccessApprovalTokenRepository;
   readonly registrationApprovalToken: typeof registrationApprovalTokenRepository;
   readonly clientRegistrationApprovalToken: IClientRegistrationApprovalTokenRepository;
+  readonly clientRegistrationPollToken: IClientRegistrationPollTokenRepository;
   readonly clientPasswordRecoveryToken: IClientPasswordRecoveryTokenRepository;
 } => {
   if (env.nodeEnv !== "test") {
@@ -401,6 +433,7 @@ export const getTestRepositoryAccess = (): {
     clientAgentAccessApprovalToken: clientAgentAccessApprovalTokenRepository,
     registrationApprovalToken: registrationApprovalTokenRepository,
     clientRegistrationApprovalToken: clientRegistrationApprovalTokenRepository,
+    clientRegistrationPollToken: clientRegistrationPollTokenRepository,
     clientPasswordRecoveryToken: clientPasswordRecoveryTokenRepository,
   };
 };

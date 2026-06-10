@@ -14,10 +14,12 @@ import { getAgentEventStreamMetricsSnapshot } from "../../../application/service
 import { getRedisAuthPingMetricsSnapshot } from "../../../application/services/redis_auth_ping_metrics.service";
 import { getAuthAccountMetricsSnapshot } from "../../../shared/metrics/auth_account.metrics";
 import { getClientAgentAccessPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_agent_access_public_decision.metrics";
+import { getClientRegistrationPublicDecisionMetricsSnapshot } from "../../../shared/metrics/client_registration_public_decision.metrics";
 import { getClientAgentAccessRequestPostMetricsSnapshot } from "../../../shared/metrics/client_agent_access_request.metrics";
 import { getClientMeAgentsMetricsSnapshot } from "../../../shared/metrics/client_me_agents.metrics";
 import { getHttpRedMetricsSnapshot } from "../../../shared/metrics/http_red.metrics";
 import { getPayloadFrameMetricsSnapshot } from "../../../shared/metrics/payload_frame.metrics";
+import { getClientPasswordRecoveryMetricsSnapshot } from "../../../shared/metrics/client_password_recovery.metrics";
 import { getRegistrationFlowMetricsSnapshot } from "../../../shared/metrics/registration_flow.metrics";
 import { getSocketAuditMetricsSnapshot } from "../../../application/services/socket_audit.service";
 import type { SocketHubMetricsSnapshot } from "../../adapters/socket_metrics_snapshot.adapter";
@@ -62,10 +64,12 @@ export const getMetrics = (_request: Request, response: Response): void => {
     redisAuthPing: getRedisAuthPingMetricsSnapshot(),
     prismaTransactionRetry: getPrismaTransactionRetryMetricsSnapshot(),
     registrationFlow: getRegistrationFlowMetricsSnapshot(),
+    clientPasswordRecovery: getClientPasswordRecoveryMetricsSnapshot(),
     authAccount: getAuthAccountMetricsSnapshot(),
     clientMeAgents: getClientMeAgentsMetricsSnapshot(),
     clientAccessRequestPost: getClientAgentAccessRequestPostMetricsSnapshot(),
     clientAccessPublicDecision: getClientAgentAccessPublicDecisionMetricsSnapshot(),
+    clientRegistrationPublicDecision: getClientRegistrationPublicDecisionMetricsSnapshot(),
     payloadFrame: getPayloadFrameMetricsSnapshot(),
     httpRed: getHttpRedMetricsSnapshot(),
   });

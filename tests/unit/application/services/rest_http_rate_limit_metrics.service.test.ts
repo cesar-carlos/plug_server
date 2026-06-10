@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getRestHttpRateLimitMetricsSnapshot,
   incrementRestHttpAgentsSelfProfileRateLimitRejected,
+  incrementRestHttpClientPasswordRecoveryPollRateLimitRejected,
   incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected,
   incrementRestHttpClientThumbnailRateLimitRejected,
   incrementRestHttpTokenRefreshRateLimitRejected,
@@ -25,16 +26,19 @@ describe("rest_http_rate_limit_metrics (token refresh)", () => {
     incrementRestHttpClientThumbnailRateLimitRejected();
     incrementRestHttpClientThumbnailRateLimitRejected();
     incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected();
+    incrementRestHttpClientPasswordRecoveryPollRateLimitRejected();
 
     const snap = getRestHttpRateLimitMetricsSnapshot();
     expect(snap.agentsSelfProfileRejectedTotal).toBe(1);
     expect(snap.clientThumbnailRejectedTotal).toBe(2);
     expect(snap.clientPasswordRecoveryRequestRejectedTotal).toBe(1);
+    expect(snap.clientPasswordRecoveryPollRejectedTotal).toBe(1);
 
     resetRestHttpRateLimitMetrics();
     const reset = getRestHttpRateLimitMetricsSnapshot();
     expect(reset.agentsSelfProfileRejectedTotal).toBe(0);
     expect(reset.clientThumbnailRejectedTotal).toBe(0);
     expect(reset.clientPasswordRecoveryRequestRejectedTotal).toBe(0);
+    expect(reset.clientPasswordRecoveryPollRejectedTotal).toBe(0);
   });
 });

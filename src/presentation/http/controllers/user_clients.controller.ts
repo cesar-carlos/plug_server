@@ -12,6 +12,7 @@ import type {
   UserListClientAccessRequestsQuery,
   UserListClientsQuery,
   UserRejectClientAccessRequestBody,
+  UserRejectClientRegistrationBody,
   UserSetClientStatusBody,
 } from "../validators/user_clients.validator";
 
@@ -54,6 +55,47 @@ export const getMyClient = async (
     return;
   }
   response.status(200).json({ client: result.value });
+};
+
+export const approveMyClientRegistration = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authUser = getAuthUser(response);
+  const { clientId } = getValidated<UserClientIdParam>(response, "params");
+  const result = await container.clientRegistrationService.approveByOwner(authUser.sub, clientId);
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.status(200).json({
+    approved: true,
+    clientEmail: result.value.clientEmail,
+  });
+};
+
+export const rejectMyClientRegistration = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const authUser = getAuthUser(response);
+  const { clientId } = getValidated<UserClientIdParam>(response, "params");
+  const body = getValidated<UserRejectClientRegistrationBody>(response, "body");
+  const result = await container.clientRegistrationService.rejectByOwner(
+    authUser.sub,
+    clientId,
+    body.reason,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.status(200).json({
+    rejected: true,
+    clientEmail: result.value.clientEmail,
+  });
 };
 
 export const setMyClientStatus = async (

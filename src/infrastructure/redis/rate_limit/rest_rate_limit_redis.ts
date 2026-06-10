@@ -55,7 +55,8 @@ export type RestHttpRateLimitStoreScope =
   | "client_me_agents_post"
   | "client_socket_event_publish"
   | "client_thumbnail"
-  | "client_password_recovery_request";
+  | "client_password_recovery_request"
+  | "client_password_recovery_poll";
 
 const toSafeErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

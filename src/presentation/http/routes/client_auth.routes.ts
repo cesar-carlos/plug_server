@@ -3,27 +3,30 @@ import { Router } from "express";
 
 import {
   approveClientRegistration,
-  changeClientPassword,
   clientRegistrationReviewPage,
-  clientPasswordRecoveryReviewPage,
-  clientPasswordRecoveryStatus,
-  clientPasswordRecoveryRequest,
-  clientPasswordRecoveryReset,
   clientRegistrationStatus,
-  clientThumbnailUpload,
-  getClientMe,
-  loginClient,
-  logoutClient,
-  patchClientMe,
-  uploadClientThumbnail,
-  refreshClient,
   rejectClientRegistration,
   registerClient,
   retryClientRegistration,
+} from "../controllers/client_registration.controller";
+import {
+  clientPasswordRecoveryRequest,
+  clientPasswordRecoveryReset,
+  clientPasswordRecoveryReviewPage,
+  clientPasswordRecoveryStatus,
+} from "../controllers/client_password_recovery.controller";
+import {
+  changeClientPassword,
+  clientThumbnailUpload,
+  getClientMe,
+  patchClientMe,
+  uploadClientThumbnail,
   wrapMulterErrors,
-} from "../controllers/client_auth.controller";
+} from "../controllers/client_profile.controller";
+import { loginClient, logoutClient, refreshClient } from "../controllers/client_session.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import {
+  clientPasswordRecoveryPollRateLimit,
   clientPasswordRecoveryRequestRateLimit,
   clientThumbnailRateLimit,
   credentialAuthRateLimit,
@@ -82,8 +85,8 @@ clientAuthRouter.use(cookieParser());
  *         description: Client registration submitted and pending owner approval
  *       400:
  *         description: Owner email is not eligible to approve client registration
- *       409:
- *         description: Client email already in use
+ *       202:
+ *         description: Generic acceptance when email may already be registered (anti-enumeration)
  */
 clientAuthRouter.post(
   "/register",
@@ -131,14 +134,9 @@ clientAuthRouter.get(
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               required: [status]
- *               properties:
- *                 status:
- *                   type: string
- *                   enum: [pending, expired, approved, rejected, blocked]
- *       404:
- *         description: Unknown token or orphaned token (client row missing)
+ *               $ref: '#/components/schemas/ClientRegistrationStatusResponse'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
  */
 clientAuthRouter.get(
   "/registration/status",
@@ -151,8 +149,8 @@ clientAuthRouter.get(
  * @openapi
  * /client-auth/registration/retry:
  *   post:
- *     summary: Retry a rejected client registration approval request
- *     description: Always returns a generic 202 response; when eligible, reopens the client registration and emails a new owner approval link.
+ *     summary: Retry or resend a client registration approval request
+ *     description: Always returns a generic 202 response. When eligible, reopens rejected registrations (`rejected` -> `pending`) or resends owner approval for pending registrations whose public approval link expired, then emails a new owner approval link.
  *     tags: [Client Auth]
  *     requestBody:
  *       required: true
@@ -292,8 +290,14 @@ clientAuthRouter.post(
  *     responses:
  *       200:
  *         description: Client authenticated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ClientAuthResponse'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
  */
 clientAuthRouter.post(
   "/login",
@@ -322,10 +326,16 @@ clientAuthRouter.post(
  *     responses:
  *       200:
  *         description: New access/refresh tokens issued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ClientAuthResponse'
  *       400:
  *         description: Missing refresh token in body/cookie
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
  */
 clientAuthRouter.post(
   "/refresh",
@@ -557,7 +567,7 @@ clientAuthRouter.post(
  */
 clientAuthRouter.get(
   "/password-recovery/review",
-  clientPasswordRecoveryRequestRateLimit,
+  clientPasswordRecoveryPollRateLimit,
   validateRequest({ query: clientPasswordRecoveryTokenQuerySchema }),
   asyncHandler(clientPasswordRecoveryReviewPage),
 );
@@ -584,14 +594,12 @@ clientAuthRouter.get(
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ClientPasswordRecoveryStatusResponse'
- *       404:
- *         $ref: '#/components/responses/NotFound'
  *       429:
  *         description: Too many password recovery token checks
  */
 clientAuthRouter.get(
   "/password-recovery/status",
-  clientPasswordRecoveryRequestRateLimit,
+  clientPasswordRecoveryPollRateLimit,
   validateRequest({ query: clientPasswordRecoveryTokenQuerySchema }),
   asyncHandler(clientPasswordRecoveryStatus),
 );

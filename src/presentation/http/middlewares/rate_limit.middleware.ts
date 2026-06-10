@@ -7,6 +7,7 @@ import {
   incrementRestHttpAgentsCommandsUserRateLimitRejected,
   incrementRestHttpAgentsSelfProfileRateLimitRejected,
   incrementRestHttpClientMeAgentsPostRateLimitRejected,
+  incrementRestHttpClientPasswordRecoveryPollRateLimitRejected,
   incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected,
   incrementRestHttpClientSocketEventPublishRateLimitRejected,
   incrementRestHttpClientThumbnailRateLimitRejected,
@@ -103,6 +104,8 @@ export let clientSocketEventPublishRateLimit: RequestHandler = globalRateLimitNo
 export let clientThumbnailRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
 export let clientPasswordRecoveryRequestRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
+export let clientPasswordRecoveryPollRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
 const agentsCommandsTooManyMessage = {
   message: "Too many agent commands, please try again later.",
@@ -397,21 +400,41 @@ export function registerHttpRateLimits(): void {
           },
         });
 
+  const clientPasswordRecoveryRateLimitOptions = {
+    windowMs: env.restClientPasswordRecoveryRateLimitWindowMs,
+    limit: env.restClientPasswordRecoveryRateLimitMax,
+    standardHeaders: true as const,
+    legacyHeaders: false as const,
+  };
+
   clientPasswordRecoveryRequestRateLimit =
     env.restClientPasswordRecoveryRateLimitMax === 0
       ? passthrough
       : rateLimit({
-          windowMs: env.restClientPasswordRecoveryRateLimitWindowMs,
-          limit: env.restClientPasswordRecoveryRateLimitMax,
+          ...clientPasswordRecoveryRateLimitOptions,
           ...(optionalRedisStore("client_password_recovery_request") ?? {}),
-          standardHeaders: true,
-          legacyHeaders: false,
           message: {
             message: "Too many password recovery requests, please try again later.",
             code: "TOO_MANY_REQUESTS",
           },
           handler: async (request, response, _next, optionsUsed) => {
             incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  clientPasswordRecoveryPollRateLimit =
+    env.restClientPasswordRecoveryRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          ...clientPasswordRecoveryRateLimitOptions,
+          ...(optionalRedisStore("client_password_recovery_poll") ?? {}),
+          message: {
+            message: "Too many password recovery status checks, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpClientPasswordRecoveryPollRateLimitRejected();
             await sendRateLimitResponse(request, response, optionsUsed);
           },
         });

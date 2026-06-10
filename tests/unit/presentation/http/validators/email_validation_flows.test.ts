@@ -145,7 +145,7 @@ describe("client_auth.validator email-related schemas", () => {
     const parsed = clientRegistrationRetryBodySchema.parse({
       ownerEmail: "O@Example.COM",
       email: "C@Example.COM",
-      password: "retry-pass",
+      password: "TestPass123!",
     });
     expect(parsed.ownerEmail).toBe("o@example.com");
     expect(parsed.email).toBe("c@example.com");

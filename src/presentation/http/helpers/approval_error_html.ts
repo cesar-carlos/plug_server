@@ -12,6 +12,7 @@ export type ApprovalErrorHtmlRoute =
   | "client_access"
   | "user_registration"
   | "client_registration"
+  | "client_password_recovery"
   | null;
 
 const stripQuery = (url: string | undefined): string => {
@@ -36,6 +37,9 @@ const routeFromPath = (urlPath: string): ApprovalErrorHtmlRoute => {
     urlPath.includes("/client-auth/registration/reject")
   ) {
     return "client_registration";
+  }
+  if (urlPath.includes("/client-auth/password-recovery/reset")) {
+    return "client_password_recovery";
   }
   return null;
 };
@@ -75,6 +79,102 @@ const homeFooterFromRequest = (request: Request): { homeUrl: string; homeLabel: 
 
 const localeFromRoute = (_route: ApprovalErrorHtmlRoute, request: Request): "pt" | "en" =>
   negotiateApprovalHtmlLang(request) === "pt-BR" ? "pt" : "en";
+
+const bodyTextForPasswordRecovery = (error: AppError, locale: "pt" | "en"): string => {
+  if (locale === "en") {
+    switch (error.code) {
+      case "PASSWORD_RECOVERY_TOKEN_EXPIRED":
+        return "This password recovery link has expired. Request a new recovery email.";
+      case "NOT_FOUND":
+        return "This link is invalid or has already been used. Request a new recovery email.";
+      case "FORBIDDEN":
+        return error.message;
+      case "BAD_REQUEST":
+        return error.message;
+      case "TOO_MANY_REQUESTS":
+        return "Too many attempts. Wait a moment and try again.";
+      case "SERVICE_UNAVAILABLE":
+        return "Service temporarily unavailable. Please try again shortly.";
+      default:
+        if (error.statusCode >= 500) {
+          return "A server error occurred. Please try again later.";
+        }
+        return error.message;
+    }
+  }
+  switch (error.code) {
+    case "PASSWORD_RECOVERY_TOKEN_EXPIRED":
+      return "Este link de recuperação de senha expirou. Solicite um novo e-mail de recuperação.";
+    case "NOT_FOUND":
+      return "Este link é inválido ou já foi utilizado. Solicite um novo e-mail de recuperação.";
+    case "FORBIDDEN":
+      return error.message;
+    case "BAD_REQUEST":
+      return error.message;
+    case "TOO_MANY_REQUESTS":
+      return "Muitas tentativas. Aguarde um instante e tente de novo.";
+    case "SERVICE_UNAVAILABLE":
+      return "Serviço temporariamente indisponível. Tente novamente em instantes.";
+    default:
+      if (error.statusCode >= 500) {
+        return "Ocorreu um erro no servidor. Tente novamente mais tarde.";
+      }
+      return error.message;
+  }
+};
+
+const bodyTextForClientRegistration = (error: AppError, locale: "pt" | "en"): string => {
+  if (locale === "en") {
+    switch (error.code) {
+      case "REGISTRATION_TOKEN_EXPIRED":
+        return "This approval link has expired. Ask the client to retry registration or approve from your client list.";
+      case "CONFLICT":
+        if (String(error.message).toLowerCase().includes("processed")) {
+          return "This client registration has already been processed.";
+        }
+        return error.message;
+      case "TOO_MANY_REQUESTS":
+        return "Too many attempts. Wait a moment and try again.";
+      case "SERVICE_UNAVAILABLE":
+        return "Service temporarily unavailable. Please try again shortly.";
+      case "NOT_FOUND":
+        return "This link is invalid, has already been used, or the registration no longer exists.";
+      case "BAD_REQUEST":
+        return error.message;
+      case "FORBIDDEN":
+        return error.message;
+      default:
+        if (error.statusCode >= 500) {
+          return "A server error occurred. Please try again later.";
+        }
+        return error.message;
+    }
+  }
+  switch (error.code) {
+    case "REGISTRATION_TOKEN_EXPIRED":
+      return "Este link de aprovação expirou. Peça ao cliente para tentar o cadastro novamente ou aprove pela sua lista de clientes.";
+    case "CONFLICT":
+      if (String(error.message).toLowerCase().includes("processed")) {
+        return "Este cadastro de cliente já foi processado.";
+      }
+      return error.message;
+    case "TOO_MANY_REQUESTS":
+      return "Muitas tentativas. Aguarde um instante e tente de novo.";
+    case "SERVICE_UNAVAILABLE":
+      return "Serviço temporariamente indisponível. Tente novamente em instantes.";
+    case "NOT_FOUND":
+      return "Este link é inválido, já foi utilizado ou o cadastro não existe mais.";
+    case "BAD_REQUEST":
+      return error.message;
+    case "FORBIDDEN":
+      return error.message;
+    default:
+      if (error.statusCode >= 500) {
+        return "Ocorreu um erro no servidor. Tente novamente mais tarde.";
+      }
+      return error.message;
+  }
+};
 
 const bodyTextForClientAccess = (error: AppError, locale: "pt" | "en"): string => {
   if (locale === "en") {
@@ -208,7 +308,14 @@ export const buildApprovalErrorHtml = (
   const { homeUrl, homeLabel } = homeFooterFromRequest(request);
   const loc = localeFromRoute(group, request);
   const isPt = loc === "pt";
-  const body = group === "client_access" ? bodyTextForClientAccess(error, loc) : error.message;
+  const body =
+    group === "client_access"
+      ? bodyTextForClientAccess(error, loc)
+      : group === "client_registration"
+        ? bodyTextForClientRegistration(error, loc)
+        : group === "client_password_recovery"
+          ? bodyTextForPasswordRecovery(error, loc)
+          : error.message;
   return {
     statusCode: error.statusCode,
     html: renderApprovalErrorPage({

@@ -203,7 +203,7 @@ Regras:
 
 - retry reabre apenas pedidos com status `rejected`, `expired` ou `revoked`; `pending` permanece idempotente/debounced e `approved` so retorna `alreadyApproved` enquanto o acesso real existir
 - cadastros publicos (`User` e `Client`) respondem genericamente com `202` para contas inexistentes, senha incorreta ou status nao elegivel
-- retry de `Client` exige `ownerEmail`, email/senha do client e owner ativo; apenas registros `rejected` sao elegiveis para reabrir `pending`
+- retry de `Client` exige `ownerEmail`, email/senha do client e owner ativo; reabre `rejected -> pending` ou reenvia aprovacao para `pending` com link publico expirado
 - retry de acesso `Client -> Agent` exige JWT de `Client` ativo e ownership do pedido pelo client autenticado
 - pedidos ja `pending` devem permanecer idempotentes/debounced para evitar spam de emails
 
@@ -268,6 +268,8 @@ Endpoints:
 - `GET /api/v1/me/clients`
 - `GET /api/v1/me/clients/{clientId}`
 - `PATCH /api/v1/me/clients/{clientId}/status`
+- `POST /api/v1/me/clients/{clientId}/registration/approve`
+- `POST /api/v1/me/clients/{clientId}/registration/reject`
 - `GET /api/v1/me/client-access-requests`
 - `POST /api/v1/me/client-access-requests/{requestId}/approve`
 - `POST /api/v1/me/client-access-requests/{requestId}/reject`
@@ -278,7 +280,8 @@ Regras:
 
 - o owner (`User`) pode listar e consultar apenas `Clients` sob seu `userId`
 - o owner pode bloquear/reativar seus `Client`s`; ao bloquear, refresh tokens do `Client` sao revogados
-- `PATCH /api/v1/me/clients/{clientId}/status` nao processa `Client` em `pending`; nesse estado a decisao deve passar pelo fluxo oficial de aprovacao/rejeicao do cadastro
+- `PATCH /api/v1/me/clients/{clientId}/status` nao processa `Client` em `pending`; nesse estado a decisao deve passar pelo fluxo oficial de aprovacao/rejeicao do cadastro (`POST /api/v1/me/clients/{clientId}/registration/approve|reject` ou links publicos por token)
+- `POST /api/v1/me/clients/{clientId}/registration/approve|reject` decide cadastros `pending` do owner autenticado mesmo quando o link publico por email expirou
 - o owner possui inbox autenticada para listar pedidos de acesso aos seus agentes e decidir por `requestId`
 - o owner pode listar quais `Clients` estao aprovados para um agente especifico seu
 - o owner pode revogar um acesso aprovado `clientId + agentId` sem alterar ownership do agente; se o pedido estava `approved`, passa a `revoked` com motivo `owner_revoked_access`
@@ -337,9 +340,10 @@ O sistema usa `principal_type` no JWT para distinguir sessao de `user` e `client
 
 Autenticacao de client:
 
-- `POST /api/v1/client-auth/register`
+- `POST /api/v1/client-auth/register` (resposta inclui `registrationPollToken` para polling de status)
 - `GET /api/v1/client-auth/registration/review`
-- `GET /api/v1/client-auth/registration/status`
+- `GET /api/v1/client-auth/registration/status` (poll por `registrationPollToken`; `unknown` em token invalido)
+- `POST /api/v1/client-auth/registration/retry`
 - `POST /api/v1/client-auth/registration/approve`
 - `POST /api/v1/client-auth/registration/reject`
 - `POST /api/v1/client-auth/login`
@@ -364,6 +368,8 @@ Governanca do user sobre clients:
 - `GET /api/v1/me/clients`
 - `GET /api/v1/me/clients/{clientId}`
 - `PATCH /api/v1/me/clients/{clientId}/status`
+- `POST /api/v1/me/clients/{clientId}/registration/approve`
+- `POST /api/v1/me/clients/{clientId}/registration/reject`
 - `GET /api/v1/me/client-access-requests`
 - `POST /api/v1/me/client-access-requests/{requestId}/approve`
 - `POST /api/v1/me/client-access-requests/{requestId}/reject`

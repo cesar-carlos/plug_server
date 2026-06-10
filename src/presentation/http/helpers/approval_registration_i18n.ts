@@ -61,6 +61,9 @@ export interface ClientRegistrationReviewCopy {
   readonly summaryClientEmail: string;
   readonly summaryAccountStatus: string;
   readonly summaryLinkStatus: string;
+  readonly readOnlyInvalid: string;
+  readonly readOnlyExpired: string;
+  readonly readOnlyResolved: (clientStatus: string) => string;
 }
 
 export const clientRegistrationReviewCopy = (
@@ -82,6 +85,12 @@ export const clientRegistrationReviewCopy = (
       summaryClientEmail: "E-mail do cliente",
       summaryAccountStatus: "Estado da conta",
       summaryLinkStatus: "Estado do link",
+      readOnlyInvalid:
+        "Este link é inválido, expirou ou já foi utilizado. Nenhuma ação é necessária nesta página.",
+      readOnlyExpired:
+        "Este link de aprovação expirou. O cliente pode solicitar um novo envio pelo fluxo de registo.",
+      readOnlyResolved: (clientStatus: string) =>
+        `Este registo de cliente já foi resolvido (estado: ${clientStatus}).`,
     };
   }
   return {
@@ -99,6 +108,12 @@ export const clientRegistrationReviewCopy = (
     summaryClientEmail: "Client email",
     summaryAccountStatus: "Account status",
     summaryLinkStatus: "Link status",
+    readOnlyInvalid:
+      "This link is invalid, expired, or has already been used. No action is required on this page.",
+    readOnlyExpired:
+      "This approval link has expired. The client can request a new email through the registration flow.",
+    readOnlyResolved: (clientStatus: string) =>
+      `This client registration was already resolved (status: ${clientStatus}).`,
   };
 };
 
@@ -260,7 +275,30 @@ export interface ClientPasswordResetReviewCopy {
   readonly description: string;
   readonly passwordLabel: string;
   readonly submitLabel: string;
+  readonly readOnlyInvalid: string;
+  readonly readOnlyExpired: string;
 }
+
+export interface ClientPasswordResetDecisionCopy {
+  readonly successTitle: string;
+  readonly successBody: string;
+}
+
+export const clientPasswordResetDecisionCopy = (
+  lang: ApprovalHtmlLang,
+): ClientPasswordResetDecisionCopy => {
+  if (lang === "pt-BR") {
+    return {
+      successTitle: "Senha redefinida",
+      successBody:
+        "Sua senha foi atualizada. Você já pode entrar na aplicação com a nova senha.",
+    };
+  }
+  return {
+    successTitle: "Password reset",
+    successBody: "Your password has been updated. You can now sign in with your new password.",
+  };
+};
 
 export const clientPasswordResetReviewCopy = (
   lang: ApprovalHtmlLang,
@@ -273,6 +311,10 @@ export const clientPasswordResetReviewCopy = (
         "Defina uma nova senha abaixo. Esta página não altera dados até que o formulário seja enviado.",
       passwordLabel: "Nova senha",
       submitLabel: "Redefinir senha",
+      readOnlyInvalid:
+        "Este link é inválido ou já foi utilizado. Solicite um novo e-mail de recuperação de senha.",
+      readOnlyExpired:
+        "Este link de recuperação expirou. Solicite um novo e-mail de recuperação de senha.",
     };
   }
   return {
@@ -282,5 +324,9 @@ export const clientPasswordResetReviewCopy = (
       "Set a new password below. This page does not change data until you submit the form.",
     passwordLabel: "New password",
     submitLabel: "Reset password",
+    readOnlyInvalid:
+      "This link is invalid or has already been used. Request a new password recovery email.",
+    readOnlyExpired:
+      "This recovery link has expired. Request a new password recovery email.",
   };
 };

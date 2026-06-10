@@ -351,6 +351,8 @@ export interface PasswordResetFormPageInput {
   readonly token: string;
   readonly passwordLabel: string;
   readonly submitLabel: string;
+  readonly showActionForms?: boolean;
+  readonly readOnlyMessage?: string;
   readonly lang?: string;
   readonly homeUrl?: string;
   readonly homeLabel?: string;
@@ -362,6 +364,7 @@ export interface PasswordResetFormPageInput {
  * previously inlined in `clientPasswordRecoveryReviewPage`.
  */
 export const renderPasswordResetFormPage = (input: PasswordResetFormPageInput): string => {
+  const showForms = input.showActionForms !== false;
   const safeAction = escapeHtmlAttr(input.formAction);
   const safeToken = escapeHtmlAttr(input.token);
   const safeHeading = escapeHtml(input.heading);
@@ -369,11 +372,16 @@ export const renderPasswordResetFormPage = (input: PasswordResetFormPageInput): 
   const safePasswordLabel = escapeHtml(input.passwordLabel);
   const safeSubmitLabel = escapeHtml(input.submitLabel);
 
-  const body = `
-    <section class="review-section" aria-label="${safeHeading}">
-      <h1 class="review-heading">${safeHeading}</h1>
-      <p class="review-description">${safeDescription}</p>
-      <form method="post" action="${safeAction}" class="actions-form" aria-label="${safeHeading}">
+  const readOnlyBlock =
+    !showForms && typeof input.readOnlyMessage === "string" && input.readOnlyMessage.trim() !== ""
+      ? `      <div class="read-only-notice" role="status" aria-live="polite">
+        <p>${escapeHtml(input.readOnlyMessage)}</p>
+      </div>
+`
+      : "";
+
+  const formBlock = showForms
+    ? `      <form method="post" action="${safeAction}" class="actions-form" aria-label="${safeHeading}">
         <input type="hidden" name="token" value="${safeToken}" />
         <div class="field-group">
           <label class="field-label" for="newPassword">${safePasswordLabel}</label>
@@ -391,7 +399,14 @@ export const renderPasswordResetFormPage = (input: PasswordResetFormPageInput): 
         <div class="action-buttons">
           <button type="submit" class="btn btn-approve">${safeSubmitLabel}</button>
         </div>
-      </form>
+      </form>`
+    : "";
+
+  const body = `
+    <section class="review-section" aria-label="${safeHeading}">
+      <h1 class="review-heading">${safeHeading}</h1>
+      <p class="review-description">${safeDescription}</p>
+${readOnlyBlock}${formBlock}
     </section>`;
 
   return pageShell(input.title, body, {

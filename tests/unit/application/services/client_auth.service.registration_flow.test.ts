@@ -10,6 +10,8 @@ import type {
 import { InMemoryClientRepository } from "../../../../src/infrastructure/repositories/in_memory_client.repository";
 import { InMemoryUserRepository } from "../../../../src/infrastructure/repositories/in_memory_user.repository";
 import { InMemoryClientRegistrationDecisionTxn } from "../../../../src/infrastructure/persistence/in_memory_client_registration_decision_txn";
+import { InMemoryClientRegistrationPollTokenRepository } from "../../../../src/infrastructure/repositories/in_memory_client_registration_poll_token.repository";
+import { InMemoryClientRegistrationRegisterTxn } from "../../../../src/infrastructure/persistence/in_memory_client_registration_register_txn";
 import { env } from "../../../../src/shared/config/env";
 
 class FakePasswordHasher {
@@ -27,6 +29,8 @@ class TestClientRegistrationApprovalTokenRepository implements IClientRegistrati
   private readonly tokenIdByClientId = new Map<string, string>();
   failOnSave = false;
 
+  constructor(private readonly clientRepository?: InMemoryClientRepository) {}
+
   async save(token: ClientRegistrationApprovalToken): Promise<void> {
     if (this.failOnSave) {
       throw new Error("token persistence failed");
@@ -40,14 +44,22 @@ class TestClientRegistrationApprovalTokenRepository implements IClientRegistrati
   }
 
   async replaceForClientRetry(
-    _client: Client,
+    client: Client,
     token: ClientRegistrationApprovalToken,
   ): Promise<void> {
     await this.save(token);
+    if (this.clientRepository) {
+      await this.clientRepository.save(client);
+    }
   }
 
   async findById(id: string): Promise<ClientRegistrationApprovalToken | null> {
     return this.store.get(id) ?? null;
+  }
+
+  async findByClientId(clientId: string): Promise<ClientRegistrationApprovalToken | null> {
+    const tokenId = this.tokenIdByClientId.get(clientId);
+    return tokenId ? (this.store.get(tokenId) ?? null) : null;
   }
 
   async findReviewSummaryById(): Promise<null> {
@@ -75,6 +87,7 @@ describe("ClientAuthService registration flow", () => {
   let userRepository: InMemoryUserRepository;
   let clientRepository: InMemoryClientRepository;
   let clientRegistrationApprovalTokenRepository: TestClientRegistrationApprovalTokenRepository;
+  let clientRegistrationPollTokenRepository: InMemoryClientRegistrationPollTokenRepository;
   let service: ClientRegistrationService;
 
   beforeEach(async () => {
@@ -84,14 +97,24 @@ describe("ClientAuthService registration flow", () => {
     sendClientRegistrationRejected.mockResolvedValue(undefined);
     userRepository = new InMemoryUserRepository();
     clientRepository = new InMemoryClientRepository();
-    clientRegistrationApprovalTokenRepository = new TestClientRegistrationApprovalTokenRepository();
+    clientRegistrationApprovalTokenRepository = new TestClientRegistrationApprovalTokenRepository(
+      clientRepository,
+    );
+    clientRegistrationPollTokenRepository = new InMemoryClientRegistrationPollTokenRepository();
 
     service = new ClientRegistrationService(
       clientRepository,
       clientRegistrationApprovalTokenRepository,
+      clientRegistrationPollTokenRepository,
+      new InMemoryClientRegistrationRegisterTxn(
+        clientRepository,
+        clientRegistrationApprovalTokenRepository,
+        clientRegistrationPollTokenRepository,
+      ),
       new InMemoryClientRegistrationDecisionTxn(
         clientRegistrationApprovalTokenRepository,
         clientRepository,
+        userRepository,
       ),
       userRepository,
       new FakePasswordHasher(),

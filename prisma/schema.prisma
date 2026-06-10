@@ -82,6 +82,7 @@ model Client {
   agentAccesses ClientAgentAccess[]
   agentAccessRequests ClientAgentAccessRequest[]
   registrationApprovalToken ClientRegistrationApprovalToken?
+  registrationPollToken ClientRegistrationPollToken?
   passwordRecoveryToken ClientPasswordRecoveryToken?
 
   @@index([userId])
@@ -111,6 +112,16 @@ model ClientRegistrationApprovalToken {
 
   @@index([expiresAt])
   @@map("client_registration_approval_tokens")
+}
+
+/// Opaque token returned to the registering client for status polling (distinct from owner approval link).
+model ClientRegistrationPollToken {
+  id        String   @id @db.VarChar(128)
+  clientId  String   @unique @map("client_id")
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("client_registration_poll_tokens")
 }
 
 model ClientPasswordRecoveryToken {

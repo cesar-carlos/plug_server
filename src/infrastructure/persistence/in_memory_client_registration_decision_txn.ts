@@ -4,6 +4,7 @@ import type {
 } from "../../domain/ports/client_registration_decision_txn.port";
 import type { IClientRegistrationApprovalTokenRepository } from "../../domain/repositories/client_registration_approval_token.repository.interface";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
+import type { IUserRepository } from "../../domain/repositories/user.repository.interface";
 import {
   transitionClientRegistrationToApproved,
   transitionClientRegistrationToRejected,
@@ -23,17 +24,26 @@ export class InMemoryClientRegistrationDecisionTxn implements IClientRegistratio
   constructor(
     private readonly tokenRepository: IClientRegistrationApprovalTokenRepository,
     private readonly clientRepository: IClientRepository,
+    private readonly userRepository: IUserRepository,
   ) {}
 
   async approve(tokenId: string): Promise<ClientRegistrationDecisionResult> {
-    return this.runExclusive(() => this.decide(tokenId, "approve"));
+    return this.runExclusive(() => this.decideByToken(tokenId, "approve"));
   }
 
   async reject(tokenId: string): Promise<ClientRegistrationDecisionResult> {
-    return this.runExclusive(() => this.decide(tokenId, "reject"));
+    return this.runExclusive(() => this.decideByToken(tokenId, "reject"));
   }
 
-  private async decide(
+  async approveByClientId(clientId: string): Promise<ClientRegistrationDecisionResult> {
+    return this.runExclusive(() => this.decideByClientId(clientId, "approve"));
+  }
+
+  async rejectByClientId(clientId: string): Promise<ClientRegistrationDecisionResult> {
+    return this.runExclusive(() => this.decideByClientId(clientId, "reject"));
+  }
+
+  private async decideByToken(
     tokenId: string,
     decision: ClientDecision,
   ): Promise<ClientRegistrationDecisionResult> {
@@ -47,10 +57,33 @@ export class InMemoryClientRegistrationDecisionTxn implements IClientRegistratio
       return { status: "expired" };
     }
 
-    const client = await this.clientRepository.findById(token.clientId);
+    return this.transitionClient(token.clientId, tokenId, decision);
+  }
+
+  private async decideByClientId(
+    clientId: string,
+    decision: ClientDecision,
+  ): Promise<ClientRegistrationDecisionResult> {
+    const token = await this.tokenRepository.findByClientId(clientId);
+    return this.transitionClient(clientId, token?.id, decision);
+  }
+
+  private async transitionClient(
+    clientId: string,
+    approvalTokenId: string | undefined,
+    decision: ClientDecision,
+  ): Promise<ClientRegistrationDecisionResult> {
+    const client = await this.clientRepository.findById(clientId);
     if (!client) {
-      await this.tokenRepository.deleteById(tokenId);
+      if (approvalTokenId) {
+        await this.tokenRepository.deleteById(approvalTokenId);
+      }
       return { status: "client_not_found" };
+    }
+
+    const owner = await this.userRepository.findById(client.userId);
+    if (!owner || owner.status !== "active") {
+      return { status: "owner_inactive" };
     }
 
     const transition =
@@ -58,12 +91,17 @@ export class InMemoryClientRegistrationDecisionTxn implements IClientRegistratio
         ? transitionClientRegistrationToApproved(client)
         : transitionClientRegistrationToRejected(client);
     if (!transition.ok) {
-      await this.tokenRepository.deleteById(tokenId);
+      if (approvalTokenId) {
+        await this.tokenRepository.deleteById(approvalTokenId);
+      }
       return { status: "not_pending" };
     }
 
     await this.clientRepository.save(transition.value);
-    await this.tokenRepository.deleteById(tokenId);
+    const token = await this.tokenRepository.findByClientId(clientId);
+    if (token) {
+      await this.tokenRepository.deleteById(token.id);
+    }
     return decision === "approve"
       ? { status: "approved", client: transition.value }
       : { status: "rejected", client: transition.value };

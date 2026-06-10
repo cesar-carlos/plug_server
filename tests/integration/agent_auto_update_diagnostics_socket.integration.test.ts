@@ -64,12 +64,15 @@ describe("agent auto-update diagnostics socket ingress", () => {
   let agentSocket: ReturnType<typeof ioClient> | null = null;
   let originalEnabled: boolean;
   let originalWindowMs: number;
+  let originalRateLimitMax: number;
 
   beforeAll(async () => {
     originalEnabled = env.agentAutoUpdateDiagnosticsEnabled;
     originalWindowMs = env.agentAutoUpdateDiagnosticsRateLimitWindowMs;
+    originalRateLimitMax = env.agentAutoUpdateDiagnosticsRateLimitMax;
     env.agentAutoUpdateDiagnosticsEnabled = true;
     env.agentAutoUpdateDiagnosticsRateLimitWindowMs = 60_000;
+    env.agentAutoUpdateDiagnosticsRateLimitMax = 1;
 
     server = await createTestServer();
     baseUrl = server.getUrl();
@@ -126,6 +129,7 @@ describe("agent auto-update diagnostics socket ingress", () => {
     await server.close();
     env.agentAutoUpdateDiagnosticsEnabled = originalEnabled;
     env.agentAutoUpdateDiagnosticsRateLimitWindowMs = originalWindowMs;
+    env.agentAutoUpdateDiagnosticsRateLimitMax = originalRateLimitMax;
   });
 
   it("persists a valid rpc:request notification and does not emit rpc:response", async () => {

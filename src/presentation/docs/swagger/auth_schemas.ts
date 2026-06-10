@@ -178,7 +178,7 @@ export const authSchemas = {
     type: "object",
     required: ["status"],
     properties: {
-      status: { type: "string", enum: ["pending", "expired"] },
+      status: { type: "string", enum: ["pending", "expired", "unknown"] },
     },
   },
   ClientPasswordRecoveryResetRequest: {
@@ -192,6 +192,16 @@ export const authSchemas = {
         pattern: "^[A-Za-z0-9_-]+$",
       },
       newPassword: { type: "string", minLength: 8, maxLength: 128 },
+    },
+  },
+  ClientRegistrationStatusResponse: {
+    type: "object",
+    required: ["status"],
+    properties: {
+      status: {
+        type: "string",
+        enum: ["pending", "expired", "approved", "rejected", "blocked", "unknown"],
+      },
     },
   },
 } as const;

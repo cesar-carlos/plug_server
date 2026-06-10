@@ -3,9 +3,10 @@ import path from "node:path";
 
 import sharp from "sharp";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../src/app";
+import { Client } from "../../src/domain/entities/client.entity";
 import { User } from "../../src/domain/entities/user.entity";
 import { env } from "../../src/shared/config/env";
 import { getTestNoopEmailSender, getTestRepositoryAccess } from "../../src/shared/di/container";
@@ -38,6 +39,32 @@ describe("Client auth registration approval flow", () => {
     expect(response.body.accessToken).toBeUndefined();
     expect(response.body.refreshToken).toBeUndefined();
     expect(response.body.approvalToken).toBeDefined();
+    expect(response.body.registrationPollToken).toBeDefined();
+  });
+
+  it("returns registrationPollToken in production mode without approvalToken", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-prod-poll-owner`,
+      emailPrefix: "client-owner",
+    });
+    const previousNodeEnv = env.nodeEnv;
+    (env as { nodeEnv: string }).nodeEnv = "production";
+    try {
+      const response = await request(app)
+        .post("/api/v1/client-auth/register")
+        .send({
+          ownerEmail: owner.email,
+          email: `prod-poll-${Date.now()}@test.com`,
+          password: "ClientRegPwd1",
+          name: "Prod",
+          lastName: "Poll",
+        });
+      expect(response.status).toBe(201);
+      expect(response.body.registrationPollToken).toBeDefined();
+      expect(response.body.approvalToken).toBeUndefined();
+    } finally {
+      (env as { nodeEnv: string }).nodeEnv = previousNodeEnv;
+    }
   });
 
   it("denies login while client registration is pending", async () => {
@@ -58,8 +85,9 @@ describe("Client auth registration approval flow", () => {
     expect(registerRes.status).toBe(201);
 
     const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
-    expect(loginRes.status).toBe(403);
-    expect(loginRes.body.code).toBe("FORBIDDEN");
+    expect(loginRes.status).toBe(401);
+    expect(loginRes.body.code).toBe("UNAUTHORIZED");
+    expect(loginRes.body.message).toBe("Invalid credentials");
   });
 
   it("activates pending client after approval token and allows login", async () => {
@@ -215,7 +243,7 @@ describe("Client auth registration approval flow", () => {
     expect(rejectRes.status).toBe(200);
 
     const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
-    expect(loginRes.status).toBe(403);
+    expect(loginRes.status).toBe(401);
     const storedClient = await repositories.client.findByEmail(email);
     expect(storedClient?.status).toBe("rejected");
   });
@@ -245,6 +273,7 @@ describe("Client auth registration approval flow", () => {
     expect(registerRes.status).toBe(201);
 
     const token = registerRes.body.approvalToken as string;
+    const pollToken = registerRes.body.registrationPollToken as string;
     const page = await request(app).get("/api/v1/client-auth/registration/review").query({ token });
     expect(page.status).toBe(200);
     expect(page.text).toContain(owner.email);
@@ -253,9 +282,43 @@ describe("Client auth registration approval flow", () => {
 
     const status = await request(app)
       .get("/api/v1/client-auth/registration/status")
-      .query({ token });
+      .query({ token: pollToken });
     expect(status.status).toBe(200);
     expect(status.body.status).toBe("pending");
+  });
+
+  it("returns HTTP 200 with unknown poll status for invalid token", async () => {
+    const response = await request(app)
+      .get("/api/v1/client-auth/registration/status")
+      .query({ token: "missing-poll-token-0123456789abcdef" });
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("unknown");
+  });
+
+  it("returns approved poll status after approve even when approval token is consumed", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-poll-approved`,
+      emailPrefix: "client-owner",
+    });
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email: `poll-approved-${Date.now()}@test.com`,
+      password: "ClientRegPwd1",
+      name: "Poll",
+      lastName: "Approved",
+    });
+    expect(registerRes.status).toBe(201);
+    const pollToken = registerRes.body.registrationPollToken as string;
+    const approveRes = await request(app)
+      .post("/api/v1/client-auth/registration/approve")
+      .send({ token: registerRes.body.approvalToken });
+    expect(approveRes.status).toBe(200);
+
+    const statusRes = await request(app)
+      .get("/api/v1/client-auth/registration/status")
+      .query({ token: pollToken });
+    expect(statusRes.status).toBe(200);
+    expect(statusRes.body.status).toBe("approved");
   });
 
   it("accepts ownerEmail that only differs by letter casing from the stored user", async () => {
@@ -303,8 +366,8 @@ describe("Client auth registration approval flow", () => {
       name: "Dup",
       lastName: "Two",
     });
-    expect(second.status).toBe(409);
-    expect(second.body.code).toBe("CONFLICT");
+    expect(second.status).toBe(202);
+    expect(second.body.message).toContain("eligible");
   });
 
   it("GET registration/review serves Portuguese copy when Accept-Language prefers pt", async () => {
@@ -402,7 +465,8 @@ describe("Client auth registration approval flow", () => {
     expect(rejectRes.status).toBe(200);
 
     const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
-    expect(loginRes.status).toBe(403);
+    expect(loginRes.status).toBe(401);
+    expect(loginRes.body.message).toBe("Invalid credentials");
     const storedClient = await repositories.client.findByEmail(email);
     expect(storedClient?.status).toBe("rejected");
 
@@ -538,17 +602,132 @@ describe("Client auth registration approval flow", () => {
       expiresAt: new Date(Date.now() - 1_000),
     });
 
+    const pollToken = registerRes.body.registrationPollToken as string;
     const statusRes = await request(app)
       .get("/api/v1/client-auth/registration/status")
-      .query({ token: expiredToken });
+      .query({ token: pollToken });
     expect(statusRes.status).toBe(200);
     expect(statusRes.body.status).toBe("expired");
 
+    const rejectExpired = await request(app)
+      .post("/api/v1/client-auth/registration/reject")
+      .send({ token: expiredToken });
+    expect(rejectExpired.status).toBe(410);
+    expect(rejectExpired.body.code).toBe("REGISTRATION_TOKEN_EXPIRED");
+
+    await repositories.clientRegistrationApprovalToken.save({
+      id: expiredToken,
+      clientId,
+      createdAt: new Date(Date.now() - 60_000),
+      expiresAt: new Date(Date.now() - 1_000),
+    });
     const approveRes = await request(app)
       .post("/api/v1/client-auth/registration/approve")
       .send({ token: expiredToken });
     expect(approveRes.status).toBe(410);
     expect(approveRes.body.code).toBe("REGISTRATION_TOKEN_EXPIRED");
+  });
+
+  it("recovers pending registration with expired approval token via retry", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-pending-expired-retry`,
+      emailPrefix: "client-owner",
+    });
+    const email = `pending-expired-retry-${Date.now()}@test.com`;
+    const password = "ClientRegPwd1";
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+      name: "Pending",
+      lastName: "ExpiredRetry",
+    });
+    expect(registerRes.status).toBe(201);
+    const clientId = registerRes.body.client.id as string;
+    await repositories.clientRegistrationApprovalToken.save({
+      id: "expired-for-retry-token-0123456789",
+      clientId,
+      createdAt: new Date(Date.now() - 120_000),
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+
+    const retryRes = await request(app).post("/api/v1/client-auth/registration/retry").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+    });
+    expect(retryRes.status).toBe(202);
+    const stored = await repositories.client.findById(clientId);
+    expect(stored?.status).toBe("pending");
+    expect(noopEmailSender.clientRegistrationRequestsToOwner.length).toBeGreaterThan(0);
+  });
+
+  it("returns uniform 401 for rejected client login", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-login-rejected`,
+      emailPrefix: "client-owner",
+    });
+    const email = `login-rejected-${Date.now()}@test.com`;
+    const password = "ClientRegPwd1";
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email,
+      password,
+      name: "Login",
+      lastName: "Rejected",
+    });
+    await request(app)
+      .post("/api/v1/client-auth/registration/reject")
+      .send({ token: registerRes.body.approvalToken });
+
+    const loginRes = await request(app).post("/api/v1/client-auth/login").send({ email, password });
+    expect(loginRes.status).toBe(401);
+    expect(loginRes.body.message).toBe("Invalid credentials");
+  });
+
+  it("renders read-only review page for invalid token", async () => {
+    const page = await request(app)
+      .get("/api/v1/client-auth/registration/review")
+      .query({ token: "invalid-review-token-0123456789abcdef" });
+    expect(page.status).toBe(200);
+    expect(page.text).not.toContain('type="submit"');
+    expect(page.text.toLowerCase()).toMatch(/invalid|inválido/);
+  });
+
+  it("returns 400 when public approve is attempted with inactive owner", async () => {
+    const owner = await registerOwnerSession(app, {
+      suffix: `${Date.now()}-inactive-owner-approve`,
+      emailPrefix: "client-owner",
+    });
+    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
+      ownerEmail: owner.email,
+      email: `inactive-owner-approve-${Date.now()}@test.com`,
+      password: "ClientRegPwd1",
+      name: "Inactive",
+      lastName: "OwnerApprove",
+    });
+    expect(registerRes.status).toBe(201);
+    const token = registerRes.body.approvalToken as string;
+
+    const currentOwner = await repositories.user.findById(owner.userId);
+    expect(currentOwner).not.toBeNull();
+    await repositories.user.save(
+      User.create({
+        id: currentOwner!.id,
+        email: currentOwner!.email,
+        passwordHash: currentOwner!.passwordHash,
+        role: currentOwner!.role,
+        status: "blocked",
+        createdAt: currentOwner!.createdAt,
+        ...(currentOwner!.celular !== undefined ? { celular: currentOwner!.celular } : {}),
+      }),
+    );
+
+    const approveRes = await request(app)
+      .post("/api/v1/client-auth/registration/approve")
+      .send({ token });
+    expect(approveRes.status).toBe(400);
+    expect(approveRes.body.code).toBe("BAD_REQUEST");
   });
 });
 
@@ -886,6 +1065,9 @@ describe("Client auth password recovery flow", () => {
       .send({ email: `missing-${Date.now()}@test.com` });
 
     expect(response.status).toBe(202);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.message).toContain("account exists");
+    expect(response.body.message).toContain("account exists");
     expect(noopEmailSender.clientPasswordRecovery.length).toBe(beforeCount);
   });
 
@@ -941,12 +1123,68 @@ describe("Client auth password recovery flow", () => {
     expect(reuseResponse.status).toBe(404);
   });
 
-  it("returns 404 for missing password recovery token", async () => {
+  it("returns unknown status for missing password recovery token", async () => {
     const response = await request(app)
       .get("/api/v1/client-auth/password-recovery/status")
       .query({ token: "missing-password-recovery-token-012345678901234567890" });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("unknown");
+  });
+
+  it("renders read-only password recovery review page for invalid token", async () => {
+    const page = await request(app)
+      .get("/api/v1/client-auth/password-recovery/review")
+      .query({ token: "invalid-password-recovery-token-012345678901234567890" });
+    expect(page.status).toBe(200);
+    expect(page.text).not.toContain('type="submit"');
+    expect(page.text.toLowerCase()).toMatch(/invalid|inválido/);
+  });
+
+  it("renders read-only password recovery review page for expired token", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-review-expired`,
+    });
+    const expiredToken = "expired-password-recovery-review-token-012345678901234";
+    await repositories.clientPasswordRecoveryToken.save({
+      id: expiredToken,
+      clientId: client.clientId,
+      createdAt: new Date(Date.now() - 60_000),
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+
+    const page = await request(app)
+      .get("/api/v1/client-auth/password-recovery/review")
+      .query({ token: expiredToken });
+    expect(page.status).toBe(200);
+    expect(page.text).not.toContain('type="submit"');
+    expect(page.text.toLowerCase()).toMatch(/expired|expirou/);
+  });
+
+  it("revokes refresh tokens after password recovery reset", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-refresh-revoke`,
+    });
+    const newPassword = "ClientRecover3";
+
+    await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+    const token = noopEmailSender.clientPasswordRecovery.at(-1)?.recoveryToken;
+    expect(typeof token).toBe("string");
+    if (!token) {
+      throw new Error("Expected recovery token to be generated");
+    }
+
+    const resetResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .send({ token, newPassword });
+    expect(resetResponse.status).toBe(204);
+
+    const refreshAfterReset = await request(app)
+      .post("/api/v1/client-auth/refresh")
+      .send({ refreshToken: client.refreshToken });
+    expect(refreshAfterReset.status).toBe(401);
   });
 
   it("returns 410 for expired password recovery token", async () => {
@@ -967,11 +1205,255 @@ describe("Client auth password recovery flow", () => {
       .query({ token: expiredToken });
     expect(statusResponse.status).toBe(200);
     expect(statusResponse.body.status).toBe("expired");
+    expect(await repositories.clientPasswordRecoveryToken.findById(expiredToken)).toBeNull();
+
+    const resetAfterPoll = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .send({ token: expiredToken, newPassword: "ClientRecover2" });
+    expect(resetAfterPoll.status).toBe(404);
+
+    const anotherExpiredToken = "expired-password-recovery-reset-token-01234567890123";
+    await repositories.clientPasswordRecoveryToken.save({
+      id: anotherExpiredToken,
+      clientId: client.clientId,
+      createdAt: new Date(Date.now() - 60_000),
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+    const resetResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .send({ token: anotherExpiredToken, newPassword: "ClientRecover2" });
+    expect(resetResponse.status).toBe(410);
+    expect(resetResponse.body.code).toBe("PASSWORD_RECOVERY_TOKEN_EXPIRED");
+  });
+
+  it("does not send recovery email for blocked client", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-blocked`,
+    });
+    const stored = await repositories.client.findById(client.clientId);
+    if (!stored) {
+      throw new Error("Expected client to exist");
+    }
+    await repositories.client.save(
+      new Client({
+        ...stored,
+        status: "blocked",
+      }),
+    );
+    const beforeCount = noopEmailSender.clientPasswordRecovery.length;
+
+    const response = await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+
+    expect(response.status).toBe(202);
+    expect(noopEmailSender.clientPasswordRecovery.length).toBe(beforeCount);
+  });
+
+  it("invalidates the first recovery token when a second request is made", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-second-request`,
+    });
+
+    await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+    const firstToken = noopEmailSender.clientPasswordRecovery.at(-1)?.recoveryToken;
+    expect(typeof firstToken).toBe("string");
+
+    await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+
+    const firstStatus = await request(app)
+      .get("/api/v1/client-auth/password-recovery/status")
+      .query({ token: firstToken });
+    expect(firstStatus.status).toBe(200);
+    expect(firstStatus.body.status).toBe("unknown");
+  });
+
+  it("allows only one concurrent reset to succeed for the same token", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-concurrent`,
+    });
+
+    await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+    const token = noopEmailSender.clientPasswordRecovery.at(-1)?.recoveryToken;
+    if (!token) {
+      throw new Error("Expected recovery token");
+    }
+
+    const [first, second] = await Promise.all([
+      request(app)
+        .post("/api/v1/client-auth/password-recovery/reset")
+        .send({ token, newPassword: "ClientRecover4" }),
+      request(app)
+        .post("/api/v1/client-auth/password-recovery/reset")
+        .send({ token, newPassword: "ClientRecover5" }),
+    ]);
+
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([204, 404]);
+  });
+
+  it("returns HTML confirmation for browser form-urlencoded reset", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-form-html`,
+    });
+
+    await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+    const token = noopEmailSender.clientPasswordRecovery.at(-1)?.recoveryToken;
+    if (!token) {
+      throw new Error("Expected recovery token");
+    }
 
     const resetResponse = await request(app)
       .post("/api/v1/client-auth/password-recovery/reset")
-      .send({ token: expiredToken, newPassword: "ClientRecover2" });
-    expect(resetResponse.status).toBe(410);
+      .set("Accept", "text/html")
+      .type("form")
+      .send({ token, newPassword: "ClientRecover6" });
+
+    expect(resetResponse.status).toBe(200);
+    expect(resetResponse.type).toMatch(/html/);
+    expect(resetResponse.text.toLowerCase()).toMatch(/password|senha/);
+  });
+
+  it("clears refresh cookie on JSON password recovery reset", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-clear-cookie`,
+    });
+
+    await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+    const token = noopEmailSender.clientPasswordRecovery.at(-1)?.recoveryToken;
+    if (!token) {
+      throw new Error("Expected recovery token");
+    }
+
+    const resetResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .set("Cookie", `client_refresh_token=${client.refreshToken}`)
+      .send({ token, newPassword: "ClientRecover7" });
+
+    expect(resetResponse.status).toBe(204);
+    expect(responseClearsCookie(resetResponse.headers["set-cookie"])).toBe(true);
+  });
+
+  it("does not leave orphan token when recovery email fails", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-email-fail`,
+    });
+    const saveSpy = vi.spyOn(repositories.clientPasswordRecoveryToken, "save");
+    const sendSpy = vi
+      .spyOn(noopEmailSender, "sendClientPasswordRecovery")
+      .mockRejectedValueOnce(new Error("smtp down"));
+
+    const response = await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe("SERVICE_UNAVAILABLE");
+    const savedTokenId = saveSpy.mock.calls[0]?.[0]?.id;
+    expect(typeof savedTokenId).toBe("string");
+    if (!savedTokenId) {
+      throw new Error("Expected recovery token to be saved before email send");
+    }
+    expect(await repositories.clientPasswordRecoveryToken.findById(savedTokenId)).toBeNull();
+
+    sendSpy.mockRestore();
+    saveSpy.mockRestore();
+  });
+
+  it("returns unknown status and hides review form when client becomes blocked after token issued", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-blocked-after-token`,
+    });
+
+    await request(app)
+      .post("/api/v1/client-auth/password-recovery/request")
+      .send({ email: client.email });
+    const token = noopEmailSender.clientPasswordRecovery.at(-1)?.recoveryToken;
+    if (!token) {
+      throw new Error("Expected recovery token");
+    }
+
+    const stored = await repositories.client.findById(client.clientId);
+    if (!stored) {
+      throw new Error("Expected client to exist");
+    }
+    await repositories.client.save(
+      new Client({
+        ...stored,
+        status: "blocked",
+      }),
+    );
+
+    const statusResponse = await request(app)
+      .get("/api/v1/client-auth/password-recovery/status")
+      .query({ token });
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.status).toBe("unknown");
+    expect(await repositories.clientPasswordRecoveryToken.findById(token)).toBeNull();
+
+    const page = await request(app)
+      .get("/api/v1/client-auth/password-recovery/review")
+      .query({ token });
+    expect(page.status).toBe(200);
+    expect(page.text).not.toContain('type="submit"');
+  });
+
+  it("returns HTML errors for browser password recovery reset on forbidden and expired token", async () => {
+    const { client } = await registerOwnerAndClientSession(app, {
+      suffix: `${Date.now()}-password-recovery-html-errors`,
+    });
+
+    const blockedToken = "blocked-html-recovery-token-01234567890123456789012";
+    await repositories.clientPasswordRecoveryToken.save({
+      id: blockedToken,
+      clientId: client.clientId,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const stored = await repositories.client.findById(client.clientId);
+    if (!stored) {
+      throw new Error("Expected client to exist");
+    }
+    await repositories.client.save(
+      new Client({
+        ...stored,
+        status: "blocked",
+      }),
+    );
+
+    const forbiddenResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .set("Accept", "text/html")
+      .type("form")
+      .send({ token: blockedToken, newPassword: "ClientRecover8" });
+    expect(forbiddenResponse.status).toBe(403);
+    expect(forbiddenResponse.type).toMatch(/html/);
+
+    const expiredToken = "expired-html-recovery-token-0123456789012345678901";
+    await repositories.clientPasswordRecoveryToken.save({
+      id: expiredToken,
+      clientId: client.clientId,
+      createdAt: new Date(Date.now() - 60_000),
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+    const expiredResponse = await request(app)
+      .post("/api/v1/client-auth/password-recovery/reset")
+      .set("Accept", "text/html")
+      .type("form")
+      .send({ token: expiredToken, newPassword: "ClientRecover9" });
+    expect(expiredResponse.status).toBe(410);
+    expect(expiredResponse.type).toMatch(/html/);
+    expect(expiredResponse.text.toLowerCase()).toMatch(/expired|expirou/);
   });
 });
 

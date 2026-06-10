@@ -1,4 +1,4 @@
-import { Client } from "../../domain/entities/client.entity";
+import type { Client } from "../../domain/entities/client.entity";
 import { TtlCache } from "../../shared/utils/ttl_cache";
 import type { IPasswordHasher } from "../../domain/ports/password_hasher.port";
 import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
@@ -13,11 +13,17 @@ import type {
   ClientAuthUserDto,
 } from "../dtos/client_auth.dto";
 import { env } from "../../shared/config/env";
-import { badRequest, invalidToken, notFound, unauthorized } from "../../shared/errors/http_errors";
+import {
+  badRequest,
+  forbidden,
+  invalidToken,
+  notFound,
+  unauthorized,
+} from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
 import { verifyRefreshToken } from "../../shared/utils/jwt";
 import { assertClientCanLogin } from "../../domain/policies/client_registration_status.policy";
-import { issueClientTokens, toClientAuthUserDto } from "./client_auth_helpers";
+import { issueClientTokens, rotateClientCredentials, toClientAuthUserDto } from "./client_auth_helpers";
 
 export interface LoginClientServiceInput {
   readonly email: string;
@@ -61,9 +67,11 @@ export class ClientAuthService {
     if (!client) {
       return err(unauthorized("Invalid credentials"));
     }
-    const canLogin = assertClientCanLogin(client.status);
-    if (!canLogin.ok) {
-      return canLogin;
+    if (client.status === "blocked") {
+      return err(forbidden("Client account is blocked"));
+    }
+    if (client.status !== "active") {
+      return err(unauthorized("Invalid credentials"));
     }
 
     const passwordMatch = await this.passwordHasher.compare(input.password, client.passwordHash);
@@ -209,15 +217,12 @@ export class ClientAuthService {
       return err(unauthorized("Invalid credentials"));
     }
 
-    const updated = new Client({
-      ...active.value,
-      passwordHash: await this.passwordHasher.hash(input.newPassword),
-      credentialsUpdatedAt: new Date(),
-      updatedAt: new Date(),
+    await rotateClientCredentials(active.value, input.newPassword, {
+      clientRepository: this.clientRepository,
+      clientRefreshTokenRepository: this.clientRefreshTokenRepository,
+      passwordHasher: this.passwordHasher,
+      clientPasswordRecoveryTokenRepository: this.clientPasswordRecoveryTokenRepository,
     });
-    await this.clientRepository.save(updated);
-    await this.clientRefreshTokenRepository.revokeAllForClient(updated.id);
-    await this.clientPasswordRecoveryTokenRepository.deleteByClientId(updated.id);
     return ok(undefined);
   }
 }

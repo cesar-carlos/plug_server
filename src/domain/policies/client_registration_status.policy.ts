@@ -62,5 +62,8 @@ export const assertManagedClientStatusTransition = (
   return ok(undefined);
 };
 
-export const isClientRegistrationRetryEligible = (status: ClientStatus): boolean =>
-  status === "rejected";
+/** Pending registrations with an expired owner-approval link may resend via retry. */
+export const isClientRegistrationResendEligible = (
+  status: ClientStatus,
+  approvalTokenExpired: boolean,
+): boolean => status === "rejected" || (status === "pending" && approvalTokenExpired);
