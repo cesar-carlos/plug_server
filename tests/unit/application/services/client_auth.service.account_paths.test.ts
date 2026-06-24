@@ -956,7 +956,9 @@ describe("ClientAuthService account and approval paths", () => {
       createdAt: new Date(Date.now() - 60_000),
       expiresAt: new Date(Date.now() - 1_000),
     });
-    const expiredStatus = await registrationService.getRegistrationStatus("expired-status-poll-token");
+    const expiredStatus = await registrationService.getRegistrationStatus(
+      "expired-status-poll-token",
+    );
     expect(expiredStatus).toEqual({ ok: true, value: { status: "expired" } });
 
     const activeWithStaleToken = createClient({

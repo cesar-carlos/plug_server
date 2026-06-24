@@ -23,7 +23,11 @@ import {
 import { type Result, err, ok } from "../../shared/errors/result";
 import { verifyRefreshToken } from "../../shared/utils/jwt";
 import { assertClientCanLogin } from "../../domain/policies/client_registration_status.policy";
-import { issueClientTokens, rotateClientCredentials, toClientAuthUserDto } from "./client_auth_helpers";
+import {
+  issueClientTokens,
+  rotateClientCredentials,
+  toClientAuthUserDto,
+} from "./client_auth_helpers";
 
 export interface LoginClientServiceInput {
   readonly email: string;

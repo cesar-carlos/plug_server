@@ -10,7 +10,9 @@ export class InMemoryClientRegistrationRegisterTxn implements IClientRegistratio
     private readonly pollTokenRepository: IClientRegistrationPollTokenRepository,
   ) {}
 
-  async registerPending(input: Parameters<IClientRegistrationRegisterTxn["registerPending"]>[0]): Promise<void> {
+  async registerPending(
+    input: Parameters<IClientRegistrationRegisterTxn["registerPending"]>[0],
+  ): Promise<void> {
     await this.clientRepository.save(input.client);
     await this.approvalTokenRepository.save(input.approvalToken);
     await this.pollTokenRepository.save(input.pollToken);

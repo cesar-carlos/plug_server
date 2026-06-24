@@ -90,7 +90,9 @@ describe("ClientPasswordRecoveryService", () => {
   });
 
   it("returns unknown status for missing recovery token", async () => {
-    const status = await service.getPasswordRecoveryStatus("missing-recovery-token-012345678901234567");
+    const status = await service.getPasswordRecoveryStatus(
+      "missing-recovery-token-012345678901234567",
+    );
     expect(status).toEqual({ ok: true, value: { status: "unknown" } });
   });
 

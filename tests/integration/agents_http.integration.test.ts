@@ -537,38 +537,18 @@ describe("Agents HTTP bridge", () => {
     const adminAccessToken = await createAdminAccessToken(baseUrl);
     const requestId = `admin-dispatch-${Date.now()}`;
 
-    const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid rpc:request payload"));
-          return;
-        }
-
-        const wireId = toRequestId(decoded.value.data.id);
-        if (wireId !== requestId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected request id: ${wireId ?? "<null>"}`));
-          return;
-        }
-
+    const rpcHandled = waitForRpcRequestId(agentSocket, requestId, {
+      label: "admin dispatch",
+      onMatch: () => {
         agentSocket?.emit(
           "rpc:response",
           encodePayloadFrame({
             jsonrpc: "2.0",
-            id: wireId,
+            id: requestId,
             result: { ok: true, source: "admin" },
           }),
         );
-        clearTimeout(timeout);
-        resolve();
-      });
+      },
     });
 
     const responsePromise = request(baseUrl)
@@ -1006,9 +986,7 @@ describe("Agents HTTP bridge", () => {
 
         const requestId = toRequestId(data.id);
         if (!requestId) {
-          clearTimeout(timeout);
-          reject(new Error("Missing rpc request id"));
-          return;
+          throw new Error("Missing rpc request id");
         }
 
         agentSocket?.emit(
@@ -1476,19 +1454,14 @@ describe("Agents HTTP bridge", () => {
       throw new Error("Agent socket not initialized");
     }
 
-    const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", () => {
+    const malformedFloodRequestId = "malformed-flood-req";
+    const rpcHandled = waitForRpcRequestId(agentSocket, malformedFloodRequestId, {
+      label: "malformed rpc:response flood",
+      onMatch: () => {
         for (let index = 0; index < 40; index += 1) {
           agentSocket?.emit("rpc:response", "not-a-payload-frame");
         }
-        clearTimeout(timeout);
-        resolve();
-      });
+      },
     });
 
     const startedAtMs = Date.now();
@@ -1501,7 +1474,7 @@ describe("Agents HTTP bridge", () => {
         command: {
           jsonrpc: "2.0",
           method: "sql.execute",
-          id: "malformed-flood-req",
+          id: malformedFloodRequestId,
           params: {
             sql: "SELECT 1",
           },
@@ -1748,6 +1721,8 @@ describe("Agents HTTP bridge", () => {
       ).toBe(true);
     } finally {
       agentSocket.off("rpc:request", onRpcRequest);
+      // Let delayed overload rpc:response timers finish so later tests do not see ack retries.
+      await new Promise((resolve) => setTimeout(resolve, rpcResponseDelayMs + 250));
     }
   });
 
@@ -1758,27 +1733,9 @@ describe("Agents HTTP bridge", () => {
 
     const requestId = `invalid-frame-${Date.now()}`;
 
-    const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid rpc:request payload"));
-          return;
-        }
-
-        const inboundRequestId = toRequestId(decoded.value.data.id);
-        if (inboundRequestId !== requestId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected request id: ${inboundRequestId ?? "<null>"}`));
-          return;
-        }
-
+    const rpcHandled = waitForRpcRequestId(agentSocket, requestId, {
+      label: "invalid rpc:response",
+      onMatch: () => {
         agentSocket?.emit("rpc:response", {
           schemaVersion: "1.0",
           enc: "json",
@@ -1789,10 +1746,7 @@ describe("Agents HTTP bridge", () => {
           payload: Buffer.from("{"),
           requestId,
         });
-
-        clearTimeout(timeout);
-        resolve();
-      });
+      },
     });
 
     const startedAtMs = Date.now();
@@ -1829,25 +1783,12 @@ describe("Agents HTTP bridge", () => {
     const streamReqId = `rest-stream-terminal-${Date.now()}`;
     const streamId = `sid-terminal-${Date.now()}`;
 
-    const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid rpc:request payload"));
-          return;
-        }
-
-        const requestId = toRequestId(decoded.value.data.id);
-        if (requestId !== streamReqId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected request id: ${requestId ?? "<null>"}`));
-          return;
+    const rpcHandled = waitForRpcRequestId(agentSocket, streamReqId, {
+      label: "stream terminal abnormal",
+      onMatch: (data) => {
+        const requestId = toRequestId(data.id);
+        if (!requestId) {
+          throw new Error("Missing rpc request id");
         }
 
         agentSocket?.emit(
@@ -1872,10 +1813,8 @@ describe("Agents HTTP bridge", () => {
               terminal_status: "aborted",
             }),
           );
-          clearTimeout(timeout);
-          resolve();
         }, 80);
-      });
+      },
     });
 
     const startedAtMs = Date.now();
@@ -1912,25 +1851,12 @@ describe("Agents HTTP bridge", () => {
     const streamReqId = `rest-stream-invalid-complete-${Date.now()}`;
     const streamId = `sid-invalid-complete-${Date.now()}`;
 
-    const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid rpc:request payload"));
-          return;
-        }
-
-        const requestId = toRequestId(decoded.value.data.id);
-        if (requestId !== streamReqId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected request id: ${requestId ?? "<null>"}`));
-          return;
+    const rpcHandled = waitForRpcRequestId(agentSocket, streamReqId, {
+      label: "invalid rpc:complete during stream",
+      onMatch: (data) => {
+        const requestId = toRequestId(data.id);
+        if (!requestId) {
+          throw new Error("Missing rpc request id");
         }
 
         agentSocket?.emit(
@@ -1956,10 +1882,8 @@ describe("Agents HTTP bridge", () => {
             payload: Buffer.from("{"),
             requestId,
           });
-          clearTimeout(timeout);
-          resolve();
         }, 80);
-      });
+      },
     });
 
     const startedAtMs = Date.now();
@@ -1996,25 +1920,12 @@ describe("Agents HTTP bridge", () => {
     const streamReqId = `rest-stream-disc-${Date.now()}`;
     const streamId = `sid-${Date.now()}`;
 
-    const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", (rawPayload: unknown) => {
-        const decoded = decodePayloadFrame(rawPayload);
-        if (!decoded.ok || !isRecord(decoded.value.data)) {
-          clearTimeout(timeout);
-          reject(new Error("Invalid rpc:request payload"));
-          return;
-        }
-
-        const requestId = toRequestId(decoded.value.data.id);
-        if (requestId !== streamReqId) {
-          clearTimeout(timeout);
-          reject(new Error(`Unexpected request id: ${requestId ?? "<null>"}`));
-          return;
+    const rpcHandled = waitForRpcRequestId(agentSocket, streamReqId, {
+      label: "disconnect during stream",
+      onMatch: (data) => {
+        const requestId = toRequestId(data.id);
+        if (!requestId) {
+          throw new Error("Missing rpc request id");
         }
 
         agentSocket?.emit(
@@ -2031,10 +1942,8 @@ describe("Agents HTTP bridge", () => {
 
         setTimeout(() => {
           agentSocket?.disconnect();
-          clearTimeout(timeout);
-          resolve();
         }, 80);
-      });
+      },
     });
 
     const startedAtMs = Date.now();
@@ -2092,17 +2001,13 @@ describe("Agents HTTP bridge", () => {
       throw new Error("Agent socket not initialized");
     }
 
-    const rpcHandled = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("Timed out waiting for rpc:request")),
-        agentsHttpRpcWaitMs,
-      );
-
-      agentSocket?.once("rpc:request", () => {
+    const disconnectRequestId = `disconnect-fast-fail-${Date.now()}`;
+    const rpcHandled = waitForRpcRequestId(agentSocket, disconnectRequestId, {
+      label: "disconnect while waiting",
+      onMatch: () => {
+        agentSocket!.io.opts.reconnection = false;
         agentSocket?.disconnect();
-        clearTimeout(timeout);
-        resolve();
-      });
+      },
     });
 
     const startedAtMs = Date.now();
@@ -2115,7 +2020,7 @@ describe("Agents HTTP bridge", () => {
         command: {
           jsonrpc: "2.0",
           method: "sql.execute",
-          id: "disconnect-fast-fail",
+          id: disconnectRequestId,
           params: {
             sql: "SELECT pg_sleep(10)",
           },
@@ -2127,5 +2032,31 @@ describe("Agents HTTP bridge", () => {
 
     expect(response.status).toBe(503);
     expect(elapsedMs).toBeLessThan(3_000);
+
+    agentSocket!.io.opts.reconnection = true;
+    const readyAfterReconnect = waitForEvent<unknown>(agentSocket!, "connection:ready", 10_000);
+    agentSocket!.connect();
+    await readyAfterReconnect.then((rawPayload) => {
+      const decoded = decodePayloadFrame(rawPayload);
+      if (!decoded.ok) {
+        throw new Error(`Failed to decode connection:ready: ${decoded.error.message}`);
+      }
+    });
+    const capabilitiesPromise = waitForEvent<unknown>(agentSocket, "agent:capabilities");
+    agentSocket!.emit(
+      "agent:register",
+      encodePayloadFrame({
+        agentId: testAgentId,
+        capabilities: {
+          protocols: ["jsonrpc-v2"],
+          encodings: ["json"],
+          compressions: ["none"],
+        },
+      }),
+    );
+    await capabilitiesPromise;
+    if (env.socketAgentProtocolReadyGraceMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, env.socketAgentProtocolReadyGraceMs));
+    }
   });
 });

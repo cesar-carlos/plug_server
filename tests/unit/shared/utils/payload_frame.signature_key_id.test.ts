@@ -296,8 +296,14 @@ describe("validateFrameSignature key_id enforcement (PAYLOAD_SIGNING_KEY_ID)", (
       payloadSignOutbound: true,
     });
     mod._resetSignatureInputCacheForTests();
-    const first = mod.encodePayloadFrame({ cached: true }, { omitTraceId: true, requestId: "req-cache" });
-    const second = mod.encodePayloadFrame({ cached: true }, { omitTraceId: true, requestId: "req-cache" });
+    const first = mod.encodePayloadFrame(
+      { cached: true },
+      { omitTraceId: true, requestId: "req-cache" },
+    );
+    const second = mod.encodePayloadFrame(
+      { cached: true },
+      { omitTraceId: true, requestId: "req-cache" },
+    );
     expect(first.signature?.value).toBe(second.signature?.value);
   });
 });

@@ -22,19 +22,30 @@ class FakePasswordHasher {
 }
 
 class TestApprovalTokenRepository implements IClientRegistrationApprovalTokenRepository {
-  private readonly store = new Map<string, { id: string; clientId: string; expiresAt: Date; createdAt: Date }>();
+  private readonly store = new Map<
+    string,
+    { id: string; clientId: string; expiresAt: Date; createdAt: Date }
+  >();
   private readonly tokenIdByClientId = new Map<string, string>();
 
   constructor(private readonly clientRepository?: InMemoryClientRepository) {}
 
-  async save(token: { id: string; clientId: string; expiresAt: Date; createdAt: Date }): Promise<void> {
+  async save(token: {
+    id: string;
+    clientId: string;
+    expiresAt: Date;
+    createdAt: Date;
+  }): Promise<void> {
     const existing = this.tokenIdByClientId.get(token.clientId);
     if (existing) this.store.delete(existing);
     this.store.set(token.id, token);
     this.tokenIdByClientId.set(token.clientId, token.id);
   }
 
-  async replaceForClientRetry(client: Client, token: { id: string; clientId: string; expiresAt: Date; createdAt: Date }): Promise<void> {
+  async replaceForClientRetry(
+    client: Client,
+    token: { id: string; clientId: string; expiresAt: Date; createdAt: Date },
+  ): Promise<void> {
     await this.save(token);
     if (this.clientRepository) {
       await this.clientRepository.save(client);

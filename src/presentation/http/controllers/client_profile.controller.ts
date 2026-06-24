@@ -7,9 +7,7 @@ import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import { logger } from "../../../shared/utils/logger";
 import { getAuthClient } from "../middlewares/auth.middleware";
-import {
-  clearRefreshCookie,
-} from "../helpers/refresh_cookie";
+import { clearRefreshCookie } from "../helpers/refresh_cookie";
 import { getValidated } from "../middlewares/validate.middleware";
 import type {
   ClientChangePasswordBody,

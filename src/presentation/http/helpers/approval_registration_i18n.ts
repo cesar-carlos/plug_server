@@ -290,8 +290,7 @@ export const clientPasswordResetDecisionCopy = (
   if (lang === "pt-BR") {
     return {
       successTitle: "Senha redefinida",
-      successBody:
-        "Sua senha foi atualizada. Você já pode entrar na aplicação com a nova senha.",
+      successBody: "Sua senha foi atualizada. Você já pode entrar na aplicação com a nova senha.",
     };
   }
   return {
@@ -326,7 +325,6 @@ export const clientPasswordResetReviewCopy = (
     submitLabel: "Reset password",
     readOnlyInvalid:
       "This link is invalid or has already been used. Request a new password recovery email.",
-    readOnlyExpired:
-      "This recovery link has expired. Request a new password recovery email.",
+    readOnlyExpired: "This recovery link has expired. Request a new password recovery email.",
   };
 };

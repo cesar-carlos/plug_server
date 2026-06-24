@@ -135,9 +135,7 @@ describe("Swagger docs", () => {
     expect(
       response.body.paths?.["/me/clients/{clientId}/registration/approve"]?.post,
     ).toBeDefined();
-    expect(
-      response.body.paths?.["/me/clients/{clientId}/registration/reject"]?.post,
-    ).toBeDefined();
+    expect(response.body.paths?.["/me/clients/{clientId}/registration/reject"]?.post).toBeDefined();
     expect(
       response.body.paths?.["/client-auth/login"]?.post?.responses?.["200"]?.content?.[
         "application/json"

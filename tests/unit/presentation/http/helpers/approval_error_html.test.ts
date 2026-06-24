@@ -117,10 +117,7 @@ describe("approval_error_html", () => {
         return undefined;
       },
     });
-    const forbiddenBuilt = buildApprovalErrorHtml(
-      req,
-      forbidden("Client account is not active"),
-    );
+    const forbiddenBuilt = buildApprovalErrorHtml(req, forbidden("Client account is not active"));
     const badRequestBuilt = buildApprovalErrorHtml(
       req,
       badRequest("New password must be different from current password"),

@@ -335,8 +335,7 @@ export const handleRelayRpcRequestBatch = (
       }
       const items = validation.items;
 
-      const effectiveFastPath =
-        envelope.fastPath === true && !env.socketRelayFastPathForbidden;
+      const effectiveFastPath = envelope.fastPath === true && !env.socketRelayFastPathForbidden;
       if (envelope.fastPath === true) {
         noteRelayFastPathRequested();
         if (!effectiveFastPath) {
@@ -388,9 +387,7 @@ export const handleRelayRpcRequestBatch = (
                 ...(envelope.payloadFrameCompression !== undefined
                   ? { payloadFrameCompression: envelope.payloadFrameCompression }
                   : {}),
-                ...(envelope.requestServerTimings === true
-                  ? { requestServerTimings: true }
-                  : {}),
+                ...(envelope.requestServerTimings === true ? { requestServerTimings: true } : {}),
                 ...(effectiveFastPath ? { fastPath: true } : {}),
                 ...(latencyTrace !== null ? { latencyTrace } : {}),
                 signal: abortController.signal,

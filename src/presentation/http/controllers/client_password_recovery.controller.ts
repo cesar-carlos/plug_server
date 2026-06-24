@@ -62,9 +62,8 @@ export const clientPasswordRecoveryReviewPage = async (
   const resetAction = `${base}/api/v1/client-auth/password-recovery/reset`;
   const { homeUrl, homeLabel } = appHome(lang);
 
-  const statusResult = await container.clientPasswordRecoveryService.getPasswordRecoveryStatus(
-    token,
-  );
+  const statusResult =
+    await container.clientPasswordRecoveryService.getPasswordRecoveryStatus(token);
 
   let showActionForms = true;
   let readOnlyMessage: string | undefined;

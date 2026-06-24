@@ -9,8 +9,7 @@ const mockGetPasswordRecoveryStatus = vi.fn();
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
     clientPasswordRecoveryService: {
-      getPasswordRecoveryStatus: (...args: unknown[]) =>
-        mockGetPasswordRecoveryStatus(...args),
+      getPasswordRecoveryStatus: (...args: unknown[]) => mockGetPasswordRecoveryStatus(...args),
     },
   },
 }));

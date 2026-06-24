@@ -57,7 +57,9 @@ export interface ClientRegistrationPollTokenSeed {
   readonly createdAt: Date;
 }
 
-export const newClientRegistrationPollToken = (clientId: string): ClientRegistrationPollTokenSeed => ({
+export const newClientRegistrationPollToken = (
+  clientId: string,
+): ClientRegistrationPollTokenSeed => ({
   id: generateOpaqueClientRegistrationToken(),
   clientId,
   createdAt: new Date(),

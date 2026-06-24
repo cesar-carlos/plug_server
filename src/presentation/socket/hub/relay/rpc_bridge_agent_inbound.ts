@@ -467,7 +467,11 @@ export const createRpcBridgeAgentInboundHandlers = (
 
   const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void => {
     void (async () => {
-      const ackFrame = await decodeAndValidateAckFrame(socketEvents.rpcBatchAck, socketId, rawPayload);
+      const ackFrame = await decodeAndValidateAckFrame(
+        socketEvents.rpcBatchAck,
+        socketId,
+        rawPayload,
+      );
       if (!ackFrame) {
         return;
       }

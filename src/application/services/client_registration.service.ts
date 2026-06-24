@@ -157,8 +157,7 @@ export class ClientRegistrationService {
     const approvalToken = await this.clientRegistrationApprovalTokenRepository.findByClientId(
       client.id,
     );
-    const approvalTokenExpired =
-      approvalToken === null || isExpired(approvalToken.expiresAt);
+    const approvalTokenExpired = approvalToken === null || isExpired(approvalToken.expiresAt);
     if (!isClientRegistrationResendEligible(client.status, approvalTokenExpired)) {
       return ok({ retried: false });
     }
@@ -232,8 +231,7 @@ export class ClientRegistrationService {
         logger.error("client_registration_retry_rollback_failed", {
           clientId: client.id,
           clientEmailRedacted: redactEmail(client.email),
-          message:
-            rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+          message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
         });
       }
       logger.error("client_registration_retry_email_failed", {

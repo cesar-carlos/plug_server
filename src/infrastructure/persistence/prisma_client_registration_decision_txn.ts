@@ -80,7 +80,14 @@ export class PrismaClientRegistrationDecisionTxn implements IClientRegistrationD
           return { status: "expired" };
         }
 
-        return this.transitionPendingClient(tx, token.clientId, token.id, nextStatus, updatedAt, decision);
+        return this.transitionPendingClient(
+          tx,
+          token.clientId,
+          token.id,
+          nextStatus,
+          updatedAt,
+          decision,
+        );
       }),
     );
   }

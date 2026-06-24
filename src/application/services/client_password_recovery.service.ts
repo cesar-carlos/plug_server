@@ -65,8 +65,7 @@ export class ClientPasswordRecoveryService {
         incrementClientPasswordRecoveryEmailCleanupFailed();
         logger.error("client_password_recovery_token_cleanup_failed", {
           clientId: client.id,
-          message:
-            cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
         });
       }
       logger.error("client_password_recovery_email_failed", {

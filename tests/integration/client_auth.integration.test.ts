@@ -300,13 +300,15 @@ describe("Client auth registration approval flow", () => {
       suffix: `${Date.now()}-poll-approved`,
       emailPrefix: "client-owner",
     });
-    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
-      ownerEmail: owner.email,
-      email: `poll-approved-${Date.now()}@test.com`,
-      password: "ClientRegPwd1",
-      name: "Poll",
-      lastName: "Approved",
-    });
+    const registerRes = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail: owner.email,
+        email: `poll-approved-${Date.now()}@test.com`,
+        password: "ClientRegPwd1",
+        name: "Poll",
+        lastName: "Approved",
+      });
     expect(registerRes.status).toBe(201);
     const pollToken = registerRes.body.registrationPollToken as string;
     const approveRes = await request(app)
@@ -699,13 +701,15 @@ describe("Client auth registration approval flow", () => {
       suffix: `${Date.now()}-inactive-owner-approve`,
       emailPrefix: "client-owner",
     });
-    const registerRes = await request(app).post("/api/v1/client-auth/register").send({
-      ownerEmail: owner.email,
-      email: `inactive-owner-approve-${Date.now()}@test.com`,
-      password: "ClientRegPwd1",
-      name: "Inactive",
-      lastName: "OwnerApprove",
-    });
+    const registerRes = await request(app)
+      .post("/api/v1/client-auth/register")
+      .send({
+        ownerEmail: owner.email,
+        email: `inactive-owner-approve-${Date.now()}@test.com`,
+        password: "ClientRegPwd1",
+        name: "Inactive",
+        lastName: "OwnerApprove",
+      });
     expect(registerRes.status).toBe(201);
     const token = registerRes.body.approvalToken as string;
 

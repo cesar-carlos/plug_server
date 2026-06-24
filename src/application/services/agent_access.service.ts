@@ -117,9 +117,7 @@ export class AgentAccessService {
       return ok(snapshot);
     }
 
-    const combinedCheck = this.agentRepository.findPrincipalAccessCheck?.bind(
-      this.agentRepository,
-    );
+    const combinedCheck = this.agentRepository.findPrincipalAccessCheck?.bind(this.agentRepository);
     if (combinedCheck) {
       const check = await combinedCheck(agentId, toPrincipalAccessQuery(principal));
       if (check.outcome === "not_found") {
