@@ -788,25 +788,13 @@ esforco. Se for (mobile, fan-out massivo), reabrir.
 
 ---
 
-## Itens deferidos nesta onda (2026-05-28)
+## Itens deferidos na onda 2026-05-28 (resolvidos em 2026-06-24)
 
-Para evitar leitura repetida do contexto, esta secao consolida os motivos
-documentados na propria pagina:
+Itens 4, 5 e 7 foram **shippados** apos ADRs 0010/0011/0009 e implementacao
+coordenada hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) +
+agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677).
+Resta apenas:
 
-- **Item 4 (`meta.agent_phases`)** e **Item 5 (`agent.getHealth`
-  piggyback)**: ambos requerem schema novo e merge no
-  `BridgeLatencyTraceSession` / `agentRegistry` do hub. A propria secao
-  "Onde discutir" recomenda **ADR no `plug_server/docs/adrs/` antes do
-  codigo no agente**. Sem o hub aceitar o campo, qualquer envio do
-  agente vira ruido. Status continua `proposed` ate ADR pendente
-  resolver.
-- **Item 7 (`clientRequestIdEcho` Opcao A)**: explicitamente gated por
-  `plug_socket_relay_body_id_echo_total > 1 K/s` em producao OU
-  requirement externo de observabilidade end-to-end por
-  `client_request_id`. Status continua `proposed`. O item 8 (preventivo)
-  ja foi shippado no agente, ou seja, quando o gate disparar, o trabalho
-  remanescente fica restrito a `_emitRequestAck`,
-  `_emitBatchRequestAck` e `RpcRequestGuard.evaluate`.
 - **Item 10 (brotli)**: esforco "high" + nova dependencia em Dart, gated
   por baseline de bytes-on-wire. Sem evidencia ainda; status continua
   `proposed`.

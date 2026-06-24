@@ -74,9 +74,9 @@ const relayOptInsCounters = {
    * relay response from the hub-internal `requestId` back to the consumer's
    * `client_request_id` before forwarding `relay:rpc.response`. Tracks the
    * adoption of the JSON-RPC 2.0 §5 fix that unblocked relay `fastPath: true`.
-   * Should track ~1:1 with relay unary responses while we run Option B; will
-   * drop to ~0 if/when the agent-side `clientRequestIdEcho` extension ships
-   * (Option A, see `docs/plug_agente/01_relay_body_id_echo.md`).
+   * Should track ~1:1 with relay unary responses on Opcao B (legacy agents);
+   * drops to ~0 when `clientRequestIdEcho: "v1"` is negotiated (Opcao A,
+   * ADR 0009, shipped 2026-06-24).
    */
   bodyIdEchoTotal: 0,
   /**
