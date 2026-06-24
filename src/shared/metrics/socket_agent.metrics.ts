@@ -52,6 +52,8 @@ let capabilityAgentGetHealthCapableTotal = 0;
 const agentHealth = {
   responsesTotal: 0,
   errorsTotal: 0,
+  pollTotal: 0,
+  piggybackUsedTotal: 0,
   lastSeenAtMs: 0,
   lastHealthy: 0,
   lastDegraded: 0,
@@ -224,6 +226,35 @@ export const noteAgentHealthRpcResponse = (response: unknown): void => {
     return;
   }
 
+  noteAgentHealthPoll();
+  applyAgentHealthResult(result);
+};
+
+export const noteAgentHealthPoll = (): void => {
+  agentHealth.pollTotal += 1;
+};
+
+export const noteAgentHealthPiggybackUsed = (): void => {
+  agentHealth.piggybackUsedTotal += 1;
+};
+
+export const noteAgentHealthPiggybackSnapshot = (snapshot: Record<string, unknown>): void => {
+  const status = typeof snapshot.status === "string" ? snapshot.status : "";
+  const sqlQueuePressure =
+    readNumber(snapshot.sql_queue_pressure) ?? readNumber(snapshot.sqlQueuePressure);
+
+  agentHealth.responsesTotal += 1;
+  agentHealth.lastSeenAtMs = Date.now();
+  agentHealth.lastHealthy = status === "healthy" ? 1 : 0;
+  agentHealth.lastDegraded = status === "degraded" ? 1 : 0;
+
+  if (sqlQueuePressure !== null && sqlQueuePressure >= 0) {
+    agentHealth.lastSqlQueueCurrentSize = Math.round(sqlQueuePressure * 100);
+    agentHealth.lastSqlQueueMaxSize = 100;
+  }
+};
+
+const applyAgentHealthResult = (result: Record<string, unknown>): void => {
   const status = typeof result.status === "string" ? result.status : "";
   const sqlQueue = isRecord(result.sql_queue) ? result.sql_queue : null;
   const queries = isRecord(result.queries) ? result.queries : null;
@@ -313,6 +344,8 @@ export const resetSocketAgentMetrics = (): void => {
   capabilityAgentGetHealthCapableTotal = 0;
   agentHealth.responsesTotal = 0;
   agentHealth.errorsTotal = 0;
+  agentHealth.pollTotal = 0;
+  agentHealth.piggybackUsedTotal = 0;
   agentHealth.lastSeenAtMs = 0;
   agentHealth.lastHealthy = 0;
   agentHealth.lastDegraded = 0;

@@ -5,6 +5,7 @@ import {
 } from "../../../../application/services/server_timings_envelope";
 import { env } from "../../../../shared/config/env";
 import { socketEvents } from "../../../../shared/constants/socket_events";
+import { maybeRecordAgentHealthPiggyback } from "../../../../application/services/agent_health_piggyback.service";
 import { noteAgentHealthRpcResponse } from "../../../../shared/metrics/socket_agent.metrics";
 import {
   noteRelayBodyIdEcho,
@@ -12,7 +13,7 @@ import {
   observeRelayBodyIdEchoOverhead,
 } from "../../../../shared/metrics/socket_consumer.metrics";
 import { logger } from "../../../../shared/utils/logger";
-import { isRecord } from "../../../../shared/utils/rpc_types";
+import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
 import type {
   DecodedPayloadFrame,
   PayloadFrameEnvelope,
@@ -200,13 +201,16 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       const shouldAttachServerTimings =
         relayRoute.requestServerTimings === true && relayRoute.latencyTrace !== undefined;
       // The hub overwrites `body.id` with its internal `requestId` before
-      // dispatching to the agent (so `RpcRequestGuard` / `rpc:request_ack`
-      // keep working against legacy agents). On the way out we restore
-      // the consumer's `client_request_id` so the JSON-RPC response is
-      // routable end-to-end without relying on `relay:rpc.accepted`
-      // (required by `fastPath: true`).
+      // dispatching to legacy agents (so `RpcRequestGuard` / `rpc:request_ack`
+      // keep working). On the way out we restore the consumer's
+      // `client_request_id` when the agent echoed the hub UUID (Opcao B).
+      // When `clientRequestIdEcho` is negotiated the agent already returns
+      // `body.id == client_request_id`, so no rewrite is needed (Opcao A).
+      const decodedResponseRecord = toRecord(decoded.data);
+      const decodedBodyId = toRequestId(decodedResponseRecord?.id);
       const shouldEchoClientBodyId =
-        relayRoute.clientRequestId !== undefined && relayRoute.clientRequestId !== responseId;
+        relayRoute.clientRequestId !== undefined &&
+        decodedBodyId !== relayRoute.clientRequestId;
       const canBypassReencode = !shouldAttachServerTimings && !shouldEchoClientBodyId;
 
       let responseFrame: PayloadFrameEnvelope;
@@ -221,7 +225,7 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
         // pathway instead — bodyIdEcho overhead must reflect only its
         // marginal contribution to ops decisions about Option A.
         const reencodeStart = shouldEchoClientBodyId ? performance.now() : 0;
-        const decodedResponse = toRecord(decoded.data);
+        const decodedResponse = decodedResponseRecord ?? toRecord(decoded.data);
         const baseOutboundResponse =
           decoded.frame.cmp === "gzip" && decodedResponse
             ? markRelayOutboundForceGzip(decodedResponse)
@@ -258,6 +262,15 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       forwardedResponse = true;
       if (relayRoute.jsonRpcMethod === "agent.getHealth") {
         noteAgentHealthRpcResponse(decoded.data);
+      } else {
+        const registeredAgent = agentRegistry.findByAgentId(relayRoute.agentId);
+        if (registeredAgent) {
+          maybeRecordAgentHealthPiggyback({
+            agentId: relayRoute.agentId,
+            agentCapabilities: registeredAgent.capabilities,
+            rpcBody: decoded.data,
+          });
+        }
       }
       relayRoute.latencyTrace?.addPhaseMs(
         "relay_forward_to_consumer_ms",

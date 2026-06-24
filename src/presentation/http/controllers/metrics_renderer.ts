@@ -1243,6 +1243,15 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       ),
     );
     lines.push(
+      metricLine("plug_agent_health_poll_total", agentRuntime.agentHealth.pollTotal),
+    );
+    lines.push(
+      metricLine(
+        "plug_agent_health_piggyback_used_total",
+        agentRuntime.agentHealth.piggybackUsedTotal,
+      ),
+    );
+    lines.push(
       metricLine("plug_socket_agents_health_errors_total", agentRuntime.agentHealth.errorsTotal),
     );
     lines.push(

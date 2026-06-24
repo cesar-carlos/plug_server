@@ -22,6 +22,15 @@ describe("agent_transport_contract", () => {
       expect(HUB_TRANSPORT_EXTENSIONS.compressionThreshold).toBe(4096);
       expect(HUB_TRANSPORT_EXTENSIONS.maxInflationRatio).toBe(10);
     });
+
+    it("advertises ADR 0009/0010/0011 transport extensions for agent negotiation", () => {
+      expect(HUB_TRANSPORT_EXTENSIONS.clientRequestIdEcho).toBe("v1");
+      expect(HUB_TRANSPORT_EXTENSIONS.agentPhaseTimings).toBe("v1");
+      expect(HUB_TRANSPORT_EXTENSIONS.healthPiggyback).toEqual({
+        intervalRequests: 50,
+        freshnessThresholdMs: 5000,
+      });
+    });
   });
 
   describe("buildHubServerCapabilities", () => {

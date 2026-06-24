@@ -140,6 +140,34 @@ describe("relay fast-path + body.id echo (hub cross-module)", () => {
     });
   };
 
+  const registerAgentWithClientRequestIdEcho = (): void => {
+    agentRegistry.registerAgentSession({
+      agentId: AGENT_ID,
+      socketId: AGENT_SOCKET_ID,
+      userId: "user-fp-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+        extensions: {
+          clientRequestIdEcho: "v1",
+        },
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(AGENT_ID, {
+      markProtocolReady: true,
+      socketId: AGENT_SOCKET_ID,
+    });
+    conversationRegistry.create({
+      conversationId: CONVERSATION_ID,
+      consumerSocketId: CONSUMER_SOCKET_ID,
+      agentSocketId: AGENT_SOCKET_ID,
+      agentId: AGENT_ID,
+    });
+  };
+
   it("hub dispatches with body.id=hub_uuid AND consumer receives body.id=client_request_id (fast-path)", async () => {
     registerAgentAndConversation();
     const { dispatchAgentSocketEmit, emitToConsumer, dispatchHandlers, inboundHandlers } =
@@ -228,6 +256,64 @@ describe("relay fast-path + body.id echo (hub cross-module)", () => {
     expect(snapshot.relayOptIns.bodyIdEchoOverheadMaxMs).toBeGreaterThanOrEqual(
       snapshot.relayOptIns.bodyIdEchoOverheadSumMs > 0 ? 0 : 0,
     );
+  });
+
+  it("dispatches body.id=client_request_id when clientRequestIdEcho is negotiated (ADR 0009 Opcao A)", async () => {
+    registerAgentWithClientRequestIdEcho();
+    const { dispatchAgentSocketEmit, emitToConsumer, dispatchHandlers, inboundHandlers } =
+      wireHandlers();
+
+    const result = await dispatchHandlers.dispatchRelayRpcToAgent({
+      conversationId: CONVERSATION_ID,
+      consumerSocketId: CONSUMER_SOCKET_ID,
+      rawFramePayload: encodePayloadFrame({
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: CLIENT_REQUEST_ID,
+        params: {},
+      }),
+      fastPath: true,
+    });
+
+    const hubRequestId = result.requestId;
+    expect(hubRequestId).not.toBe(CLIENT_REQUEST_ID);
+
+    expect(dispatchAgentSocketEmit).toHaveBeenCalledTimes(1);
+    const [, agentFramePayload] = dispatchAgentSocketEmit.mock.calls[0] as [string, unknown];
+    const agentDecoded = decodePayloadFrame(agentFramePayload);
+    expect(agentDecoded.ok).toBe(true);
+    if (agentDecoded.ok) {
+      const agentBody = agentDecoded.value.data as Record<string, unknown>;
+      expect(agentBody.id).toBe(CLIENT_REQUEST_ID);
+      const agentMeta = agentBody.meta as Record<string, unknown>;
+      expect(agentMeta.request_id).toBe(hubRequestId);
+      expect(agentDecoded.value.frame.requestId).toBe(hubRequestId);
+    }
+
+    inboundHandlers.handleAgentRpcResponse(
+      AGENT_SOCKET_ID,
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id: CLIENT_REQUEST_ID,
+          result: { status: "healthy", uptime_seconds: 10 },
+        },
+        { requestId: hubRequestId },
+      ),
+    );
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+    const [, , consumerFramePayload] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+    const consumerDecoded = decodePayloadFrame(consumerFramePayload);
+    expect(consumerDecoded.ok).toBe(true);
+    if (consumerDecoded.ok) {
+      const consumerBody = consumerDecoded.value.data as Record<string, unknown>;
+      expect(consumerBody.id).toBe(CLIENT_REQUEST_ID);
+      expect(consumerDecoded.value.frame.requestId).toBe(hubRequestId);
+    }
+
+    const snapshot = getSocketConsumerMetricsSnapshot();
+    expect(snapshot.relayOptIns.bodyIdEchoTotal).toBe(0);
   });
 
   it("metric bodyIdEchoTotal stays at 0 when client_request_id is omitted (id fallback to hub_uuid)", async () => {

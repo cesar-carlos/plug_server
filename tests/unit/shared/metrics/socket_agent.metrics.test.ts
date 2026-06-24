@@ -94,6 +94,7 @@ describe("socket_agent.metrics", () => {
     const snap = getSocketAgentMetricsSnapshot();
     expect(snap.agentHealth.responsesTotal).toBe(1);
     expect(snap.agentHealth.errorsTotal).toBe(1);
+    expect(snap.agentHealth.pollTotal).toBe(1);
     expect(snap.agentHealth.lastSeenAtMs).toBeGreaterThan(0);
     expect(snap.agentHealth.lastHealthy).toBe(1);
     expect(snap.agentHealth.lastDegraded).toBe(0);

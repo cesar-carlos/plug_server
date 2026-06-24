@@ -20,10 +20,12 @@ import {
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
+import { isClientRequestIdEchoNegotiated } from "../../../../shared/constants/transport_extension_negotiation";
 import {
   getActiveStreamRouteByRequestId,
   removeActiveStreamRoute,
 } from "../registries/active_stream_registry";
+import { agentRegistry } from "../registries/agent_registry";
 import {
   ensureAgentCircuitClosed,
   logRpcFrameDecodeFailure,
@@ -35,7 +37,6 @@ import {
   relayMetrics,
 } from "./bridge_relay_health_metrics";
 import { noteRelayBodyIdEcho } from "../../../../shared/metrics/socket_consumer.metrics";
-import { agentRegistry } from "../registries/agent_registry";
 import { encodeRelayOutboundFrame, enqueueRelayOutbound } from "./relay_outbound_queue";
 import { conversationRegistry } from "../registries/conversation_registry";
 import {
@@ -310,9 +311,15 @@ export const createRpcBridgeRelayDispatch = (
 
     const traceId = inboundFrameTraceId ?? randomUUID();
     const existingMeta = sanitizeOutboundRpcMeta(toRecord(cmdRecord.meta));
+    const registeredAgent = agentRegistry.findByAgentId(conversation.agentId);
+    const echoClientRequestId =
+      clientRequestId != null &&
+      registeredAgent != null &&
+      isClientRequestIdEchoNegotiated(registeredAgent.capabilities);
+    const rpcBodyId = echoClientRequestId ? clientRequestId : requestId;
     const commandPayload: Record<string, unknown> = {
       ...normalizedAndClamped,
-      id: requestId,
+      id: rpcBodyId,
       api_version: resolveOutboundApiVersion(cmdRecord),
       meta: {
         ...existingMeta,

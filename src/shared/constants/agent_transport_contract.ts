@@ -62,6 +62,18 @@ export const HUB_TRANSPORT_EXTENSIONS = {
   traceContext: ["w3c-trace-context", "legacy-trace-id"] as const,
   errorFormat: "structured-error-data",
   transportFrame: "payload-frame/1.0",
+  /**
+   * ADR 0009 — when negotiated with the agent, the hub preserves the consumer
+   * JSON-RPC `id` end-to-end and skips the relay body.id rewrite on responses.
+   */
+  clientRequestIdEcho: "v1",
+  /** ADR 0010 — agent may attach `meta.agent_phases` when consumer opts in. */
+  agentPhaseTimings: "v1",
+  /** ADR 0011 — agent may piggyback `meta.health_snapshot` on unary responses. */
+  healthPiggyback: {
+    intervalRequests: 50,
+    freshnessThresholdMs: 5000,
+  },
 } as const;
 
 /**

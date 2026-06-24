@@ -1,4 +1,8 @@
 import type { AgentSessionPolicy } from "../../../../shared/constants/agent_session_policy";
+import {
+  clearAgentHealthPiggybackState,
+  shouldSkipScheduledAgentHealthPoll,
+} from "../../../../application/services/agent_health_piggyback.service";
 import { env } from "../../../../shared/config/env";
 import {
   HUB_MAX_BATCH_SIZE,
@@ -368,6 +372,7 @@ class InMemoryAgentRegistry {
     this.readyAtByAgentId.delete(agentId);
     this.protocolReadyModeByAgentId.delete(agentId);
     this.agents.delete(agentId);
+    clearAgentHealthPiggybackState(agentId);
     return this.toPublic(agent);
   }
 
@@ -392,6 +397,10 @@ class InMemoryAgentRegistry {
   findByAgentId(agentId: string): RegisteredAgent | null {
     const internal = this.agents.get(agentId);
     return internal ? this.toPublic(internal) : null;
+  }
+
+  shouldSkipScheduledHealthPoll(agentId: string, nowMs?: number): boolean {
+    return shouldSkipScheduledAgentHealthPoll(agentId, nowMs);
   }
 
   findBySocketId(socketId: string): RegisteredAgent | null {
