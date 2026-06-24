@@ -53,12 +53,12 @@ commands; multi-item batching now flows through the new event.
 - **Decision F (streaming items rejected in v1)**: implemented.
 - **`requestServerTimings` / `fastPath` on the envelope schema**: accepted
   by the Zod schema for forward-compat with v2, but **NOT** propagated to
-  per-item dispatch in v1. v2 will refactor the relay dispatcher to expose
-  a pre-decoded entry point that supports per-item timings and fast-path.
-- **Per-item PayloadFrame synthesis**: v1 trades the architecturally
-  cleaner pre-decoded entry point for a localized handler that synthesizes
-  one PayloadFrame per item internally. Cost is one extra encode/decode
-  per item; v2 will eliminate it.
+  per-item dispatch in v1. v2 will route these flags through per-item
+  dispatch.
+- **Per-item pre-decoded dispatch** (2026-06-24): `dispatchRelayRpcToAgent`
+  accepts `preDecodedData` so the batch handler skips the per-item
+  encode→decode round-trip. See
+  [`rpc_bridge_dispatch_relay.ts`](../../src/presentation/socket/hub/relay/rpc_bridge_dispatch_relay.ts).
 
 ## Decisions
 
@@ -267,10 +267,11 @@ The dispatcher behind `relay:rpc.request.batch` checks
       partial dedup.
 - [x] Metrics surface (`plug_socket_relay_batch_*` counters in
       `metrics_renderer.ts`).
-- [ ] **v2 follow-up**: refactor `dispatchRelayRpcToAgent` to expose a
-      pre-decoded entry point so batch dispatch skips the per-item encode
-      round-trip AND can honor `requestServerTimings` / `fastPath` per
-      item.
+- [x] **v2 follow-up (partial, 2026-06-24)**: `dispatchRelayRpcToAgent`
+      accepts `preDecodedData` so batch dispatch skips the per-item
+      consumer-side encode/decode round-trip.
+- [ ] **v2 follow-up**: propagate `requestServerTimings` / `fastPath`
+      from the batch envelope to per-item dispatch.
 - [ ] **v2 follow-up**: Grafana panel update for the new counters.
 - [ ] **v2 follow-up**: `RelayBatchEnvelopeRoute` type linking batch ack
       to per-item routes for audit-log correlation.

@@ -267,7 +267,7 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
 
       if (relayRoute.clientRequestId) {
         const waiters = persistRelayIdempotentResponseFrame(relayRoute, responseFrame);
-        if (waiters && waiters.length > 0) {
+        if (waiters && waiters.size > 0) {
           for (const waiterSocketId of waiters) {
             if (waiterSocketId === relayRoute.consumerSocketId) {
               continue;

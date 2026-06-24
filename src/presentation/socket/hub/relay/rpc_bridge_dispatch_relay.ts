@@ -83,10 +83,9 @@ const toRecord = (value: unknown): Record<string, unknown> | null =>
 
 const isRouteAcked = (route: RelayRequestRoute): boolean => route.acked === true;
 
-export interface DispatchRelayRpcInput {
+export type DispatchRelayRpcInput = {
   readonly conversationId: string;
   readonly consumerSocketId: string;
-  readonly rawFramePayload: unknown;
   /** Hub → agent PayloadFrame gzip for re-encoded `rpc:request` (consumer frame is decoded first). */
   readonly payloadFrameCompression?: PayloadFrameCompression;
   readonly latencyTrace?: BridgeLatencyTraceSession;
@@ -104,7 +103,10 @@ export interface DispatchRelayRpcInput {
    * dispatcher itself.
    */
   readonly fastPath?: boolean;
-}
+} & (
+  | { readonly rawFramePayload: unknown; readonly preDecodedData?: never }
+  | { readonly rawFramePayload?: never; readonly preDecodedData: unknown }
+);
 
 export interface DispatchRelayRpcResult {
   readonly requestId: string;
@@ -191,22 +193,30 @@ export const createRpcBridgeRelayDispatch = (
     assertNotAborted();
     const trace = input.latencyTrace;
     const relayWallStart = performance.now();
-    const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
-    assertNotAborted();
-    const decodeElapsed = performance.now() - relayWallStart;
-    trace?.addPhaseMs("consumer_frame_decode_ms", decodeElapsed);
-    observeRelayFrameDecode(decodeElapsed);
-    const relayPreflightStart = performance.now();
-    if (!decoded.ok) {
-      logRpcFrameDecodeFailure({
-        eventName: socketEvents.relayRpcRequest,
-        socketId: input.consumerSocketId,
-        reason: decoded.error.message,
-      });
-      throw relayRpcRefundableBadRequest(decoded.error.message);
+    let decodedData: unknown;
+    let inboundFrameTraceId: string | null = null;
+    if (input.preDecodedData !== undefined) {
+      decodedData = input.preDecodedData;
+    } else {
+      const decoded = await decodePayloadFrameAsync(input.rawFramePayload);
+      assertNotAborted();
+      const decodeElapsed = performance.now() - relayWallStart;
+      trace?.addPhaseMs("consumer_frame_decode_ms", decodeElapsed);
+      observeRelayFrameDecode(decodeElapsed);
+      if (!decoded.ok) {
+        logRpcFrameDecodeFailure({
+          eventName: socketEvents.relayRpcRequest,
+          socketId: input.consumerSocketId,
+          reason: decoded.error.message,
+        });
+        throw relayRpcRefundableBadRequest(decoded.error.message);
+      }
+      decodedData = decoded.value.data;
+      inboundFrameTraceId = toRequestId(decoded.value.frame.traceId);
     }
+    const relayPreflightStart = performance.now();
 
-    const { command, normalizedCommand } = validateAndNormalizeRelayCommand(decoded.value.data);
+    const { command, normalizedCommand } = validateAndNormalizeRelayCommand(decodedData);
 
     const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
     if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
@@ -282,9 +292,10 @@ export const createRpcBridgeRelayDispatch = (
         // pending replay target so that when the response arrives, it is
         // forwarded to this socket too. Avoid duplicates within the list.
         const waiters =
-          existing.pendingReplayConsumerSocketIds ?? (existing.pendingReplayConsumerSocketIds = []);
-        if (!waiters.includes(conversation.consumerSocketId)) {
-          waiters.push(conversation.consumerSocketId);
+          existing.pendingReplayConsumerSocketIds ??
+          (existing.pendingReplayConsumerSocketIds = new Set<string>());
+        if (!waiters.has(conversation.consumerSocketId)) {
+          waiters.add(conversation.consumerSocketId);
         }
         return {
           requestId: existing.requestId,
@@ -297,7 +308,7 @@ export const createRpcBridgeRelayDispatch = (
 
     const requestId = randomUUID();
 
-    const traceId = toRequestId(decoded.value.frame.traceId) ?? randomUUID();
+    const traceId = inboundFrameTraceId ?? randomUUID();
     const existingMeta = sanitizeOutboundRpcMeta(toRecord(cmdRecord.meta));
     const commandPayload: Record<string, unknown> = {
       ...normalizedAndClamped,
@@ -506,7 +517,7 @@ export const createRpcBridgeRelayDispatch = (
         const idempotencyMap = getRelayIdempotencyMap(conversation.conversationId);
         const entry = idempotencyMap?.get(clientRequestId);
         const waiters = entry?.pendingReplayConsumerSocketIds;
-        if (waiters && waiters.length > 0) {
+        if (waiters && waiters.size > 0) {
           // JSON-RPC 2.0 §5: echo the consumer's id on synthetic responses so
           // waiters that opted into `fastPath: true` can route the error back
           // to their pending — `relay:rpc.accepted` is never emitted on

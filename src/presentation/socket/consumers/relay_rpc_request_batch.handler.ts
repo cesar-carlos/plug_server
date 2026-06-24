@@ -18,9 +18,6 @@
  *   `prefer_db_streaming` or `multi_result`, `sql.executeBatch`).
  *
  * v1 known limitations (documented for v2 follow-up):
- * - Items go through one extra encode/decode round-trip because each is
- *   synthesized as a single PayloadFrame for `dispatchRelayRpcToAgent`. A
- *   v2 refactor will expose a pre-decoded entry point on the dispatcher.
  * - `requestServerTimings` / `fastPath` flags are accepted on the envelope
  *   for forward-compat with v2 but **do not propagate to per-item dispatch**
  *   in v1. v2 will route them through.
@@ -41,7 +38,7 @@ import {
   bridgeSingleCommandSchema,
   payloadFrameCompressionSchema,
 } from "../../../shared/validators/agent_command";
-import { decodePayloadFrameAsync, encodePayloadFrame } from "../../../shared/utils/payload_frame";
+import { decodePayloadFrameAsync } from "../../../shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import {
@@ -361,13 +358,10 @@ export const handleRelayRpcRequestBatch = (
         // inside the per-agent dispatch queue (`SOCKET_RELAY_AGENT_MAX_INFLIGHT`).
         const settledResults = await Promise.allSettled(
           items.map(async (item) => {
-            const itemFrame = encodePayloadFrame(item.command, {
-              omitTraceId: true,
-            });
             const dispatched = await dispatchRelayRpcToAgent({
               conversationId: envelope.conversationId,
               consumerSocketId: socket.id,
-              rawFramePayload: itemFrame,
+              preDecodedData: item.command,
               ...(envelope.payloadFrameCompression !== undefined
                 ? { payloadFrameCompression: envelope.payloadFrameCompression }
                 : {}),

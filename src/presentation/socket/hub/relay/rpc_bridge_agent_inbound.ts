@@ -9,6 +9,7 @@ import {
 import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
+  encodeRelayOutboundFrameFromBytes,
   markRelayOutboundForceGzip,
 } from "./relay_outbound_queue";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
@@ -369,6 +370,12 @@ export const createRpcBridgeAgentInboundHandlers = (
     });
   };
 
+  interface DecodedAckFrame {
+    readonly data: Record<string, unknown>;
+    readonly decodedBytes: Buffer;
+    readonly inboundCmp: "none" | "gzip";
+  }
+
   /**
    * Shared preamble for the ack handlers (`rpc:request_ack` / `rpc:batch_ack`):
    * decode the frame, validate the inbound contract and normalize to a record.
@@ -379,7 +386,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     eventName: Parameters<typeof validateAgentInboundContract>[0]["eventName"],
     socketId: string,
     rawPayload: unknown,
-  ): Promise<Record<string, unknown> | null> => {
+  ): Promise<DecodedAckFrame | null> => {
     const result = await decodePayloadFrameAsync(rawPayload);
     if (!result.ok) {
       logRpcFrameDecodeFailure({ eventName, socketId, reason: result.error.message });
@@ -400,19 +407,29 @@ export const createRpcBridgeAgentInboundHandlers = (
       return null;
     }
 
-    return toRecord(result.value.data);
+    const data = toRecord(result.value.data);
+    if (!data) {
+      return null;
+    }
+
+    return {
+      data,
+      decodedBytes: result.value.decodedBytes,
+      inboundCmp: result.value.frame.cmp,
+    };
   };
 
   const handleAgentRpcAck = (socketId: string, rawPayload: unknown): void => {
     void (async () => {
-      const data = await decodeAndValidateAckFrame(
+      const ackFrame = await decodeAndValidateAckFrame(
         socketEvents.rpcRequestAck,
         socketId,
         rawPayload,
       );
-      if (!data) {
+      if (!ackFrame) {
         return;
       }
+      const { data, decodedBytes, inboundCmp } = ackFrame;
 
       const requestId = toRequestId(data.request_id);
       if (!requestId) {
@@ -438,8 +455,10 @@ export const createRpcBridgeAgentInboundHandlers = (
           clearTimeout(relayRoute.ackRetryTimer);
           delete relayRoute.ackRetryTimer;
         }
-        enqueueRelayOutbound(requestId, async () => {
-          const frame = await encodeRelayOutboundFrame(data, requestId);
+        enqueueRelayOutbound(requestId, () => {
+          const frame = encodeRelayOutboundFrameFromBytes(decodedBytes, requestId, {
+            inboundCmp,
+          });
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcRequestAck, frame);
         });
       }
@@ -448,10 +467,11 @@ export const createRpcBridgeAgentInboundHandlers = (
 
   const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void => {
     void (async () => {
-      const data = await decodeAndValidateAckFrame(socketEvents.rpcBatchAck, socketId, rawPayload);
-      if (!data) {
+      const ackFrame = await decodeAndValidateAckFrame(socketEvents.rpcBatchAck, socketId, rawPayload);
+      if (!ackFrame) {
         return;
       }
+      const { data } = ackFrame;
       if (Array.isArray(data.request_ids) && data.request_ids.length > HUB_MAX_BATCH_SIZE) {
         logRpcFrameDecodeFailure({
           eventName: socketEvents.rpcBatchAck,

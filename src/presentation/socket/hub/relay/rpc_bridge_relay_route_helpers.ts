@@ -64,7 +64,7 @@ export const findRelayRequestRoutesForAgentSocket = (
 export const persistRelayIdempotentResponseFrame = (
   route: RelayRequestRoute,
   responseFrame: unknown,
-): readonly string[] | undefined => {
+): ReadonlySet<string> | undefined => {
   if (!route.clientRequestId) {
     return undefined;
   }

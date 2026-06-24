@@ -29,6 +29,13 @@ Coluna **Status** segue o vocabulario `proposed | discussing | in-progress |
 shipped | rejected`. Atualizar quando o item mudar de fase no `plug_agente`
 ou no hub.
 
+> **Snapshot 2026-06-24 (hub-side).** Tres otimizacoes de hot-path no
+> `plug_server` foram aplicadas sem mudanca de contrato wire:
+> batch dispatch via `preDecodedData`, forward de `rpc:request_ack` por
+> byte-path (`encodeRelayOutboundFrameFromBytes`), e dedup de waiters
+> idempotentes com `Set<string>` (lookup O(1)). Ver
+> [`docs/adrs/0008-relay-batch-protocol.md`](../adrs/0008-relay-batch-protocol.md).
+>
 > **Snapshot 2026-05-28 (agent-side).** Itens 1, 2, 3, 6, 8 e 9 (6 de 10)
 > entraram juntos em uma onda de bugfix/perf no `plug_agente` no commit
 > [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)
@@ -65,6 +72,22 @@ ou no hub.
 > **`proposed (no active gate)`** significa: documentado como direcao
 > conhecida, mas nenhuma metrica em producao hoje justifica acionar.
 > Reabre quando o gate especifico (na coluna ao lado) virar verdadeiro.
+
+## Hub-side optimizations (plug_server)
+
+Melhorias aplicadas no hub que reduzem CPU no relay path sem exigir mudanca
+no `plug_agente`:
+
+| Item | Descricao | Impacto | Status |
+|------|-----------|---------|--------|
+| H1 | Batch dispatch `preDecodedData` — elimina encode→decode por item no handler `relay:rpc.request.batch` | high | ✅ **shipped** (2026-06-24) — ver [ADR 0008](../adrs/0008-relay-batch-protocol.md) |
+| H2 | Ack forward byte-path — `rpc:request_ack` reencaminhado via `encodeRelayOutboundFrameFromBytes` (sem re-`JSON.stringify`) | medium | ✅ **shipped** (2026-06-24) |
+| H3 | Idempotency waiters `Set<string>` — dedup de replay in-flight com lookup O(1) | low-medium | ✅ **shipped** (2026-06-24) |
+
+**Fora de escopo nesta onda** (requerem coordenacao ou estao desligados por
+default): `meta.timestamp` como epoch-ms (contrato agente), cache de HMAC
+(`PAYLOAD_SIGN_OUTBOUND=false` por defeito), join unico em agent access
+cache miss.
 
 ---
 

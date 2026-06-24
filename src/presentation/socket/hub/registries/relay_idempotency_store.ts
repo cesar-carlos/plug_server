@@ -9,7 +9,7 @@ export type RelayIdempotencyEntry = {
    * still in flight (no `responseFrame` yet). When the response is finally stored,
    * the bridge replays it to each of these waiters via `relay:rpc.response`.
    */
-  pendingReplayConsumerSocketIds?: string[];
+  pendingReplayConsumerSocketIds?: Set<string>;
 };
 
 export type SetRelayIdempotencyEntryResult =

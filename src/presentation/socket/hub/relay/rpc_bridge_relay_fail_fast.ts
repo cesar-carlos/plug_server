@@ -335,7 +335,7 @@ export const createRelayFailFastEmitters = (deps: {
           relayMetrics.responsesForwarded += 1;
 
           const waiters = persistRelayIdempotentResponseFrame(route, frame);
-          if (waiters && waiters.length > 0) {
+          if (waiters && waiters.size > 0) {
             for (const waiterSocketId of waiters) {
               if (waiterSocketId === route.consumerSocketId) {
                 continue;

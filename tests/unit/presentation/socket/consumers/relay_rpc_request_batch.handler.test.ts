@@ -232,6 +232,28 @@ describe("handleRelayRpcRequestBatch", () => {
     expect(ack.items).toHaveLength(3);
   });
 
+  it("passes preDecodedData to dispatchRelayRpcToAgent (no per-item encode/decode round-trip)", async () => {
+    const socket = buildSocket();
+    mockedDispatch.mockResolvedValue({ requestId: "req-1" });
+
+    handleRelayRpcRequestBatch(socket as never, {
+      conversationId: "conv-1",
+      frame: buildBatchFrame(["a", "b"]),
+    });
+
+    await vi.waitFor(() => expect(mockedDispatch).toHaveBeenCalledTimes(2));
+
+    for (const call of mockedDispatch.mock.calls) {
+      const input = call[0] as Record<string, unknown>;
+      expect(input.preDecodedData).toBeDefined();
+      expect(input.rawFramePayload).toBeUndefined();
+      expect(input.preDecodedData).toMatchObject({
+        jsonrpc: "2.0",
+        method: "sql.execute",
+      });
+    }
+  });
+
   it("rejects the entire batch with RATE_LIMITED when the inflight gate cannot fit all items", async () => {
     overrides.socketConsumerMaxInflightPerSocket = 2;
     const socket = buildSocket();

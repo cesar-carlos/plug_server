@@ -385,7 +385,7 @@ export const emitRelayTimeoutResponse = (
         item.responseFrame = frame;
         item.expiresAtMs = Date.now() + relayIdempotencyTtlMs;
         setRelayIdempotencyEntry(route.conversationId, route.clientRequestId, item);
-        if (waiters && waiters.length > 0) {
+        if (waiters && waiters.size > 0) {
           for (const waiterSocketId of waiters) {
             if (waiterSocketId === route.consumerSocketId) {
               continue;
