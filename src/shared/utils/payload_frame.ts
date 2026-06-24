@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { gunzip as zlibGunzip, gunzipSync, gzip as zlibGzip, gzipSync } from "node:zlib";
 
@@ -260,7 +260,37 @@ const canonicalJsonStringify = (value: unknown): string => {
   return JSON.stringify(value ?? null);
 };
 
+const SIGNATURE_INPUT_CACHE_MAX_ENTRIES = 512;
+const signatureInputCanonicalCache = new Map<string, string>();
+
+const buildSignatureInputCacheKey = (
+  frame: PayloadFrameEnvelope,
+  binaryPayload: Buffer,
+): string => {
+  const payloadHash = createHash("sha256").update(binaryPayload).digest("hex");
+  return [
+    frame.schemaVersion,
+    frame.cmp,
+    frame.originalSize,
+    frame.compressedSize,
+    frame.traceId ?? "",
+    frame.requestId ?? "",
+    payloadHash,
+  ].join("|");
+};
+
+/** Test-only: clears outbound signature canonical-string cache between cases. */
+export const _resetSignatureInputCacheForTests = (): void => {
+  signatureInputCanonicalCache.clear();
+};
+
 const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer): Buffer => {
+  const cacheKey = buildSignatureInputCacheKey(frame, binaryPayload);
+  const cachedCanonical = signatureInputCanonicalCache.get(cacheKey);
+  if (cachedCanonical !== undefined) {
+    return Buffer.from(cachedCanonical, "utf8");
+  }
+
   const canonicalFrame = canonicalJsonStringify({
     schemaVersion: frame.schemaVersion,
     enc: frame.enc,
@@ -272,6 +302,14 @@ const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer)
     requestId: frame.requestId ?? null,
     payload: binaryPayload.toString("base64"),
   });
+
+  if (signatureInputCanonicalCache.size >= SIGNATURE_INPUT_CACHE_MAX_ENTRIES) {
+    const oldestKey = signatureInputCanonicalCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      signatureInputCanonicalCache.delete(oldestKey);
+    }
+  }
+  signatureInputCanonicalCache.set(cacheKey, canonicalFrame);
 
   return Buffer.from(canonicalFrame, "utf8");
 };

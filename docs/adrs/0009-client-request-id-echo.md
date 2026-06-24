@@ -251,6 +251,29 @@ PRs coordenadas no hub e no `plug_agente`, e atualizar
 [`docs/plug_agente/03_performance_roadmap.md`](../plug_agente/03_performance_roadmap.md)
 item 7 com link para os PRs e mudar Status para `in-progress`.
 
+## GitHub issue template (`plug_agente`)
+
+Use este texto ao abrir a issue de implementacao no repositorio do agente:
+
+```markdown
+## Summary
+Implement `clientRequestIdEcho: "v1"` per ADR 0009 (Opcao A) so the hub can skip `body.id` rewrite on relay responses.
+
+## Hub dependency
+- ADR: plug_server `docs/adrs/0009-client-request-id-echo.md`
+- Gate: `plug_socket_relay_body_id_echo_overhead_avg_ms` > 0.5 ms sustained OR external audit requirement
+
+## Agent tasks
+- [ ] Echo consumer JSON-RPC `id` on unary `rpc:response` when extension negotiated
+- [ ] Keep `meta.request_id` as hub UUID for logs/acks
+- [ ] Update `RpcRequestGuard` / replay cache to key on hub `request_id` only
+- [ ] Contract tests with plug_server `tests/contract/`
+
+## Acceptance
+- Hub metric `plug_socket_relay_body_id_echo_total` stops growing for negotiated agents
+- E2E relay fast-path suite passes without body-id rewrite
+```
+
 ## References
 
 - Defeito original + fix shipping (Opcao B): [`docs/plug_agente/01_relay_body_id_echo.md`](../plug_agente/01_relay_body_id_echo.md)

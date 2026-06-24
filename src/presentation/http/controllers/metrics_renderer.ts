@@ -1483,6 +1483,26 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     )) {
       lines.push(metricLine("plug_socket_relay_batch_envelopes_rejected_total", count, { reason }));
     }
+    const batchDecode = consumerRuntime.relayOptIns.batchEnvelopeDecode;
+    lines.push(metricLine("plug_socket_relay_batch_envelope_decode_count", batchDecode.count));
+    lines.push(metricLine("plug_socket_relay_batch_envelope_decode_sum_ms", batchDecode.sumMs));
+    lines.push(metricLine("plug_socket_relay_batch_envelope_decode_max_ms", batchDecode.maxMs));
+    lines.push(
+      metricLine(
+        "plug_socket_relay_batch_envelope_decode_avg_ms",
+        batchDecode.count > 0 ? batchDecode.sumMs / batchDecode.count : 0,
+      ),
+    );
+    const batchItems = consumerRuntime.relayOptIns.batchItemsPerEnvelope;
+    lines.push(metricLine("plug_socket_relay_batch_items_per_envelope_count", batchItems.count));
+    lines.push(metricLine("plug_socket_relay_batch_items_per_envelope_sum", batchItems.sum));
+    lines.push(metricLine("plug_socket_relay_batch_items_per_envelope_max", batchItems.max));
+    lines.push(
+      metricLine(
+        "plug_socket_relay_batch_items_per_envelope_avg",
+        batchItems.count > 0 ? batchItems.sum / batchItems.count : 0,
+      ),
+    );
     lines.push(
       metricLine(
         "plug_socket_custom_event_subscriptions_active",

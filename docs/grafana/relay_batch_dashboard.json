@@ -1,0 +1,146 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "rate(plug_socket_relay_batch_envelopes_received_total[$__rate_interval])",
+          "legendFormat": "received/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(plug_socket_relay_batch_envelopes_accepted_total[$__rate_interval])",
+          "legendFormat": "accepted/s",
+          "refId": "B"
+        }
+      ],
+      "title": "Relay batch envelopes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(plug_socket_relay_batch_envelopes_rejected_total[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Relay batch rejections by reason",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "rate(plug_socket_relay_batch_items_accepted_total[$__rate_interval])",
+          "legendFormat": "items/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(plug_socket_relay_batch_items_deduped_total[$__rate_interval])",
+          "legendFormat": "deduped/s",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(plug_socket_relay_batch_items_error_total[$__rate_interval])",
+          "legendFormat": "errors/s",
+          "refId": "C"
+        }
+      ],
+      "title": "Relay batch items",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "fieldConfig": {
+        "defaults": { "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "plug_socket_relay_batch_envelope_decode_avg_ms",
+          "legendFormat": "decode avg ms",
+          "refId": "A"
+        },
+        {
+          "expr": "plug_socket_relay_batch_envelope_decode_max_ms",
+          "legendFormat": "decode max ms",
+          "refId": "B"
+        }
+      ],
+      "title": "Batch envelope decode latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "fieldConfig": {
+        "defaults": { "decimals": 1 },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "plug_socket_relay_batch_items_per_envelope_avg",
+          "legendFormat": "avg items/envelope",
+          "refId": "A"
+        },
+        {
+          "expr": "plug_socket_relay_batch_items_per_envelope_max",
+          "legendFormat": "max items/envelope",
+          "refId": "B"
+        }
+      ],
+      "title": "Batch size distribution (process gauges)",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["plug_server", "relay", "batch"],
+  "templating": {
+    "list": [
+      {
+        "name": "prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "Plug Server — Relay Batch",
+  "uid": "plug-relay-batch",
+  "version": 1
+}

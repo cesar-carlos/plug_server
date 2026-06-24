@@ -8,6 +8,8 @@ import type {
   AgentListFilter,
   IAgentRepository,
   PaginatedAgentList,
+  PrincipalAccessCheckResult,
+  PrincipalAccessQuery,
 } from "../../domain/repositories/agent.repository.interface";
 import type {
   AgentProfileCommitInput,
@@ -43,6 +45,68 @@ export class PrismaAgentRepository implements IAgentRepository {
     });
     if (!row) return null;
     return { agentId: row.agentId, status: row.status as AgentStatus };
+  }
+
+  async findPrincipalAccessCheck(
+    agentId: string,
+    principal: PrincipalAccessQuery,
+  ): Promise<PrincipalAccessCheckResult> {
+    if (principal.type === "user") {
+      const row = await prismaClient.agent.findUnique({
+        where: { agentId },
+        select: {
+          agentId: true,
+          status: true,
+          agentIdentities: {
+            where: { userId: principal.userId },
+            select: { userId: true },
+            take: 1,
+          },
+        },
+      });
+      if (!row) {
+        return { outcome: "not_found" };
+      }
+      if (row.status !== "active") {
+        return { outcome: "inactive" };
+      }
+      if (row.agentIdentities.length === 0) {
+        return { outcome: "denied" };
+      }
+      return {
+        outcome: "granted",
+        snapshot: { agentId: row.agentId, status: row.status as AgentStatus },
+      };
+    }
+
+    const accessRow = await prismaClient.agent.findUnique({
+      where: { agentId },
+      select: {
+        agentId: true,
+        status: true,
+        clientAccesses: {
+          where: { clientId: principal.clientId },
+          select: { clientId: true },
+          take: 1,
+        },
+      },
+    });
+    if (!accessRow) {
+      return { outcome: "not_found" };
+    }
+    if (accessRow.status !== "active") {
+      return { outcome: "inactive" };
+    }
+    if (accessRow.clientAccesses.length === 0) {
+      return { outcome: "denied" };
+    }
+    return {
+      outcome: "granted",
+      snapshot: {
+        agentId: accessRow.agentId,
+        status: accessRow.status as AgentStatus,
+      },
+    };
   }
 
   async findByDocument(document: string): Promise<Agent | null> {

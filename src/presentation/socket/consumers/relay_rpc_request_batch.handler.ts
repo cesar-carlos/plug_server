@@ -17,15 +17,16 @@
  * - Reject streaming-capable items at validation (`sql.execute` with
  *   `prefer_db_streaming` or `multi_result`, `sql.executeBatch`).
  *
- * v1 known limitations (documented for v2 follow-up):
- * - `requestServerTimings` / `fastPath` flags are accepted on the envelope
- *   for forward-compat with v2 but **do not propagate to per-item dispatch**
- *   in v1. v2 will route them through.
+ * v2: `requestServerTimings` and `fastPath` on the envelope propagate to
+ * per-item dispatch (mirrors `relay:rpc.request`). ADR Decision B still
+ * applies: always emit `relay:rpc.batch_accepted`; never per-item
+ * `relay:rpc.accepted`.
  */
 
 import type { Socket } from "socket.io";
 import { z } from "zod";
 
+import { createBridgeLatencyTraceForRequest } from "../../../application/services/bridge_latency_trace_builder";
 import { dispatchRelayRpcToAgent } from "../hub/relay/rpc_bridge";
 import { conversationRegistry } from "../hub/registries/conversation_registry";
 import { refundRelayRpcRequestAsync } from "../hub/rate_limits/consumer_relay_rate_limiter";
@@ -51,15 +52,18 @@ import {
   noteRelayBatchAccepted,
   noteRelayBatchEnvelopeReceived,
   noteRelayBatchRejected,
+  noteRelayFastPathForbidden,
+  noteRelayFastPathRequested,
+  observeRelayBatchEnvelopeDecodeMs,
+  observeRelayBatchItemsPerEnvelope,
+  noteServerTimingsOptIn,
 } from "../../../shared/metrics/socket_consumer.metrics";
 
 export const relayRpcRequestBatchEnvelopeSchema = z.object({
   conversationId: conversationIdSchema,
   frame: z.unknown(),
   payloadFrameCompression: payloadFrameCompressionSchema.optional(),
-  /** Accepted for v2 forward-compat. Ignored on per-item dispatch in v1. */
   requestServerTimings: z.boolean().optional(),
-  /** Accepted for v2 forward-compat. Ignored on per-item dispatch in v1. */
   fastPath: z.boolean().optional(),
 });
 
@@ -291,9 +295,10 @@ export const handleRelayRpcRequestBatch = (
 
       await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId, socket);
 
-      // Decode the batch frame ONCE. Each item is dispatched as if it were a
-      // single-RPC request; see the v1-limitations comment at the top.
+      // Decode the batch frame ONCE. Each item is dispatched via preDecodedData.
+      const batchDecodeStart = performance.now();
       const decoded = await decodePayloadFrameAsync(envelope.frame);
+      observeRelayBatchEnvelopeDecodeMs(performance.now() - batchDecodeStart);
       if (!decoded.ok) {
         noteRelayBatchRejected("frame_decode_failed");
         emitBatchAccepted(socket, {
@@ -330,6 +335,18 @@ export const handleRelayRpcRequestBatch = (
       }
       const items = validation.items;
 
+      const effectiveFastPath =
+        envelope.fastPath === true && !env.socketRelayFastPathForbidden;
+      if (envelope.fastPath === true) {
+        noteRelayFastPathRequested();
+        if (!effectiveFastPath) {
+          noteRelayFastPathForbidden();
+        }
+      }
+      if (envelope.requestServerTimings === true) {
+        noteServerTimingsOptIn("relay");
+      }
+
       // Decision C in ADR 0008: all-or-nothing inflight gate accounting.
       const acquire = tryAcquireSocketInflightSlots(
         socket,
@@ -358,16 +375,44 @@ export const handleRelayRpcRequestBatch = (
         // inside the per-agent dispatch queue (`SOCKET_RELAY_AGENT_MAX_INFLIGHT`).
         const settledResults = await Promise.allSettled(
           items.map(async (item) => {
-            const dispatched = await dispatchRelayRpcToAgent({
-              conversationId: envelope.conversationId,
-              consumerSocketId: socket.id,
-              preDecodedData: item.command,
-              ...(envelope.payloadFrameCompression !== undefined
-                ? { payloadFrameCompression: envelope.payloadFrameCompression }
-                : {}),
-              signal: abortController.signal,
+            const latencyTrace = createBridgeLatencyTraceForRequest({
+              channel: "relay",
+              userId: userSub,
+              forceActive: envelope.requestServerTimings === true,
             });
-            return { item, dispatched };
+            try {
+              const dispatched = await dispatchRelayRpcToAgent({
+                conversationId: envelope.conversationId,
+                consumerSocketId: socket.id,
+                preDecodedData: item.command,
+                ...(envelope.payloadFrameCompression !== undefined
+                  ? { payloadFrameCompression: envelope.payloadFrameCompression }
+                  : {}),
+                ...(envelope.requestServerTimings === true
+                  ? { requestServerTimings: true }
+                  : {}),
+                ...(effectiveFastPath ? { fastPath: true } : {}),
+                ...(latencyTrace !== null ? { latencyTrace } : {}),
+                signal: abortController.signal,
+              });
+              return { item, dispatched };
+            } catch (dispatchErr: unknown) {
+              const appError = dispatchErr instanceof AppError ? dispatchErr : undefined;
+              if (latencyTrace && !latencyTrace.isFinalized()) {
+                if (latencyTrace.hasDispatchMeta()) {
+                  latencyTrace.finalizeOnce({
+                    outcome: "error",
+                    ...(typeof appError?.statusCode === "number"
+                      ? { httpStatus: appError.statusCode }
+                      : {}),
+                    errorCode: appError?.code ?? "BATCH_ITEM_DISPATCH_FAILED",
+                  });
+                } else {
+                  latencyTrace.dismissWithoutPersist();
+                }
+              }
+              throw dispatchErr;
+            }
           }),
         );
 
@@ -407,6 +452,7 @@ export const handleRelayRpcRequestBatch = (
           dedupedCount,
           errorCount,
         });
+        observeRelayBatchItemsPerEnvelope(items.length);
 
         // Refund per-item rate limit budget for any items that turned out to
         // be deduplicated (mirror of the single-RPC handler refund path).

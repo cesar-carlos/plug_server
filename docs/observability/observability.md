@@ -433,6 +433,13 @@ Nota operacional:
 
 Exemplo minimo de dashboard Grafana (Prometheus): `docs/grafana/bridge_latency_trace_minimal.json` — apos importar, associa um datasource Prometheus ao painel.
 
+Relay batch (`relay:rpc.request.batch`): importar `docs/grafana/relay_batch_dashboard.json`. Metricas chave:
+
+- `rate(plug_socket_relay_batch_envelopes_accepted_total[5m])` — batches aceites
+- `sum by (reason) (rate(plug_socket_relay_batch_envelopes_rejected_total[5m]))` — rejeicoes por motivo
+- `plug_socket_relay_batch_envelope_decode_avg_ms` — latencia media de decode do envelope (gauge por processo)
+- `plug_socket_relay_batch_items_per_envelope_avg` — tamanho medio de batch aceite
+
 Fases tipicas em `phases_ms` (REST / consumer; relay inclui `consumer_frame_decode_ms`, `relay_preflight_ms`, `relay_forward_to_consumer_ms`, `relay_stream_duration_ms` quando aplicavel):
 
 | Chave | Significado |

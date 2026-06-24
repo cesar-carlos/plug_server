@@ -53,13 +53,13 @@ ou no hub.
 | **1** | 🚨 `enableSocketDeliveryGuarantees=true` por defeito (ou negociar) | **high** | **low** | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-1--enablesocketdeliveryguaranteestrue) | nenhum (bug obvio) | Sim — flag ja existente |
 | 2 | 🚨 Reavaliar `enableSocketStreamingChunks=false` por defeito | **high** | low | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-2--enablesocketstreamingchunkstrue) | medir p95 SQL > N rows | Nao |
 | 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-3--coalescing-de-rpcrequest_ack) | volume de `request_ack` na metrica | Nao |
-| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | proposed (no active gate) | item 4 ja shippado no hub; aguarda baseline de adocao do `requestServerTimings` | Sim — schema novo (ADR pendente) |
-| 5 | `agent.getHealth` piggyback em respostas RPC | medium | medium | proposed (no active gate) | aguarda volume atual de `agent.getHealth` em prod | Sim — schema novo (ADR pendente) |
+| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | proposed (no active gate) — ver [ADR 0010](../adrs/0010-agent-phase-timings.md) | item 4 ja shippado no hub; aguarda baseline de adocao do `requestServerTimings` | Sim — schema novo (ADR pendente) |
+| 5 | `agent.getHealth` piggyback em respostas RPC | medium | medium | proposed (no active gate) — ver [ADR 0011](../adrs/0011-health-piggyback.md) | aguarda volume atual de `agent.getHealth` em prod | Sim — schema novo (ADR pendente) |
 | 6 | Tunable `recommendedStreamPullWindowSize` + default > 1 | medium | low | ✅ **shipped** (default `1→8`, env `AGENT_STREAM_PULL_WINDOW_RECOMMENDED`, `plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-6--recommendedstreampullwindowsize-default--1) | medir p95 RTT × rows | Nao |
 | 7 | Extension `clientRequestIdEcho: "v1"` (Opcao A do item 3) | low-medium | medium | proposed (no active gate) | adocao do fast-path em prod com `body_id_echo_overhead_avg_ms > 0.5 ms` ou requirement externo (ver [`ADR 0009`](../adrs/0009-client-request-id-echo.md) "Reabertura") | Sim — ver [`ADR 0009`](../adrs/0009-client-request-id-echo.md) e [01_relay_body_id_echo.md](01_relay_body_id_echo.md) |
 | 8 | Bug `prepareForSend` reescreve `meta.request_id` (so importa se item 7 for shipar) | low | trivial | ✅ **shipped preventivamente** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-8--bug-preventivo-prepareforsend) | item 7 entrar em planning | Nao |
 | 9 | Pre-warm de schema validators / JSON schemas no `agent:ready` | low | medium | ✅ **shipped** (`TransportSchemaLoader.loadAll()._warmupHotSchemas`, `plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-9--pre-warm-de-schema-validators) | medir cold-start latency primeira request | Nao |
-| 10 | Compressao brotli (negociar `br` em `compressions`) | low | high | proposed (no active gate) | medir bytes-on-wire em prod; sem evidencia de banda como gargalo no Colmeia hoje | Sim — adicionar `br` nas `HUB_TRANSPORT_COMPRESSIONS` |
+| 10 | Compressao brotli (negociar `br` em `compressions`) | low | high | proposed (no active gate) — ver [brotli study](../studies/brotli_payload_frame_study.md) | medir bytes-on-wire em prod; sem evidencia de banda como gargalo no Colmeia hoje | Sim — adicionar `br` nas `HUB_TRANSPORT_COMPRESSIONS` |
 
 > **Como mover de coluna**: quando o time do agente abrir issue ou PR,
 > mudar para `discussing` ou `in-progress` com link. Quando shippar,
@@ -83,11 +83,19 @@ no `plug_agente`:
 | H1 | Batch dispatch `preDecodedData` — elimina encode→decode por item no handler `relay:rpc.request.batch` | high | ✅ **shipped** (2026-06-24) — ver [ADR 0008](../adrs/0008-relay-batch-protocol.md) |
 | H2 | Ack forward byte-path — `rpc:request_ack` reencaminhado via `encodeRelayOutboundFrameFromBytes` (sem re-`JSON.stringify`) | medium | ✅ **shipped** (2026-06-24) |
 | H3 | Idempotency waiters `Set<string>` — dedup de replay in-flight com lookup O(1) | low-medium | ✅ **shipped** (2026-06-24) |
+| H4 | Batch v2 flags — `requestServerTimings` / `fastPath` propagados por item | medium | ✅ **shipped** (2026-06-24) |
+| H5 | Agent access join — `findPrincipalAccessCheck` (1 RTT em cache miss) | medium | ✅ **shipped** (2026-06-24) |
+| H6 | HMAC canonical-string LRU cache quando `PAYLOAD_SIGN_OUTBOUND=true` | low (condicional) | ✅ **shipped** (2026-06-24) |
+| H7 | Batch histogram gauges (decode ms, items/envelope) + Grafana dashboard | observability | ✅ **shipped** (2026-06-24) |
 
-**Fora de escopo nesta onda** (requerem coordenacao ou estao desligados por
-default): `meta.timestamp` como epoch-ms (contrato agente), cache de HMAC
-(`PAYLOAD_SIGN_OUTBOUND=false` por defeito), join unico em agent access
-cache miss.
+**Cross-repo (ADRs, implementacao no `plug_agente`)**:
+
+| ADR | Topico | Status |
+|-----|--------|--------|
+| [0010](../adrs/0010-agent-phase-timings.md) | `meta.agent_phases` | proposed |
+| [0011](../adrs/0011-health-piggyback.md) | Health piggyback em respostas RPC | proposed |
+| [0009](../adrs/0009-client-request-id-echo.md) | `clientRequestIdEcho: "v1"` | proposed (+ issue template) |
+| [brotli study](../studies/brotli_payload_frame_study.md) | Compressao `br` | proposed |
 
 ---
 

@@ -51,10 +51,8 @@ commands; multi-item batching now flows through the new event.
 - **Decision C (per-socket inflight gate all-or-nothing)**: implemented
   via the new `tryAcquireSocketInflightSlots`.
 - **Decision F (streaming items rejected in v1)**: implemented.
-- **`requestServerTimings` / `fastPath` on the envelope schema**: accepted
-  by the Zod schema for forward-compat with v2, but **NOT** propagated to
-  per-item dispatch in v1. v2 will route these flags through per-item
-  dispatch.
+- **`requestServerTimings` / `fastPath` on the envelope schema**: propagate
+  to per-item dispatch (2026-06-24), mirroring `relay:rpc.request`.
 - **Per-item pre-decoded dispatch** (2026-06-24): `dispatchRelayRpcToAgent`
   accepts `preDecodedData` so the batch handler skips the per-item
   encode→decode round-trip. See
@@ -270,9 +268,10 @@ The dispatcher behind `relay:rpc.request.batch` checks
 - [x] **v2 follow-up (partial, 2026-06-24)**: `dispatchRelayRpcToAgent`
       accepts `preDecodedData` so batch dispatch skips the per-item
       consumer-side encode/decode round-trip.
-- [ ] **v2 follow-up**: propagate `requestServerTimings` / `fastPath`
-      from the batch envelope to per-item dispatch.
-- [ ] **v2 follow-up**: Grafana panel update for the new counters.
+- [x] **v2 follow-up (2026-06-24)**: propagate `requestServerTimings` /
+      `fastPath` from the batch envelope to per-item dispatch.
+- [x] **v2 follow-up (2026-06-24)**: Grafana dashboard for batch counters
+      (`docs/grafana/relay_batch_dashboard.json`) + decode/items gauges.
 - [ ] **v2 follow-up**: `RelayBatchEnvelopeRoute` type linking batch ack
       to per-item routes for audit-log correlation.
 

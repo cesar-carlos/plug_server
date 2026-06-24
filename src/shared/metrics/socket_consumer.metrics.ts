@@ -115,6 +115,16 @@ const relayOptInsCounters = {
     inflight_gate: 0,
     envelope_error: 0,
   } as Record<RelayBatchRejectReason, number>,
+  batchEnvelopeDecode: {
+    count: 0,
+    sumMs: 0,
+    maxMs: 0,
+  },
+  batchItemsPerEnvelope: {
+    count: 0,
+    sum: 0,
+    max: 0,
+  },
 };
 
 export type RelayBatchRejectReason =
@@ -350,6 +360,24 @@ export const noteRelayBatchAccepted = (input: {
 
 export const noteRelayBatchRejected = (reason: RelayBatchRejectReason): void => {
   relayOptInsCounters.batchEnvelopesRejectedTotal[reason] += 1;
+};
+
+export const observeRelayBatchEnvelopeDecodeMs = (elapsedMs: number): void => {
+  const safe = Math.max(0, elapsedMs);
+  relayOptInsCounters.batchEnvelopeDecode.count += 1;
+  relayOptInsCounters.batchEnvelopeDecode.sumMs += safe;
+  if (safe > relayOptInsCounters.batchEnvelopeDecode.maxMs) {
+    relayOptInsCounters.batchEnvelopeDecode.maxMs = safe;
+  }
+};
+
+export const observeRelayBatchItemsPerEnvelope = (itemCount: number): void => {
+  const safe = Math.max(0, itemCount);
+  relayOptInsCounters.batchItemsPerEnvelope.count += 1;
+  relayOptInsCounters.batchItemsPerEnvelope.sum += safe;
+  if (safe > relayOptInsCounters.batchItemsPerEnvelope.max) {
+    relayOptInsCounters.batchItemsPerEnvelope.max = safe;
+  }
 };
 
 export const noteServerTimingsOptIn = (channel: "relay" | "agents_command" | "rest"): void => {

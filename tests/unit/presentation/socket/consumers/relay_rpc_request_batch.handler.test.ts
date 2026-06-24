@@ -25,6 +25,20 @@ vi.mock("../../../../../src/shared/metrics/socket_consumer.metrics", () => ({
   noteRelayBatchEnvelopeReceived: vi.fn(),
   noteRelayBatchAccepted: vi.fn(),
   noteRelayBatchRejected: vi.fn(),
+  noteRelayFastPathRequested: vi.fn(),
+  noteRelayFastPathForbidden: vi.fn(),
+  noteServerTimingsOptIn: vi.fn(),
+  observeRelayBatchEnvelopeDecodeMs: vi.fn(),
+  observeRelayBatchItemsPerEnvelope: vi.fn(),
+}));
+
+vi.mock("../../../../../src/application/services/bridge_latency_trace_builder", () => ({
+  createBridgeLatencyTraceForRequest: vi.fn(() => ({
+    hasDispatchMeta: () => false,
+    isFinalized: () => false,
+    dismissWithoutPersist: vi.fn(),
+    finalizeOnce: vi.fn(),
+  })),
 }));
 
 // The overrides object lives on globalThis so it survives `vi.mock`'s
@@ -33,6 +47,7 @@ type BatchEnvOverrides = {
   socketRelayBatchEnabled: boolean;
   socketRelayBatchMaxItems: number;
   socketConsumerMaxInflightPerSocket: number;
+  socketRelayFastPathForbidden: boolean;
 };
 
 declare global {
@@ -43,6 +58,7 @@ globalThis.__batchEnvOverrides = {
   socketRelayBatchEnabled: true,
   socketRelayBatchMaxItems: 32,
   socketConsumerMaxInflightPerSocket: 32,
+  socketRelayFastPathForbidden: false,
 };
 
 const overrides = globalThis.__batchEnvOverrides;
@@ -73,7 +89,11 @@ import {
   noteRelayBatchAccepted,
   noteRelayBatchEnvelopeReceived,
   noteRelayBatchRejected,
+  noteRelayFastPathForbidden,
+  noteRelayFastPathRequested,
+  noteServerTimingsOptIn,
 } from "../../../../../src/shared/metrics/socket_consumer.metrics";
+import { createBridgeLatencyTraceForRequest } from "../../../../../src/application/services/bridge_latency_trace_builder";
 import {
   handleRelayRpcRequestBatch,
   parseRelayRpcRequestBatchEnvelope,
@@ -168,6 +188,12 @@ describe("handleRelayRpcRequestBatch", () => {
     overrides.socketRelayBatchEnabled = true;
     overrides.socketRelayBatchMaxItems = 32;
     overrides.socketConsumerMaxInflightPerSocket = 32;
+    overrides.socketRelayFastPathForbidden = false;
+
+    vi.mocked(noteRelayFastPathRequested).mockClear();
+    vi.mocked(noteRelayFastPathForbidden).mockClear();
+    vi.mocked(noteServerTimingsOptIn).mockClear();
+    vi.mocked(createBridgeLatencyTraceForRequest).mockClear();
 
     mockedFindConversation.mockReturnValue({
       conversationId: "conv-1",
@@ -252,6 +278,50 @@ describe("handleRelayRpcRequestBatch", () => {
         method: "sql.execute",
       });
     }
+  });
+
+  it("forwards requestServerTimings and fastPath to each dispatch call", async () => {
+    const socket = buildSocket();
+    mockedDispatch.mockResolvedValue({ requestId: "req-1", fastPath: true });
+
+    handleRelayRpcRequestBatch(socket as never, {
+      conversationId: "conv-1",
+      frame: buildBatchFrame(["a", "b"]),
+      requestServerTimings: true,
+      fastPath: true,
+    });
+
+    await vi.waitFor(() => expect(mockedDispatch).toHaveBeenCalledTimes(2));
+
+    expect(noteRelayFastPathRequested).toHaveBeenCalledTimes(1);
+    expect(noteServerTimingsOptIn).toHaveBeenCalledTimes(1);
+    expect(noteServerTimingsOptIn).toHaveBeenCalledWith("relay");
+    expect(createBridgeLatencyTraceForRequest).toHaveBeenCalledTimes(2);
+
+    for (const call of mockedDispatch.mock.calls) {
+      expect(call[0]).toMatchObject({
+        requestServerTimings: true,
+        fastPath: true,
+      });
+    }
+  });
+
+  it("strips fastPath from dispatch when SOCKET_RELAY_FAST_PATH_FORBIDDEN is true", async () => {
+    overrides.socketRelayFastPathForbidden = true;
+    const socket = buildSocket();
+    mockedDispatch.mockResolvedValue({ requestId: "req-1" });
+
+    handleRelayRpcRequestBatch(socket as never, {
+      conversationId: "conv-1",
+      frame: buildBatchFrame(["a"]),
+      fastPath: true,
+    });
+
+    await vi.waitFor(() => expect(mockedDispatch).toHaveBeenCalledTimes(1));
+
+    expect(noteRelayFastPathRequested).toHaveBeenCalledTimes(1);
+    expect(noteRelayFastPathForbidden).toHaveBeenCalledTimes(1);
+    expect(mockedDispatch.mock.calls[0]![0]).not.toHaveProperty("fastPath");
   });
 
   it("rejects the entire batch with RATE_LIMITED when the inflight gate cannot fit all items", async () => {

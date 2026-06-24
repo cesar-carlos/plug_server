@@ -289,4 +289,15 @@ describe("validateFrameSignature key_id enforcement (PAYLOAD_SIGNING_KEY_ID)", (
 
     expect(decoded.ok).toBe(true);
   });
+
+  it("produces stable outbound signatures when signing is enabled (canonical input cache)", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SIGNING_KEY,
+      payloadSignOutbound: true,
+    });
+    mod._resetSignatureInputCacheForTests();
+    const first = mod.encodePayloadFrame({ cached: true }, { omitTraceId: true, requestId: "req-cache" });
+    const second = mod.encodePayloadFrame({ cached: true }, { omitTraceId: true, requestId: "req-cache" });
+    expect(first.signature?.value).toBe(second.signature?.value);
+  });
 });

@@ -204,4 +204,28 @@ describe("AgentAccessService.assertPrincipalAccess — access cache", () => {
     expect(snapshotSpy).toHaveBeenCalledTimes(2);
     expect(accessSpy).toHaveBeenCalledTimes(2);
   });
+
+  it("uses a single combined repository call on cache miss when findPrincipalAccessCheck is available", async () => {
+    const agentRepository = new InMemoryAgentRepository();
+    await agentRepository.save(Agent.create({ agentId, name: "Test Agent" }));
+    const combinedSpy = vi.fn().mockResolvedValue({
+      outcome: "granted",
+      snapshot: { agentId, status: "active" as const },
+    });
+    agentRepository.findPrincipalAccessCheck = combinedSpy;
+
+    const service = new AgentAccessService(
+      agentRepository,
+      new InMemoryAgentIdentityRepository(),
+      new InMemoryClientAgentAccessRepository(),
+    );
+
+    const result = await service.assertPrincipalAccess({ type: "client", id: clientId }, agentId);
+    expect(result.ok).toBe(true);
+    expect(combinedSpy).toHaveBeenCalledTimes(1);
+    expect(combinedSpy).toHaveBeenCalledWith(agentId, {
+      type: "client",
+      clientId,
+    });
+  });
 });

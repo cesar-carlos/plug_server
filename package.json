@@ -26,7 +26,7 @@
     "db:container:down": "docker compose down",
     "db:container:logs": "docker compose logs -f postgres",
     "db:container:ps": "docker compose ps",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run db:generate && tsc --noEmit -p tsconfig.json",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" --ignore-unknown",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" --ignore-unknown",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",

@@ -27,6 +27,16 @@ export interface AgentAccessSnapshot {
   readonly status: AgentStatus;
 }
 
+export type PrincipalAccessQuery =
+  | { readonly type: "user"; readonly userId: string }
+  | { readonly type: "client"; readonly clientId: string };
+
+export type PrincipalAccessCheckResult =
+  | { readonly outcome: "granted"; readonly snapshot: AgentAccessSnapshot }
+  | { readonly outcome: "not_found" }
+  | { readonly outcome: "inactive" }
+  | { readonly outcome: "denied" };
+
 export interface IAgentRepository {
   findById(agentId: string): Promise<Agent | null>;
   findByIds(agentIds: string[]): Promise<Agent[]>;
@@ -34,6 +44,14 @@ export interface IAgentRepository {
   findAll(filter?: AgentListFilter): Promise<PaginatedAgentList>;
   /** Lightweight projection for hot-path access checks (consumer guard, REST bridge). */
   findAccessSnapshotById(agentId: string): Promise<AgentAccessSnapshot | null>;
+  /**
+   * Single round-trip access check: agent existence, active status, and principal
+   * binding. Used by `AgentAccessService` on cache miss (Prisma implementation).
+   */
+  findPrincipalAccessCheck?(
+    agentId: string,
+    principal: PrincipalAccessQuery,
+  ): Promise<PrincipalAccessCheckResult>;
   save(agent: Agent): Promise<void>;
   update(agent: Agent): Promise<void>;
   commitAgentProfileChange(input: AgentProfileCommitInput): Promise<AgentProfileCommitResult>;

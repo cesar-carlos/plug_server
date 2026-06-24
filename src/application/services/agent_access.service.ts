@@ -2,6 +2,7 @@ import { Agent } from "../../domain/entities/agent.entity";
 import type {
   AgentAccessSnapshot,
   IAgentRepository,
+  PrincipalAccessQuery,
 } from "../../domain/repositories/agent.repository.interface";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
@@ -30,11 +31,15 @@ const accessCacheKey = (principalType: string, principalId: string, agentId: str
 const bindRegisterCacheKey = (userId: string, agentId: string): string =>
   `bindReg:user:${userId}:${agentId}`;
 
+const toPrincipalAccessQuery = (principal: AgentAccessPrincipal): PrincipalAccessQuery =>
+  principal.type === "user"
+    ? { type: "user", userId: principal.id }
+    : { type: "client", clientId: principal.id };
+
 export class AgentAccessService {
   /**
    * Short-lived positive-result cache for `assertPrincipalAccess`.
-   * Eliminates the two DB queries (agent snapshot + identity/client access row)
-   * on repeated bridge commands within the TTL window.
+   * Eliminates repeated DB queries on bridge commands within the TTL window.
    * Only caches successful (access granted) results — denied/not-found results
    * are never cached so re-grants take effect immediately.
    * Set `AGENT_ACCESS_CACHE_TTL_MS=0` to disable.
@@ -96,6 +101,40 @@ export class AgentAccessService {
       if (cached !== undefined) {
         return ok(cached);
       }
+    }
+
+    if (principal.type === "user" && principal.role === "admin") {
+      const snapshot = await this.agentRepository.findAccessSnapshotById(agentId);
+      if (!snapshot) {
+        return err(agentNotFound(agentId));
+      }
+      if (snapshot.status !== "active") {
+        return err(agentInactive(agentId));
+      }
+      if (env.agentAccessCacheTtlMs > 0) {
+        this.accessCache.set(accessCacheKey(principal.type, principal.id, agentId), snapshot);
+      }
+      return ok(snapshot);
+    }
+
+    const combinedCheck = this.agentRepository.findPrincipalAccessCheck?.bind(
+      this.agentRepository,
+    );
+    if (combinedCheck) {
+      const check = await combinedCheck(agentId, toPrincipalAccessQuery(principal));
+      if (check.outcome === "not_found") {
+        return err(agentNotFound(agentId));
+      }
+      if (check.outcome === "inactive") {
+        return err(agentInactive(agentId));
+      }
+      if (check.outcome === "denied") {
+        return err(agentAccessDenied(agentId));
+      }
+      if (env.agentAccessCacheTtlMs > 0) {
+        this.accessCache.set(accessCacheKey(principal.type, principal.id, agentId), check.snapshot);
+      }
+      return ok(check.snapshot);
     }
 
     const snapshot = await this.agentRepository.findAccessSnapshotById(agentId);

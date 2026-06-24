@@ -512,10 +512,15 @@ payload (JSON):
   conversationId: string,
   frame: PayloadFrame,                 // payload.data = JSON-RPC array (1..32 items)
   payloadFrameCompression?: "default" | "none" | "always",
-  requestServerTimings?: boolean,       // accepted in v1 envelope schema, NO-OP per-item
-  fastPath?: boolean                    // accepted in v1 envelope schema, NO-OP per-item
+  requestServerTimings?: boolean,
+  fastPath?: boolean
 }
 ```
+
+`requestServerTimings` e `fastPath` no envelope propagam para **cada item**
+do batch (mesma semantica do `relay:rpc.request` single). ADR Decision B
+continua valendo: o hub sempre emite `relay:rpc.batch_accepted` uma vez;
+nunca emite `relay:rpc.accepted` por item.
 
 Resposta: `relay:rpc.batch_accepted` (JSON, **uma vez por envelope**):
 
@@ -590,18 +595,6 @@ JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
   Erros aparecem em `batch_accepted.items[k].error`; sucessos aparecem em
   `batch_accepted.items[k].requestId`.
 
-### Limitacoes v1 (planejadas para v2)
-
-- `requestServerTimings` e `fastPath` no envelope sao aceitos pelo schema
-  mas **nao** propagam para os itens individualmente. Para usar timings ou
-  fast-path por item em v1, envie como `relay:rpc.request` single (1 por
-  RPC).
-- Cada item passa por um round-trip extra de encode/decode interno porque
-  e sintetizado como `PayloadFrame` individual antes de chamar o
-  dispatcher de RPC unica. Custo: ~N `JSON.stringify` + ~N `JSON.parse`
-  por batch. v2 vai expor entry point pre-decoded no dispatcher e
-  eliminar esse overhead.
-
 ### Metricas relacionadas em `/metrics`
 
 - `plug_socket_relay_batch_envelopes_received_total`
@@ -610,6 +603,10 @@ JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
 - `plug_socket_relay_batch_items_deduped_total`
 - `plug_socket_relay_batch_items_error_total`
 - `plug_socket_relay_batch_envelopes_rejected_total{reason="disabled|not_found|frame_decode_failed|not_array|validation_failed|inflight_gate|envelope_error"}`
+- `plug_socket_relay_batch_envelope_decode_avg_ms` / `_max_ms` (gauge por processo)
+- `plug_socket_relay_batch_items_per_envelope_avg` / `_max` (gauge por processo)
+
+Dashboard Grafana: [`docs/grafana/relay_batch_dashboard.json`](../grafana/relay_batch_dashboard.json).
 
 ## Isolamento por conversa
 

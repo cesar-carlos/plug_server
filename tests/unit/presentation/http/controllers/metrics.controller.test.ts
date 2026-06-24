@@ -203,6 +203,16 @@ describe("metrics.controller", () => {
             inflight_gate: 0,
             envelope_error: 0,
           },
+          batchEnvelopeDecode: {
+            count: 0,
+            sumMs: 0,
+            maxMs: 0,
+          },
+          batchItemsPerEnvelope: {
+            count: 0,
+            sum: 0,
+            max: 0,
+          },
         },
         customEvents: {
           subscriptionsActive: 0,
