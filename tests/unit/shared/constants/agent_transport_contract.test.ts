@@ -31,6 +31,15 @@ describe("agent_transport_contract", () => {
         freshnessThresholdMs: 5000,
       });
     });
+
+    it("advertises parallelBatchDispatch for agent-side read-only batch parallelism", () => {
+      expect(HUB_TRANSPORT_EXTENSIONS.parallelBatchDispatch).toEqual({
+        enabled: true,
+        maxConcurrency: 4,
+        mixedReadOnlyMethods: true,
+        selectOnlySqlExecute: true,
+      });
+    });
   });
 
   describe("buildHubServerCapabilities", () => {

@@ -249,6 +249,9 @@ Regra de rollout:
 
 ## Agente (`plug_agente`)
 
+- O hub anuncia `extensions.parallelBatchDispatch` em `agent:capabilities` para desbloquear dispatch paralelo de batches JSON-RPC read-only no agente (REST array e `sql.executeBatch`). Requer agente `2.11.2+` com `feature_enable_parallel_json_rpc_batch_dispatch`.
+- Relay consumer batch (`SOCKET_RELAY_BATCH_ENABLED=true`, P3) reduz RTT consumer↔hub via `relay:rpc.request.batch`; cada item continua como `rpc:request` separado no agente.
+- Migração de canal (REST materializado → relay, fastPath, Opcao A): `docs/plug_agente/05_channel_migration_performance.md`.
 - Afinar limites negociados no handshake (`max_rows`, streaming, chunking) e carga SQL no próprio agente; o hub só encaminha.
 - Benchmark E2E com ODBC e `multi_result` (repositório `plug_agente`): visão geral hub ↔ agente em `docs/performance/e2e_benchmark_hub_agent.md`.
 

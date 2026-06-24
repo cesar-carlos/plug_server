@@ -57,6 +57,17 @@ export const HUB_TRANSPORT_EXTENSIONS = {
    */
   plugProfile: "plug-jsonrpc-profile/2.11.2",
   orderedBatchResponses: true,
+  /**
+   * When negotiated with the agent, enables parallel read-only JSON-RPC batch
+   * dispatch on the agent for REST bridge arrays and native batch requests.
+   * Aligned with plug_agente ParallelBatchDispatchNegotiation / RpcBatchConstants.
+   */
+  parallelBatchDispatch: {
+    enabled: true,
+    maxConcurrency: 4,
+    mixedReadOnlyMethods: true,
+    selectOnlySqlExecute: true,
+  },
   notificationNullIdCompatibility: true,
   paginationModes: ["page-offset", "cursor-keyset"] as const,
   traceContext: ["w3c-trace-context", "legacy-trace-id"] as const,

@@ -39,6 +39,8 @@
     "test:coverage:critical": "npm run test:coverage && node scripts/check-critical-coverage.cjs",
     "test:e2e": "node scripts/run-e2e.cjs",
     "load:socket-bridge": "node scripts/socket-bridge-load-test.mjs",
+    "perf:baseline": "node scripts/capture-perf-baseline.mjs",
+    "perf:audit-env": "node scripts/audit-perf-env.mjs",
     "check:openrpc": "vitest run tests/integration/agent_rpc_contract.integration.test.ts tests/contract/plug_agente_optional.contract.test.ts",
     "check:swagger-edge": "bash scripts/check_swagger_edge.sh",
     "check:swagger-flaky": "LOOPS=30 BURST=10 bash scripts/check_swagger_edge.sh"

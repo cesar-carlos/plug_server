@@ -88,6 +88,8 @@ no `plug_agente`:
 | H6 | HMAC canonical-string LRU cache quando `PAYLOAD_SIGN_OUTBOUND=true` | low (condicional) | ✅ **shipped** (2026-06-24) |
 | H7 | Batch histogram gauges (decode ms, items/envelope) + Grafana dashboard | observability | ✅ **shipped** (2026-06-24) |
 | H8 | Transport extensions ADR 0009/0010/0011 — negociacao, dispatch Opcao A, piggyback | medium | ✅ **shipped** ([`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) 2026-06-24) |
+| H9 | `parallelBatchDispatch` em `agent:capabilities` — desbloqueia paralelismo batch no agente | medium | ✅ **shipped** (2026-06-24) |
+| H10 | Health poll scheduler opcional (`AGENT_HEALTH_POLL_ENABLED`) com skip piggyback | low-medium | ✅ **shipped** (2026-06-24) — ver [ADR 0011](../adrs/0011-health-piggyback.md) |
 
 **Cross-repo (ADRs, implementacao no `plug_agente`)**:
 

@@ -7,6 +7,20 @@ para benchmark profundo de SQL/ODBC, mantenha a carga no repositorio do agente.
 O probe tambem cobre os campos do profile 2.11.2 para medir o custo do transporte
 no hub antes de comparar o runtime ODBC do agente.
 
+## Baseline e auditoria de env (plano P0–P1)
+
+```bash
+# P0 — snapshot Prometheus (hub a correr)
+HUB_URL=http://localhost:3000 npm run perf:baseline
+HUB_URL=http://localhost:3000 npm run perf:baseline -- --out baseline-snapshot.txt
+
+# P1 — auditar .env vs presets recomendados
+npm run perf:audit-env
+npm run perf:audit-env -- --strict
+```
+
+Ver tabela de indicadores em `docs/performance/performance_hub_agent.md` § Baseline antes/depois.
+
 ## Escopo
 
 - **Hub (`plug_server`)**: mede inflight, fila por agente, relay, encode/decode de

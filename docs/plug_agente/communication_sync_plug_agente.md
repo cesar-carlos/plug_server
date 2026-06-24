@@ -79,6 +79,7 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | `agent:profile.update` para self-service do cadastro | alinhado no hub | `docs/api/client_agent_business_rules.md`; patch parcial por socket em `/agents`, com `snake_case` e ack `agent:profile.updated` |
 | `observer.*` | fora do contrato atual | reservado para profile futuro; o hub rejeita estes metodos ate o `plug_agente` publicar implementacao, OpenRPC e schemas |
 | Transport extensions ADR 0009/0010/0011 | alinhado (2026-06-24) | hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f), agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677); ver [`../plug_agente/docs/plug_server/readme.md`](../../../plug_agente/docs/plug_server/readme.md) |
+| `parallelBatchDispatch` em `agent:capabilities` | alinhado (hub anuncia; agente negocia paralelismo em batches REST/`sql.executeBatch`) | `src/shared/constants/agent_transport_contract.ts`, `plug_agente` `ProtocolNegotiator` |
 
 ## Fontes inversas (`plug_agente` → hub)
 

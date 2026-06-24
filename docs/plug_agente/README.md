@@ -76,6 +76,8 @@ adicionados, acoes pendentes para o release) em
    acoes pendentes para o release), leia
    [`04_agent_implementation_status.md`](04_agent_implementation_status.md).
    Esta pagina e atualizada a cada nova onda de entrega.
+6. **Migração de canal para desempenho (P4)** — REST materializado → relay,
+   fastPath + Opcao A: [`05_channel_migration_performance.md`](05_channel_migration_performance.md).
 
 ## Documentos canonicos do contrato
 

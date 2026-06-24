@@ -864,6 +864,18 @@ const envSchema = z.object({
     .max(3_600_000)
     .default(60_000),
   /**
+   * When true, periodically emits `agent.getHealth` to connected agents unless
+   * ADR 0011 piggyback freshness allows skip (`shouldSkipScheduledHealthPoll`).
+   */
+  AGENT_HEALTH_POLL_ENABLED: z.coerce.boolean().default(false),
+  /** Interval for scheduled `agent.getHealth` polls. `0` disables when combined with enabled flag. */
+  AGENT_HEALTH_POLL_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3_600_000)
+    .default(60_000),
+  /**
    * Disconnect connected `/consumers` sockets whose registry `lastSeenAtMs` exceeds this idle threshold.
    * `0` disables idle enforcement.
    */
@@ -1827,6 +1839,8 @@ export const env = {
     parsedEnv.NODE_ENV === "test" && parsedEnv.SOCKET_AUTH_REQUIRED === false,
   socketAgentIdleTimeoutMs: parsedEnv.SOCKET_AGENT_IDLE_TIMEOUT_MS,
   socketAgentIdleSweepIntervalMs: parsedEnv.SOCKET_AGENT_IDLE_SWEEP_INTERVAL_MS,
+  agentHealthPollEnabled: parsedEnv.AGENT_HEALTH_POLL_ENABLED,
+  agentHealthPollIntervalMs: parsedEnv.AGENT_HEALTH_POLL_INTERVAL_MS,
   socketConsumerIdleTimeoutMs: parsedEnv.SOCKET_CONSUMER_IDLE_TIMEOUT_MS,
   socketConsumerIdleSweepIntervalMs: parsedEnv.SOCKET_CONSUMER_IDLE_SWEEP_INTERVAL_MS,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,

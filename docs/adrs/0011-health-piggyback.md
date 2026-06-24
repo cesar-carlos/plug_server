@@ -50,8 +50,7 @@ Hub behavior:
 - [x] Forwarder hook (`maybeRecordAgentHealthPiggyback`) on non-`agent.getHealth` unary responses.
 - [x] `agentRegistry.shouldSkipScheduledHealthPoll()` + `clearAgentHealthPiggybackState` on disconnect.
 - [x] Metrics: `plug_agent_health_piggyback_used_total` vs `plug_agent_health_poll_total`.
-- [ ] Optional: hub scheduler/timer that calls `shouldSkipScheduledHealthPoll` before emitting
-  scheduled `agent.getHealth` (only valuable when explicit poll volume is material).
+- [x] Optional: hub scheduler/timer (`AGENT_HEALTH_POLL_ENABLED`) calls `shouldSkipScheduledHealthPoll` before scheduled `agent.getHealth` (`agent_health_poll_scheduler.ts`).
 
 ## Agent work (`plug_agente`)
 

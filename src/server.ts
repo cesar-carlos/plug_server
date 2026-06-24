@@ -69,9 +69,14 @@ import {
   stopAgentIdleTimeoutScheduler,
 } from "./presentation/socket/hub/scheduling/agent_idle_timeout_scheduler";
 import {
+  startAgentHealthPollScheduler,
+  stopAgentHealthPollScheduler,
+} from "./presentation/socket/hub/scheduling/agent_health_poll_scheduler";
+import {
   startConsumerIdleTimeoutScheduler,
   stopConsumerIdleTimeoutScheduler,
 } from "./presentation/socket/hub/scheduling/consumer_idle_timeout_scheduler";
+import { dispatchRpcCommandToAgent } from "./presentation/socket/hub/relay/rpc_bridge";
 import { closeSocketServer, createSocketServer } from "./socket";
 import { SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { container } from "./shared/di/container";
@@ -242,6 +247,7 @@ const bootstrap = async (): Promise<void> => {
   bootSafe("agent_idle_timeout", () =>
     startAgentIdleTimeoutScheduler(ioForSchedulers.of(SOCKET_NAMESPACES.agents)),
   );
+  bootSafe("agent_health_poll", () => startAgentHealthPollScheduler(dispatchRpcCommandToAgent));
   bootSafe("consumer_idle_timeout", () =>
     startConsumerIdleTimeoutScheduler(ioForSchedulers.of(SOCKET_NAMESPACES.consumers)),
   );
@@ -300,6 +306,7 @@ const shutdown = async (signal: string): Promise<void> => {
     stopRegistrationEmailOutboxWorker();
     stopRegistrationEmailOutboxDeadLetterScheduler();
     stopAgentIdleTimeoutScheduler();
+    stopAgentHealthPollScheduler();
     stopConsumerIdleTimeoutScheduler();
     await flushPendingSocketAuditEvents();
     const auditDrain = await waitForSocketAuditDrain(2_500);

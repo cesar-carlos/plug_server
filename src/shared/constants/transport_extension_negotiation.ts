@@ -32,3 +32,25 @@ export const isHealthPiggybackNegotiated = (
   const hubRaw = HUB_TRANSPORT_EXTENSIONS.healthPiggyback;
   return isRecord(agentRaw) && isRecord(hubRaw);
 };
+
+const readParallelBatchDispatchBlock = (
+  extensions: Record<string, unknown> | null,
+): Record<string, unknown> | null => {
+  const raw = extensions?.parallelBatchDispatch;
+  return isRecord(raw) ? raw : null;
+};
+
+/**
+ * True when hub and agent both advertise `parallelBatchDispatch.enabled`.
+ * The agent applies full intersection (maxConcurrency, flags) in ProtocolNegotiator.
+ */
+export const isParallelBatchDispatchNegotiated = (
+  agentCapabilities: Record<string, unknown>,
+): boolean => {
+  const hubBlock = HUB_TRANSPORT_EXTENSIONS.parallelBatchDispatch;
+  if (!hubBlock.enabled) {
+    return false;
+  }
+  const agentBlock = readParallelBatchDispatchBlock(readAgentExtensions(agentCapabilities));
+  return agentBlock?.enabled === true;
+};
