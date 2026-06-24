@@ -1,6 +1,9 @@
 # ADR 0011: Health snapshot piggyback on RPC responses
 
-- **Status**: **Proposed** — requires coordinated schema in `plug_agente`.
+- **Status**: **Accepted — v1 shipped (partial scheduler)** (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f);
+  agent [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677), 2026-06-24).
+  Piggyback consumption + metrics live; scheduled `agent.getHealth` poll skip
+  hook exists but no hub timer calls it yet (optional follow-up).
 - **Date**: 2026-06-24
 
 ## Context
@@ -42,15 +45,19 @@ Hub behavior:
 
 ## Hub work (this repo)
 
-- [ ] ADR accepted (this document).
-- [ ] Extend `agentRegistry` / health scheduler to honor piggyback freshness.
-- [ ] Metrics: `plug_agent_health_piggyback_used_total` vs `plug_agent_health_poll_total`.
+- [x] ADR accepted (this document).
+- [x] `agent_health_piggyback.service.ts` — freshness validation + per-agent state.
+- [x] Forwarder hook (`maybeRecordAgentHealthPiggyback`) on non-`agent.getHealth` unary responses.
+- [x] `agentRegistry.shouldSkipScheduledHealthPoll()` + `clearAgentHealthPiggybackState` on disconnect.
+- [x] Metrics: `plug_agent_health_piggyback_used_total` vs `plug_agent_health_poll_total`.
+- [ ] Optional: hub scheduler/timer that calls `shouldSkipScheduledHealthPoll` before emitting
+  scheduled `agent.getHealth` (only valuable when explicit poll volume is material).
 
 ## Agent work (`plug_agente`)
 
-- [ ] Sample health evaluator on response path (every N requests).
-- [ ] Cap snapshot size; avoid large nested objects.
-- [ ] Tests for interval and freshness fields.
+- [x] `RpcHealthPiggybackSampler` on unary response path (every N requests).
+- [x] Compact snapshot (`sql_queue_pressure`, `active_streams`, `circuit_state`, etc.).
+- [x] Tests: `rpc_inbound_response_enricher_test`, negotiator coverage.
 
 ### GitHub issue template (`plug_agente`)
 

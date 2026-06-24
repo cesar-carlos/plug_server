@@ -78,6 +78,18 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | `profile_version` no resultado de `agent.getProfile` | hub usa para *pull sync* / consistencia | `docs/api/client_agent_business_rules.md`, `docs/configuration.md`; o JSON Schema publicado em `plug_agente` inclui o campo como opcional e o hub continua tolerando agentes legados que o omitem |
 | `agent:profile.update` para self-service do cadastro | alinhado no hub | `docs/api/client_agent_business_rules.md`; patch parcial por socket em `/agents`, com `snake_case` e ack `agent:profile.updated` |
 | `observer.*` | fora do contrato atual | reservado para profile futuro; o hub rejeita estes metodos ate o `plug_agente` publicar implementacao, OpenRPC e schemas |
+| Transport extensions ADR 0009/0010/0011 | alinhado (2026-06-24) | hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f), agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677); ver [`../plug_agente/docs/plug_server/readme.md`](../../../plug_agente/docs/plug_server/readme.md) |
+
+## Fontes inversas (`plug_agente` → hub)
+
+Quando o agente passa a depender de comportamento novo no hub, o time do
+agente mantem orientacoes em `../plug_agente/docs/plug_server/`:
+
+- [`readme.md`](../../../plug_agente/docs/plug_server/readme.md) — resumo das extensoes
+- [`01_transport_extensions.md`](../../../plug_agente/docs/plug_server/01_transport_extensions.md) — contrato tecnico
+- [`02_implementation_checklist.md`](../../../plug_agente/docs/plug_server/02_implementation_checklist.md) — checklist de homologacao
+
+Espelho hub → agente: esta pasta [`docs/plug_agente/`](plug_agente/).
 
 ## Diferencas intencionais
 

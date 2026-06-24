@@ -1,6 +1,8 @@
 # ADR 0010: Per-phase agent timings (`meta.agent_phases`)
 
-- **Status**: **Proposed** — hub ready (`requestServerTimings`); agent implementation pending in `plug_agente`.
+- **Status**: **Accepted — v1 shipped** (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) +
+  [`a6fbc2c`](https://github.com/cesar-carlos/plug_server/commit/a6fbc2c) batch flags;
+  agent [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677), 2026-06-24).
 - **Date**: 2026-06-24
 
 ## Context
@@ -44,14 +46,16 @@ Introduce optional `meta.agent_phases` on agent-originated RPC responses when th
 ## Hub work (this repo)
 
 - [x] `requestServerTimings` on relay + batch (2026-06-24).
-- [ ] Gate merging/display in runbooks when `agentPhaseTimings` extension is negotiated (documentation only until agent ships).
+- [x] Announce `agentPhaseTimings: "v1"` in `HUB_TRANSPORT_EXTENSIONS` (2026-06-24).
+- [x] Forwarder pass-through — `meta.agent_phases` not stripped on relay responses.
+- [x] Runbook note in [`docs/runbooks/socket_perf_investigation.md`](../runbooks/socket_perf_investigation.md).
 - [ ] Optional: extend `BridgeLatencyTraceSession` to persist `agent_phases` when present.
 
 ## Agent work (`plug_agente`)
 
-- [ ] Emit `meta.agent_phases` on unary `rpc:response` when consumer requested timings and extension is negotiated.
-- [ ] Instrument hot path in `rpc_inbound_handler` / `SqlExecutionQueue` without blocking the event loop.
-- [ ] Contract test: hub contract suite accepts documented keys.
+- [x] Emit `meta.agent_phases` on unary `rpc:response` when consumer requested timings and extension is negotiated ([`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677)).
+- [x] Instrument hot path in `rpc_inbound_handler` / SQL queue without blocking the event loop.
+- [x] Tests: `rpc_inbound_response_enricher_test`, `protocol_negotiator_test`.
 
 ### GitHub issue template (`plug_agente`)
 

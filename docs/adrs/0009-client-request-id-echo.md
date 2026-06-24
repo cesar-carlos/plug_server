@@ -1,10 +1,10 @@
 ﻿# ADR 0009: Client request id echo end-to-end (`clientRequestIdEcho` extension)
 
-- **Status**: **Proposed** — not implemented. Tracks a future evolution
-  of the relay `body.id` contract that supersedes the hub-side rewrite
-  shipped in 2026-05.
-- **Date**: 2026-05-28
-- **Sprint**: TBD (gated on observation, see "Reabertura")
+- **Status**: **Accepted — v1 shipped** (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f),
+  agent [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677), 2026-06-24).
+  Active when `clientRequestIdEcho: "v1"` is negotiated at handshake;
+  legacy agents keep Opcao B unchanged.
+- **Date**: 2026-05-28 (proposed); 2026-06-24 (shipped)
 
 ## Context
 
@@ -39,7 +39,7 @@ filed now so future contributors who think "we should make the agent
 echo the client id directly" can find the reasoning, the required
 agent-side changes, and the gates for promotion already laid out.
 
-## Decision (proposed)
+## Decision
 
 Introduce a negotiated transport extension
 `clientRequestIdEcho: "v1"` on `agent:capabilities`. When **both** the
@@ -213,43 +213,27 @@ because consumers are not guaranteed unique across conversations / sockets.
 
 **Decision**: rejected. UUID generation stays.
 
-## Acceptance criteria (for v1 promotion)
+## Acceptance criteria (v1 — met)
 
-A future PR implementing this ADR ships with:
+- [x] Hub: `HUB_TRANSPORT_EXTENSIONS.clientRequestIdEcho`, negotiation helpers,
+  conditional dispatch in `rpc_bridge_dispatch_relay.ts`, forwarder skip in
+  `relay_route_response_forwarder.ts` when `body.id` already matches
+  `clientRequestId`.
+- [x] Agent: capabilities + negotiator, acks keyed on `meta.request_id`,
+  `prepareForSend` preserves propagated `meta.request_id` (item 8, 2026-05).
+- [x] Tests: `relay_fast_path_body_id_echo.e2e.test.ts` (Opcao A path);
+  legacy Opcao B unchanged when extension absent.
+- [ ] Production validation: `plug_socket_relay_body_id_echo_total` → ~0 and
+  `plug_socket_relay_body_id_echo_overhead_avg_ms` flat once all agents
+  negotiate the extension post-rollout.
 
-- Hub: extension negotiation in `agent_transport_contract.ts`,
-  conditional dispatch in `rpc_bridge_dispatch_relay.ts`, conditional
-  rewrite skip in `rpc_bridge_agent_inbound.ts` when negotiated.
-- Agent: ack helpers use `meta.requestId`, `prepareForSend` does not
-  overwrite `meta.request_id`, capabilities declares
-  `clientRequestIdEcho: "v1"`.
-- Tests: hub-side test that with extension negotiated, `body.id` is NOT
-  rewritten; with extension absent, behavior matches Opcao B exactly.
-- Metric `plug_socket_relay_body_id_echo_total` drops to ~0 in
-  deployments where all agents negotiate the extension.
-- `plug_socket_relay_body_id_echo_overhead_avg_ms` no longer accumulates
-  for negotiated agents.
-- ADR status updated from "Proposed" to "Accepted — v1 shipped" with
-  the PR link and date.
+## Historico do gate de reabertura
 
-## Reabertura (gate de quando voltar a esse ADR)
-
-Esta ADR fica em "Proposed" ate observamos uma das tres situacoes em
-producao:
-
-1. **`plug_socket_relay_body_id_echo_overhead_avg_ms` sustentado > 0.5 ms**
-   em pico (medido em janela p95). Indica que a re-encode virou custo
-   mensuravel.
-2. **`plug_socket_relay_body_id_echo_total` sustentado > 1 K/s** em
-   pico. Volume cumulativo virou CPU spend nao trivial.
-3. **Requirement externo** (auditoria, conformidade, novo cliente alem
-   da Colmeia) que exige `client_request_id` visivel nos logs do
-   agente.
-
-Reabrir a ADR significa: atualizar o status para "In Progress", abrir
-PRs coordenadas no hub e no `plug_agente`, e atualizar
-[`docs/plug_agente/03_performance_roadmap.md`](../plug_agente/03_performance_roadmap.md)
-item 7 com link para os PRs e mudar Status para `in-progress`.
+Antes do ship (2026-06-24) esta ADR ficava em **Proposed** ate uma das
+tres condicoes em producao: overhead sustentado `> 0.5 ms`, volume
+`> 1 K/s`, ou requirement externo de correlacao por `client_request_id`.
+A entrega coordenada hub+agente antecipou o gate documentado; Opcao B
+permanece o fallback para agentes legados.
 
 ## GitHub issue template (`plug_agente`)
 

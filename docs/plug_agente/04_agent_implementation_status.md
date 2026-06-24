@@ -25,17 +25,17 @@
 
 ## TL;DR
 
-**6 de 10** itens do roadmap entregues pelo `plug_agente` em 2026-05-28
-no commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)
-(`perf(socket): align agent defaults with hub expectations + ack
-coalescing`), ja em `origin/main`. 4 testes novos do lado do hub ja
-capturam a interacao; **0 mudancas adicionais necessarias** no hub
-para destravar os 6 itens em producao.
+**9 de 10** itens do roadmap entregues pelo `plug_agente` (6 em 2026-05-28 +
+3 extensões de transporte em 2026-06-24). Resta apenas **item 10** (brotli)
+em `proposed`. Hub alinhado em [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f).
 
 | status | itens | notas |
 | ------ | ----- | ----- |
-| ✅ shipped (commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)) | 1, 2, 3, 6, 8, 9 | 6 de 10 |
-| proposed (no active gate) | 4, 5, 7, 10 | aguardam baseline / ADR / requirement externo |
+| ✅ shipped (2026-05-28) | 1, 2, 3, 6, 8, 9 | commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |
+| ✅ shipped (2026-06-24) | 4, 5, 7 | ADR 0010/0011/0009 — commit agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) |
+| proposed | 10 | brotli — ver [study](../studies/brotli_payload_frame_study.md) |
+
+Orientacao inversa (o que o hub deve fazer): `plug_agente/docs/plug_server/`.
 
 ### Detalhes da entrega (commit `7923e38c`)
 
@@ -202,49 +202,40 @@ shipping de item 7 nao precise tocar este arquivo.
 **Como validar em prod:** `time_to_first_response_ms` apos reconnect cai
 no agente. Sem regressao no resto.
 
-## Itens NAO entregues (4 de 10)
+## Itens entregues (onda 2026-06-24 — extensões ADR 0009/0010/0011)
 
-### Item 4 — Per-phase agent timings em `meta.agent_phases`
+### Item 4 — Per-phase agent timings (`meta.agent_phases`)
 
-**Status:** proposed (no active gate)
+**Status:** ✅ shipped (agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677), hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) 2026-06-24)
 
-**Bloqueio:** item 4 ja shippado no lado do hub (counter
-`plug_socket_relay_server_timings_opt_in_total` existe), mas adocao
-real ainda baixa. Reabre quando o Colmeia ou outro consumer comecar a
-opt-in com `requestServerTimings: true` em volume e a fase
-`agent_to_hub_ms` virar o gargalo dominante (>70% do total) sem cause
-identificada. Ai vale o esforco do schema novo + plumbing por dispatch
-no agente.
+**Implementacao agente:** `TransportExtensionNegotiation.agentPhaseTimings`,
+enricher em `rpc_inbound_response_enricher`, fases em `meta.agent_phases`
+quando consumer envia `requestServerTimings: true`.
 
-### Item 5 — `agent.getHealth` piggyback
+**Hub:** anuncia extensao; pass-through no forwarder; batch ja propaga
+`requestServerTimings` ([`a6fbc2c`](https://github.com/cesar-carlos/plug_server/commit/a6fbc2c)).
 
-**Status:** proposed (no active gate)
+**Validacao:** resposta relay com `meta.agent_phases` apos handshake negociado.
 
-**Bloqueio:** sem evidencia de que `agent.getHealth` polls sejam custo
-significativo hoje. Reabre se observado > 1 poll/segundo por agente em
-prod ou se a deteccao de degradacao precisar ser sub-segundo (hoje e
-N segundos = intervalo de poll).
+### Item 5 — Health piggyback (`meta.health_snapshot`)
 
-### Item 7 — Extension `clientRequestIdEcho: "v1"` (Opcao A)
+**Status:** ✅ shipped (agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677), hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) 2026-06-24)
 
-**Status:** proposed (no active gate). **ADR 0009 aberto.**
+**Implementacao agente:** `RpcHealthPiggybackSampler` — amostra a cada N respostas unary.
 
-**Bloqueio:** o hub ja paga o custo da reescrita de `body.id` (Opcao B).
-ADR 0009 documenta as 3 condicoes para reabrir:
+**Hub:** `agent_health_piggyback.service.ts`, hook no forwarder, metricas
+`plug_agent_health_piggyback_used_total`. Scheduler de poll explicito ainda opcional.
 
-1. `plug_socket_relay_body_id_echo_overhead_avg_ms` sustentado `> 0.5 ms`
-   em pico (medido em janela p95);
-2. `plug_socket_relay_body_id_echo_total` sustentado `> 1 K/s` em pico;
-3. requirement externo (auditoria, conformidade, novo cliente) que
-   exija `client_request_id` visivel nos logs do agente.
+### Item 7 — `clientRequestIdEcho: "v1"` (Opcao A)
 
-Status atual em dev: counter incrementa ~1:1 com relay unary; overhead
-medido pelo bench `scripts/bench-relay-body-id-echo.ts` em 50-300 us
-para payloads tipicos (10-100 KB). Sem requirement externo. **Nao
-acionar ainda.**
+**Status:** ✅ shipped (agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677), hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) 2026-06-24)
 
-**Lado bom:** o item 8 ja foi shippado preventivamente, entao quando
-item 7 acionar, o agent-side fica menor.
+**Implementacao:** negociacao + dispatch `body.id = client_request_id` +
+forwarder sem rewrite quando agente ja ecoou. Opcao B para legados.
+
+**Validacao:** `plug_socket_relay_body_id_echo_total` ~0 com extensao ativa.
+
+## Itens NAO entregues (1 de 10)
 
 ### Item 10 — Compressao brotli
 
@@ -273,9 +264,10 @@ mobile/3G.
    Status em [`03_performance_roadmap.md`](03_performance_roadmap.md)
    de `shipped (commit 7923e38c)` para `shipped (released vX.Y.Z)`
    apontando para o tag/release do GitHub.
-4. **Acompanhar os 4 itens em `proposed (no active gate)`** (4, 5, 7,
-   10) — reabrir quando o gate especifico de cada um trip (ver seca
-   "Itens NAO entregues" abaixo).
+4. **Deploy coordenado 2026-06-24** — validar handshake das tres extensoes
+   (`clientRequestIdEcho`, `agentPhaseTimings`, `healthPiggyback`) e metricas
+   listadas em `plug_agente/docs/plug_server/02_implementation_checklist.md`.
+5. **Acompanhar item 10 (brotli)** — reabrir quando bytes-on-wire for gargalo mensuravel.
 
 ## Historico de atualizacoes
 
@@ -283,3 +275,4 @@ mobile/3G.
 | ---- | ----- | ------- |
 | 2026-05-28 | hub audit | criacao inicial; snapshot dos 6 itens entregues + 4 pendentes (working tree) |
 | 2026-05-28 | hub audit | atualizado para refletir commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) shipado em `origin/main` |
+| 2026-06-24 | hub audit | itens 4, 5, 7 shipped (ADR 0009/0010/0011); hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f), agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) |

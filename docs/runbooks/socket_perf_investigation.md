@@ -44,6 +44,7 @@ What you get per request:
 | `encode_ms` | Hub→agent re-encode | JSON.stringify + optional gzip + sign |
 | `emit_to_socket_ms` | Underlying Socket.IO write | Should be < 1 ms; > 5 ms = backpressure |
 | `agent_to_hub_ms` | Wire + agent processing | Dominated by agent SQL time |
+| `meta.agent_phases.*` (opt-in) | Agent sub-phases when `agentPhaseTimings` negotiated | Breaks down `agent_to_hub_ms` (frame decode, SQL queue, execute, encode) — see [ADR 0010](../adrs/0010-agent-phase-timings.md) |
 | `inbound_decode_ms` | Hub-side decode of agent's response | Mirror of `consumer_frame_decode_ms` for inbound |
 | `pending_resolve_ms` | Time to settle pending promise + dispatch follow-up | Should be near zero |
 | `relay_forward_to_consumer_ms` | Hub→consumer emit time | Backpressure on the consumer socket |

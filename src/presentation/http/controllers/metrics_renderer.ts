@@ -1418,7 +1418,7 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     // Overhead histogram-ish (sum + max + derived avg). Synthetic error builders
     // do not measure overhead, so this only tracks the response-forwarder path
     // where we sacrificed `canBypassReencode`. avg → ops-facing latency cost of
-    // staying on Option B (vs the future Option A negotiated `clientRequestIdEcho`).
+    // Opcao B body.id rewrite (legacy agents without `clientRequestIdEcho`).
     lines.push(
       metricLine(
         "plug_socket_relay_body_id_echo_overhead_sum_ms",

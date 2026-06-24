@@ -11,20 +11,15 @@
 > `DELIVERED.md` + um doc por item (relay batch, fast-path, agents:command
 > hang, phase diagnostics).
 >
-> **Estado atual do hub** (2026-05-28): tres dos quatro itens do cliente
-> ja estavam implementados. O quarto (relay unary fast-path) tinha um
-> defeito de contrato JSON-RPC 2.0 §5 que esta sendo corrigido no hub
-> sem exigir mudanca no agente; uma evolucao opcional (Opcao A) que
-> melhora observabilidade e CPU do hub esta documentada aqui como
-> roadmap. Outras melhorias cross-repo identificadas no audit estao
-> ranqueadas em [`03_performance_roadmap.md`](03_performance_roadmap.md).
+> **Estado atual do hub** (2026-06-24): Opcao A `clientRequestIdEcho` shippada
+> ([`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f));
+> onda de performance hub H1–H8 em [`a6fbc2c`](https://github.com/cesar-carlos/plug_server/commit/a6fbc2c)
+> + transport extensions.
 >
-> **Estado atual do agente** (2026-05-28): itens 1, 2, 3, 6, 8 e 9 do
-> roadmap proativo entraram em uma onda de bugfix/perf no `plug_agente`
-> (ver [`../plug_agente/CHANGELOG.md`](../../../plug_agente/CHANGELOG.md)
-> em `## Unreleased > ### Changed`). Itens 4, 5, 7 e 10 continuam
-> `proposed` por dependerem de coordenacao de schema (ADR) ou de
-> baseline em producao.
+> **Estado atual do agente** (2026-06-24): itens 1–9 do roadmap shippados
+> (6 em [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c),
+> extensões ADR em [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677)).
+> Item 10 (brotli) continua `proposed`.
 
 ## Visao geral dos quatro itens do cliente Colmeia
 
@@ -32,8 +27,8 @@
 | - | ---- | ------------- | --------------------- |
 | 1 | Relay JSON-RPC batch (`relay:rpc.request.batch`) | ✅ Pronto, gated por `SOCKET_RELAY_BATCH_ENABLED` | **Nada** — o hub re-encaminha como N `rpc:request` unarios. Ver [`02_no_change_items.md`](02_no_change_items.md). |
 | 2 | `agents:command` fast-fail cross-agent | ✅ Pronto via `AgentDisconnectedBeforeDispatchError` | **Nada** — fast-fail e puramente no hub. Ver [`02_no_change_items.md`](02_no_change_items.md). |
-| 3 | Relay unary fast-path | ✅ Fix shippado no hub (Opcao B) | **Nada hoje.** Opcionalmente, [`01_relay_body_id_echo.md`](01_relay_body_id_echo.md) descreve a Opcao A (negociada via extensao) que economiza re-encode no hub. |
-| 4 | Server-side phase diagnostics (`requestServerTimings`) | ✅ Pronto | **Nada hoje.** Opcionalmente, [`03_performance_roadmap.md`](03_performance_roadmap.md) item 4 descreve `meta.agent_phases` para quebrar `agent_to_hub_ms` em sub-fases acionaveis. |
+| 3 | Relay unary fast-path | ✅ Opcao B + Opcao A negociada ([ADR 0009](../adrs/0009-client-request-id-echo.md)) | **Deploy coordenado** com agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) para bypass re-encode. |
+| 4 | Server-side phase diagnostics (`requestServerTimings`) | ✅ Pronto + `meta.agent_phases` ([ADR 0010](../adrs/0010-agent-phase-timings.md)) | **Opt-in** consumer + extensao negociada. |
 
 ## Roadmap proativo (audit cross-repo 2026-05-28)
 
@@ -47,7 +42,9 @@ em [`03_performance_roadmap.md`](03_performance_roadmap.md). Top items:
 | 🚨 1 | Default `enableSocketDeliveryGuarantees=true` (hub ja espera ack, retry de 1 s desperdicado hoje) | **high** | **low** | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
 | 🚨 2 | Reavaliar default `enableSocketStreamingChunks=false` para queries grandes | **high** | **low** | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
 | 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
-| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | proposed (no active gate) |
+| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | ✅ shipped (2026-06-24) |
+| 5 | Health piggyback | medium | medium | ✅ shipped (2026-06-24) |
+| 7 | `clientRequestIdEcho` Opcao A | low-medium | medium | ✅ shipped (2026-06-24) |
 | 6 | `recommendedStreamPullWindowSize` default 1 → 8 + env override | medium | low | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
 | 8 | `prepareForSend` preserva `meta.request_id` propagado | low | trivial | ✅ shipped preventivamente (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
 | 9 | Pre-warm de schema validators / JSON schemas | low | medium | ✅ shipped (agent [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) |
