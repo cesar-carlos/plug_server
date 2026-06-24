@@ -1,4 +1,4 @@
-# Regras de Negocio - User, Agent e Client
+﻿# Regras de Negocio - User, Agent e Client
 
 Data: 2026-04-02
 
@@ -19,9 +19,9 @@ use o OpenAPI em `GET /docs` e `GET /docs.json`.
 
 Para contratos de transporte e exemplos de payload, ver:
 
-- `docs/api_rest_bridge.md`
-- `docs/socket_relay_protocol.md`
-- `docs/socket_client_sdk.md`
+- `docs/api/api_rest_bridge.md`
+- `docs/socket/socket_relay_protocol.md`
+- `docs/socket/socket_client_sdk.md`
 
 Mapa geral da documentacao: `docs/README.md`.
 
@@ -162,7 +162,7 @@ Regras:
 - listagens de pedidos usam paginação/filtros no repositório para evitar carregar todo o histórico em memória antes de paginar
 - rate limit por cliente em `POST /api/v1/client/me/agents` (`REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_*`)
 - depois de aprovado, o `Client` pode consultar os dados gerais e de perfil desses agentes pela propria area `/client/me/agents`
-- introspecao da politica de autorizacao do `client_token` no plug_agente (sem executar SQL): RPC `client_token.getPolicy` via `POST /api/v1/agents/commands` ou Socket, quando o agente expuser o metodo; contrato e limites em `docs/api_rest_bridge.md`
+- introspecao da politica de autorizacao do `client_token` no plug_agente (sem executar SQL): RPC `client_token.getPolicy` via `POST /api/v1/agents/commands` ou Socket, quando o agente expuser o metodo; contrato e limites em `docs/api/api_rest_bridge.md`
 
 ### 3.2 Aprovar/Rejeitar
 
@@ -189,7 +189,7 @@ Regras:
 - rotas publicas baseadas em token devem ser limitadas por rate limit; a pagina HTML de revisao e sempre read-only em `GET`, com mutacao somente pelos formularios `POST`
 - quando a transacao de aprovacao/rejeicao falha em infra/persistencia, as rotas publicas retornam HTML amigavel `503` com `requestId` visivel e logs estruturados (`client_agent_access_txn_failed` / `client_agent_access_txn_prisma_error`)
 - observabilidade do fluxo publico inclui metricas Prometheus para `started`, `outcomes` e `latency` por decisao (`approve` / `reject`) via `GET /metrics`
-- **CORS / links por email:** navegadores embutidos em apps de email e algumas WebViews enviam o cabecalho `Origin` com o valor literal `null` (origem opaca), nao apenas ausencia do cabecalho. Sem tratamento explicito, o middleware CORS pode recusar `GET`/`POST` nas rotas publicas acima antes de qualquer regra de negocio. O servidor aceita esse caso na funcao `buildCorsOptions` (`src/shared/config/cors.ts`), alinhado ao mesmo criterio usado quando `Origin` esta ausente. O mesmo vale para aprovacao de cadastro de **User** e **Client** (`/api/v1/auth/registration/*`, `/api/v1/client-auth/registration/*`); ver `docs/user_status.md` (secao "Public approval links and CORS"). Cobertura: testes unitarios em `tests/unit/shared/config/cors.test.ts` e integracao HTTP em `tests/integration/client_agents.integration.test.ts` (fluxos publicos `client-access` approve/reject), `tests/integration/auth.integration.test.ts`, `tests/integration/client_auth.integration.test.ts` (`approve`/`reject` com `Origin: null` e preflight `OPTIONS` onde aplicavel).
+- **CORS / links por email:** navegadores embutidos em apps de email e algumas WebViews enviam o cabecalho `Origin` com o valor literal `null` (origem opaca), nao apenas ausencia do cabecalho. Sem tratamento explicito, o middleware CORS pode recusar `GET`/`POST` nas rotas publicas acima antes de qualquer regra de negocio. O servidor aceita esse caso na funcao `buildCorsOptions` (`src/shared/config/cors.ts`), alinhado ao mesmo criterio usado quando `Origin` esta ausente. O mesmo vale para aprovacao de cadastro de **User** e **Client** (`/api/v1/auth/registration/*`, `/api/v1/client-auth/registration/*`); ver `docs/api/user_status.md` (secao "Public approval links and CORS"). Cobertura: testes unitarios em `tests/unit/shared/config/cors.test.ts` e integracao HTTP em `tests/integration/client_agents.integration.test.ts` (fluxos publicos `client-access` approve/reject), `tests/integration/auth.integration.test.ts`, `tests/integration/client_auth.integration.test.ts` (`approve`/`reject` com `Origin: null` e preflight `OPTIONS` onde aplicavel).
 
 ### 3.2.1 Retentativas de aprovacoes por email
 
@@ -238,7 +238,7 @@ Regras:
 - a listagem suporta filtros por `status`, busca por `search` e paginacao com `page` e `pageSize`
 - cada agente na resposta inclui `isHubConnected` (boolean): indica se **este processo do hub** tem o agente registado no namespace Socket `/agents` apos `agent:register` (mesma nocao que o hub usa para despacho de comandos). O valor e um **instantaneo** no momento da resposta HTTP (pode mudar entre pedidos; com `refresh=true` reflecte o estado apos o trabalho de perfil desse pedido). Com varias instancias do servidor, o valor pode ser `false` numa replica em que o agente nao esta ligado, mesmo estando ligado a outra; nao confundir com `status` active/inactive do catalogo na BD. Se a variavel de ambiente `HUB_INSTANCE_ID` estiver definida, a resposta pode incluir o header `X-Hub-Instance-Id` para correlacionar com a replica
 - politica de sessao exclusiva no socket (`SOCKET_AGENT_SESSION_POLICY`): por defeito `reject_active` — um segundo `agent:register` para o mesmo `agentId` falha com `session_active` enquanto outra sessao canonica estiver ligada **neste processo**; ver `docs/configuration.md`
-- em ambiente com load balancer na frente de varias replicas, integradores que precisem alinhar o resultado destes GET com o socket do agente devem usar **a mesma base URL** para REST e WebSocket ou **sticky sessions** de modo a bater na mesma instancia que mantem o socket do agente; caso contrario `isHubConnected` pode parecer `false` mesmo com o agente ligado a outra replica (ver tambem `docs/scaling_and_roadmap.md`). Isto evita depender de servicos ou pacotes adicionais no hub: o boolean continua derivado apenas do registo em memoria deste processo
+- em ambiente com load balancer na frente de varias replicas, integradores que precisem alinhar o resultado destes GET com o socket do agente devem usar **a mesma base URL** para REST e WebSocket ou **sticky sessions** de modo a bater na mesma instancia que mantem o socket do agente; caso contrario `isHubConnected` pode parecer `false` mesmo com o agente ligado a outra replica (ver tambem `docs/studies/scaling_and_roadmap.md`). Isto evita depender de servicos ou pacotes adicionais no hub: o boolean continua derivado apenas do registo em memoria deste processo
 
 ## 4) Bloqueio, revogacao e efeito em Socket
 

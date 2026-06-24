@@ -1,4 +1,4 @@
-# Estudo: particionamento por tempo de `audit_events` e `bridge_latency_traces`
+﻿# Estudo: particionamento por tempo de `audit_events` e `bridge_latency_traces`
 
 > **Status**: análise / não implementado.
 > **Escopo**: planejamento e custos de migrar duas tabelas append-heavy do
@@ -139,7 +139,7 @@ partitioning pleno.
 
 > Atualizar com `SELECT pg_total_relation_size('audit_events')` em produção.
 > Métricas-base estimadas a partir do tráfego documentado em
-> [`docs/load_testing.md`](./load_testing.md):
+> [`docs/performance/load_testing.md`](./load_testing.md):
 
 | Tabela | INSERT/s estimado (prod) | Linhas/dia | Tamanho/90 dias |
 | --- | --- | --- | --- |
@@ -172,7 +172,7 @@ Antes de implementar, validar:
 ## 7. Referências cruzadas
 
 - `docs/configuration.md` — envs `SOCKET_AUDIT_*`, `BRIDGE_LATENCY_TRACE_*`.
-- `docs/observability.md` — métricas atuais de prune (`socket_audit_pruned`, `bridge_latency_traces_pruned`).
+- `docs/observability/observability.md` — métricas atuais de prune (`socket_audit_pruned`, `bridge_latency_traces_pruned`).
 - `src/application/services/socket_audit.service.ts` — `pruneSocketAuditOlderThanDays`.
 - `src/application/services/bridge_latency_trace.service.ts` — `pruneBridgeLatencyTracesOlderThanDays`.
 - `src/infrastructure/database/advisory_lock.ts` — coordenação multi-réplica.

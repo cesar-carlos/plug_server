@@ -9,9 +9,9 @@ entre consumers e o mesmo agente, sem alterar o canal REST.
 
 Este documento cobre o contrato relay `relay:*` no namespace `/consumers`.
 Regras de negocio de ownership, aprovacao de `Client`, revogacao, conta ativa
-e autorizacao por principal vivem em `docs/client_agent_business_rules.md`.
+e autorizacao por principal vivem em `docs/api/client_agent_business_rules.md`.
 Para o mapa geral da documentacao, ver `docs/README.md`.
-Para um guia de implementacao lado cliente, ver `docs/socket_client_sdk.md`.
+Para um guia de implementacao lado cliente, ver `docs/socket/socket_client_sdk.md`.
 
 Fluxo:
 
@@ -209,7 +209,7 @@ Metricas relevantes em `GET /metrics`:
 - `plug_socket_io_redis_adapter_runtime_errors_total`
 - `plug_socket_io_redis_adapter_attached_servers_total`
 
-Ver tambem `docs/scaling_and_roadmap.md` e `docs/configuration.md`.
+Ver tambem `docs/studies/scaling_and_roadmap.md` e `docs/configuration.md`.
 
 ### `relay:conversation.ended.reason`
 
@@ -237,7 +237,7 @@ O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 `prefer_db_streaming`, etc. Em `sql.executeBatch`, o hub tambem aceita
 `max_parallel_read_only_batch_items` como pass-through para o agente.
 
-O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB em `sql.execute`, `params` nomeado serializado ate 2 MiB, `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
+O servidor valida o payload com o schema do bridge (mesmas regras por comando do REST; no relay apenas comando unico) antes de encaminhar, incluindo **tetos UTF-8** do JSON logico (`sql` ate 1 MiB em `sql.execute`, `params` nomeado serializado ate 2 MiB, `agent.getHealth` / `agent.getProfile` / `client_token.getPolicy` / `rpc.discover` `params` ate 64 KiB — ver `docs/api/api_rest_bridge.md`). A ordem pratica no `/consumers` ficou assim:
 
 - validacao barata de envelope JSON acontece antes do rate limit fixo
 - validacao profunda do `PayloadFrame` / JSON-RPC pode ocorrer depois do `allowRelayRpcRequest`
@@ -860,4 +860,4 @@ progressivo ao cliente (materializacao no hub); ver `docs/PROJECT_OVERVIEW.md`
 
 Exemplo minimo de cliente relay:
 
-- `docs/socket_client_sdk.md`
+- `docs/socket/socket_client_sdk.md`

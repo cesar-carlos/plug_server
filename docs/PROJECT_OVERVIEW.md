@@ -1,4 +1,4 @@
-# Plug Server - Visao Geral do Projeto
+﻿# Plug Server - Visao Geral do Projeto
 
 Este e o ponto de entrada da documentacao. Para navegar por escopo, ver
 `docs/README.md`.
@@ -79,7 +79,7 @@ Entrada principal: `POST /api/v1/agents/commands`.
 Quando a carga for alta ou o payload for grande/streaming, preferir Socket
 (`relay:*`) em vez de escalar apenas limites do canal REST.
 
-Detalhes normativos: `docs/api_rest_bridge.md`.
+Detalhes normativos: `docs/api/api_rest_bridge.md`.
 
 ### Socket em `/consumers`
 
@@ -94,9 +94,9 @@ Quando precisas de chunks em tempo real e `stream_pull`, prefere Socket.
 
 Detalhes normativos:
 
-- `docs/socket_relay_protocol.md`
-- `docs/socket_client_sdk.md`
-- regra de negocio canonica `User`/`Agent`/`Client`: `docs/client_agent_business_rules.md`
+- `docs/socket/socket_relay_protocol.md`
+- `docs/socket/socket_client_sdk.md`
+- regra de negocio canonica `User`/`Agent`/`Client`: `docs/api/client_agent_business_rules.md`
 
 ### Socket em `/agents`
 
@@ -106,7 +106,7 @@ namespace `/agents`, incluindo:
 | Evento | Direcao | Notas |
 | ------ | ------- | ----- |
 | `agent:register` | agente -> hub | `PayloadFrame` com `agentId`, `timestamp`, `capabilities` (e `profile` opcional) |
-| `agent:register_error` | hub -> agente | **JSON puro** (NAO `PayloadFrame`) com `{ code, reason, message, details? }`. `reason` `transient_failure`/`rate_limited` orienta o agente a reagendar `agent:register`; outros valores indicam reconexao. Ver `docs/migracao_plug_agente_namespaces.md` |
+| `agent:register_error` | hub -> agente | **JSON puro** (NAO `PayloadFrame`) com `{ code, reason, message, details? }`. `reason` `transient_failure`/`rate_limited` orienta o agente a reagendar `agent:register`; outros valores indicam reconexao. Ver `docs/plug_agente/migracao_plug_agente_namespaces.md` |
 | `agent:session.superseded` | hub -> agente (socket substituido) | **JSON puro** quando `SOCKET_AGENT_SESSION_POLICY=takeover_disconnect_previous`; antecede `disconnect` da sessao antiga |
 | `agent:capabilities` | hub -> agente | Inclui `extensions.recommendedStreamPullWindowSize` / `maxStreamPullWindowSize` para calibrar pulls; o hub tambem aplica `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` como teto final |
 | `agent:ready` | agente -> hub | Opcional, quando o agente anuncia `extensions.protocolReadyAck`; payload completo `{ agent_id, timestamp, protocol }`. Compat legado aceita apenas `{ agent_id }` sem `timestamp/protocol`; payload parcial e rejeitado. |
@@ -129,13 +129,13 @@ namespace `/agents`, incluindo:
 
 - a fonte oficial de ownership continua sendo `AgentIdentity`
 - `agent-login` apenas autentica a sessao; o bind oficial nasce em `agent:register`
-- o cadastro do agente e sincronizado automaticamente via `agent.getProfile` (com `profile_version` quando o agente expõe; ver regras em `docs/client_agent_business_rules.md`)
+- o cadastro do agente e sincronizado automaticamente via `agent.getProfile` (com `profile_version` quando o agente expõe; ver regras em `docs/api/client_agent_business_rules.md`)
 - nao existem mais rotas HTTP para vincular ou editar manualmente ownership de agente
 - conflitos de ownership continuam a ser rejeitados quando o `agentId` pertence a outro `User`
 
 Regras detalhadas de ownership, aprovacao de `Client`, revogacao e autorizacao
-por canal vivem em `docs/client_agent_business_rules.md`. Detalhes de
-timing/readiness do fluxo do agente vivem em `docs/api_rest_bridge.md`.
+por canal vivem em `docs/api/client_agent_business_rules.md`. Detalhes de
+timing/readiness do fluxo do agente vivem em `docs/api/api_rest_bridge.md`.
 
 ## Seguranca e isolamento
 
@@ -146,7 +146,7 @@ timing/readiness do fluxo do agente vivem em `docs/api_rest_bridge.md`.
   `agentId` autenticado
 - mensagens sao validadas antes do encaminhamento
 
-Migracao de namespaces e login de agente: `docs/migracao_plug_agente_namespaces.md`.
+Migracao de namespaces e login de agente: `docs/plug_agente/migracao_plug_agente_namespaces.md`.
 
 ## Estado atual
 
@@ -186,7 +186,7 @@ Persistencia atual relevante:
 - eventos de auditoria Socket
 - traces de latencia, quando ativados
 
-Implicacoes multi-instancia: `docs/scaling_and_roadmap.md`.
+Implicacoes multi-instancia: `docs/studies/scaling_and_roadmap.md`.
 
 ## Leitura recomendada
 
@@ -194,16 +194,16 @@ Mapa rapido da documentacao: `docs/README.md`.
 
 | Tema | Documento |
 | ---- | --------- |
-| Contrato REST e `agents:*` | `docs/api_rest_bridge.md` |
-| Relay Socket e quotas | `docs/socket_relay_protocol.md` |
-| Guia minimo para cliente Socket | `docs/socket_client_sdk.md` |
+| Contrato REST e `agents:*` | `docs/api/api_rest_bridge.md` |
+| Relay Socket e quotas | `docs/socket/socket_relay_protocol.md` |
+| Guia minimo para cliente Socket | `docs/socket/socket_client_sdk.md` |
 | Defaults e variaveis de ambiente | `docs/configuration.md` |
-| Tuning hub ↔ agente | `docs/performance_hub_agent.md` |
-| Metricas, tracing e alertas | `docs/observability.md` |
-| Estudo de fast-path relay (benchmark-gated) | `docs/relay_fastpath_study.md` |
-| E2E, benchmark e carga | `docs/e2e_benchmark_hub_agent.md`, `docs/load_testing.md` |
-| Escala horizontal e backlog | `docs/scaling_and_roadmap.md` |
-| Alinhamento com o `plug_agente` | `docs/communication_sync_plug_agente.md` |
+| Tuning hub ↔ agente | `docs/performance/performance_hub_agent.md` |
+| Metricas, tracing e alertas | `docs/observability/observability.md` |
+| Estudo de fast-path relay (benchmark-gated) | `docs/studies/relay_fastpath_study.md` |
+| E2E, benchmark e carga | `docs/performance/e2e_benchmark_hub_agent.md`, `docs/performance/load_testing.md` |
+| Escala horizontal e backlog | `docs/studies/scaling_and_roadmap.md` |
+| Alinhamento com o `plug_agente` | `docs/plug_agente/communication_sync_plug_agente.md` |
 
 ## Resumo
 

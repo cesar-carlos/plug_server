@@ -1,4 +1,4 @@
-# Limites de acesso e quotas
+﻿# Limites de acesso e quotas
 
 Este documento descreve os limites que podem **bloquear ou atrasar** pedidos de utilizadores, clientes Colmeia, agentes `plug_agente` e integrações HTTP/Socket. Inclui os **códigos HTTP**, **envelopes JSON** e **eventos Socket** devolvidos quando o limite é atingido.
 
@@ -109,7 +109,7 @@ Em `POST /api/v1/agents/commands`, se o **plug_agente** responder JSON-RPC com c
 Retry-After: <segundos>
 ```
 
-Derivado de `error.data.retry_after_ms` ou `error.data.reset_at`. Ver [`docs/api_rest_bridge.md`](../api_rest_bridge.md) (secção `client_token.getPolicy`).
+Derivado de `error.data.retry_after_ms` ou `error.data.reset_at`. Ver [`docs/api/api_rest_bridge.md`](../api/api_rest_bridge.md) (secção `client_token.getPolicy`).
 
 ---
 
@@ -303,7 +303,7 @@ sequenceDiagram
 
 ## Nginx (borda)
 
-Ficheiros de referência: [`deploy/nginx/conf.d/01-plug-rate-limit.conf`](../../deploy/nginx/conf.d/01-plug-rate-limit.conf), [`docs/nginx_production.md`](../nginx_production.md) §10.
+Ficheiros de referência: [`deploy/nginx/conf.d/01-plug-rate-limit.conf`](../../deploy/nginx/conf.d/01-plug-rate-limit.conf), [`docs/infrastructure/nginx_production.md`](../infrastructure/nginx_production.md) §10.
 
 | Zona | Taxa | Burst | Onde aplica |
 | ---- | ---- | ----- | ----------- |
@@ -411,7 +411,7 @@ Código `-32013` alinha-se com rate limit JSON-RPC no ecossistema plug.
 | CORS origem não listada | `CORS_ORIGIN` | Erro CORS no browser |
 | Acesso revogado a agente | — | **403** em rotas `client/me/agents` |
 
-Ver [`docs/client_agent_business_rules.md`](../client_agent_business_rules.md) e [`docs/user_status.md`](../user_status.md).
+Ver [`docs/api/client_agent_business_rules.md`](../api/client_agent_business_rules.md) e [`docs/api/user_status.md`](../api/user_status.md).
 
 ---
 
@@ -423,7 +423,7 @@ O hub **não controla** estes tetos via `.env`; propaga a resposta do agente:
 | ------ | ---------- | ----------------- |
 | `client_token.getPolicy` (rate limit no agente) | **-32013** | `Retry-After` (segundos) |
 
-`reason` no agente: `client_token_get_policy_rate_limited`. Detalhes em [`docs/api_rest_bridge.md`](../api_rest_bridge.md).
+`reason` no agente: `client_token_get_policy_rate_limited`. Detalhes em [`docs/api/api_rest_bridge.md`](../api/api_rest_bridge.md).
 
 ---
 
@@ -443,7 +443,7 @@ Métricas Prometheus em `GET /metrics` (admin JWT):
 
 **Alertas prontos:** [`docs/observability/alerts/rate_limits.yml`](../observability/alerts/rate_limits.yml) (rejeições sustentadas 429). Complementar com grep em `/var/log/nginx/error.log` por `limiting requests` / `limiting connections` (503 HTML).
 
-Ver [`docs/observability.md`](../observability.md).
+Ver [`docs/observability/observability.md`](../observability/observability.md).
 
 ---
 

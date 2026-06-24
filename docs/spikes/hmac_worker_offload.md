@@ -1,7 +1,7 @@
-# Spike: HMAC verification on worker thread for large PayloadFrames
+﻿# Spike: HMAC verification on worker thread for large PayloadFrames
 
 > **Status**: not implemented. Gated behind a measurement requirement — see
-> `docs/socket_relay_protocol.md` ("Server-side phase diagnostics") for the
+> `docs/socket/socket_relay_protocol.md` ("Server-side phase diagnostics") for the
 > opt-in needed to produce that measurement.
 
 ## Hypothesis
@@ -126,4 +126,4 @@ doc is the rejection target.
 - Source of the gate criteria:
   `.cursor/rules/performance.mdc`
 - Observability for capturing the baseline:
-  `docs/socket_relay_protocol.md` ("Server-side phase diagnostics")
+  `docs/socket/socket_relay_protocol.md` ("Server-side phase diagnostics")

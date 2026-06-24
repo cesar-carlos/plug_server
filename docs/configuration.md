@@ -1,10 +1,10 @@
-# Configuracao
+﻿# Configuracao
 
 ## Fonte de verdade para defaults
 
 - **Variaveis**: valores por defeito e parsing em [`src/shared/config/env.ts`](../src/shared/config/env.ts) (Zod `.default()` / `preprocess`).
 - **Exemplo local**: [`.env.example`](../.env.example) (copiar para `.env`).
-- **Documentacao narrativa**: `docs/api_rest_bridge.md`, `docs/socket_relay_protocol.md`, `docs/performance_hub_agent.md`, `docs/user_status.md` (estados de utilizador e bloqueio).
+- **Documentacao narrativa**: `docs/api/api_rest_bridge.md`, `docs/socket/socket_relay_protocol.md`, `docs/performance/performance_hub_agent.md`, `docs/api/user_status.md` (estados de utilizador e bloqueio).
 - **Mapa da documentacao**: `docs/README.md`.
 - **Runtime alvo**: Node `22.13.x` LTS (`.nvmrc`, `package.json.engines` e CI).
 
@@ -14,7 +14,7 @@ Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, 
 
 | Variável          | Defeito   | Notas                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HUB_INSTANCE_ID` | _(vazio)_ | Quando definida (string não vazia), o middleware global `hubInstanceIdMiddleware` adiciona o header HTTP `X-Hub-Instance-Id` com este valor a **toda resposta Express** (REST sob `/api/v1`, `/auth`, Swagger, `/metrics`, 404). **Obrigatório em produção** quando presença Redis está activa (`AGENT_HUB_PRESENCE_*` / `SOCKET_IO_REDIS_ADAPTER_URL`). Com presença activa, `isHubConnected` em `GET /client/me/agents` reflecte ligação em qualquer réplica do cluster. Receitas de sticky session em `docs/nginx_production.md` § 12. |
+| `HUB_INSTANCE_ID` | _(vazio)_ | Quando definida (string não vazia), o middleware global `hubInstanceIdMiddleware` adiciona o header HTTP `X-Hub-Instance-Id` com este valor a **toda resposta Express** (REST sob `/api/v1`, `/auth`, Swagger, `/metrics`, 404). **Obrigatório em produção** quando presença Redis está activa (`AGENT_HUB_PRESENCE_*` / `SOCKET_IO_REDIS_ADAPTER_URL`). Com presença activa, `isHubConnected` em `GET /client/me/agents` reflecte ligação em qualquer réplica do cluster. Receitas de sticky session em `docs/infrastructure/nginx_production.md` § 12. |
 
 ### `SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED` (opcional)
 
@@ -49,7 +49,7 @@ jitter de arranque (`SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_START_JITTER_MS
 Clientes multi-replica devem tratar pushes iniciais como best-effort e usar REST
 para catalogo/acesso completo; metricas `plug_socket_consumer_client_agent_room_grant_*`
 e `plug_socket_consumer_client_agent_room_reconcile_*` ajudam a dimensionar convergencia.
-Ver tambem `docs/scaling_and_roadmap.md` (salas apos aprovacao).
+Ver tambem `docs/studies/scaling_and_roadmap.md` (salas apos aprovacao).
 
 ### `SOCKET_CONSUMER_ROLES` (opcional)
 
@@ -67,7 +67,7 @@ activo do socket dentro da janela.
 
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
-| `SOCKET_AUTH_REQUIRED` | `true` | Handshake JWT do namespace **`/agents`**. Quando `false`, o middleware aceita ligacao **sem** token **apenas** com `NODE_ENV=test`; em **produção** o bootstrap **aborta** se a flag estiver desligada (arranque regista `WARN` `socket_agent_auth_bypass_*`). O namespace **`/consumers`** continua a exigir JWT válido no handshake independentemente desta flag (ver `docs/socket_client_sdk.md`). |
+| `SOCKET_AUTH_REQUIRED` | `true` | Handshake JWT do namespace **`/agents`**. Quando `false`, o middleware aceita ligacao **sem** token **apenas** com `NODE_ENV=test`; em **produção** o bootstrap **aborta** se a flag estiver desligada (arranque regista `WARN` `socket_agent_auth_bypass_*`). O namespace **`/consumers`** continua a exigir JWT válido no handshake independentemente desta flag (ver `docs/socket/socket_client_sdk.md`). |
 
 ### Idle enforcement (Socket)
 
@@ -87,8 +87,8 @@ Sweeps periodicos desligam sockets inactivos para libertar memoria e salas. `tou
 3. **`SOCKET_CONSUMER_ROLES`**: no PID, confirmar o valor; se faltar o literal `client` na string, o runtime acrescenta (ver tabela acima) e o efeito final inclui `client`.
 4. **`SOCKET_CLIENT_AGENT_PROFILE_PUSH_ENABLED`**: `true` ou ausente; `false` desliga push de catálogo (polling no app). Manter `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_TTL_MS=1000` e `SOCKET_CLIENT_AGENT_PROFILE_RECIPIENT_CACHE_MAX_SIZE=5000` como ponto inicial em dev; em staging/prod ver secção _Performance tuning_ (`10000` ms de TTL recomendado quando métricas mostrarem churn).
 5. **`SOCKET_CONSUMER_CLIENT_AGENT_ROOM_RECONCILE_INTERVAL_MS`**: usar `30000` como baseline. Reduza para `5000`-`10000` apenas se a operação exigir convergência mais rápida e as métricas `plug_socket_consumer_client_agent_room_reconcile_*` mostrarem custo aceitável.
-6. **`POST /api/v1/agents/commands`** com agente offline mas **já** registado nesse worker: resposta **200** com `response.item.error.code === -32000` e `data.reason === agent_disconnected_at_dispatch` quando o JSON-RPC tem `id` correlacionável (ver tabela _Erros HTTP_ em `docs/api_rest_bridge.md`).
-7. **Multi-réplica**: `HUB_INSTANCE_ID` + header `X-Hub-Instance-Id` estável entre pedidos do mesmo cliente; sticky no nginx — `docs/nginx_production.md` § 12.
+6. **`POST /api/v1/agents/commands`** com agente offline mas **já** registado nesse worker: resposta **200** com `response.item.error.code === -32000` e `data.reason === agent_disconnected_at_dispatch` quando o JSON-RPC tem `id` correlacionável (ver tabela _Erros HTTP_ em `docs/api/api_rest_bridge.md`).
+7. **Multi-réplica**: `HUB_INSTANCE_ID` + header `X-Hub-Instance-Id` estável entre pedidos do mesmo cliente; sticky no nginx — `docs/infrastructure/nginx_production.md` § 12.
 8. **Duplicados só por maiúsculas** (antes de migrar para `citext`): correr `npm run db:email:dup-scan` na base alvo; corrigir duplicados antes de `prisma migrate deploy`.
 
 ### `NODE_ENV=production` sem variável definida
@@ -109,7 +109,7 @@ Definir explicitamente a variável no `.env` / plataforma ignora estes ramos.
 | Variável                                          | Defeito                                          | Notas                                                                                                                                                                                                                                                                                                                                                                                            |
 | ------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `PAYLOAD_FRAME_COMPRESS_MIN_BYTES`                | `4096`                                           | `encodePayloadFrame` / `encodePayloadFrameBridge`: abaixo deste tamanho UTF-8 serializado usa `cmp: none` (evita CPU de gzip+base64 em frames pequenos). `0` desativa o limiar global.                                                                                                                                                                                                           |
-| `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`              | `524288` (512 KiB)                               | Só tenta gzip quando o JSON UTF-8 não excede este tamanho; ver `docs/performance_hub_agent.md`.                                                                                                                                                                                                                                                                                                  |
+| `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`              | `524288` (512 KiB)                               | Só tenta gzip quando o JSON UTF-8 não excede este tamanho; ver `docs/performance/performance_hub_agent.md`.                                                                                                                                                                                                                                                                                                  |
 | `PAYLOAD_FRAME_GZIP_LEVEL`                        | ver tabela _production_ acima; senão _(omitido)_ | Nível zlib `1`–`9` para gzip do hub; fora do ramo produção omitir = default Node (~6).                                                                                                                                                                                                                                                                                                           |
 | `PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`         | `131072` (128 KiB)                               | Hub→agente (`encodePayloadFrameBridge`): JSON elegível para gzip com pelo menos este tamanho usa **gzip assíncrono**. `0` = sempre síncrono.                                                                                                                                                                                                                                                     |
 | `PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES` | `65536` (64 KiB)                                 | Hub **inbound** (`decodePayloadFrameAsync`): `cmp: gzip` com payload comprimido ≥ este tamanho usa **gunzip assíncrono**. `0` = sempre síncrono.                                                                                                                                                                                                                                                 |
@@ -136,7 +136,7 @@ Migração do wire format de `connection:ready` nos namespaces **`/agents`** e *
 
 | Variável | Defeito | Notas |
 | -------- | ------- | ----- |
-| `SOCKET_CONNECTION_READY_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `connection:ready`. `payload_frame` (defeito) usa `PayloadFrame`; `raw_json` restaura plain JSON legado **apenas na saída**. Remoção prevista `2026-09-30` (`warnIfConnectionReadyLegacyCompatExpired` no arranque). Em **`NODE_ENV=production`**, o bootstrap **aborta** se a flag estiver em `raw_json` (mesmo padrão que `SOCKET_AUTH_REQUIRED`). Ver `docs/socket_client_sdk.md`. |
+| `SOCKET_CONNECTION_READY_COMPAT_MODE` | `payload_frame` | Formato **outbound** de `connection:ready`. `payload_frame` (defeito) usa `PayloadFrame`; `raw_json` restaura plain JSON legado **apenas na saída**. Remoção prevista `2026-09-30` (`warnIfConnectionReadyLegacyCompatExpired` no arranque). Em **`NODE_ENV=production`**, o bootstrap **aborta** se a flag estiver em `raw_json` (mesmo padrão que `SOCKET_AUTH_REQUIRED`). Ver `docs/socket/socket_client_sdk.md`. |
 
 ### `SOCKET_AGENTS_COMMAND_COMPAT_MODE` (opcional)
 
@@ -160,7 +160,7 @@ Migração do wire format de `agents:stream_pull` no namespace **`/consumers`** 
 | ---------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `UPLOADS_DIR`                                        | `uploads`                 | Diretório base para arquivos locais servidos em `/uploads`. Em produção, usar volume persistente.                                                                                                                 |
 | `UPLOADS_PUBLIC_BASE_URL`                            | `APP_BASE_URL + /uploads` | Prefixo público das URLs de thumbnail.                                                                                                                                                                            |
-| `CLIENT_THUMBNAIL_MAX_BYTES`                         | `2097152`                 | Limite do upload da thumbnail (max **10 MiB** em `env.ts`); `client_max_body_size` no Nginx deve ser >= este valor — ver exemplo **11m** em `docs/nginx_production.md` e `deploy/nginx/plug_server.conf.example`. |
+| `CLIENT_THUMBNAIL_MAX_BYTES`                         | `2097152`                 | Limite do upload da thumbnail (max **10 MiB** em `env.ts`); `client_max_body_size` no Nginx deve ser >= este valor — ver exemplo **11m** em `docs/infrastructure/nginx_production.md` e `deploy/nginx/plug_server.conf.example`. |
 | `CLIENT_THUMBNAIL_WIDTH`                             | `256`                     | Largura final da thumbnail após normalização.                                                                                                                                                                     |
 | `CLIENT_THUMBNAIL_HEIGHT`                            | `256`                     | Altura final da thumbnail após normalização.                                                                                                                                                                      |
 | `CLIENT_THUMBNAIL_WEBP_QUALITY`                      | `82`                      | Qualidade da conversão para `webp`.                                                                                                                                                                               |
@@ -241,7 +241,7 @@ O contador é **por ligação** `/consumers` e **local ao processo** (não coord
 - **`0`**: desativa o gate partilhado (sem backpressure por inflight neste eixo); use só com consciência de carga e memória.
 - **Publicações custom**: se `socket:event.publish` competir com relay/comandos, defina `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` > 0 para um contador dedicado; com **ambos** > 0 o máximo em voo pode ser a **soma** dos dois tetos.
 
-Ver também `docs/socket_relay_protocol.md` (*Separadamente do orçamento de relay…*).
+Ver também `docs/socket/socket_relay_protocol.md` (*Separadamente do orçamento de relay…*).
 
 ## REST -> Socket pub/sub customizado
 
@@ -413,7 +413,7 @@ e' lancada. Quando ha tambem uma flag `_ENABLED`, essa flag domina (mesmo
 com a URL preenchida, `*_ENABLED=false` mantem o modulo desligado).
 
 > Para guidance de auth/TLS, ACLs, eviction policies e network isolation, ver
-> [`docs/redis_security.md`](redis_security.md). Para a arquitetura interna dos
+> [`docs/infrastructure/redis_security.md`](infrastructure/redis_security.md). Para a arquitetura interna dos
 > 5 modulos Redis e factories ver
 > [`src/infrastructure/redis/README.md`](../src/infrastructure/redis/README.md).
 
@@ -588,27 +588,54 @@ alinhado a `agent.register.schema.json` do `plug_agente`:
 
 Toda rejeicao sai pelo evento dedicado **`agent:register_error`** em **JSON
 puro** (NAO `PayloadFrame`) com `{ code, reason, message, details? }`. Tabela
-completa de `reason` em `docs/api_rest_bridge.md` -> _Falhas de `agent:register` ate o
-ownership ser criado_ e `docs/migracao_plug_agente_namespaces.md`. Politica de
+completa de `reason` em `docs/api/api_rest_bridge.md` -> _Falhas de `agent:register` ate o
+ownership ser criado_ e `docs/plug_agente/migracao_plug_agente_namespaces.md`. Politica de
 sessao: `SOCKET_AGENT_SESSION_POLICY` e (opcional) `SOCKET_AGENT_REGISTER_RATE_LIMIT_*`
 na tabela de socket acima.
 
-**Varias instancias do hub:** o registo canónico por `agentId` e os limiters em memória (`SOCKET_AGENT_REGISTER_*`, cache de bind) aplicam-se **por processo**. Com varias réplicas à frente do mesmo load balancer, dois agentes com o mesmo ID podem ficar ligados a hubs diferentes salvo **afinidade de sessão** (sticky) ao mesmo processo ou outro mecanismo distribuído. Ver `docs/nginx_production.md` (sticky Socket.IO), `HUB_INSTANCE_ID` / header `X-Hub-Instance-Id`, e `docs/scaling_and_roadmap.md`.
+**Varias instancias do hub:** o registo canónico por `agentId` e os limiters em memória (`SOCKET_AGENT_REGISTER_*`, cache de bind) aplicam-se **por processo**. Com varias réplicas à frente do mesmo load balancer, dois agentes com o mesmo ID podem ficar ligados a hubs diferentes salvo **afinidade de sessão** (sticky) ao mesmo processo ou outro mecanismo distribuído. Ver `docs/infrastructure/nginx_production.md` (sticky Socket.IO), `HUB_INSTANCE_ID` / header `X-Hub-Instance-Id`, e `docs/studies/scaling_and_roadmap.md`.
 
 ## Ownership de agentes
 
 O ownership oficial do agente nasce em `agent:register`, depois de um `agent-login` válido. Quando o registo traz `profile`, `profile_version` e `profile_updated_at`, o hub persiste esse snapshot versionado e evita o RPC extra. Agentes legados ou registos sem snapshot completo continuam caindo para `agent.getProfile`, chamado com `include_diagnostics=false` para manter o sync barato. O resultado RPC pode incluir `profile_version` (contador monotónico no servidor); o hub usa-o para ordenar o _pull sync_ e detetar divergência quando a versão coincide mas o conteúdo do perfil não bate com o catálogo. Não existem mais variáveis de ambiente nem rate limits dedicados ao antigo fluxo HTTP de self-service bind em `/api/v1/me/agents`, e o catálogo também não aceita mais criação/edição manual por HTTP; por gestão administrativa, apenas a desativação permanece exposta. Atualização self-service pelo próprio agente (fora do registo) está em `PATCH /api/v1/agents/{agentId}/profile`, documentada no OpenAPI (`/docs`, `/docs.json`), e também em `agent:profile.update` no namespace `/agents`.
 
+## Auto-update diagnostics do agente (`AGENT_AUTO_UPDATE_DIAGNOSTICS_*`)
+
+Feature opt-in para receber e persistir diagnósticos de auto-atualização do agente via RPC. Desabilitada por defeito; use apenas em ambientes onde o agente envia eventos de diagnóstico de versao.
+
+| Variavel | Defeito | Notas |
+| --- | --- | --- |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_ENABLED` | `false` | Liga o endpoint de ingestao de diagnósticos. |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_WINDOW_MS` | `60000` | Janela do rate limit por agente. |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_MAX` | `1` | Maximo de diagnosticos por janela por agente. |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_DAYS` | `90` | Retencao em dias dos registos na BD. |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_INTERVAL_MINUTES` | `1440` | Cadencia do scheduler de prune (diario por defeito). |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_PRUNE_BATCH_SIZE` | `5000` | Batch de linhas por ciclo de prune. |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_MAX_PAYLOAD_BYTES` | `16384` (16 KiB) | Teto de bytes do campo `payload` por registo. |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_MAX_MESSAGE_BYTES` | `65536` (64 KiB) | Teto do JSON completo do evento de diagnostico recebido. |
+
+## Configuracao de landing e HTTP base
+
+| Variavel | Defeito | Notas |
+| --- | --- | --- |
+| `ROOT_LANDING_LANG` | `auto` | Lingua da pagina HTML em `GET /` (landing): `pt`, `en`, ou `auto` (detecao via `Accept-Language`; cai para PT quando ambiguo). |
+| `HTTP_REQUEST_TIMEOUT_MS` | `60000` (60 s) | `http.Server.requestTimeout`: tempo maximo que o servidor espera por um request HTTP completo (headers + body). Protege contra slow-loris. `0` desativa. |
+| `JWT_ISSUER` | `plug_server` | Campo `iss` nos JWTs emitidos (access e refresh). Validado em verify. |
+| `JWT_AUDIENCE` | `plug_clients` | Campo `aud` nos JWTs emitidos. Validado em verify. |
+| `JWT_VERIFY_CACHE_TTL_MS` | `30000` | Cache em memoria de resultados de `verifyAccessToken`. Em cache hits, o `exp` e revalidado antes de retornar. `0` desativa. |
+| `JWT_VERIFY_CACHE_MAX_SIZE` | `2000` | Maximo de entradas no cache de verify (evicao FIFO). |
+| `METRICS_RESPONSE_CACHE_TTL_MS` | `500` | Cache do buffer de render Prometheus em `/metrics`. Colapsa rajadas de scrape. `0` desativa. |
+
 ## Leitura recomendada
 
 | Topico                                                        | Documento                                                               |
 | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| REST bridge, timeouts, rate limit                             | `docs/api_rest_bridge.md`                                               |
-| Relay Socket, quotas                                          | `docs/socket_relay_protocol.md`                                         |
-| Throughput hub ↔ agente                                       | `docs/performance_hub_agent.md` (presets `.env`, checklist operacional) |
-| Metricas e paineis                                            | `docs/observability.md`                                                 |
-| Estados de utilizador, bloqueio admin, metricas `plug_auth_*` | `docs/user_status.md`                                                   |
-| SSE, Redis, multi-instancia, OTel                             | `docs/scaling_and_roadmap.md`                                           |
+| REST bridge, timeouts, rate limit                             | `docs/api/api_rest_bridge.md`                                               |
+| Relay Socket, quotas                                          | `docs/socket/socket_relay_protocol.md`                                         |
+| Throughput hub ↔ agente                                       | `docs/performance/performance_hub_agent.md` (presets `.env`, checklist operacional) |
+| Metricas e paineis                                            | `docs/observability/observability.md`                                                 |
+| Estados de utilizador, bloqueio admin, metricas `plug_auth_*` | `docs/api/user_status.md`                                                   |
+| SSE, Redis, multi-instancia, OTel                             | `docs/studies/scaling_and_roadmap.md`                                           |
 
 ## Adendo: publish degradado de `client:custom.*`
 

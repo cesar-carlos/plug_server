@@ -1,4 +1,4 @@
-# Runbook: investigating Socket / relay performance
+﻿# Runbook: investigating Socket / relay performance
 
 > **Owner**: Platform / Hub team. **Reach for this when**: latency or CPU
 > regressed on relay or `agents:command` flows, or when a perf optimization
@@ -31,8 +31,8 @@ Every flow above accepts the `requestServerTimings: boolean` opt-in (shipped
 in Socket Performance v2). When `true`, the response carries
 `meta.serverTimings.phasesMs` (relay) or a sibling `serverTimings` field
 (`agents:command_response` / REST), see
-[`docs/socket_relay_protocol.md`](../socket_relay_protocol.md) ("Server-side
-phase diagnostics") and [`docs/api_rest_bridge.md`](../api_rest_bridge.md).
+[`docs/socket/socket_relay_protocol.md`](../socket/socket_relay_protocol.md) ("Server-side
+phase diagnostics") and [`docs/api/api_rest_bridge.md`](../api/api_rest_bridge.md).
 
 What you get per request:
 
@@ -119,10 +119,10 @@ the change. If it doesn't, revert and reopen the investigation.
 ## References
 
 - Rule: `.cursor/rules/performance.mdc`
-- Diagnostics protocol: `docs/socket_relay_protocol.md` ("Server-side
+- Diagnostics protocol: `docs/socket/socket_relay_protocol.md` ("Server-side
   phase diagnostics")
-- Diagnostics REST: `docs/api_rest_bridge.md` ("Server-side phase
+- Diagnostics REST: `docs/api/api_rest_bridge.md` ("Server-side phase
   diagnostics")
-- Existing study: `docs/relay_fastpath_study.md`
+- Existing study: `docs/studies/relay_fastpath_study.md`
 - Pending spike (HMAC offload): `docs/spikes/hmac_worker_offload.md`
 - Relay batch ADR (pending implementation): `docs/adrs/0008-relay-batch-protocol.md`

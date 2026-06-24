@@ -1,7 +1,7 @@
-# Load testing
+﻿# Load testing
 
-Use este guia junto de `docs/performance_hub_agent.md`,
-`docs/observability.md` e `docs/e2e_benchmark_hub_agent.md`. O repositorio inclui
+Use este guia junto de `docs/performance/performance_hub_agent.md`,
+`docs/observability/observability.md` e `docs/performance/e2e_benchmark_hub_agent.md`. O repositorio inclui
 um probe Socket leve (`npm run load:socket-bridge`) para smoke/capacidade do hub;
 para benchmark profundo de SQL/ODBC, mantenha a carga no repositorio do agente.
 O probe tambem cobre os campos do profile 2.11.2 para medir o custo do transporte
@@ -12,7 +12,7 @@ no hub antes de comparar o runtime ODBC do agente.
 - **Hub (`plug_server`)**: mede inflight, fila por agente, relay, encode/decode de
   `PayloadFrame`, auditoria, pub/sub `client:custom.*` e overload.
 - **Agente (`plug_agente`)**: benchmark ODBC, `multi_result` e carga SQL real vivem
-  no repositorio do agente; ver `docs/e2e_benchmark_hub_agent.md`.
+  no repositorio do agente; ver `docs/performance/e2e_benchmark_hub_agent.md`.
 
 ## HTTP (REST bridge)
 

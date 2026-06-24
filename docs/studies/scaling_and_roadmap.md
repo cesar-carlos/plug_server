@@ -1,4 +1,4 @@
-# Escala, SSE e integracoes futuras
+﻿# Escala, SSE e integracoes futuras
 
 Este documento consolida o estado de escala do `plug_server`: o que ja e suportado,
 o que ainda depende de sticky sessions e o que permanece como roadmap.
@@ -20,7 +20,7 @@ por processo. Defina `HUB_INSTANCE_ID` para observabilidade (`docs/configuration
 O bridge REST e parte do relay mantem **correlacao e filas em memoria** por
 processo. Varias replicas sem afinidade de sessao ou store partilhado podem
 perder pedidos pendentes ou duplicar comportamento estranho. Num **unico**
-processo, afina primeiro throughput com os presets em `docs/performance_hub_agent.md`
+processo, afina primeiro throughput com os presets em `docs/performance/performance_hub_agent.md`
 antes de investir em store partilhado.
 
 Estado explicitamente **por processo** hoje:
@@ -146,7 +146,7 @@ bridge/relay, mas **nao** duplica mais o trabalho dos schedulers de retencao/pru
    `client:custom.*` e idempotencia dessa publicacao ja tem caminho Redis opcional;
    o restante do bridge ainda requer desenho cuidadoso de chaves e TTL.
 
-Ver tambem a checklist em `docs/api_rest_bridge.md` (gaps / replicas).
+Ver tambem a checklist em `docs/api/api_rest_bridge.md` (gaps / replicas).
 
 ## Streaming progressivo no REST (SSE ou chunked)
 
@@ -171,4 +171,4 @@ O servico nao inclui SDK OTel por defeito. Integracao tipica:
 Um pacote npm partilhado (encode `PayloadFrame`, politica gzip **auto**) reduz
 copia de codigo entre apps. Referencia minima em
 [`docs/snippets/payload_frame_client_encode.ts`](snippets/payload_frame_client_encode.ts)
-e em `docs/socket_client_sdk.md`.
+e em `docs/socket/socket_client_sdk.md`.

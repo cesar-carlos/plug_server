@@ -1,4 +1,4 @@
-# Itens que NAO exigem mudanca no `plug_agente`
+﻿# Itens que NAO exigem mudanca no `plug_agente`
 
 Esta pagina existe para o time do agente nao precisar abrir 4 PRs
 explorando os documentos do cliente Colmeia — os itens abaixo sao
@@ -13,7 +13,7 @@ verificacao em revisoes futuras.
 - Env: `SOCKET_RELAY_BATCH_ENABLED` (default `false`) em
   `src/shared/config/env.ts:1058`
 - Cliente: `D:\Developer\Flutter\colmeia\docs\server_adjustments\relay_rpc_batch_protocol.md`
-- Contrato: `docs/socket_relay_protocol.md` ("Relay JSON-RPC batch")
+- Contrato: `docs/socket/socket_relay_protocol.md` ("Relay JSON-RPC batch")
 
 ### Por que nao toca no agente
 
@@ -50,7 +50,7 @@ hub a partir dos resultados dos N dispatches.
   `correlationId`, ou `SERVICE_UNAVAILABLE 503` quando nao)
 - Cliente: `D:\Developer\Flutter\colmeia\docs\server_adjustments\agents_command_cross_agent_hang.md`
   (audit do Colmeia confirmou que **nao** era bug da hub)
-- Contrato: `docs/api_rest_bridge.md` ("Limite de um `agentId` por envelope")
+- Contrato: `docs/api/api_rest_bridge.md` ("Limite de um `agentId` por envelope")
 
 ### Por que nao toca no agente
 
@@ -62,7 +62,7 @@ A "tela de hang" reportada pelo Colmeia foi inicialmente suspeitada de
 ser falha de cross-agent no envelope, mas o audit do proprio cliente
 (2026-05-28) confirmou que o `AgentCommandBatchCoordinator` ja agrupa
 commands por `agentId` antes de empacotar. O contrato "1 agentId por
-envelope" no `docs/api_rest_bridge.md` documenta isso explicitamente.
+envelope" no `docs/api/api_rest_bridge.md` documenta isso explicitamente.
 
 ### O que o agente NAO precisa fazer
 
@@ -84,7 +84,7 @@ envelope" no `docs/api_rest_bridge.md` documenta isso explicitamente.
   - `agents:command` body (`agents_command.handler.ts:146-157`)
   - `POST /api/v1/agents/commands` body (`agents.controller.ts`)
 - Cliente: `D:\Developer\Flutter\colmeia\docs\server_adjustments\server_side_phase_diagnostics.md`
-- Contrato: `docs/socket_relay_protocol.md` ("Server-side phase diagnostics")
+- Contrato: `docs/socket/socket_relay_protocol.md` ("Server-side phase diagnostics")
 
 ### Por que nao toca no agente
 

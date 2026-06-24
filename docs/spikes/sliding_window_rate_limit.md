@@ -1,4 +1,4 @@
-# Spike: sliding-window rate limit (Sprint 6 / Item 12)
+﻿# Spike: sliding-window rate limit (Sprint 6 / Item 12)
 
 **Status: NO-GO (kept for reference, not wired into production)**
 
@@ -76,7 +76,7 @@ Verdict on (b): **fails the < 2 KB/key bar at any non-trivial `max`.**
 
 We sampled `plug_socket_rate_limit_redis_rejected_total` and the per-bucket
 allowed counters across last 30 days of production logs (excerpts in
-`docs/observability.md`). The boundary effect is bounded by the maximum
+`docs/observability/observability.md`). The boundary effect is bounded by the maximum
 ratio `2 × max / windowMs` and capped further by the in-process limiter
 in [src/presentation/socket/hub/rate_limits/](src/presentation/socket/hub/rate_limits/)
 which uses sliding-window already (in-process is cheap because no network).

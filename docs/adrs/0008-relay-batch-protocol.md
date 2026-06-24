@@ -1,4 +1,4 @@
-# ADR 0008: Relay JSON-RPC batch protocol (`relay:rpc.request.batch`)
+﻿# ADR 0008: Relay JSON-RPC batch protocol (`relay:rpc.request.batch`)
 
 - **Status**: **Accepted — v1 implemented 2026-05-28**
 - **Date**: 2026-05-28 (proposal) / 2026-05-28 (v1 shipped)
@@ -22,7 +22,7 @@ on the relay channel therefore pays:
 
 - 1 consumer→hub wire emit per RPC (no batching)
 - 3 events on the wire per RPC (`request`, `accepted`, `response`) before the
-  fast-path opt-in lands (see `docs/socket_relay_protocol.md` "Relay unary
+  fast-path opt-in lands (see `docs/socket/socket_relay_protocol.md` "Relay unary
   fast-path")
 
 The Colmeia client's proposal
@@ -39,7 +39,7 @@ This ADR shipped as **v1** alongside the new event
 `relay:rpc.request.batch` and the helper handler
 [`src/presentation/socket/consumers/relay_rpc_request_batch.handler.ts`](../../src/presentation/socket/consumers/relay_rpc_request_batch.handler.ts).
 The canonical contract for consumers lives in
-[`docs/socket_relay_protocol.md`](../socket_relay_protocol.md) ("Relay
+[`docs/socket/socket_relay_protocol.md`](../socket/socket_relay_protocol.md) ("Relay
 JSON-RPC batch") which supersedes any divergence with this document.
 
 The single-RPC dispatcher `relay:rpc.request` continues to reject array
@@ -260,7 +260,7 @@ The dispatcher behind `relay:rpc.request.batch` checks
       gate behaviour from Decision C.
 - [x] New env keys + validation in `env.ts` (`SOCKET_RELAY_BATCH_ENABLED`,
       `SOCKET_RELAY_BATCH_MAX_ITEMS`).
-- [x] Documentation updates in `docs/socket_relay_protocol.md` ("Relay
+- [x] Documentation updates in `docs/socket/socket_relay_protocol.md` ("Relay
       JSON-RPC batch").
 - [x] Unit tests covering: happy path, gate rejection, streaming item
       rejection, exceeds max items, duplicate ids, validation failure,
@@ -279,9 +279,9 @@ The dispatcher behind `relay:rpc.request.batch` checks
 
 - Client proposal:
   [Flutter/colmeia/docs/server_adjustments/relay_rpc_batch_protocol.md](../../../Flutter/colmeia/docs/server_adjustments/relay_rpc_batch_protocol.md)
-- Current relay protocol: [docs/socket_relay_protocol.md](../socket_relay_protocol.md)
-- Existing batch on REST/Socket: [docs/api_rest_bridge.md](../api_rest_bridge.md)
+- Current relay protocol: [docs/socket/socket_relay_protocol.md](../socket/socket_relay_protocol.md)
+- Existing batch on REST/Socket: [docs/api/api_rest_bridge.md](../api/api_rest_bridge.md)
 - Companion Item 3 (unary fast-path), already shipped:
-  see "Relay unary fast-path" in `docs/socket_relay_protocol.md`.
+  see "Relay unary fast-path" in `docs/socket/socket_relay_protocol.md`.
 - Companion Item 4 (phase diagnostics), already shipped:
   see "Server-side phase diagnostics" in the same doc.

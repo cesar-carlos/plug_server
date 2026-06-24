@@ -1,4 +1,4 @@
-# Observabilidade
+﻿# Observabilidade
 
 Este documento concentra metricas, traces, alertas e sinais operacionais do
 hub. Para **limites de acesso, quotas e respostas 429/503**, ver
@@ -6,9 +6,9 @@ hub. Para **limites de acesso, quotas e respostas 429/503**, ver
 Regras Prometheus prontas para rate limits:
 [`docs/observability/alerts/rate_limits.yml`](observability/alerts/rate_limits.yml).
 Regras de negocio e semantica de autorizacao ficam em
-`docs/client_agent_business_rules.md`. Defaults e variaveis ficam em
+`docs/api/client_agent_business_rules.md`. Defaults e variaveis ficam em
 `docs/configuration.md`. Tuning operacional fica em
-`docs/performance_hub_agent.md`. Mapa geral: `docs/README.md`.
+`docs/performance/performance_hub_agent.md`. Mapa geral: `docs/README.md`.
 
 ## Endpoints
 
@@ -20,7 +20,7 @@ Regras de negocio e semantica de autorizacao ficam em
 > `client_token.getPolicy` (introduzido no perfil 2.7) sao propagados pelo `POST /api/v1/agents/commands`
 > como header HTTP `Retry-After`. Nao gera contador Prometheus dedicado; o
 > sinal de volume continua em `plug_socket_relay_rate_limit_*` e nas series
-> de erros do agente. Detalhes: `docs/api_rest_bridge.md`.
+> de erros do agente. Detalhes: `docs/api/api_rest_bridge.md`.
 
 ## Comeco rapido
 
@@ -354,7 +354,7 @@ rate(plug_rest_http_rate_limit_client_me_agents_post_rejected_total[5m])
 plug_agent_data_maintenance_pending_operations
 ```
 
-Regras de transicao e API: `docs/user_status.md`.
+Regras de transicao e API: `docs/api/user_status.md`.
 
 Use `GET /metrics` num ambiente de desenvolvimento e copie os nomes exatos dos contadores expostos (podem evoluir com o CHANGELOG).
 
@@ -387,7 +387,7 @@ antes e depois da mudanca:
 
 Isto cobre capacidade, custo de CPU no caminho quente, impacto de auditoria e
 degradacao funcional. Para presets de tuning e rollout, ver
-`docs/performance_hub_agent.md`.
+`docs/performance/performance_hub_agent.md`.
 
 ## Tabela PostgreSQL `bridge_latency_traces` (latencia por fase)
 
@@ -594,7 +594,7 @@ Para mudancas no contrato de comunicacao com `plug_agente`, usar este fluxo:
 5. Promover producao em `strict`.
 
 Rotacao de assinatura HMAC: seguir
-`docs/payload_signing_key_rotation_runbook.md`.
+`docs/runbooks/payload_signing_key_rotation_runbook.md`.
 
 ## Sinais uteis do relay
 
@@ -647,12 +647,12 @@ Quando bloqueado por limite, o mesmo bloco `rateLimit` acompanha o erro
 `RATE_LIMITED`.
 
 Semantica de autorizacao, revogacao e conta ativa no relay:
-`docs/client_agent_business_rules.md`.
+`docs/api/client_agent_business_rules.md`.
 
 ## Logs e tracing
 
 - O bridge preserva `traceparent` / `tracestate` no `meta` JSON-RPC quando o cliente envia.
-- Spans opcionais do bridge: `BRIDGE_LATENCY_TRACE_OTEL_ENABLED` (ver acima). Para tracing geral da app, ver `docs/scaling_and_roadmap.md`.
+- Spans opcionais do bridge: `BRIDGE_LATENCY_TRACE_OTEL_ENABLED` (ver acima). Para tracing geral da app, ver `docs/studies/scaling_and_roadmap.md`.
 
 ## Teste de contrato com o repositorio `plug_agente`
 

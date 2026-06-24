@@ -1,4 +1,4 @@
-# Relay `body.id` echo — correcao do fast-path + evolucao opcional
+﻿# Relay `body.id` echo — correcao do fast-path + evolucao opcional
 
 > **TL;DR.** O hub estava sobrescrevendo `body.id` do JSON-RPC com o UUID
 > interno (`requestId`) antes de despachar ao agente, o que quebrava o
@@ -278,6 +278,6 @@ medidos antes do fix.
   - `src/shared/metrics/socket_consumer.metrics.ts`
     (`plug_socket_relay_body_id_echo_total`)
 - Documentos canonicos atualizados:
-  - `docs/socket_relay_protocol.md` ("Correlacao de IDs no relay")
+  - `docs/socket/socket_relay_protocol.md` ("Correlacao de IDs no relay")
 - Pasta do cliente:
   `D:\Developer\Flutter\colmeia\docs\server_adjustments\relay_unary_fast_path.md`

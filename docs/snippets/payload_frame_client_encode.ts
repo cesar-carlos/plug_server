@@ -1,10 +1,10 @@
-/**
+﻿/**
  * Referencia: encode PayloadFrame alinhado ao modo gzip **automatico** do hub / plug_agente
  * (acima de 4096 B UTF-8, comprimir so se o gzip for menor que o JSON bruto
  * e nao violar a razao maxima de inflacao).
  * Copiar para o teu cliente ou extrair para um pacote interno.
  *
- * Ver tambem: docs/socket_client_sdk.md
+ * Ver tambem: docs/socket/socket_client_sdk.md
  */
 import { gzipSync, gunzipSync } from "node:zlib";
 

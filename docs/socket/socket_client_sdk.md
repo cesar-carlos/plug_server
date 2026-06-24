@@ -1,4 +1,4 @@
-# Socket Client SDK Minimo (Relay)
+﻿# Socket Client SDK Minimo (Relay)
 
 > **Action required by 2026-09-30:** Este repositorio nao publica pacote npm/SDK cliente separado. Aplicacoes que consomem Socket devem decodificar `PayloadFrame` em todos os eventos outbound listados abaixo (incluindo `connection:ready`) antes da remocao dos shims `raw_json`. Ver secao _Shims de compatibilidade_ e `docs/configuration.md`.
 
@@ -9,11 +9,11 @@ Guia rapido para cliente Socket no modo relay (`/consumers`), com tratamento de
 
 Este documento cobre transporte e uso do canal Socket. Regras de negocio sobre
 ownership de `Agent`, aprovacao de acesso de `Client` e consulta de agentes
-aprovados vivem em `docs/client_agent_business_rules.md`.
+aprovados vivem em `docs/api/client_agent_business_rules.md`.
 Mapa geral da documentacao: `docs/README.md`.
 
 Este arquivo e pragmatico: mostra como consumir o relay e o bridge Socket na
-pratica. O contrato normativo continua em `docs/socket_relay_protocol.md`; para
+pratica. O contrato normativo continua em `docs/socket/socket_relay_protocol.md`; para
 rotas HTTP e payloads compartilhados com o bridge REST, use o OpenAPI em
 `GET /docs` e `GET /docs.json`.
 
@@ -24,7 +24,7 @@ streaming progressivo (resultado agregado num unico JSON). Para consultas grande
 acima de alguns MiB), preferir Socket/relay e sinalizar
 `options.prefer_db_streaming=true` para o agente. Ver `docs/PROJECT_OVERVIEW.md`.
 
-**Catalogo de metodos RPC no bridge** (`sql.execute`, `client_token.getPolicy`, `rpc.discover`, etc.), limites UTF-8 e exemplos: `docs/api_rest_bridge.md` (fonte normativa partilhada com o REST).
+**Catalogo de metodos RPC no bridge** (`sql.execute`, `client_token.getPolicy`, `rpc.discover`, etc.), limites UTF-8 e exemplos: `docs/api/api_rest_bridge.md` (fonte normativa partilhada com o REST).
 
 ### Producao — alinhamento Colmeia (smoke)
 
@@ -33,15 +33,15 @@ acima de alguns MiB), preferir Socket/relay e sinalizar
 - **Handshake `/consumers`**: exige JWT valido mesmo que `SOCKET_AUTH_REQUIRED=false` noutros canais; nao existe modo anonimo suportado para operacao real do namespace.
 - **Capacidade ao conectar (principal `client`)**: `connection:ready` sai cedo, depois do hub entrar nas rooms base de identidade (`principal` e `client`). As rooms derivadas por acesso aprovado (`consumer:client-agent:*` e `consumer:agent-profile:*`) sao preenchidas de forma assincrona logo apos o ready, com dedupe por `clientId` para evitar rajadas em reconnect storm. Durante essa janela curta, `grantClientAccess` e o reconcile periodico garantem convergencia; clientes que precisam do catalogo completo devem usar os endpoints REST de listagem como fonte de verdade e tratar pushes iniciais como best-effort.
 - **REST offline**: `POST /api/v1/agents/commands` com `id` correlacionável e agente conhecido em memória mas sem socket → **HTTP 200** e `response.item.error` com `code: -32000`, `message: agent_offline`, `data.reason: agent_disconnected_at_dispatch` (não confundir com **503** de overload / notification-only / disconnect a meio de request).
-- **`X-Hub-Instance-Id`**: deploy de instância única — `docs/nginx_production.md` (secção **13) Upstream e `X-Hub-Instance-Id`**) e checklist em `docs/configuration.md` (_Checklist produção_).
+- **`X-Hub-Instance-Id`**: deploy de instância única — `docs/infrastructure/nginx_production.md` (secção **13) Upstream e `X-Hub-Instance-Id`**) e checklist em `docs/configuration.md` (_Checklist produção_).
 
 ## Eventos e formato
 
-- **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket_relay_protocol.md` -> _Handshake: `connection:ready`_). Quando esse evento chega para principal `client`, a room base `client:<clientId>` ja foi associada; rooms derivadas por agente aprovado convergem logo depois em backfill assincrono.
+- **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket/socket_relay_protocol.md` -> _Handshake: `connection:ready`_). Quando esse evento chega para principal `client`, a room base `client:<clientId>` ja foi associada; rooms derivadas por agente aprovado convergem logo depois em backfill assincrono.
 - Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`, acks `socket:event.*`
 - Dados em `PayloadFrame`: `connection:ready`, `agents:command_response`, `agents:command_stream_chunk`, `agents:command_stream_complete`, `agents:stream_pull_response`, `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
 - **Bridge legado (`agents:*`)**: inbound `agents:command` e `agents:stream_pull` aceitam plain JSON **ou** `PayloadFrame` durante a transicao; outbound de respostas e stream usa `PayloadFrame` por defeito. Ver _Migração PayloadFrame no bridge legado_ abaixo e shims em `docs/configuration.md`.
-- **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/client_agent_business_rules.md`.
+- **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/api/client_agent_business_rules.md`.
 - **Pub/sub customizado:** apenas tokens de **Client** no `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe` / `socket:event.unsubscribe`; publicacoes com o mesmo tipo de token chegam ao `eventName` em `PayloadFrame` via **`POST /api/v1/client/me/socket-events`** (REST) ou **`socket:event.publish`** (Socket; ack em `socket:event.published`). `socket:event.*` revalida conta ativa por evento; conta bloqueada recebe erro no envelope atual e o socket e desconectado de forma controlada.
 
 ## Estrutura do PayloadFrame
@@ -137,7 +137,7 @@ Socket.IO distribuido, a publicacao so alcanca sockets da mesma replica.
 Use `Idempotency-Key` (REST) ou `idempotencyKey` (Socket) em retries: repetir a mesma chave com o mesmo corpo
 retorna a resposta original com `idempotentReplay: true` sem emitir o evento de
 novo; repetir a chave com outro corpo retorna `409` (REST) ou `socket:event.published` com `error.code: IDEMPOTENCY_KEY_CONFLICT` (Socket).
-A mesma chave e partilhada entre REST e Socket para o mesmo `Client` (JWT `sub`); ver `docs/socket_relay_protocol.md`. Por defeito, cache e fila de serializacao de idempotencia sao **por processo**. Em multi-replica, configure `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL` para replay/conflito e lock distribuido, e `SOCKET_IO_REDIS_ADAPTER_URL` para entregar `client:custom.*` entre replicas. O teto opcional `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS` continua por processo. Com TTL de idempotencia `0`, retries **sequenciais** com a mesma chave podem voltar a emitir; com TTL > `0`, o replay guardado cobre esse caso. Um `503` por teto de serializacao ou lock distribuido ocupado inclui `retry_after_ms` alinhado a `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS`.
+A mesma chave e partilhada entre REST e Socket para o mesmo `Client` (JWT `sub`); ver `docs/socket/socket_relay_protocol.md`. Por defeito, cache e fila de serializacao de idempotencia sao **por processo**. Em multi-replica, configure `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL` para replay/conflito e lock distribuido, e `SOCKET_IO_REDIS_ADAPTER_URL` para entregar `client:custom.*` entre replicas. O teto opcional `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS` continua por processo. Com TTL de idempotencia `0`, retries **sequenciais** com a mesma chave podem voltar a emitir; com TTL > `0`, o replay guardado cobre esse caso. Um `503` por teto de serializacao ou lock distribuido ocupado inclui `retry_after_ms` alinhado a `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS`.
 Se o socket desligar antes do hub responder, o ack `socket:event.published` pode nao ser emitido (o servidor evita escrever num socket ja fechado).
 Opcional: `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` > 0 reserva um teto de publicacoes `socket:event.publish` em voo **separado** do teto partilhado `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET` usado por relay e comandos.
 
@@ -161,9 +161,9 @@ Campos de arquivo diferentes de `files` sao rejeitados.
 - **Retry-After**: erros Socket de overload podem incluir `retryAfterMs`. Em `agents:command_response`, se o agente retornar erro JSON-RPC `-32013` com `error.data.retry_after_ms`, o hub adiciona `retryAfterSeconds`, espelhando o header `Retry-After` do REST. No relay, o frame JSON-RPC do agente continua sendo fonte de verdade; leia `error.data.retry_after_ms`.
 - **Helper recomendado**: clientes podem copiar a politica pura de `src/shared/utils/socket_retry_after_policy.ts` para normalizar todos os formatos publicos de retry em milissegundos antes de aplicar backoff com jitter.
 - **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`). Se o agente abrir `stream_id` e nunca enviar `rpc:complete`, o hub encerra por idle timeout ou lifetime maximo com `relay:rpc.complete` (`terminal_status: "error"`, `error_code: "RELAY_STREAM_TIMEOUT"`).
-- **Consumer idle timeout**: sweeps desligam sockets `/consumers` inactivos apos `SOCKET_CONSUMER_IDLE_TIMEOUT_MS` (defeito 30 min); emite `app:error` com `code: CONSUMER_IDLE_TIMEOUT` antes do disconnect. Apenas eventos **inbound iniciados pelo cliente** refrescam `lastSeenAt` (`consumer_idle_touch_events.ts`): `agents:command`, `agents:stream_pull`, `relay:conversation.start/end`, `relay:rpc.request`, `relay:rpc.stream.pull`, `socket:event.subscribe/unsubscribe/publish`. Trafego hub→consumer de alta frequencia (`agents:command_response`, `agents:command_stream_*`, chunks/respostas relay reflectidas, `client:agent.profile.updated`, etc.) **nao** reinicia o relogio idle — receber stream passivo nao mantem a sessao viva. Para sessoes longas com pouco trafego de comando, emitir periodicamente um evento significativo (ex. heartbeat de aplicacao via `agents:command` ou `relay:rpc.request`). Config: `docs/configuration.md` (_Idle enforcement_). Metrica: `plug_consumer_idle_timeout_disconnect_total` — ver `docs/observability.md`.
+- **Consumer idle timeout**: sweeps desligam sockets `/consumers` inactivos apos `SOCKET_CONSUMER_IDLE_TIMEOUT_MS` (defeito 30 min); emite `app:error` com `code: CONSUMER_IDLE_TIMEOUT` antes do disconnect. Apenas eventos **inbound iniciados pelo cliente** refrescam `lastSeenAt` (`consumer_idle_touch_events.ts`): `agents:command`, `agents:stream_pull`, `relay:conversation.start/end`, `relay:rpc.request`, `relay:rpc.stream.pull`, `socket:event.subscribe/unsubscribe/publish`. Trafego hub→consumer de alta frequencia (`agents:command_response`, `agents:command_stream_*`, chunks/respostas relay reflectidas, `client:agent.profile.updated`, etc.) **nao** reinicia o relogio idle — receber stream passivo nao mantem a sessao viva. Para sessoes longas com pouco trafego de comando, emitir periodicamente um evento significativo (ex. heartbeat de aplicacao via `agents:command` ou `relay:rpc.request`). Config: `docs/configuration.md` (_Idle enforcement_). Metrica: `plug_consumer_idle_timeout_disconnect_total` — ver `docs/observability/observability.md`.
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
-- **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; Redis adapter/idempotencia Redis ajudam `client:custom.*`, mas relay/pending/registry ainda precisam de afinidade — ver `docs/scaling_and_roadmap.md`.
+- **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; Redis adapter/idempotencia Redis ajudam `client:custom.*`, mas relay/pending/registry ainda precisam de afinidade — ver `docs/studies/scaling_and_roadmap.md`.
 - **PayloadFrame signature**: quando o cliente assina frames com HMAC-SHA256, em deployments com `PAYLOAD_SIGNING_KEY_ID` ou `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON` configurado no hub o `signature.key_id` passa a ser **obrigatorio** e validado contra a keyring.
 
 Nota de streaming relay: `relay:rpc.stream.pull` e limitado pelo hub a `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` e, quando o agente anuncia teto menor, pelo teto do agente.
@@ -254,7 +254,7 @@ Regras essenciais:
 - Para **streaming** (`sql.execute` com `prefer_db_streaming` / `multi_result`, `sql.executeBatch`), evite `fastPath: true`. Sem `accepted` para ancorar o `requestId`, o `relay:rpc.stream.pull` so podera ser emitido depois do primeiro chunk. O hub registra `plug_socket_relay_fast_path_stream_inadvertent_total` quando detecta este cenario.
 - Cancelamento e desconexao funcionam normalmente: o relay nao tem `rpc.cancel`; aborts vem por socket disconnect ou `sql.cancel` por `stream_id`.
 
-Detalhes completos do contrato em [`docs/socket_relay_protocol.md`](socket_relay_protocol.md) ("Relay unary fast-path").
+Detalhes completos do contrato em [`docs/socket/socket_relay_protocol.md`](socket_relay_protocol.md) ("Relay unary fast-path").
 
 ### `requestServerTimings: boolean` — fases de latencia no envelope
 
@@ -415,7 +415,7 @@ agente via hub (PayloadFrame em `rpc:request` no `/agents`), com o mesmo caso de
 **Paridade com o body REST (`AgentCommandRequest` / OpenAPI):** o payload validado e o mesmo
 `agentCommandBodySchema`: `agentId`, `command` (objeto unico **ou** batch ate 32 itens), opcionais
 `timeoutMs`, `pagination` (so `sql.execute` unico), `payloadFrameCompression` (`default` \| `none` \| `always`).
-Tetos UTF-8 no JSON logico (`sql`, `params`, etc.) sao os **mesmos** que no REST; ver `docs/api_rest_bridge.md`
+Tetos UTF-8 no JSON logico (`sql`, `params`, etc.) sao os **mesmos** que no REST; ver `docs/api/api_rest_bridge.md`
 e descricoes em `swagger.ts`.
 
 **Rate limit:** o `POST /api/v1/agents/commands` aplica limites por JWT `sub` (e opcionalmente por IP).
@@ -506,7 +506,7 @@ para migrar command e stream*pull em calendarios diferentes. Apos `2026-09-30`, 
 regista `WARN` se `raw_json` ainda estiver activo (`warnIf*LegacyCompatExpired`). Detalhes
 operacionais: `docs/configuration.md` (secções *PayloadFrame*, `SOCKET_AGENTS_COMMAND_COMPAT_MODE`,
 `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE`). Para observar disconnects por idle e rate limits durante
-rollout: `docs/observability.md` (`plug_consumer_idle_timeout_disconnect_total`,
+rollout: `docs/observability/observability.md` (`plug_consumer_idle_timeout_disconnect_total`,
 `plug_socket_agents_command_rate_limit*\*`).
 
 **Migracao recomendada para novos clientes:** decodificar `PayloadFrame` em todos os
@@ -525,7 +525,7 @@ Semantica do campo JSON-RPC **`id`** (alinhada ao REST):
 
 **Diferenca em relacao ao plug_agente direto:** no socket direto ao agente, omitir `id` costuma ser
 notification; no **hub plug_server** a omissao e preenchida para facilitar integracao. Detalhes:
-`docs/api_rest_bridge.md` (secao _Hub vs agente direto_).
+`docs/api/api_rest_bridge.md` (secao _Hub vs agente direto_).
 
 `idempotency_key` e uma deduplicacao de negocio/execucao onde o metodo suporta
 isso; ela nao substitui `command.id`, que segue sendo a correlacao JSON-RPC e a

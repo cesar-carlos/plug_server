@@ -1,4 +1,4 @@
-# ADR 0009: Client request id echo end-to-end (`clientRequestIdEcho` extension)
+﻿# ADR 0009: Client request id echo end-to-end (`clientRequestIdEcho` extension)
 
 - **Status**: **Proposed** — not implemented. Tracks a future evolution
   of the relay `body.id` contract that supersedes the hub-side rewrite
@@ -255,6 +255,6 @@ item 7 com link para os PRs e mudar Status para `in-progress`.
 
 - Defeito original + fix shipping (Opcao B): [`docs/plug_agente/01_relay_body_id_echo.md`](../plug_agente/01_relay_body_id_echo.md)
 - Issue da Colmeia: `D:\Developer\Flutter\colmeia\docs\server_adjustments\relay_unary_fast_path.md §1`
-- Contrato wire atual: [`docs/socket_relay_protocol.md`](../socket_relay_protocol.md) ("Relay unary fast-path", "Correlacao de IDs no relay")
+- Contrato wire atual: [`docs/socket/socket_relay_protocol.md`](../socket/socket_relay_protocol.md) ("Relay unary fast-path", "Correlacao de IDs no relay")
 - ADR irmao (batch protocol): [`docs/adrs/0008-relay-batch-protocol.md`](0008-relay-batch-protocol.md)
 - Bench gate: [`scripts/bench-relay-body-id-echo.ts`](../../scripts/bench-relay-body-id-echo.ts) (BENCH=1)

@@ -1,6 +1,6 @@
-# Desempenho: hub (`plug_server`) ↔ `plug_agente`
+﻿# Desempenho: hub (`plug_server`) ↔ `plug_agente`
 
-Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.md` e `docs/socket_relay_protocol.md`. Defaults formais: `docs/configuration.md` (`env.ts`, `.env.example`).
+Guia de otimização e variáveis relevantes. Complementa `docs/api/api_rest_bridge.md` e `docs/socket/socket_relay_protocol.md`. Defaults formais: `docs/configuration.md` (`env.ts`, `.env.example`).
 
 **Produção (`NODE_ENV=production`) sem variável definida:** o `env.ts` aplica automaticamente `SOCKET_IO_TRANSPORTS=websocket`, `SOCKET_IO_HTTP_COMPRESSION=false`, `PAYLOAD_FRAME_GZIP_LEVEL=3`, `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT=25`. Ver tabela em `docs/configuration.md`. Definir a variável explicitamente substitui estes ramos.
 
@@ -24,7 +24,7 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api_rest_bridge.
 - **`SOCKET_IO_TRANSPORTS=websocket`**: o hub define `allowUpgrades: false` no Engine.IO (sem tentativa de upgrade polling→WS quando só existe transporte WebSocket).
 - **PayloadFrame em streams relay** (`relay:rpc.chunk` / `relay:rpc.complete`, acks em batch): o envelope pode **omitir `traceId`** para evitar `randomUUID()` por mensagem em caminhos de alto débito; a correlação continua via `requestId` no envelope e nos dados JSON-RPC.
 - **Relay hub → consumer**: emissões para o consumer (`relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, acks relay, replay idempotente, timeout) passam por **`encodePayloadFrameBridge`** dentro de **`relay_outbound_queue.ts`**: fila **serial por `requestId`** (`enqueueRelayOutbound`) para preservar ordem com gzip assíncrono (`PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES`, mesmo limiar que hub→agente). Com **`PAYLOAD_FRAME_ASYNC_GZIP_MIN_UTF8_BYTES=0`**, o caminho volta a gzip síncrono dentro do bridge. Mitigações de CPU/tamanho: `PAYLOAD_FRAME_GZIP_LEVEL` (1–3), menos linhas por chunk no agente, payloads abaixo do limiar de gzip.
-- **Métricas da fila relay** (`GET /metrics`): `plug_socket_relay_outbound_queue_*` (jobs terminados/falhados, soma/média/máx. duração do job em ms, gauge `inflight_request_ids`). PromQL em `docs/observability.md`.
+- **Métricas da fila relay** (`GET /metrics`): `plug_socket_relay_outbound_queue_*` (jobs terminados/falhados, soma/média/máx. duração do job em ms, gauge `inflight_request_ids`). PromQL em `docs/observability/observability.md`.
 - **Overload gate O(1)**: os handlers de `/consumers` leem estado cacheado da fila relay (backlog/p95) e o refresh pesado (percentis + varredura órfãos) fica no sweep periódico/métricas. Isso reduz CPU por evento em `relay:conversation.start`, `relay:rpc.request` e `relay:rpc.stream.pull`.
 - **Drain em lote por `requestId`**: chunks buffered são drenados em jobs agregados da fila outbound (sem perder ordenação), reduzindo custo de Promise chaining e de encode por chunk em bursts.
 - **Lookup relay durante `rpc:stream.pull`**: ao drenar buffer interno após um pull, o hub reutiliza a rota relay já resolvida onde possível (`rpc_bridge_stream_pull.ts`), evitando consultas repetidas ao registo por chunk no mesmo tick.
@@ -250,14 +250,14 @@ Regra de rollout:
 ## Agente (`plug_agente`)
 
 - Afinar limites negociados no handshake (`max_rows`, streaming, chunking) e carga SQL no próprio agente; o hub só encaminha.
-- Benchmark E2E com ODBC e `multi_result` (repositório `plug_agente`): visão geral hub ↔ agente em `docs/e2e_benchmark_hub_agent.md`.
+- Benchmark E2E com ODBC e `multi_result` (repositório `plug_agente`): visão geral hub ↔ agente em `docs/performance/e2e_benchmark_hub_agent.md`.
 
 ## Fast-path relay (estudo)
 
 Existe um estudo técnico para caminho opcional de relay com menos transformação
 no hub, condicionado a benchmark e feature flag:
 
-- `docs/relay_fastpath_study.md`
+- `docs/studies/relay_fastpath_study.md`
 
 ## Métricas
 

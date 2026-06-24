@@ -1,4 +1,4 @@
-# Runbook: Migrate Redis from standalone to Cluster
+﻿# Runbook: Migrate Redis from standalone to Cluster
 
 This runbook walks through migrating the plug hub from a single-node Redis
 to Redis Cluster (≥ 3 master nodes, optional replicas). The hub is already
@@ -105,7 +105,7 @@ After 7 days of healthy operation on Cluster:
 
 1. Stop the legacy standalone Redis.
 2. Remove standalone DNS record / DCS entry.
-3. Update `docs/redis_security.md` deployment notes if needed.
+3. Update `docs/infrastructure/redis_security.md` deployment notes if needed.
 
 ## Multi-tenancy migration (optional)
 

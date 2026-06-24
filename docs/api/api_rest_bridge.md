@@ -1,4 +1,4 @@
-# REST Bridge - POST /api/v1/agents/commands
+﻿# REST Bridge - POST /api/v1/agents/commands
 
 ## Endpoint relacionado: GET /api/v1/agents
 
@@ -17,7 +17,7 @@ para o agente, aguarda a resposta e devolve ao cliente HTTP.
 Este documento e normativo para o contrato REST e para o canal legado
 `agents:*`. Regras de negocio de ownership, aprovacao de `Client`, revogacao,
 conta ativa e autorizacao por principal vivem em
-`docs/client_agent_business_rules.md`. Para o mapa geral da documentacao, ver
+`docs/api/client_agent_business_rules.md`. Para o mapa geral da documentacao, ver
 `docs/README.md`.
 
 ## Como ler este documento
@@ -35,11 +35,11 @@ consulte tambem o OpenAPI em `GET /docs` e `GET /docs.json`.
 
 Use outros docs para:
 
-- `docs/client_agent_business_rules.md`: ownership, aprovacao, revogacao e autorizacao
-- `docs/socket_relay_protocol.md`: relay `relay:*`
+- `docs/api/client_agent_business_rules.md`: ownership, aprovacao, revogacao e autorizacao
+- `docs/socket/socket_relay_protocol.md`: relay `relay:*`
 - `docs/configuration.md`: defaults e fonte de verdade das variaveis
-- `docs/performance_hub_agent.md`: tuning e operacao sob carga
-- `docs/observability.md`: metricas, traces e alertas
+- `docs/performance/performance_hub_agent.md`: tuning e operacao sob carga
+- `docs/observability/observability.md`: metricas, traces e alertas
 
 ### Erros e fases do handshake Socket
 
@@ -47,7 +47,7 @@ Fases tipicas (apos o TCP/WebSocket do Socket.IO):
 
 1. **Middleware de namespace** (`/agents` ou `/consumers`): valida JWT, `role` e conta activa. Falhas aqui aparecem ao cliente como **`connect_error`** (nao chega `connection`).
 2. **Handler `connection`**: entra em salas de identidade (`agent:principal:{sub}` em `/agents` quando ha `sub`; em `/consumers` salas de principal, `client:{id}` e `consumer:client-agent:*` para agentes aprovados). Falha ao entrar nas salas → hub emite **`app:error`** (ex.: codigo `ROOM_JOIN_FAILED` em `/agents`, `CONSUMER_SOCKET_INITIALIZATION_FAILED` em `/consumers`) e **`disconnect`**.
-3. **`connection:ready`**: emitido **depois** das salas de identidade estarem aplicadas no mesmo processo; o payload e normalmente um **`PayloadFrame`** (ver `SOCKET_CONNECTION_READY_COMPAT_MODE` / `docs/socket_relay_protocol.md`). O cliente deve tratar `connection:ready` como sinal de sessao pronta para o protocolo de aplicacao (`agent:register`, `agents:command`, `relay:*`, etc.).
+3. **`connection:ready`**: emitido **depois** das salas de identidade estarem aplicadas no mesmo processo; o payload e normalmente um **`PayloadFrame`** (ver `SOCKET_CONNECTION_READY_COMPAT_MODE` / `docs/socket/socket_relay_protocol.md`). O cliente deve tratar `connection:ready` como sinal de sessao pronta para o protocolo de aplicacao (`agent:register`, `agents:command`, `relay:*`, etc.).
 
 Outros **`app:error`** relevantes: ligacao ao namespace padrao `/` (codigo `NAMESPACE_DEPRECATED`) antes do disconnect.
 
@@ -57,7 +57,7 @@ Isto e independente da [matriz oficial de paridade do bridge](#matriz-oficial-de
 
 - **Dois canais** chegam ao mesmo fluxo interno (`executeAgentCommand` → dispatch para o agente): **HTTP** (`POST /api/v1/agents/commands`) ou **Socket** (`agents:command` no `/consumers`, ou relay `relay:rpc.request`).
 - O cliente pode usar **apenas REST** (sem abrir Socket de consumer), **apenas Socket**, ou **misturar** (ex.: login e `GET /agents` por HTTP e comandos por Socket).
-- **Streaming**: no REST, o hub **nao** envia chunks progressivos ao cliente HTTP; quando o agente devolve `stream_id`, o servidor **materializa** o stream por dentro e responde com **um** JSON final. Para chunks em tempo real e `stream_pull`, usar o canal Socket (legado ou relay). Ver `docs/PROJECT_OVERVIEW.md` e `docs/performance_hub_agent.md`.
+- **Streaming**: no REST, o hub **nao** envia chunks progressivos ao cliente HTTP; quando o agente devolve `stream_id`, o servidor **materializa** o stream por dentro e responde com **um** JSON final. Para chunks em tempo real e `stream_pull`, usar o canal Socket (legado ou relay). Ver `docs/PROJECT_OVERVIEW.md` e `docs/performance/performance_hub_agent.md`.
 
 #### Matriz de decisao de canal (operacao)
 
@@ -117,7 +117,7 @@ chegam em `agents:command_stream_chunk` e o encerramento em
 consumer envia `agents:stream_pull` e recebe `agents:stream_pull_response`.
 
 Para modo chat-like com conversa isolada (`relay:*`) e `PayloadFrame` tambem no
-namespace `/consumers`, consulte `docs/socket_relay_protocol.md`.
+namespace `/consumers`, consulte `docs/socket/socket_relay_protocol.md`.
 
 No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
 `plug_server` encapsula e desencapsula `PayloadFrame` binario (com
@@ -166,7 +166,7 @@ emissao e logada como `agent_register_error_emitted` com `socketId`, `code`,
 
 As regras completas de ownership, `ClientAgentAccess`, aprovacao por owner,
 revogacao e autorizacao entre REST e Socket vivem em
-`docs/client_agent_business_rules.md`.
+`docs/api/client_agent_business_rules.md`.
 
 ### Periodo de compatibilidade: SOCKET_AGENT_ROLES=agent,user
 
@@ -190,7 +190,7 @@ aceitar tanto tokens com `role: agent` quanto `role: user` no namespace `/agents
 **Apos a migracao:** Remova `user` de `SOCKET_AGENT_ROLES` e mantenha apenas `agent`.
 
 Para o passo a passo completo da migracao no plug_agente (conexao, login, refresh e
-`agent:register`), consulte `docs/migracao_plug_agente_namespaces.md`.
+`agent:register`), consulte `docs/plug_agente/migracao_plug_agente_namespaces.md`.
 
 ## Fluxo resumido
 
@@ -308,7 +308,7 @@ HTTP `200` com envelope bridge normal e `response.item.error.code = -32014`
 
 O **relay** (`relay:rpc.request`) continua com modelo proprio: o frame usa `id` interno gerado
 pelo servidor; o `id` do cliente vira `meta.client_request_id` para idempotencia (ver
-`docs/socket_relay_protocol.md` / `socket_client_sdk.md`).
+`docs/socket/socket_relay_protocol.md` / `socket_client_sdk.md`).
 
 O `meta` enviado pelo cliente (ex.: `traceparent`, `tracestate`) e preservado
 via merge; o bridge adiciona `request_id`, `agent_id`, `timestamp` e `trace_id`.
@@ -623,7 +623,7 @@ Regras do contrato:
 Para o canal **relay** (`relay:rpc.request` no `/consumers`), o opt-in
 equivalente vive no envelope do request e injeta `meta.serverTimings` no
 JSON-RPC da resposta. Ver
-[`docs/socket_relay_protocol.md`](socket_relay_protocol.md) ("Server-side
+[`docs/socket/socket_relay_protocol.md`](../socket/socket_relay_protocol.md) ("Server-side
 phase diagnostics").
 
 ---
@@ -1219,7 +1219,7 @@ timeout), o servidor também pode devolver:
 
 > **Nota multi-réplica.** Os limitadores usam o store default em memória; em
 > multi-pod o teto efetivo se multiplica pelo número de réplicas. Veja
-> `docs/scaling_and_roadmap.md` (seção “Rate limits HTTP em memoria”) para a
+> `docs/studies/scaling_and_roadmap.md` (seção “Rate limits HTTP em memoria”) para a
 > recomendação de `Redis Store` quando justificar.
 
 > Atualizacao Redis: quando `REST_RATE_LIMIT_REDIS_URL` esta configurado, o estado
@@ -1452,7 +1452,7 @@ Quando o agente retorna erro, `response.item.error` segue:
 
 Esta secao resume as diferencas relevantes entre o bridge REST e os canais
 Socket do consumer. Os contratos detalhados continuam nas secoes anteriores
-deste arquivo e em `docs/socket_relay_protocol.md`.
+deste arquivo e em `docs/socket/socket_relay_protocol.md`.
 
 ### Recursos disponiveis no agente vs cobertura REST
 
@@ -1525,15 +1525,15 @@ isolamento por conversa ou menor latencia por stream, usa `/consumers` com
 ## Configuracao e tuning
 
 Defaults e fonte de verdade das variaveis: `docs/configuration.md`.
-Guia agregado de tuning e operacao: `docs/performance_hub_agent.md`.
-Metricas, traces e alertas: `docs/observability.md`.
+Guia agregado de tuning e operacao: `docs/performance/performance_hub_agent.md`.
+Metricas, traces e alertas: `docs/observability/observability.md`.
 
 ### Traces de latencia do bridge (`BRIDGE_LATENCY_TRACE_*`)
 
 Para persistir tempos por fase do bridge, ative
 `BRIDGE_LATENCY_TRACE_ENABLED=true`. Regras de amostragem, esquema da tabela,
 metricas `plug_bridge_latency_trace_*` e exemplos de consulta ficam em
-`docs/observability.md`.
+`docs/observability/observability.md`.
 
 ### REQUEST_BODY_LIMIT e tamanho de payload
 
@@ -1556,7 +1556,7 @@ Ele nao envia comandos JSON-RPC ao agente e nao substitui
 `POST /api/v1/agents/commands`. A rota permite que um `Client` autenticado
 publique eventos de aplicacao `client:custom.*` para sockets `/consumers`
 inscritos via `socket:event.subscribe`. A alternativa equivalente no Socket e
-`socket:event.publish` (ver `docs/socket_relay_protocol.md`).
+`socket:event.publish` (ver `docs/socket/socket_relay_protocol.md`).
 
 O corpo JSON usa `{ eventName, payload, payloadFrameCompression? }`; multipart
 usa o campo `event` com esse JSON e campos `files` repetidos para anexos inline
@@ -1565,7 +1565,7 @@ pequenos. O hub entrega um `PayloadFrame` no proprio `eventName`, com
 O campo `payload` e obrigatorio mesmo quando for `null`. Para retries HTTP,
 envie `Idempotency-Key`: a mesma chave com o mesmo corpo reaproveita a resposta
 `202` sem publicar de novo; a mesma chave com outro corpo retorna `409`.
-A **mesma** chave e fingerprint partilham-se com `idempotencyKey` em `socket:event.publish` (mesmo `Client` JWT `sub`); ver `docs/socket_relay_protocol.md`.
+A **mesma** chave e fingerprint partilham-se com `idempotencyKey` em `socket:event.publish` (mesmo `Client` JWT `sub`); ver `docs/socket/socket_relay_protocol.md`.
 Campos de arquivo diferentes de `files` sao rejeitados.
 
 Sem adapter distribuido do Socket.IO, a publicacao e local a replica que recebeu
@@ -1588,7 +1588,7 @@ Ajuste conforme capacidade dos agentes e padrao de uso.
 **Nota (Socket):** o evento `agents:command` no `/consumers` usa o **mesmo** body e validacao e um
 rate limit **por Socket** com os **mesmos** `REST_AGENTS_COMMANDS_RATE_LIMIT_WINDOW_MS` e
 `REST_AGENTS_COMMANDS_RATE_LIMIT_MAX` por JWT `sub` (contador separado do Express). Relay: `SOCKET_RELAY_RATE_LIMIT_*`.
-Ver `docs/socket_client_sdk.md`.
+Ver `docs/socket/socket_client_sdk.md`.
 
 ### Log de `id` JSON-RPC auto-atribuido
 
@@ -1605,7 +1605,7 @@ precisar da variavel — util para depuracao local sem poluir producao.
 ### Relay e auditoria
 
 Os knobs de relay, fila outbound, idempotencia e auditoria Socket continuam
-documentados em `docs/performance_hub_agent.md`, `docs/observability.md` e
+documentados em `docs/performance/performance_hub_agent.md`, `docs/observability/observability.md` e
 `docs/configuration.md`, porque sao compartilhados entre REST, `agents:*` e
 `relay:*` e nao pertencem apenas a este endpoint.
 

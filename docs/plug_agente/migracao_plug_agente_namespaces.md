@@ -1,4 +1,4 @@
-# Migracao do `plug_agente` para namespaces
+﻿# Migracao do `plug_agente` para namespaces
 
 ## Objetivo
 
@@ -82,6 +82,6 @@ emitir `agent:ready` antes do primeiro `rpc:request`.
 ## Leituras relacionadas
 
 - `docs/PROJECT_OVERVIEW.md`
-- `docs/api_rest_bridge.md` (secao *Falhas de `agent:register` ate o ownership ser criado*)
-- `docs/socket_relay_protocol.md`
+- `docs/api/api_rest_bridge.md` (secao *Falhas de `agent:register` ate o ownership ser criado*)
+- `docs/socket/socket_relay_protocol.md`
 - `docs/configuration.md` (secao *Validacao de `agent:register`*)

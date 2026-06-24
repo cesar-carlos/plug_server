@@ -1,4 +1,4 @@
-# Orientacoes para `plug_agente` — performance Socket / relay (2026-05)
+﻿# Orientacoes para `plug_agente` — performance Socket / relay (2026-05)
 
 > **Audiencia.** Time do `plug_agente` (Flutter). Este conjunto de
 > documentos descreve (1) as melhorias entregues no `plug_server` no
@@ -85,11 +85,11 @@ adicionados, acoes pendentes para o release) em
 Estes continuam sendo a fonte de verdade — qualquer mudanca no agente
 deve referenciar:
 
-- [`docs/socket_relay_protocol.md`](../socket_relay_protocol.md) — contrato
+- [`docs/socket/socket_relay_protocol.md`](../socket/socket_relay_protocol.md) — contrato
   do canal `relay:*` no namespace `/consumers`.
-- [`docs/api_rest_bridge.md`](../api_rest_bridge.md) — contrato REST +
+- [`docs/api/api_rest_bridge.md`](../api/api_rest_bridge.md) — contrato REST +
   `agents:command` no namespace `/agents`.
-- [`docs/communication_sync_plug_agente.md`](../communication_sync_plug_agente.md)
+- [`docs/plug_agente/communication_sync_plug_agente.md`](communication_sync_plug_agente.md)
   — checklist de sincronizacao com o repositorio irmao. **Pasta atual e
   cross-linked daqui**.
 - [`docs/adrs/`](../adrs/) — decisoes de protocolo (ADR 0008 batch, ADR

@@ -1,4 +1,4 @@
-# E2E, benchmark e desempenho: hub (`plug_server`) ↔ agente (`plug_agente`)
+﻿# E2E, benchmark e desempenho: hub (`plug_server`) ↔ agente (`plug_agente`)
 
 ## Objetivo
 
@@ -55,21 +55,21 @@ Quando o tráfego vem de `POST /api/v1/agents/commands` ou `agents:command` no `
 - O hub aplica **inflight + fila por `agentId`** e o limite global de pendências (`SOCKET_REST_MAX_PENDING_REQUESTS`).
 - O agente trata `rpc:request` e **gera erros de recurso** (ex. pool esgotado) no próprio contrato RPC; o hub propaga a resposta ao consumidor.
 
-Para `multi_result` com payloads grandes, atenção no hub a `PAYLOAD_FRAME_*`, gzip assíncrono e memória — ver `docs/performance_hub_agent.md`.
+Para `multi_result` com payloads grandes, atenção no hub a `PAYLOAD_FRAME_*`, gzip assíncrono e memória — ver `docs/performance/performance_hub_agent.md`.
 
-Ferramentas: `autocannon` / `k6` — `docs/load_testing.md`.
+Ferramentas: `autocannon` / `k6` — `docs/performance/load_testing.md`.
 
 ---
 
 ## O que o `plug_server` ainda não inclui
 
 - Runner de benchmark integrado hub+agente+BD neste repositório (`tests/e2e/` = smoke de arranque).
-- Persistência partilhada de pedidos REST entre réplicas — `docs/api_rest_bridge.md` (gaps / réplicas).
+- Persistência partilhada de pedidos REST entre réplicas — `docs/api/api_rest_bridge.md` (gaps / réplicas).
 
 ---
 
 ## Leituras relacionadas
 
-- `docs/load_testing.md`
-- `docs/performance_hub_agent.md`
-- `docs/api_rest_bridge.md` — `multi_result`, overload REST, streaming materializado.
+- `docs/performance/load_testing.md`
+- `docs/performance/performance_hub_agent.md`
+- `docs/api/api_rest_bridge.md` — `multi_result`, overload REST, streaming materializado.

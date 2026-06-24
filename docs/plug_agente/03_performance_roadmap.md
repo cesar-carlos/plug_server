@@ -1,13 +1,13 @@
-# Performance roadmap — oportunidades cross-repo
+﻿# Performance roadmap — oportunidades cross-repo
 
 > **Audiencia.** Time do `plug_agente`. Lista priorizada de melhorias de
 > performance / observabilidade que **dependem de mudanca no agente** para
 > destravar ganhos no hub e/ou na ponta do consumer.
 >
 > **Como esta pagina foi construida.** Audit cross-repo
-> (2026-05-28) cruzando `docs/performance_hub_agent.md`,
+> (2026-05-28) cruzando `docs/performance/performance_hub_agent.md`,
 > `docs/runbooks/socket_perf_investigation.md`, `docs/spikes/`,
-> `docs/scaling_and_roadmap.md`, codigo do agente em
+> `docs/studies/scaling_and_roadmap.md`, codigo do agente em
 > `lib/infrastructure/external_services/transport/`,
 > `lib/application/queue/`, `lib/core/constants/connection_constants.dart`
 > e `lib/core/config/feature_flags.dart`.
