@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import type SwaggerJSDoc from "swagger-jsdoc";
 import type * as SwaggerUi from "swagger-ui-express";
 import { createHash } from "node:crypto";
@@ -1229,6 +1229,38 @@ const buildSwaggerSpec = (): BuiltSwaggerSpec => {
   return { spec, json, etag };
 };
 
+/** External script (not inline) so strict CSP extensions do not block inline handlers. */
+const SWAGGER_ONLOAD_FALLBACK_PATH = "/docs/swagger-onload-fallback.js";
+const SWAGGER_ONLOAD_FALLBACK_JS = `(function () {
+  var attempts = 0;
+  var maxAttempts = 40;
+
+  function tryInit() {
+    if (typeof window.ui !== "undefined") {
+      return;
+    }
+    if (typeof window.onload === "function") {
+      try {
+        window.onload();
+      } catch (_err) {
+        /* swagger-ui-bundle may still be evaluating */
+      }
+    }
+    attempts += 1;
+    if (typeof window.ui === "undefined" && attempts < maxAttempts) {
+      setTimeout(tryInit, 50);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", tryInit);
+    window.addEventListener("load", tryInit);
+  } else {
+    tryInit();
+  }
+})();
+`;
+
 export const setupSwagger = (app: Express): void => {
   if (!env.swaggerEnabled) {
     return;
@@ -1242,10 +1274,31 @@ export const setupSwagger = (app: Express): void => {
   const swaggerUi = require("swagger-ui-express") as typeof SwaggerUi;
 
   const { json: swaggerJson, etag: swaggerEtag } = buildSwaggerSpec();
+  /** Same-origin relative URL — avoids cross-origin fetch issues and APP_BASE_URL drift. */
+  const openApiSpecUrl = "/docs.json";
+
+  app.get(SWAGGER_ONLOAD_FALLBACK_PATH, (_request, response) => {
+    response.setHeader("Cache-Control", "public, max-age=300");
+    response.type("application/javascript").send(SWAGGER_ONLOAD_FALLBACK_JS);
+  });
+
+  /** Only the Swagger HTML shell must bypass cache; static JS/CSS may be cached at nginx. */
+  const cacheControlSwaggerHtmlOnly = (
+    request: Request,
+    response: Response,
+    next: NextFunction,
+  ): void => {
+    const subPath = request.path;
+    if (subPath === "/" || subPath === "") {
+      response.setHeader("Cache-Control", "no-store");
+    }
+    next();
+  };
 
   app.use(
     "/docs",
     swaggerUi.serve,
+    cacheControlSwaggerHtmlOnly,
     /**
      * `setup(undefined, { swaggerOptions: { url } })` makes the Swagger UI
      * HTML stable across requests and fetch the spec asynchronously from
@@ -1254,13 +1307,20 @@ export const setupSwagger = (app: Express): void => {
      */
     swaggerUi.setup(undefined, {
       swaggerOptions: {
-        url: "/docs.json",
+        url: openApiSpecUrl,
         persistAuthorization: true,
         displayRequestDuration: true,
         tryItOutEnabled: false,
       },
       customSiteTitle: `${env.appName} API Docs`,
       customfavIcon: "/assets/icons/favicon.ico",
+      /**
+       * swagger-ui-express registers `window.onload` in swagger-ui-init.js. When
+       * bundle/preset are served from cache, `load` can fire before that handler
+       * is assigned — UI stays blank and `/docs.json` is never requested.
+       * Must be external (customJs): inline scripts are blocked by CSP script-src.
+       */
+      customJs: SWAGGER_ONLOAD_FALLBACK_PATH,
     }),
   );
 

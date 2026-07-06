@@ -30,6 +30,20 @@ import { buildHttpErrorResponseBody } from "./presentation/http/helpers/http_err
 import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
 
+const isSwaggerDocsRequest = (requestPath: string): boolean =>
+  requestPath === "/docs.json" || requestPath.startsWith("/docs");
+
+const defaultHelmet = helmet();
+/**
+ * Swagger UI is incompatible with helmet defaults: CSP blocks `unsafe-eval` in
+ * swagger-ui-bundle, and CORP/COOP can break subresource loads. Browser extensions
+ * (e.g. Kaspersky) may inject stricter CSP on top — skipping helmet on /docs/*
+ * avoids stacking two policy layers and leaves a single origin-scoped surface.
+ */
+const swaggerSecurityMiddleware: express.RequestHandler = (_request, _response, next) => {
+  next();
+};
+
 export const createApp = (): Express => {
   registerHttpRateLimits();
 
@@ -62,7 +76,13 @@ export const createApp = (): Express => {
    * final `req.route.path` before the `finish` listener records the histogram.
    */
   app.use(httpRedMetricsMiddleware);
-  app.use(helmet());
+  app.use((request, response, next) => {
+    if (isSwaggerDocsRequest(request.path)) {
+      swaggerSecurityMiddleware(request, response, next);
+      return;
+    }
+    defaultHelmet(request, response, next);
+  });
   app.use(cors(buildCorsOptions(env.corsOrigins)));
   /**
    * Gzip outgoing JSON/HTML/text/JS/CSS responses above 1 KiB when the client

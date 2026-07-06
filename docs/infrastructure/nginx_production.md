@@ -32,6 +32,15 @@ Verificar no backend:
 - `UPLOADS_DIR` apontando para diretorio persistente no servidor (o `alias` do Nginx deve ser o mesmo path absoluto)
 - `UPLOADS_PUBLIC_BASE_URL` com URL publica final (ex.: `https://api.seudominio.com/uploads`)
 - `CLIENT_THUMBNAIL_MAX_BYTES` <= `client_max_body_size` no Nginx (o exemplo usa **11m** para cobrir o teto de **10 MiB** em `env.ts` com margem para multipart)
+- `SWAGGER_ENABLED=true` em producao se `/docs/` deve estar disponivel
+- Apos cada `npm install` ou deploy, sincronizar assets estaticos do Swagger UI para disco legivel pelo Nginx (`www-data`):
+
+```bash
+npm run sync:swagger-static
+# ou: bash scripts/sync-swagger-ui-static.sh
+```
+
+Destino padrao: `/var/lib/plug_server/swagger-ui-dist/` (`swagger-ui.css`, `swagger-ui-bundle.js`, `swagger-ui-standalone-preset.js`). O HTML (`/docs/`), `swagger-ui-init.js`, `/docs.json` e `/docs/swagger-onload-fallback.js` continuam no Node upstream.
 
 ## 3) Fragmentos para `http { }`
 
@@ -108,11 +117,44 @@ server {
         return 301 $scheme://$host/docs/;
     }
 
+    # Assets versionados do swagger-ui-dist: servir do disco (apos npm run sync:swagger-static).
+    location = /docs/swagger-ui.css {
+        alias /var/lib/plug_server/swagger-ui-dist/swagger-ui.css;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+    }
+
+    location = /docs/swagger-ui-bundle.js {
+        alias /var/lib/plug_server/swagger-ui-dist/swagger-ui-bundle.js;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+    }
+
+    location = /docs/swagger-ui-standalone-preset.js {
+        alias /var/lib/plug_server/swagger-ui-dist/swagger-ui-standalone-preset.js;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+    }
+
+    location = /docs.json {
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_pass http://plug_server_upstream;
+    }
+
     # Swagger UI carrega varios assets em paralelo (JS/CSS/favicon). Nao aplique
     # `limit_req` em /docs/, pois refresh do navegador pode levantar 503 nos assets.
-    # Se a documentacao nao deve ser publica, prefira allowlist por IP/firewall.
+    # `^~` aqui e seguro: locations `=` acima (CSS/bundle/preset) tem precedencia.
+    # Evite `^~ /docs/` *sem* esses blocos `=` — um regex generico pode capturar assets.
 
-    location /docs/ {
+    location ^~ /docs/ {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -235,8 +277,9 @@ Tambem e recomendado:
 1. Aplicar migrations de banco referentes a `thumbnail_url` e `client_password_recovery_tokens`.
 2. Atualizar `.env` com `UPLOADS_DIR`, `UPLOADS_PUBLIC_BASE_URL` e `CLIENT_THUMBNAIL_MAX_BYTES`.
 3. Criar diretorio persistente de upload e validar permissoes.
-4. Instalar a configuracao (ex.: copiar de `deploy/nginx/plug_server.conf.example`), validar com `nginx -t` e recarregar (`systemctl reload nginx`).
-5. Testar:
+4. `npm install` (dispara `postinstall` → `sync:swagger-static` quando `/var/lib/plug_server` existe) ou manualmente `npm run sync:swagger-static` apos cada deploy que altere `swagger-ui-express`.
+5. Instalar a configuracao (ex.: copiar de `deploy/nginx/plug_server.conf.example`), validar com `nginx -t` e recarregar (`systemctl reload nginx`).
+6. Testar:
    - `POST /api/v1/client-auth/thumbnail`
    - acesso direto a URL publica da thumbnail
    - `POST /api/v1/client-auth/password-recovery/request` e fluxo HTML em `/api/v1/client-auth/password-recovery/review`
@@ -259,7 +302,7 @@ O mapa completo comentado esta em [`deploy/nginx/plug_server.conf.example`](../d
 ### Diagnostico: Swagger em branco ou 503 (ex.: `favicon-16x16.png`, `swagger-ui-*.js`)
 
 1. **Isolar o Node (sem Nginx):** no servidor, `curl -I http://127.0.0.1:<PORT>/docs/swagger-ui-bundle.js` (usar a mesma `PORT` do `.env`). Deve ser **200**. Se for, a app est OK; o problema e **Nginx, balanceador, CDN (Cloudflare) ou WAF** na borda, nao o Express. Em paralelo, `GET /api/v1/health/ready` expoe `checks.swaggerEnabled` (espelha `SWAGGER_ENABLED`): se for `true` mas o dominio publico der 503 em `/docs/*`, confirma que o bloqueio e na borda.
-2. **Nginx ativo vs repositorio:** o ficheiro `deploy/nginx/plug_server.conf.example` nao aplica sozinho. Conferir o site real com `sudo nginx -T | grep -nE 'location .*docs|plug_docs|limit_req|proxy_pass'`. Nao use `limit_req` em `location /docs/`. Evite `^~ /docs/` se tiveres de combinar com `location` por regex.
+2. **Nginx ativo vs repositorio:** o ficheiro `deploy/nginx/plug_server.conf.example` nao aplica sozinho. Conferir o site real com `sudo nginx -T | grep -nE 'location .*docs|plug_docs|limit_req|proxy_pass'`. Nao use `limit_req` em `location /docs/`. Use `location =` para CSS/bundle/preset **antes** do catch-all `^~ /docs/` (ver `deploy/nginx/sites/plug-server.example.conf`). Confirme que `npm run sync:swagger-static` foi executado apos o ultimo deploy.
 3. **Apos corrigir:** `sudo nginx -t && sudo systemctl reload nginx`. Testar com janela anonima (sem cache) e, no browser, aba *Rede* a ver se algum pedido a `/docs/*` devolve **503**.
 4. **CDN / Cloudflare:** regras de *rate limit*, *Bot protection* ou *cache* de HTML/JS podem fazer a primeira carga ir bem e o **F5** cor mal. No painel, ver logs por URI `/docs/*` e desativar cache ou limites para teste nessa rota.
 
@@ -270,7 +313,7 @@ Script operacional (no servidor, com `bash`): [`scripts/check_swagger_edge.sh`](
 Para incidente intermitente (F5 as vezes carrega, as vezes 503), rode a amostragem repetida:
 
 ```bash
-PORT=3000 PUBLIC_URL=https://api.seudominio.com npm run check:swagger-flaky
+PORT=4000 PUBLIC_URL=https://api.seudominio.com npm run check:swagger-flaky
 ```
 
 Saida esperada em ambiente estavel: apenas `200` na secao **Estabilidade em repeticao** e na secao **Simulacao de F5 (rajada de assets)**.

@@ -28,6 +28,35 @@ describe("Swagger docs", () => {
     if (page.status === 200 && typeof page.text === "string") {
       expect(page.text).toContain("/assets/icons/favicon.ico");
     }
+
+    expect(page.headers["content-security-policy"]).toBeUndefined();
+
+    const init = await request(app).get("/docs/swagger-ui-init.js");
+    expect(init.status).toBe(200);
+    expect(init.text).toContain('"/docs.json"');
+
+    if (page.status === 200 && typeof page.text === "string") {
+      expect(page.text).toContain("/docs/swagger-onload-fallback.js");
+      expect(page.text).not.toMatch(/<script>\s*if \(document\.readyState/);
+    }
+  });
+
+  it("should return 304 for /docs.json when If-None-Match matches ETag", async () => {
+    const first = await request(app).get("/docs.json");
+    expect(first.status).toBe(200);
+    const etag = first.headers.etag;
+    expect(etag).toBeDefined();
+
+    const cached = await request(app).get("/docs.json").set("If-None-Match", String(etag));
+    expect(cached.status).toBe(304);
+    expect(cached.body).toEqual({});
+  });
+
+  it("should serve /docs/swagger-onload-fallback.js with valid JS body", async () => {
+    const response = await request(app).get("/docs/swagger-onload-fallback.js");
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"] ?? "").toMatch(/javascript/);
+    expect(response.text).toMatch(/tryInit|window\.onload/);
   });
 
   it("should expose /docs.json with method-specific REST bridge schemas", async () => {

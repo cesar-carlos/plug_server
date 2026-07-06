@@ -5,7 +5,7 @@
 #   PORT=3000 PUBLIC_URL=https://seu-dominio.com LOOPS=30 BURST=8 bash scripts/check_swagger_edge.sh
 set -euo pipefail
 
-PORT="${PORT:-3000}"
+PORT="${PORT:-4000}"
 # URL publica (HTTPS) — obrigatoria para comparar borda com Node
 PUBLIC_URL="${PUBLIC_URL:-}"
 LOCAL_BASE="http://127.0.0.1:${PORT}"
@@ -56,6 +56,8 @@ burst_codes() {
 
 echo "=== Node direto (sem Nginx): ${LOCAL_BASE} ==="
 echo "GET /docs/ -> $(code "${LOCAL_BASE}/docs/")"
+echo "GET /docs.json -> $(code "${LOCAL_BASE}/docs.json")"
+echo "GET /docs/swagger-onload-fallback.js -> $(code "${LOCAL_BASE}/docs/swagger-onload-fallback.js")"
 echo "GET /docs/swagger-ui-bundle.js -> $(code "${LOCAL_BASE}/docs/swagger-ui-bundle.js")"
 echo "GET /docs/favicon-16x16.png -> $(code "${LOCAL_BASE}/docs/favicon-16x16.png")"
 echo ""
@@ -67,16 +69,22 @@ if [ -n "$PUBLIC_URL" ]; then
   echo ""
   echo "=== Borda (URL publica): ${PUBLIC_URL} ==="
   echo "GET /docs/ -> $(code "${PUBLIC_URL}/docs/")"
+  echo "GET /docs.json -> $(code "${PUBLIC_URL}/docs.json")"
+  echo "GET /docs/swagger-onload-fallback.js -> $(code "${PUBLIC_URL}/docs/swagger-onload-fallback.js")"
   echo "GET /docs/swagger-ui-bundle.js -> $(code "${PUBLIC_URL}/docs/swagger-ui-bundle.js")"
   echo "GET /docs/favicon-16x16.png -> $(code "${PUBLIC_URL}/docs/favicon-16x16.png")"
   echo ""
   echo "=== Estabilidade em repeticao (${LOOPS}x) ==="
   sample_codes "Borda /docs/" "${PUBLIC_URL}/docs/" "${LOOPS}"
+  sample_codes "Borda /docs.json" "${PUBLIC_URL}/docs.json" "${LOOPS}"
+  sample_codes "Borda /docs/swagger-onload-fallback.js" "${PUBLIC_URL}/docs/swagger-onload-fallback.js" "${LOOPS}"
   sample_codes "Borda /docs/swagger-ui-bundle.js" "${PUBLIC_URL}/docs/swagger-ui-bundle.js" "${LOOPS}"
   sample_codes "Borda /docs/swagger-ui-init.js" "${PUBLIC_URL}/docs/swagger-ui-init.js" "${LOOPS}"
   sample_codes "Borda /docs/favicon-16x16.png" "${PUBLIC_URL}/docs/favicon-16x16.png" "${LOOPS}"
   echo ""
   echo "=== Simulacao de F5 (rajada de assets) ==="
+  burst_codes "Borda /docs.json" "${PUBLIC_URL}/docs.json" "${BURST}"
+  burst_codes "Borda /docs/swagger-onload-fallback.js" "${PUBLIC_URL}/docs/swagger-onload-fallback.js" "${BURST}"
   burst_codes "Borda /docs/swagger-ui-bundle.js" "${PUBLIC_URL}/docs/swagger-ui-bundle.js" "${BURST}"
   burst_codes "Borda /docs/swagger-ui-init.js" "${PUBLIC_URL}/docs/swagger-ui-init.js" "${BURST}"
   burst_codes "Borda /docs/favicon-16x16.png" "${PUBLIC_URL}/docs/favicon-16x16.png" "${BURST}"

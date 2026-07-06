@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "postinstall": "bash scripts/postinstall-swagger-static.sh",
     "start": "node dist/server.js",
     "db:generate": "prisma generate",
     "db:migrate:dev": "prisma migrate dev",
@@ -42,6 +43,7 @@
     "perf:baseline": "node scripts/capture-perf-baseline.mjs",
     "perf:audit-env": "node scripts/audit-perf-env.mjs",
     "check:openrpc": "vitest run tests/integration/agent_rpc_contract.integration.test.ts tests/contract/plug_agente_optional.contract.test.ts",
+    "sync:swagger-static": "bash scripts/sync-swagger-ui-static.sh",
     "check:swagger-edge": "bash scripts/check_swagger_edge.sh",
     "check:swagger-flaky": "LOOPS=30 BURST=10 bash scripts/check_swagger_edge.sh"
   },

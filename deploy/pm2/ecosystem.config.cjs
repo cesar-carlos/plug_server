@@ -5,10 +5,13 @@
  * the PORT below takes precedence over PORT in .env.
  *
  * Usage:
+ *   npm install
  *   npm run build
  *   pm2 start deploy/pm2/ecosystem.config.cjs
  *   pm2 save && pm2 startup
  *   pm2 reload plug_server
+ *
+ * `postinstall` runs `sync:swagger-static` when /var/lib/plug_server exists.
  */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -40,7 +43,7 @@ module.exports = {
       },
       max_memory_restart: "2G",
       kill_timeout: 10000,
-      wait_ready: false,
+      wait_ready: true,
       autorestart: true,
     },
   ],

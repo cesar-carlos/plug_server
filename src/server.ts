@@ -258,6 +258,9 @@ const bootstrap = async (): Promise<void> => {
       port: env.port,
       environment: env.nodeEnv,
     });
+    if (typeof process.send === "function") {
+      process.send("ready");
+    }
   });
 };
 
