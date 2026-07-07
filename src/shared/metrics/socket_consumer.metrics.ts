@@ -95,6 +95,16 @@ const relayOptInsCounters = {
   serverTimingsAgentsCommandOptInTotal: 0,
   /** Counter: incremented when the consumer set `requestServerTimings: true` on `POST /api/v1/agents/commands` (REST). */
   serverTimingsRestOptInTotal: 0,
+  /**
+   * Counter: agent `rpc:response` arrived after the hub already timed out the
+   * relay route — response is dropped (consumer already received timeout).
+   */
+  lateResponseAfterTimeoutTotal: 0,
+  /**
+   * Counter: relay outbound job failed but a synthetic `relay:rpc.response`
+   * error frame was emitted to the consumer (best-effort).
+   */
+  relayOutboundJobFailureNotifiedTotal: 0,
   /** Counter: any `relay:rpc.request.batch` envelope received (after socket-level Zod). */
   batchEnvelopesReceivedTotal: 0,
   /** Counter: batch envelopes that fully passed validation + acquired inflight slots + got dispatched. */
@@ -321,6 +331,14 @@ export const noteRelayFastPathStreamInadvertent = (): void => {
 
 export const noteRelayFastPathForbidden = (): void => {
   relayOptInsCounters.fastPathForbiddenTotal += 1;
+};
+
+export const noteRelayLateResponseAfterTimeout = (): void => {
+  relayOptInsCounters.lateResponseAfterTimeoutTotal += 1;
+};
+
+export const noteRelayOutboundJobFailureNotified = (): void => {
+  relayOptInsCounters.relayOutboundJobFailureNotifiedTotal += 1;
 };
 
 export const noteRelayBodyIdEcho = (): void => {
@@ -705,6 +723,8 @@ export const resetSocketConsumerMetrics = (): void => {
   relayOptInsCounters.serverTimingsRelayOptInTotal = 0;
   relayOptInsCounters.serverTimingsAgentsCommandOptInTotal = 0;
   relayOptInsCounters.serverTimingsRestOptInTotal = 0;
+  relayOptInsCounters.lateResponseAfterTimeoutTotal = 0;
+  relayOptInsCounters.relayOutboundJobFailureNotifiedTotal = 0;
   relayOptInsCounters.batchEnvelopesReceivedTotal = 0;
   relayOptInsCounters.batchEnvelopesAcceptedTotal = 0;
   relayOptInsCounters.batchItemsAcceptedTotal = 0;

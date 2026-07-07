@@ -276,3 +276,4 @@ mobile/3G.
 | 2026-05-28 | hub audit | criacao inicial; snapshot dos 6 itens entregues + 4 pendentes (working tree) |
 | 2026-05-28 | hub audit | atualizado para refletir commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) shipado em `origin/main` |
 | 2026-06-24 | hub audit | itens 4, 5, 7 shipped (ADR 0009/0010/0011); hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f), agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) |
+| 2026-07-07 | hub audit | pós-auditoria de comunicação: frame de erro sintético no relay outbound, métricas late-response/outbound-failure, gate defensivo `agentPhaseTimings`, contador `parallelBatchDispatch` |

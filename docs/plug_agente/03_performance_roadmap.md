@@ -90,6 +90,7 @@ no `plug_agente`:
 | H8 | Transport extensions ADR 0009/0010/0011 — negociacao, dispatch Opcao A, piggyback | medium | ✅ **shipped** ([`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) 2026-06-24) |
 | H9 | `parallelBatchDispatch` em `agent:capabilities` — desbloqueia paralelismo batch no agente | medium | ✅ **shipped** (2026-06-24) |
 | H10 | Health poll scheduler opcional (`AGENT_HEALTH_POLL_ENABLED`) com skip piggyback | low-medium | ✅ **shipped** (2026-06-24) — ver [ADR 0011](../adrs/0011-health-piggyback.md) |
+| H11 | Auditoria comunicação 2026-07-07 — métricas relay late/outbound-failure, gate `agentPhaseTimings`, contador adoção `parallelBatchDispatch` | observability | ✅ **shipped** (2026-07-07) — ver [ADR 0010](../adrs/0010-agent-phase-timings.md), [`04_agent_implementation_status.md`](04_agent_implementation_status.md) |
 
 **Cross-repo (ADRs, implementacao no `plug_agente`)**:
 

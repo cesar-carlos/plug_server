@@ -274,3 +274,6 @@ no hub, condicionado a benchmark e feature flag:
   - `plug_socket_relay_buffer_drain_*`
   - `plug_socket_relay_outbound_queue_overload_state_refresh_total`
   - `plug_socket_relay_outbound_queue_overload_cache_p95_ms`
+  - `plug_socket_relay_late_response_after_timeout_total` — respostas de agente descartadas após timeout da rota relay (diagnóstico de agentes lentos ou clock skew).
+  - `plug_socket_relay_outbound_job_failure_notified_total` — falhas no job outbound do relay em que um frame de erro sintético foi emitido ao consumer (`BRIDGE_OUTBOUND_PROCESSING_FAILED`).
+  - `plug_agent_parallel_batch_dispatch_negotiated_total` — agentes que negociaram `parallelBatchDispatch` no registro (adoção; dispatch continua no agente).

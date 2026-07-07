@@ -1228,6 +1228,12 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
         agentRuntime.capabilityAgentGetHealthCapableTotal,
       ),
     );
+    lines.push(
+      metricLine(
+        "plug_agent_parallel_batch_dispatch_negotiated_total",
+        agentRuntime.parallelBatchDispatchNegotiatedTotal,
+      ),
+    );
     for (const [keyKind, value] of Object.entries(payloadFrame.signatureAccepted)) {
       lines.push(
         metricLine("plug_payload_frame_signature_accepted_total", value, { key_kind: keyKind }),
@@ -1413,6 +1419,18 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       metricLine(
         "plug_socket_relay_body_id_echo_total",
         consumerRuntime.relayOptIns.bodyIdEchoTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_relay_late_response_after_timeout_total",
+        consumerRuntime.relayOptIns.lateResponseAfterTimeoutTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_relay_outbound_job_failure_notified_total",
+        consumerRuntime.relayOptIns.relayOutboundJobFailureNotifiedTotal,
       ),
     );
     // Overhead histogram-ish (sum + max + derived avg). Synthetic error builders

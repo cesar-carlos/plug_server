@@ -239,6 +239,9 @@ rate(plug_socket_relay_dispatch_queue_wait_timeout_rejected_total[5m])
 # Fila hub→consumer relay (gzip async serializado por requestId): taxa de jobs e falhas
 rate(plug_socket_relay_outbound_queue_jobs_finished_total[5m])
 rate(plug_socket_relay_outbound_queue_jobs_failed_total[5m])
+rate(plug_socket_relay_outbound_job_failure_notified_total[5m])
+rate(plug_socket_relay_late_response_after_timeout_total[5m])
+rate(plug_agent_parallel_batch_dispatch_negotiated_total[5m])
 
 # Streams relay abertos sem rpc:complete ou com vida longa demais
 rate(plug_socket_relay_stream_idle_timeouts_total[5m])
@@ -380,6 +383,12 @@ antes e depois da mudanca:
 - `plug_socket_relay_outbound_queue_job_duration_p95_ms`
 - `plug_socket_relay_bridge_encode_avg_ms`
 - `plug_socket_relay_frame_decode_avg_ms`
+- `plug_socket_relay_late_response_after_timeout_total` — respostas de agente
+  descartadas apos timeout da rota relay
+- `plug_socket_relay_outbound_job_failure_notified_total` — falhas no job
+  outbound em que um frame de erro sintetico foi emitido ao consumer
+- `plug_agent_parallel_batch_dispatch_negotiated_total` — agentes que
+  negociaram `parallelBatchDispatch` no `agent:register` (adoção; dispatch no agente)
 - `plug_rest_bridge_requests_total` e `plug_rest_bridge_requests_failed_total`
 - `plug_socket_relay_rest_global_pending_cap_rejected_total`
 - `plug_socket_audit_writes_attempted_total` e `plug_socket_audit_writes_sample_skipped_total`
@@ -506,6 +515,12 @@ plug_socket_relay_outbound_queue_job_duration_p95_ms > 100
 
 # Fila outbound relay: percentil p99 da duração dos jobs acima de limiar
 plug_socket_relay_outbound_queue_job_duration_p99_ms > 200
+
+# Relay: respostas tardias do agente após timeout (agente lento ou clock skew)
+rate(plug_socket_relay_late_response_after_timeout_total[5m]) > 0.1
+
+# Relay: falha no job outbound com notificação sintética ao consumer (investigar encode/emit)
+rate(plug_socket_relay_outbound_job_failure_notified_total[5m]) > 0
 
 # Cache de overload stale (refresh parado)
 rate(plug_socket_relay_outbound_queue_overload_state_refresh_total[5m]) == 0

@@ -11,7 +11,13 @@
 > `DELIVERED.md` + um doc por item (relay batch, fast-path, agents:command
 > hang, phase diagnostics).
 >
-> **Estado atual do hub** (2026-06-24): Opcao A `clientRequestIdEcho` shippada
+> **Estado atual do hub** (2026-07-07): auditoria de comunicação cross-repo —
+> observabilidade relay (late-response, outbound failure), gate defensivo de
+> `meta.agent_phases`, contador de adoção `parallelBatchDispatch` no register.
+> Detalhe em [`04_agent_implementation_status.md`](04_agent_implementation_status.md)
+> (linha 2026-07-07) e `CHANGELOG.md` [Unreleased].
+>
+> **Estado anterior do hub** (2026-06-24): Opcao A `clientRequestIdEcho` shippada
 > ([`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f));
 > onda de performance hub H1–H8 em [`a6fbc2c`](https://github.com/cesar-carlos/plug_server/commit/a6fbc2c)
 > + transport extensions.

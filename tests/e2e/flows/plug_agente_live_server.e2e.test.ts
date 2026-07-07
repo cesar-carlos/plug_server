@@ -113,7 +113,7 @@ describe.skipIf(!liveAgentId)("E2E live hub (real server + agent)", () => {
     pageSize: number;
     cursor?: string;
     requestIdSuffix?: string;
-  }) => {
+  }): Promise<unknown> => {
     if (!ctx.agentClientToken) {
       throw new Error("E2E_LIVE_CLIENT_TOKEN is required for Cliente pagination tests.");
     }

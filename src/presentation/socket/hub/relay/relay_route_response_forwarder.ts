@@ -7,9 +7,12 @@ import { env } from "../../../../shared/config/env";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { maybeRecordAgentHealthPiggyback } from "../../../../application/services/agent_health_piggyback.service";
 import { noteAgentHealthRpcResponse } from "../../../../shared/metrics/socket_agent.metrics";
+import { isAgentPhaseTimingsNegotiated } from "../../../../shared/constants/transport_extension_negotiation";
 import {
   noteRelayBodyIdEcho,
   noteRelayFastPathStreamInadvertent,
+  noteRelayLateResponseAfterTimeout,
+  noteRelayOutboundJobFailureNotified,
   observeRelayBodyIdEchoOverhead,
 } from "../../../../shared/metrics/socket_consumer.metrics";
 import { logger } from "../../../../shared/utils/logger";
@@ -86,6 +89,7 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
     return;
   }
   if (relayRoute.timedOut === true) {
+    noteRelayLateResponseAfterTimeout();
     if (logger.isLevelEnabled("debug")) {
       logger.debug("relay_late_response_ignored_after_timeout", {
         requestId: relayRoute.requestId,
@@ -208,10 +212,20 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       // `body.id == client_request_id`, so no rewrite is needed (Opcao A).
       const decodedResponseRecord = toRecord(decoded.data);
       const decodedBodyId = toRequestId(decodedResponseRecord?.id);
+      const registeredAgent = agentRegistry.findByAgentId(relayRoute.agentId);
+      const agentPhaseTimingsNegotiated =
+        registeredAgent != null &&
+        isAgentPhaseTimingsNegotiated(registeredAgent.capabilities);
+      const responseMeta = decodedResponseRecord?.meta;
+      const responseHasAgentPhases =
+        isRecord(responseMeta) &&
+        (responseMeta.agent_phases !== undefined || responseMeta.agentPhases !== undefined);
+      const mustStripAgentPhases = responseHasAgentPhases && !agentPhaseTimingsNegotiated;
       const shouldEchoClientBodyId =
         relayRoute.clientRequestId !== undefined &&
         decodedBodyId !== relayRoute.clientRequestId;
-      const canBypassReencode = !shouldAttachServerTimings && !shouldEchoClientBodyId;
+      const canBypassReencode =
+        !shouldAttachServerTimings && !shouldEchoClientBodyId && !mustStripAgentPhases;
 
       let responseFrame: PayloadFrameEnvelope;
       if (canBypassReencode) {
@@ -241,6 +255,16 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
             });
           }
         }
+        if (
+          mustStripAgentPhases &&
+          isRecord(baseOutboundResponse) &&
+          isRecord(baseOutboundResponse.meta)
+        ) {
+          const gatedMeta = { ...baseOutboundResponse.meta };
+          delete gatedMeta.agent_phases;
+          delete gatedMeta.agentPhases;
+          baseOutboundResponse.meta = gatedMeta;
+        }
         // Opt-in `meta.serverTimings`: capture the snapshot just before
         // encoding so the values reflect the forwarder's contribution too.
         // For the dedup-replayed path the cached frame keeps the original
@@ -262,15 +286,12 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       forwardedResponse = true;
       if (relayRoute.jsonRpcMethod === "agent.getHealth") {
         noteAgentHealthRpcResponse(decoded.data);
-      } else {
-        const registeredAgent = agentRegistry.findByAgentId(relayRoute.agentId);
-        if (registeredAgent) {
-          maybeRecordAgentHealthPiggyback({
-            agentId: relayRoute.agentId,
-            agentCapabilities: registeredAgent.capabilities,
-            rpcBody: decoded.data,
-          });
-        }
+      } else if (registeredAgent) {
+        maybeRecordAgentHealthPiggyback({
+          agentId: relayRoute.agentId,
+          agentCapabilities: registeredAgent.capabilities,
+          rpcBody: decoded.data,
+        });
       }
       relayRoute.latencyTrace?.addPhaseMs(
         "relay_forward_to_consumer_ms",
@@ -313,6 +334,25 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
         errorCode: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
       });
       observeRelayRouteOutcome(relayRoute, "error");
+      try {
+        const errorPayload = {
+          jsonrpc: "2.0",
+          id: resolveOutboundBodyId(responseId, relayRoute),
+          error: {
+            code: -32603,
+            message: "internal error",
+            data: {
+              code: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
+              retryable: true,
+            },
+          },
+        };
+        const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
+        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+        noteRelayOutboundJobFailureNotified();
+      } catch {
+        // Best-effort: consumer may still hang if synthetic error emit fails.
+      }
       throw error;
     } finally {
       if (streamId && forwardedResponse) {

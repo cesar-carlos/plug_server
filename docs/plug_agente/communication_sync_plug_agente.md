@@ -80,6 +80,9 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | `observer.*` | fora do contrato atual | reservado para profile futuro; o hub rejeita estes metodos ate o `plug_agente` publicar implementacao, OpenRPC e schemas |
 | Transport extensions ADR 0009/0010/0011 | alinhado (2026-06-24) | hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f), agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677); ver [`../plug_agente/docs/plug_server/readme.md`](../../../plug_agente/docs/plug_server/readme.md) |
 | `parallelBatchDispatch` em `agent:capabilities` | alinhado (hub anuncia; agente negocia paralelismo em batches REST/`sql.executeBatch`) | `src/shared/constants/agent_transport_contract.ts`, `plug_agente` `ProtocolNegotiator` |
+| Gate defensivo `meta.agent_phases` no relay (hub strip quando `agentPhaseTimings` nao negociado) | alinhado hub-only (2026-07-07) | [ADR 0010](../adrs/0010-agent-phase-timings.md), `relay_route_response_forwarder.ts` — **sem mudanca no agente** |
+| Erro sintetico `BRIDGE_OUTBOUND_PROCESSING_FAILED` em falha do job outbound relay | alinhado hub-only (2026-07-07) | `docs/socket/socket_relay_protocol.md` — consumer recebe `relay:rpc.response` com `error.data.code` |
+| Metricas relay pós-auditoria (`late_response_after_timeout`, `outbound_job_failure_notified`, `parallel_batch_dispatch_negotiated`) | alinhado hub-only (2026-07-07) | `docs/observability/observability.md`, `docs/performance/performance_hub_agent.md` |
 
 ## Fontes inversas (`plug_agente` → hub)
 

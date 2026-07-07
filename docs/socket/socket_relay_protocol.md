@@ -490,6 +490,22 @@ Regras do contrato:
   operacional **nao** sao incluidos (vide
   `application/services/server_timings_envelope.ts`).
 
+#### `meta.agent_phases` (agente, opt-in via extensao)
+
+Quando o consumer enviou `requestServerTimings: true` **e** o agente negociou
+`extensions.agentPhaseTimings: "v1"` em `agent:register`, o hub repassa
+`meta.agent_phases` do agente no `relay:rpc.response` sem mutacao (ver
+[ADR 0010](../adrs/0010-agent-phase-timings.md)).
+
+Desde 2026-07-07 o hub aplica um **gate defensivo**: se o agente enviar
+`meta.agent_phases` sem ter negociado `agentPhaseTimings`, o campo e removido
+antes do encode de saida (`isAgentPhaseTimingsNegotiated` em
+`relay_route_response_forwarder.ts`). O agente ja auto-gateia em builds recentes;
+esta regra protege consumers de agentes legados ou mal configurados.
+
+**Acao no `plug_agente`:** nenhuma mudanca obrigatoria — continuar a anunciar
+`agentPhaseTimings: "v1"` apenas quando o suporte estiver ativo.
+
 ### Relay JSON-RPC batch (`relay:rpc.request.batch`)
 
 > **Disponivel em v1** desde 2026-05-28; gated por `SOCKET_RELAY_BATCH_ENABLED`
@@ -638,7 +654,10 @@ Dashboard Grafana: [`docs/grafana/relay_batch_dashboard.json`](../grafana/relay_
   agrupa o ACK por consumer e encaminha apenas os IDs pertencentes a cada
   consumer.
 - Timeout de relay request: quando o agente nao responde no prazo, o servidor
-  devolve erro JSON-RPC no `relay:rpc.response`.
+  devolve erro JSON-RPC no `relay:rpc.response`. A rota fica marcada
+  `timedOut`; respostas do agente que chegarem **depois** sao descartadas
+  (o consumer ja recebeu o timeout). Metrica:
+  `plug_socket_relay_late_response_after_timeout_total`.
 - Timeout de stream aberta: quando `rpc:response` abre `stream_id`, o slot de
   dispatch do agente e liberado e a stream passa a ser controlada pelos limites
   de streams/buffer/creditos. Se nao houver atividade ate
@@ -674,6 +693,15 @@ Dashboard Grafana: [`docs/grafana/relay_batch_dashboard.json`](../grafana/relay_
 - Quotas de protecao: limites para conversas, pending requests por conversa e
   por consumer.
 - Limpeza por inatividade: conversas inativas expiram automaticamente por TTL.
+- Fila outbound por `requestId`: respostas unary e erros sinteticos passam por
+  `enqueueRelayOutbound` para preservar ordenacao por pedido. Se o job de saida
+  falhar no encode/emit **apos** o timeout da rota ter sido cancelado, o hub
+  tenta (best-effort) emitir um `relay:rpc.response` sintetico com
+  `error.data.code = "BRIDGE_OUTBOUND_PROCESSING_FAILED"` e `retryable: true`
+  antes de limpar a rota — evita hang silencioso no consumer. Metrica:
+  `plug_socket_relay_outbound_job_failure_notified_total` (so incrementa quando
+  o emit sintetico teve sucesso; se o encode sintetico tambem falhar, o consumer
+  pode ficar sem resposta).
 - Metricas em memoria: o servidor registra contadores de throughput, timeout,
   dedupe, perdas por backpressure e terminais explicitos de stream.
 

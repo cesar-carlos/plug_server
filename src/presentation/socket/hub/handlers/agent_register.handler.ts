@@ -13,12 +13,14 @@ import {
 import { container } from "../../../../shared/di/container";
 import { env } from "../../../../shared/config/env";
 import { buildHubServerCapabilities } from "../../../../shared/constants/agent_transport_contract";
+import { isParallelBatchDispatchNegotiated } from "../../../../shared/constants/transport_extension_negotiation";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import {
   noteAgentCapabilityProfile,
   noteAgentRegisterRateLimited,
   noteAgentSessionRejectedActive,
   noteAgentSessionTakeoverDisconnect,
+  noteParallelBatchDispatchNegotiated,
 } from "../../../../shared/metrics/socket_agent.metrics";
 import { logger } from "../../../../shared/utils/logger";
 import {
@@ -223,6 +225,9 @@ export const handleAgentRegister = async (
     delete socket.data.agentRegisterProfileSnapshot;
   }
   noteAgentCapabilityProfile(capabilities);
+  if (isParallelBatchDispatchNegotiated(capabilities)) {
+    noteParallelBatchDispatchNegotiated();
+  }
   const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
 
   logger.info("Agent registered on hub", {

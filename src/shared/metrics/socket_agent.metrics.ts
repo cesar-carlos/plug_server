@@ -48,6 +48,7 @@ const capabilityProfiles = {
 };
 
 let capabilityAgentGetHealthCapableTotal = 0;
+let parallelBatchDispatchNegotiatedTotal = 0;
 
 const agentHealth = {
   responsesTotal: 0,
@@ -214,6 +215,10 @@ export const noteAgentCapabilityProfile = (capabilities: Record<string, unknown>
   }
 };
 
+export const noteParallelBatchDispatchNegotiated = (): void => {
+  parallelBatchDispatchNegotiatedTotal += 1;
+};
+
 export const noteAgentHealthRpcResponse = (response: unknown): void => {
   if (!isRecord(response) || isRecord(response.error)) {
     agentHealth.errorsTotal += 1;
@@ -303,6 +308,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   readonly autoUpdateDiagnostics: typeof autoUpdateDiagnostics;
   readonly capabilityProfiles: typeof capabilityProfiles;
   readonly capabilityAgentGetHealthCapableTotal: number;
+  readonly parallelBatchDispatchNegotiatedTotal: number;
   readonly agentHealth: typeof agentHealth;
 } => ({
   authRejects: { ...authRejects },
@@ -316,6 +322,7 @@ export const getSocketAgentMetricsSnapshot = (): {
   autoUpdateDiagnostics: { ...autoUpdateDiagnostics },
   capabilityProfiles: { ...capabilityProfiles },
   capabilityAgentGetHealthCapableTotal,
+  parallelBatchDispatchNegotiatedTotal,
   agentHealth: { ...agentHealth },
 });
 
@@ -342,6 +349,7 @@ export const resetSocketAgentMetrics = (): void => {
   capabilityProfiles.older = 0;
   capabilityProfiles.unknown = 0;
   capabilityAgentGetHealthCapableTotal = 0;
+  parallelBatchDispatchNegotiatedTotal = 0;
   agentHealth.responsesTotal = 0;
   agentHealth.errorsTotal = 0;
   agentHealth.pollTotal = 0;

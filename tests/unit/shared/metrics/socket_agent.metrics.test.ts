@@ -7,6 +7,7 @@ import {
   noteAgentCapabilityProfile,
   noteAgentHealthRpcResponse,
   noteAgentSocketAuthRejected,
+  noteParallelBatchDispatchNegotiated,
   resetSocketAgentMetrics,
 } from "../../../../src/shared/metrics/socket_agent.metrics";
 
@@ -55,6 +56,17 @@ describe("socket_agent.metrics", () => {
 
     resetSocketAgentMetrics();
     expect(getSocketAgentMetricsSnapshot().agentReadyInvalidPartialPayloadTotal).toBe(0);
+  });
+
+  it("records parallel batch dispatch adoption counter", () => {
+    resetSocketAgentMetrics();
+    noteParallelBatchDispatchNegotiated();
+    noteParallelBatchDispatchNegotiated();
+
+    expect(getSocketAgentMetricsSnapshot().parallelBatchDispatchNegotiatedTotal).toBe(2);
+
+    resetSocketAgentMetrics();
+    expect(getSocketAgentMetricsSnapshot().parallelBatchDispatchNegotiatedTotal).toBe(0);
   });
 
   it("records agent.getHealth responses and errors", () => {

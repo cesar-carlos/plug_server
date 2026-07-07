@@ -40,14 +40,15 @@ Introduce optional `meta.agent_phases` on agent-originated RPC responses when th
 ```
 
 - All values are non-negative milliseconds (float OK).
-- Hub forwards `agent_phases` unchanged on the relay path (no mutation).
+- Hub forwards `agent_phases` unchanged on the relay path when the agent negotiated `agentPhaseTimings: "v1"` (no mutation).
 - Hub MUST NOT synthesize agent phases — only the agent populates them.
+- **2026-07-07 (audit fix):** the relay forwarder now strips `meta.agent_phases` when `isAgentPhaseTimingsNegotiated` is false, even if the agent sends the field — defensive depth beyond the agent-side auto-gate.
 
 ## Hub work (this repo)
 
 - [x] `requestServerTimings` on relay + batch (2026-06-24).
 - [x] Announce `agentPhaseTimings: "v1"` in `HUB_TRANSPORT_EXTENSIONS` (2026-06-24).
-- [x] Forwarder pass-through — `meta.agent_phases` not stripped on relay responses.
+- [x] Relay forwarder — forward `meta.agent_phases` when `agentPhaseTimings: "v1"` is negotiated; strip when not (defensive gate, 2026-07-07).
 - [x] Runbook note in [`docs/runbooks/socket_perf_investigation.md`](../runbooks/socket_perf_investigation.md).
 - [ ] Optional: extend `BridgeLatencyTraceSession` to persist `agent_phases` when present.
 

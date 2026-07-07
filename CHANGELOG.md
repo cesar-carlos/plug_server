@@ -6,6 +6,73 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed (Auditoria de comunicação plug_agente ↔ plug_server — 2026-07-07)
+
+Correções e melhorias de observabilidade/negociação identificadas no audit
+cross-repo de alinhamento hub × agente:
+
+- [`relay_route_response_forwarder.ts`](src/presentation/socket/hub/relay/relay_route_response_forwarder.ts):
+  quando o job outbound do relay falha no encode/emit, a hub emite
+  best-effort um frame de erro sintético JSON-RPC (`BRIDGE_OUTBOUND_PROCESSING_FAILED`,
+  `retryable: true`) para o consumer antes de propagar o erro — evita hang
+  silencioso após timeout cancelado.
+- Mesmo forwarder: respostas de agente que chegam após timeout da rota
+  (`timedOut === true`) agora incrementam
+  `plug_socket_relay_late_response_after_timeout_total` (mantém o discard
+  existente).
+- Gate defensivo de `meta.agent_phases`: o hub remove `meta.agent_phases` do
+  payload relay quando o agente **não** negociou `agentPhaseTimings: "v1"`,
+  mesmo que o agente envie o campo (complementa o auto-gate agent-side; ver
+  ADR 0010).
+- [`agent_register.handler.ts`](src/presentation/socket/hub/handlers/agent_register.handler.ts):
+  contador de adoção `plug_agent_parallel_batch_dispatch_negotiated_total`
+  no registro de agente (visibilidade apenas — dispatch continua 100% no
+  agente).
+- Métricas novas em [`socket_consumer.metrics.ts`](src/shared/metrics/socket_consumer.metrics.ts)
+  + [`socket_agent.metrics.ts`](src/shared/metrics/socket_agent.metrics.ts),
+  expostas em [`metrics_renderer.ts`](src/presentation/http/controllers/metrics_renderer.ts).
+- Lint: tipo de retorno explícito em
+  [`plug_agente_live_server.e2e.test.ts`](tests/e2e/flows/plug_agente_live_server.e2e.test.ts).
+
+**Documentacao:**
+
+- [`docs/plug_agente/communication_sync_plug_agente.md`](docs/plug_agente/communication_sync_plug_agente.md) — tabela de alinhamento atualizada (2026-07-07).
+- [`docs/socket/socket_relay_protocol.md`](docs/socket/socket_relay_protocol.md) — late-response, outbound failure sintetico, gate `meta.agent_phases`.
+- [`docs/observability/observability.md`](docs/observability/observability.md) — metricas e alertas PromQL novos.
+
+**Tests:**
+
+- Novo [`relay_route_response_forwarder.test.ts`](tests/unit/presentation/socket/hub/relay_route_response_forwarder.test.ts)
+  (late-response metric, synthetic error frame, strip/preserve de
+  `meta.agent_phases`).
+- [`socket_agent.metrics.test.ts`](tests/unit/shared/metrics/socket_agent.metrics.test.ts):
+  contador `parallelBatchDispatchNegotiatedTotal`.
+- Novo [`agent_register.handler.test.ts`](tests/unit/presentation/socket/hub/agent_register.handler.test.ts):
+  adoção de `parallelBatchDispatch` no `agent:register`.
+- Caso edge no forwarder: encode sintético também falha → consumer sem resposta,
+  métrica `relayOutboundJobFailureNotifiedTotal` permanece em 0.
+
+### Added (E2E: live hub suite — 2026-07-07, commit `c2a37de`)
+
+- Suíte E2E opcional gated por `E2E_LIVE_AGENT_ID` em
+  [`tests/e2e/flows/plug_agente_live_server.e2e.test.ts`](tests/e2e/flows/plug_agente_live_server.e2e.test.ts):
+  exercita REST/Socket bridge e paginação de `sql.execute` (page + cursor)
+  contra um agente real conectado ao hub.
+
+### Fixed (Docs/infra: Swagger UI hardening — 2026-07-06, commit `98eb1d2`)
+
+- Resolve páginas em branco do Swagger UI por conflito CSP/Helmet e race
+  condition de `onload`.
+- Serve assets versionados via Nginx com `gzip_static`.
+- Sincronização automática no install.
+
+### Performance (hub-agent performance plan P0–P5 — 2026-06-24, commit `7742faa`)
+
+- Negociação de `parallelBatchDispatch` no canal agente.
+- Health poll scheduler opcional.
+- Scripts de baseline/audit de performance.
+- Documentação de migração de canal.
+
 ### Fixed (Relay unary fast-path — JSON-RPC 2.0 §5 body.id echo)
 
 Resposta ao defeito reportado pelo cliente Colmeia em
@@ -151,9 +218,12 @@ passed, 0 failed). Itens shippados: **1**
 `prepareForSend` preservando `meta.request_id`) e **9** (pre-warm de
 schema validators em `TransportSchemaLoader.loadAll()`).
 
-Itens **4** (`meta.agent_phases`), **5** (`agent.getHealth` piggyback),
-**7** (`clientRequestIdEcho`) e **10** (brotli) continuam `proposed
-(no active gate)` aguardando baseline / ADR / requirement externo.
+Itens **4** (`meta.agent_phases` — ADR 0010), **5** (`agent.getHealth`
+piggyback — ADR 0011) e **7** (`clientRequestIdEcho` — ADR 0009) foram
+shippados em 2026-06-24 (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f),
+agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677)).
+Apenas o item **10** (brotli) permanece `proposed (no active gate)`
+aguardando evidência de banda como gargalo.
 
 Mudancas no hub:
 
