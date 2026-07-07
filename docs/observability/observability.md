@@ -385,6 +385,12 @@ antes e depois da mudanca:
 - `plug_socket_relay_frame_decode_avg_ms`
 - `plug_socket_relay_late_response_after_timeout_total` — respostas de agente
   descartadas apos timeout da rota relay
+- `plug_socket_relay_emit_discarded_consumer_gone_total` — emissao relay
+  descartada quando o consumer desconecta durante unary/stream
+- `plug_socket_relay_outbound_queue_overload_rejected_total` — eventos relay /
+  `agents:stream_pull` rejeitados por shedding da fila outbound
+- `plug_socket_relay_fast_path_forbidden_total` — `fastPath` pedido mas
+  bloqueado por `SOCKET_RELAY_FAST_PATH_FORBIDDEN` (kill switch de deploy)
 - `plug_socket_relay_outbound_job_failure_notified_total` — falhas no job
   outbound em que um frame de erro sintetico foi emitido ao consumer
 - `plug_agent_parallel_batch_dispatch_negotiated_total` — agentes que
@@ -445,7 +451,7 @@ Exemplo minimo de dashboard Grafana (Prometheus): `docs/grafana/bridge_latency_t
 Relay batch (`relay:rpc.request.batch`): importar `docs/grafana/relay_batch_dashboard.json`. Metricas chave:
 
 - `rate(plug_socket_relay_batch_envelopes_accepted_total[5m])` — batches aceites
-- `sum by (reason) (rate(plug_socket_relay_batch_envelopes_rejected_total[5m]))` — rejeicoes por motivo
+- `sum by (reason) (rate(plug_socket_relay_batch_envelopes_rejected_total[5m]))` — rejeicoes por motivo (inclui `rate_limited` quando o batch inteiro excede quota proporcional a `items.length`)
 - `plug_socket_relay_batch_envelope_decode_avg_ms` — latencia media de decode do envelope (gauge por processo)
 - `plug_socket_relay_batch_items_per_envelope_avg` — tamanho medio de batch aceite
 
@@ -488,6 +494,9 @@ rate(plug_socket_relay_chunks_dropped_total[5m]) > 0.1
 
 # Relay: emissões descartadas quando consumer desconecta durante stream
 rate(plug_socket_relay_emit_discarded_consumer_gone_total[5m]) > 0
+
+# Relay: shedding da fila outbound (backlog/p95)
+rate(plug_socket_relay_outbound_queue_overload_rejected_total[5m]) > 0.1
 
 # Relay: conversas expiradas por idle (normal; picos sustentados podem indicar clientes que abrem conversas e nunca fecham)
 rate(plug_socket_relay_conversations_expired_total[5m]) > 0.5

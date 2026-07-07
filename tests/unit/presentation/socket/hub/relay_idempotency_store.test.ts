@@ -11,9 +11,14 @@ import {
   resetRelayIdempotencyStore,
   setRelayIdempotencyEntry,
 } from "../../../../../src/presentation/socket/hub/registries/relay_idempotency_store";
+import {
+  registerRelayRequestRoute,
+  resetRelayRequestRegistry,
+} from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 
 afterEach(() => {
   resetRelayIdempotencyStore();
+  resetRelayRequestRegistry();
   vi.useRealTimers();
 });
 
@@ -80,9 +85,34 @@ describe("relay_idempotency_store", () => {
     expect(getRelayIdempotencyMap("c1")).toBeUndefined();
   });
 
-  it("does not prune an expired entry while the original request is still in flight", () => {
+  it("prunes expired in-flight entries when the relay route no longer exists", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
+    setRelayIdempotencyEntry("c1", "in-flight", {
+      requestId: "r1",
+      expiresAtMs: Date.now() + 100,
+    });
+
+    vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
+    pruneExpiredRelayIdempotencyEntries();
+
+    expect(getRelayIdempotencyMap("c1")).toBeUndefined();
+  });
+
+  it("does not prune an expired in-flight entry while the relay route is still registered", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
+    registerRelayRequestRoute({
+      requestId: "r1",
+      conversationId: "c1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
+      timeoutHandle: {} as NodeJS.Timeout,
+      createdAtMs: Date.now(),
+    });
 
     setRelayIdempotencyEntry("c1", "in-flight", {
       requestId: "r1",

@@ -235,19 +235,24 @@ export const refundRelayConversationStartAsync = async (
   refundRelayConversationStart(userSub, socketId);
 };
 
-export const allowRelayRpcRequest = (userSub: string | undefined, socketId: string): boolean => {
+export const allowRelayRpcRequest = (
+  userSub: string | undefined,
+  socketId: string,
+  cost = 1,
+): boolean => {
   if (env.socketRelayRateLimitMaxRequests === 0) {
     return true;
   }
 
+  const safeCost = Math.max(1, Math.floor(cost));
   const { key, scope } = buildIdentityKey(userSub, socketId);
   const state = ensureWindowState(key);
-  if (state.relayRequests >= env.socketRelayRateLimitMaxRequests) {
+  if (state.relayRequests + safeCost > env.socketRelayRateLimitMaxRequests) {
     noteRelayRequestDecision(scope, false);
     return false;
   }
 
-  state.relayRequests += 1;
+  state.relayRequests += safeCost;
   noteRelayRequestDecision(scope, true);
   return true;
 };
@@ -255,22 +260,25 @@ export const allowRelayRpcRequest = (userSub: string | undefined, socketId: stri
 export const allowRelayRpcRequestAsync = async (
   userSub: string | undefined,
   socketId: string,
+  cost = 1,
 ): Promise<boolean> => {
   if (env.socketRelayRateLimitMaxRequests === 0) {
     return true;
   }
+  const safeCost = Math.max(1, Math.floor(cost));
   const { key, scope } = buildIdentityKey(userSub, socketId);
   const redisDecision = await consumeSocketRateLimitRedis({
     scope: "relay_rpc_request",
     key,
     windowMs: env.socketRelayRateLimitWindowMs,
     max: env.socketRelayRateLimitMaxRequests,
+    cost: safeCost,
   });
   if (redisDecision) {
     noteRelayRequestDecision(scope, redisDecision.allowed);
     return redisDecision.allowed;
   }
-  return allowRelayRpcRequest(userSub, socketId);
+  return allowRelayRpcRequest(userSub, socketId, safeCost);
 };
 
 export const refundRelayRpcRequest = (

@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   resetAgentRegisterRateLimitState,
+  sweepAgentRegisterRateLimitState,
   tryConsumeAgentRegisterRateLimit,
   tryConsumeAgentRegisterRateLimitAsync,
 } from "../../../../../src/presentation/socket/hub/rate_limits/agent_register_rate_limit";
+import { env } from "../../../../../src/shared/config/env";
 
 vi.mock("../../../../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis", () => ({
   consumeSocketRateLimitRedis: vi.fn(),
@@ -95,5 +97,25 @@ describe("agent_register_rate_limit", () => {
     await expect(
       tryConsumeAgentRegisterRateLimitAsync("u2", "a2", { windowMs: 60_000, max: 2 }),
     ).resolves.toEqual({ ok: false });
+  });
+
+  it("sweep removes stale register buckets", () => {
+    expect(tryConsumeAgentRegisterRateLimit("u-sweep", "a-sweep", { windowMs: 60_000, max: 3 })).toEqual(
+      { ok: true },
+    );
+
+    const later =
+      Date.now() +
+      env.socketAgentRegisterRateLimitWindowMs * env.socketRelayRateLimitSweepStaleMultiplier +
+      1;
+    const spy = vi.spyOn(Date, "now").mockReturnValue(later);
+    try {
+      sweepAgentRegisterRateLimitState();
+      expect(
+        tryConsumeAgentRegisterRateLimit("u-sweep", "a-sweep", { windowMs: 60_000, max: 3 }),
+      ).toEqual({ ok: true });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

@@ -29,7 +29,10 @@ import { z } from "zod";
 import { createBridgeLatencyTraceForRequest } from "../../../application/services/bridge_latency_trace_builder";
 import { dispatchRelayRpcToAgent } from "../hub/relay/rpc_bridge";
 import { conversationRegistry } from "../hub/registries/conversation_registry";
-import { refundRelayRpcRequestAsync } from "../hub/rate_limits/consumer_relay_rate_limiter";
+import {
+  allowRelayRpcRequestAsync,
+  refundRelayRpcRequestAsync,
+} from "../hub/rate_limits/consumer_relay_rate_limiter";
 import { AppError } from "../../../shared/errors/app_error";
 import { badRequest } from "../../../shared/errors/http_errors";
 import { env } from "../../../shared/config/env";
@@ -47,6 +50,7 @@ import {
   tryAcquireSocketInflightSlots,
 } from "./per_socket_inflight_gate";
 import { assertConsumerSocketAgentAccess } from "./consumer_socket_guard";
+import { shouldRefundRelayRpcRequestRateLimit } from "./relay_rpc_request.handler";
 import { registerConsumerCommandAbortController } from "./consumer_command_abort_registry";
 import {
   noteRelayBatchAccepted,
@@ -276,6 +280,7 @@ export const handleRelayRpcRequestBatch = (
   );
 
   void (async (): Promise<void> => {
+    let rateLimitCost = 0;
     try {
       const conversation = conversationRegistry.findInternalByConversationId(
         envelope.conversationId,
@@ -335,6 +340,20 @@ export const handleRelayRpcRequestBatch = (
       }
       const items = validation.items;
 
+      if (!(await allowRelayRpcRequestAsync(userSub, socket.id, items.length))) {
+        noteRelayBatchRejected("rate_limited");
+        emitBatchAccepted(socket, {
+          success: false,
+          error: {
+            code: "RATE_LIMITED",
+            message: "Rate limit exceeded for relay:rpc.request.batch",
+            statusCode: 429,
+          },
+        });
+        return;
+      }
+      rateLimitCost = items.length;
+
       const effectiveFastPath = envelope.fastPath === true && !env.socketRelayFastPathForbidden;
       if (envelope.fastPath === true) {
         noteRelayFastPathRequested();
@@ -354,6 +373,8 @@ export const handleRelayRpcRequestBatch = (
       );
       if (!acquire.ok) {
         noteRelayBatchRejected("inflight_gate");
+        await refundRelayRpcRequestAsync(userSub, socket.id, rateLimitCost);
+        rateLimitCost = 0;
         emitBatchAccepted(socket, {
           success: false,
           error: {
@@ -470,6 +491,10 @@ export const handleRelayRpcRequestBatch = (
       }
     } catch (err: unknown) {
       const appError = err instanceof AppError ? err : undefined;
+      if (rateLimitCost > 0 && shouldRefundRelayRpcRequestRateLimit(err)) {
+        await refundRelayRpcRequestAsync(userSub, socket.id, rateLimitCost);
+        rateLimitCost = 0;
+      }
       noteRelayBatchRejected("envelope_error");
       emitBatchAccepted(socket, {
         success: false,

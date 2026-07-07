@@ -200,6 +200,7 @@ describe("metrics.controller", () => {
             frame_decode_failed: 0,
             not_array: 0,
             validation_failed: 0,
+            rate_limited: 0,
             inflight_gate: 0,
             envelope_error: 0,
           },

@@ -251,7 +251,11 @@ Regras essenciais:
 - O cliente **deve** estar preparado para receber `relay:rpc.response` sem ter recebido `accepted` antes. O `requestId` do hub vem no envelope PayloadFrame da resposta e tambem no proprio JSON-RPC.
 - Em **dedupe** (`replayed` / `inFlight`), o hub **ainda** emite `accepted` mesmo com `fastPath: true` — preserva diagnostico do dedupe na borda sem custo no caminho comum.
 - Em **erros** (validacao, conversa nao encontrada, autorizacao, rate-limit), o hub **sempre** emite `relay:rpc.accepted { success: false, error }`. Caso contrario o consumer ficaria sem sinal.
-- Para **streaming** (`sql.execute` com `prefer_db_streaming` / `multi_result`, `sql.executeBatch`), evite `fastPath: true`. Sem `accepted` para ancorar o `requestId`, o `relay:rpc.stream.pull` so podera ser emitido depois do primeiro chunk. O hub registra `plug_socket_relay_fast_path_stream_inadvertent_total` quando detecta este cenario.
+- Para **metodos streaming-capable** (`sql.execute` com `prefer_db_streaming` /
+  `multi_result`, `sql.executeBatch`), **nao** use `fastPath: true`. O hub
+  **rejeita** o flag no dispatch com `VALIDATION_ERROR` em
+  `relay:rpc.accepted`. Sem `accepted` para ancorar o `requestId`, o
+  `relay:rpc.stream.pull` so podera ser emitido depois do primeiro chunk.
 - Cancelamento e desconexao funcionam normalmente: o relay nao tem `rpc.cancel`; aborts vem por socket disconnect ou `sql.cancel` por `stream_id`.
 
 Detalhes completos do contrato em [`docs/socket/socket_relay_protocol.md`](socket_relay_protocol.md) ("Relay unary fast-path").

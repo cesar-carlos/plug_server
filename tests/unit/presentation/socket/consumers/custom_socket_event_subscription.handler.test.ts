@@ -203,7 +203,7 @@ describe("custom_socket_event_subscription.handler", () => {
     );
   });
 
-  it("should reject subscribe when rate limit is exceeded", async () => {
+  it("should reject subscribe when rate limit is exceeded after join succeeds", async () => {
     mockedAllow.mockReturnValueOnce({
       allowed: false,
       limit: 240,
@@ -219,6 +219,8 @@ describe("custom_socket_event_subscription.handler", () => {
     });
 
     await flushMicrotasks();
+    expect(socket.join).toHaveBeenCalled();
+    expect(socket.leave).toHaveBeenCalled();
     expect(mockedNoteRejected).toHaveBeenCalledTimes(1);
     expect(mockedAdd).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(
@@ -269,6 +271,7 @@ describe("custom_socket_event_subscription.handler", () => {
     await flushMicrotasks();
 
     expect(mockedDisconnect).not.toHaveBeenCalled();
+    expect(mockedAllow).not.toHaveBeenCalled();
     expect(mockedNoteRejected).toHaveBeenCalled();
     expect(mockedAdd).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(

@@ -3,6 +3,10 @@ import type { Server, Socket } from "socket.io";
 
 import { handleAgentsCommand } from "../consumers/agents_command.handler";
 import { handleAgentsStreamPull } from "../consumers/agents_stream_pull.handler";
+import {
+  buildAgentsStreamPullResponseForWire,
+  extractAgentsStreamPullRequestId,
+} from "../consumers/agents_stream_pull_wire";
 import { abortPendingConsumerCommands } from "../consumers/consumer_command_abort_registry";
 import { handleCustomSocketEventPublish } from "../consumers/custom_socket_event_publish.handler";
 import {
@@ -239,6 +243,28 @@ export const registerConsumerSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.agentsStreamPull, (rawPayload: unknown) => {
+      const tOverload = performance.now();
+      const overload = getRelayOutboundQueueOverloadState();
+      observeRelayOverloadCheck(performance.now() - tOverload);
+      if (overload.overloaded) {
+        noteRelayOutboundQueueOverloadRejected();
+        const requestId = extractAgentsStreamPullRequestId(rawPayload);
+        socket.emit(
+          socketEvents.agentsStreamPullResponse,
+          buildAgentsStreamPullResponseForWire(
+            {
+              success: false,
+              error: buildConsumerOverloadError(
+                overload.retryAfterMs,
+                overload.reason ?? "relay_outbound_queue",
+              ),
+            },
+            { ...(requestId !== undefined ? { requestId } : {}) },
+          ),
+        );
+        return;
+      }
+
       handleAgentsStreamPull(socket, rawPayload);
     });
 
@@ -379,22 +405,6 @@ export const registerConsumerSocketConnectionHandlers = ({
           socket.emit(socketEvents.relayRpcBatchAccepted, {
             success: false,
             error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
-          });
-          return;
-        }
-
-        // Per-item rate-limit accounting: tracking N items but consuming the
-        // single-envelope quota once. v1 keeps the single-envelope check;
-        // per-item refund happens inside the handler for deduplicated items.
-        const userSub = socket.data.user?.sub;
-        if (!(await allowRelayRpcRequestAsync(userSub, socket.id))) {
-          socket.emit(socketEvents.relayRpcBatchAccepted, {
-            success: false,
-            error: {
-              code: "RATE_LIMITED",
-              message: "Rate limit exceeded for relay:rpc.request.batch",
-              statusCode: 429,
-            },
           });
           return;
         }

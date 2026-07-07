@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { env } from "../../../../shared/config/env";
 import { isHealthPiggybackNegotiated } from "../../../../shared/constants/transport_extension_negotiation";
+import { forEachWithConcurrencyLimit } from "../../../../shared/utils/concurrency";
 import { logger } from "../../../../shared/utils/logger";
 import type {
   DispatchRpcCommandInput,
@@ -17,6 +18,7 @@ export type AgentHealthPollDispatch = (
 let pollTimer: NodeJS.Timeout | null = null;
 let dispatchCommand: AgentHealthPollDispatch | null = null;
 let pollInFlight = false;
+let pollInFlightPromise: Promise<void> | null = null;
 
 const healthPollTimeoutMs = 10_000;
 
@@ -25,47 +27,53 @@ export const runAgentHealthPollSweep = async (
   nowMs = Date.now(),
 ): Promise<{ polled: number; skipped: number; failed: number }> => {
   const agents = agentRegistry.listAll();
-  let polled = 0;
-  let skipped = 0;
-  let failed = 0;
+  const outcomes: Array<"polled" | "skipped" | "failed"> = [];
 
-  for (const agent of agents) {
-    const readiness = agentRegistry.getProtocolReadiness(agent.agentId);
-    if (!readiness.ready) {
-      continue;
-    }
-
-    if (isHealthPiggybackNegotiated(agent.capabilities)) {
-      if (agentRegistry.shouldSkipScheduledHealthPoll(agent.agentId, nowMs)) {
-        skipped += 1;
-        continue;
+  await forEachWithConcurrencyLimit(
+    agents,
+    env.agentHealthPollConcurrency,
+    async (agent) => {
+      const readiness = agentRegistry.getProtocolReadiness(agent.agentId);
+      if (!readiness.ready) {
+        return;
       }
-    }
 
-    try {
-      await dispatch({
-        agentId: agent.agentId,
-        timeoutMs: healthPollTimeoutMs,
-        command: {
-          jsonrpc: "2.0",
-          method: "agent.getHealth",
-          id: `hub-health-poll-${randomUUID()}`,
-          params: {},
-        },
-      });
-      polled += 1;
-    } catch (error: unknown) {
-      failed += 1;
-      if (logger.isLevelEnabled("debug")) {
-        logger.debug("agent_health_poll_failed", {
+      if (isHealthPiggybackNegotiated(agent.capabilities)) {
+        if (agentRegistry.shouldSkipScheduledHealthPoll(agent.agentId, nowMs)) {
+          outcomes.push("skipped");
+          return;
+        }
+      }
+
+      try {
+        await dispatch({
           agentId: agent.agentId,
-          message: error instanceof Error ? error.message : String(error),
+          timeoutMs: healthPollTimeoutMs,
+          command: {
+            jsonrpc: "2.0",
+            method: "agent.getHealth",
+            id: `hub-health-poll-${randomUUID()}`,
+            params: {},
+          },
         });
+        outcomes.push("polled");
+      } catch (error: unknown) {
+        outcomes.push("failed");
+        if (logger.isLevelEnabled("debug")) {
+          logger.debug("agent_health_poll_failed", {
+            agentId: agent.agentId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
-    }
-  }
+    },
+  );
 
-  return { polled, skipped, failed };
+  return {
+    polled: outcomes.filter((outcome) => outcome === "polled").length,
+    skipped: outcomes.filter((outcome) => outcome === "skipped").length,
+    failed: outcomes.filter((outcome) => outcome === "failed").length,
+  };
 };
 
 export const startAgentHealthPollScheduler = (dispatch: AgentHealthPollDispatch): void => {
@@ -85,7 +93,7 @@ export const startAgentHealthPollScheduler = (dispatch: AgentHealthPollDispatch)
       return;
     }
     pollInFlight = true;
-    void runAgentHealthPollSweep(dispatchCommand)
+    pollInFlightPromise = runAgentHealthPollSweep(dispatchCommand)
       .then((summary) => {
         if (logger.isLevelEnabled("debug") && (summary.polled > 0 || summary.failed > 0)) {
           logger.debug("agent_health_poll_sweep", summary);
@@ -98,22 +106,27 @@ export const startAgentHealthPollScheduler = (dispatch: AgentHealthPollDispatch)
       })
       .finally(() => {
         pollInFlight = false;
+        pollInFlightPromise = null;
       });
   }, intervalMs);
   pollTimer.unref?.();
 };
 
-export const stopAgentHealthPollScheduler = (): void => {
+export const stopAgentHealthPollScheduler = async (): Promise<void> => {
   if (pollTimer === null) {
     return;
   }
   clearInterval(pollTimer);
   pollTimer = null;
   dispatchCommand = null;
+  if (pollInFlightPromise) {
+    await pollInFlightPromise.catch(() => undefined);
+  }
   pollInFlight = false;
+  pollInFlightPromise = null;
 };
 
 /** @internal test helper */
 export const resetAgentHealthPollSchedulerForTests = (): void => {
-  stopAgentHealthPollScheduler();
+  void stopAgentHealthPollScheduler();
 };

@@ -15,6 +15,8 @@ import {
   noteRelayOutboundJobFailureNotified,
   observeRelayBodyIdEchoOverhead,
 } from "../../../../shared/metrics/socket_consumer.metrics";
+import { noteRelayLateResponseIfTimedOut } from "./relay_timeout_tombstone";
+import { trySettleRelayRoute } from "./relay_route_settlement";
 import { logger } from "../../../../shared/utils/logger";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
 import type {
@@ -86,9 +88,10 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
   const relayRoute = findRelayRequestRouteForAgentSocket(candidateIds, socketId);
 
   if (!relayRoute) {
+    noteRelayLateResponseIfTimedOut(candidateIds);
     return;
   }
-  if (relayRoute.timedOut === true) {
+  if (relayRoute.timedOut === true || relayRoute.settled === true) {
     noteRelayLateResponseAfterTimeout();
     if (logger.isLevelEnabled("debug")) {
       logger.debug("relay_late_response_ignored_after_timeout", {
@@ -162,6 +165,9 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
         errorCode,
       });
       observeRelayRouteOutcome(relayRoute, "error");
+      if (!trySettleRelayRoute(relayRoute)) {
+        return;
+      }
       enqueueRelayOutbound(responseId, async () => {
         try {
           const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
@@ -186,6 +192,11 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
     relayRoute.releaseAgentDispatchSlot?.();
     relayMetrics.streamDispatchSlotsReleasedOnOpen += 1;
     setRelayStreamFlowCredits(responseId, 0);
+  }
+
+  if (!trySettleRelayRoute(relayRoute)) {
+    noteRelayLateResponseAfterTimeout();
+    return;
   }
 
   enqueueRelayOutbound(responseId, async () => {

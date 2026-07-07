@@ -140,6 +140,10 @@ Regras:
 - cada socket tem limite configuravel de inscricoes simultaneas
   (`SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET`) e rate limit local para
   controles `socket:event.*`;
+- a quota de `socket:event.subscribe` / `socket:event.unsubscribe` e consumida
+  **depois** de `join` / `leave` na room ter sucesso; se o rate limit estourar
+  nessa fase, o hub faz rollback best-effort (`leave` apos subscribe falho,
+  `join` apos unsubscribe falho) para nao deixar o socket num estado incoerente;
 - o evento dinamico `client:custom.*` usa `PayloadFrame`;
 - payload logico do frame: `{ eventId, eventName, emittedAt, publisher, payload, attachments }`;
 - `publisher` e derivado do JWT do `Client`, nunca do corpo da publicacao;
@@ -218,6 +222,14 @@ Valores publicos documentados:
 - `consumer_ended`: o proprio consumer encerrou a conversa com `relay:conversation.end`
 - `agent_disconnected`: o socket do agente caiu enquanto a conversa ainda existia
 - `expired`: a conversa foi removida pelo idle timeout
+
+Quando o agente desconecta com RPCs relay pendentes ou streams abertos, o hub
+notifica o consumer **antes** de limpar rotas:
+
+- unary pendente → `relay:rpc.response` com erro JSON-RPC (`error.data.code =
+  "AGENT_DISCONNECTED"`, `retryable: true`)
+- stream ativo → `relay:rpc.complete` terminal (`terminal_status: "error"`,
+  `error_code: "AGENT_DISCONNECTED"`)
 
 No encerramento explicito (`consumer_ended`), o hub emite `relay:conversation.ended`
 ao consumer e tambem ao agente ligado, em modo best-effort.
@@ -415,13 +427,14 @@ Regras do contrato:
 - Erros (validacao, conversa nao encontrada, autorizacao, rate-limit, etc.)
   **sempre** sao reportados via `relay:rpc.accepted { success: false, error }`
   mesmo com `fastPath: true`. Caso contrario o consumer ficaria sem sinal.
-- Para **streaming** (`sql.execute` com `prefer_db_streaming` ou `multi_result`,
-  `sql.executeBatch`), recomenda-se **nao** definir `fastPath: true`. O
-  handshake de window/credit (`relay:rpc.stream.pull`) precisa do `requestId`
-  ancorado por `relay:rpc.accepted` antes do primeiro pull. O hub nao rejeita
-  o flag para esses metodos — apenas avisa pelos logs — mas consumers que
-  quiserem usar `fastPath` aqui terao que extrair o `requestId` do envelope
-  PayloadFrame do primeiro chunk antes de pedir pulls adicionais.
+- Para **metodos streaming-capable** (`sql.execute` com `prefer_db_streaming` ou
+  `multi_result`, `sql.executeBatch`), o hub **rejeita** `fastPath: true` no
+  dispatch com `VALIDATION_ERROR` em `relay:rpc.accepted` (`fastPath is not
+  allowed for streaming-capable RPC methods`). O handshake de window/credit
+  (`relay:rpc.stream.pull`) precisa do `requestId` ancorado por
+  `relay:rpc.accepted` antes do primeiro pull. Metrica:
+  `plug_socket_relay_fast_path_stream_inadvertent_total` continua a cobrir
+  respostas que abrem stream apesar de `fastPath` (caminhos legados ou race).
 - O cliente deve estar preparado para receber `relay:rpc.response` **antes**
   ou **sem** ter recebido `relay:rpc.accepted` quando enviou `fastPath: true`.
   - O `body.id` da resposta JSON-RPC carrega o **`client_request_id`** original
@@ -601,6 +614,12 @@ JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
   slots e so K < N estao disponiveis, rejeita o envelope inteiro com
   `RATE_LIMITED` carregando `details.availableSlots` e `details.requestedSlots`.
   Nenhum item e despachado. O cliente pode retentar com batch menor.
+- **Rate limit proporcional**: `relay:rpc.request.batch` consome
+  `items.length` creditos do orçamento `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS`
+  (um credito por item). Itens deduplicados no `batch_accepted` devolvem quota
+  via refund batched (`refundRelayRpcRequestAsync`). Rejeicao por quota no
+  envelope inteiro incrementa
+  `plug_socket_relay_batch_envelopes_rejected_total{reason="rate_limited"}`.
 - **Per-agent dispatch slot** continua sendo per-item: itens do mesmo
   agente serializam internamente na fila `SOCKET_RELAY_AGENT_MAX_INFLIGHT`.
 - **Idempotency runs per item**: se um `client_request_id` colide com uma
@@ -618,7 +637,7 @@ JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
 - `plug_socket_relay_batch_items_accepted_total`
 - `plug_socket_relay_batch_items_deduped_total`
 - `plug_socket_relay_batch_items_error_total`
-- `plug_socket_relay_batch_envelopes_rejected_total{reason="disabled|not_found|frame_decode_failed|not_array|validation_failed|inflight_gate|envelope_error"}`
+- `plug_socket_relay_batch_envelopes_rejected_total{reason="disabled|not_found|frame_decode_failed|not_array|validation_failed|inflight_gate|rate_limited|envelope_error"}`
 - `plug_socket_relay_batch_envelope_decode_avg_ms` / `_max_ms` (gauge por processo)
 - `plug_socket_relay_batch_items_per_envelope_avg` / `_max` (gauge por processo)
 
@@ -655,9 +674,19 @@ Dashboard Grafana: [`docs/grafana/relay_batch_dashboard.json`](../grafana/relay_
   consumer.
 - Timeout de relay request: quando o agente nao responde no prazo, o servidor
   devolve erro JSON-RPC no `relay:rpc.response`. A rota fica marcada
-  `timedOut`; respostas do agente que chegarem **depois** sao descartadas
-  (o consumer ja recebeu o timeout). Metrica:
-  `plug_socket_relay_late_response_after_timeout_total`.
+  `timedOut` e `settled`; respostas do agente que chegarem **depois** sao
+  descartadas (o consumer ja recebeu o timeout). Metrica:
+  `plug_socket_relay_late_response_after_timeout_total` (tombstone preserva a
+  contagem mesmo apos a rota ser removida).
+- **Settlement atomico**: cada rota relay usa flag `settled` para garantir que
+  apenas um terminal vence (timeout, sucesso unary, `relay:rpc.complete` ou
+  disconnect do agente/consumer). Evita dupla entrega timeout + resposta tardia.
+- **Idempotencia sem TOCTOU**: a entrada in-flight de idempotencia e gravada
+  antes do `await` de dispatch; entradas in-flight expiradas sao podadas quando
+  a rota ja nao existe.
+- **Reserva atomica de pending**: slots de pending por conversa/consumer sao
+  reservados antes do dispatch (`reserveRelayPendingSlot`) para fechar corrida
+  com o cap global.
 - Timeout de stream aberta: quando `rpc:response` abre `stream_id`, o slot de
   dispatch do agente e liberado e a stream passa a ser controlada pelos limites
   de streams/buffer/creditos. Se nao houver atividade ate
@@ -676,6 +705,17 @@ Dashboard Grafana: [`docs/grafana/relay_batch_dashboard.json`](../grafana/relay_
   **antes** de o hub conceder novos credits/pulls ao agente. Se o pull for aceite
   mas a execucao falhar antes de concluir, os creditos concedidos nessa tentativa
   sao devolvidos para a janela do consumer.
+- **Chunks tardios apos `rpc:complete`**: o hub descarta `rpc:chunk` que chegam
+  depois do terminal do agente (`completeReceived`); regista log
+  `relay_chunk_after_complete_dropped` (contador interno
+  `chunkAfterCompleteDroppedTotal`).
+- **Backpressure no transporte consumer**: quando
+  `SOCKET_RELAY_CONSUMER_TRANSPORT_MAX_BUFFERED_BYTES` > 0, apenas a emissao de
+  `relay:rpc.chunk` (drains de stream) pausa enquanto o buffer de escrita
+  Socket.IO do consumer exceder o teto; eventos de controlo (`request_ack`,
+  `response`, `complete`) continuam a ser emitidos. Emissao que falha por
+  consumer desligado incrementa
+  `plug_socket_relay_emit_discarded_consumer_gone_total`.
 - Buffer com limites: chunks sao bufferizados por request e globalmente com caps
   de quantidade e bytes para evitar explosao de uso; se o agente exceder esse buffer, o hub
   fecha o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`)
@@ -822,12 +862,18 @@ responde `RATE_LIMITED` imediatamente, sem entrar na bridge.
 
 ### Shed load em `/consumers`
 
-Se a fila outbound relay exceder backlog ou latência p95 configurados, o hub passa a rejeitar temporariamente novos eventos relay em `/consumers` com `SERVICE_UNAVAILABLE` e `retryAfterMs`. Variáveis principais:
+Se a fila outbound relay exceder backlog ou latência p95 configurados, o hub passa a rejeitar temporariamente novos eventos relay em `/consumers` com `SERVICE_UNAVAILABLE` e `retryAfterMs`. O gate aplica-se a `relay:conversation.start`, `relay:rpc.request`, `relay:rpc.request.batch`, `relay:rpc.stream.pull` e ao legacy `agents:stream_pull`. Variáveis principais:
 
 - `SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG`
 - `SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS`
+- `SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG_EXIT` — limiar de saida para backlog (`0` = mesmo valor de entrada, sem histerese)
+- `SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_EXIT_MS` — limiar de saida para p95 (`0` = mesmo valor de entrada)
 - `SOCKET_RELAY_OUTBOUND_TAIL_STALE_MS`
 - `SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS`
+- `SOCKET_RELAY_CONSUMER_TRANSPORT_MAX_BUFFERED_BYTES` — pausa drains de stream por backpressure de escrita no consumer (`0` desativa)
+
+Metrica de rejeicoes por shedding:
+`plug_socket_relay_outbound_queue_overload_rejected_total`.
 
 ## Auditoria Socket e retencao
 

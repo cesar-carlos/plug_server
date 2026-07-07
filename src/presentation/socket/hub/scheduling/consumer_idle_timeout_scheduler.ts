@@ -10,6 +10,7 @@ import { consumerRegistry } from "../registries/consumer_registry";
 
 let sweepTimer: NodeJS.Timeout | null = null;
 let _consumersNamespace: Namespace | null = null;
+let sweepInFlight = false;
 
 export const sweepIdleConsumerConnections = (): number => {
   if (env.socketConsumerIdleTimeoutMs <= 0) {
@@ -22,6 +23,7 @@ export const sweepIdleConsumerConnections = (): number => {
   for (const consumer of idleConsumers) {
     const socket = _consumersNamespace?.sockets.get(consumer.socketId);
     if (!socket?.connected) {
+      consumerRegistry.removeBySocketId(consumer.socketId);
       continue;
     }
 
@@ -61,7 +63,15 @@ export const startConsumerIdleTimeoutScheduler = (namespace: Namespace): void =>
   }
 
   sweepTimer = setInterval(() => {
-    sweepIdleConsumerConnections();
+    if (sweepInFlight) {
+      return;
+    }
+    sweepInFlight = true;
+    try {
+      sweepIdleConsumerConnections();
+    } finally {
+      sweepInFlight = false;
+    }
   }, env.socketConsumerIdleSweepIntervalMs);
   sweepTimer.unref?.();
 };

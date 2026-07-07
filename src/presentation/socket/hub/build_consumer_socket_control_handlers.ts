@@ -6,13 +6,14 @@ import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/sock
 import {
   clearAllConsumerSocketAgentAccessSnapshots,
   clearConsumerSocketAgentAccessSnapshot,
-  getSocketIdsWithAgentAccessSnapshot,
 } from "../consumers/consumer_socket_guard";
 import {
+  buildConsumerAgentProfileRoom,
   buildConsumerClientAgentRoom,
   buildConsumerClientRoom,
   joinConsumerClientAgentRoom,
 } from "./consumer_identity_rooms";
+import { invalidateApprovedAgentIdsCache } from "./scheduling/consumer_client_agent_room_reconcile";
 import {
   noteConsumerClientAgentRoomGrantAttempt,
   noteConsumerClientAgentRoomGrantFetchFailed,
@@ -63,6 +64,7 @@ export const buildConsumerSocketControlHandlers = (
       );
     },
     revokeClientAccess: async (event) => {
+      invalidateApprovedAgentIdsCache(event.clientId);
       clientProfileRecipientsCacheByAgentId.delete(event.agentId);
       await disconnectConsumerSocketsInRoom(
         consumersNsp,
@@ -98,15 +100,18 @@ export const buildConsumerSocketControlHandlers = (
       }
     },
     invalidateAgentAccessSnapshot: async (event) => {
-      const targetSocketIds = Array.from(getSocketIdsWithAgentAccessSnapshot(event.agentId));
-      if (targetSocketIds.length === 0) {
-        return;
-      }
-      for (const socketId of targetSocketIds) {
-        const remote = consumersNsp.sockets.get(socketId);
-        if (remote) {
+      try {
+        const sockets = await consumersNsp
+          .in(buildConsumerAgentProfileRoom(event.agentId))
+          .fetchSockets();
+        for (const remote of sockets) {
           clearConsumerSocketAgentAccessSnapshot(remote, event.agentId);
         }
+      } catch (error: unknown) {
+        logger.warn("consumer_socket_agent_access_snapshot_invalidate_by_agent_failed", {
+          agentId: event.agentId,
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
     },
     invalidateUserAccessSnapshot: async (event) => {
@@ -124,6 +129,7 @@ export const buildConsumerSocketControlHandlers = (
       }
     },
     grantClientAccess: async (event) => {
+      invalidateApprovedAgentIdsCache(event.clientId);
       noteConsumerClientAgentRoomGrantAttempt();
       const clientRoom = buildConsumerClientRoom(event.clientId);
       try {

@@ -1,5 +1,3 @@
-import { recordSocketAuditEvent } from "../../../../application/services/socket_audit.service";
-import { observeBridgeRpcMethod } from "../../../../application/services/bridge_rpc_method_metrics.service";
 import { badRequest, notFound, serviceUnavailable } from "../../../../shared/errors/http_errors";
 import { env } from "../../../../shared/config/env";
 import { sampledMetricDelta } from "../../../../shared/metrics/metrics_sample";
@@ -21,9 +19,12 @@ import {
 } from "../registries/relay_request_registry";
 import {
   addRelayStreamFlowCredits,
-  drainRelayStreamBuffer,
   getRelayStreamForwardedRows,
 } from "./relay_stream_flow_state";
+import {
+  buildRelayStreamPullDrainOnComplete,
+  scheduleRelayStreamDrain,
+} from "./relay_stream_drain_scheduler";
 import { touchRelayStreamTimeout } from "../registries/relay_stream_timeout_registry";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 
@@ -186,18 +187,18 @@ export const createPrepareAgentStreamPull = (
         const relayRouteForAudit = getRelayRequestRoute(route.requestId);
         addRelayStreamFlowCredits(route.requestId, windowSize);
 
-        enqueueRelayOutbound(route.requestId, async () => {
-          await drainRelayStreamBuffer({
-            requestId: route.requestId,
-            consumerSocketId: route.consumerSocketId,
-            agentSocketId: route.agentSocketId,
-            conversationId: relayRouteForAudit?.conversationId ?? "",
-            agentId: relayRouteForAudit?.agentId ?? "",
-            emitChunk: (frame) =>
-              emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
-            emitComplete: (frame) =>
-              emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
-            encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
+        let pullDrainScheduled = false;
+        const schedulePullDrain = (): void => {
+          scheduleRelayStreamDrain({
+            route: {
+              requestId: route.requestId,
+              consumerSocketId: route.consumerSocketId,
+              agentSocketId: route.agentSocketId,
+              conversationId: relayRouteForAudit?.conversationId ?? "",
+              agentId: relayRouteForAudit?.agentId ?? "",
+              relayRoute: relayRouteForAudit ?? null,
+            },
+            emitToConsumer,
             isActive: () => {
               const activeRoute = getActiveStreamRouteByRequestId(route.requestId);
               const relayRoute = getRelayRequestRoute(route.requestId);
@@ -205,43 +206,20 @@ export const createPrepareAgentStreamPull = (
                 activeRoute === route &&
                 Boolean(
                   relayRoute &&
-                  relayRoute.consumerSocketId === route.consumerSocketId &&
-                  relayRoute.agentSocketId === route.agentSocketId,
+                    relayRoute.consumerSocketId === route.consumerSocketId &&
+                    relayRoute.agentSocketId === route.agentSocketId,
                 )
               );
             },
-            recordAudit: (eventType, extras) => {
-              if (relayRouteForAudit) {
-                void recordSocketAuditEvent({
-                  eventType,
-                  actorSocketId: route.agentSocketId,
-                  direction: "agent_to_consumer",
-                  conversationId: relayRouteForAudit.conversationId,
-                  agentId: relayRouteForAudit.agentId,
-                  requestId: route.requestId,
-                  ...extras,
-                });
-              }
+            onComplete: buildRelayStreamPullDrainOnComplete(route.requestId),
+            getDrainScheduled: () => pullDrainScheduled,
+            setDrainScheduled: (value) => {
+              pullDrainScheduled = value;
             },
-            onComplete: (_streamId) => {
-              const relayRt = getRelayRequestRoute(route.requestId);
-              relayRt?.latencyTrace?.finalizeRelayStreamComplete();
-              if (relayRt) {
-                observeBridgeRpcMethod({
-                  channel: "relay",
-                  method: relayRt.jsonRpcMethod ?? "unknown",
-                  outcome: "success",
-                  elapsedMs: Date.now() - relayRt.createdAtMs,
-                });
-              }
-              removeRelayRequestRoute(route.requestId);
-              const activeRoute = getActiveStreamRouteByRequestId(route.requestId);
-              if (activeRoute) {
-                removeActiveStreamRoute(activeRoute);
-              }
-            },
+            reschedule: schedulePullDrain,
           });
-        });
+        };
+        schedulePullDrain();
       }
 
       return {

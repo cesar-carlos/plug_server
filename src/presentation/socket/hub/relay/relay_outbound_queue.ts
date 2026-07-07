@@ -106,6 +106,44 @@ const countOrphanedRequestIds = (nowMs: number): number => {
 const retryAfterFromSweep = (): number =>
   Math.max(250, Math.min(env.socketRelayOutboundSweepIntervalMs, 1_000));
 
+const resolveBacklogThresholds = (): { readonly enter: number; readonly exit: number } => {
+  const enter = env.socketRelayOutboundOverloadBacklog;
+  const configuredExit = env.socketRelayOutboundOverloadBacklogExit;
+  return {
+    enter,
+    exit: configuredExit > 0 ? configuredExit : enter,
+  };
+};
+
+const resolveP95Thresholds = (): { readonly enter: number; readonly exit: number } => {
+  const enter = env.socketRelayOutboundOverloadP95Ms;
+  const configuredExit = env.socketRelayOutboundOverloadP95ExitMs;
+  return {
+    enter,
+    exit: configuredExit > 0 ? configuredExit : enter,
+  };
+};
+
+const computeOverloadSignals = (
+  backlog: number,
+  p95Ms: number,
+  wasOverloaded: boolean,
+): { readonly overloadedByBacklog: boolean; readonly overloadedByP95: boolean } => {
+  const backlogThresholds = resolveBacklogThresholds();
+  const p95Thresholds = resolveP95Thresholds();
+
+  const overloadedByBacklog =
+    backlogThresholds.enter > 0 &&
+    (wasOverloaded
+      ? backlog >= backlogThresholds.exit
+      : backlog >= backlogThresholds.enter);
+  const overloadedByP95 =
+    p95Thresholds.enter > 0 &&
+    (wasOverloaded ? p95Ms >= p95Thresholds.exit : p95Ms >= p95Thresholds.enter);
+
+  return { overloadedByBacklog, overloadedByP95 };
+};
+
 const updateOverloadStateCache = (input: {
   p95Ms?: number;
   p99Ms?: number;
@@ -115,10 +153,12 @@ const updateOverloadStateCache = (input: {
   const backlog = deriveBacklog();
   const p95Ms = input.p95Ms ?? overloadStateCache.p95Ms;
   const p99Ms = input.p99Ms ?? overloadStateCache.p99Ms;
-  const backlogThreshold = env.socketRelayOutboundOverloadBacklog;
-  const p95Threshold = env.socketRelayOutboundOverloadP95Ms;
-  const overloadedByBacklog = backlogThreshold > 0 && backlog >= backlogThreshold;
-  const overloadedByP95 = p95Threshold > 0 && p95Ms >= p95Threshold;
+  const wasOverloaded = overloadStateCache.overloaded;
+  const { overloadedByBacklog, overloadedByP95 } = computeOverloadSignals(
+    backlog,
+    p95Ms,
+    wasOverloaded,
+  );
   overloadStateCache = {
     overloaded: overloadedByBacklog || overloadedByP95,
     reason: overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null,
@@ -132,10 +172,12 @@ const updateOverloadStateCache = (input: {
 
 const updateBacklogOnlyOverloadStateCache = (nowMs = Date.now()): void => {
   const backlog = deriveBacklog();
-  const backlogThreshold = env.socketRelayOutboundOverloadBacklog;
-  const p95Threshold = env.socketRelayOutboundOverloadP95Ms;
-  const overloadedByBacklog = backlogThreshold > 0 && backlog >= backlogThreshold;
-  const overloadedByP95 = p95Threshold > 0 && overloadStateCache.p95Ms >= p95Threshold;
+  const wasOverloaded = overloadStateCache.overloaded;
+  const { overloadedByBacklog, overloadedByP95 } = computeOverloadSignals(
+    backlog,
+    overloadStateCache.p95Ms,
+    wasOverloaded,
+  );
   overloadStateCache = {
     overloaded: overloadedByBacklog || overloadedByP95,
     reason: overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null,

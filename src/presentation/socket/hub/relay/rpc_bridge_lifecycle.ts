@@ -32,6 +32,9 @@ import {
 } from "../registries/relay_idempotency_store";
 import { resetRelayOutboundQueueState } from "./relay_outbound_queue";
 import { resetRelayStreamFlowState } from "./relay_stream_flow_state";
+import { notifyConsumersForAgentRelayDisconnect } from "./relay_agent_disconnect_notify";
+import { getRelayConsumerEmit } from "./relay_consumer_emit";
+import { resetRelayTimeoutTombstonesForTests } from "./relay_timeout_tombstone";
 import {
   getRelayRequestRoute,
   listRelayRequestIdsForAgent,
@@ -61,10 +64,18 @@ export const cleanupConsumerStreamSubscriptions = (consumerSocketId: string): vo
 };
 
 export const cleanupAgentStreamSubscriptions = (agentSocketId: string): void => {
+  const emitToConsumer = getRelayConsumerEmit();
+  const notifiedRequestIds = emitToConsumer
+    ? notifyConsumersForAgentRelayDisconnect(agentSocketId, emitToConsumer)
+    : new Set<string>();
+
   const streamIds = listStreamRequestIdsForAgent(agentSocketId);
   for (const requestId of streamIds) {
     const route = getActiveStreamRouteByRequestId(requestId);
     if (!route || route.agentSocketId !== agentSocketId) {
+      continue;
+    }
+    if (notifiedRequestIds.has(requestId)) {
       continue;
     }
     if (route.mode === "relay") {
@@ -193,6 +204,7 @@ export const resetRpcBridgeMutableStores = (): void => {
   resetRelayIdempotencyStore();
   resetRelayStreamFlowState();
   resetRelayOutboundQueueState();
+  resetRelayTimeoutTombstonesForTests();
   restSqlStreamMaterializeReset();
   resetRelayHubHealthAndMetrics();
   resetRestAgentDispatchQueue(serviceUnavailable("REST agent queue has been reset"));

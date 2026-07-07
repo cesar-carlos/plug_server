@@ -875,6 +875,8 @@ const envSchema = z.object({
     .min(0)
     .max(3_600_000)
     .default(60_000),
+  /** Max concurrent `agent.getHealth` polls per sweep. */
+  AGENT_HEALTH_POLL_CONCURRENCY: z.coerce.number().int().positive().max(256).default(8),
   /**
    * Disconnect connected `/consumers` sockets whose registry `lastSeenAtMs` exceeds this idle threshold.
    * `0` disables idle enforcement.
@@ -1099,6 +1101,25 @@ const envSchema = z.object({
   SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG: z.coerce.number().int().min(0).default(200),
   /** `0` disables overload shedding by outbound queue p95 duration. */
   SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS: z.coerce.number().int().min(0).default(250),
+  /**
+   * Backlog below which overload shedding clears after entering via backlog.
+   * `0` uses the enter threshold (no hysteresis).
+   */
+  SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG_EXIT: z.coerce.number().int().min(0).default(0),
+  /**
+   * P95 below which overload shedding clears after entering via latency.
+   * `0` uses the enter threshold (no hysteresis).
+   */
+  SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_EXIT_MS: z.coerce.number().int().min(0).default(0),
+  /**
+   * When the consumer transport buffered byte count exceeds this value, relay stream
+   * chunk drains pause until the buffer drains. `0` disables transport backpressure checks.
+   */
+  SOCKET_RELAY_CONSUMER_TRANSPORT_MAX_BUFFERED_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(512_000),
   SOCKET_RELAY_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(10_000),
   /**
    * Per consumer identity per {@link SOCKET_RELAY_RATE_LIMIT_WINDOW_MS}. `0` disables this limiter
@@ -1841,6 +1862,7 @@ export const env = {
   socketAgentIdleSweepIntervalMs: parsedEnv.SOCKET_AGENT_IDLE_SWEEP_INTERVAL_MS,
   agentHealthPollEnabled: parsedEnv.AGENT_HEALTH_POLL_ENABLED,
   agentHealthPollIntervalMs: parsedEnv.AGENT_HEALTH_POLL_INTERVAL_MS,
+  agentHealthPollConcurrency: parsedEnv.AGENT_HEALTH_POLL_CONCURRENCY,
   socketConsumerIdleTimeoutMs: parsedEnv.SOCKET_CONSUMER_IDLE_TIMEOUT_MS,
   socketConsumerIdleSweepIntervalMs: parsedEnv.SOCKET_CONSUMER_IDLE_SWEEP_INTERVAL_MS,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
@@ -1902,6 +1924,10 @@ export const env = {
   socketRelayOutboundSweepIntervalMs: parsedEnv.SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS,
   socketRelayOutboundOverloadBacklog: parsedEnv.SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG,
   socketRelayOutboundOverloadP95Ms: parsedEnv.SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS,
+  socketRelayOutboundOverloadBacklogExit: parsedEnv.SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG_EXIT,
+  socketRelayOutboundOverloadP95ExitMs: parsedEnv.SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_EXIT_MS,
+  socketRelayConsumerTransportMaxBufferedBytes:
+    parsedEnv.SOCKET_RELAY_CONSUMER_TRANSPORT_MAX_BUFFERED_BYTES,
   socketRelayRateLimitWindowMs: parsedEnv.SOCKET_RELAY_RATE_LIMIT_WINDOW_MS,
   socketRelayRateLimitMaxConversationStarts:
     parsedEnv.SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS,

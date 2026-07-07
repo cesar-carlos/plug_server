@@ -46,6 +46,7 @@ const streamRequestIdsByAgent = new Map<string, Set<string>>();
  * opens a new stream.
  */
 const openStreamCountByAgentSocketId = new Map<string, number>();
+let restMaterializeStreamsInFlight = 0;
 
 const incrementOpenStreamCount = (agentSocketId: string): void => {
   openStreamCountByAgentSocketId.set(
@@ -105,16 +106,7 @@ const pickStreamIdFromStreamPayload = (payload: unknown): string | null => {
 export const getActiveStreamRouteCount = (): number => activeStreamsByRequestId.size;
 
 /** Active REST SQL stream materializations awaiting `rpc:complete` (not yet settled). */
-export const countRestMaterializeStreamsInFlight = (): number => {
-  let n = 0;
-  for (const route of activeStreamsByRequestId.values()) {
-    const mat = route.restMaterializeState;
-    if (mat && !mat.settled) {
-      n += 1;
-    }
-  }
-  return n;
-};
+export const countRestMaterializeStreamsInFlight = (): number => restMaterializeStreamsInFlight;
 
 export const getActiveStreamRouteByRequestId = (requestId: string): ActiveStreamRoute | undefined =>
   activeStreamsByRequestId.get(requestId);
@@ -146,6 +138,7 @@ const abortRestMaterializeIfPending = (route: ActiveStreamRoute): void => {
     return;
   }
   mat.settled = true;
+  restMaterializeStreamsInFlight = Math.max(0, restMaterializeStreamsInFlight - 1);
   clearTimeout(mat.timeoutHandle);
   registerAgentFailure(mat.agentId);
   mat.reject(serviceUnavailable("Agent disconnected while SQL stream in progress"));
@@ -158,6 +151,7 @@ const detachRestMaterializeIfPending = (route: ActiveStreamRoute): void => {
     return;
   }
   mat.settled = true;
+  restMaterializeStreamsInFlight = Math.max(0, restMaterializeStreamsInFlight - 1);
   clearTimeout(mat.timeoutHandle);
 };
 
@@ -212,6 +206,9 @@ export const upsertActiveStreamRoute = (input: {
     if (existing.agentSocketId !== input.agentSocketId) {
       throw new Error("Active stream route agent socket mismatch");
     }
+    if (input.restMaterializeState && !existing.restMaterializeState) {
+      restMaterializeStreamsInFlight += 1;
+    }
     if (input.streamId) {
       if (existing.streamId && existing.streamId !== input.streamId) {
         activeStreamsByStreamId.delete(existing.streamId);
@@ -243,6 +240,10 @@ export const upsertActiveStreamRoute = (input: {
     ...(input.streamId ? { streamId: input.streamId } : {}),
     ...(input.restMaterializeState ? { restMaterializeState: input.restMaterializeState } : {}),
   };
+
+  if (input.restMaterializeState) {
+    restMaterializeStreamsInFlight += 1;
+  }
 
   addToIndex(streamRequestIdsByConsumer, route.consumerSocketId, route.requestId);
   addToIndex(streamRequestIdsByAgent, route.agentSocketId, route.requestId);
@@ -295,4 +296,5 @@ export const resetActiveStreamRegistry = (): void => {
   streamRequestIdsByConsumer.clear();
   streamRequestIdsByAgent.clear();
   openStreamCountByAgentSocketId.clear();
+  restMaterializeStreamsInFlight = 0;
 };

@@ -154,27 +154,6 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
       return;
     }
 
-    const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
-    if (!allowance.allowed) {
-      noteCustomSocketEventSubscriptionRejected();
-      emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
-        success: false,
-        requestId,
-        error: {
-          code: "RATE_LIMITED",
-          message: "Rate limit exceeded for socket:event.subscribe",
-          statusCode: 429,
-          ...(allowance.retryAfterMs !== undefined ? { retryAfterMs: allowance.retryAfterMs } : {}),
-        },
-        rateLimit: {
-          limit: allowance.limit,
-          remaining: allowance.remaining,
-          resetAtMs: allowance.resetAtMs,
-        },
-      });
-      return;
-    }
-
     const isAlreadySubscribed = hasCustomSocketEventSubscription(socket.id, eventName);
     if (
       !isAlreadySubscribed &&
@@ -210,6 +189,33 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
       });
       return;
     }
+
+    const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
+    if (!allowance.allowed) {
+      try {
+        await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
+      } catch {
+        // Best-effort rollback when subscribe quota is exhausted after join.
+      }
+      noteCustomSocketEventSubscriptionRejected();
+      emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
+        success: false,
+        requestId,
+        error: {
+          code: "RATE_LIMITED",
+          message: "Rate limit exceeded for socket:event.subscribe",
+          statusCode: 429,
+          ...(allowance.retryAfterMs !== undefined ? { retryAfterMs: allowance.retryAfterMs } : {}),
+        },
+        rateLimit: {
+          limit: allowance.limit,
+          remaining: allowance.remaining,
+          resetAtMs: allowance.resetAtMs,
+        },
+      });
+      return;
+    }
+
     const addedNew = addCustomSocketEventSubscription(socket.id, eventName);
     if (addedNew) {
       noteCustomSocketEventSubscribed();
@@ -284,8 +290,29 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
       return;
     }
 
+    try {
+      await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
+    } catch (error: unknown) {
+      noteCustomSocketEventSubscriptionRejected();
+      emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
+        success: false,
+        requestId,
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error ? error.message : "Failed to leave custom socket event room",
+        },
+      });
+      return;
+    }
+
     const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
     if (!allowance.allowed) {
+      try {
+        await Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)));
+      } catch {
+        // Best-effort rollback when unsubscribe quota is exhausted after leave.
+      }
       noteCustomSocketEventSubscriptionRejected();
       emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
         success: false,
@@ -305,21 +332,6 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
       return;
     }
 
-    try {
-      await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
-    } catch (error: unknown) {
-      noteCustomSocketEventSubscriptionRejected();
-      emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
-        success: false,
-        requestId,
-        error: {
-          code: "INTERNAL_SERVER_ERROR",
-          message:
-            error instanceof Error ? error.message : "Failed to leave custom socket event room",
-        },
-      });
-      return;
-    }
     const wasSubscribed = removeCustomSocketEventSubscription(socket.id, eventName);
     if (wasSubscribed) {
       noteCustomSocketEventUnsubscribed();

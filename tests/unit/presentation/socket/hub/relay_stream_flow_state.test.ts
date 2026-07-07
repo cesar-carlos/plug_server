@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { env } from "../../../../../src/shared/config/env";
+
 import {
   clearRelayStreamFlowState,
   resetRelayStreamFlowState,
@@ -9,6 +11,7 @@ import {
   getRelayStreamBufferedBytes,
   getRelayStreamTotalBufferedBytes,
   setRelayStreamFlowCredits,
+  addRelayStreamFlowCredits,
   getRelayStreamFlowCredits,
   setRelayStreamPendingComplete,
   getRelayStreamPendingComplete,
@@ -50,11 +53,19 @@ describe("relay_stream_flow_state", () => {
     expect(getRelayStreamTotalBufferedBytes()).toBe(0);
   });
 
+  it("addRelayStreamFlowCredits increases credits up to hub max window", () => {
+    const maxWindow = env.socketRestStreamPullMaxWindowSize;
+    addRelayStreamFlowCredits("r-cap", maxWindow);
+    expect(getRelayStreamFlowCredits("r-cap")).toBe(maxWindow);
+    addRelayStreamFlowCredits("r-cap", 10);
+    expect(getRelayStreamFlowCredits("r-cap")).toBe(maxWindow);
+  });
+
   it("addRelayStreamFlowCredits increases credits", () => {
     setRelayStreamFlowCredits("r1", 5);
     expect(getRelayStreamFlowCredits("r1")).toBe(5);
 
-    setRelayStreamFlowCredits("r1", 10);
+    addRelayStreamFlowCredits("r1", 5);
     expect(getRelayStreamFlowCredits("r1")).toBe(10);
   });
 
@@ -92,9 +103,11 @@ describe("relay_stream_flow_state", () => {
       agentId: "agent-123",
       emitChunk: (frame: unknown) => {
         chunks.push(frame);
+        return true;
       },
       emitComplete: (frame: unknown) => {
         completes.push(frame);
+        return true;
       },
       encodeFrame: async (data: unknown) => data,
       recordAudit: (eventType: string) => {
@@ -125,8 +138,8 @@ describe("relay_stream_flow_state", () => {
       agentSocketId: "agent-1",
       conversationId: "conversation-1",
       agentId: "agent-123",
-      emitChunk: () => {},
-      emitComplete: () => {},
+      emitChunk: () => true,
+      emitComplete: () => true,
       encodeFrame: async () => {
         throw new Error("encode failed");
       },

@@ -3,6 +3,7 @@ import { env } from "../../../../shared/config/env";
 interface SubscriptionControlBucket {
   windowStartMs: number;
   count: number;
+  lastSeenAtMs: number;
 }
 
 export interface CustomSocketEventSubscriptionLimitResult {
@@ -27,10 +28,11 @@ export const allowCustomSocketEventSubscriptionControl = (
 
   const existing = bucketsBySocketId.get(socketId);
   if (!existing || nowMs - existing.windowStartMs >= windowMs) {
-    bucketsBySocketId.set(socketId, { windowStartMs: nowMs, count: 1 });
+    bucketsBySocketId.set(socketId, { windowStartMs: nowMs, count: 1, lastSeenAtMs: nowMs });
     return { allowed: true, limit, remaining: Math.max(0, limit - 1), resetAtMs: nowMs + windowMs };
   }
 
+  existing.lastSeenAtMs = nowMs;
   const resetAtMs = existing.windowStartMs + windowMs;
   if (existing.count >= limit) {
     return {
@@ -43,6 +45,7 @@ export const allowCustomSocketEventSubscriptionControl = (
   }
 
   existing.count += 1;
+  existing.lastSeenAtMs = nowMs;
   return {
     allowed: true,
     limit,
@@ -57,4 +60,19 @@ export const clearCustomSocketEventSubscriptionRateLimitState = (socketId: strin
 
 export const resetCustomSocketEventSubscriptionRateLimitState = (): void => {
   bucketsBySocketId.clear();
+};
+
+export const sweepCustomSocketEventSubscriptionRateLimitState = (): void => {
+  const nowMs = Date.now();
+  const staleAfterMs =
+    env.socketCustomEventSubscriptionRateLimitWindowMs *
+    env.socketRelayRateLimitSweepStaleMultiplier;
+  if (staleAfterMs <= 0) {
+    return;
+  }
+  for (const [socketId, bucket] of bucketsBySocketId.entries()) {
+    if (nowMs - bucket.lastSeenAtMs >= staleAfterMs) {
+      bucketsBySocketId.delete(socketId);
+    }
+  }
 };

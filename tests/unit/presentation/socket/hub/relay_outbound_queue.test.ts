@@ -189,4 +189,66 @@ describe("relay_outbound_queue", () => {
       });
     }
   });
+
+  it("clears overload only after backlog drops below exit threshold", async () => {
+    const originalEnter = env.socketRelayOutboundOverloadBacklog;
+    const originalExit = env.socketRelayOutboundOverloadBacklogExit;
+    const originalP95 = env.socketRelayOutboundOverloadP95Ms;
+    const testEnter = 10;
+    const testExit = 6;
+    Object.defineProperty(env, "socketRelayOutboundOverloadBacklog", {
+      value: testEnter,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(env, "socketRelayOutboundOverloadBacklogExit", {
+      value: testExit,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(env, "socketRelayOutboundOverloadP95Ms", {
+      value: 0,
+      configurable: true,
+      writable: true,
+    });
+
+    const releases: Array<() => void> = [];
+    try {
+      for (let index = 0; index < testEnter; index += 1) {
+        enqueueRelayOutbound(`req-hyst-${index}`, async () => {
+          await new Promise<void>((resolve) => {
+            releases.push(resolve);
+          });
+        });
+      }
+      await flush();
+      expect(getRelayOutboundQueueOverloadState().overloaded).toBe(true);
+
+      releases.shift()?.();
+      await flush();
+      expect(getRelayOutboundQueueOverloadState().overloaded).toBe(true);
+
+      while (releases.length > 0) {
+        releases.shift()?.();
+        await flush();
+      }
+      expect(getRelayOutboundQueueOverloadState().overloaded).toBe(false);
+    } finally {
+      Object.defineProperty(env, "socketRelayOutboundOverloadBacklog", {
+        value: originalEnter,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(env, "socketRelayOutboundOverloadBacklogExit", {
+        value: originalExit,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(env, "socketRelayOutboundOverloadP95Ms", {
+        value: originalP95,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
 });

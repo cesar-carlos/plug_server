@@ -1,7 +1,7 @@
 import { env } from "../../../../shared/config/env";
 import { consumeSocketRateLimitRedis } from "../../../../infrastructure/redis/rate_limit/socket_rate_limit_redis";
 
-const buckets = new Map<string, number[]>();
+const buckets = new Map<string, { readonly stamps: number[]; lastSeenAtMs: number }>();
 
 const bucketKey = (userId: string, agentId: string): string => `${userId}:${agentId}`;
 
@@ -29,7 +29,8 @@ export const tryConsumeAgentRegisterRateLimit = (
   const key = bucketKey(userId, agentId);
   const nowMs = Date.now();
   const cutoff = nowMs - windowMs;
-  const stamps = buckets.get(key) ?? [];
+  const existing = buckets.get(key);
+  const stamps = existing?.stamps ?? [];
   const fresh = stamps.filter((t) => t > cutoff);
 
   if (fresh.length === 0 && stamps.length > 0) {
@@ -37,12 +38,12 @@ export const tryConsumeAgentRegisterRateLimit = (
   }
 
   if (fresh.length >= max) {
-    buckets.set(key, fresh);
+    buckets.set(key, { stamps: fresh, lastSeenAtMs: nowMs });
     return { ok: false };
   }
 
   fresh.push(nowMs);
-  buckets.set(key, fresh);
+  buckets.set(key, { stamps: fresh, lastSeenAtMs: nowMs });
   return { ok: true };
 };
 
@@ -72,4 +73,18 @@ export const tryConsumeAgentRegisterRateLimitAsync = async (
 
 export const resetAgentRegisterRateLimitState = (): void => {
   buckets.clear();
+};
+
+export const sweepAgentRegisterRateLimitState = (): void => {
+  const windowMs = env.socketAgentRegisterRateLimitWindowMs;
+  const staleAfterMs = windowMs * env.socketRelayRateLimitSweepStaleMultiplier;
+  if (staleAfterMs <= 0) {
+    return;
+  }
+  const nowMs = Date.now();
+  for (const [key, bucket] of buckets.entries()) {
+    if (nowMs - bucket.lastSeenAtMs >= staleAfterMs) {
+      buckets.delete(key);
+    }
+  }
 };

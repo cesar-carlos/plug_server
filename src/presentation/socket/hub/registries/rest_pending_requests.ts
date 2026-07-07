@@ -108,6 +108,25 @@ export const getRestPendingRequestByCorrelationId = (
 export const hasRestPendingCorrelationId = (correlationId: string): boolean =>
   pendingByCorrelationId.has(correlationId);
 
+export const tryRegisterRestPendingRequest = (
+  pending: PendingRequest,
+  hasActiveStreamRouteForRequestId: (requestId: string) => boolean,
+  hasRelayRequestRoute: (requestId: string) => boolean,
+): boolean => {
+  for (const requestId of pending.correlationIds) {
+    const existing = pendingByCorrelationId.get(requestId);
+    if (existing && existing !== pending) {
+      return false;
+    }
+    if (hasActiveStreamRouteForRequestId(requestId) || hasRelayRequestRoute(requestId)) {
+      return false;
+    }
+  }
+
+  registerRestPendingRequest(pending);
+  return true;
+};
+
 export const getRestPendingRequestCount = (): number => logicalPendingCount;
 
 /** Invokes `fn` once per distinct `PendingRequest` (map may alias the same object under several correlation ids). */

@@ -34,6 +34,8 @@ import {
   createRequestAgentStreamPull,
 } from "./rpc_bridge_stream_pull";
 import { resetRpcBridgeMutableStores } from "./rpc_bridge_lifecycle";
+import { wireRelayConsumerEmit } from "./relay_consumer_emit";
+import { wireConsumerBridgeSocketLookup } from "./relay_consumer_socket_lookup";
 
 export {
   buildRelayConversationEndedPayload,
@@ -223,19 +225,23 @@ export const unregisterConsumerBridgeServer = (namespace: Namespace): void => {
   }
 };
 
-const emitToConsumer = (consumerSocketId: string, eventName: string, payload: unknown): void => {
+const emitToConsumer = (consumerSocketId: string, eventName: string, payload: unknown): boolean => {
   if (consumerNamespaces.size === 0) {
-    return;
+    return false;
   }
 
   const consumerSocket = findConsumerSocketById(consumerSocketId);
   if (!consumerSocket) {
     relayMetrics.relayEmitDiscardedConsumerGone += 1;
-    return;
+    return false;
   }
 
   consumerSocket.emit(eventName, payload);
+  return true;
 };
+
+wireRelayConsumerEmit(emitToConsumer);
+wireConsumerBridgeSocketLookup(findConsumerSocketById);
 
 const prepareAgentStreamPull = createPrepareAgentStreamPull({
   hasRegisteredAgentSocketBridge,

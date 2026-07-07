@@ -56,8 +56,7 @@ import {
   clearRestPendingRequest,
   getRestPendingRequestByCorrelationId,
   getRestPendingRequestCount,
-  hasRestPendingCorrelationId,
-  registerRestPendingRequest,
+  tryRegisterRestPendingRequest,
 } from "../registries/rest_pending_requests";
 import { hasRelayRequestRoute } from "../registries/relay_request_registry";
 import {
@@ -220,12 +219,9 @@ export const createDispatchRpcCommandToAgent = (
       }
 
       for (const correlationId of correlationIds) {
-        if (
-          hasRestPendingCorrelationId(correlationId) ||
-          hasActiveStreamRouteForRequestId(correlationId) ||
-          hasRelayRequestRoute(correlationId)
-        ) {
-          if (replayId && replayId.requestId === correlationId) {
+        if (replayId && replayId.requestId === correlationId) {
+          const existingPending = getRestPendingRequestByCorrelationId(correlationId);
+          if (existingPending) {
             input.latencyTrace?.addPhaseMs(
               "dispatch_preflight_ms",
               performance.now() - dispatchWallStart,
@@ -242,7 +238,6 @@ export const createDispatchRpcCommandToAgent = (
               response: buildBridgeCommandReplayDetectedResponse(replayId),
             };
           }
-          throw badRequest("A request with this JSON-RPC id is already pending");
         }
       }
 
@@ -480,17 +475,18 @@ export const createDispatchRpcCommandToAgent = (
           ackRetriesAttempted: 0,
         };
 
-        for (const correlationId of correlationIds) {
-          if (
-            hasRestPendingCorrelationId(correlationId) ||
-            hasActiveStreamRouteForRequestId(correlationId) ||
-            hasRelayRequestRoute(correlationId)
-          ) {
-            clearTimeout(timeoutHandle);
-            rejectOnce(badRequest("A request with this JSON-RPC id is already pending"));
-            return;
-          }
+        if (
+          !tryRegisterRestPendingRequest(
+            pendingRequest,
+            hasActiveStreamRouteForRequestId,
+            hasRelayRequestRoute,
+          )
+        ) {
+          clearTimeout(timeoutHandle);
+          rejectOnce(badRequest("A request with this JSON-RPC id is already pending"));
+          return;
         }
+        pendingRegistered = true;
 
         pendingSignalListener = () => {
           clearPendingRegistration();
@@ -508,9 +504,6 @@ export const createDispatchRpcCommandToAgent = (
             return;
           }
         }
-
-        registerRestPendingRequest(pendingRequest);
-        pendingRegistered = true;
       });
       void responsePromise.catch(() => undefined);
 

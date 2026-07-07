@@ -1,16 +1,12 @@
 import { recordSocketAuditEvent } from "../../../../application/services/socket_audit.service";
 import { observeBridgeRpcMethod } from "../../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../../shared/config/env";
-import { noteRelayBodyIdEcho } from "../../../../shared/metrics/socket_consumer.metrics";
+import { noteRelayBodyIdEcho, noteRelayChunkAfterCompleteDropped } from "../../../../shared/metrics/socket_consumer.metrics";
 import { sampledMetricDelta } from "../../../../shared/metrics/metrics_sample";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { logger } from "../../../../shared/utils/logger";
 import { toRequestId } from "../../../../shared/utils/rpc_types";
-import {
-  observeRelayBufferDrain,
-  observeRelayChunkForwardJob,
-  relayMetrics,
-} from "./bridge_relay_health_metrics";
+import { relayMetrics } from "./bridge_relay_health_metrics";
 import {
   getActiveStreamRouteByRequestId,
   removeActiveStreamRoute,
@@ -22,21 +18,20 @@ import {
 import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
-  encodeRelayOutboundFrameFromBytesAsync,
 } from "./relay_outbound_queue";
+import type { RelayChunkRawForward } from "./relay_stream_flow_state";
 import {
   getRelayStreamFlowCredits,
   getRelayStreamBufferedChunkCount,
   addRelayStreamBufferedChunk,
-  getRelayStreamPendingComplete,
   setRelayStreamPendingComplete,
   getRelayStreamForwardedRows,
   getRelayStreamTotalBufferedChunks,
   getRelayStreamBufferedBytes,
   getRelayStreamTotalBufferedBytes,
-  drainRelayStreamBuffer,
-  type RelayChunkRawForward,
+  countRelayStreamAbortDropped,
 } from "./relay_stream_flow_state";
+import { scheduleRelayStreamDrain } from "./relay_stream_drain_scheduler";
 import type { RelayRequestRoute } from "../registries/relay_request_registry";
 import {
   getRelayRequestRoute,
@@ -57,13 +52,12 @@ const relayMaxTotalBufferedChunks = env.socketRelayMaxTotalBufferedChunks;
 const relayMaxBufferedBytesPerRequest = env.socketRelayMaxBufferedBytesPerRequest;
 const relayMaxTotalBufferedBytes = env.socketRelayMaxTotalBufferedBytes;
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
-const shouldAuditRelayChunks = env.socketAuditHighVolumeSamplePercent > 0;
 
 export type EmitToConsumerFn = (
   consumerSocketId: string,
   eventName: string,
   payload: unknown,
-) => void;
+) => boolean;
 
 export const createRelayStreamHandlers = (
   route: RelayRequestRoute,
@@ -71,6 +65,7 @@ export const createRelayStreamHandlers = (
 ): StreamEventHandlers => {
   let drainScheduled = false;
   let terminalEmitted = false;
+  let completeReceived = false;
 
   const isRouteActive = (): boolean => {
     return getRelayRequestRoute(route.requestId) === route;
@@ -89,11 +84,18 @@ export const createRelayStreamHandlers = (
     relayMetrics.streamTerminalCompletions += 1;
     const streamId =
       toRequestId(payload?.stream_id) ?? getActiveStreamRouteByRequestId(route.requestId)?.streamId;
+    const dropped =
+      terminalStatus === "aborted"
+        ? countRelayStreamAbortDropped(route.requestId, payload)
+        : undefined;
     const terminalPayload: Record<string, unknown> = {
       request_id: route.requestId,
       total_rows: getRelayStreamForwardedRows(route.requestId),
       terminal_status: terminalStatus,
       ...(streamId ? { stream_id: streamId } : {}),
+      ...(dropped
+        ? { dropped_chunks: dropped.droppedChunks, dropped_rows: dropped.droppedRows }
+        : {}),
       ...(errorCode ? { error_code: errorCode, reason } : {}),
     };
 
@@ -156,145 +158,36 @@ export const createRelayStreamHandlers = (
   });
 
   const scheduleDrainAndFlush = (): void => {
-    if (drainScheduled) {
-      return;
-    }
-    const creditsSnapshot = getRelayStreamFlowCredits(route.requestId);
-    const bufferedChunkCount = getRelayStreamBufferedChunkCount(route.requestId);
-    if (creditsSnapshot <= 0 || bufferedChunkCount === 0) {
-      const pendingComplete = getRelayStreamPendingComplete(route.requestId);
-      if (bufferedChunkCount === 0 && pendingComplete) {
-        drainScheduled = true;
-        enqueueRelayOutbound(route.requestId, async () => {
-          const tDrain = performance.now();
-          try {
-            const result = await drainRelayStreamBuffer({
-              requestId: route.requestId,
-              consumerSocketId: route.consumerSocketId,
-              agentSocketId: route.agentSocketId,
-              conversationId: route.conversationId,
-              agentId: route.agentId,
-              emitChunk: (frame) =>
-                emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
-              emitComplete: (frame) =>
-                emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
-              encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
-              encodeFrameFromBytes: (rawForward) =>
-                encodeRelayOutboundFrameFromBytesAsync(rawForward.bytes, route.requestId, {
-                  inboundCmp: rawForward.cmp,
-                }),
-              isActive: isRouteActive,
-              recordAudit: (eventType, extras) => {
-                if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
-                  return;
-                }
-                void recordSocketAuditEvent({
-                  eventType,
-                  actorSocketId: route.agentSocketId,
-                  direction: "agent_to_consumer",
-                  conversationId: route.conversationId,
-                  agentId: route.agentId,
-                  requestId: route.requestId,
-                  ...extras,
-                });
-              },
-              onComplete: (_streamId) => {
-                route.latencyTrace?.finalizeRelayStreamComplete();
-                observeBridgeRpcMethod({
-                  channel: "relay",
-                  method: route.jsonRpcMethod ?? "unknown",
-                  outcome: "success",
-                  elapsedMs: Date.now() - route.createdAtMs,
-                });
-                removeRelayRequestRoute(route.requestId);
-                const existingStream = getActiveStreamRouteByRequestId(route.requestId);
-                if (existingStream) {
-                  removeActiveStreamRoute(existingStream);
-                }
-              },
-            });
-            if (result.chunksDrained > 0) {
-              relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
-              observeRelayChunkForwardJob(performance.now() - tDrain);
-            }
-          } finally {
-            observeRelayBufferDrain(performance.now() - tDrain);
-            drainScheduled = false;
-            if (!isRouteActive()) {
-              return;
-            }
-            const pendingComplete = getRelayStreamPendingComplete(route.requestId);
-            const hasBuffered = getRelayStreamBufferedChunkCount(route.requestId) > 0;
-            const hasCredits = getRelayStreamFlowCredits(route.requestId) > 0;
-            if ((hasBuffered && hasCredits) || (pendingComplete && !hasBuffered)) {
-              scheduleDrainAndFlush();
-            }
-          }
+    scheduleRelayStreamDrain({
+      route: {
+        requestId: route.requestId,
+        consumerSocketId: route.consumerSocketId,
+        agentSocketId: route.agentSocketId,
+        conversationId: route.conversationId,
+        agentId: route.agentId,
+        relayRoute: route,
+      },
+      emitToConsumer,
+      isActive: isRouteActive,
+      onComplete: (_streamId) => {
+        route.latencyTrace?.finalizeRelayStreamComplete();
+        observeBridgeRpcMethod({
+          channel: "relay",
+          method: route.jsonRpcMethod ?? "unknown",
+          outcome: "success",
+          elapsedMs: Date.now() - route.createdAtMs,
         });
-      }
-      return;
-    }
-
-    drainScheduled = true;
-    enqueueRelayOutbound(route.requestId, async () => {
-      const tDrain = performance.now();
-      try {
-        const result = await drainRelayStreamBuffer({
-          requestId: route.requestId,
-          consumerSocketId: route.consumerSocketId,
-          agentSocketId: route.agentSocketId,
-          conversationId: route.conversationId,
-          agentId: route.agentId,
-          emitChunk: (frame) =>
-            emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame),
-          emitComplete: (frame) =>
-            emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
-          encodeFrame: (data) => encodeRelayOutboundFrame(data, route.requestId),
-          encodeFrameFromBytes: (rawForward) =>
-            encodeRelayOutboundFrameFromBytesAsync(rawForward.bytes, route.requestId, {
-              inboundCmp: rawForward.cmp,
-            }),
-          isActive: isRouteActive,
-          recordAudit: (eventType, extras) => {
-            if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
-              return;
-            }
-            void recordSocketAuditEvent({
-              eventType,
-              actorSocketId: route.agentSocketId,
-              direction: "agent_to_consumer",
-              conversationId: route.conversationId,
-              agentId: route.agentId,
-              requestId: route.requestId,
-              ...extras,
-            });
-          },
-          onComplete: (_streamId) => {
-            route.latencyTrace?.finalizeRelayStreamComplete();
-            removeRelayRequestRoute(route.requestId);
-            const existingStream = getActiveStreamRouteByRequestId(route.requestId);
-            if (existingStream) {
-              removeActiveStreamRoute(existingStream);
-            }
-          },
-        });
-        if (result.chunksDrained > 0) {
-          relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
-          observeRelayChunkForwardJob(performance.now() - tDrain);
+        removeRelayRequestRoute(route.requestId);
+        const existingStream = getActiveStreamRouteByRequestId(route.requestId);
+        if (existingStream) {
+          removeActiveStreamRoute(existingStream);
         }
-      } finally {
-        observeRelayBufferDrain(performance.now() - tDrain);
-        drainScheduled = false;
-        if (!isRouteActive()) {
-          return;
-        }
-        const pendingComplete = getRelayStreamPendingComplete(route.requestId);
-        const hasBuffered = getRelayStreamBufferedChunkCount(route.requestId) > 0;
-        const hasCredits = getRelayStreamFlowCredits(route.requestId) > 0;
-        if ((hasBuffered && hasCredits) || (pendingComplete && !hasBuffered)) {
-          scheduleDrainAndFlush();
-        }
-      }
+      },
+      getDrainScheduled: () => drainScheduled,
+      setDrainScheduled: (value) => {
+        drainScheduled = value;
+      },
+      reschedule: scheduleDrainAndFlush,
     });
   };
 
@@ -303,6 +196,14 @@ export const createRelayStreamHandlers = (
     conversationId: route.conversationId,
     mode: "relay",
     onChunk: (payload, metadata?: StreamChunkMetadata, rawForward?: RelayChunkRawForward) => {
+      if (completeReceived) {
+        noteRelayChunkAfterCompleteDropped();
+        logger.warn("relay_chunk_after_complete_dropped", {
+          requestId: route.requestId,
+          conversationId: route.conversationId,
+        });
+        return;
+      }
       touchRelayStreamTimeout(route.requestId);
       const available = getRelayStreamFlowCredits(route.requestId);
       const payloadBytes = resolveStreamChunkOriginalSizeBytes(
@@ -340,6 +241,7 @@ export const createRelayStreamHandlers = (
       scheduleDrainAndFlush();
     },
     onComplete: (payload) => {
+      completeReceived = true;
       touchRelayStreamTimeout(route.requestId);
       setRelayStreamPendingComplete(route.requestId, payload);
       scheduleDrainAndFlush();
@@ -353,6 +255,9 @@ export const emitRelayTimeoutResponse = (
   /** Runs after the timeout frame is encoded and emitted (e.g. remove relay route). */
   afterEmit?: () => void,
 ): void => {
+  if (route.settled === true) {
+    return;
+  }
   // JSON-RPC 2.0 §5 — synthetic responses must echo the consumer's `id` so
   // the response is routable on `fastPath: true` (no `relay:rpc.accepted` to
   // anchor the mapping). See `docs/plug_agente/01_relay_body_id_echo.md`.

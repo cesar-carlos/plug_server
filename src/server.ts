@@ -309,7 +309,7 @@ const shutdown = async (signal: string): Promise<void> => {
     stopRegistrationEmailOutboxWorker();
     stopRegistrationEmailOutboxDeadLetterScheduler();
     stopAgentIdleTimeoutScheduler();
-    stopAgentHealthPollScheduler();
+    await stopAgentHealthPollScheduler();
     stopConsumerIdleTimeoutScheduler();
     await flushPendingSocketAuditEvents();
     const auditDrain = await waitForSocketAuditDrain(2_500);

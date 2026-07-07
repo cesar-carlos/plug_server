@@ -3,6 +3,8 @@
  * Relay handlers in `rpc_bridge.ts` own emission/audit; this module only holds the maps.
  */
 
+import { env } from "../../../../shared/config/env";
+
 /**
  * Original agent frame bytes captured for the byte-forward fast path: when a
  * relay chunk is forwarded **unchanged**, the drain re-emits these decoded
@@ -63,9 +65,13 @@ export const getRelayStreamFlowCredits = (requestId: string): number => {
   return entriesByRequestId.get(requestId)?.credits ?? 0;
 };
 
+const maxFlowCreditsPerRequest = (): number =>
+  Math.max(1, Math.floor(env.socketRestStreamPullMaxWindowSize));
+
 export const addRelayStreamFlowCredits = (requestId: string, delta: number): number => {
   const entry = ensureRelayStreamFlowEntry(requestId);
-  entry.credits = Math.max(0, entry.credits + delta);
+  const cappedDelta = Math.max(0, delta);
+  entry.credits = Math.min(maxFlowCreditsPerRequest(), Math.max(0, entry.credits + cappedDelta));
   return entry.credits;
 };
 
@@ -280,8 +286,9 @@ export interface DrainRelayStreamBufferContext {
   readonly agentSocketId: string;
   readonly conversationId: string;
   readonly agentId: string;
-  readonly emitChunk: (frame: unknown) => void;
-  readonly emitComplete: (frame: unknown) => void;
+  /** Returns `false` when the consumer transport is saturated (drain pauses). */
+  readonly emitChunk: (frame: unknown) => boolean;
+  readonly emitComplete: (frame: unknown) => boolean;
   readonly encodeFrame: (data: unknown) => Promise<unknown>;
   /**
    * Fast-path encoder that forwards the agent's original frame bytes unchanged
@@ -297,6 +304,27 @@ export interface DrainRelayStreamBufferContext {
 
 const countChunkRows = (payload: Record<string, unknown>): number => {
   return Array.isArray(payload.rows) ? payload.rows.length : 0;
+};
+
+export const countRelayStreamBufferedRows = (requestId: string): number => {
+  let total = 0;
+  for (const chunk of getRelayStreamBufferedChunks(requestId)) {
+    total += countChunkRows(chunk);
+  }
+  return total;
+};
+
+export const countRelayStreamAbortDropped = (
+  requestId: string,
+  rejectingPayload?: Record<string, unknown>,
+): { readonly droppedChunks: number; readonly droppedRows: number } => {
+  const bufferedChunks = getRelayStreamBufferedChunkCount(requestId);
+  const bufferedRows = countRelayStreamBufferedRows(requestId);
+  const rejectingRows = rejectingPayload ? countChunkRows(rejectingPayload) : 0;
+  return {
+    droppedChunks: bufferedChunks + (rejectingPayload ? 1 : 0),
+    droppedRows: bufferedRows + rejectingRows,
+  };
 };
 
 const isDrainContextActive = (ctx: DrainRelayStreamBufferContext): boolean => {
@@ -335,7 +363,9 @@ export const drainRelayStreamBuffer = async (
         if (!isDrainContextActive(ctx)) {
           return;
         }
-        ctx.emitChunk(frame);
+        if (!ctx.emitChunk(frame)) {
+          break;
+        }
         popRelayStreamBufferedChunk(ctx.requestId);
         addRelayStreamForwardedRows(ctx.requestId, countChunkRows(chunk));
         chunksDrained += 1;
@@ -355,7 +385,9 @@ export const drainRelayStreamBuffer = async (
       if (!isDrainContextActive(ctx)) {
         return;
       }
-      ctx.emitComplete(completeFrame);
+      if (!ctx.emitComplete(completeFrame)) {
+        return;
+      }
       completeEmitted = true;
 
       const streamId =

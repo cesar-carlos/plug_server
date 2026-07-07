@@ -1,4 +1,5 @@
 import type { BridgeLatencyTraceSession } from "../../../../application/services/bridge_latency_trace_builder";
+import { env } from "../../../../shared/config/env";
 
 import { clearRelayStreamFlowState } from "../relay/relay_stream_flow_state";
 
@@ -33,9 +34,19 @@ export interface RelayRequestRoute {
   ackRetryTimer?: NodeJS.Timeout | undefined;
   ackRetriesAttempted?: number | undefined;
   timedOut?: boolean | undefined;
+  /**
+   * Set synchronously before enqueueing any terminal outbound response so
+   * timeout, success, and synthetic error paths cannot double-deliver.
+   */
+  settled?: boolean | undefined;
+}
+
+export interface RelayPendingSlotReservation {
+  readonly release: () => void;
 }
 
 const relayRequestsByRequestId = new Map<string, RelayRequestRoute>();
+let relayReservedGlobalCount = 0;
 const relayPendingCountByConversation = new Map<string, number>();
 const relayPendingCountByConsumer = new Map<string, number>();
 const relayRequestIdsByConversation = new Map<string, Set<string>>();
@@ -85,6 +96,47 @@ export const hasRelayRequestRoute = (requestId: string): boolean =>
 
 export const getRelayRegisteredRouteCount = (): number => relayRequestsByRequestId.size;
 
+export const getRelayEffectivePendingCount = (): number =>
+  relayRequestsByRequestId.size + relayReservedGlobalCount;
+
+export const reserveRelayPendingSlot = (
+  conversationId: string,
+  consumerSocketId: string,
+): RelayPendingSlotReservation | null => {
+  if (getRelayEffectivePendingCount() >= env.socketRelayMaxPendingRequests) {
+    return null;
+  }
+  if (
+    getRelayPendingRequestCountForConversation(conversationId) >=
+    env.socketRelayMaxPendingRequestsPerConversation
+  ) {
+    return null;
+  }
+  if (
+    getRelayPendingRequestCountForConsumer(consumerSocketId) >=
+    env.socketRelayMaxPendingRequestsPerConsumer
+  ) {
+    return null;
+  }
+
+  relayReservedGlobalCount += 1;
+  incrementCounter(relayPendingCountByConversation, conversationId);
+  incrementCounter(relayPendingCountByConsumer, consumerSocketId);
+
+  let released = false;
+  return {
+    release: () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      relayReservedGlobalCount = Math.max(0, relayReservedGlobalCount - 1);
+      decrementCounter(relayPendingCountByConversation, conversationId);
+      decrementCounter(relayPendingCountByConsumer, consumerSocketId);
+    },
+  };
+};
+
 export const getRelayPendingRequestCountForConversation = (conversationId: string): number =>
   relayPendingCountByConversation.get(conversationId) ?? 0;
 
@@ -113,14 +165,21 @@ export const listRelayRequestIdsForConsumer = (consumerSocketId: string): string
 export const listRelayRequestIdsForAgent = (agentSocketId: string): string[] =>
   Array.from(relayRequestIdsByAgent.get(agentSocketId) ?? []);
 
-export const registerRelayRequestRoute = (route: RelayRequestRoute): void => {
+export const registerRelayRequestRoute = (
+  route: RelayRequestRoute,
+  options?: { countersReserved?: boolean },
+): void => {
   if (relayRequestsByRequestId.has(route.requestId)) {
     removeRelayRequestRoute(route.requestId);
   }
 
   relayRequestsByRequestId.set(route.requestId, route);
-  incrementCounter(relayPendingCountByConversation, route.conversationId);
-  incrementCounter(relayPendingCountByConsumer, route.consumerSocketId);
+  if (options?.countersReserved === true) {
+    relayReservedGlobalCount = Math.max(0, relayReservedGlobalCount - 1);
+  } else {
+    incrementCounter(relayPendingCountByConversation, route.conversationId);
+    incrementCounter(relayPendingCountByConsumer, route.consumerSocketId);
+  }
   addToIndex(relayRequestIdsByConversation, route.conversationId, route.requestId);
   addToIndex(relayRequestIdsByConsumer, route.consumerSocketId, route.requestId);
   addToIndex(relayRequestIdsByAgent, route.agentSocketId, route.requestId);
@@ -160,6 +219,7 @@ export const resetRelayRequestRegistry = (): void => {
     clearRelayStreamFlowState(route.requestId);
   }
   relayRequestsByRequestId.clear();
+  relayReservedGlobalCount = 0;
   relayPendingCountByConversation.clear();
   relayPendingCountByConsumer.clear();
   relayRequestIdsByConversation.clear();

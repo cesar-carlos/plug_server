@@ -81,6 +81,8 @@ export const relayMetrics = {
   restAgentQueueWaitTimeoutRejected: 0,
   /** Consumer socket not found when attempting to emit relay frame. */
   relayEmitDiscardedConsumerGone: 0,
+  /** Relay emit skipped because the consumer transport buffer is saturated. */
+  relayEmitBackpressurePaused: 0,
   /** Conversations removed by idle timeout sweep. */
   conversationsExpiredTotal: 0,
   /** relay gate checks in `/consumers` handlers. */
@@ -318,6 +320,7 @@ export type RelayHubMetricsSnapshot = {
     readonly restAgentQueueWaitTimeoutRejected: number;
     readonly rpcFrameDecodeFailed: number;
     readonly relayEmitDiscardedConsumerGone: number;
+    readonly relayEmitBackpressurePaused: number;
     readonly conversationsExpiredTotal: number;
     readonly overloadChecksTotal: number;
     readonly overloadCheckSumMs: number;
@@ -464,6 +467,7 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   relayMetrics.restAgentQueueFullRejected = 0;
   relayMetrics.restAgentQueueWaitTimeoutRejected = 0;
   relayMetrics.relayEmitDiscardedConsumerGone = 0;
+  relayMetrics.relayEmitBackpressurePaused = 0;
   relayMetrics.conversationsExpiredTotal = 0;
   relayMetrics.overloadChecksTotal = 0;
   relayMetrics.overloadCheckSumMs = 0;

@@ -1,4 +1,6 @@
 import { env } from "../../../../shared/config/env";
+import { getRelayRequestRoute } from "./relay_request_registry";
+import { sweepRelayTimeoutTombstones } from "../relay/relay_timeout_tombstone";
 
 export type RelayIdempotencyEntry = {
   readonly requestId: string;
@@ -77,6 +79,14 @@ export const pruneExpiredRelayIdempotencyEntries = (): void => {
     for (const [clientRequestId, item] of entries.entries()) {
       if (isCompletedIdempotencyEntry(item) && item.expiresAtMs <= nowMs) {
         expiredClientIds.push(clientRequestId);
+        continue;
+      }
+      if (
+        !isCompletedIdempotencyEntry(item) &&
+        item.expiresAtMs <= nowMs &&
+        !getRelayRequestRoute(item.requestId)
+      ) {
+        expiredClientIds.push(clientRequestId);
       }
     }
     for (const clientRequestId of expiredClientIds) {
@@ -100,10 +110,10 @@ export const scheduleRelayIdempotencyCleanupTimer = (): void => {
     return;
   }
 
-  idempotencyCleanupTimer = setInterval(
-    pruneExpiredRelayIdempotencyEntries,
-    env.socketRelayIdempotencyCleanupIntervalMs,
-  );
+  idempotencyCleanupTimer = setInterval(() => {
+    pruneExpiredRelayIdempotencyEntries();
+    sweepRelayTimeoutTombstones();
+  }, env.socketRelayIdempotencyCleanupIntervalMs);
   idempotencyCleanupTimer.unref?.();
 };
 

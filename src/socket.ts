@@ -70,7 +70,10 @@ import {
   resetAgentProfileSyncScheduler,
 } from "./presentation/socket/hub/register_agent_socket_handlers";
 import { registerSocketHubErrorHandlers } from "./presentation/socket/hub/socket_hub_error_handlers";
-import { resetCustomSocketEventSubscriptionRateLimitState } from "./presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
+import {
+  resetCustomSocketEventSubscriptionRateLimitState,
+  sweepCustomSocketEventSubscriptionRateLimitState,
+} from "./presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
 import { resetCustomSocketEventSubscriptions } from "./presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { resetBridgeRpcMethodMetrics } from "./application/services/bridge_rpc_method_metrics.service";
@@ -99,7 +102,7 @@ import {
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { logger } from "./shared/utils/logger";
 import { TtlCache } from "./shared/utils/ttl_cache";
-import { resetAgentRegisterRateLimitState } from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
+import { resetAgentRegisterRateLimitState, sweepAgentRegisterRateLimitState } from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
 import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
 
 type ConsumerSocketData = {
@@ -569,6 +572,8 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     sweepAgentsCommandSocketRateLimitState();
     sweepClientSocketEventPublishSocketRateLimitState();
     sweepAgentProfileSocketRateLimitState();
+    sweepCustomSocketEventSubscriptionRateLimitState();
+    sweepAgentRegisterRateLimitState();
     sweepRelayOutboundQueueState();
     const expiredConversations = conversationRegistry.removeExpired(
       env.socketRelayConversationIdleTimeoutMs,

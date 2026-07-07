@@ -462,7 +462,13 @@ export const createRpcBridgeAgentInboundHandlers = (
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcRequestAck, frame);
         });
       }
-    })();
+    })().catch((error: unknown) => {
+      logger.warn("rpc_ack_handler_failed", {
+        socketId,
+        eventName: socketEvents.rpcRequestAck,
+        message: error instanceof Error ? error.message : "unknown error",
+      });
+    });
   };
 
   const handleAgentBatchAck = (socketId: string, rawPayload: unknown): void => {
@@ -547,7 +553,13 @@ export const createRpcBridgeAgentInboundHandlers = (
           socketId,
         });
       }
-    })();
+    })().catch((error: unknown) => {
+      logger.warn("rpc_ack_handler_failed", {
+        socketId,
+        eventName: socketEvents.rpcBatchAck,
+        message: error instanceof Error ? error.message : "unknown error",
+      });
+    });
   };
 
   return {

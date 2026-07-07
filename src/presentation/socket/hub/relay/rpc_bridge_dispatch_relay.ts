@@ -51,10 +51,10 @@ import type { RelayRequestRoute } from "../registries/relay_request_registry";
 import {
   getRelayPendingRequestCountForConsumer,
   getRelayPendingRequestCountForConversation,
-  getRelayRegisteredRouteCount,
   getRelayRequestRoute,
   registerRelayRequestRoute,
   removeRelayRequestRoute,
+  reserveRelayPendingSlot,
 } from "../registries/relay_request_registry";
 import {
   clampCommandMaxRows,
@@ -65,7 +65,10 @@ import { emitRelayTimeoutResponse, type EmitToConsumerFn } from "./rpc_bridge_re
 import {
   relayRpcRefundableBadRequest,
   validateAndNormalizeRelayCommand,
+  isRelayStreamingCapableCommand,
 } from "./relay_command_validation";
+import { recordRelayTimeoutTombstone } from "./relay_timeout_tombstone";
+import { trySettleRelayRoute } from "./relay_route_settlement";
 import { resolveAgentCompressionPreference } from "./relay_compression_preference";
 import type {
   PreparedAgentStreamPull,
@@ -74,7 +77,6 @@ import type {
 } from "./rpc_bridge_stream_pull";
 
 const relayRequestTimeoutMs = env.socketRelayRequestTimeoutMs;
-const relayMaxPendingRequests = env.socketRelayMaxPendingRequests;
 const relayMaxPendingRequestsPerConversation = env.socketRelayMaxPendingRequestsPerConversation;
 const relayMaxPendingRequestsPerConsumer = env.socketRelayMaxPendingRequestsPerConsumer;
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
@@ -226,23 +228,37 @@ export const createRpcBridgeRelayDispatch = (
     const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(conversation.agentId);
     const clamped = clampCommandMaxRows(normalizedCommand, effectivePolicy.maxRows);
     const normalizedAndClamped = clamped.command as typeof normalizedCommand;
-    if (getRelayRegisteredRouteCount() >= relayMaxPendingRequests) {
+
+    if (
+      input.fastPath === true &&
+      isRelayStreamingCapableCommand(normalizedAndClamped as { method: string; params?: unknown })
+    ) {
+      throw badRequest("fastPath is not allowed for streaming-capable RPC methods");
+    }
+
+    const pendingReservation = reserveRelayPendingSlot(
+      conversation.conversationId,
+      conversation.consumerSocketId,
+    );
+    if (!pendingReservation) {
+      if (
+        getRelayPendingRequestCountForConversation(conversation.conversationId) >=
+        relayMaxPendingRequestsPerConversation
+      ) {
+        throw serviceUnavailable("Relay pending request capacity reached for conversation");
+      }
+      if (
+        getRelayPendingRequestCountForConsumer(conversation.consumerSocketId) >=
+        relayMaxPendingRequestsPerConsumer
+      ) {
+        throw serviceUnavailable("Relay pending request capacity reached for consumer");
+      }
       throw serviceUnavailable("Relay pending request capacity reached");
     }
 
-    if (
-      getRelayPendingRequestCountForConversation(conversation.conversationId) >=
-      relayMaxPendingRequestsPerConversation
-    ) {
-      throw serviceUnavailable("Relay pending request capacity reached for conversation");
-    }
-
-    if (
-      getRelayPendingRequestCountForConsumer(conversation.consumerSocketId) >=
-      relayMaxPendingRequestsPerConsumer
-    ) {
-      throw serviceUnavailable("Relay pending request capacity reached for consumer");
-    }
+    const releasePendingReservation = (): void => {
+      pendingReservation.release();
+    };
 
     const readiness = agentRegistry.getProtocolReadiness(conversation.agentId);
     if (!readiness.ready) {
@@ -309,6 +325,25 @@ export const createRpcBridgeRelayDispatch = (
 
     const requestId = randomUUID();
 
+    if (clientRequestId) {
+      const idempotencyResult = setRelayIdempotencyEntry(
+        conversation.conversationId,
+        clientRequestId,
+        {
+          requestId,
+          expiresAtMs: Date.now() + relayIdempotencyTtlMs,
+        },
+      );
+      if (!idempotencyResult.ok) {
+        releasePendingReservation();
+        throw serviceUnavailable(
+          idempotencyResult.reason === "global_cap_reached"
+            ? "Relay idempotency capacity reached"
+            : "Relay idempotency capacity reached for conversation",
+        );
+      }
+    }
+
     const traceId = inboundFrameTraceId ?? randomUUID();
     const existingMeta = sanitizeOutboundRpcMeta(toRecord(cmdRecord.meta));
     const registeredAgent = agentRegistry.findByAgentId(conversation.agentId);
@@ -348,15 +383,22 @@ export const createRpcBridgeRelayDispatch = (
     const releaseAgentDispatchSlot = await acquireRelayAgentDispatchSlot(
       conversation.agentId,
       input.signal,
-    );
+    ).catch((error: unknown) => {
+      releasePendingReservation();
+      if (clientRequestId) {
+        removeRelayIdempotencyEntry(conversation.conversationId, clientRequestId);
+      }
+      throw error;
+    });
 
     const timeoutHandle = setTimeout(() => {
       const route = getRelayRequestRoute(requestId);
-      if (!route) {
+      if (!route || !trySettleRelayRoute(route)) {
         return;
       }
 
       route.timedOut = true;
+      recordRelayTimeoutTombstone(route.requestId, route.conversationId);
       removeRelayRequestRoute(requestId);
       const existingStream = getActiveStreamRouteByRequestId(requestId);
       if (existingStream) {
@@ -449,7 +491,7 @@ export const createRpcBridgeRelayDispatch = (
       relayRoute.ackRetryTimer.unref?.();
     };
 
-    registerRelayRequestRoute(relayRoute);
+    registerRelayRequestRoute(relayRoute, { countersReserved: true });
     ensureRelayStreamFlowEntry(requestId);
     setRelayStreamFlowCredits(requestId, 0);
 
@@ -458,25 +500,6 @@ export const createRpcBridgeRelayDispatch = (
     );
 
     trace?.addPhaseMs("relay_preflight_ms", performance.now() - relayPreflightStart);
-
-    if (clientRequestId) {
-      const idempotencyResult = setRelayIdempotencyEntry(
-        conversation.conversationId,
-        clientRequestId,
-        {
-          requestId,
-          expiresAtMs: Date.now() + relayIdempotencyTtlMs,
-        },
-      );
-      if (!idempotencyResult.ok) {
-        removeRelayRequestRoute(requestId);
-        throw serviceUnavailable(
-          idempotencyResult.reason === "global_cap_reached"
-            ? "Relay idempotency capacity reached"
-            : "Relay idempotency capacity reached for conversation",
-        );
-      }
-    }
 
     try {
       assertNotAborted();

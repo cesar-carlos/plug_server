@@ -125,9 +125,6 @@ export class AgentProfileSyncScheduler {
       return;
     }
 
-    const attempt = (this.attempts.get(input.agentId) ?? 0) + 1;
-    this.attempts.set(input.agentId, attempt);
-
     const existing = this.timers.get(input.agentId);
     if (existing) {
       clearTimeout(existing);
@@ -136,7 +133,7 @@ export class AgentProfileSyncScheduler {
     const timer = setTimeout(
       () => {
         this.timers.delete(input.agentId);
-        void this.runScheduledSync(input, attempt, snapshotFingerprint, generation);
+        void this.runScheduledSync(input, snapshotFingerprint, generation);
       },
       Math.max(0, delayMs),
     );
@@ -171,7 +168,6 @@ export class AgentProfileSyncScheduler {
 
   private async runScheduledSync(
     input: AgentProfileSyncSchedulerInput,
-    attempt: number,
     snapshotFingerprint: string | undefined,
     generation: number,
   ): Promise<void> {
@@ -183,11 +179,13 @@ export class AgentProfileSyncScheduler {
       this.logger.info("agent_profile_sync_skipped", {
         agentId: input.agentId,
         userId: input.userId,
-        attempt,
         reason: "in_flight",
       });
       return;
     }
+
+    const attempt = (this.attempts.get(input.agentId) ?? 0) + 1;
+    this.attempts.set(input.agentId, attempt);
 
     let releaseSlot: (() => void) | null = null;
     const syncPromise = (async (): Promise<void> => {

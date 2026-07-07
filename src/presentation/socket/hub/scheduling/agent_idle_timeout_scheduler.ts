@@ -8,6 +8,7 @@ import { agentRegistry } from "../registries/agent_registry";
 
 let sweepTimer: NodeJS.Timeout | null = null;
 let _agentsNamespace: Namespace | null = null;
+let sweepInFlight = false;
 
 export const sweepIdleAgentConnections = (): number => {
   if (env.socketAgentIdleTimeoutMs <= 0) {
@@ -20,6 +21,7 @@ export const sweepIdleAgentConnections = (): number => {
   for (const agent of idleAgents) {
     const socket = _agentsNamespace?.sockets.get(agent.socketId);
     if (!socket?.connected) {
+      agentRegistry.removeBySocketId(agent.socketId);
       continue;
     }
 
@@ -51,7 +53,15 @@ export const startAgentIdleTimeoutScheduler = (namespace: Namespace): void => {
   }
 
   sweepTimer = setInterval(() => {
-    sweepIdleAgentConnections();
+    if (sweepInFlight) {
+      return;
+    }
+    sweepInFlight = true;
+    try {
+      sweepIdleAgentConnections();
+    } finally {
+      sweepInFlight = false;
+    }
   }, env.socketAgentIdleSweepIntervalMs);
   sweepTimer.unref?.();
 };

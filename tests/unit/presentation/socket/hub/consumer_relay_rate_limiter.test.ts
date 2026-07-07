@@ -131,6 +131,18 @@ describe("consumer_relay_rate_limiter", () => {
     expect(allowRelayRpcRequest(userSub, socketId)).toBe(false);
   });
 
+  it("allowRelayRpcRequest debits proportional cost for batch-sized envelopes", () => {
+    const userSub = "user-batch-cost";
+    const socketId = "consumer-batch-cost";
+    const max = env.socketRelayRateLimitMaxRequests;
+
+    expect(allowRelayRpcRequest(userSub, socketId, 3)).toBe(true);
+    for (let index = 0; index < max - 3; index += 1) {
+      expect(allowRelayRpcRequest(userSub, socketId)).toBe(true);
+    }
+    expect(allowRelayRpcRequest(userSub, socketId)).toBe(false);
+  });
+
   it("refundRelayRpcRequest clamps below zero and ignores non-positive counts", () => {
     const userSub = "user-refund-clamp";
     const socketId = "consumer-clamp";

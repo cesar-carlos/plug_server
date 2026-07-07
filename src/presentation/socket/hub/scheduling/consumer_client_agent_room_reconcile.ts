@@ -4,6 +4,7 @@ import type { Namespace, Socket } from "socket.io";
 import type { AgentProfileBroadcastEvent } from "../../../../application/services/agent_profile_broadcast_sink";
 import { container } from "../../../../shared/di/container";
 import { env } from "../../../../shared/config/env";
+import { forEachWithConcurrencyLimit } from "../../../../shared/utils/concurrency";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import {
   noteConsumerClientAgentRoomBootstrapCompleted,
@@ -28,6 +29,7 @@ import {
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import { TtlCache } from "../../../../shared/utils/ttl_cache";
+import { clearConsumerSocketAgentAccessSnapshot } from "../../consumers/consumer_socket_guard";
 import {
   buildConsumerAgentProfileRoom,
   buildConsumerClientAgentRoom,
@@ -76,6 +78,11 @@ const fetchApprovedAgentIdsForReconcile = async (clientId: string): Promise<read
     await container.clientAgentAccessQueryService.listApprovedAgentIds(clientId);
   approvedAgentIdsCache.set(clientId, approvedAgentIds);
   return approvedAgentIds;
+};
+
+/** Drops cached approved-agent sets for one client (grant/revoke must converge immediately). */
+export const invalidateApprovedAgentIdsCache = (clientId: string): void => {
+  approvedAgentIdsCache.delete(clientId);
 };
 
 /** Unions `changedFields` and keeps the highest `profileVersion` within a debounce window. */
@@ -261,6 +268,7 @@ export const clearConsumerProfilePushState = (
   state.pendingApprovedAgentIdsByClientId.clear();
   state.profilePushRecipientsInFlightByAgentId.clear();
   state.clientProfileRecipientsCacheByAgentId.clear();
+  approvedAgentIdsCache.clear();
   resetCustomEventDistributedCountCircuit(
     state.customEventDistributedCountCircuit,
     hasOtherOpenCircuit,
@@ -380,25 +388,6 @@ export const resolveConsumerClientAgentRoomReconcileStartDelayMs = (
   return Math.floor(normalizedRandom * (maxJitterMs + 1));
 };
 
-const forEachWithConcurrencyLimit = async <T>(
-  items: readonly T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-): Promise<void> => {
-  const maxConcurrency = Math.max(1, Math.min(concurrency, items.length));
-  let index = 0;
-
-  await Promise.all(
-    Array.from({ length: maxConcurrency }, async () => {
-      while (index < items.length) {
-        const currentIndex = index;
-        index += 1;
-        await worker(items[currentIndex]!);
-      }
-    }),
-  );
-};
-
 export const reconcileConsumerClientAgentRoomsForSocket = async (
   socket: Socket,
   clientId: string,
@@ -431,6 +420,15 @@ export const reconcileConsumerClientAgentRoomsForSocket = async (
   }
 
   if (roomsToLeave.length > 0) {
+    const clientAgentRoomPrefix = buildConsumerClientAgentRoomPrefix(clientId);
+    for (const room of roomsToLeave) {
+      if (room.startsWith(clientAgentRoomPrefix)) {
+        const agentId = room.slice(clientAgentRoomPrefix.length);
+        if (agentId) {
+          clearConsumerSocketAgentAccessSnapshot(socket, agentId);
+        }
+      }
+    }
     await Promise.all(roomsToLeave.map((room) => socket.leave(room)));
   }
   if (roomsToJoin.length > 0) {
@@ -499,19 +497,21 @@ export const reconcileConsumerClientAgentRooms = async (
       async ([clientId, sockets]) => {
         try {
           const approvedAgentIds = await fetchApprovedAgentIdsForReconcile(clientId);
-          for (const socket of sockets) {
-            const result = await reconcileConsumerClientAgentRoomsForSocket(
-              socket,
-              clientId,
-              approvedAgentIds,
-            );
-            if (result.joined > 0) {
-              noteConsumerClientAgentRoomReconcileRoomsJoined(result.joined);
-            }
-            if (result.left > 0) {
-              noteConsumerClientAgentRoomReconcileRoomsLeft(result.left);
-            }
-          }
+          await Promise.all(
+            sockets.map(async (socket) => {
+              const result = await reconcileConsumerClientAgentRoomsForSocket(
+                socket,
+                clientId,
+                approvedAgentIds,
+              );
+              if (result.joined > 0) {
+                noteConsumerClientAgentRoomReconcileRoomsJoined(result.joined);
+              }
+              if (result.left > 0) {
+                noteConsumerClientAgentRoomReconcileRoomsLeft(result.left);
+              }
+            }),
+          );
         } catch (error: unknown) {
           noteConsumerClientAgentRoomReconcileFailed();
           logger.warn("consumer_socket_client_agent_room_reconcile_failed", {

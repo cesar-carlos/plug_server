@@ -100,6 +100,8 @@ const relayOptInsCounters = {
    * relay route — response is dropped (consumer already received timeout).
    */
   lateResponseAfterTimeoutTotal: 0,
+  /** Counter: relay stream chunks dropped after `rpc:complete` was already received. */
+  chunkAfterCompleteDroppedTotal: 0,
   /**
    * Counter: relay outbound job failed but a synthetic `relay:rpc.response`
    * error frame was emitted to the consumer (best-effort).
@@ -122,6 +124,7 @@ const relayOptInsCounters = {
     frame_decode_failed: 0,
     not_array: 0,
     validation_failed: 0,
+    rate_limited: 0,
     inflight_gate: 0,
     envelope_error: 0,
   } as Record<RelayBatchRejectReason, number>,
@@ -143,6 +146,7 @@ export type RelayBatchRejectReason =
   | "frame_decode_failed"
   | "not_array"
   | "validation_failed"
+  | "rate_limited"
   | "inflight_gate"
   | "envelope_error";
 
@@ -335,6 +339,10 @@ export const noteRelayFastPathForbidden = (): void => {
 
 export const noteRelayLateResponseAfterTimeout = (): void => {
   relayOptInsCounters.lateResponseAfterTimeoutTotal += 1;
+};
+
+export const noteRelayChunkAfterCompleteDropped = (): void => {
+  relayOptInsCounters.chunkAfterCompleteDroppedTotal += 1;
 };
 
 export const noteRelayOutboundJobFailureNotified = (): void => {

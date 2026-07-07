@@ -78,3 +78,22 @@ export const validateAndNormalizeRelayCommand = (
 
   return { command, normalizedCommand };
 };
+
+/**
+ * Returns `true` when the command may open a relay stream and therefore
+ * cannot use the unary `fastPath` opt-in.
+ */
+export const isRelayStreamingCapableCommand = (command: {
+  readonly method: string;
+  readonly params?: unknown;
+}): boolean => {
+  if (command.method === "sql.executeBatch") {
+    return true;
+  }
+  if (command.method !== "sql.execute") {
+    return false;
+  }
+  const params = isRecord(command.params) ? command.params : null;
+  const options = params && isRecord(params.options) ? params.options : null;
+  return options?.prefer_db_streaming === true || options?.multi_result === true;
+};

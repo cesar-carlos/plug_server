@@ -17,6 +17,7 @@ vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard"
 vi.mock(
   "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter",
   () => ({
+    allowRelayRpcRequestAsync: vi.fn(async () => true),
     refundRelayRpcRequestAsync: vi.fn(),
   }),
 );
@@ -84,7 +85,7 @@ vi.mock("../../../../../src/shared/config/env", async () => {
 import { dispatchRelayRpcToAgent } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
-import { refundRelayRpcRequestAsync } from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
+import { refundRelayRpcRequestAsync, allowRelayRpcRequestAsync } from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
 import {
   noteRelayBatchAccepted,
   noteRelayBatchEnvelopeReceived,
@@ -105,6 +106,7 @@ const mockedDispatch = vi.mocked(dispatchRelayRpcToAgent);
 const mockedFindConversation = vi.mocked(conversationRegistry.findInternalByConversationId);
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedRefund = vi.mocked(refundRelayRpcRequestAsync);
+const mockedAllowRelay = vi.mocked(allowRelayRpcRequestAsync);
 
 interface MockedBatchSocket {
   readonly id: string;
@@ -182,6 +184,8 @@ describe("handleRelayRpcRequestBatch", () => {
     mockedFindConversation.mockReset();
     mockedAssertAccess.mockReset();
     mockedRefund.mockReset();
+    mockedAllowRelay.mockReset();
+    mockedAllowRelay.mockResolvedValue(true);
     vi.mocked(noteRelayBatchEnvelopeReceived).mockClear();
     vi.mocked(noteRelayBatchAccepted).mockClear();
     vi.mocked(noteRelayBatchRejected).mockClear();
@@ -347,7 +351,32 @@ describe("handleRelayRpcRequestBatch", () => {
       ),
     );
     expect(mockedDispatch).not.toHaveBeenCalled();
+    expect(mockedAllowRelay).toHaveBeenCalledWith("user-1", "consumer-batch-1", 3);
+    expect(mockedRefund).toHaveBeenCalledWith("user-1", "consumer-batch-1", 3);
     expect(vi.mocked(noteRelayBatchRejected)).toHaveBeenCalledWith("inflight_gate");
+  });
+
+  it("charges relay rate-limit budget proportional to validated batch size", async () => {
+    mockedAllowRelay.mockResolvedValue(false);
+    const socket = buildSocket();
+
+    handleRelayRpcRequestBatch(socket as never, {
+      conversationId: "conv-1",
+      frame: buildBatchFrame(["a", "b"]),
+    });
+
+    await vi.waitFor(() =>
+      expect(socket.emit).toHaveBeenCalledWith(
+        socketEvents.relayRpcBatchAccepted,
+        expect.objectContaining({
+          success: false,
+          error: expect.objectContaining({ code: "RATE_LIMITED" }),
+        }),
+      ),
+    );
+    expect(mockedAllowRelay).toHaveBeenCalledWith("user-1", "consumer-batch-1", 2);
+    expect(mockedRefund).not.toHaveBeenCalled();
+    expect(mockedDispatch).not.toHaveBeenCalled();
   });
 
   it("rejects streaming-capable items with BATCH_STREAMING_ITEM_REJECTED", async () => {

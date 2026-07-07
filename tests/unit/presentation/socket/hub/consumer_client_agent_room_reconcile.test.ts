@@ -3,13 +3,30 @@ import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Namespace } from "socket.io";
 
 import type { AgentProfileBroadcastEvent } from "../../../../../src/application/services/agent_profile_broadcast_sink";
+
+vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard", () => ({
+  clearConsumerSocketAgentAccessSnapshot: vi.fn(),
+}));
+
+vi.mock("../../../../../src/shared/di/container", () => ({
+  container: {
+    clientAgentAccessQueryService: {
+      listApprovedAgentIds: vi.fn(),
+    },
+  },
+}));
+
 import {
   mergeCoalescedAgentProfileBroadcastEvent,
+  reconcileConsumerClientAgentRoomsForSocket,
   scheduleAgentProfilePush,
   type AgentProfilePushSocketServerState,
 } from "../../../../../src/presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
+import { clearConsumerSocketAgentAccessSnapshot } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import { TtlCache } from "../../../../../src/shared/utils/ttl_cache";
 import { env } from "../../../../../src/shared/config/env";
+
+const mockedClearSnapshot = vi.mocked(clearConsumerSocketAgentAccessSnapshot);
 
 const createState = (): AgentProfilePushSocketServerState => {
   const consumersNamespace = {
@@ -105,5 +122,38 @@ describe("scheduleAgentProfilePush", () => {
 
     expect(state.consumersNamespace.emit).toHaveBeenCalledTimes(1);
     expect(state.pendingAgentProfilePushByAgentId.size).toBe(0);
+  });
+});
+
+describe("reconcileConsumerClientAgentRoomsForSocket", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("clears agent access snapshots for client-agent rooms that are left", async () => {
+    const leave = vi.fn().mockResolvedValue(undefined);
+    const join = vi.fn().mockResolvedValue(undefined);
+    const socket = {
+      id: "sock-1",
+      connected: true,
+      rooms: new Set([
+        "sock-1",
+        "consumer:client-agent:client-1:agent-old",
+        "consumer:agent-profile:agent-old",
+        "consumer:agent-profile:agent-keep",
+      ]),
+      leave,
+      join,
+    };
+
+    const result = await reconcileConsumerClientAgentRoomsForSocket(socket as never, "client-1", [
+      "agent-keep",
+    ]);
+
+    expect(result.left).toBe(2);
+    expect(mockedClearSnapshot).toHaveBeenCalledTimes(1);
+    expect(mockedClearSnapshot).toHaveBeenCalledWith(socket, "agent-old");
+    expect(leave).toHaveBeenCalledWith("consumer:client-agent:client-1:agent-old");
+    expect(leave).toHaveBeenCalledWith("consumer:agent-profile:agent-old");
   });
 });

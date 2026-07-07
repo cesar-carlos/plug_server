@@ -8,6 +8,7 @@ import {
   listRelayRequestIdsForConsumer,
   registerRelayRequestRoute,
   removeRelayRequestRoute,
+  reserveRelayPendingSlot,
   resetRelayRequestRegistry,
 } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
@@ -102,5 +103,17 @@ describe("relay_request_registry", () => {
     resetRelayRequestRegistry();
 
     expect(releaseReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("reserveRelayPendingSlot transfers counters to register without double counting", () => {
+    const reservation = reserveRelayPendingSlot("conv", "cons");
+    expect(reservation).not.toBeNull();
+    expect(getRelayPendingRequestCountForConversation("conv")).toBe(1);
+
+    registerRelayRequestRoute(makeRoute({ requestId: "reserved", conversationId: "conv" }), {
+      countersReserved: true,
+    });
+    expect(getRelayRegisteredRouteCount()).toBe(1);
+    expect(getRelayPendingRequestCountForConversation("conv")).toBe(1);
   });
 });
