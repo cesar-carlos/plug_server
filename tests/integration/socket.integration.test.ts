@@ -23,7 +23,7 @@ import { agentsNamespace } from "../../src/socket";
 import { Client } from "../../src/domain/entities/client.entity";
 import { User } from "../../src/domain/entities/user.entity";
 
-const testAgentId = "5b9ae809-4e2f-454f-8967-f0b535d5e8f5";
+let testAgentId: string;
 const repositories = getTestRepositoryAccess();
 const makeLargeText = (length: number): string => {
   const alphabet =
@@ -35,13 +35,22 @@ const makeLargeText = (length: number): string => {
   return output;
 };
 
-const connectConsumer = (baseUrl: string, token: string): Promise<ReturnType<typeof ioClient>> =>
+const connectConsumer = (
+  baseUrl: string,
+  token: string,
+  timeoutMs = 10_000,
+): Promise<ReturnType<typeof ioClient>> =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
     const socket = ioClient(`${baseUrl}/consumers`, {
       auth: { token },
       transports: ["websocket"],
     });
+    const timeout = setTimeout(() => {
+      socket.disconnect();
+      reject(new Error(`Timed out waiting for connection:ready on /consumers (${timeoutMs}ms)`));
+    }, timeoutMs);
     socket.on("connection:ready", (rawPayload: unknown) => {
+      clearTimeout(timeout);
       const decoded = decodePayloadFrame(rawPayload);
       if (!decoded.ok) {
         reject(new Error(`Failed to decode connection:ready: ${decoded.error.message}`));
@@ -49,16 +58,28 @@ const connectConsumer = (baseUrl: string, token: string): Promise<ReturnType<typ
       }
       resolve(socket);
     });
-    socket.on("connect_error", (err) => reject(err));
+    socket.on("connect_error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 
-const connectAgent = (baseUrl: string, token: string): Promise<ReturnType<typeof ioClient>> =>
+const connectAgent = (
+  baseUrl: string,
+  token: string,
+  timeoutMs = 10_000,
+): Promise<ReturnType<typeof ioClient>> =>
   new Promise<ReturnType<typeof ioClient>>((resolve, reject) => {
     const socket = ioClient(`${baseUrl}/agents`, {
       auth: { token },
       transports: ["websocket"],
     });
+    const timeout = setTimeout(() => {
+      socket.disconnect();
+      reject(new Error(`Timed out waiting for connection:ready on /agents (${timeoutMs}ms)`));
+    }, timeoutMs);
     socket.on("connection:ready", (rawPayload: unknown) => {
+      clearTimeout(timeout);
       const decoded = decodePayloadFrame(rawPayload);
       if (!decoded.ok) {
         reject(new Error(`Failed to decode connection:ready: ${decoded.error.message}`));
@@ -66,7 +87,10 @@ const connectAgent = (baseUrl: string, token: string): Promise<ReturnType<typeof
       }
       resolve(socket);
     });
-    socket.on("connect_error", (err) => reject(err));
+    socket.on("connect_error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 
 const waitForEvent = <T>(
@@ -286,20 +310,24 @@ describe("Socket namespaces", () => {
     server = await createTestServer();
     baseUrl = server.getUrl();
 
+    const suiteRunId = randomBytes(6).toString("hex");
+    ownerEmail = `socket-${suiteRunId}@test.com`;
+    const clientEmail = `socket-client-${suiteRunId}@test.com`;
+    testAgentId = randomUUID();
+
     const registerRes = await request(baseUrl)
       .post("/api/v1/auth/register")
-      .send({ email: "socket@test.com", password: "SocketTest1" });
+      .send({ email: ownerEmail, password: "SocketTest1" });
 
     expect(registerRes.status).toBe(201);
     await approveRegistrationByToken(baseUrl, registerRes.body.approvalToken as string);
 
     const userLoginRes = await request(baseUrl).post("/api/v1/auth/login").send({
-      email: "socket@test.com",
+      email: ownerEmail,
       password: "SocketTest1",
     });
     expect(userLoginRes.status).toBe(200);
     accessToken = userLoginRes.body.accessToken as string;
-    ownerEmail = "socket@test.com";
 
     const userId: string = registerRes.body.user.id as string;
     ownerUserId = userId;
@@ -312,7 +340,7 @@ describe("Socket namespaces", () => {
 
     const clientRegisterRes = await request(baseUrl).post("/api/v1/client-auth/register").send({
       ownerEmail,
-      email: "socket-client@test.com",
+      email: clientEmail,
       password: "SocketClient1",
       name: "Socket",
       lastName: "Client",
@@ -320,7 +348,7 @@ describe("Socket namespaces", () => {
     expect(clientRegisterRes.status).toBe(201);
     await approveClientRegistrationByToken(baseUrl, clientRegisterRes.body.approvalToken as string);
     const clientLoginRes = await request(baseUrl).post("/api/v1/client-auth/login").send({
-      email: "socket-client@test.com",
+      email: clientEmail,
       password: "SocketClient1",
     });
     expect(clientLoginRes.status).toBe(200);
@@ -328,7 +356,7 @@ describe("Socket namespaces", () => {
     clientAccessToken = clientLoginRes.body.accessToken as string;
 
     const agentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-      email: "socket@test.com",
+      email: ownerEmail,
       password: "SocketTest1",
       agentId: testAgentId,
     });
@@ -1949,7 +1977,20 @@ describe("Socket namespaces", () => {
         let routedRequestId = "";
         let streamId = "";
 
-        agentSocket.on("rpc:request", (rawPayload: unknown) => {
+        const acceptedPromise = waitForEvent<{
+          success: boolean;
+          requestId?: string;
+          error?: { code?: string; message?: string; statusCode?: number };
+        }>(consumerSocket, "relay:rpc.accepted");
+        const ackPromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.request_ack");
+        const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response");
+
+        const receivedChunks: unknown[] = [];
+        consumerSocket.on("relay:rpc.chunk", (payload: unknown) => {
+          receivedChunks.push(payload);
+        });
+
+        agentSocket.once("rpc:request", (rawPayload: unknown) => {
           const decoded = decodePayloadFrame(rawPayload);
           if (!decoded.ok || !isRecord(decoded.value.data)) {
             return;
@@ -2003,19 +2044,6 @@ describe("Socket namespaces", () => {
               { compressionThreshold: 1, compressionPolicy: "always_gzip" },
             ),
           );
-        });
-
-        const acceptedPromise = waitForEvent<{
-          success: boolean;
-          requestId?: string;
-          error?: { code?: string; message?: string; statusCode?: number };
-        }>(consumerSocket, "relay:rpc.accepted");
-        const ackPromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.request_ack");
-        const responsePromise = waitForEvent<unknown>(consumerSocket, "relay:rpc.response");
-
-        const receivedChunks: unknown[] = [];
-        consumerSocket.on("relay:rpc.chunk", (payload: unknown) => {
-          receivedChunks.push(payload);
         });
 
         consumerSocket.emit("relay:rpc.request", {

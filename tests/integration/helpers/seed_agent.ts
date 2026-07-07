@@ -83,6 +83,10 @@ export const seedAgent = async (opts: {
     ...(opts.address !== undefined ? { address: opts.address } : {}),
     status: opts.status ?? "active",
   });
+  const existing = await repositories.agent.findById(agent.agentId);
+  if (existing) {
+    return existing;
+  }
   await repositories.agent.save(agent);
   return agent;
 };

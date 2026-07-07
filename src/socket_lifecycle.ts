@@ -20,6 +20,7 @@ import { resetAgentProfileSyncScheduler } from "./presentation/socket/hub/regist
 import { clearConsumerProfilePushState } from "./presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
 import { resetBridgeRpcMethodMetrics } from "./application/services/bridge_rpc_method_metrics.service";
+import { resetBridgeCommandReplayGuard } from "./application/agent_commands/bridge_command_replay_guard";
 import { resetSocketConsumerMetrics } from "./shared/metrics/socket_consumer.metrics";
 import { resetSocketAgentMetrics } from "./shared/metrics/socket_agent.metrics";
 import { resetSocketHubErrorMetrics } from "./shared/metrics/socket_hub_error.metrics";
@@ -149,6 +150,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
     resetSocketBridgeState();
     resetRestBridgeMetrics();
     resetBridgeRpcMethodMetrics();
+    resetBridgeCommandReplayGuard();
     resetSocketHubErrorMetrics();
     conversationRegistry.clear();
     agentRegistry.clear();

@@ -61,13 +61,19 @@ export const authenticateAgentSocket = async (
   const token = getToken(socket);
 
   if (!token) {
-    if (env.socketAgentAuthBypassAllowed) {
+    if (env.socketAgentAuthBypassAllowed && env.nodeEnv === "test") {
       logger.warn("agent_socket_auth_bypass_used", {
         socketId: socket.id,
         ip: socket.handshake.address,
       });
       next();
       return;
+    }
+    if (env.socketAgentAuthBypassAllowed && env.nodeEnv !== "test") {
+      logger.error("agent_socket_auth_bypass_blocked_outside_test", {
+        socketId: socket.id,
+        nodeEnv: env.nodeEnv,
+      });
     }
     noteAgentSocketAuthRejected("missing_token");
     next(unauthorized("Socket authentication token is required for /agents"));

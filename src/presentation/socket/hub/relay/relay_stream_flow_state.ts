@@ -300,6 +300,8 @@ export interface DrainRelayStreamBufferContext {
   readonly recordAudit: (eventType: string, extras?: Record<string, unknown>) => void;
   readonly isActive?: () => boolean;
   readonly onComplete?: (streamId: string | null) => void;
+  /** Invoked when `emitComplete` fails because the consumer socket is gone. */
+  readonly onConsumerGone?: (requestId: string) => void;
 }
 
 const countChunkRows = (payload: Record<string, unknown>): number => {
@@ -386,6 +388,7 @@ export const drainRelayStreamBuffer = async (
         return;
       }
       if (!ctx.emitComplete(completeFrame)) {
+        ctx.onConsumerGone?.(ctx.requestId);
         return;
       }
       completeEmitted = true;

@@ -1429,6 +1429,12 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     );
     lines.push(
       metricLine(
+        "plug_socket_relay_chunk_after_complete_dropped_total",
+        consumerRuntime.relayOptIns.chunkAfterCompleteDroppedTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
         "plug_socket_relay_outbound_job_failure_notified_total",
         consumerRuntime.relayOptIns.relayOutboundJobFailureNotifiedTotal,
       ),

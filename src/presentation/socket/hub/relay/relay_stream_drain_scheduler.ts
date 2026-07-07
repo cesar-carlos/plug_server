@@ -22,6 +22,7 @@ import {
   getRelayStreamFlowCredits,
   getRelayStreamBufferedChunkCount,
   getRelayStreamPendingComplete,
+  clearRelayStreamFlowState,
   type DrainRelayStreamBufferContext,
 } from "./relay_stream_flow_state";
 import {
@@ -34,6 +35,7 @@ import {
   noteRelayStreamChunkEmitBackpressurePaused,
 } from "./relay_consumer_transport_backpressure";
 import { findConsumerBridgeSocketForRelay } from "./relay_consumer_socket_lookup";
+import { trySettleRelayRoute } from "./relay_route_settlement";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 
 const shouldAuditRelayChunks = env.socketAuditHighVolumeSamplePercent > 0;
@@ -56,6 +58,19 @@ export interface ScheduleRelayStreamDrainInput {
   readonly setDrainScheduled: (value: boolean) => void;
   readonly reschedule: () => void;
 }
+
+const finalizeRelayStreamOnConsumerGone = (requestId: string): void => {
+  const relayRoute = getRelayRequestRoute(requestId);
+  if (relayRoute) {
+    trySettleRelayRoute(relayRoute);
+    removeRelayRequestRoute(requestId);
+  }
+  const activeRoute = getActiveStreamRouteByRequestId(requestId);
+  if (activeRoute) {
+    removeActiveStreamRoute(activeRoute);
+  }
+  clearRelayStreamFlowState(requestId);
+};
 
 const buildDrainContext = (
   route: RelayStreamDrainRouteContext,
@@ -98,6 +113,7 @@ const buildDrainContext = (
       ...extras,
     });
   },
+  onConsumerGone: finalizeRelayStreamOnConsumerGone,
   ...(onComplete !== undefined ? { onComplete } : {}),
 });
 
