@@ -31,6 +31,33 @@ const redactDatabaseUrl = (value) => {
   }
 };
 
+const logLiveSuiteStatus = async () => {
+  const liveAgentId = process.env.E2E_LIVE_AGENT_ID?.trim();
+  if (!liveAgentId) {
+    console.log(
+      "[test:e2e] Live suite skipped: set E2E_LIVE_AGENT_ID (and optionally E2E_LIVE_HUB_URL) in .env.",
+    );
+    return;
+  }
+
+  const hubUrl = (
+    process.env.E2E_LIVE_HUB_URL ?? "https://plug-server.se7esistemassinop.com.br"
+  ).replace(/\/$/, "");
+  console.log(`[test:e2e] Live suite enabled: agent=${liveAgentId} hub=${hubUrl}`);
+
+  try {
+    const response = await fetch(`${hubUrl}/api/v1/health/ready`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      console.warn(`[test:e2e] Live hub not ready (HTTP ${response.status}); live tests may fail.`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[test:e2e] Live hub unreachable at ${hubUrl}: ${message}`);
+  }
+};
+
 const ensureDatabaseIsReady = async () => {
   const prisma = new PrismaClient({
     log: ["error"],
@@ -53,6 +80,7 @@ const ensureDatabaseIsReady = async () => {
 
 const run = async () => {
   await ensureDatabaseIsReady();
+  await logLiveSuiteStatus();
 
   const vitestCli = path.join(root, "node_modules", "vitest", "vitest.mjs");
   const result = spawnSync(process.execPath, [vitestCli, "run", "-c", "vitest.e2e.config.mjs"], {
