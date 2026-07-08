@@ -100,9 +100,9 @@ describe("agent_register_rate_limit", () => {
   });
 
   it("sweep removes stale register buckets", () => {
-    expect(tryConsumeAgentRegisterRateLimit("u-sweep", "a-sweep", { windowMs: 60_000, max: 3 })).toEqual(
-      { ok: true },
-    );
+    expect(
+      tryConsumeAgentRegisterRateLimit("u-sweep", "a-sweep", { windowMs: 60_000, max: 3 }),
+    ).toEqual({ ok: true });
 
     const later =
       Date.now() +

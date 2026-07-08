@@ -16,9 +16,7 @@ const freshnessByAgentId = new Map<string, AgentPiggybackFreshness>();
 const readFiniteNumber = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
-const readHealthSnapshot = (
-  rpcBody: unknown,
-): Record<string, unknown> | null => {
+const readHealthSnapshot = (rpcBody: unknown): Record<string, unknown> | null => {
   if (!isRecord(rpcBody) || !isRecord(rpcBody.meta)) {
     return null;
   }

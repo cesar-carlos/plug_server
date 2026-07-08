@@ -97,7 +97,8 @@ export const startE2ELiveHubFixture = async (): Promise<E2ELiveHubFixture> => {
     tokenType: "access",
   });
 
-  const agentClientToken = process.env.E2E_LIVE_CLIENT_TOKEN?.trim() || clientAccess.clientToken || undefined;
+  const agentClientToken =
+    process.env.E2E_LIVE_CLIENT_TOKEN?.trim() || clientAccess.clientToken || undefined;
 
   return {
     baseUrl,

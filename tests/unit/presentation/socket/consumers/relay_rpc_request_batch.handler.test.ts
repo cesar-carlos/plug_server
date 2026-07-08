@@ -85,7 +85,10 @@ vi.mock("../../../../../src/shared/config/env", async () => {
 import { dispatchRelayRpcToAgent } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
-import { refundRelayRpcRequestAsync, allowRelayRpcRequestAsync } from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
+import {
+  refundRelayRpcRequestAsync,
+  allowRelayRpcRequestAsync,
+} from "../../../../../src/presentation/socket/hub/rate_limits/consumer_relay_rate_limiter";
 import {
   noteRelayBatchAccepted,
   noteRelayBatchEnvelopeReceived,

@@ -7,10 +7,7 @@ import {
   runAgentHealthPollSweep,
 } from "../../../../../../src/presentation/socket/hub/scheduling/agent_health_poll_scheduler";
 
-const registerReadyAgent = (
-  agentId: string,
-  capabilities: Record<string, unknown>,
-): void => {
+const registerReadyAgent = (agentId: string, capabilities: Record<string, unknown>): void => {
   const result = agentRegistry.registerAgentSession({
     agentId,
     socketId: `socket-${agentId}`,
@@ -40,9 +37,8 @@ describe("agent_health_poll_scheduler", () => {
       },
     });
 
-    const { maybeRecordAgentHealthPiggyback } = await import(
-      "../../../../../../src/application/services/agent_health_piggyback.service"
-    );
+    const { maybeRecordAgentHealthPiggyback } =
+      await import("../../../../../../src/application/services/agent_health_piggyback.service");
     maybeRecordAgentHealthPiggyback({
       agentId: "agent-1",
       agentCapabilities: {

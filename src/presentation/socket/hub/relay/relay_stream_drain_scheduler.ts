@@ -121,8 +121,15 @@ const buildDrainContext = (
  * Central drain scheduling for relay streams (chunk handler and pull-triggered paths).
  */
 export const scheduleRelayStreamDrain = (input: ScheduleRelayStreamDrainInput): void => {
-  const { route, emitToConsumer, isActive, onComplete, getDrainScheduled, setDrainScheduled, reschedule } =
-    input;
+  const {
+    route,
+    emitToConsumer,
+    isActive,
+    onComplete,
+    getDrainScheduled,
+    setDrainScheduled,
+    reschedule,
+  } = input;
 
   if (getDrainScheduled()) {
     return;

@@ -40,8 +40,84 @@ const inFlightAgentAccessBySocketAgent = new Map<string, Promise<AgentAccessPrin
  */
 const socketIdsByAgentId = new Map<string, Set<string>>();
 
+/** Principal key → socketIds with at least one cached agent-access snapshot on this hub. */
+const socketIdsByPrincipalKey = new Map<string, Set<string>>();
+
+const buildPrincipalKey = (principal: AgentAccessPrincipal): string =>
+  `${principal.type}:${principal.id}`;
+
+const resolvePrincipalKeyFromUser = (user: JwtAccessPayload | undefined): string | null => {
+  if (typeof user?.sub !== "string" || user.sub.trim() === "") {
+    return null;
+  }
+  return user.principal_type === "client" ? `client:${user.sub}` : `user:${user.sub}`;
+};
+
+const trackSocketInPrincipalIndex = (principalKey: string, socketId: string): void => {
+  let sockets = socketIdsByPrincipalKey.get(principalKey);
+  if (!sockets) {
+    sockets = new Set<string>();
+    socketIdsByPrincipalKey.set(principalKey, sockets);
+  }
+  sockets.add(socketId);
+};
+
+const untrackSocketFromPrincipalIndex = (principalKey: string, socketId: string): void => {
+  const sockets = socketIdsByPrincipalKey.get(principalKey);
+  if (!sockets) {
+    return;
+  }
+  sockets.delete(socketId);
+  if (sockets.size === 0) {
+    socketIdsByPrincipalKey.delete(principalKey);
+  }
+};
+
+const maybeUntrackSocketFromPrincipalIndex = (socket: GuardSocket): void => {
+  const snapshots = socket.data.agentAccessSnapshots;
+  if (snapshots && snapshots.size > 0) {
+    return;
+  }
+  const principalKey = resolvePrincipalKeyFromUser(socket.data.user);
+  if (principalKey) {
+    untrackSocketFromPrincipalIndex(principalKey, socket.id);
+  }
+};
+
+const removeAgentAccessSnapshotIndexEntry = (agentId: string, socketId: string): void => {
+  const sockets = socketIdsByAgentId.get(agentId);
+  if (!sockets) {
+    return;
+  }
+  sockets.delete(socketId);
+  if (sockets.size === 0) {
+    socketIdsByAgentId.delete(agentId);
+  }
+};
+
 const inFlightAgentAccessKey = (socketId: string, agentId: string): string =>
   `${socketId}:${agentId}`;
+
+const inFlightAgentAccessKeysForSocket = (socketId: string): string[] => {
+  const prefix = `${socketId}:`;
+  const keys: string[] = [];
+  for (const key of inFlightAgentAccessBySocketAgent.keys()) {
+    if (key.startsWith(prefix)) {
+      keys.push(key);
+    }
+  }
+  return keys;
+};
+
+/**
+ * Clears pending agent-access validations for a disconnecting socket so async
+ * DB checks cannot repopulate `socketIdsByAgentId` after cleanup.
+ */
+export const clearInflightAgentAccessForSocket = (socketId: string): void => {
+  for (const key of inFlightAgentAccessKeysForSocket(socketId)) {
+    inFlightAgentAccessBySocketAgent.delete(key);
+  }
+};
 
 export const resolveSocketActorRole = (user: JwtAccessPayload | undefined): string | null =>
   typeof user?.role === "string" && user.role.trim() !== "" ? user.role : null;
@@ -117,6 +193,7 @@ const recordAgentAccessSnapshot = (
     socketIdsByAgentId.set(agentId, sockets);
   }
   sockets.add(socket.id);
+  trackSocketInPrincipalIndex(buildPrincipalKey(principal), socket.id);
 };
 
 type AgentAccessSnapshotHolder = {
@@ -131,13 +208,8 @@ export const clearConsumerSocketAgentAccessSnapshot = (
   agentId: string,
 ): void => {
   socket.data.agentAccessSnapshots?.delete(agentId);
-  const sockets = socketIdsByAgentId.get(agentId);
-  if (sockets) {
-    sockets.delete((socket as { id?: string }).id ?? "");
-    if (sockets.size === 0) {
-      socketIdsByAgentId.delete(agentId);
-    }
-  }
+  removeAgentAccessSnapshotIndexEntry(agentId, (socket as { id?: string }).id ?? "");
+  maybeUntrackSocketFromPrincipalIndex(socket as GuardSocket);
 };
 
 /** Clears all per-socket agent-access snapshots (e.g. when the user account is blocked). */
@@ -148,15 +220,13 @@ export const clearAllConsumerSocketAgentAccessSnapshots = (
   if (snapshots) {
     const socketId = (socket as { id?: string }).id ?? "";
     for (const agentId of snapshots.keys()) {
-      const sockets = socketIdsByAgentId.get(agentId);
-      if (sockets) {
-        sockets.delete(socketId);
-        if (sockets.size === 0) {
-          socketIdsByAgentId.delete(agentId);
-        }
-      }
+      removeAgentAccessSnapshotIndexEntry(agentId, socketId);
     }
     snapshots.clear();
+    const principalKey = resolvePrincipalKeyFromUser((socket as GuardSocket).data.user);
+    if (principalKey) {
+      untrackSocketFromPrincipalIndex(principalKey, socketId);
+    }
   }
 };
 
@@ -166,6 +236,80 @@ export const clearAllConsumerSocketAgentAccessSnapshots = (
  */
 export const getSocketIdsWithAgentAccessSnapshot = (agentId: string): ReadonlySet<string> =>
   socketIdsByAgentId.get(agentId) ?? new Set<string>();
+
+export const getSocketIdsWithPrincipalKey = (principalKey: string): ReadonlySet<string> =>
+  socketIdsByPrincipalKey.get(principalKey) ?? new Set<string>();
+
+type LocalConsumerSocketLookup = {
+  readonly sockets: {
+    get(socketId: string): AgentAccessSnapshotHolder | undefined;
+  };
+};
+
+/**
+ * Clears cached agent-access snapshots for local sockets indexed under `agentId`.
+ * Stale index entries (socket no longer on this hub) are pruned without `fetchSockets`.
+ */
+export const invalidateLocalAgentAccessSnapshotsByAgentId = (
+  namespace: LocalConsumerSocketLookup,
+  agentId: string,
+): number => {
+  let cleared = 0;
+  for (const socketId of [...getSocketIdsWithAgentAccessSnapshot(agentId)]) {
+    const socket = namespace.sockets.get(socketId);
+    if (!socket) {
+      removeAgentAccessSnapshotIndexEntry(agentId, socketId);
+      continue;
+    }
+    clearConsumerSocketAgentAccessSnapshot(socket, agentId);
+    cleared += 1;
+  }
+  return cleared;
+};
+
+/**
+ * Clears one client principal's cached snapshot for `agentId` on this hub only.
+ */
+export const invalidateLocalClientAgentAccessSnapshot = (
+  namespace: LocalConsumerSocketLookup,
+  clientId: string,
+  agentId: string,
+): number => {
+  let cleared = 0;
+  for (const socketId of [...getSocketIdsWithAgentAccessSnapshot(agentId)]) {
+    const socket = namespace.sockets.get(socketId) as GuardSocket | undefined;
+    if (!socket) {
+      removeAgentAccessSnapshotIndexEntry(agentId, socketId);
+      continue;
+    }
+    if (socket.data.user?.principal_type !== "client" || socket.data.user.sub !== clientId) {
+      continue;
+    }
+    clearConsumerSocketAgentAccessSnapshot(socket, agentId);
+    cleared += 1;
+  }
+  return cleared;
+};
+
+/**
+ * Clears all cached agent-access snapshots for a user principal on this hub only.
+ */
+export const invalidateLocalUserAccessSnapshots = (
+  namespace: LocalConsumerSocketLookup,
+  userId: string,
+): number => {
+  let cleared = 0;
+  for (const socketId of [...getSocketIdsWithPrincipalKey(`user:${userId}`)]) {
+    const socket = namespace.sockets.get(socketId);
+    if (!socket) {
+      untrackSocketFromPrincipalIndex(`user:${userId}`, socketId);
+      continue;
+    }
+    clearAllConsumerSocketAgentAccessSnapshots(socket);
+    cleared += 1;
+  }
+  return cleared;
+};
 
 const validateAgentAccessAgainstDb = async (
   user: JwtAccessPayload,
@@ -183,7 +327,10 @@ const validateAgentAccessAgainstDb = async (
   }
 
   if (socket) {
-    recordAgentAccessSnapshot(user, agentId, principal, socket);
+    const inflightKey = inFlightAgentAccessKey(socket.id, agentId);
+    if (inFlightAgentAccessBySocketAgent.has(inflightKey)) {
+      recordAgentAccessSnapshot(user, agentId, principal, socket);
+    }
   }
 
   return principal;

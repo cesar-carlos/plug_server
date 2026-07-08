@@ -17,10 +17,7 @@ import {
   getRelayRequestRoute,
   removeRelayRequestRoute,
 } from "../registries/relay_request_registry";
-import {
-  addRelayStreamFlowCredits,
-  getRelayStreamForwardedRows,
-} from "./relay_stream_flow_state";
+import { addRelayStreamFlowCredits, getRelayStreamForwardedRows } from "./relay_stream_flow_state";
 import {
   buildRelayStreamPullDrainOnComplete,
   scheduleRelayStreamDrain,
@@ -206,8 +203,8 @@ export const createPrepareAgentStreamPull = (
                 activeRoute === route &&
                 Boolean(
                   relayRoute &&
-                    relayRoute.consumerSocketId === route.consumerSocketId &&
-                    relayRoute.agentSocketId === route.agentSocketId,
+                  relayRoute.consumerSocketId === route.consumerSocketId &&
+                  relayRoute.agentSocketId === route.agentSocketId,
                 )
               );
             },

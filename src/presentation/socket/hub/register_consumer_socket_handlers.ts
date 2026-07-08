@@ -40,7 +40,7 @@ import {
   type ConsumerClientAgentRoomBootstrapState,
 } from "./scheduling/consumer_client_agent_room_reconcile";
 import { consumerRegistry } from "./registries/consumer_registry";
-import { touchConsumerRegistryOnInboundEvent } from "./scheduling/consumer_idle_touch_events";
+import { touchConsumerRegistryOnSocketActivity } from "./scheduling/consumer_idle_touch_events";
 import {
   buildConsumerClientRoom as buildClientRoomName,
   buildConsumerPrincipalRoom as buildPrincipalRoomName,
@@ -76,6 +76,10 @@ import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { logger } from "../../../shared/utils/logger";
 import { clearAgentProfileSocketRateLimitStateForSocketId } from "./rate_limits/agent_profile_socket_rate_limiter";
 import { clearInflightValidationForSocket } from "../auth/ensure_socket_active_account";
+import {
+  clearAllConsumerSocketAgentAccessSnapshots,
+  clearInflightAgentAccessForSocket,
+} from "../consumers/consumer_socket_guard";
 
 type SocketData = {
   user?: JwtAccessPayload;
@@ -140,6 +144,8 @@ export const runConsumerSocketDisconnectCleanup = (
 ): void => {
   unregisterConsumerBridgeSocket(socket.id);
   clearInflightValidationForSocket(socket.id);
+  clearInflightAgentAccessForSocket(socket.id);
+  clearAllConsumerSocketAgentAccessSnapshots(socket);
   consumerRegistry.removeBySocketId(socket.id);
   const abortedCommands = abortPendingConsumerCommands(socket.id);
   const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(socket.id);
@@ -230,19 +236,21 @@ export const registerConsumerSocketConnectionHandlers = ({
           ? socket.data.user.principal_type
           : null,
     });
-    socket.onAny((eventName) => {
-      touchConsumerRegistryOnInboundEvent(socket.id, eventName);
-    });
+    const touchConsumerActivity = (): void => {
+      touchConsumerRegistryOnSocketActivity(socket.id);
+    };
     void backfillConsumerApprovedAgentRooms(state, socket, {
       getUserId,
       reconcileRoomsForSocket: reconcileConsumerClientAgentRoomsForSocket,
     });
 
     socket.on(socketEvents.agentsCommand, (rawPayload: unknown) => {
+      touchConsumerActivity();
       handleAgentsCommand(socket, rawPayload);
     });
 
     socket.on(socketEvents.agentsStreamPull, (rawPayload: unknown) => {
+      touchConsumerActivity();
       const tOverload = performance.now();
       const overload = getRelayOutboundQueueOverloadState();
       observeRelayOverloadCheck(performance.now() - tOverload);
@@ -269,6 +277,7 @@ export const registerConsumerSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
+      touchConsumerActivity();
       void (async (): Promise<void> => {
         const requestId = extractRelayConversationStartRequestId(rawPayload);
         const tOverload = performance.now();
@@ -324,10 +333,12 @@ export const registerConsumerSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.relayConversationEnd, (rawPayload: unknown) => {
+      touchConsumerActivity();
       handleRelayConversationEnd(socket, rawPayload);
     });
 
     socket.on(socketEvents.relayRpcRequest, (rawPayload: unknown) => {
+      touchConsumerActivity();
       void (async (): Promise<void> => {
         const tOverload = performance.now();
         const overload = getRelayOutboundQueueOverloadState();
@@ -384,6 +395,7 @@ export const registerConsumerSocketConnectionHandlers = ({
     // Batch variant — `relay:rpc.request.batch`. Gated by
     // `SOCKET_RELAY_BATCH_ENABLED`. See `docs/adrs/0008-relay-batch-protocol.md`.
     socket.on(socketEvents.relayRpcRequestBatch, (rawPayload: unknown) => {
+      touchConsumerActivity();
       void (async (): Promise<void> => {
         const tOverload = performance.now();
         const overload = getRelayOutboundQueueOverloadState();
@@ -419,6 +431,7 @@ export const registerConsumerSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.relayRpcStreamPull, (rawPayload: unknown) => {
+      touchConsumerActivity();
       const tOverload = performance.now();
       const overload = getRelayOutboundQueueOverloadState();
       observeRelayOverloadCheck(performance.now() - tOverload);
@@ -454,14 +467,17 @@ export const registerConsumerSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.socketEventSubscribe, (rawPayload: unknown) => {
+      touchConsumerActivity();
       handleCustomSocketEventSubscribe(socket, rawPayload);
     });
 
     socket.on(socketEvents.socketEventUnsubscribe, (rawPayload: unknown) => {
+      touchConsumerActivity();
       handleCustomSocketEventUnsubscribe(socket, rawPayload);
     });
 
     socket.on(socketEvents.socketEventPublish, (rawPayload: unknown) => {
+      touchConsumerActivity();
       handleCustomSocketEventPublish(socket, rawPayload);
     });
 

@@ -15,6 +15,7 @@ export const consumerIdleTouchEvents = [
   socketEvents.relayConversationStart,
   socketEvents.relayConversationEnd,
   socketEvents.relayRpcRequest,
+  socketEvents.relayRpcRequestBatch,
   socketEvents.relayRpcStreamPull,
   socketEvents.socketEventSubscribe,
   socketEvents.socketEventUnsubscribe,
@@ -38,3 +39,8 @@ export const touchConsumerRegistryOnInboundEvent = (
 
   return consumerRegistry.touch(socketId);
 };
+
+/** Refreshes idle timeout for a registered consumer handler without `onAny`. */
+export const touchConsumerRegistryOnSocketActivity = (
+  socketId: string,
+): ReturnType<typeof consumerRegistry.touch> => consumerRegistry.touch(socketId);

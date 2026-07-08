@@ -1248,9 +1248,7 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
         agentRuntime.agentHealth.responsesTotal,
       ),
     );
-    lines.push(
-      metricLine("plug_agent_health_poll_total", agentRuntime.agentHealth.pollTotal),
-    );
+    lines.push(metricLine("plug_agent_health_poll_total", agentRuntime.agentHealth.pollTotal));
     lines.push(
       metricLine(
         "plug_agent_health_piggyback_used_total",

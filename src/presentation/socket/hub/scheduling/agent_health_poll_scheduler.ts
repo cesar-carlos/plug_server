@@ -29,45 +29,41 @@ export const runAgentHealthPollSweep = async (
   const agents = agentRegistry.listAll();
   const outcomes: Array<"polled" | "skipped" | "failed"> = [];
 
-  await forEachWithConcurrencyLimit(
-    agents,
-    env.agentHealthPollConcurrency,
-    async (agent) => {
-      const readiness = agentRegistry.getProtocolReadiness(agent.agentId);
-      if (!readiness.ready) {
+  await forEachWithConcurrencyLimit(agents, env.agentHealthPollConcurrency, async (agent) => {
+    const readiness = agentRegistry.getProtocolReadiness(agent.agentId);
+    if (!readiness.ready) {
+      return;
+    }
+
+    if (isHealthPiggybackNegotiated(agent.capabilities)) {
+      if (agentRegistry.shouldSkipScheduledHealthPoll(agent.agentId, nowMs)) {
+        outcomes.push("skipped");
         return;
       }
+    }
 
-      if (isHealthPiggybackNegotiated(agent.capabilities)) {
-        if (agentRegistry.shouldSkipScheduledHealthPoll(agent.agentId, nowMs)) {
-          outcomes.push("skipped");
-          return;
-        }
-      }
-
-      try {
-        await dispatch({
+    try {
+      await dispatch({
+        agentId: agent.agentId,
+        timeoutMs: healthPollTimeoutMs,
+        command: {
+          jsonrpc: "2.0",
+          method: "agent.getHealth",
+          id: `hub-health-poll-${randomUUID()}`,
+          params: {},
+        },
+      });
+      outcomes.push("polled");
+    } catch (error: unknown) {
+      outcomes.push("failed");
+      if (logger.isLevelEnabled("debug")) {
+        logger.debug("agent_health_poll_failed", {
           agentId: agent.agentId,
-          timeoutMs: healthPollTimeoutMs,
-          command: {
-            jsonrpc: "2.0",
-            method: "agent.getHealth",
-            id: `hub-health-poll-${randomUUID()}`,
-            params: {},
-          },
+          message: error instanceof Error ? error.message : String(error),
         });
-        outcomes.push("polled");
-      } catch (error: unknown) {
-        outcomes.push("failed");
-        if (logger.isLevelEnabled("debug")) {
-          logger.debug("agent_health_poll_failed", {
-            agentId: agent.agentId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
       }
-    },
-  );
+    }
+  });
 
   return {
     polled: outcomes.filter((outcome) => outcome === "polled").length,

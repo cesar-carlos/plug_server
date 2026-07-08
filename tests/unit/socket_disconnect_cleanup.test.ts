@@ -4,6 +4,7 @@ import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Namespace } from "socket.io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import * as consumerSocketGuard from "../../src/presentation/socket/consumers/consumer_socket_guard";
 import * as rpcBridge from "../../src/presentation/socket/hub/relay/rpc_bridge";
 import { agentRegistry } from "../../src/presentation/socket/hub/registries/agent_registry";
 import { conversationRegistry } from "../../src/presentation/socket/hub/registries/conversation_registry";
@@ -78,6 +79,14 @@ describe("socket disconnect cleanup wiring", () => {
     vi.spyOn(rpcBridge, "unregisterConsumerBridgeSocket").mockImplementation(() => {
       callOrder.push("unregisterConsumerBridgeSocket");
     });
+    vi.spyOn(consumerSocketGuard, "clearInflightAgentAccessForSocket").mockImplementation(() => {
+      callOrder.push("clearInflightAgentAccessForSocket");
+    });
+    vi.spyOn(consumerSocketGuard, "clearAllConsumerSocketAgentAccessSnapshots").mockImplementation(
+      () => {
+        callOrder.push("clearAllConsumerSocketAgentAccessSnapshots");
+      },
+    );
     vi.spyOn(rpcBridge, "cleanupConsumerStreamSubscriptions").mockImplementation(() => {
       callOrder.push("cleanupConsumerStreamSubscriptions");
     });
@@ -92,6 +101,8 @@ describe("socket disconnect cleanup wiring", () => {
 
     expect(callOrder).toEqual([
       "unregisterConsumerBridgeSocket",
+      "clearInflightAgentAccessForSocket",
+      "clearAllConsumerSocketAgentAccessSnapshots",
       "cleanupConsumerStreamSubscriptions",
       "finalizeConversationsClosedByConsumerDisconnect",
     ]);

@@ -8,12 +8,8 @@ import { registerConsumerSocketControlHandler } from "./application/services/con
 import { registerConsumerSocketEventHandler } from "./application/services/consumer_socket_event_sink";
 import { buildConsumerSocketControlHandlers } from "./presentation/socket/hub/build_consumer_socket_control_handlers";
 import { buildConsumerSocketPublishHandler } from "./presentation/socket/hub/build_consumer_socket_publish_handler";
-import {
-  registerAgentSocketConnectionHandlers,
-} from "./presentation/socket/hub/register_agent_socket_handlers";
-import {
-  registerConsumerSocketConnectionHandlers,
-} from "./presentation/socket/hub/register_consumer_socket_handlers";
+import { registerAgentSocketConnectionHandlers } from "./presentation/socket/hub/register_agent_socket_handlers";
+import { registerConsumerSocketConnectionHandlers } from "./presentation/socket/hub/register_consumer_socket_handlers";
 import { registerSocketHubErrorHandlers } from "./presentation/socket/hub/socket_hub_error_handlers";
 import {
   authenticateAgentSocket,
@@ -38,9 +34,7 @@ import {
 } from "./presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
 import { buildCorsOptions } from "./shared/config/cors";
 import { env } from "./shared/config/env";
-import {
-  buildLegacySocketAppErrorPayload,
-} from "./shared/constants/socket_app_error";
+import { buildLegacySocketAppErrorPayload } from "./shared/constants/socket_app_error";
 import { socketEvents, SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { logger } from "./shared/utils/logger";
 import {

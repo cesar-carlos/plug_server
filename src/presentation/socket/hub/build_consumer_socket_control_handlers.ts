@@ -4,11 +4,11 @@ import type { ConsumerSocketControlHandler } from "../../../application/services
 import type { LegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import {
-  clearAllConsumerSocketAgentAccessSnapshots,
-  clearConsumerSocketAgentAccessSnapshot,
+  invalidateLocalAgentAccessSnapshotsByAgentId,
+  invalidateLocalClientAgentAccessSnapshot,
+  invalidateLocalUserAccessSnapshots,
 } from "../consumers/consumer_socket_guard";
 import {
-  buildConsumerAgentProfileRoom,
   buildConsumerClientAgentRoom,
   buildConsumerClientRoom,
   joinConsumerClientAgentRoom,
@@ -85,12 +85,7 @@ export const buildConsumerSocketControlHandlers = (
     },
     invalidateClientAgentAccessSnapshot: async (event) => {
       try {
-        const sockets = await consumersNsp
-          .in(buildConsumerClientRoom(event.clientId))
-          .fetchSockets();
-        for (const remote of sockets) {
-          clearConsumerSocketAgentAccessSnapshot(remote, event.agentId);
-        }
+        invalidateLocalClientAgentAccessSnapshot(consumersNsp, event.clientId, event.agentId);
       } catch (error: unknown) {
         logger.warn("consumer_socket_agent_access_snapshot_invalidate_failed", {
           clientId: event.clientId,
@@ -101,12 +96,7 @@ export const buildConsumerSocketControlHandlers = (
     },
     invalidateAgentAccessSnapshot: async (event) => {
       try {
-        const sockets = await consumersNsp
-          .in(buildConsumerAgentProfileRoom(event.agentId))
-          .fetchSockets();
-        for (const remote of sockets) {
-          clearConsumerSocketAgentAccessSnapshot(remote, event.agentId);
-        }
+        invalidateLocalAgentAccessSnapshotsByAgentId(consumersNsp, event.agentId);
       } catch (error: unknown) {
         logger.warn("consumer_socket_agent_access_snapshot_invalidate_by_agent_failed", {
           agentId: event.agentId,
@@ -115,12 +105,8 @@ export const buildConsumerSocketControlHandlers = (
       }
     },
     invalidateUserAccessSnapshot: async (event) => {
-      const room = `consumer:principal:user:${event.userId}`;
       try {
-        const sockets = await consumersNsp.in(room).fetchSockets();
-        for (const remote of sockets) {
-          clearAllConsumerSocketAgentAccessSnapshots(remote);
-        }
+        invalidateLocalUserAccessSnapshots(consumersNsp, event.userId);
       } catch (error: unknown) {
         logger.warn("consumer_socket_agent_access_snapshot_invalidate_by_user_failed", {
           userId: event.userId,

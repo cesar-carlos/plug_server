@@ -131,7 +131,8 @@ export const emitRelayAgentDisconnectedStream = (
   }
 
   relayMetrics.streamTerminalCompletions += 1;
-  const streamId = activeStream.streamId ?? getActiveStreamRouteByRequestId(route.requestId)?.streamId;
+  const streamId =
+    activeStream.streamId ?? getActiveStreamRouteByRequestId(route.requestId)?.streamId;
   const terminalPayload: Record<string, unknown> = {
     request_id: route.requestId,
     total_rows: getRelayStreamForwardedRows(route.requestId),
@@ -196,7 +197,11 @@ export const notifyConsumersForAgentRelayDisconnect = (
 
   for (const requestId of listStreamRequestIdsForAgent(agentSocketId)) {
     const activeStream = getActiveStreamRouteByRequestId(requestId);
-    if (!activeStream || activeStream.agentSocketId !== agentSocketId || activeStream.mode !== "relay") {
+    if (
+      !activeStream ||
+      activeStream.agentSocketId !== agentSocketId ||
+      activeStream.mode !== "relay"
+    ) {
       continue;
     }
     const relayRoute = getRelayRequestRoute(requestId);

@@ -259,7 +259,10 @@ describe.skipIf(!liveAgentId)("E2E live hub (real server + agent)", () => {
         success: boolean;
         response?: { item?: { result?: { openrpc?: string } } };
       }>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("agents:command_response timeout")), 20_000);
+        const timer = setTimeout(
+          () => reject(new Error("agents:command_response timeout")),
+          20_000,
+        );
         consumer.once("agents:command_response", (raw: unknown) => {
           clearTimeout(timer);
           try {

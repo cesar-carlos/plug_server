@@ -17,6 +17,7 @@ vi.mock("../../../../../src/shared/utils/jwt", () => ({
 
 vi.mock("../../../../../src/shared/config/env", () => ({
   env: {
+    nodeEnv: "test",
     socketAuthRequired: true,
     socketAgentAuthBypassAllowed: false,
     socketAgentRoles: ["agent"],

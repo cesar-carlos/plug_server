@@ -5,6 +5,7 @@ import {
   consumerIdleTouchEvents,
   isConsumerIdleTouchEvent,
   touchConsumerRegistryOnInboundEvent,
+  touchConsumerRegistryOnSocketActivity,
 } from "../../../../../src/presentation/socket/hub/scheduling/consumer_idle_touch_events";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
@@ -26,6 +27,7 @@ describe("consumer_idle_touch_events", () => {
       socketEvents.relayConversationStart,
       socketEvents.relayConversationEnd,
       socketEvents.relayRpcRequest,
+      socketEvents.relayRpcRequestBatch,
       socketEvents.relayRpcStreamPull,
       socketEvents.socketEventSubscribe,
       socketEvents.socketEventUnsubscribe,
@@ -78,5 +80,18 @@ describe("consumer_idle_touch_events", () => {
 
   it("does not touch unknown sockets even for allowlisted events", () => {
     expect(touchConsumerRegistryOnInboundEvent("missing", socketEvents.agentsCommand)).toBeNull();
+  });
+
+  it("touchConsumerRegistryOnSocketActivity refreshes lastSeenAt for registered sockets", () => {
+    vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
+    consumerRegistry.registerSession({
+      socketId: "sock-activity",
+      userId: "user-1",
+      principalType: "user",
+    });
+
+    vi.setSystemTime(new Date("2026-05-08T10:04:00.000Z"));
+    const touched = touchConsumerRegistryOnSocketActivity("sock-activity");
+    expect(touched?.lastSeenAt).toBe("2026-05-08T10:04:00.000Z");
   });
 });

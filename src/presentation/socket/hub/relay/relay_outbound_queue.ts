@@ -134,9 +134,7 @@ const computeOverloadSignals = (
 
   const overloadedByBacklog =
     backlogThresholds.enter > 0 &&
-    (wasOverloaded
-      ? backlog >= backlogThresholds.exit
-      : backlog >= backlogThresholds.enter);
+    (wasOverloaded ? backlog >= backlogThresholds.exit : backlog >= backlogThresholds.enter);
   const overloadedByP95 =
     p95Thresholds.enter > 0 &&
     (wasOverloaded ? p95Ms >= p95Thresholds.exit : p95Ms >= p95Thresholds.enter);

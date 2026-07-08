@@ -869,12 +869,7 @@ const envSchema = z.object({
    */
   AGENT_HEALTH_POLL_ENABLED: z.coerce.boolean().default(false),
   /** Interval for scheduled `agent.getHealth` polls. `0` disables when combined with enabled flag. */
-  AGENT_HEALTH_POLL_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(3_600_000)
-    .default(60_000),
+  AGENT_HEALTH_POLL_INTERVAL_MS: z.coerce.number().int().min(0).max(3_600_000).default(60_000),
   /** Max concurrent `agent.getHealth` polls per sweep. */
   AGENT_HEALTH_POLL_CONCURRENCY: z.coerce.number().int().positive().max(256).default(8),
   /**

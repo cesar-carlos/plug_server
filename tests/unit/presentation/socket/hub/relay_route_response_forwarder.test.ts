@@ -80,7 +80,9 @@ describe("forwardRelayRouteResponse", () => {
     });
   };
 
-  const registerRoute = (overrides: Partial<Parameters<typeof registerRelayRequestRoute>[0]> = {}): void => {
+  const registerRoute = (
+    overrides: Partial<Parameters<typeof registerRelayRequestRoute>[0]> = {},
+  ): void => {
     registerRelayRequestRoute({
       requestId: REQUEST_ID,
       conversationId: CONVERSATION_ID,

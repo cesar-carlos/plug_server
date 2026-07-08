@@ -1,7 +1,10 @@
 import { recordSocketAuditEvent } from "../../../../application/services/socket_audit.service";
 import { observeBridgeRpcMethod } from "../../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../../shared/config/env";
-import { noteRelayBodyIdEcho, noteRelayChunkAfterCompleteDropped } from "../../../../shared/metrics/socket_consumer.metrics";
+import {
+  noteRelayBodyIdEcho,
+  noteRelayChunkAfterCompleteDropped,
+} from "../../../../shared/metrics/socket_consumer.metrics";
 import { sampledMetricDelta } from "../../../../shared/metrics/metrics_sample";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { logger } from "../../../../shared/utils/logger";
@@ -15,10 +18,7 @@ import {
   getRelayIdempotencyMap,
   setRelayIdempotencyEntry,
 } from "../registries/relay_idempotency_store";
-import {
-  enqueueRelayOutbound,
-  encodeRelayOutboundFrame,
-} from "./relay_outbound_queue";
+import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import type { RelayChunkRawForward } from "./relay_stream_flow_state";
 import {
   getRelayStreamFlowCredits,

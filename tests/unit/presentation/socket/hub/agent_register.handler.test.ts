@@ -118,10 +118,7 @@ describe("handleAgentRegister parallelBatchDispatch adoption", () => {
     );
 
     expect(getSocketAgentMetricsSnapshot().parallelBatchDispatchNegotiatedTotal).toBe(1);
-    expect(socket.emit).toHaveBeenCalledWith(
-      socketEvents.agentCapabilities,
-      expect.anything(),
-    );
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.agentCapabilities, expect.anything());
     expect(scheduleAgentProfileSync).toHaveBeenCalledWith({
       agentId: AGENT_ID,
       userId: USER_ID,
@@ -131,14 +128,10 @@ describe("handleAgentRegister parallelBatchDispatch adoption", () => {
   it("should not increment parallelBatchDispatchNegotiatedTotal when extension is omitted", async () => {
     const socket = createAgentSocket();
 
-    await handleAgentRegister(
-      socket,
-      buildRegisterFrame(baseCapabilities),
-      {
-        agentsNsp: createAgentsNamespace(SOCKET_ID),
-        scheduleAgentProfileSync: vi.fn(),
-      },
-    );
+    await handleAgentRegister(socket, buildRegisterFrame(baseCapabilities), {
+      agentsNsp: createAgentsNamespace(SOCKET_ID),
+      scheduleAgentProfileSync: vi.fn(),
+    });
 
     expect(getSocketAgentMetricsSnapshot().parallelBatchDispatchNegotiatedTotal).toBe(0);
   });

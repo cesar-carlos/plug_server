@@ -225,16 +225,14 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       const decodedBodyId = toRequestId(decodedResponseRecord?.id);
       const registeredAgent = agentRegistry.findByAgentId(relayRoute.agentId);
       const agentPhaseTimingsNegotiated =
-        registeredAgent != null &&
-        isAgentPhaseTimingsNegotiated(registeredAgent.capabilities);
+        registeredAgent != null && isAgentPhaseTimingsNegotiated(registeredAgent.capabilities);
       const responseMeta = decodedResponseRecord?.meta;
       const responseHasAgentPhases =
         isRecord(responseMeta) &&
         (responseMeta.agent_phases !== undefined || responseMeta.agentPhases !== undefined);
       const mustStripAgentPhases = responseHasAgentPhases && !agentPhaseTimingsNegotiated;
       const shouldEchoClientBodyId =
-        relayRoute.clientRequestId !== undefined &&
-        decodedBodyId !== relayRoute.clientRequestId;
+        relayRoute.clientRequestId !== undefined && decodedBodyId !== relayRoute.clientRequestId;
       const canBypassReencode =
         !shouldAttachServerTimings && !shouldEchoClientBodyId && !mustStripAgentPhases;
 

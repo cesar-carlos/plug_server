@@ -9,12 +9,12 @@ vi.mock(
 );
 
 vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard", () => ({
-  clearConsumerSocketAgentAccessSnapshot: vi.fn(),
-  clearAllConsumerSocketAgentAccessSnapshots: vi.fn(),
+  invalidateLocalAgentAccessSnapshotsByAgentId: vi.fn(),
+  invalidateLocalClientAgentAccessSnapshot: vi.fn(),
+  invalidateLocalUserAccessSnapshots: vi.fn(),
 }));
 
 vi.mock("../../../../../src/presentation/socket/hub/consumer_identity_rooms", () => ({
-  buildConsumerAgentProfileRoom: vi.fn((agentId: string) => `consumer:agent-profile:${agentId}`),
   buildConsumerClientAgentRoom: vi.fn(
     ({ clientId, agentId }: { clientId: string; agentId: string }) =>
       `consumer:client-agent:${clientId}:${agentId}`,
@@ -25,12 +25,16 @@ vi.mock("../../../../../src/presentation/socket/hub/consumer_identity_rooms", ()
 
 import { buildConsumerSocketControlHandlers } from "../../../../../src/presentation/socket/hub/build_consumer_socket_control_handlers";
 import { invalidateApprovedAgentIdsCache } from "../../../../../src/presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
-import { clearConsumerSocketAgentAccessSnapshot } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
-import { buildConsumerAgentProfileRoom } from "../../../../../src/presentation/socket/hub/consumer_identity_rooms";
+import {
+  invalidateLocalAgentAccessSnapshotsByAgentId,
+  invalidateLocalClientAgentAccessSnapshot,
+  invalidateLocalUserAccessSnapshots,
+} from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 
 const mockedInvalidateApprovedCache = vi.mocked(invalidateApprovedAgentIdsCache);
-const mockedClearSnapshot = vi.mocked(clearConsumerSocketAgentAccessSnapshot);
-const mockedBuildAgentProfileRoom = vi.mocked(buildConsumerAgentProfileRoom);
+const mockedInvalidateLocalByAgent = vi.mocked(invalidateLocalAgentAccessSnapshotsByAgentId);
+const mockedInvalidateLocalClientAgent = vi.mocked(invalidateLocalClientAgentAccessSnapshot);
+const mockedInvalidateLocalUser = vi.mocked(invalidateLocalUserAccessSnapshots);
 
 describe("buildConsumerSocketControlHandlers", () => {
   const disconnectConsumerSocketsInRoom = vi.fn(async () => 0);
@@ -42,9 +46,6 @@ describe("buildConsumerSocketControlHandlers", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedBuildAgentProfileRoom.mockImplementation(
-      (agentId: string) => `consumer:agent-profile:${agentId}`,
-    );
   });
 
   it("invalidates approved-agent cache on grant and revoke", async () => {
@@ -68,12 +69,7 @@ describe("buildConsumerSocketControlHandlers", () => {
     expect(mockedInvalidateApprovedCache).toHaveBeenCalledTimes(2);
   });
 
-  it("invalidates agent access snapshots across replicas via fetchSockets", async () => {
-    const remoteA = { id: "sock-a" };
-    const remoteB = { id: "sock-b" };
-    const fetchSockets = vi.fn(async () => [remoteA, remoteB]);
-    (consumersNsp.in as ReturnType<typeof vi.fn>).mockReturnValue({ fetchSockets });
-
+  it("invalidates agent access snapshots via local reverse index without fetchSockets", async () => {
     const handlers = buildConsumerSocketControlHandlers({
       consumersNsp,
       clientProfileRecipientsCacheByAgentId,
@@ -81,9 +77,19 @@ describe("buildConsumerSocketControlHandlers", () => {
     });
 
     await handlers.invalidateAgentAccessSnapshot?.({ agentId: "agent-9" });
+    await handlers.invalidateClientAgentAccessSnapshot?.({
+      clientId: "client-1",
+      agentId: "agent-9",
+    });
+    await handlers.invalidateUserAccessSnapshot?.({ userId: "user-1" });
 
-    expect(consumersNsp.in).toHaveBeenCalledWith("consumer:agent-profile:agent-9");
-    expect(mockedClearSnapshot).toHaveBeenCalledWith(remoteA, "agent-9");
-    expect(mockedClearSnapshot).toHaveBeenCalledWith(remoteB, "agent-9");
+    expect(mockedInvalidateLocalByAgent).toHaveBeenCalledWith(consumersNsp, "agent-9");
+    expect(mockedInvalidateLocalClientAgent).toHaveBeenCalledWith(
+      consumersNsp,
+      "client-1",
+      "agent-9",
+    );
+    expect(mockedInvalidateLocalUser).toHaveBeenCalledWith(consumersNsp, "user-1");
+    expect(consumersNsp.in).not.toHaveBeenCalled();
   });
 });
