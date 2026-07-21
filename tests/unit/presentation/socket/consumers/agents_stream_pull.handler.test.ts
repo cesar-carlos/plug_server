@@ -149,10 +149,10 @@ describe("handleAgentsStreamPull", () => {
     });
   });
 
-  it("emits protocol error when payload is not an object or PayloadFrame", () => {
+  it("emits protocol error when payload is not an object or PayloadFrame", async () => {
     const socket = buildSocket();
 
-    handleAgentsStreamPull(socket as never, "invalid");
+    await handleAgentsStreamPull(socket as never, "invalid");
 
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.appError,
@@ -170,7 +170,7 @@ describe("handleAgentsStreamPull", () => {
       { requestId: "req-1" },
     );
 
-    handleAgentsStreamPull(socket as never, framed);
+    await handleAgentsStreamPull(socket as never, framed);
 
     await vi.waitFor(() => {
       expectAgentsStreamPullResponse(socket.emit, {
@@ -182,11 +182,11 @@ describe("handleAgentsStreamPull", () => {
     });
   });
 
-  it("returns RATE_LIMITED when the per-socket inflight gate is full", () => {
+  it("returns RATE_LIMITED when the per-socket inflight gate is full", async () => {
     const socket = buildSocket();
     mockedTryAcquire.mockReturnValue(false);
 
-    handleAgentsStreamPull(socket as never, { requestId: "req-1" });
+    await handleAgentsStreamPull(socket as never, { requestId: "req-1" });
 
     expectAgentsStreamPullResponse(socket.emit, {
       success: false,
@@ -198,11 +198,11 @@ describe("handleAgentsStreamPull", () => {
     });
   });
 
-  it("does not emit stream pull response when socket is disconnected", () => {
+  it("does not emit stream pull response when socket is disconnected", async () => {
     const socket = { ...buildSocket(), connected: false };
     mockedTryAcquire.mockReturnValue(false);
 
-    handleAgentsStreamPull(socket as never, { requestId: "req-1" });
+    await handleAgentsStreamPull(socket as never, { requestId: "req-1" });
 
     expect(socket.emit).not.toHaveBeenCalled();
   });
@@ -211,7 +211,7 @@ describe("handleAgentsStreamPull", () => {
     const socket = buildSocket();
     mockedAllowAgentsCommandSocket.mockResolvedValue(false);
 
-    handleAgentsStreamPull(socket as never, { requestId: "req-1" });
+    await handleAgentsStreamPull(socket as never, { requestId: "req-1" });
 
     await vi.waitFor(() => {
       expectAgentsStreamPullResponse(socket.emit, {
@@ -235,7 +235,7 @@ describe("handleAgentsStreamPull", () => {
         }),
     );
 
-    handleAgentsStreamPull(socket as never, { requestId: "req-1" });
+    await handleAgentsStreamPull(socket as never, { requestId: "req-1" });
 
     await vi.waitFor(() => expect(mockedAssertAccess).toHaveBeenCalled());
     expect(abortPendingConsumerCommands("consumer-1")).toBe(1);
@@ -266,7 +266,7 @@ describe("handleAgentsStreamPull", () => {
     });
     mockedRefundAgentsStreamPullCredits.mockRejectedValue(new Error("redis unavailable"));
 
-    handleAgentsStreamPull(socket as never, { requestId: "req-1" });
+    await handleAgentsStreamPull(socket as never, { requestId: "req-1" });
 
     await vi.waitFor(() => {
       expect(mockedRefundAgentsStreamPullCredits).toHaveBeenCalledWith("user-1", "consumer-1", 16);

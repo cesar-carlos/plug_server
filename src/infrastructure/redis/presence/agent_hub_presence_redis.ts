@@ -77,6 +77,36 @@ const parsePresenceRecord = (raw: string): AgentHubPresenceRecord | null => {
 
 const serializePresenceRecord = (record: AgentHubPresenceRecord): string => JSON.stringify(record);
 
+const TOUCH_PRESENCE_SCRIPT = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then
+  return 0
+end
+local ok, record = pcall(cjson.decode, raw)
+if not ok or type(record) ~= 'table' then
+  return 0
+end
+record['lastSeenAtMs'] = tonumber(ARGV[1])
+redis.call('SET', KEYS[1], cjson.encode(record), 'EX', tonumber(ARGV[2]))
+return 1
+`;
+
+const REMOVE_IF_FIELD_MATCHES_SCRIPT = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then
+  return 0
+end
+local ok, record = pcall(cjson.decode, raw)
+if not ok or type(record) ~= 'table' then
+  return 0
+end
+if record[ARGV[1]] ~= ARGV[2] then
+  return 0
+end
+redis.call('DEL', KEYS[1])
+return 1
+`;
+
 class AgentHubPresenceRedis implements AgentHubPresencePort {
   readonly isEnabled: boolean;
 
@@ -118,21 +148,12 @@ class AgentHubPresenceRedis implements AgentHubPresencePort {
       return;
     }
     const key = agentHubPresenceKey(agentId);
-    await recordCommandLatency(async () => {
-      const raw = await client.get(key);
-      if (raw === null) {
-        return;
-      }
-      const existing = parsePresenceRecord(raw);
-      if (existing === null) {
-        return;
-      }
-      const updated: AgentHubPresenceRecord = {
-        ...existing,
-        lastSeenAtMs: Date.now(),
-      };
-      await client.set(key, serializePresenceRecord(updated), { EX: presenceTtlSeconds() });
-    });
+    await recordCommandLatency(() =>
+      client.eval(TOUCH_PRESENCE_SCRIPT, {
+        keys: [key],
+        arguments: [String(Date.now()), String(presenceTtlSeconds())],
+      }),
+    );
   }
 
   async removeIfHubInstanceMatches(agentId: string, hubInstanceId: string): Promise<void> {
@@ -144,17 +165,12 @@ class AgentHubPresenceRedis implements AgentHubPresencePort {
       return;
     }
     const key = agentHubPresenceKey(agentId);
-    await recordCommandLatency(async () => {
-      const raw = await client.get(key);
-      if (raw === null) {
-        return;
-      }
-      const existing = parsePresenceRecord(raw);
-      if (existing === null || existing.hubInstanceId !== hubInstanceId) {
-        return;
-      }
-      await client.del(key);
-    });
+    await recordCommandLatency(() =>
+      client.eval(REMOVE_IF_FIELD_MATCHES_SCRIPT, {
+        keys: [key],
+        arguments: ["hubInstanceId", hubInstanceId],
+      }),
+    );
   }
 
   async removeIfSocketMatches(agentId: string, socketId: string): Promise<void> {
@@ -166,17 +182,12 @@ class AgentHubPresenceRedis implements AgentHubPresencePort {
       return;
     }
     const key = agentHubPresenceKey(agentId);
-    await recordCommandLatency(async () => {
-      const raw = await client.get(key);
-      if (raw === null) {
-        return;
-      }
-      const existing = parsePresenceRecord(raw);
-      if (existing === null || existing.socketId !== socketId) {
-        return;
-      }
-      await client.del(key);
-    });
+    await recordCommandLatency(() =>
+      client.eval(REMOVE_IF_FIELD_MATCHES_SCRIPT, {
+        keys: [key],
+        arguments: ["socketId", socketId],
+      }),
+    );
   }
 
   async resolveRoute(agentId: string): Promise<{ readonly hubInstanceId: string } | null> {

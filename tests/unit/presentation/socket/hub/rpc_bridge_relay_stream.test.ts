@@ -76,6 +76,19 @@ describe("rpc_bridge_relay_stream", () => {
     expect(getRelayStreamFlowCredits("r1")).toBe(0);
   });
 
+  it("emitRelayTimeoutResponse emits after the production path settles the route", async () => {
+    const emit = vi.fn(() => true);
+    const route = makeRoute({ clientRequestId: "cid-settled", requestId: "r-settled" });
+    route.settled = true;
+    emitRelayTimeoutResponse(route, emit);
+    await flushRelayOutbound();
+    expect(emit).toHaveBeenCalledWith(
+      "cons1",
+      socketEvents.relayRpcResponse,
+      expect.anything(),
+    );
+  });
+
   it("emitRelayTimeoutResponse emits error frame and stores idempotency response", async () => {
     const emit = vi.fn(() => true);
     const route = makeRoute({ clientRequestId: "cid1", requestId: "r99" });

@@ -136,10 +136,10 @@ describe("handleAgentsCommand", () => {
     mockedCreateBridgeLatencyTraceForRequest.mockReturnValue(traceStub);
   });
 
-  it("emits protocol error when payload is not an object or PayloadFrame", () => {
+  it("emits protocol error when payload is not an object or PayloadFrame", async () => {
     const socket = buildSocket();
 
-    handleAgentsCommand(socket as never, "invalid");
+    await handleAgentsCommand(socket as never, "invalid");
 
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.appError,
@@ -161,7 +161,7 @@ describe("handleAgentsCommand", () => {
       },
     } as never);
 
-    handleAgentsCommand(
+    await handleAgentsCommand(
       socket as never,
       encodePayloadFrame(validPayload, { requestId: "req-1", omitTraceId: true }),
     );
@@ -179,10 +179,10 @@ describe("handleAgentsCommand", () => {
     });
   });
 
-  it("emits validation error response when payload schema is invalid", () => {
+  it("emits validation error response when payload schema is invalid", async () => {
     const socket = buildSocket();
 
-    handleAgentsCommand(socket as never, { agentId: "agent-1" });
+    await handleAgentsCommand(socket as never, { agentId: "agent-1" });
 
     expectAgentsCommandResponse(socket.emit, {
       success: false,
@@ -192,11 +192,11 @@ describe("handleAgentsCommand", () => {
     });
   });
 
-  it("returns RATE_LIMITED when the per-socket inflight gate is full", () => {
+  it("returns RATE_LIMITED when the per-socket inflight gate is full", async () => {
     mockedTryAcquire.mockReturnValue(false);
     const socket = buildSocket();
 
-    handleAgentsCommand(socket as never, validPayload);
+    await handleAgentsCommand(socket as never, validPayload);
 
     expect(mockedAllowAgentsCommandSocket).not.toHaveBeenCalled();
     expect(mockedReleaseInflight).not.toHaveBeenCalled();
@@ -211,10 +211,10 @@ describe("handleAgentsCommand", () => {
     });
   });
 
-  it("includes command id as requestId on validation errors when present", () => {
+  it("includes command id as requestId on validation errors when present", async () => {
     const socket = buildSocket();
 
-    handleAgentsCommand(socket as never, {
+    await handleAgentsCommand(socket as never, {
       agentId: "agent-1",
       command: {
         jsonrpc: "2.0",
@@ -236,7 +236,7 @@ describe("handleAgentsCommand", () => {
     mockedTryAcquire.mockReturnValue(false);
     const socket = { ...buildSocket(), connected: false };
 
-    handleAgentsCommand(socket as never, validPayload);
+    await handleAgentsCommand(socket as never, validPayload);
 
     expect(socket.emit).not.toHaveBeenCalled();
   });
@@ -245,7 +245,7 @@ describe("handleAgentsCommand", () => {
     const socket = buildSocket();
     mockedAllowAgentsCommandSocket.mockResolvedValue(false);
 
-    handleAgentsCommand(socket as never, validPayload);
+    await handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
       expectAgentsCommandResponse(socket.emit, {
@@ -268,7 +268,7 @@ describe("handleAgentsCommand", () => {
       acceptedCommands: 1,
     } as never);
 
-    handleAgentsCommand(socket as never, validPayload);
+    await handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
       expectAgentsCommandResponse(socket.emit, {
@@ -301,7 +301,7 @@ describe("handleAgentsCommand", () => {
       },
     } as never);
 
-    handleAgentsCommand(socket as never, validPayload);
+    await handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
       expectAgentsCommandResponse(socket.emit, {
@@ -343,7 +343,7 @@ describe("handleAgentsCommand", () => {
       },
     } as never);
 
-    handleAgentsCommand(socket as never, validPayload);
+    await handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
       expectAgentsCommandResponse(socket.emit, {
@@ -360,7 +360,7 @@ describe("handleAgentsCommand", () => {
       new AgentDisconnectedBeforeDispatchError("agent-1", validPayload.command),
     );
 
-    handleAgentsCommand(socket as never, validPayload);
+    await handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
       expectAgentsCommandResponse(socket.emit, {
@@ -395,7 +395,7 @@ describe("handleAgentsCommand", () => {
       }),
     );
 
-    handleAgentsCommand(socket as never, validPayload);
+    await handleAgentsCommand(socket as never, validPayload);
 
     await vi.waitFor(() => {
       expectAgentsCommandResponse(socket.emit, {
@@ -422,7 +422,7 @@ describe("handleAgentsCommand", () => {
         },
       } as never);
 
-      handleAgentsCommand(socket as never, validPayload);
+      await handleAgentsCommand(socket as never, validPayload);
 
       await vi.waitFor(() => {
         const wirePayload = socket.emit.mock.calls.find(
@@ -448,7 +448,7 @@ describe("handleAgentsCommand", () => {
         },
       } as never);
 
-      handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
+      await handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
 
       await vi.waitFor(() => {
         const wirePayload = socket.emit.mock.calls.find(
@@ -469,14 +469,14 @@ describe("handleAgentsCommand", () => {
       });
     });
 
-    it("forces an active latency trace when the consumer requested serverTimings", () => {
+    it("forces an active latency trace when the consumer requested serverTimings", async () => {
       const socket = buildSocket();
       mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
         requestId: "req-1",
         response: { type: "single", success: true, item: { id: "req-1", result: {} } },
       } as never);
 
-      handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
+      await handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
 
       expect(mockedCreateBridgeLatencyTraceForRequest).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -487,7 +487,7 @@ describe("handleAgentsCommand", () => {
       );
     });
 
-    it("increments serverTimings opt-in counter for the agents_command channel", () => {
+    it("increments serverTimings opt-in counter for the agents_command channel", async () => {
       vi.mocked(noteServerTimingsOptIn).mockClear();
       const socket = buildSocket();
       mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
@@ -495,12 +495,12 @@ describe("handleAgentsCommand", () => {
         response: { type: "single", success: true, item: { id: "req-1", result: {} } },
       } as never);
 
-      handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
+      await handleAgentsCommand(socket as never, { ...validPayload, requestServerTimings: true });
 
       expect(noteServerTimingsOptIn).toHaveBeenCalledWith("agents_command");
     });
 
-    it("does not increment serverTimings opt-in counter when the flag is absent", () => {
+    it("does not increment serverTimings opt-in counter when the flag is absent", async () => {
       vi.mocked(noteServerTimingsOptIn).mockClear();
       const socket = buildSocket();
       mockedExecuteAuthorizedAgentCommand.mockResolvedValue({
@@ -508,7 +508,7 @@ describe("handleAgentsCommand", () => {
         response: { type: "single", success: true, item: { id: "req-1", result: {} } },
       } as never);
 
-      handleAgentsCommand(socket as never, validPayload);
+      await handleAgentsCommand(socket as never, validPayload);
 
       expect(noteServerTimingsOptIn).not.toHaveBeenCalled();
     });

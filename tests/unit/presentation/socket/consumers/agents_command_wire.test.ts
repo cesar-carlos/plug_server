@@ -26,11 +26,11 @@ const validCommandBody = {
 };
 
 describe("agents_command_wire", () => {
-  it("builds a PayloadFrame response by default and keeps a documented removal date", () => {
+  it("builds a PayloadFrame response by default and keeps a documented removal date", async () => {
     expect(env.socketAgentsCommandCompatMode).toBe("payload_frame");
     expect(AGENTS_COMMAND_LEGACY_COMPAT_REMOVE_AFTER).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-    const payload = buildAgentsCommandResponseForWire({
+    const payload = await buildAgentsCommandResponseForWire({
       success: true,
       requestId: "req-1",
       response: { type: "single", success: true, item: { id: "req-1", result: { ok: true } } },
@@ -49,22 +49,22 @@ describe("agents_command_wire", () => {
     }
   });
 
-  it("accepts inbound plain JSON during the migration window", () => {
-    const decoded = decodeAgentsCommandInboundPayload(validCommandBody);
+  it("accepts inbound plain JSON during the migration window", async () => {
+    const decoded = await decodeAgentsCommandInboundPayload(validCommandBody);
     expect(decoded).toEqual({ ok: true, data: validCommandBody });
   });
 
-  it("accepts inbound PayloadFrame during the migration window", () => {
+  it("accepts inbound PayloadFrame during the migration window", async () => {
     const framed = encodePayloadFrame(validCommandBody, { requestId: "req-1", omitTraceId: true });
-    const decoded = decodeAgentsCommandInboundPayload(framed);
+    const decoded = await decodeAgentsCommandInboundPayload(framed);
     expect(decoded.ok).toBe(true);
     if (decoded.ok) {
       expect(decoded.data).toEqual(validCommandBody);
     }
   });
 
-  it("rejects invalid inbound PayloadFrame with a protocol message", () => {
-    const decoded = decodeAgentsCommandInboundPayload({
+  it("rejects invalid inbound PayloadFrame with a protocol message", async () => {
+    const decoded = await decodeAgentsCommandInboundPayload({
       schemaVersion: "1.0",
       enc: "json",
       cmp: "none",
@@ -79,8 +79,8 @@ describe("agents_command_wire", () => {
     }
   });
 
-  it("rejects non-object inbound payloads", () => {
-    expect(decodeAgentsCommandInboundPayload("invalid")).toEqual({
+  it("rejects non-object inbound payloads", async () => {
+    await expect(decodeAgentsCommandInboundPayload("invalid")).resolves.toEqual({
       ok: false,
       message: "agents:command payload must be an object or PayloadFrame",
     });
@@ -122,7 +122,7 @@ describe("agents_command_wire", () => {
 
     const mod =
       await import("../../../../../src/presentation/socket/consumers/agents_command_wire");
-    const response = mod.buildAgentsCommandResponseForWire({
+    const response = await mod.buildAgentsCommandResponseForWire({
       success: false,
       requestId: "req-legacy",
       error: { code: "VALIDATION_ERROR", message: "bad" },

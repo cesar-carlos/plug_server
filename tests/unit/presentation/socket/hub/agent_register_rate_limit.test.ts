@@ -10,16 +10,23 @@ import { env } from "../../../../../src/shared/config/env";
 
 vi.mock("../../../../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis", () => ({
   consumeSocketRateLimitRedis: vi.fn(),
+  refundSocketRateLimitRedis: vi.fn(),
 }));
 
-import { consumeSocketRateLimitRedis } from "../../../../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis";
+import {
+  consumeSocketRateLimitRedis,
+  refundSocketRateLimitRedis,
+} from "../../../../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis";
+import { refundAgentRegisterRateLimit } from "../../../../../src/presentation/socket/hub/rate_limits/agent_register_rate_limit";
 
 const mockedConsumeSocketRateLimitRedis = vi.mocked(consumeSocketRateLimitRedis);
+const mockedRefundSocketRateLimitRedis = vi.mocked(refundSocketRateLimitRedis);
 
 describe("agent_register_rate_limit", () => {
   afterEach(() => {
     resetAgentRegisterRateLimitState();
     mockedConsumeSocketRateLimitRedis.mockReset();
+    mockedRefundSocketRateLimitRedis.mockReset();
   });
 
   it("allows bursts within max inside the window", () => {
@@ -97,6 +104,19 @@ describe("agent_register_rate_limit", () => {
     await expect(
       tryConsumeAgentRegisterRateLimitAsync("u2", "a2", { windowMs: 60_000, max: 2 }),
     ).resolves.toEqual({ ok: false });
+  });
+
+  it("refund restores one attempt in the local sliding window", () => {
+    expect(tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 })).toEqual(
+      { ok: true },
+    );
+    expect(tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 })).toEqual(
+      { ok: false },
+    );
+    refundAgentRegisterRateLimit("u-ref", "a-ref");
+    expect(tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 })).toEqual(
+      { ok: true },
+    );
   });
 
   it("sweep removes stale register buckets", () => {

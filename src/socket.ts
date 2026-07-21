@@ -133,10 +133,12 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   socketServerStates.set(io, state);
   registerActiveSocketServer(io);
 
-  registerSocketHubErrorHandlers(io.engine, [
-    { name: SOCKET_NAMESPACES.agents, namespace: agentsNsp },
-    { name: SOCKET_NAMESPACES.consumers, namespace: consumersNsp },
-  ]);
+  state.sinkDisposers.push(
+    registerSocketHubErrorHandlers(io.engine, [
+      { name: SOCKET_NAMESPACES.agents, namespace: agentsNsp },
+      { name: SOCKET_NAMESPACES.consumers, namespace: consumersNsp },
+    ]),
+  );
 
   const defaultNsp = io.of("/");
   defaultNsp.on("connection", (socket) => {

@@ -2572,7 +2572,7 @@ describe("Socket namespaces", () => {
     it("should create catalog row, sync profile and lastLoginUserId on first agent connect", async () => {
       const freshAgentId = randomUUID();
       const freshAgentLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-        email: "socket@test.com",
+        email: ownerEmail,
         password: "SocketTest1",
         agentId: freshAgentId,
       });
@@ -2668,7 +2668,7 @@ describe("Socket namespaces", () => {
     it("should sync register snapshot without emitting agent.getProfile RPC", async () => {
       const snapshotAgentId = randomUUID();
       const snapshotLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-        email: "socket@test.com",
+        email: ownerEmail,
         password: "SocketTest1",
         agentId: snapshotAgentId,
       });
@@ -2747,7 +2747,7 @@ describe("Socket namespaces", () => {
       });
 
       const loginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-        email: "socket@test.com",
+        email: ownerEmail,
         password: "SocketTest1",
         agentId: existingAgentId,
       });
@@ -2843,7 +2843,7 @@ describe("Socket namespaces", () => {
     it("should not retry profile sync after disconnecting during agent.getProfile", async () => {
       const disconnectAgentId = randomUUID();
       const loginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-        email: "socket@test.com",
+        email: ownerEmail,
         password: "SocketTest1",
         agentId: disconnectAgentId,
       });
@@ -2910,7 +2910,7 @@ describe("Socket namespaces", () => {
       await seedAgentBinding(ownerUserId, ownedAgentId);
 
       const loginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-        email: "socket@test.com",
+        email: ownerEmail,
         password: "SocketTest1",
         agentId: ownedAgentId,
       });
@@ -3001,7 +3001,7 @@ describe("Socket namespaces", () => {
       });
 
       const loginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-        email: "socket@test.com",
+        email: ownerEmail,
         password: "SocketTest1",
         agentId: racedAgentId,
       });
@@ -3050,7 +3050,7 @@ describe("Socket namespaces", () => {
     it("should defer profile sync until agent:ready when protocolReadyAck is explicit", async () => {
       const explicitReadyAgentId = randomUUID();
       const explicitReadyLoginRes = await request(baseUrl).post("/api/v1/auth/agent-login").send({
-        email: "socket@test.com",
+        email: ownerEmail,
         password: "SocketTest1",
         agentId: explicitReadyAgentId,
       });

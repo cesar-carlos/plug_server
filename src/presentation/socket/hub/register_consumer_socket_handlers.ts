@@ -53,6 +53,7 @@ import {
 import { clearAgentsCommandSocketRateLimitStateForSocketId } from "./rate_limits/agents_command_socket_rate_limiter";
 import { clearCustomSocketEventSubscriptionRateLimitState } from "./rate_limits/custom_socket_event_subscription_limiter";
 import { removeCustomSocketEventSubscriptionsBySocketId } from "./custom_events/custom_socket_event_subscription_registry";
+import { pruneRelayIdempotencyWaiterSocket } from "./registries/relay_idempotency_store";
 import {
   buildRelayConversationEndedPayload,
   cleanupConsumerStreamSubscriptions,
@@ -79,10 +80,12 @@ import { clearInflightValidationForSocket } from "../auth/ensure_socket_active_a
 import {
   clearAllConsumerSocketAgentAccessSnapshots,
   clearInflightAgentAccessForSocket,
+  type SocketAgentAccessSnapshot,
 } from "../consumers/consumer_socket_guard";
 
 type SocketData = {
   user?: JwtAccessPayload;
+  agentAccessSnapshots?: Map<string, SocketAgentAccessSnapshot>;
 };
 
 export type ConsumerHubSocket = Socket<
@@ -158,6 +161,7 @@ export const runConsumerSocketDisconnectCleanup = (
   clearRelayRateLimitStateByConsumerSocket(socket.id);
   clearAgentsCommandSocketRateLimitStateForSocketId(socket.id);
   clearAgentProfileSocketRateLimitStateForSocketId(socket.id);
+  pruneRelayIdempotencyWaiterSocket(socket.id);
   const endedConversations = conversationRegistry.removeByConsumerSocketId(socket.id);
   finalizeConversationsClosedByConsumerDisconnect(endedConversations, (conversation) => {
     const agentSocket = agentsNsp.sockets.get(conversation.agentSocketId);

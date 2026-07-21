@@ -32,6 +32,7 @@ import {
   countRelayStreamAbortDropped,
 } from "./relay_stream_flow_state";
 import { scheduleRelayStreamDrain } from "./relay_stream_drain_scheduler";
+import { trySettleRelayRoute } from "./relay_route_settlement";
 import type { RelayRequestRoute } from "../registries/relay_request_registry";
 import {
   getRelayRequestRoute,
@@ -255,7 +256,10 @@ export const emitRelayTimeoutResponse = (
   /** Runs after the timeout frame is encoded and emitted (e.g. remove relay route). */
   afterEmit?: () => void,
 ): void => {
-  if (route.settled === true) {
+  // Production timeout settles the route before calling (to win races against a
+  // late agent response). Tests may call with an unsettled route. Either way we
+  // must emit — an early `settled === true` return made the production path a no-op.
+  if (route.settled !== true && !trySettleRelayRoute(route)) {
     return;
   }
   // JSON-RPC 2.0 §5 — synthetic responses must echo the consumer's `id` so

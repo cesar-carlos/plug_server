@@ -12,6 +12,7 @@ import {
   countOpenStreamRoutesForAgent,
   getActiveStreamRouteByRequestId,
   removeActiveStreamRoute,
+  settleRestMaterializeSuccess,
   upsertActiveStreamRoute,
   type ActiveStreamRoute,
 } from "../registries/active_stream_registry";
@@ -173,8 +174,13 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
       });
     },
     onComplete: (payload) => {
-      restMaterializeState.settled = true;
-      clearTimeout(timeoutHandle);
+      const active = getActiveStreamRouteByRequestId(primaryRequestId);
+      if (active) {
+        settleRestMaterializeSuccess(active);
+      } else {
+        restMaterializeState.settled = true;
+        clearTimeout(timeoutHandle);
+      }
       try {
         const merged =
           streamedRows.length > 0

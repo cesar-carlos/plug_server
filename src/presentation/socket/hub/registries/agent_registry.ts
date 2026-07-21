@@ -243,6 +243,27 @@ class InMemoryAgentRegistry {
   }
 
   /**
+   * Pure session-policy peek: returns true when `reject_active` would deny
+   * registration because another connected socket already owns `agentId`.
+   * Used before rate-limit consumption so reconnect races do not burn quota.
+   */
+  wouldRejectActiveSession(input: {
+    readonly agentId: string;
+    readonly socketId: string;
+    readonly policy: AgentSessionPolicy;
+    readonly isPeerConnected: (socketId: string) => boolean;
+  }): boolean {
+    if (input.policy !== "reject_active") {
+      return false;
+    }
+    const existing = this.agents.get(input.agentId);
+    if (!existing || existing.socketId === input.socketId) {
+      return false;
+    }
+    return input.isPeerConnected(existing.socketId);
+  }
+
+  /**
    * Atomically registers or rejects an agent session (same event-loop turn; no await inside).
    */
   registerAgentSession(input: {

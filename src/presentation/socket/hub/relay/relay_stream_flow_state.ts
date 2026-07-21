@@ -31,8 +31,37 @@ export interface RelayStreamFlowEntry {
 
 const entriesByRequestId = new Map<string, RelayStreamFlowEntry>();
 const drainTailByRequestId = new Map<string, Promise<void>>();
+/** Deferred drain retries while the consumer transport is under backpressure. */
+const backpressureRetryTimerByRequestId = new Map<string, NodeJS.Timeout>();
 let globalTotalBufferedChunks = 0;
 let globalTotalBufferedBytes = 0;
+
+export const clearRelayStreamBackpressureRetryTimer = (requestId: string): void => {
+  const timer = backpressureRetryTimerByRequestId.get(requestId);
+  if (!timer) {
+    return;
+  }
+  clearTimeout(timer);
+  backpressureRetryTimerByRequestId.delete(requestId);
+};
+
+export const setRelayStreamBackpressureRetryTimer = (
+  requestId: string,
+  timer: NodeJS.Timeout,
+): void => {
+  clearRelayStreamBackpressureRetryTimer(requestId);
+  backpressureRetryTimerByRequestId.set(requestId, timer);
+};
+
+export const hasRelayStreamBackpressureRetryTimer = (requestId: string): boolean =>
+  backpressureRetryTimerByRequestId.has(requestId);
+
+export const clearAllRelayStreamBackpressureRetryTimers = (): void => {
+  for (const timer of backpressureRetryTimerByRequestId.values()) {
+    clearTimeout(timer);
+  }
+  backpressureRetryTimerByRequestId.clear();
+};
 
 export const getRelayStreamFlowEntry = (requestId: string): RelayStreamFlowEntry | undefined => {
   return entriesByRequestId.get(requestId);
@@ -271,6 +300,7 @@ export const clearRelayStreamFlowState = (requestId: string): void => {
   }
   entriesByRequestId.delete(requestId);
   drainTailByRequestId.delete(requestId);
+  clearRelayStreamBackpressureRetryTimer(requestId);
 };
 
 export const resetRelayStreamFlowState = (): void => {
@@ -278,6 +308,7 @@ export const resetRelayStreamFlowState = (): void => {
   drainTailByRequestId.clear();
   globalTotalBufferedChunks = 0;
   globalTotalBufferedBytes = 0;
+  clearAllRelayStreamBackpressureRetryTimers();
 };
 
 export interface DrainRelayStreamBufferContext {
@@ -286,6 +317,11 @@ export interface DrainRelayStreamBufferContext {
   readonly agentSocketId: string;
   readonly conversationId: string;
   readonly agentId: string;
+  /**
+   * Optional pre-check before encode+emit. When `false`, the drain pauses for
+   * transport backpressure without encoding the head chunk again.
+   */
+  readonly canEmitChunk?: () => boolean;
   /** Returns `false` when the consumer transport is saturated (drain pauses). */
   readonly emitChunk: (frame: unknown) => boolean;
   readonly emitComplete: (frame: unknown) => boolean;
@@ -335,11 +371,16 @@ const isDrainContextActive = (ctx: DrainRelayStreamBufferContext): boolean => {
 
 export const drainRelayStreamBuffer = async (
   ctx: DrainRelayStreamBufferContext,
-): Promise<{ readonly chunksDrained: number; readonly completeEmitted: boolean }> => {
+): Promise<{
+  readonly chunksDrained: number;
+  readonly completeEmitted: boolean;
+  readonly pausedForBackpressure: boolean;
+}> => {
   const previousDrain =
     drainTailByRequestId.get(ctx.requestId)?.catch(() => undefined) ?? Promise.resolve();
   let chunksDrained = 0;
   let completeEmitted = false;
+  let pausedForBackpressure = false;
   const nextDrain = previousDrain.then(async () => {
     if (!isDrainContextActive(ctx)) {
       return;
@@ -351,6 +392,10 @@ export const drainRelayStreamBuffer = async (
       while (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
         if (!isDrainContextActive(ctx)) {
           return;
+        }
+        if (ctx.canEmitChunk && !ctx.canEmitChunk()) {
+          pausedForBackpressure = true;
+          break;
         }
         const chunk = peekRelayStreamBufferedChunk(ctx.requestId);
         if (!chunk) {
@@ -366,6 +411,7 @@ export const drainRelayStreamBuffer = async (
           return;
         }
         if (!ctx.emitChunk(frame)) {
+          pausedForBackpressure = true;
           break;
         }
         popRelayStreamBufferedChunk(ctx.requestId);
@@ -379,6 +425,10 @@ export const drainRelayStreamBuffer = async (
       }
 
       setRelayStreamFlowCredits(ctx.requestId, Math.max(0, credits));
+    }
+
+    if (pausedForBackpressure) {
+      return;
     }
 
     const pendingComplete = getRelayStreamPendingComplete(ctx.requestId);
@@ -408,5 +458,5 @@ export const drainRelayStreamBuffer = async (
       drainTailByRequestId.delete(ctx.requestId);
     }
   });
-  return { chunksDrained, completeEmitted };
+  return { chunksDrained, completeEmitted, pausedForBackpressure };
 };

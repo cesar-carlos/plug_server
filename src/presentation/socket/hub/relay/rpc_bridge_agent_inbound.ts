@@ -9,7 +9,7 @@ import {
 import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
-  encodeRelayOutboundFrameFromBytes,
+  encodeRelayOutboundFrameFromBytesAsync,
   markRelayOutboundForceGzip,
 } from "./relay_outbound_queue";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
@@ -325,6 +325,11 @@ export const createRpcBridgeAgentInboundHandlers = (
         return;
       }
       const { route, data, frame, decodedBytes } = resolved;
+      // Disconnect may have removed the route while this frame was decoding.
+      const liveRoute = getActiveStreamRouteByRequestId(route.requestId);
+      if (!liveRoute || liveRoute !== route) {
+        return;
+      }
       try {
         // Forward the agent's original decoded frame bytes verbatim so the
         // relay drain can skip a re-`JSON.stringify` + gzip per chunk. The
@@ -356,6 +361,10 @@ export const createRpcBridgeAgentInboundHandlers = (
         return;
       }
       const { route, data } = resolved;
+      const liveRoute = getActiveStreamRouteByRequestId(route.requestId);
+      if (!liveRoute || liveRoute !== route) {
+        return;
+      }
 
       if (route.mode === "relay") {
         route.onComplete(data);
@@ -455,8 +464,8 @@ export const createRpcBridgeAgentInboundHandlers = (
           clearTimeout(relayRoute.ackRetryTimer);
           delete relayRoute.ackRetryTimer;
         }
-        enqueueRelayOutbound(requestId, () => {
-          const frame = encodeRelayOutboundFrameFromBytes(decodedBytes, requestId, {
+        enqueueRelayOutbound(requestId, async () => {
+          const frame = await encodeRelayOutboundFrameFromBytesAsync(decodedBytes, requestId, {
             inboundCmp,
           });
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcRequestAck, frame);

@@ -16,6 +16,7 @@ vi.mock("../../../../../src/shared/di/container", () => ({
 
 vi.mock("../../../../../src/presentation/socket/hub/rate_limits/agent_register_rate_limit", () => ({
   tryConsumeAgentRegisterRateLimitAsync: vi.fn(),
+  refundAgentRegisterRateLimitAsync: vi.fn(),
 }));
 
 vi.mock("../../../../../src/application/services/agent_hub_presence_sync", () => ({

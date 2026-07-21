@@ -37,6 +37,10 @@ vi.mock("../../../../../src/presentation/socket/consumers/per_socket_inflight_ga
   releaseSocketInflightSlot: vi.fn(),
 }));
 
+vi.mock("../../../../../src/application/services/agent_hub_presence_sync", () => ({
+  resolveAgentHubPresenceRoute: vi.fn(async () => null),
+}));
+
 import {
   conflict,
   notFound,
@@ -51,6 +55,7 @@ import {
 } from "../../../../../src/presentation/socket/consumers/relay_conversation_start.handler";
 import { abortPendingConsumerCommands } from "../../../../../src/presentation/socket/consumers/consumer_command_abort_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
+import { resolveAgentHubPresenceRoute } from "../../../../../src/application/services/agent_hub_presence_sync";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 import { findAgentBridgeSocketById } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
@@ -67,6 +72,7 @@ const mockedFindAgentBridgeSocketById = vi.mocked(findAgentBridgeSocketById);
 const mockedRefundRelayConversationStart = vi.mocked(refundRelayConversationStartAsync);
 const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
 const mockedReleaseInflight = vi.mocked(releaseSocketInflightSlot);
+const mockedResolvePresenceRoute = vi.mocked(resolveAgentHubPresenceRoute);
 
 const buildSocket = () =>
   ({
@@ -122,6 +128,8 @@ describe("handleRelayConversationStart", () => {
     mockedRefundRelayConversationStart.mockReset();
     mockedTryAcquire.mockReset();
     mockedReleaseInflight.mockReset();
+    mockedResolvePresenceRoute.mockReset();
+    mockedResolvePresenceRoute.mockResolvedValue(null);
 
     mockedTryAcquire.mockReturnValue(true);
 
@@ -266,6 +274,28 @@ describe("handleRelayConversationStart", () => {
       error: expect.objectContaining({
         code: "NOT_FOUND",
         statusCode: 404,
+      }),
+    });
+  });
+
+  it("returns 503 when the agent is only present on another hub instance", async () => {
+    const socket = buildSocket();
+    mockedFindByAgentId.mockReturnValue(undefined);
+    mockedResolvePresenceRoute.mockResolvedValue({ hubInstanceId: "other-hub" });
+
+    await handleRelayConversationStart(socket as never, {
+      agentId: "agent-1",
+      requestId: "req-start-remote-hub",
+    });
+
+    expect(mockedRefundRelayConversationStart).toHaveBeenCalledWith("user-1", "consumer-1");
+    expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayConversationStarted, {
+      success: false,
+      requestId: "req-start-remote-hub",
+      error: expect.objectContaining({
+        code: "SERVICE_UNAVAILABLE",
+        statusCode: 503,
+        message: expect.stringContaining("another hub instance"),
       }),
     });
   });

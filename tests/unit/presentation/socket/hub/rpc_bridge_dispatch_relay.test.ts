@@ -4,6 +4,7 @@ import { createRpcBridgeRelayDispatch } from "../../../../../src/presentation/so
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 import {
+  getRelayEffectivePendingCount,
   getRelayRegisteredRouteCount,
   resetRelayRequestRegistry,
 } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
@@ -331,5 +332,135 @@ describe("rpc_bridge_dispatch_relay", () => {
     socketAvailable = false;
     await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
     expect(agentEmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases pending reservation when agent protocol is not ready", async () => {
+    const agentId = "agent-not-ready";
+    const agentSocketId = "agent-socket-not-ready";
+    const consumerSocketId = "consumer-not-ready";
+    const conversationId = "conversation-not-ready";
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+        extensions: { protocolReadyAck: true },
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    // Explicit-ack mode: leave protocol not ready (no markProtocolReady touch).
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: () => ({ emit: vi.fn() }),
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    const pendingBefore = getRelayEffectivePendingCount();
+    await expect(
+      handlers.dispatchRelayRpcToAgent({
+        conversationId,
+        consumerSocketId,
+        rawFramePayload: encodePayloadFrame({
+          jsonrpc: "2.0",
+          method: "agent.getHealth",
+          id: "client-not-ready",
+          params: {},
+        }),
+      }),
+    ).rejects.toThrow(/protocol negotiation is not ready/i);
+
+    expect(getRelayEffectivePendingCount()).toBe(pendingBefore);
+    expect(getRelayRegisteredRouteCount()).toBe(0);
+  });
+
+  it("releases pending reservation on idempotent in-flight dedupe", async () => {
+    const agentId = "agent-dedupe-inflight";
+    const agentSocketId = "agent-socket-dedupe-inflight";
+    const consumerSocketId = "consumer-dedupe-inflight";
+    const conversationId = "conversation-dedupe-inflight";
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    setRelayIdempotencyEntry(conversationId, "client-dup", {
+      requestId: "original-request",
+      expiresAtMs: Date.now() + env.socketRelayIdempotencyTtlMs,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: () => ({ emit: vi.fn() }),
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    const pendingBefore = getRelayEffectivePendingCount();
+    const result = await handlers.dispatchRelayRpcToAgent({
+      conversationId,
+      consumerSocketId,
+      rawFramePayload: encodePayloadFrame({
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "client-dup",
+        params: {},
+      }),
+    });
+
+    expect(result).toMatchObject({
+      requestId: "original-request",
+      clientRequestId: "client-dup",
+      deduplicated: true,
+      inFlight: true,
+    });
+    expect(getRelayEffectivePendingCount()).toBe(pendingBefore);
+    expect(getRelayRegisteredRouteCount()).toBe(0);
   });
 });

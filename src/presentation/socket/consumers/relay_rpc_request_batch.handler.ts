@@ -464,6 +464,12 @@ export const handleRelayRpcRequestBatch = (
         const dedupedCount = ackedItems.filter(
           (entry) => "deduplicated" in entry && entry.deduplicated === true,
         ).length;
+        const refundableErrorCount = settledResults.reduce((count, settled) => {
+          if (settled.status !== "rejected") {
+            return count;
+          }
+          return shouldRefundRelayRpcRequestRateLimit(settled.reason) ? count + 1 : count;
+        }, 0);
         const errorCount = ackedItems.filter((entry) => "error" in entry).length;
         noteRelayBatchAccepted({
           itemCount: items.length,
@@ -472,12 +478,13 @@ export const handleRelayRpcRequestBatch = (
         });
         observeRelayBatchItemsPerEnvelope(items.length);
 
-        // Refund per-item rate limit budget for any items that turned out to
-        // be deduplicated (mirror of the single-RPC handler refund path).
-        // Single batched refund (`count = dedupedCount`) instead of N awaited
-        // Redis round-trips.
-        if (dedupedCount > 0) {
-          await refundRelayRpcRequestAsync(userSub, socket.id, dedupedCount);
+        // Refund per-item rate limit budget for deduplicated items and for
+        // dispatch failures that the single-RPC path would also refund
+        // (`shouldRefundRelayRpcRequestRateLimit`). Single batched refund
+        // instead of N awaited Redis round-trips.
+        const refundCount = dedupedCount + refundableErrorCount;
+        if (refundCount > 0) {
+          await refundRelayRpcRequestAsync(userSub, socket.id, refundCount);
         }
 
         emitBatchAccepted(socket, {

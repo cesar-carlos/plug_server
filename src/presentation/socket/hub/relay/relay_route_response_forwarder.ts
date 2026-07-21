@@ -44,7 +44,7 @@ import {
 import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
-  encodeRelayOutboundFrameFromBytes,
+  encodeRelayOutboundFrameFromBytesAsync,
   markRelayOutboundForceGzip,
 } from "./relay_outbound_queue";
 import { setRelayStreamFlowCredits } from "./relay_stream_flow_state";
@@ -238,9 +238,13 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
 
       let responseFrame: PayloadFrameEnvelope;
       if (canBypassReencode) {
-        responseFrame = encodeRelayOutboundFrameFromBytes(decoded.decodedBytes, responseId, {
-          inboundCmp: decoded.frame.cmp,
-        });
+        responseFrame = await encodeRelayOutboundFrameFromBytesAsync(
+          decoded.decodedBytes,
+          responseId,
+          {
+            inboundCmp: decoded.frame.cmp,
+          },
+        );
       } else {
         // Measure the wall-clock cost of the re-encode path (vs bypass)
         // only when the cause is the body.id echo. If `shouldAttachServerTimings`

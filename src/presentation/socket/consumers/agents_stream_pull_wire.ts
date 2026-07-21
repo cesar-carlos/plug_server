@@ -1,6 +1,7 @@
 import { env } from "../../../shared/config/env";
 import {
   decodePayloadFrame,
+  decodePayloadFrameAsync,
   encodePayloadFrameHotPath,
   isPayloadFrameEnvelope,
   type PayloadFrameEnvelope,
@@ -65,11 +66,11 @@ export type DecodeAgentsStreamPullInboundResult =
  * `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` (independent from `SOCKET_AGENTS_COMMAND_COMPAT_MODE`
  * so operators can migrate command and stream_pull on different schedules).
  */
-export const decodeAgentsStreamPullInboundPayload = (
+export const decodeAgentsStreamPullInboundPayload = async (
   rawPayload: unknown,
-): DecodeAgentsStreamPullInboundResult => {
+): Promise<DecodeAgentsStreamPullInboundResult> => {
   if (isPayloadFrameEnvelope(rawPayload)) {
-    const decoded = decodePayloadFrame(rawPayload);
+    const decoded = await decodePayloadFrameAsync(rawPayload);
     if (!decoded.ok) {
       return { ok: false, message: decoded.error.message };
     }

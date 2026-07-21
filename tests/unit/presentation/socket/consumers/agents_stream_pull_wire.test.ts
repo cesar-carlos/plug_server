@@ -48,22 +48,22 @@ describe("agents_stream_pull_wire", () => {
     }
   });
 
-  it("accepts inbound plain JSON during the migration window", () => {
-    const decoded = decodeAgentsStreamPullInboundPayload(validPullBody);
+  it("accepts inbound plain JSON during the migration window", async () => {
+    const decoded = await decodeAgentsStreamPullInboundPayload(validPullBody);
     expect(decoded).toEqual({ ok: true, data: validPullBody });
   });
 
-  it("accepts inbound PayloadFrame during the migration window", () => {
+  it("accepts inbound PayloadFrame during the migration window", async () => {
     const framed = encodePayloadFrame(validPullBody, { requestId: "req-1", omitTraceId: true });
-    const decoded = decodeAgentsStreamPullInboundPayload(framed);
+    const decoded = await decodeAgentsStreamPullInboundPayload(framed);
     expect(decoded.ok).toBe(true);
     if (decoded.ok) {
       expect(decoded.data).toEqual(validPullBody);
     }
   });
 
-  it("rejects invalid inbound PayloadFrame with a protocol message", () => {
-    const decoded = decodeAgentsStreamPullInboundPayload({
+  it("rejects invalid inbound PayloadFrame with a protocol message", async () => {
+    const decoded = await decodeAgentsStreamPullInboundPayload({
       schemaVersion: "1.0",
       enc: "json",
       cmp: "none",
@@ -78,8 +78,8 @@ describe("agents_stream_pull_wire", () => {
     }
   });
 
-  it("rejects non-object inbound payloads", () => {
-    expect(decodeAgentsStreamPullInboundPayload("invalid")).toEqual({
+  it("rejects non-object inbound payloads", async () => {
+    await expect(decodeAgentsStreamPullInboundPayload("invalid")).resolves.toEqual({
       ok: false,
       message: "agents:stream_pull payload must be an object or PayloadFrame",
     });

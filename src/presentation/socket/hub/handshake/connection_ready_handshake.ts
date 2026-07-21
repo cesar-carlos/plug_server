@@ -2,7 +2,7 @@ import type { Socket } from "socket.io";
 
 import { env } from "../../../../shared/config/env";
 import { socketEvents } from "../../../../shared/constants/socket_events";
-import { encodePayloadFrame } from "../../../../shared/utils/payload_frame";
+import { encodePayloadFrameHotPath } from "../../../../shared/utils/payload_frame";
 import type { JwtAccessPayload } from "../../../../shared/utils/jwt";
 import { logger } from "../../../../shared/utils/logger";
 
@@ -40,14 +40,15 @@ export type ConnectionReadyPayload = {
 /**
  * Transitional compatibility shim for the handshake contract.
  * Default/current mode is `PayloadFrame`; `raw_json` exists only for narrow, time-boxed migrations.
+ * Uses hot-path encode (`cmp: none`) so connection storms never hit sync gzip on the event loop.
  */
 export const buildConnectionReadyPayloadForWire = (
   payload: ConnectionReadyPayload,
-): ConnectionReadyPayload | ReturnType<typeof encodePayloadFrame> => {
+): ConnectionReadyPayload | ReturnType<typeof encodePayloadFrameHotPath> => {
   if (env.socketConnectionReadyCompatMode === "raw_json") {
     return payload;
   }
-  return encodePayloadFrame(payload, { requestId: "handshake", omitTraceId: true });
+  return encodePayloadFrameHotPath(payload, { requestId: "handshake" });
 };
 
 export const emitConnectionReady = (socket: Socket, payload: ConnectionReadyPayload): void => {

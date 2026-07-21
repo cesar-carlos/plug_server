@@ -36,6 +36,7 @@ import {
   payloadFrameEncodeOptionsFromPreference,
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
+import { resolveAgentHubPresenceRoute } from "../../../../application/services/agent_hub_presence_sync";
 import { agentRegistry } from "../registries/agent_registry";
 import {
   getActiveStreamRouteByRequestId,
@@ -130,6 +131,17 @@ export const createDispatchRpcCommandToAgent = (
       if (!registeredAgent) {
         if (agentRegistry.hasKnownAgentId(input.agentId)) {
           throw new AgentDisconnectedBeforeDispatchError(input.agentId, input.command);
+        }
+
+        const remoteRoute = await resolveAgentHubPresenceRoute(input.agentId);
+        if (
+          remoteRoute !== null &&
+          remoteRoute.hubInstanceId.trim() !== "" &&
+          remoteRoute.hubInstanceId !== env.hubInstanceId
+        ) {
+          throw serviceUnavailable(
+            `Agent ${input.agentId} is connected on another hub instance; sticky session affinity to that hub is required`,
+          );
         }
 
         throw notFound(`Agent ${input.agentId}`);

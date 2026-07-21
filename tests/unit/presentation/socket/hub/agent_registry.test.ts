@@ -31,6 +31,14 @@ describe("agent_registry session policies", () => {
     });
     expect(second).toEqual({ ok: false, reason: "SESSION_ACTIVE" });
     expect(agentRegistry.findByAgentId("ag-r")?.socketId).toBe("sock-a");
+    expect(
+      agentRegistry.wouldRejectActiveSession({
+        agentId: "ag-r",
+        socketId: "sock-b",
+        policy: "reject_active",
+        isPeerConnected: (sid) => alive.has(sid),
+      }),
+    ).toBe(true);
   });
 
   it("reject_active allows replacement when peer is not connected", () => {

@@ -23,6 +23,10 @@ import {
   getRelayStreamBufferedChunkCount,
   getRelayStreamPendingComplete,
   clearRelayStreamFlowState,
+  clearRelayStreamBackpressureRetryTimer,
+  setRelayStreamBackpressureRetryTimer,
+  hasRelayStreamBackpressureRetryTimer,
+  clearAllRelayStreamBackpressureRetryTimers,
   type DrainRelayStreamBufferContext,
 } from "./relay_stream_flow_state";
 import {
@@ -39,6 +43,12 @@ import { trySettleRelayRoute } from "./relay_route_settlement";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 
 const shouldAuditRelayChunks = env.socketAuditHighVolumeSamplePercent > 0;
+
+/**
+ * Delay before retrying a drain paused by consumer transport backpressure.
+ * Keeps the event loop from spinning encode+emit on the same head chunk.
+ */
+const TRANSPORT_BACKPRESSURE_RETRY_MS = 25;
 
 export interface RelayStreamDrainRouteContext {
   readonly requestId: string;
@@ -59,7 +69,30 @@ export interface ScheduleRelayStreamDrainInput {
   readonly reschedule: () => void;
 }
 
+const clearBackpressureRetryTimer = (requestId: string): void => {
+  clearRelayStreamBackpressureRetryTimer(requestId);
+};
+
+const scheduleBackpressureRetry = (
+  requestId: string,
+  isActive: () => boolean,
+  reschedule: () => void,
+): void => {
+  if (hasRelayStreamBackpressureRetryTimer(requestId)) {
+    return;
+  }
+  const timer = setTimeout(() => {
+    clearRelayStreamBackpressureRetryTimer(requestId);
+    if (isActive()) {
+      reschedule();
+    }
+  }, TRANSPORT_BACKPRESSURE_RETRY_MS);
+  timer.unref?.();
+  setRelayStreamBackpressureRetryTimer(requestId, timer);
+};
+
 const finalizeRelayStreamOnConsumerGone = (requestId: string): void => {
+  clearBackpressureRetryTimer(requestId);
   const relayRoute = getRelayRequestRoute(requestId);
   if (relayRoute) {
     trySettleRelayRoute(relayRoute);
@@ -83,6 +116,13 @@ const buildDrainContext = (
   agentSocketId: route.agentSocketId,
   conversationId: route.conversationId,
   agentId: route.agentId,
+  canEmitChunk: () => {
+    const consumerSocket = findConsumerBridgeSocketForRelay(route.consumerSocketId);
+    if (!consumerSocket) {
+      return true;
+    }
+    return isConsumerRelayTransportWritable(consumerSocket);
+  },
   emitChunk: (frame: unknown) => {
     const consumerSocket = findConsumerBridgeSocketForRelay(route.consumerSocketId);
     if (consumerSocket && !isConsumerRelayTransportWritable(consumerSocket)) {
@@ -117,6 +157,30 @@ const buildDrainContext = (
   ...(onComplete !== undefined ? { onComplete } : {}),
 });
 
+const afterDrainMaybeReschedule = (input: {
+  readonly requestId: string;
+  readonly isActive: () => boolean;
+  readonly reschedule: () => void;
+  readonly pausedForBackpressure: boolean;
+}): void => {
+  const { requestId, isActive, reschedule, pausedForBackpressure } = input;
+  if (!isActive()) {
+    clearBackpressureRetryTimer(requestId);
+    return;
+  }
+  const pending = getRelayStreamPendingComplete(requestId);
+  const hasBuffered = getRelayStreamBufferedChunkCount(requestId) > 0;
+  const hasCredits = getRelayStreamFlowCredits(requestId) > 0;
+  if (pausedForBackpressure && hasBuffered && hasCredits) {
+    scheduleBackpressureRetry(requestId, isActive, reschedule);
+    return;
+  }
+  if ((hasBuffered && hasCredits) || (pending && !hasBuffered)) {
+    clearBackpressureRetryTimer(requestId);
+    reschedule();
+  }
+};
+
 /**
  * Central drain scheduling for relay streams (chunk handler and pull-triggered paths).
  */
@@ -143,10 +207,12 @@ export const scheduleRelayStreamDrain = (input: ScheduleRelayStreamDrainInput): 
       setDrainScheduled(true);
       enqueueRelayOutbound(route.requestId, async () => {
         const tDrain = performance.now();
+        let pausedForBackpressure = false;
         try {
           const result = await drainRelayStreamBuffer(
             buildDrainContext(route, emitToConsumer, isActive, onComplete),
           );
+          pausedForBackpressure = result.pausedForBackpressure;
           if (result.chunksDrained > 0) {
             relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
             observeRelayChunkForwardJob(performance.now() - tDrain);
@@ -154,15 +220,12 @@ export const scheduleRelayStreamDrain = (input: ScheduleRelayStreamDrainInput): 
         } finally {
           observeRelayBufferDrain(performance.now() - tDrain);
           setDrainScheduled(false);
-          if (!isActive()) {
-            return;
-          }
-          const pending = getRelayStreamPendingComplete(route.requestId);
-          const hasBuffered = getRelayStreamBufferedChunkCount(route.requestId) > 0;
-          const hasCredits = getRelayStreamFlowCredits(route.requestId) > 0;
-          if ((hasBuffered && hasCredits) || (pending && !hasBuffered)) {
-            reschedule();
-          }
+          afterDrainMaybeReschedule({
+            requestId: route.requestId,
+            isActive,
+            reschedule,
+            pausedForBackpressure,
+          });
         }
       });
     }
@@ -172,10 +235,12 @@ export const scheduleRelayStreamDrain = (input: ScheduleRelayStreamDrainInput): 
   setDrainScheduled(true);
   enqueueRelayOutbound(route.requestId, async () => {
     const tDrain = performance.now();
+    let pausedForBackpressure = false;
     try {
       const result = await drainRelayStreamBuffer(
         buildDrainContext(route, emitToConsumer, isActive, onComplete),
       );
+      pausedForBackpressure = result.pausedForBackpressure;
       if (result.chunksDrained > 0) {
         relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
         observeRelayChunkForwardJob(performance.now() - tDrain);
@@ -183,15 +248,12 @@ export const scheduleRelayStreamDrain = (input: ScheduleRelayStreamDrainInput): 
     } finally {
       observeRelayBufferDrain(performance.now() - tDrain);
       setDrainScheduled(false);
-      if (!isActive()) {
-        return;
-      }
-      const pending = getRelayStreamPendingComplete(route.requestId);
-      const hasBuffered = getRelayStreamBufferedChunkCount(route.requestId) > 0;
-      const hasCredits = getRelayStreamFlowCredits(route.requestId) > 0;
-      if ((hasBuffered && hasCredits) || (pending && !hasBuffered)) {
-        reschedule();
-      }
+      afterDrainMaybeReschedule({
+        requestId: route.requestId,
+        isActive,
+        reschedule,
+        pausedForBackpressure,
+      });
     }
   });
 };
@@ -200,6 +262,7 @@ export const buildRelayStreamPullDrainOnComplete = (
   requestId: string,
 ): ((streamId: string | null) => void) => {
   return (_streamId) => {
+    clearBackpressureRetryTimer(requestId);
     const relayRt = getRelayRequestRoute(requestId);
     relayRt?.latencyTrace?.finalizeRelayStreamComplete();
     if (relayRt) {
@@ -216,4 +279,9 @@ export const buildRelayStreamPullDrainOnComplete = (
       removeActiveStreamRoute(activeRoute);
     }
   };
+};
+
+/** Test helper: clear deferred backpressure retry timers. */
+export const resetRelayStreamDrainSchedulerStateForTests = (): void => {
+  clearAllRelayStreamBackpressureRetryTimers();
 };

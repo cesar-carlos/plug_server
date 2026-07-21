@@ -155,6 +155,15 @@ const detachRestMaterializeIfPending = (route: ActiveStreamRoute): void => {
   clearTimeout(mat.timeoutHandle);
 };
 
+/**
+ * Success-path settle for REST SQL stream materialization: decrements the
+ * in-flight gauge and clears the materialize timeout. Safe to call before
+ * `removeActiveStreamRoute` (which no-ops when already settled).
+ */
+export const settleRestMaterializeSuccess = (route: ActiveStreamRoute): void => {
+  detachRestMaterializeIfPending(route);
+};
+
 export type RemoveActiveStreamRouteOptions = {
   /**
    * `abort` (default): if REST materialization is still in flight, reject the HTTP promise.

@@ -227,6 +227,28 @@ export const clearRelayIdempotencyForConversation = (conversationId: string): vo
   }
 };
 
+/**
+ * Drops a consumer socket id from in-flight idempotency waiter sets so
+ * disconnect cannot leave stale ids until response/TTL. Conversations owned
+ * by the socket are usually cleared entirely; this covers shared/orphan waiters.
+ */
+export const pruneRelayIdempotencyWaiterSocket = (consumerSocketId: string): number => {
+  let removed = 0;
+  for (const entries of relayIdempotencyByConversation.values()) {
+    for (const entry of entries.values()) {
+      const waiters = entry.pendingReplayConsumerSocketIds;
+      if (!waiters || !waiters.delete(consumerSocketId)) {
+        continue;
+      }
+      removed += 1;
+      if (waiters.size === 0) {
+        delete entry.pendingReplayConsumerSocketIds;
+      }
+    }
+  }
+  return removed;
+};
+
 export const resetRelayIdempotencyStore = (): void => {
   relayIdempotencyByConversation.clear();
   totalEntries = 0;

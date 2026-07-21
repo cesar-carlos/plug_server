@@ -32,6 +32,7 @@ import {
 } from "../registries/relay_idempotency_store";
 import { resetRelayOutboundQueueState } from "./relay_outbound_queue";
 import { resetRelayStreamFlowState } from "./relay_stream_flow_state";
+import { resetRelayStreamDrainSchedulerStateForTests } from "./relay_stream_drain_scheduler";
 import { notifyConsumersForAgentRelayDisconnect } from "./relay_agent_disconnect_notify";
 import { getRelayConsumerEmit } from "./relay_consumer_emit";
 import { resetRelayTimeoutTombstonesForTests } from "./relay_timeout_tombstone";
@@ -203,6 +204,7 @@ export const resetRpcBridgeMutableStores = (): void => {
   resetActiveStreamRegistry();
   resetRelayIdempotencyStore();
   resetRelayStreamFlowState();
+  resetRelayStreamDrainSchedulerStateForTests();
   resetRelayOutboundQueueState();
   resetRelayTimeoutTombstonesForTests();
   restSqlStreamMaterializeReset();

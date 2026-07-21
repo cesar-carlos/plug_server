@@ -1,3 +1,4 @@
+import type { AgentHubPresenceRoute } from "../../domain/ports/agent_hub_presence.port";
 import { getAgentHubPresencePort } from "../../infrastructure/redis/presence/agent_hub_presence_redis";
 import { env } from "../../shared/config/env";
 
@@ -26,4 +27,19 @@ export const syncAgentHubPresenceOnDisconnect = async (input: {
 
 export const syncAgentHubPresenceOnTouch = async (agentId: string): Promise<void> => {
   await getAgentHubPresencePort().touch(agentId);
+};
+
+/**
+ * Returns the remote hub route for `agentId` when distributed presence is enabled
+ * and a record exists; otherwise `null`. Used by relay conversation start to
+ * distinguish "unknown agent" from "agent on another hub" without sticky affinity.
+ */
+export const resolveAgentHubPresenceRoute = async (
+  agentId: string,
+): Promise<AgentHubPresenceRoute | null> => {
+  const presence = getAgentHubPresencePort();
+  if (!presence.isEnabled) {
+    return null;
+  }
+  return presence.resolveRoute(agentId);
 };

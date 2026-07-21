@@ -107,9 +107,14 @@ const resolveStreamRouteAgentId = (payload: {
 export const handleAgentsStreamPull = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   rawPayload: unknown,
-): void => {
+): Promise<void> => runAgentsStreamPull(socket, rawPayload);
+
+const runAgentsStreamPull = async (
+  socket: Socket & { data: { user?: JwtAccessPayload } },
+  rawPayload: unknown,
+): Promise<void> => {
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
-  const decodedInbound = decodeAgentsStreamPullInboundPayload(rawPayload);
+  const decodedInbound = await decodeAgentsStreamPullInboundPayload(rawPayload);
   if (!decodedInbound.ok) {
     emitAppError(socket, decodedInbound.message);
     return;

@@ -7,6 +7,7 @@ import {
   getRelayIdempotencyMap,
   getRelayIdempotencyMetricsSnapshot,
   pruneExpiredRelayIdempotencyEntries,
+  pruneRelayIdempotencyWaiterSocket,
   removeRelayIdempotencyEntry,
   resetRelayIdempotencyStore,
   setRelayIdempotencyEntry,
@@ -146,5 +147,19 @@ describe("relay_idempotency_store", () => {
     expect(map?.has("pending-0")).toBe(true);
     expect(map?.has("pending-overflow")).toBe(false);
     expect(getRelayIdempotencyMetricsSnapshot().evictedPerConversationCap).toBe(0);
+  });
+
+  it("pruneRelayIdempotencyWaiterSocket removes a consumer from waiter sets", () => {
+    const map = getOrCreateRelayIdempotencyMap("c1");
+    map.set("client1", {
+      requestId: "r1",
+      expiresAtMs: Date.now() + 60_000,
+      pendingReplayConsumerSocketIds: new Set(["sock-a", "sock-b"]),
+    });
+
+    expect(pruneRelayIdempotencyWaiterSocket("sock-a")).toBe(1);
+    expect(map.get("client1")?.pendingReplayConsumerSocketIds).toEqual(new Set(["sock-b"]));
+    expect(pruneRelayIdempotencyWaiterSocket("sock-b")).toBe(1);
+    expect(map.get("client1")?.pendingReplayConsumerSocketIds).toBeUndefined();
   });
 });

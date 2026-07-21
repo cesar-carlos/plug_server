@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createOrderedStreamInboundQueue } from "../../../../../src/presentation/socket/hub/relay/ordered_stream_inbound_queue";
 
-const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
-
 describe("createOrderedStreamInboundQueue", () => {
   it("runs work for the same socket strictly in enqueue order", async () => {
     const queue = createOrderedStreamInboundQueue();
@@ -63,23 +61,64 @@ describe("createOrderedStreamInboundQueue", () => {
     });
   });
 
-  it("cleanup() drops a socket tail and reset() clears everything (no throw)", async () => {
+  it("cleanup() skips not-yet-started work for that socket", async () => {
     const queue = createOrderedStreamInboundQueue();
     const ran: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
 
     queue.enqueue("socket-a", async () => {
-      ran.push("a");
+      ran.push("a1-start");
+      await firstGate;
+      ran.push("a1-end");
     });
-    queue.cleanup("socket-a");
-    queue.enqueue("socket-b", async () => {
-      ran.push("b");
+    queue.enqueue("socket-a", async () => {
+      ran.push("a2");
     });
-    queue.reset();
 
-    // Work already enqueued still resolves; cleanup/reset only drop the
-    // bookkeeping tail used to chain *future* work.
-    await tick();
-    await vi.waitFor(() => expect(ran.sort()).toEqual(["a", "b"]));
-    expect(() => queue.reset()).not.toThrow();
+    await vi.waitFor(() => expect(ran).toContain("a1-start"));
+    queue.cleanup("socket-a");
+    releaseFirst();
+
+    await vi.waitFor(() => expect(ran).toEqual(["a1-start", "a1-end"]));
+    expect(ran).not.toContain("a2");
+  });
+
+  it("cleanup() prunes generation after the abandoned chain settles", async () => {
+    const queue = createOrderedStreamInboundQueue();
+    const ran: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    queue.enqueue("socket-a", async () => {
+      await firstGate;
+    });
+    queue.enqueue("socket-a", async () => {
+      ran.push("should-skip");
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    queue.cleanup("socket-a");
+    releaseFirst();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    queue.enqueue("socket-a", async () => {
+      ran.push("after-prune");
+    });
+    await vi.waitFor(() => expect(ran).toContain("after-prune"));
+    expect(ran).not.toContain("should-skip");
+  });
+
+  it("cleanup() and reset() are safe no-ops on empty state", () => {
+    const queue = createOrderedStreamInboundQueue();
+    expect(() => {
+      queue.cleanup("missing");
+      queue.reset();
+      queue.reset();
+    }).not.toThrow();
   });
 });

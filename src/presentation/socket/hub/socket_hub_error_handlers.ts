@@ -37,18 +37,30 @@ const resolveEngineConnectionErrorCode = (
   return "unknown";
 };
 
-const isEventEmitterLike = (
-  value: unknown,
-): value is { on: (event: string, listener: (...args: unknown[]) => void) => void } =>
+type RemovableEmitter = {
+  on: (event: string, listener: (...args: unknown[]) => void) => unknown;
+  off: (event: string, listener: (...args: unknown[]) => void) => unknown;
+};
+
+const isRemovableEmitter = (value: unknown): value is RemovableEmitter =>
   typeof value === "object" &&
   value !== null &&
-  typeof (value as { on?: unknown }).on === "function";
+  typeof (value as { on?: unknown }).on === "function" &&
+  typeof (value as { off?: unknown }).off === "function";
 
+/**
+ * Registers engine / adapter / per-socket error listeners and returns a disposer
+ * that removes the long-lived listeners (safe to call from `closeSocketServer`
+ * when tests create multiple socket servers in-process).
+ */
 export const registerSocketHubErrorHandlers = (
   engine: EngineServer,
   namespaces: readonly { readonly name: string; readonly namespace: Namespace }[],
-): void => {
-  engine.on("connection_error", (payload: EngineConnectionErrorPayload) => {
+): (() => void) => {
+  const disposers: Array<() => void> = [];
+
+  const onEngineConnectionError = (...args: unknown[]): void => {
+    const payload = (args[0] ?? {}) as EngineConnectionErrorPayload;
     const code = resolveEngineConnectionErrorCode(payload);
     noteSocketEngineConnectionError(code);
     logger.warn("socket_engine_connection_error", {
@@ -57,29 +69,54 @@ export const registerSocketHubErrorHandlers = (
       message: payload.message ?? null,
       contextName: payload.context?.name ?? null,
     });
+  };
+
+  (engine as unknown as RemovableEmitter).on("connection_error", onEngineConnectionError);
+  disposers.push(() => {
+    (engine as unknown as RemovableEmitter).off("connection_error", onEngineConnectionError);
   });
 
   for (const { name, namespace } of namespaces) {
     const adapter = namespace.adapter;
-    if (isEventEmitterLike(adapter)) {
-      adapter.on("error", (error: unknown) => {
+    if (isRemovableEmitter(adapter)) {
+      const onAdapterError = (...args: unknown[]): void => {
+        const error = args[0];
         noteSocketNamespaceAdapterError(name);
         logger.warn("socket_namespace_adapter_error", {
           namespace: name,
           message: error instanceof Error ? error.message : String(error),
         });
+      };
+      adapter.on("error", onAdapterError);
+      disposers.push(() => {
+        adapter.off("error", onAdapterError);
       });
     }
 
-    namespace.on("connection", (socket) => {
-      socket.on("error", (error: Error) => {
+    const onNamespaceConnection = (...args: unknown[]): void => {
+      const socket = args[0] as {
+        id: string;
+        on: (event: string, listener: (...listenerArgs: unknown[]) => void) => void;
+      };
+      socket.on("error", (...listenerArgs: unknown[]) => {
+        const error = listenerArgs[0];
         noteSocketNamespaceSocketError(name);
         logger.warn("socket_namespace_socket_error", {
           namespace: name,
           socketId: socket.id,
-          message: error.message,
+          message: error instanceof Error ? error.message : String(error),
         });
       });
+    };
+    (namespace as unknown as RemovableEmitter).on("connection", onNamespaceConnection);
+    disposers.push(() => {
+      (namespace as unknown as RemovableEmitter).off("connection", onNamespaceConnection);
     });
   }
+
+  return (): void => {
+    for (const dispose of disposers) {
+      dispose();
+    }
+  };
 };

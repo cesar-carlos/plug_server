@@ -1,5 +1,5 @@
 import { env } from "../../../../shared/config/env";
-import { consumeSocketRateLimitRedis } from "../../../../infrastructure/redis/rate_limit/socket_rate_limit_redis";
+import { consumeSocketRateLimitRedis, refundSocketRateLimitRedis } from "../../../../infrastructure/redis/rate_limit/socket_rate_limit_redis";
 
 const buckets = new Map<string, { readonly stamps: number[]; lastSeenAtMs: number }>();
 
@@ -69,6 +69,39 @@ export const tryConsumeAgentRegisterRateLimitAsync = async (
   }
 
   return tryConsumeAgentRegisterRateLimit(userId, agentId, options);
+};
+
+/**
+ * Give back one attempt after a post-consume soft denial (e.g. SESSION_ACTIVE
+ * race between peek and register). No-op when there is no local stamp to refund.
+ */
+export const refundAgentRegisterRateLimit = (userId: string, agentId: string): void => {
+  const key = bucketKey(userId, agentId);
+  const existing = buckets.get(key);
+  if (!existing || existing.stamps.length === 0) {
+    return;
+  }
+  const stamps = existing.stamps.slice(0, -1);
+  if (stamps.length === 0) {
+    buckets.delete(key);
+    return;
+  }
+  buckets.set(key, { stamps, lastSeenAtMs: existing.lastSeenAtMs });
+};
+
+export const refundAgentRegisterRateLimitAsync = async (
+  userId: string,
+  agentId: string,
+): Promise<void> => {
+  const windowMs = env.socketAgentRegisterRateLimitWindowMs;
+  const max = env.socketAgentRegisterRateLimitMax;
+  if (windowMs > 0 && max > 0) {
+    await refundSocketRateLimitRedis({
+      scope: "agent_register",
+      key: bucketKey(userId, agentId),
+    });
+  }
+  refundAgentRegisterRateLimit(userId, agentId);
 };
 
 export const resetAgentRegisterRateLimitState = (): void => {

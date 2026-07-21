@@ -104,7 +104,7 @@ describe("socket consumer agents:command wire contracts", () => {
     expect(agentsCommandPlainJsonWireException).toBe(agentsCommandWireMigration);
   });
 
-  it("documents agents:command_response success as PayloadFrame on the wire by default", () => {
+  it("documents agents:command_response success as PayloadFrame on the wire by default", async () => {
     const logical: AgentsCommandSuccessResponse = {
       success: true,
       requestId: "req-1",
@@ -117,7 +117,7 @@ describe("socket consumer agents:command wire contracts", () => {
       retryAfterSeconds: 2,
     };
 
-    const wire = buildAgentsCommandResponseForWire(logical);
+    const wire = await buildAgentsCommandResponseForWire(logical);
     expect(socketEvents.agentsCommandResponse).toBe("agents:command_response");
     expect(isPayloadFrameEnvelope(wire)).toBe(true);
     const decoded = decodePayloadFrame(wire);
@@ -128,7 +128,7 @@ describe("socket consumer agents:command wire contracts", () => {
     }
   });
 
-  it("documents agents:command_response failure as PayloadFrame on the wire by default", () => {
+  it("documents agents:command_response failure as PayloadFrame on the wire by default", async () => {
     const logical: AgentsCommandErrorResponse = {
       success: false,
       requestId: "req-1",
@@ -140,7 +140,7 @@ describe("socket consumer agents:command wire contracts", () => {
       },
     };
 
-    const wire = buildAgentsCommandResponseForWire(logical);
+    const wire = await buildAgentsCommandResponseForWire(logical);
     expect(isPayloadFrameEnvelope(wire)).toBe(true);
     const decoded = decodePayloadFrame(wire);
     expect(decoded.ok).toBe(true);

@@ -71,34 +71,41 @@ const extractAgentsCommandRequestId = (rawPayload: unknown): string | undefined 
   return undefined;
 };
 
-const emitCommandResponse = (
+const emitCommandResponse = async (
   socket: Socket,
   payload: AgentsCommandResponsePayload,
   options?: {
     readonly payloadFrameCompression?: PayloadFrameCompressionPreference;
   },
-): void => {
-  if (socket.connected === false) {
+): Promise<void> => {
+  if (!socket.connected) {
     return;
   }
   const requestId = "requestId" in payload ? payload.requestId : undefined;
-  socket.emit(
-    socketEvents.agentsCommandResponse,
-    buildAgentsCommandResponseForWire(payload, {
-      ...(requestId !== undefined ? { requestId } : {}),
-      ...(options?.payloadFrameCompression !== undefined
-        ? { payloadFrameCompression: options.payloadFrameCompression }
-        : {}),
-    }),
-  );
+  const wire = await buildAgentsCommandResponseForWire(payload, {
+    ...(requestId !== undefined ? { requestId } : {}),
+    ...(options?.payloadFrameCompression !== undefined
+      ? { payloadFrameCompression: options.payloadFrameCompression }
+      : {}),
+  });
+  // Re-read after await: encode can race a disconnect; Socket.IO narrows `connected` to `true`.
+  if (!socket.connected) {
+    return;
+  }
+  socket.emit(socketEvents.agentsCommandResponse, wire);
 };
 
 const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_ERROR"): void => {
   socket.emit(socketEvents.appError, buildLegacySocketAppErrorPayload(code, message));
 };
 
-export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void => {
-  const decodedInbound = decodeAgentsCommandInboundPayload(rawPayload);
+export const handleAgentsCommand = (
+  socket: Socket,
+  rawPayload: unknown,
+): Promise<void> => runAgentsCommand(socket, rawPayload);
+
+const runAgentsCommand = async (socket: Socket, rawPayload: unknown): Promise<void> => {
+  const decodedInbound = await decodeAgentsCommandInboundPayload(rawPayload);
   if (!decodedInbound.ok) {
     emitAppError(socket, decodedInbound.message);
     return;
@@ -111,7 +118,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       ? `${firstIssue.path.join(".")}: ${firstIssue.message}`
       : "Validation failed";
     const requestIdFallback = extractAgentsCommandRequestId(decodedInbound.data);
-    emitCommandResponse(socket, {
+    await emitCommandResponse(socket, {
       success: false,
       ...(requestIdFallback !== undefined ? { requestId: requestIdFallback } : {}),
       error: { code: "VALIDATION_ERROR", message },
@@ -127,7 +134,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       ? { payloadFrameCompression: body.payloadFrameCompression }
       : undefined;
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
-    emitCommandResponse(
+    await emitCommandResponse(
       socket,
       {
         success: false,
@@ -184,7 +191,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
   void (async () => {
     try {
       if (!(await allowAgentsCommandSocketAsync(userSub, socket.id, rateLimitCost))) {
-        emitCommandResponse(
+        await emitCommandResponse(
           socket,
           {
             success: false,
@@ -230,7 +237,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
 
       if ("notification" in result && result.notification) {
         const tWrite = performance.now();
-        emitCommandResponse(
+        await emitCommandResponse(
           socket,
           {
             success: true,
@@ -268,7 +275,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
       if (retryAfterSeconds !== undefined) {
         noteAgentsCommandRetryAfterSecondsPropagated();
       }
-      emitCommandResponse(
+      await emitCommandResponse(
         socket,
         {
           success: true,
@@ -294,7 +301,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
               errorCode: "SERVICE_UNAVAILABLE",
             });
           }
-          emitCommandResponse(
+          await emitCommandResponse(
             socket,
             {
               success: false,
@@ -317,7 +324,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
           err.command,
         );
         const tWriteOffline = performance.now();
-        emitCommandResponse(
+        await emitCommandResponse(
           socket,
           {
             success: true,
@@ -351,7 +358,7 @@ export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): void =
         });
       }
 
-      emitCommandResponse(
+      await emitCommandResponse(
         socket,
         {
           success: false,

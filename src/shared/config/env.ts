@@ -603,13 +603,14 @@ const envSchema = z.object({
   /**
    * When > 0 and `cmp === gzip`, inbound `decodePayloadFrameAsync` uses async gunzip for compressed payloads
    * at least this many bytes. 0 = always synchronous gunzip.
+   * Default `1` keeps nearly all gzip off the event loop while preserving the sync escape hatch.
    */
   PAYLOAD_FRAME_ASYNC_GUNZIP_MIN_COMPRESSED_BYTES: z.coerce
     .number()
     .int()
     .min(0)
     .max(10 * 1024 * 1024)
-    .default(65_536),
+    .default(1),
   /** Max rows accepted in one `sql.bulkInsert` RPC before the hub asks callers to chunk. */
   AGENT_SQL_BULK_INSERT_MAX_ROWS: z.coerce.number().int().positive().max(1_000_000).default(50_000),
   /** Max UTF-8 bytes for serialized `sql.bulkInsert.params` before PayloadFrame encoding. */

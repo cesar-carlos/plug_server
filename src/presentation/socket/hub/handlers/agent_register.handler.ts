@@ -5,7 +5,7 @@ import {
   AGENT_SESSION_SUPERSEDED_MESSAGE,
   emitAgentRegisterError,
 } from "../handshake/agent_register_error";
-import { tryConsumeAgentRegisterRateLimitAsync } from "../rate_limits/agent_register_rate_limit";
+import { tryConsumeAgentRegisterRateLimitAsync, refundAgentRegisterRateLimitAsync } from "../rate_limits/agent_register_rate_limit";
 import {
   resolveAgentRegisterProfileSnapshot,
   resolveRequiresExplicitProtocolReadyAck,
@@ -121,6 +121,29 @@ export const handleAgentRegister = async (
     return;
   }
 
+  if (
+    agentRegistry.wouldRejectActiveSession({
+      agentId,
+      socketId: socket.id,
+      policy: env.socketAgentSessionPolicy,
+      isPeerConnected: (sid) => agentsNsp.sockets.has(sid),
+    })
+  ) {
+    noteAgentSessionRejectedActive();
+    emitAgentRegisterError(
+      socket,
+      "session_active",
+      AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
+      {
+        agentId,
+        userId,
+        policy: env.socketAgentSessionPolicy,
+      },
+      { code: "same_agent_session_active" },
+    );
+    return;
+  }
+
   const rateLimitOk = await tryConsumeAgentRegisterRateLimitAsync(userId, agentId);
   if (!rateLimitOk.ok) {
     noteAgentRegisterRateLimited();
@@ -142,6 +165,7 @@ export const handleAgentRegister = async (
       userId,
       message: error instanceof Error ? error.message : String(error),
     });
+    await refundAgentRegisterRateLimitAsync(userId, agentId);
     emitAgentRegisterError(
       socket,
       "transient_failure",
@@ -169,6 +193,9 @@ export const handleAgentRegister = async (
 
   if (!registration.ok) {
     if (registration.reason === "SESSION_ACTIVE") {
+      // Race: peer connected between the peek and register. Refund the
+      // attempt so reconnect races do not permanently burn quota.
+      await refundAgentRegisterRateLimitAsync(userId, agentId);
       noteAgentSessionRejectedActive();
       emitAgentRegisterError(
         socket,

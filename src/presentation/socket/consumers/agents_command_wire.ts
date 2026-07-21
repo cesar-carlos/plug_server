@@ -2,8 +2,8 @@ import type { ServerTimingsEnvelope } from "../../../application/services/server
 import { env } from "../../../shared/config/env";
 import type { PayloadFrameCompressionPreference } from "../../../shared/utils/payload_frame";
 import {
-  decodePayloadFrame,
-  encodePayloadFrame,
+  decodePayloadFrameAsync,
+  encodePayloadFrameBridge,
   encodePayloadFrameHotPath,
   isPayloadFrameEnvelope,
   payloadFrameEncodeOptionsFromPreference,
@@ -73,11 +73,11 @@ export type DecodeAgentsCommandInboundResult =
  * during the migration window. Outbound wire format is controlled separately by
  * `SOCKET_AGENTS_COMMAND_COMPAT_MODE`.
  */
-export const decodeAgentsCommandInboundPayload = (
+export const decodeAgentsCommandInboundPayload = async (
   rawPayload: unknown,
-): DecodeAgentsCommandInboundResult => {
+): Promise<DecodeAgentsCommandInboundResult> => {
   if (isPayloadFrameEnvelope(rawPayload)) {
-    const decoded = decodePayloadFrame(rawPayload);
+    const decoded = await decodePayloadFrameAsync(rawPayload);
     if (!decoded.ok) {
       return { ok: false, message: decoded.error.message };
     }
@@ -113,11 +113,12 @@ const resolveAgentsCommandRequestId = (
 /**
  * Transitional compatibility shim for outbound `agents:command_response`.
  * Default/current mode is `PayloadFrame`; `raw_json` exists only for narrow, time-boxed migrations.
+ * Large gzip-eligible bodies use async zlib so encoding does not block the event loop.
  */
-export const buildAgentsCommandResponseForWire = (
+export const buildAgentsCommandResponseForWire = async (
   payload: AgentsCommandResponsePayload,
   options?: AgentsCommandWireEncodeOptions,
-): AgentsCommandResponsePayload | PayloadFrameEnvelope => {
+): Promise<AgentsCommandResponsePayload | PayloadFrameEnvelope> => {
   if (env.socketAgentsCommandCompatMode === "raw_json") {
     return payload;
   }
@@ -128,7 +129,7 @@ export const buildAgentsCommandResponseForWire = (
       ? payload.requestId
       : undefined);
 
-  return encodePayloadFrame(payload, {
+  return encodePayloadFrameBridge(payload, {
     ...payloadFrameEncodeOptionsFromPreference(options?.payloadFrameCompression),
     ...(requestId !== undefined ? { requestId } : {}),
     omitTraceId: true,
