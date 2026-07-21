@@ -1,38 +1,24 @@
-# Agent implementation status — entrega cross-repo
+# Agent implementation status — ledger de commits
 
-> **Audiencia.** Times do `plug_server` e `plug_agente`. Snapshot da
-> entrega das melhorias propostas em
-> [`03_performance_roadmap.md`](03_performance_roadmap.md) por parte do
-> `plug_agente`. Atualizado a cada onda de entrega; **nao** e
-> changelog detalhado por commit — o CHANGELOG canonico vive em
-> `../../../plug_agente/CHANGELOG.md`.
+> **Status vivo:** [`README.md`](README.md). Esta pagina e o **ledger**
+> (commits, arquivos, testes) das ondas de entrega cross-repo — nao
+> duplicar tabelas de status no README.
 >
-> **Como esta pagina foi construida.** Audit cross-repo automatizado
-> (2026-05-28) sobre o working tree do `plug_agente` em
-> `D:\Developer\plug_database\plug_agente`. Conferiu:
-> `lib/core/config/feature_flags.dart`,
-> `lib/core/constants/connection_constants.dart`,
-> `lib/domain/protocol/protocol_capabilities.dart`,
-> `lib/infrastructure/external_services/transport/*.dart`,
-> `lib/infrastructure/validation/schema_loader.dart`,
-> `lib/infrastructure/external_services/socket_io_transport_client_v2.dart`,
-> `test/**/*_test.dart`, `.env.example` e
-> `docs/communication/socket_communication_standard.md`.
+> **Audiencia.** Times do `plug_server` e `plug_agente`.
+> Roadmap historico: [`03_performance_roadmap.md`](03_performance_roadmap.md).
 >
-> **Como atualizar.** A cada nova onda de entrega do `plug_agente`:
-> bumpa data + lista os arquivos tocados + atualiza os status de
-> [`03_performance_roadmap.md`](03_performance_roadmap.md).
+> Construido a partir do working tree do `plug_agente` (audit 2026-05-28).
+> A cada nova onda: atualizar a tabela TL;DR abaixo + o README.
 
 ## TL;DR
 
-**9 de 10** itens do roadmap entregues pelo `plug_agente` (6 em 2026-05-28 +
-3 extensões de transporte em 2026-06-24). Resta apenas **item 10** (brotli)
-em `proposed`. Hub alinhado em [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f).
+**9 de 10** itens entregues (6 em 2026-05-28 + 3 em 2026-06-24). Resta
+**item 10** (brotli). Hub: [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f).
 
 | status | itens | notas |
 | ------ | ----- | ----- |
 | ✅ shipped (2026-05-28) | 1, 2, 3, 6, 8, 9 | commit [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |
-| ✅ shipped (2026-06-24) | 4, 5, 7 | ADR 0010/0011/0009 — commit agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) |
+| ✅ shipped (2026-06-24) | 4, 5, 7 | ADR 0012/0011/0009 — commit agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) |
 | proposed | 10 | brotli — ver [study](../studies/brotli_payload_frame_study.md) |
 
 Orientacao inversa (o que o hub deve fazer): `plug_agente/docs/plug_server/`.

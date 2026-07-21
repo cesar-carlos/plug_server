@@ -2,6 +2,7 @@
 
 - **Status**: Proposed — no implementation until bytes-on-wire is measured as a bottleneck.
 - **Date**: 2026-06-24
+- **Gates vivos:** [`docs/performance/P5_future_gates.md`](../performance/P5_future_gates.md) §5.1
 
 ## Summary
 
@@ -9,26 +10,20 @@ Today hub and agent negotiate `gzip` and `none` only. Brotli often improves comp
 
 ## When to pursue
 
-- Production profiles show **bandwidth** or **large payload encode** as dominant phase, not SQL or RTT.
-- Median relay payload > `PAYLOAD_FRAME_COMPRESS_MIN_BYTES` with gzip ratio plateau.
+Ver gates em P5. Em resumo: bandwidth / encode dominante no baseline; median payload acima do limiar de compressao com gzip em plateau.
 
-## Hub changes (if adopted)
+## Hub / agent changes (if adopted)
 
-1. Add `br` to `HUB_TRANSPORT_COMPRESSIONS` env parsing.
-2. Extend `agent:capabilities` negotiation and `encodePayloadFrame` compression branch.
-3. Contract tests for `cmp: "br"` round-trip with plug_agente.
-
-## Agent changes (`plug_agente`)
-
-1. Advertise `br` in `compressions` when compiled with brotli support.
-2. Decode inbound `br` frames on `rpc:request` / stream chunks.
+1. Hub: add `br` to `HUB_TRANSPORT_COMPRESSIONS`, negotiation, `encodePayloadFrame`, contract tests.
+2. Agent: advertise + decode `br` when compiled with brotli support.
+3. Coordinate rollout — hub must not emit `br` until agent confirms support.
 
 ## Risk
 
-- CPU regression on small payloads if `br` is selected too aggressively.
-- Must coordinate rollout: hub must not emit `br` until agent confirms support.
+CPU regression on small payloads if `br` is selected too aggressively.
 
 ## References
 
-- [`docs/plug_agente/03_performance_roadmap.md`](../plug_agente/03_performance_roadmap.md) item 10
-- [`src/shared/utils/payload_frame.ts`](../../src/shared/utils/payload_frame.ts)
+- [`P5_future_gates.md`](../performance/P5_future_gates.md)
+- [`03_performance_roadmap.md`](../plug_agente/03_performance_roadmap.md) item 10
+- [`payload_frame.ts`](../../src/shared/utils/payload_frame.ts)

@@ -4,9 +4,9 @@ Itens do plano de desempenho hub ↔ agente que **não** devem ser implementados
 
 ## 5.1 Brotli (`br`)
 
-- **Estudo:** [`../studies/brotli_payload_frame_study.md`](../studies/brotli_payload_frame_study.md)
-- **Gate:** `plug_socket_relay_bridge_encode_avg_ms` + bytes-on-wire dominam sobre SQL/RTT no baseline
-- **Status:** proposed
+- **Proposta tecnica (curta):** [`../studies/brotli_payload_frame_study.md`](../studies/brotli_payload_frame_study.md)
+- **Gate:** `plug_socket_relay_bridge_encode_avg_ms` + bytes-on-wire dominam sobre SQL/RTT no baseline (`npm run perf:baseline`)
+- **Status:** proposed — **esta secao e a checklist viva**; o study nao duplica gates
 
 ## 5.2 Escala horizontal (relay state partilhado)
 

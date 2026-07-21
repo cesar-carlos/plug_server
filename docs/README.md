@@ -1,125 +1,116 @@
 ﻿# Documentacao do `plug_server`
 
+**Papel deste ficheiro:** indice e ordem de leitura. Visao de produto e canais:
+[`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md).
+
 ## Como navegar
 
-Use os documentos nesta ordem:
+1. [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) — papeis, canais, estado atual.
+2. [`api/client_agent_business_rules.md`](api/client_agent_business_rules.md) — ownership / aprovacao.
+3. [`api/api_rest_bridge.md`](api/api_rest_bridge.md) — REST + bridge legado `agents:*`.
+4. [`socket/socket_relay_protocol.md`](socket/socket_relay_protocol.md) — relay `relay:*`.
+5. [`configuration.md`](configuration.md) + `src/shared/config/env.ts` — defaults.
 
-1. `docs/PROJECT_OVERVIEW.md` para entender papeis, canais e limites do hub.
-2. `docs/api/client_agent_business_rules.md` para ownership, aprovacao, autorizacao e revogacao.
-3. `docs/api/api_rest_bridge.md` para o contrato HTTP e o bridge legado `agents:*`.
-4. `docs/socket/socket_relay_protocol.md` para o contrato relay `relay:*` em `/consumers`.
-5. `docs/configuration.md` e `src/shared/config/env.ts` para defaults, parsing e variaveis.
-
-Para rotas HTTP, a referencia viva e o OpenAPI exposto em `GET /docs` e `GET /docs.json`.
-Os caminhos canonicos usam prefixo `/api/v1`, com excecao dos aliases de compatibilidade
-`/auth/*`. O endpoint `GET /metrics` (Prometheus) esta em `/metrics` na raiz e tambem
-em `/api/v1/metrics` para alinhamento com o OpenAPI; em ambos os casos exige JWT com
-`role=admin`.
+HTTP vivo: OpenAPI em `GET /docs` / `GET /docs.json`. Prefixo canonico `/api/v1`
+(aliases `/auth/*`). Metrics: `/metrics` e `/api/v1/metrics` (JWT `role=admin`).
 
 ## Inicio rapido
 
-- `docs/PROJECT_OVERVIEW.md`: mapa do produto, dos namespaces Socket e dos canais REST.
-- `docs/api/client_agent_business_rules.md`: regra oficial do modelo `User` / `Agent` / `Client`.
-- `docs/api/api_rest_bridge.md`: `POST /api/v1/agents/commands`, respostas normalizadas, `Retry-After` e offline bridge.
-- `docs/socket/socket_relay_protocol.md`: contrato relay em `/consumers`.
-- `docs/socket/socket_client_sdk.md`: guia pratico para consumidor Socket.
-- `docs/configuration.md`: checklist de ambiente, defaults e links para `env.ts` / `.env.example`.
-- `CHANGELOG.md`: historico de mudancas que afetam contrato e operacao.
+| Doc | Para que |
+| --- | -------- |
+| [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) | Mapa do produto |
+| [`api/client_agent_business_rules.md`](api/client_agent_business_rules.md) | User / Agent / Client |
+| [`api/api_rest_bridge.md`](api/api_rest_bridge.md) | `POST /agents/commands` |
+| [`socket/socket_relay_protocol.md`](socket/socket_relay_protocol.md) | Contrato relay |
+| [`socket/socket_client_sdk.md`](socket/socket_client_sdk.md) | Guia pratico Socket |
+| [`configuration.md`](configuration.md) | Env / defaults |
+| [`CHANGELOG.md`](../CHANGELOG.md) | Historico de contrato |
 
-## Superficie HTTP vs Socket
-
-A maior parte da API do produto expoe-se por **HTTP** (`/api/v1/...`, OpenAPI em `GET /docs`). O **Socket** cobre transporte em tempo real entre hub, **consumers** (`/consumers`) e **agentes** (`/agents`), nao substitui o REST inteiro.
-
-```mermaid
-flowchart LR
-  subgraph httpLayer [HTTP]
-    auth[Auth e sessao]
-    catalog[Catalogo e CRUD]
-    bridgeHttp[POST agents commands]
-    metricsHttp[Metrics e health HTTP]
-  end
-  subgraph socketLayer [Socket.IO]
-    agentsNs[Namespace agents]
-    consumersNs[Namespace consumers]
-  end
-  auth --> catalog
-  catalog --> bridgeHttp
-  httpLayer -.->|paridade limitada| socketLayer
-  consumersNs --> relay[relay conversa e RPC]
-  consumersNs --> legacy[agents command legado]
-  agentsNs --> plugAgente[plug_agente JSON-RPC]
-```
-
-- Visao de produto e canais: [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
-- Bridge REST e canal legado `agents:*`: [api_rest_bridge.md](api/api_rest_bridge.md).
-- Relay `relay:*`: [socket_relay_protocol.md](socket/socket_relay_protocol.md).
+HTTP vs Socket (resumo): REST cobre API de produto; Socket cobre tempo real
+`/consumers` + `/agents`. Detalhe e diagrama: overview.
 
 ## Por assunto
 
 ### Produto e regras
 
-- `docs/PROJECT_OVERVIEW.md`
-- `docs/api/client_agent_business_rules.md`
-- `docs/api/user_status.md`
+- [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md)
+- [`api/client_agent_business_rules.md`](api/client_agent_business_rules.md)
+- [`api/user_status.md`](api/user_status.md)
 
 ### Transporte e integracao
 
-- `docs/api/api_rest_bridge.md`
-- `docs/socket/socket_relay_protocol.md`
-- `docs/socket/socket_client_sdk.md`
-- `docs/plug_agente/migracao_plug_agente_namespaces.md`
-- `docs/plug_agente/communication_sync_plug_agente.md`
+- [`api/api_rest_bridge.md`](api/api_rest_bridge.md)
+- [`socket/socket_relay_protocol.md`](socket/socket_relay_protocol.md)
+- [`socket/socket_client_sdk.md`](socket/socket_client_sdk.md)
+- [`plug_agente/migracao_plug_agente_namespaces.md`](plug_agente/migracao_plug_agente_namespaces.md)
+- [`plug_agente/communication_sync_plug_agente.md`](plug_agente/communication_sync_plug_agente.md)
 
 ### Operacao
 
-- `docs/configuration.md`
-- `docs/limits/` — limites de acesso, quotas e respostas quando atingidos ([`limites_acesso_e_quotas.md`](limits/limites_acesso_e_quotas.md))
-- `docs/infrastructure/nginx_production.md`
-- `docs/performance/performance_hub_agent.md`
-- `docs/observability/observability.md`
-- `docs/performance/load_testing.md`
-- `docs/performance/e2e_benchmark_hub_agent.md`
+- [`configuration.md`](configuration.md)
+- [`limits/limites_acesso_e_quotas.md`](limits/limites_acesso_e_quotas.md) — quotas e 429/503 (fonte de numeros para integradores)
+- [`infrastructure/nginx_production.md`](infrastructure/nginx_production.md)
+- [`performance/performance_hub_agent.md`](performance/performance_hub_agent.md)
+- [`performance/P5_future_gates.md`](performance/P5_future_gates.md) — gates antes de brotli / escala
+- [`observability/observability.md`](observability/observability.md)
+- [`performance/load_testing.md`](performance/load_testing.md)
+- [`performance/e2e_benchmark_hub_agent.md`](performance/e2e_benchmark_hub_agent.md)
 
-### Redis (modulos compartilhados)
+### Redis
 
-- `src/infrastructure/redis/README.md` — mapa dos 5 modulos + 2 factories.
-- `docs/infrastructure/redis_security.md` — checklist de auth/TLS/ACL/eviction.
-- `docs/infrastructure/redis_streams_agent_backlog.md` — entrega at-least-once `client:custom.*` (inclui batch fan-out P1).
-- `docs/grafana/redis_dashboard.json` — dashboard Prometheus pronto.
-- `docs/observability/alerts/redis.yml` — regras de alerta.
-- `docs/observability/alerts/rate_limits.yml` — rejeicoes sustentadas de rate limit HTTP/Socket (429).
-- `docs/runbooks/redis_cluster_migration.md` — runbook standalone -> Cluster.
-- `docs/spikes/_README.md` — index de spikes (NO-GO docs).
-- ADRs: `docs/adrs/0001-fail-open-default.md`, `0002-hash-tag-prefix.md`, `0003-streams-vs-pubsub.md`, `0004-circuit-breaker-thresholds.md`, `0005-instrumented-redis-client-factory.md`, `0006-redis-multi-tenancy.md`, `0007-parallel-redis-init.md`.
+- `src/infrastructure/redis/README.md` — mapa dos modulos + factories
+- [`infrastructure/redis_security.md`](infrastructure/redis_security.md)
+- [`infrastructure/redis_streams_agent_backlog.md`](infrastructure/redis_streams_agent_backlog.md)
+- Grafana: [`grafana/redis_dashboard.json`](grafana/redis_dashboard.json),
+  [`grafana/relay_batch_dashboard.json`](grafana/relay_batch_dashboard.json),
+  [`grafana/bridge_latency_trace_minimal.json`](grafana/bridge_latency_trace_minimal.json)
+- Alertas: [`observability/alerts/redis.yml`](observability/alerts/redis.yml),
+  [`observability/alerts/rate_limits.yml`](observability/alerts/rate_limits.yml)
+- [`runbooks/redis_cluster_migration.md`](runbooks/redis_cluster_migration.md)
+- [`spikes/_README.md`](spikes/_README.md)
+- ADRs Redis: `0001`–`0007`, presence [`0010-agent-hub-presence-redis.md`](adrs/0010-agent-hub-presence-redis.md)
+
+### ADRs de protocolo (relay / agente)
+
+- [`0008-relay-batch-protocol.md`](adrs/0008-relay-batch-protocol.md)
+- [`0009-client-request-id-echo.md`](adrs/0009-client-request-id-echo.md)
+- [`0011-health-piggyback.md`](adrs/0011-health-piggyback.md)
+- [`0012-agent-phase-timings.md`](adrs/0012-agent-phase-timings.md)
 
 ### Roadmap e estudos
 
-- `docs/studies/scaling_and_roadmap.md`
-- `docs/studies/relay_fastpath_study.md`
-- `docs/studies/db_partitioning_study.md`
+- [`studies/scaling_and_roadmap.md`](studies/scaling_and_roadmap.md)
+- [`studies/relay_fastpath_study.md`](studies/relay_fastpath_study.md) (historico)
+- [`studies/db_partitioning_study.md`](studies/db_partitioning_study.md)
+- [`studies/brotli_payload_frame_study.md`](studies/brotli_payload_frame_study.md) (proposta; gates em P5)
 
 ### plug_agente (coordenacao cross-repo)
 
-- `docs/plug_agente/README.md` — status de entrega e roadmap proativo.
-- `docs/plug_agente/communication_sync_plug_agente.md` — checklist de sincronizacao.
-- `docs/plug_agente/migracao_plug_agente_namespaces.md` — migracao `/agents` vs `/`.
-- `docs/plug_agente/01_relay_body_id_echo.md` — relay body.id echo.
-- `docs/plug_agente/04_agent_implementation_status.md` — estado de implementacao.
+- [`plug_agente/README.md`](plug_agente/README.md) — **status vivo**
+- [`plug_agente/communication_sync_plug_agente.md`](plug_agente/communication_sync_plug_agente.md)
+- [`plug_agente/migracao_plug_agente_namespaces.md`](plug_agente/migracao_plug_agente_namespaces.md)
+- [`plug_agente/01_relay_body_id_echo.md`](plug_agente/01_relay_body_id_echo.md) — historico Opcao B/A
+- [`plug_agente/02_no_change_items.md`](plug_agente/02_no_change_items.md)
+- [`plug_agente/03_performance_roadmap.md`](plug_agente/03_performance_roadmap.md) — arquivo
+- [`plug_agente/04_agent_implementation_status.md`](plug_agente/04_agent_implementation_status.md) — ledger
+- [`plug_agente/05_channel_migration_performance.md`](plug_agente/05_channel_migration_performance.md)
 
 ### Runbooks
 
-- `docs/runbooks/redis_cluster_migration.md`
-- `docs/runbooks/socket_perf_investigation.md`
-- `docs/runbooks/payload_signing_key_rotation_runbook.md`
+- [`runbooks/redis_cluster_migration.md`](runbooks/redis_cluster_migration.md)
+- [`runbooks/socket_perf_investigation.md`](runbooks/socket_perf_investigation.md)
+- [`runbooks/payload_signing_key_rotation_runbook.md`](runbooks/payload_signing_key_rotation_runbook.md)
 
-## Papel de cada documento
+## Papel de cada documento (resumo)
 
-- `docs/PROJECT_OVERVIEW.md`: visao executiva e mapa conceitual.
-- `docs/api/client_agent_business_rules.md`: fonte canonica das regras de negocio.
-- `docs/api/api_rest_bridge.md`: contrato REST e `agents:command`.
-- `docs/socket/socket_relay_protocol.md`: contrato relay e PayloadFrame no consumidor.
-- `docs/socket/socket_client_sdk.md`: guia de implementacao, sem repetir o contrato completo.
-- `docs/configuration.md`: fonte narrativa de configuracao; defaults formais vivem em `env.ts`.
-- `docs/limits/limites_acesso_e_quotas.md`: limites HTTP/Socket/Nginx, login e respostas ao atingir quotas.
-- `docs/observability/observability.md`, `docs/performance/performance_hub_agent.md`, `docs/infrastructure/nginx_production.md`: operacao.
-- `docs/studies/scaling_and_roadmap.md`, `docs/studies/relay_fastpath_study.md`, `docs/studies/db_partitioning_study.md`: material nao normativo.
+| Doc | Papel |
+| --- | ----- |
+| `PROJECT_OVERVIEW` | Visao executiva |
+| `client_agent_business_rules` | Regras de negocio |
+| `api_rest_bridge` | Contrato REST + `agents:*` |
+| `socket_relay_protocol` | Contrato relay |
+| `socket_client_sdk` | Guia (nao normativo completo) |
+| `configuration` + `env.ts` | Config |
+| `limites_acesso_e_quotas` | Quotas / respostas ao atingir limites |
+| `observability` / `performance_hub_agent` / `nginx_production` | Operacao |
+| `studies/*` / `spikes/*` / ADRs | Nao normativo / decisoes / experimentos |

@@ -1,6 +1,7 @@
 # P4 — Migração de canal para desempenho (hub ↔ agente)
 
-> **Audiencia.** Times do consumer (Colmeia), ops e integradores. Complementa
+> **Audiencia.** Times do consumer, ops e integradores. Checklist curto;
+> tuning detalhado em
 > [`../performance/performance_hub_agent.md`](../performance/performance_hub_agent.md).
 
 ## Objetivo
@@ -35,7 +36,7 @@ Referencia: [`01_relay_body_id_echo.md`](01_relay_body_id_echo.md), [`../studies
 
 ## 4. Observabilidade
 
-- `requestServerTimings: true` no consumer + `agentPhaseTimings` negociado → `meta.agent_phases` (ADR 0010).
+- `requestServerTimings: true` no consumer + `agentPhaseTimings` negociado → `meta.agent_phases` (ADR 0012).
 - Baseline antes/depois: `npm run perf:baseline` (ver [`../performance/load_testing.md`](../performance/load_testing.md)).
 
 ## Checklist de rollout P4

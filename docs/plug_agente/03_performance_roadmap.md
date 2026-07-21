@@ -1,51 +1,25 @@
 ﻿# Performance roadmap — oportunidades cross-repo
 
-> **Audiencia.** Time do `plug_agente`. Lista priorizada de melhorias de
-> performance / observabilidade que **dependem de mudanca no agente** para
-> destravar ganhos no hub e/ou na ponta do consumer.
+> **Arquivo / historico.** Status vivo: [`README.md`](README.md).
+> Itens **1–9 shipped**; unico aberto: **item 10 (brotli)** — gates em
+> [`P5_future_gates.md`](../performance/P5_future_gates.md) e
+> [`brotli_payload_frame_study.md`](../studies/brotli_payload_frame_study.md).
+> Secoes detalhadas abaixo dos itens shipped permanecem como registro
+> da onda 2026-05/06; nao use esta pagina como checklist de trabalho aberto.
 >
-> **Como esta pagina foi construida.** Audit cross-repo
-> (2026-05-28) cruzando `docs/performance/performance_hub_agent.md`,
-> `docs/runbooks/socket_perf_investigation.md`, `docs/spikes/`,
-> `docs/studies/scaling_and_roadmap.md`, codigo do agente em
-> `lib/infrastructure/external_services/transport/`,
-> `lib/application/queue/`, `lib/core/constants/connection_constants.dart`
-> e `lib/core/config/feature_flags.dart`.
+> **Audiencia.** Time do `plug_agente`. Lista priorizada (audit 2026-05-28)
+> de melhorias que dependiam de mudanca no agente.
 >
-> **Como ler.** Cada item tem:
-> - **Impacto** (high / medium / low) — ganho de p95 ou cost-on-CPU/RAM esperado.
-> - **Esforco** (low / medium / high) — tamanho da PR no `plug_agente`.
-> - **Gate** — o que precisa ser observado antes de comecar, alinhado ao
->   `.cursor/rules/performance.mdc` ("measure-before-optimize").
-> - **Hub side** — se ha trabalho coordenado no `plug_server`.
->
-> Os itens estao **ordenados por impacto / esforco**. Itens com selo
-> `🚨` sao bugs de configuracao silenciosos (perda de performance hoje em
-> producao por divergencia de defaults entre hub e agente).
+> **Como ler.** Impacto / esforco / gate / hub coord. Itens `🚨` eram
+> bugs de defaults silenciosos (ja corrigidos).
 
 ## Sumario priorizado
 
-Coluna **Status** segue o vocabulario `proposed | discussing | in-progress |
-shipped | rejected`. Atualizar quando o item mudar de fase no `plug_agente`
-ou no hub.
+Coluna **Status**: `proposed | discussing | in-progress | shipped | rejected`.
 
-> **Snapshot 2026-06-24 (hub-side).** Tres otimizacoes de hot-path no
-> `plug_server` foram aplicadas sem mudanca de contrato wire:
-> batch dispatch via `preDecodedData`, forward de `rpc:request_ack` por
-> byte-path (`encodeRelayOutboundFrameFromBytes`), e dedup de waiters
-> idempotentes com `Set<string>` (lookup O(1)). Ver
-> [`docs/adrs/0008-relay-batch-protocol.md`](../adrs/0008-relay-batch-protocol.md).
->
-> **Snapshot 2026-05-28 (agent-side).** Itens 1, 2, 3, 6, 8 e 9 (6 de 10)
-> entraram juntos em uma onda de bugfix/perf no `plug_agente` no commit
-> [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c)
-> (`perf(socket): align agent defaults with hub expectations + ack
-> coalescing`), ja em `origin/main`. Itens 4, 5, 7 e 10 continuam
-> `proposed (no active gate)` por dependerem de coordenacao de schema com
-> o hub (ADR) ou de baseline em producao que ainda nao foi capturado.
->
-> **Relatorio detalhado da entrega** — arquivos tocados, testes
-> adicionados, observacoes operacionais e acoes pendentes:
+> **Snapshot 2026-07 (atual).** Itens 1–9 **shipped** (ondas 2026-05-28 e
+> 2026-06-24). Item 10 (brotli) permanece `proposed (no active gate)`.
+> Hub H1–H11 shipped. Ledger de commits:
 > [`04_agent_implementation_status.md`](04_agent_implementation_status.md).
 
 | # | Item | Impacto | Esforco | Status | Gate | Hub coord? |
@@ -53,7 +27,7 @@ ou no hub.
 | **1** | 🚨 `enableSocketDeliveryGuarantees=true` por defeito (ou negociar) | **high** | **low** | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-1--enablesocketdeliveryguaranteestrue) | nenhum (bug obvio) | Sim — flag ja existente |
 | 2 | 🚨 Reavaliar `enableSocketStreamingChunks=false` por defeito | **high** | low | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-2--enablesocketstreamingchunkstrue) | medir p95 SQL > N rows | Nao |
 | 3 | Coalescing de `rpc:request_ack` em `rpc:batch_ack` (debouncer 5 ms) | medium | low | ✅ **shipped** (`plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-3--coalescing-de-rpcrequest_ack) | volume de `request_ack` na metrica | Nao |
-| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | ✅ **shipped** (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) + agent [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) 2026-06-24) — ver [ADR 0010](../adrs/0010-agent-phase-timings.md) | negociar `agentPhaseTimings` + consumer `requestServerTimings: true` | Sim — extensao + schema |
+| 4 | Per-phase agent timings em `meta.agent_phases` | medium | medium | ✅ **shipped** (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) + agent [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) 2026-06-24) — ver [ADR 0012](../adrs/0012-agent-phase-timings.md) | negociar `agentPhaseTimings` + consumer `requestServerTimings: true` | Sim — extensao + schema |
 | 5 | `agent.getHealth` piggyback em respostas RPC | medium | medium | ✅ **shipped** (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) + agent [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) 2026-06-24) — ver [ADR 0011](../adrs/0011-health-piggyback.md) | scheduler de poll opcional no hub | Sim — extensao + `meta.health_snapshot` |
 | 6 | Tunable `recommendedStreamPullWindowSize` + default > 1 | medium | low | ✅ **shipped** (default `1→8`, env `AGENT_STREAM_PULL_WINDOW_RECOMMENDED`, `plug_agente` [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) 2026-05-28) — ver [`04`](04_agent_implementation_status.md#item-6--recommendedstreampullwindowsize-default--1) | medir p95 RTT × rows | Nao |
 | 7 | Extension `clientRequestIdEcho: "v1"` (Opcao A do item 3) | low-medium | medium | ✅ **shipped** (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) + agent [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) 2026-06-24) — ver [ADR 0009](../adrs/0009-client-request-id-echo.md) | deploy coordenado; validar `body_id_echo_total` ~0 | Sim — ver [01_relay_body_id_echo.md](01_relay_body_id_echo.md) |
@@ -87,17 +61,17 @@ no `plug_agente`:
 | H5 | Agent access join — `findPrincipalAccessCheck` (1 RTT em cache miss) | medium | ✅ **shipped** (2026-06-24) |
 | H6 | HMAC canonical-string LRU cache quando `PAYLOAD_SIGN_OUTBOUND=true` | low (condicional) | ✅ **shipped** (2026-06-24) |
 | H7 | Batch histogram gauges (decode ms, items/envelope) + Grafana dashboard | observability | ✅ **shipped** (2026-06-24) |
-| H8 | Transport extensions ADR 0009/0010/0011 — negociacao, dispatch Opcao A, piggyback | medium | ✅ **shipped** ([`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) 2026-06-24) |
+| H8 | Transport extensions ADR 0009/0012/0011 — negociacao, dispatch Opcao A, piggyback | medium | ✅ **shipped** ([`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) 2026-06-24) |
 | H9 | `parallelBatchDispatch` em `agent:capabilities` — desbloqueia paralelismo batch no agente | medium | ✅ **shipped** (2026-06-24) |
 | H10 | Health poll scheduler opcional (`AGENT_HEALTH_POLL_ENABLED`) com skip piggyback | low-medium | ✅ **shipped** (2026-06-24) — ver [ADR 0011](../adrs/0011-health-piggyback.md) |
-| H11 | Auditoria comunicação 2026-07-07 — métricas relay late/outbound-failure, gate `agentPhaseTimings`, contador adoção `parallelBatchDispatch` | observability | ✅ **shipped** (2026-07-07) — ver [ADR 0010](../adrs/0010-agent-phase-timings.md), [`04_agent_implementation_status.md`](04_agent_implementation_status.md) |
+| H11 | Auditoria comunicação 2026-07-07 — métricas relay late/outbound-failure, gate `agentPhaseTimings`, contador adoção `parallelBatchDispatch` | observability | ✅ **shipped** (2026-07-07) — ver [ADR 0012](../adrs/0012-agent-phase-timings.md), [`04_agent_implementation_status.md`](04_agent_implementation_status.md) |
 
 **Cross-repo (ADRs, implementacao no `plug_agente`)**:
 
 | ADR | Topico | Status |
 |-----|--------|--------|
 | [0009](../adrs/0009-client-request-id-echo.md) | `clientRequestIdEcho: "v1"` | ✅ shipped (2026-06-24) |
-| [0010](../adrs/0010-agent-phase-timings.md) | `meta.agent_phases` | ✅ shipped (2026-06-24) |
+| [0012](../adrs/0012-agent-phase-timings.md) | `meta.agent_phases` | ✅ shipped (2026-06-24) |
 | [0011](../adrs/0011-health-piggyback.md) | Health piggyback em respostas RPC | ✅ shipped (2026-06-24; scheduler poll opcional) |
 | [brotli study](../studies/brotli_payload_frame_study.md) | Compressao `br` | proposed |
 

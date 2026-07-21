@@ -91,8 +91,9 @@ vale apenas para o bridge de comandos (`POST /api/v1/agents/commands`).
 | `rpc.discover`                          | Sim                           | Sim                            | Sim                                                                                      |
 | `agent.getHealth`                       | Sim                           | Sim                            | Sim                                                                                      |
 | `agent.getProfile`                      | Sim                           | Sim                            | Sim                                                                                      |
+| `agent.action.*` (`run` / `validateRun` / `cancel` / `getExecution`) | Sim | Sim | Sim |
 | `client_token.getPolicy`                | Sim                           | Sim                            | Sim                                                                                      |
-| Batch JSON-RPC (`command: []`)          | Sim, ate 32 itens             | Sim, mesmo schema              | Nao, por desenho                                                                         |
+| Batch JSON-RPC (`command: []`)          | Sim, ate 32 itens             | Sim, mesmo schema              | Nao no envelope unary; use `relay:rpc.request.batch` (gated)                             |
 | Notification (`id: null`)               | Sim                           | Sim                            | Nao, por desenho                                                                         |
 | `timeoutMs`                             | Sim                           | Sim                            | Usa timeout do relay por request                                                         |
 | `pagination` no body                    | Sim, para `sql.execute` unico | Sim, mesmo schema              | Nao no envelope relay; use params/options do comando                                     |
@@ -100,9 +101,10 @@ vale apenas para o bridge de comandos (`POST /api/v1/agents/commands`).
 | Streaming progressivo ao cliente        | Nao, REST materializa         | Sim, `agents:command_stream_*` | Sim, `relay:rpc.*`                                                                       |
 | Idempotencia forte por retry de cliente | Nao                           | Nao                            | Sim, via `client_request_id` por conversa                                                |
 
-`relay:*` rejeita batch e notification de forma intencional: cada request precisa
-ser correlacionavel para timeout, idempotencia, roteamento de resposta/chunks e
-liberacao de fila/backpressure.
+`relay:rpc.request` (unary) rejeita batch JSON-RPC e notification de forma
+intencional: cada request precisa ser correlacionavel. Para N requests no mesmo
+envelope consumer, use `relay:rpc.request.batch` (gated). Lista canónica de
+metodos: `agent_bridge_parity.ts` + OpenAPI `GET /docs`.
 
 A matriz tambem existe como contrato executavel em
 `src/shared/constants/agent_bridge_parity.ts` e
@@ -119,9 +121,17 @@ consumer envia `agents:stream_pull` e recebe `agents:stream_pull_response`.
 Para modo chat-like com conversa isolada (`relay:*`) e `PayloadFrame` tambem no
 namespace `/consumers`, consulte `docs/socket/socket_relay_protocol.md`.
 
-No canal `/consumers` legado (`agents:*`), o payload e logico (JSON). O
-`plug_server` encapsula e desencapsula `PayloadFrame` binario (com
-`cmp: gzip|none`) apenas no enlace com `/agents`.
+No canal `/consumers` legado (`agents:*`):
+
+- **Outbound** (hub → consumer): respostas e stream usam **`PayloadFrame`** por
+  defeito (`SOCKET_AGENTS_COMMAND_COMPAT_MODE`, default `payload_frame`).
+- **Inbound** (consumer → hub): `agents:command` / `agents:stream_pull` aceitam
+  plain JSON **ou** `PayloadFrame` durante a janela de transicao.
+- O enlace hub ↔ `/agents` continua sempre em `PayloadFrame` (`cmp: gzip|none`).
+
+Detalhe de migracao e helpers de decode:
+[`socket_client_sdk.md`](../socket/socket_client_sdk.md) ("Migração PayloadFrame no bridge legado")
+e `docs/configuration.md`.
 
 > Escopo deste documento: ponte REST (`POST /api/v1/agents/commands`) e canal
 > Socket legado (`agents:*`). O modo relay (`relay:*`) e documentado a parte.
@@ -258,7 +268,7 @@ Os schemas em `src/presentation/docs/swagger.ts` (componentes em `src/presentati
 | `timeoutMs`               | number                                | nao         | 1..360000         | Espera do bridge (`computeBridgeWaitTimeoutMs`): `max` entre o valor do body (ou default **15000** ms) e, para `sql.execute` / `sql.executeBatch`, o maior `options.timeout_ms` do comando + **5000** ms; teto **360000** ms (`AGENT_TIMEOUT_MS_LIMIT` + **60000** ms; ver `command_transformers.ts`)                                                                                                                                                                                                                                                                                                                                                             |
 | `pagination`              | object                                | nao         | regras combinadas | Paginacao injetada em `command.params.options`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `payloadFrameCompression` | `"default"` \| `"none"` \| `"always"` | nao         | —                 | Politica de gzip do **PayloadFrame** que o hub emite no `rpc:request` para o agente (alinhado a `socket_communication_standard.md` / `socketio_client_binary_transport.md` do plug_agente). `default`: limiar 4096 bytes, modo **automatico** — gzip so se o bloco comprimido for **menor** que o JSON UTF-8 bruto e nao exceder a razao maxima de inflacao negociada; caso contrario `cmp: none`. `none`: nunca gzip. `always`: modo **sempre GZIP** — prefere gzip sempre que o payload couber no limite de entrada, mesmo se nao reduzir tamanho, mas cai para `cmp: none` quando o frame violaria a razao maxima de inflacao. Nao altera respostas do agente. |
-| `requestServerTimings`    | boolean                               | nao         | —                 | Opt-in para fases de latencia por request. Quando `true`, o hub anexa `serverTimings: { schemaVersion, phasesMs }` no envelope de resposta — ver "Server-side phase diagnostics" abaixo. Aplicavel ao **canal Socket `agents:command`**; o REST equivalente esta no roadmap. Forca a sessao de trace mesmo com `BRIDGE_LATENCY_TRACE_ENABLED=false`; persistencia em DB continua amostrada.                                                                                                                                                                                                                                                                       |
+| `requestServerTimings`    | boolean                               | nao         | —                 | Opt-in para fases de latencia por request. Quando `true`, o hub anexa `serverTimings: { schemaVersion, phasesMs }` no envelope de resposta — ver "Server-side phase diagnostics" abaixo. Aplicavel a **REST** (`POST /api/v1/agents/commands`) e ao **Socket `agents:command`**. Forca a sessao de trace mesmo com `BRIDGE_LATENCY_TRACE_ENABLED=false`; persistencia em DB continua amostrada.                                                                                                                                                                                                                                                                       |
 
 ### `command` (discriminated union por `method`)
 
@@ -526,8 +536,11 @@ Consequencias praticas para fan-out cross-agent:
 
 Para fan-out cross-agent eficiente, recomenda-se o canal **relay**
 (`relay:rpc.request`) que ja associa conversa ao `agentId` no
-`relay:conversation.start` e mantem correlacao por `conversationId`. O batch
-no relay esta no roadmap (ver `docs/adrs/0008-relay-batch-protocol.md`).
+`relay:conversation.start` e mantem correlacao por `conversationId`. Batch no
+relay: `relay:rpc.request.batch` — **shipped**, gated por
+`SOCKET_RELAY_BATCH_ENABLED` (default `false`). Ver
+[ADR 0008](../adrs/0008-relay-batch-protocol.md) e
+[`socket_relay_protocol.md`](../socket/socket_relay_protocol.md).
 
 ### Exemplo de batch JSON-RPC misto
 
@@ -570,9 +583,11 @@ no relay esta no roadmap (ver `docs/adrs/0008-relay-batch-protocol.md`).
 
 ## Server-side phase diagnostics (`requestServerTimings`)
 
-Aplicavel ao canal **Socket `agents:command` no `/consumers`**. Quando o
-cliente envia `requestServerTimings: true` no body do `agents:command`, o hub
-anexa um snapshot de fases ao envelope de resposta `agents:command_response`:
+Aplicavel a **REST** (`POST /api/v1/agents/commands`) e ao **Socket
+`agents:command` no `/consumers`**. Quando o cliente envia
+`requestServerTimings: true`, o hub anexa um snapshot de fases ao envelope de
+resposta (`agents:command_response` no Socket; campo top-level `serverTimings`
+no REST):
 
 ```json
 {
@@ -616,9 +631,8 @@ Regras do contrato:
 - **Seguranca:** apenas valores de tempo sao expostos. `trace_id`,
   `agentSocketId`, identificadores de fila e qualquer outro campo de
   topologia operacional nao aparecem no envelope.
-- Variante REST: a rota `POST /api/v1/agents/commands` ainda nao aceita o
-  flag — esta no roadmap. Quando aplicado, manter-se-a a mesma forma de
-  envelope (campo top-level `serverTimings`).
+- REST e Socket `agents:command` usam a mesma forma de envelope
+  (campo top-level `serverTimings`).
 
 Para o canal **relay** (`relay:rpc.request` no `/consumers`), o opt-in
 equivalente vive no envelope do request e injeta `meta.serverTimings` no

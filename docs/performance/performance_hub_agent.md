@@ -2,6 +2,8 @@
 
 Guia de otimização e variáveis relevantes. Complementa `docs/api/api_rest_bridge.md` e `docs/socket/socket_relay_protocol.md`. Defaults formais: `docs/configuration.md` (`env.ts`, `.env.example`).
 
+**Quotas e respostas 429/503 (integradores):** numeros e envelopes canonicos em [`docs/limits/limites_acesso_e_quotas.md`](../limits/limites_acesso_e_quotas.md). Este guia foca tuning operacional, nao a matriz completa de limites.
+
 **Produção (`NODE_ENV=production`) sem variável definida:** o `env.ts` aplica automaticamente `SOCKET_IO_TRANSPORTS=websocket`, `SOCKET_IO_HTTP_COMPRESSION=false`, `PAYLOAD_FRAME_GZIP_LEVEL=3`, `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT=25`. Ver tabela em `docs/configuration.md`. Definir a variável explicitamente substitui estes ramos.
 
 **Canais do consumer:** REST (`POST /api/v1/agents/commands`) vs Socket (`/consumers`) — escolha do cliente; REST agrega streams. Resumo em `docs/PROJECT_OVERVIEW.md`.

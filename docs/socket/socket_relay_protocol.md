@@ -335,23 +335,22 @@ Regras atuais no servidor:
 
 - O `id` JSON-RPC enviado pelo consumer e tratado como `client_request_id`
   para idempotencia por conversa.
-- O servidor gera/normaliza um `requestId` interno e repassa esse valor como
-  `id` no payload enviado **ao agente** (preserva `RpcRequestGuard` /
-  `rpc:request_ack` no agente).
-- **Na volta para o consumer**, o hub restaura o `id` JSON-RPC original do
-  consumer (`client_request_id`) no `body.id` da resposta antes de
-  encaminhar `relay:rpc.response`. Isso mantem o contrato JSON-RPC 2.0 §5
-  e e obrigatorio para `fastPath: true` (sem `relay:rpc.accepted` o
-  consumer so consegue rotear via o `id` original). Veja
-  [`docs/plug_agente/01_relay_body_id_echo.md`](plug_agente/01_relay_body_id_echo.md)
-  para o racional cross-repo.
+- O servidor gera um `requestId` interno (UUID) usado no **envelope**
+  PayloadFrame e em `meta.request_id` no caminho para o agente.
+- **Opcao B (default / agentes legados):** o hub sobrescreve `body.id` com o
+  UUID interno ao despachar ao agente e **restaura** o `client_request_id` no
+  `body.id` da resposta antes de `relay:rpc.response`. Isso mantem JSON-RPC 2.0
+  §5 no consumer e e obrigatorio para `fastPath: true` sem negociacao.
+- **Opcao A (negociada):** quando o agente anuncia `extensions.clientRequestIdEcho: "v1"`,
+  o hub **nao** sobrescreve `body.id` — preserva o id do consumer end-to-end e
+  pode saltar o re-encode (`canBypassReencode`). Ver
+  [ADR 0009](../adrs/0009-client-request-id-echo.md).
+- Historico do defeito / racional: [`01_relay_body_id_echo.md`](../plug_agente/01_relay_body_id_echo.md).
 - Respostas `relay:rpc.response/chunk/complete` correlacionam pelo `requestId`
-  interno da conversa no **envelope PayloadFrame** (`envelope.requestId`).
-  Esse valor permanece sendo o UUID interno do hub e e a fonte de verdade
-  para correlator wire-level e para o `correlation_id` em erros sinteticos.
-- Metrica de adocao do echo: `plug_socket_relay_body_id_echo_total`
-  incrementa em cada resposta relay (sintetica ou nao) cuja reescrita de
-  `body.id` foi necessaria.
+  interno no **envelope PayloadFrame** (`envelope.requestId`) — fonte de verdade
+  wire-level e `correlation_id` em erros sinteticos.
+- Metrica: `plug_socket_relay_body_id_echo_total` incrementa quando houve
+  reescrita real de `body.id` (caminho Opcao B).
 
 ### Caso degenerate: consumer sem `id` JSON-RPC
 
@@ -508,7 +507,7 @@ Regras do contrato:
 Quando o consumer enviou `requestServerTimings: true` **e** o agente negociou
 `extensions.agentPhaseTimings: "v1"` em `agent:register`, o hub repassa
 `meta.agent_phases` do agente no `relay:rpc.response` sem mutacao (ver
-[ADR 0010](../adrs/0010-agent-phase-timings.md)).
+[ADR 0012](../adrs/0012-agent-phase-timings.md)).
 
 Desde 2026-07-07 o hub aplica um **gate defensivo**: se o agente enviar
 `meta.agent_phases` sem ter negociado `agentPhaseTimings`, o campo e removido
@@ -778,6 +777,10 @@ Variaveis principais do relay:
 - `SOCKET_RELAY_AGENT_QUEUE_WAIT_MS`
 - `SOCKET_RATE_LIMIT_REDIS_URL`
 
+Valores default, envelopes HTTP/Socket ao atingir quotas e Nginx edge:
+[`docs/limits/limites_acesso_e_quotas.md`](../limits/limites_acesso_e_quotas.md)
+e [`docs/configuration.md`](../configuration.md).
+
 ### Rate limit por consumer (janela fixa)
 
 Os limites `SOCKET_RELAY_RATE_LIMIT_*` aplicam-se por identidade lógica (`relay:user:<sub>` quando autenticado; `relay:anon:<socketId>` como fallback) e usam **janela fixa**: quando decorre `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS` desde o inicio da janela, os contadores de `relay:conversation.start`, `relay:rpc.request` e do orçamento de créditos de `relay:rpc.stream.pull` **zeram** de uma vez. Nao e _sliding window_; o trafego pode concentrar-se nos limites de cada janela. Estados inativos sao removidos pelo sweep periodico (`SOCKET_RELAY_RATE_LIMIT_SWEEP_STALE_MULTIPLIER` x duracao da janela) e ao disconnect apenas para chaves anónimas.
@@ -921,6 +924,11 @@ Arquivo da migration:
 ## Compatibilidade
 
 Fluxo legado Socket (`agents:command` e `agents:stream_pull`) permanece ativo.
+Outbound desse canal usa **`PayloadFrame` por defeito**; inbound aceita JSON
+ou frame durante a transicao — ver
+[`socket_client_sdk.md`](socket_client_sdk.md) ("Migração PayloadFrame no bridge legado")
+e `SOCKET_AGENTS_COMMAND_COMPAT_MODE` em `docs/configuration.md`.
+
 O mesmo contrato de comando ao agente existe em **paralelo** via
 `POST /api/v1/agents/commands` (REST): o cliente pode usar **só REST**, **só Socket**
 ou **combinar** (ex.: auth HTTP + comandos Socket). O REST **nao** expoe streaming

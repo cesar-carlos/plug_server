@@ -2,20 +2,16 @@
 
 > **Status (2026-05-28): SHIPPED.** O fast-path opt-in via `fastPath: true`
 > no envelope de `relay:rpc.request` foi implementado. Defeito JSON-RPC
-> 2.0 §5 reportado pelo cliente Colmeia foi corrigido reescrevendo
-> `body.id` na borda hub→consumer (Opcao B). Ver
-> [`docs/plug_agente/01_relay_body_id_echo.md`](../plug_agente/01_relay_body_id_echo.md)
-> para o racional cross-repo e a roadmap da Opcao A (eliminar o
-> re-encode via negociacao agent-side).
+> 2.0 §5 foi corrigido com Opcao B (rewrite hub→consumer) e, em 2026-06-24,
+> Opcao A negociada (`clientRequestIdEcho`) — ver
+> [ADR 0009](../adrs/0009-client-request-id-echo.md) e
+> [`01_relay_body_id_echo.md`](../plug_agente/01_relay_body_id_echo.md).
 >
-> **Onde ver o contrato canonico**:
-> [`docs/socket/socket_relay_protocol.md`](../socket/socket_relay_protocol.md) — secao
-> "Relay unary fast-path".
+> **Contrato canonico**:
+> [`socket_relay_protocol.md`](../socket/socket_relay_protocol.md) — "Relay unary fast-path".
 >
-> Esta pagina permanece como **registro historico do estudo
-> pre-implementacao**: hipotese, requisitos de seguranca, gate de
-> benchmark e rollback. Util para entender a justificativa quando alguem
-> revisitar a decisao no futuro.
+> Esta pagina e **registro historico do estudo pre-implementacao**
+> (hipotese, gates, rollback).
 
 ## Resultado (resumo)
 

@@ -692,7 +692,7 @@ Corre `npm run test:contract`. O ficheiro `tests/contract/plug_agente_optional.c
 Opcionalmente forca a raiz:
 
 ```bash
-set PLUG_AGENTE_ROOT=D:\Developer\plug_database\plug_agente
+set PLUG_AGENTE_ROOT=/path/to/plug_agente
 npm run test:contract
 ```
 

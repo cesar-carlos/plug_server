@@ -32,12 +32,10 @@ and tracked by the metric `plug_socket_relay_body_id_echo_total`
 (count) + `plug_socket_relay_body_id_echo_overhead_avg_ms` (latency).
 For workloads below ~10 K relay unary RPS the cost is invisible.
 
-This ADR records the **future direction** (Opcao A) that would
-eliminate the rewrite cost AND improve end-to-end observability, at the
-price of a coordinated change in the `plug_agente` repository. It is
-filed now so future contributors who think "we should make the agent
-echo the client id directly" can find the reasoning, the required
-agent-side changes, and the gates for promotion already laid out.
+This ADR records **Opcao A**, which eliminates the rewrite cost AND
+improves end-to-end observability via a coordinated change in
+`plug_agente`. It shipped on 2026-06-24 when `clientRequestIdEcho: "v1"`
+is negotiated; agents that do not advertise the extension keep Opcao B.
 
 ## Decision
 
@@ -261,7 +259,7 @@ Implement `clientRequestIdEcho: "v1"` per ADR 0009 (Opcao A) so the hub can skip
 ## References
 
 - Defeito original + fix shipping (Opcao B): [`docs/plug_agente/01_relay_body_id_echo.md`](../plug_agente/01_relay_body_id_echo.md)
-- Issue da Colmeia: `D:\Developer\Flutter\colmeia\docs\server_adjustments\relay_unary_fast_path.md §1`
+- Issue da Colmeia: repo do cliente `docs/server_adjustments/relay_unary_fast_path.md` §1
 - Contrato wire atual: [`docs/socket/socket_relay_protocol.md`](../socket/socket_relay_protocol.md) ("Relay unary fast-path", "Correlacao de IDs no relay")
 - ADR irmao (batch protocol): [`docs/adrs/0008-relay-batch-protocol.md`](0008-relay-batch-protocol.md)
 - Bench gate: [`scripts/bench-relay-body-id-echo.ts`](../../scripts/bench-relay-body-id-echo.ts) (BENCH=1)

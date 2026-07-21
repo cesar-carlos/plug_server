@@ -12,6 +12,7 @@ revisited or the branch is removed.
 | --- | --- | --- | --- |
 | Sliding-window rate limit | NO-GO | [sliding_window_rate_limit.md](sliding_window_rate_limit.md) | [src/infrastructure/redis/socket_rate_limit_redis_sliding.ts](../../src/infrastructure/redis/socket_rate_limit_redis_sliding.ts) |
 | RedisClientPool for REST rate-limit | NO-GO | [redis_client_pool.md](redis_client_pool.md) | (no branch — analytical only) |
+| HMAC worker-thread offload | Gated / revisit | [hmac_worker_offload.md](hmac_worker_offload.md) | ver doc + runbook de signing |
 
 ## When to revisit
 
@@ -41,6 +42,12 @@ these triggers fires:
   confirm before re-running the bench.
 - Sustained > 10 000 req/s rate-limit traffic with measurable head-of-line
   blocking on the single TCP connection.
+
+### HMAC worker offload
+
+- `requestServerTimings` / load tests show HMAC verify as a material share of
+  event-loop time on large frames (see spike doc gates).
+- Do not implement on speculation — compression/gunzip is the likelier CPU cost.
 
 ## Adding a new spike
 

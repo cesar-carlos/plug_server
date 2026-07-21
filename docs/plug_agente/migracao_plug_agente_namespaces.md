@@ -1,5 +1,10 @@
 ﻿# Migracao do `plug_agente` para namespaces
 
+> **Estado (2026):** migracao **concluida no default**. O hub rejeita o namespace
+> `/` (`NAMESPACE_DEPRECATED`). Default de `SOCKET_AGENT_ROLES` e **`agent`**
+> apenas. Esta pagina permanece como runbook de rollout / rollback e tabela de
+> `agent:register_error`.
+
 ## Objetivo
 
 Padronizar o `plug_agente` para usar o namespace `/agents` e autenticar-se com
@@ -32,25 +37,24 @@ Payload minimo de login:
 }
 ```
 
-## Compatibilidade temporaria
+## Compatibilidade (rollback / migracoes graduais)
 
-Durante migracoes graduais, o hub pode aceitar:
+Default atual:
 
-- namespace `/agents`
-- `SOCKET_AGENT_ROLES=agent,user`
+- namespace `/agents` apenas
+- `SOCKET_AGENT_ROLES=agent`
 
-Isto deve ser tratado como fase temporaria. O estado final recomendado e:
+Para rollout gradual legado, o hub **ainda pode** aceitar
+`SOCKET_AGENT_ROLES=agent,user` — tratar como **compat/rollback**, nao como
+estado alvo de producao.
 
-- apenas `/agents`
-- apenas `role: agent` em `SOCKET_AGENT_ROLES`
+## Ordem de rollout (historico / se ainda necessario)
 
-## Ordem de rollout recomendada
-
-1. Deploy do `plug_server` com compatibilidade temporaria, se necessario.
+1. Deploy do `plug_server` (compat temporaria so se agents antigos usarem `role: user`).
 2. Atualizar o `plug_agente` para conectar a `/agents`.
 3. Migrar autenticacao do agente para `POST /api/v1/auth/agent-login`.
 4. Validar `agent:register`, `agent:capabilities` e `agent:ready`.
-5. Remover `user` de `SOCKET_AGENT_ROLES`.
+5. Garantir `SOCKET_AGENT_ROLES=agent` (sem `user`).
 
 ## Falhas comuns e respostas do hub
 

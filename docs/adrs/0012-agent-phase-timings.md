@@ -1,4 +1,4 @@
-# ADR 0010: Per-phase agent timings (`meta.agent_phases`)
+# ADR 0012: Per-phase agent timings (`meta.agent_phases`)
 
 - **Status**: **Accepted — v1 shipped** (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f) +
   [`a6fbc2c`](https://github.com/cesar-carlos/plug_server/commit/a6fbc2c) batch flags;
@@ -62,7 +62,7 @@ Introduce optional `meta.agent_phases` on agent-originated RPC responses when th
 
 ```markdown
 ## Summary
-Ship `meta.agent_phases` per ADR 0010 when `agentPhaseTimings: "v1"` is negotiated.
+Ship `meta.agent_phases` per ADR 0012 when `agentPhaseTimings: "v1"` is negotiated.
 
 ## Tasks
 - [ ] Extension `agentPhaseTimings` in `agent:capabilities`

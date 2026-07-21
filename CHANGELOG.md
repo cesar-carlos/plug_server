@@ -23,7 +23,7 @@ cross-repo de alinhamento hub × agente:
 - Gate defensivo de `meta.agent_phases`: o hub remove `meta.agent_phases` do
   payload relay quando o agente **não** negociou `agentPhaseTimings: "v1"`,
   mesmo que o agente envie o campo (complementa o auto-gate agent-side; ver
-  ADR 0010).
+  ADR 0012).
 - [`agent_register.handler.ts`](src/presentation/socket/hub/handlers/agent_register.handler.ts):
   contador de adoção `plug_agent_parallel_batch_dispatch_negotiated_total`
   no registro de agente (visibilidade apenas — dispatch continua 100% no
@@ -218,7 +218,7 @@ passed, 0 failed). Itens shippados: **1**
 `prepareForSend` preservando `meta.request_id`) e **9** (pre-warm de
 schema validators em `TransportSchemaLoader.loadAll()`).
 
-Itens **4** (`meta.agent_phases` — ADR 0010), **5** (`agent.getHealth`
+Itens **4** (`meta.agent_phases` — ADR 0012), **5** (`agent.getHealth`
 piggyback — ADR 0011) e **7** (`clientRequestIdEcho` — ADR 0009) foram
 shippados em 2026-06-24 (hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f),
 agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677)).

@@ -78,7 +78,7 @@ export const HUB_TRANSPORT_EXTENSIONS = {
    * JSON-RPC `id` end-to-end and skips the relay body.id rewrite on responses.
    */
   clientRequestIdEcho: "v1",
-  /** ADR 0010 — agent may attach `meta.agent_phases` when consumer opts in. */
+  /** ADR 0012 — agent may attach `meta.agent_phases` when consumer opts in. */
   agentPhaseTimings: "v1",
   /** ADR 0011 — agent may piggyback `meta.health_snapshot` on unary responses. */
   healthPiggyback: {
