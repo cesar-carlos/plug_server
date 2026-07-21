@@ -8,3 +8,5 @@ backups/
 uploads/
 COMMIT_MSG.tmp
 .cursor/
+!.cursor/rules/
+!.cursor/rules/**
