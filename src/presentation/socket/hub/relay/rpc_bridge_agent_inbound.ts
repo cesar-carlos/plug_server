@@ -10,6 +10,7 @@ import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
   encodeRelayOutboundFrameFromBytesAsync,
+  encodeRelayOutboundFrameFromPreencodedWireAsync,
   markRelayOutboundForceGzip,
 } from "./relay_outbound_queue";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
@@ -219,10 +220,12 @@ export const createRpcBridgeAgentInboundHandlers = (
         }
 
         if (!pendingRequest.acked) {
-          logger.info("rpc_response_received_without_ack", {
-            requestId: pendingRequestId,
-            socketId,
-          });
+          if (logger.isLevelEnabled("debug")) {
+            logger.debug("rpc_response_received_without_ack", {
+              requestId: pendingRequestId,
+              socketId,
+            });
+          }
         }
 
         registerAgentSuccess(pendingRequest.agentId, "rest");
@@ -339,6 +342,12 @@ export const createRpcBridgeAgentInboundHandlers = (
         route.onChunk(data, streamChunkMetadataFromPayloadFrame(frame), {
           bytes: decodedBytes,
           cmp: frame.cmp,
+          ...(frame.cmp === "gzip" && Buffer.isBuffer(frame.payload)
+            ? {
+                wireBytes: frame.payload,
+                originalSize: frame.originalSize,
+              }
+            : {}),
         });
       } catch {
         logger.warn("rpc_stream_chunk_forward_failed", {
@@ -383,6 +392,8 @@ export const createRpcBridgeAgentInboundHandlers = (
     readonly data: Record<string, unknown>;
     readonly decodedBytes: Buffer;
     readonly inboundCmp: "none" | "gzip";
+    readonly wireBytes?: Buffer;
+    readonly originalSize?: number;
   }
 
   /**
@@ -425,6 +436,12 @@ export const createRpcBridgeAgentInboundHandlers = (
       data,
       decodedBytes: result.value.decodedBytes,
       inboundCmp: result.value.frame.cmp,
+      ...(result.value.frame.cmp === "gzip" && Buffer.isBuffer(result.value.frame.payload)
+        ? {
+            wireBytes: result.value.frame.payload,
+            originalSize: result.value.frame.originalSize,
+          }
+        : {}),
     };
   };
 
@@ -438,7 +455,7 @@ export const createRpcBridgeAgentInboundHandlers = (
       if (!ackFrame) {
         return;
       }
-      const { data, decodedBytes, inboundCmp } = ackFrame;
+      const { data, decodedBytes, inboundCmp, wireBytes, originalSize } = ackFrame;
 
       const requestId = toRequestId(data.request_id);
       if (!requestId) {
@@ -465,9 +482,15 @@ export const createRpcBridgeAgentInboundHandlers = (
           delete relayRoute.ackRetryTimer;
         }
         enqueueRelayOutbound(requestId, async () => {
-          const frame = await encodeRelayOutboundFrameFromBytesAsync(decodedBytes, requestId, {
-            inboundCmp,
-          });
+          const frame =
+            wireBytes !== undefined && originalSize !== undefined
+              ? await encodeRelayOutboundFrameFromPreencodedWireAsync(
+                  { originalSize, wireBytes, cmp: inboundCmp },
+                  requestId,
+                )
+              : await encodeRelayOutboundFrameFromBytesAsync(decodedBytes, requestId, {
+                  inboundCmp,
+                });
           emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcRequestAck, frame);
         });
       }

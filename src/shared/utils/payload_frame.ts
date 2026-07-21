@@ -235,31 +235,6 @@ const toSignatureEnvelope = (value: unknown): SignatureEnvelope | null => {
   };
 };
 
-const canonicalJsonStringify = (value: unknown): string => {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "number" ||
-    typeof value === "string"
-  ) {
-    return JSON.stringify(value);
-  }
-
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJsonStringify).join(",")}]`;
-  }
-
-  if (typeof value === "object" && value !== null) {
-    const record = value as Record<string, unknown>;
-    const entries = Object.keys(record)
-      .sort((a, b) => a.localeCompare(b))
-      .map((key) => `${JSON.stringify(key)}:${canonicalJsonStringify(record[key] ?? null)}`);
-    return `{${entries.join(",")}}`;
-  }
-
-  return JSON.stringify(value ?? null);
-};
-
 const SIGNATURE_INPUT_CACHE_MAX_ENTRIES = 512;
 const signatureInputCanonicalCache = new Map<string, string>();
 
@@ -291,17 +266,21 @@ const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer)
     return Buffer.from(cachedCanonical, "utf8");
   }
 
-  const canonicalFrame = canonicalJsonStringify({
-    schemaVersion: frame.schemaVersion,
-    enc: frame.enc,
-    cmp: frame.cmp,
-    contentType: frame.contentType,
-    originalSize: frame.originalSize,
-    compressedSize: frame.compressedSize,
-    traceId: frame.traceId ?? null,
-    requestId: frame.requestId ?? null,
-    payload: binaryPayload.toString("base64"),
-  });
+  // Fixed key order matching alphabetical `canonicalJsonStringify` for this
+  // known shape — avoids Object.keys + localeCompare on every sign/verify.
+  const canonicalFrame = [
+    "{",
+    `"cmp":${JSON.stringify(frame.cmp)},`,
+    `"compressedSize":${JSON.stringify(frame.compressedSize)},`,
+    `"contentType":${JSON.stringify(frame.contentType)},`,
+    `"enc":${JSON.stringify(frame.enc)},`,
+    `"originalSize":${JSON.stringify(frame.originalSize)},`,
+    `"payload":${JSON.stringify(binaryPayload.toString("base64"))},`,
+    `"requestId":${JSON.stringify(frame.requestId ?? null)},`,
+    `"schemaVersion":${JSON.stringify(frame.schemaVersion)},`,
+    `"traceId":${JSON.stringify(frame.traceId ?? null)}`,
+    "}",
+  ].join("");
 
   if (signatureInputCanonicalCache.size >= SIGNATURE_INPUT_CACHE_MAX_ENTRIES) {
     const oldestKey = signatureInputCanonicalCache.keys().next().value;
@@ -708,6 +687,19 @@ export const encodePayloadFrameFromBytesAsync = async (
 
   return finishPayloadFrameEnvelope(body, options);
 };
+
+/**
+ * Rebuild a PayloadFrame envelope from an **already-compressed** (or `cmp: none`)
+ * wire body without re-running gzip. Used when forwarding an agent frame whose
+ * JSON-RPC body is unchanged — only requestId / signature / omitTraceId change.
+ *
+ * Callers must pass the same `originalSize` / `cmp` / `wireBytes` that the
+ * inbound decoder validated (`frame.originalSize`, `frame.cmp`, `frame.payload`).
+ */
+export const encodePayloadFrameFromPreencodedWire = (
+  body: PreencodedPayloadFrameBody,
+  options?: Pick<EncodePayloadFrameOptions, "requestId" | "traceId" | "omitTraceId">,
+): PayloadFrameEnvelope => finishPayloadFrameEnvelope(body, options);
 
 export const finishPayloadFrameEnvelope = (
   body: PreencodedPayloadFrameBody,

@@ -133,8 +133,8 @@ export const handleRelayConversationStart = async (
     await assertConsumerSocketAgentAccess(socket.data.user, envelope.agentId, socket);
     assertNotAborted();
 
-    const registeredAgent = agentRegistry.findByAgentId(envelope.agentId);
-    if (!registeredAgent) {
+    const registeredAgentSocketId = agentRegistry.getSocketIdByAgentId(envelope.agentId);
+    if (!registeredAgentSocketId) {
       const remoteRoute = await resolveAgentHubPresenceRoute(envelope.agentId);
       if (
         remoteRoute !== null &&
@@ -149,7 +149,7 @@ export const handleRelayConversationStart = async (
       throw notFound(`Agent ${envelope.agentId}`);
     }
 
-    const agentSocket = findAgentBridgeSocketById(registeredAgent.socketId);
+    const agentSocket = findAgentBridgeSocketById(registeredAgentSocketId);
     if (!agentSocket) {
       throw serviceUnavailable("Agent socket is unavailable");
     }
@@ -159,7 +159,7 @@ export const handleRelayConversationStart = async (
     // one synchronous step (no TOCTOU between counts and registry insert).
     const reservation = conversationRegistry.tryReserveAndCreate({
       consumerSocketId: socket.id,
-      agentSocketId: registeredAgent.socketId,
+      agentSocketId: registeredAgentSocketId,
       agentId: envelope.agentId,
       maxTotal: env.socketRelayMaxConversations,
       maxPerConsumer: env.socketRelayMaxConversationsPerConsumer,

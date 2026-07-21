@@ -365,12 +365,27 @@ class InMemoryAgentRegistry {
     agentId: string,
     options?: { readonly markProtocolReady?: boolean; readonly socketId?: string },
   ): RegisteredAgent | null {
-    const existing = this.agents.get(agentId);
-    if (!existing) {
+    if (!this.touchLiveness(agentId, options)) {
       return null;
     }
+    const existing = this.agents.get(agentId);
+    return existing ? this.toPublic(existing) : null;
+  }
+
+  /**
+   * Hot-path liveness update without allocating a public `RegisteredAgent`
+   * (avoids `toISOString` on every heartbeat / internal touch).
+   */
+  touchLiveness(
+    agentId: string,
+    options?: { readonly markProtocolReady?: boolean; readonly socketId?: string },
+  ): boolean {
+    const existing = this.agents.get(agentId);
+    if (!existing) {
+      return false;
+    }
     if (options?.socketId !== undefined && existing.socketId !== options.socketId) {
-      return null;
+      return false;
     }
 
     existing.lastSeenAtMs = Date.now();
@@ -379,7 +394,7 @@ class InMemoryAgentRegistry {
       this.clearReadyTimer(agentId);
       this.readyAtByAgentId.set(agentId, Date.now());
     }
-    return this.toPublic(existing);
+    return true;
   }
 
   removeBySocketId(socketId: string): RegisteredAgent | null {
@@ -425,6 +440,21 @@ class InMemoryAgentRegistry {
     return internal ? this.toPublic(internal) : null;
   }
 
+  /** Hot-path existence check without allocating a public agent snapshot. */
+  isRegistered(agentId: string): boolean {
+    return this.agents.has(agentId);
+  }
+
+  /** Hot-path socket id lookup without ISO / public object allocation. */
+  getSocketIdByAgentId(agentId: string): string | null {
+    return this.agents.get(agentId)?.socketId ?? null;
+  }
+
+  /** Hot-path capabilities peek (immutable after register). */
+  getCapabilitiesByAgentId(agentId: string): Record<string, unknown> | null {
+    return this.agents.get(agentId)?.capabilities ?? null;
+  }
+
   shouldSkipScheduledHealthPoll(agentId: string, nowMs?: number): boolean {
     return shouldSkipScheduledAgentHealthPoll(agentId, nowMs);
   }
@@ -437,6 +467,27 @@ class InMemoryAgentRegistry {
 
     const internal = this.agents.get(agentId);
     return internal ? this.toPublic(internal) : null;
+  }
+
+  /**
+   * Idle agents for disconnect sweeps — returns ids + socketIds without ISO
+   * formatting used by list APIs.
+   */
+  listIdleRefs(idleTimeoutMs: number): ReadonlyArray<{
+    readonly agentId: string;
+    readonly socketId: string;
+  }> {
+    const timeoutMs = Math.max(1, Math.floor(idleTimeoutMs));
+    const nowMs = Date.now();
+    const idle: { agentId: string; socketId: string }[] = [];
+
+    for (const internal of this.agents.values()) {
+      if (nowMs - internal.lastSeenAtMs >= timeoutMs) {
+        idle.push({ agentId: internal.agentId, socketId: internal.socketId });
+      }
+    }
+
+    return idle;
   }
 
   hasKnownAgentId(agentId: string): boolean {

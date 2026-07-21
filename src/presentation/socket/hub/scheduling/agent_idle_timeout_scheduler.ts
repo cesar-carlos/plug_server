@@ -15,7 +15,7 @@ export const sweepIdleAgentConnections = (): number => {
     return 0;
   }
 
-  const idleAgents = agentRegistry.listIdle(env.socketAgentIdleTimeoutMs);
+  const idleAgents = agentRegistry.listIdleRefs(env.socketAgentIdleTimeoutMs);
   let disconnected = 0;
 
   for (const agent of idleAgents) {

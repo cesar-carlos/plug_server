@@ -9,6 +9,29 @@ describe("agent_registry session policies", () => {
     agentRegistry.clear();
   });
 
+  it("exposes hot-path peek helpers without requiring public snapshots", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    agentRegistry.registerAgentSession({
+      agentId: "ag-peek",
+      socketId: "sock-peek",
+      userId: "u1",
+      capabilities: { compressions: ["gzip"] },
+      policy: "reject_active",
+      isPeerConnected: () => false,
+    });
+
+    expect(agentRegistry.isRegistered("ag-peek")).toBe(true);
+    expect(agentRegistry.getSocketIdByAgentId("ag-peek")).toBe("sock-peek");
+    expect(agentRegistry.getCapabilitiesByAgentId("ag-peek")).toEqual({ compressions: ["gzip"] });
+    expect(agentRegistry.touchLiveness("ag-peek", { socketId: "sock-peek" })).toBe(true);
+
+    vi.advanceTimersByTime(5_000);
+    expect(agentRegistry.listIdleRefs(1_000)).toEqual([
+      { agentId: "ag-peek", socketId: "sock-peek" },
+    ]);
+  });
+
   it("reject_active blocks when peer socket is connected", () => {
     const alive = new Set(["sock-a"]);
     const first = agentRegistry.registerAgentSession({

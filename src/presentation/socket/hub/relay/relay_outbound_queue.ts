@@ -8,6 +8,7 @@ import {
   encodePayloadFrameBridge,
   encodePayloadFrameFromBytes,
   encodePayloadFrameFromBytesAsync,
+  encodePayloadFrameFromPreencodedWire,
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import { logger } from "../../../../shared/utils/logger";
@@ -475,4 +476,18 @@ export const encodeRelayOutboundFrameFromBytesAsync = async (
           compressionPolicy: "always_gzip" as const,
         }
       : {}),
+  });
+
+/**
+ * Wire passthrough: rebuild envelope from agent compressed (or none) bytes
+ * without a second gzip. Prefer this when inbound `cmp`/`originalSize`/`payload`
+ * were validated and the JSON-RPC body is not mutated.
+ */
+export const encodeRelayOutboundFrameFromPreencodedWireAsync = async (
+  body: { readonly originalSize: number; readonly wireBytes: Buffer; readonly cmp: "none" | "gzip" },
+  requestId: string,
+): Promise<PayloadFrameEnvelope> =>
+  encodePayloadFrameFromPreencodedWire(body, {
+    requestId,
+    omitTraceId: true,
   });

@@ -58,6 +58,7 @@ import {
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { logger } from "../../../shared/utils/logger";
 import {
+  decodePayloadFrame,
   decodePayloadFrameAsync,
   encodePayloadFrameBridge,
   encodePayloadFrameHotPath,
@@ -134,8 +135,8 @@ const resolveCanonicalRegisteredAgentId = (
     emitAppError(socket, `${eventName} agent_id does not match registered socket agent`);
     return null;
   }
-  const registeredAgent = agentRegistry.findByAgentId(registeredAgentId);
-  if (!registeredAgent || registeredAgent.socketId !== socket.id) {
+  const registeredSocketId = agentRegistry.getSocketIdByAgentId(registeredAgentId);
+  if (!registeredSocketId || registeredSocketId !== socket.id) {
     emitAppError(socket, `${eventName} received from non-canonical agent socket`);
     return null;
   }
@@ -386,8 +387,10 @@ const handleAgentProfileUpdate = async (
  * the protocol ready / touches liveness, and emits `hub:heartbeat_ack`
  * (mirroring the `trace_id` so the agent can correlate without a synced clock).
  */
-const handleAgentHeartbeat = async (socket: AgentHubSocket, rawPayload: unknown): Promise<void> => {
-  const decoded = await decodePayloadFrameAsync(rawPayload);
+const handleAgentHeartbeat = (socket: AgentHubSocket, rawPayload: unknown): void => {
+  // Control-plane frames are tiny and almost always `cmp: none`; sync decode
+  // avoids async scheduling overhead on the highest-frequency agent event.
+  const decoded = decodePayloadFrame(rawPayload);
   if (!decoded.ok) {
     emitAppError(socket, decoded.error.message);
     return;
@@ -415,7 +418,7 @@ const handleAgentHeartbeat = async (socket: AgentHubSocket, rawPayload: unknown)
   const waitingExplicitAck =
     !readiness.ready && agentRegistry.getProtocolReadyMode(currentAgentId) === "explicit_ack";
 
-  agentRegistry.touch(currentAgentId, {
+  agentRegistry.touchLiveness(currentAgentId, {
     // Under explicit protocolReadyAck, only agent:ready (not heartbeat) should clear the wait.
     markProtocolReady: !waitingExplicitAck,
     socketId: socket.id,
@@ -478,7 +481,7 @@ const handleAgentReady = async (socket: AgentHubSocket, rawPayload: unknown): Pr
     return;
   }
 
-  agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
+  agentRegistry.touchLiveness(currentAgentId, { markProtocolReady: true, socketId: socket.id });
   void syncAgentHubPresenceOnTouch(currentAgentId);
 
   const capabilities = isRecord(socket.data.capabilities) ? socket.data.capabilities : null;

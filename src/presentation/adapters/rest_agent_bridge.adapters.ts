@@ -25,7 +25,7 @@ export const connectedAgentsRegistryAdapter: IConnectedAgentsRegistryPort = {
     return agentRegistry.listAll().map(toSnapshot);
   },
   isConnected(agentId: string): boolean {
-    return agentRegistry.findByAgentId(agentId) !== null;
+    return agentRegistry.isRegistered(agentId);
   },
   findById(agentId: string): ConnectedAgentSnapshot | null {
     const agent = agentRegistry.findByAgentId(agentId);

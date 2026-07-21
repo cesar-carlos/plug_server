@@ -348,11 +348,11 @@ export const createRpcBridgeRelayDispatch = (
 
       const traceId = inboundFrameTraceId ?? randomUUID();
       const existingMeta = sanitizeOutboundRpcMeta(toRecord(cmdRecord.meta));
-      const registeredAgent = agentRegistry.findByAgentId(conversation.agentId);
+      const agentCapabilities = agentRegistry.getCapabilitiesByAgentId(conversation.agentId);
       const echoClientRequestId =
         clientRequestId != null &&
-        registeredAgent != null &&
-        isClientRequestIdEchoNegotiated(registeredAgent.capabilities);
+        agentCapabilities != null &&
+        isClientRequestIdEchoNegotiated(agentCapabilities);
       const rpcBodyId = echoClientRequestId ? clientRequestId : requestId;
       const commandPayload: Record<string, unknown> = {
         ...normalizedAndClamped,

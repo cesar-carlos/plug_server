@@ -7,22 +7,40 @@ import { env } from "../../../../shared/config/env";
 
 /**
  * Original agent frame bytes captured for the byte-forward fast path: when a
- * relay chunk is forwarded **unchanged**, the drain re-emits these decoded
- * UTF-8 bytes (preserving the inbound `cmp` compression decision) instead of
- * re-running `JSON.stringify` + gzip on the parsed record. `undefined` for
- * chunks that have no forwardable source (e.g. REST-materialized chunks built
- * server-side), which fall back to the encode-from-record path.
+ * relay chunk is forwarded **unchanged**, the drain re-emits these bytes
+ * instead of re-running `JSON.stringify` + gzip on the parsed record.
+ *
+ * - `bytes`: always the decompressed UTF-8 JSON (fallback / `cmp: none`).
+ * - `wireBytes` + `originalSize`: when present (typically `cmp: gzip`), the
+ *   drain reuses the compressed wire payload and only rebuilds the envelope
+ *   (requestId / signature) — skipping gunzip→gzip round-trips.
+ *
+ * `undefined` rawForward for chunks with no forwardable source (e.g. REST-
+ * materialized chunks), which fall back to the encode-from-record path.
  */
 export interface RelayChunkRawForward {
   readonly bytes: Buffer;
   readonly cmp: "none" | "gzip";
+  readonly wireBytes?: Buffer;
+  readonly originalSize?: number;
+}
+
+/** Lightweight stats retained when the parsed chunk record is dropped from the buffer. */
+export interface RelayBufferedChunkMeta {
+  readonly rowCount: number;
+  readonly streamId: string | null;
 }
 
 export interface RelayStreamFlowEntry {
   credits: number;
-  bufferedChunks: Record<string, unknown>[];
+  /**
+   * Parsed chunk records. May be `null` when `rawForward` was captured and the
+   * drain only needs bytes + {@link bufferedChunkMeta} (saves RSS under backpressure).
+   */
+  bufferedChunks: (Record<string, unknown> | null)[];
   bufferedChunkBytes: number[];
   bufferedChunkRawForward: (RelayChunkRawForward | undefined)[];
+  bufferedChunkMeta: RelayBufferedChunkMeta[];
   bufferedChunkHead: number;
   bufferedBytes: number;
   pendingComplete?: Record<string, unknown>;
@@ -77,6 +95,7 @@ export const ensureRelayStreamFlowEntry = (requestId: string): RelayStreamFlowEn
     bufferedChunks: [],
     bufferedChunkBytes: [],
     bufferedChunkRawForward: [],
+    bufferedChunkMeta: [],
     bufferedChunkHead: 0,
     bufferedBytes: 0,
     forwardedRows: 0,
@@ -109,9 +128,17 @@ export const getRelayStreamBufferedChunks = (requestId: string): Record<string, 
   if (!entry) {
     return [];
   }
-  return entry.bufferedChunkHead === 0
-    ? entry.bufferedChunks
-    : entry.bufferedChunks.slice(entry.bufferedChunkHead);
+  const slices =
+    entry.bufferedChunkHead === 0
+      ? entry.bufferedChunks
+      : entry.bufferedChunks.slice(entry.bufferedChunkHead);
+  const out: Record<string, unknown>[] = [];
+  for (const chunk of slices) {
+    if (chunk !== null) {
+      out.push(chunk);
+    }
+  }
+  return out;
 };
 
 export const getRelayStreamBufferedChunkCount = (requestId: string): number => {
@@ -141,9 +168,14 @@ export const addRelayStreamBufferedChunk = (
 ): void => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   const normalizedByteLength = normalizeBufferedByteLength(byteLength);
-  entry.bufferedChunks.push(chunk);
+  const rowCount = Array.isArray(chunk.rows) ? chunk.rows.length : 0;
+  const streamId = typeof chunk.stream_id === "string" ? chunk.stream_id : null;
+  // When byte-forward is available, drop the parsed record from the buffer to
+  // avoid retaining large row arrays under backpressure (meta keeps abort/audit stats).
+  entry.bufferedChunks.push(rawForward !== undefined ? null : chunk);
   entry.bufferedChunkBytes.push(normalizedByteLength);
   entry.bufferedChunkRawForward.push(rawForward);
+  entry.bufferedChunkMeta.push({ rowCount, streamId });
   entry.bufferedBytes += normalizedByteLength;
   globalTotalBufferedChunks += 1;
   globalTotalBufferedBytes += normalizedByteLength;
@@ -151,13 +183,13 @@ export const addRelayStreamBufferedChunk = (
 
 export const popRelayStreamBufferedChunk = (
   requestId: string,
-): Record<string, unknown> | undefined => {
+): Record<string, unknown> | null | undefined => {
   const entry = entriesByRequestId.get(requestId);
   if (!entry || entry.bufferedChunkHead >= entry.bufferedChunks.length) {
     return undefined;
   }
 
-  const chunk = entry.bufferedChunks[entry.bufferedChunkHead];
+  const chunk = entry.bufferedChunks[entry.bufferedChunkHead] ?? null;
   const byteLength = entry.bufferedChunkBytes[entry.bufferedChunkHead] ?? 0;
   entry.bufferedChunkHead += 1;
   entry.bufferedBytes = Math.max(0, entry.bufferedBytes - byteLength);
@@ -168,6 +200,7 @@ export const popRelayStreamBufferedChunk = (
     entry.bufferedChunks = [];
     entry.bufferedChunkBytes = [];
     entry.bufferedChunkRawForward = [];
+    entry.bufferedChunkMeta = [];
     entry.bufferedChunkHead = 0;
   } else if (
     entry.bufferedChunkHead >= 64 &&
@@ -176,18 +209,21 @@ export const popRelayStreamBufferedChunk = (
     entry.bufferedChunks = entry.bufferedChunks.slice(entry.bufferedChunkHead);
     entry.bufferedChunkBytes = entry.bufferedChunkBytes.slice(entry.bufferedChunkHead);
     entry.bufferedChunkRawForward = entry.bufferedChunkRawForward.slice(entry.bufferedChunkHead);
+    entry.bufferedChunkMeta = entry.bufferedChunkMeta.slice(entry.bufferedChunkHead);
     entry.bufferedChunkHead = 0;
   }
 
   return chunk;
 };
 
-const peekRelayStreamBufferedChunk = (requestId: string): Record<string, unknown> | undefined => {
+const peekRelayStreamBufferedChunk = (
+  requestId: string,
+): Record<string, unknown> | null | undefined => {
   const entry = entriesByRequestId.get(requestId);
   if (!entry || entry.bufferedChunkHead >= entry.bufferedChunks.length) {
     return undefined;
   }
-  return entry.bufferedChunks[entry.bufferedChunkHead];
+  return entry.bufferedChunks[entry.bufferedChunkHead] ?? null;
 };
 
 const peekRelayStreamBufferedChunkRawForward = (
@@ -198,6 +234,14 @@ const peekRelayStreamBufferedChunkRawForward = (
     return undefined;
   }
   return entry.bufferedChunkRawForward[entry.bufferedChunkHead];
+};
+
+const peekRelayStreamBufferedChunkMeta = (requestId: string): RelayBufferedChunkMeta | undefined => {
+  const entry = entriesByRequestId.get(requestId);
+  if (!entry || entry.bufferedChunkHead >= entry.bufferedChunkMeta.length) {
+    return undefined;
+  }
+  return entry.bufferedChunkMeta[entry.bufferedChunkHead];
 };
 
 export const getRelayStreamPendingComplete = (
@@ -250,12 +294,17 @@ export const relayStreamFlowState = {
   get bufferedChunksByRequestId(): Map<string, Record<string, unknown>[]> {
     const map = new Map<string, Record<string, unknown>[]>();
     for (const [requestId, entry] of entriesByRequestId.entries()) {
-      map.set(
-        requestId,
+      const slices =
         entry.bufferedChunkHead === 0
           ? entry.bufferedChunks
-          : entry.bufferedChunks.slice(entry.bufferedChunkHead),
-      );
+          : entry.bufferedChunks.slice(entry.bufferedChunkHead);
+      const records: Record<string, unknown>[] = [];
+      for (const chunk of slices) {
+        if (chunk !== null) {
+          records.push(chunk);
+        }
+      }
+      map.set(requestId, records);
     }
     return map;
   },
@@ -338,6 +387,12 @@ export interface DrainRelayStreamBufferContext {
   readonly onComplete?: (streamId: string | null) => void;
   /** Invoked when `emitComplete` fails because the consumer socket is gone. */
   readonly onConsumerGone?: (requestId: string) => void;
+  /**
+   * When true, skip the per-requestId drain promise chain. Safe when the caller
+   * already serializes (e.g. `enqueueRelayOutbound`); keeps concurrent direct
+   * calls in tests ordered via the default chain.
+   */
+  readonly skipDrainSerialization?: boolean;
 }
 
 const countChunkRows = (payload: Record<string, unknown>): number => {
@@ -345,9 +400,13 @@ const countChunkRows = (payload: Record<string, unknown>): number => {
 };
 
 export const countRelayStreamBufferedRows = (requestId: string): number => {
+  const entry = entriesByRequestId.get(requestId);
+  if (!entry) {
+    return 0;
+  }
   let total = 0;
-  for (const chunk of getRelayStreamBufferedChunks(requestId)) {
-    total += countChunkRows(chunk);
+  for (let i = entry.bufferedChunkHead; i < entry.bufferedChunkMeta.length; i += 1) {
+    total += entry.bufferedChunkMeta[i]?.rowCount ?? 0;
   }
   return total;
 };
@@ -376,14 +435,17 @@ export const drainRelayStreamBuffer = async (
   readonly completeEmitted: boolean;
   readonly pausedForBackpressure: boolean;
 }> => {
-  const previousDrain =
-    drainTailByRequestId.get(ctx.requestId)?.catch(() => undefined) ?? Promise.resolve();
-  let chunksDrained = 0;
-  let completeEmitted = false;
-  let pausedForBackpressure = false;
-  const nextDrain = previousDrain.then(async () => {
+  const runDrain = async (): Promise<{
+    readonly chunksDrained: number;
+    readonly completeEmitted: boolean;
+    readonly pausedForBackpressure: boolean;
+  }> => {
+    let chunksDrained = 0;
+    let completeEmitted = false;
+    let pausedForBackpressure = false;
+
     if (!isDrainContextActive(ctx)) {
-      return;
+      return { chunksDrained, completeEmitted, pausedForBackpressure };
     }
 
     let credits = getRelayStreamFlowCredits(ctx.requestId);
@@ -391,34 +453,44 @@ export const drainRelayStreamBuffer = async (
     if (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
       while (credits > 0 && getRelayStreamBufferedChunkCount(ctx.requestId) > 0) {
         if (!isDrainContextActive(ctx)) {
-          return;
+          return { chunksDrained, completeEmitted, pausedForBackpressure };
         }
         if (ctx.canEmitChunk && !ctx.canEmitChunk()) {
           pausedForBackpressure = true;
           break;
         }
         const chunk = peekRelayStreamBufferedChunk(ctx.requestId);
-        if (!chunk) {
+        if (chunk === undefined) {
           break;
         }
+        const chunkMeta = peekRelayStreamBufferedChunkMeta(ctx.requestId);
 
         const rawForward = peekRelayStreamBufferedChunkRawForward(ctx.requestId);
         const frame =
           rawForward !== undefined && ctx.encodeFrameFromBytes !== undefined
             ? await ctx.encodeFrameFromBytes(rawForward)
-            : await ctx.encodeFrame(chunk);
+            : chunk !== null
+              ? await ctx.encodeFrame(chunk)
+              : null;
+        if (frame === null) {
+          break;
+        }
         if (!isDrainContextActive(ctx)) {
-          return;
+          return { chunksDrained, completeEmitted, pausedForBackpressure };
         }
         if (!ctx.emitChunk(frame)) {
           pausedForBackpressure = true;
           break;
         }
         popRelayStreamBufferedChunk(ctx.requestId);
-        addRelayStreamForwardedRows(ctx.requestId, countChunkRows(chunk));
+        const rowCount =
+          chunkMeta?.rowCount ?? (chunk !== null ? countChunkRows(chunk) : 0);
+        addRelayStreamForwardedRows(ctx.requestId, rowCount);
         chunksDrained += 1;
 
-        const streamId = typeof chunk.stream_id === "string" ? chunk.stream_id : null;
+        const streamId =
+          chunkMeta?.streamId ??
+          (chunk !== null && typeof chunk.stream_id === "string" ? chunk.stream_id : null);
         ctx.recordAudit("relay:rpc.chunk", streamId ? { streamId } : {});
 
         credits -= 1;
@@ -428,18 +500,18 @@ export const drainRelayStreamBuffer = async (
     }
 
     if (pausedForBackpressure) {
-      return;
+      return { chunksDrained, completeEmitted, pausedForBackpressure };
     }
 
     const pendingComplete = getRelayStreamPendingComplete(ctx.requestId);
     if (getRelayStreamBufferedChunkCount(ctx.requestId) === 0 && pendingComplete) {
       const completeFrame = await ctx.encodeFrame(pendingComplete);
       if (!isDrainContextActive(ctx)) {
-        return;
+        return { chunksDrained, completeEmitted, pausedForBackpressure };
       }
       if (!ctx.emitComplete(completeFrame)) {
         ctx.onConsumerGone?.(ctx.requestId);
-        return;
+        return { chunksDrained, completeEmitted, pausedForBackpressure };
       }
       completeEmitted = true;
 
@@ -450,6 +522,23 @@ export const drainRelayStreamBuffer = async (
       clearRelayStreamPendingComplete(ctx.requestId);
       ctx.onComplete?.(streamId);
     }
+
+    return { chunksDrained, completeEmitted, pausedForBackpressure };
+  };
+
+  if (ctx.skipDrainSerialization === true) {
+    return runDrain();
+  }
+
+  const previousDrain =
+    drainTailByRequestId.get(ctx.requestId)?.catch(() => undefined) ?? Promise.resolve();
+  let result = {
+    chunksDrained: 0,
+    completeEmitted: false,
+    pausedForBackpressure: false,
+  };
+  const nextDrain = previousDrain.then(async () => {
+    result = await runDrain();
   });
 
   drainTailByRequestId.set(ctx.requestId, nextDrain);
@@ -458,5 +547,5 @@ export const drainRelayStreamBuffer = async (
       drainTailByRequestId.delete(ctx.requestId);
     }
   });
-  return { chunksDrained, completeEmitted, pausedForBackpressure };
+  return result;
 };

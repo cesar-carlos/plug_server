@@ -25,8 +25,7 @@ export const createAgentHubBridgeDispatch = (
   const localDispatch = createDispatchRpcCommandToAgent(bridgeDeps);
   const forwardDeps = {
     presence: getAgentHubPresencePort(),
-    isAgentRegisteredLocally: (agentId: string): boolean =>
-      agentRegistry.findByAgentId(agentId) !== null,
+    isAgentRegisteredLocally: (agentId: string): boolean => agentRegistry.isRegistered(agentId),
     hasKnownAgentId: (agentId: string): boolean => agentRegistry.hasKnownAgentId(agentId),
     localDispatch: async (fwdInput: ForwardDispatchInput): Promise<DispatchRpcCommandResult> =>
       localDispatch({

@@ -8,6 +8,7 @@ import {
   decodePayloadFrameAsync,
   encodePayloadFrame,
   encodePayloadFrameBridge,
+  encodePayloadFrameFromPreencodedWire,
   encodePayloadFrameHotPath,
   payloadFrameEncodeOptionsFromPreference,
   preencodePayloadFrameJson,
@@ -385,5 +386,47 @@ describe("preencodePayloadFrameJson maxGzipInputBytes", () => {
     expect(body.originalSize).toBeGreaterThan(512 * 1024);
     expect(body.cmp).toBe("gzip");
     expect(body.wireBytes.length).toBeLessThan(body.originalSize);
+  });
+});
+
+describe("encodePayloadFrameFromPreencodedWire", () => {
+  it("reuses compressed wire bytes without a second gzip", () => {
+    // Moderately compressible JSON (gzip wins) without exceeding decode inflation guards.
+    const data = {
+      rows: Array.from({ length: 80 }, (_, i) => ({
+        i,
+        label: `row-${i}-value-${i * 7}`,
+        note: `note-${i}`,
+      })),
+    };
+    const encoded = encodePayloadFrame(data, {
+      compressionThreshold: 1,
+      compressionPolicy: "always_gzip",
+      requestId: "in-1",
+      omitTraceId: true,
+    });
+    expect(encoded.cmp).toBe("gzip");
+    expect(Buffer.isBuffer(encoded.payload)).toBe(true);
+
+    const forwarded = encodePayloadFrameFromPreencodedWire(
+      {
+        originalSize: encoded.originalSize,
+        wireBytes: encoded.payload as Buffer,
+        cmp: "gzip",
+      },
+      { requestId: "out-1", omitTraceId: true },
+    );
+
+    expect(forwarded.cmp).toBe("gzip");
+    expect(forwarded.originalSize).toBe(encoded.originalSize);
+    expect(forwarded.compressedSize).toBe(encoded.compressedSize);
+    expect(forwarded.requestId).toBe("out-1");
+    expect(Buffer.compare(forwarded.payload as Buffer, encoded.payload as Buffer)).toBe(0);
+
+    const decoded = decodePayloadFrame(forwarded);
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) {
+      expect(decoded.value.data).toEqual(data);
+    }
   });
 });

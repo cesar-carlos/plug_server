@@ -5,7 +5,7 @@ import { agentRegistry } from "./registries/agent_registry";
  * Whether the agent is connected to this hub cluster (local registry or Redis presence).
  */
 export const isAgentConnectedToHub = async (agentId: string): Promise<boolean> => {
-  if (agentRegistry.findByAgentId(agentId) !== null) {
+  if (agentRegistry.isRegistered(agentId)) {
     return true;
   }
   const presence = getAgentHubPresencePort();
@@ -18,7 +18,7 @@ export const isAgentConnectedToHub = async (agentId: string): Promise<boolean> =
 
 /** Sync check: local registry only. */
 export const isAgentConnectedToHubLocally = (agentId: string): boolean =>
-  agentRegistry.findByAgentId(agentId) !== null;
+  agentRegistry.isRegistered(agentId);
 
 /**
  * Resolves hub connectivity for a set of agent ids (local + Redis presence).
@@ -29,7 +29,7 @@ export const resolveClusterHubConnectedAgentIds = async (
   const connected = new Set<string>();
   const presence = getAgentHubPresencePort();
   for (const agentId of agentIds) {
-    if (agentRegistry.findByAgentId(agentId) !== null) {
+    if (agentRegistry.isRegistered(agentId)) {
       connected.add(agentId);
       continue;
     }

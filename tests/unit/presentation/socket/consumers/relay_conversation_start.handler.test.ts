@@ -12,6 +12,7 @@ vi.mock("../../../../../src/presentation/socket/consumers/consumer_socket_guard"
 vi.mock("../../../../../src/presentation/socket/hub/registries/agent_registry", () => ({
   agentRegistry: {
     findByAgentId: vi.fn(),
+    getSocketIdByAgentId: vi.fn(),
   },
 }));
 
@@ -67,6 +68,7 @@ import {
 
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedFindByAgentId = vi.mocked(agentRegistry.findByAgentId);
+const mockedGetSocketIdByAgentId = vi.mocked(agentRegistry.getSocketIdByAgentId);
 const mockedTryReserveAndCreate = vi.mocked(conversationRegistry.tryReserveAndCreate);
 const mockedFindAgentBridgeSocketById = vi.mocked(findAgentBridgeSocketById);
 const mockedRefundRelayConversationStart = vi.mocked(refundRelayConversationStartAsync);
@@ -124,6 +126,7 @@ describe("handleRelayConversationStart", () => {
   beforeEach(() => {
     mockedAssertAccess.mockReset();
     mockedFindByAgentId.mockReset();
+    mockedGetSocketIdByAgentId.mockReset();
     mockedTryReserveAndCreate.mockReset();
     mockedRefundRelayConversationStart.mockReset();
     mockedTryAcquire.mockReset();
@@ -138,6 +141,7 @@ describe("handleRelayConversationStart", () => {
       agentId: "agent-1",
       socketId: "agent-socket-1",
     } as never);
+    mockedGetSocketIdByAgentId.mockReturnValue("agent-socket-1");
     mockedFindAgentBridgeSocketById.mockReset();
     mockedFindAgentBridgeSocketById.mockReturnValue({ id: "agent-socket-1" } as never);
     mockedTryReserveAndCreate.mockReturnValue({
@@ -261,6 +265,7 @@ describe("handleRelayConversationStart", () => {
   it("does not refund quota when the agent is not registered", async () => {
     const socket = buildSocket();
     mockedFindByAgentId.mockReturnValue(undefined);
+    mockedGetSocketIdByAgentId.mockReturnValue(null);
 
     await handleRelayConversationStart(socket as never, {
       agentId: "agent-1",
@@ -281,6 +286,7 @@ describe("handleRelayConversationStart", () => {
   it("returns 503 when the agent is only present on another hub instance", async () => {
     const socket = buildSocket();
     mockedFindByAgentId.mockReturnValue(undefined);
+    mockedGetSocketIdByAgentId.mockReturnValue(null);
     mockedResolvePresenceRoute.mockResolvedValue({ hubInstanceId: "other-hub" });
 
     await handleRelayConversationStart(socket as never, {

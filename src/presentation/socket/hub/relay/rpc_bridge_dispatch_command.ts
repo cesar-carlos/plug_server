@@ -127,8 +127,8 @@ export const createDispatchRpcCommandToAgent = (
         throw serviceUnavailable("Socket bridge is not initialized");
       }
 
-      const registeredAgent = agentRegistry.findByAgentId(input.agentId);
-      if (!registeredAgent) {
+      const registeredAgentSocketId = agentRegistry.getSocketIdByAgentId(input.agentId);
+      if (!registeredAgentSocketId) {
         if (agentRegistry.hasKnownAgentId(input.agentId)) {
           throw new AgentDisconnectedBeforeDispatchError(input.agentId, input.command);
         }
@@ -147,7 +147,7 @@ export const createDispatchRpcCommandToAgent = (
         throw notFound(`Agent ${input.agentId}`);
       }
 
-      const agentSocket = findAgentSocketById(registeredAgent.socketId);
+      const agentSocket = findAgentSocketById(registeredAgentSocketId);
       if (!agentSocket) {
         throw new AgentDisconnectedBeforeDispatchError(input.agentId, input.command);
       }
@@ -383,18 +383,20 @@ export const createDispatchRpcCommandToAgent = (
             return;
           }
 
-          const liveAgentSocket = findAgentSocketById(registeredAgent.socketId);
+          const liveAgentSocket = findAgentSocketById(registeredAgentSocketId);
           if (!liveAgentSocket) {
             return;
           }
 
           pendingRequest.ackRetriesAttempted = (pendingRequest.ackRetriesAttempted ?? 0) + 1;
           noteBridgeAckRetryAttempt("rest");
-          logger.info("rpc_request_ack_retry_emit", {
-            requestId: pendingRequest.primaryRequestId,
-            attempt: pendingRequest.ackRetriesAttempted,
-            socketId: registeredAgent.socketId,
-          });
+          if (logger.isLevelEnabled("debug")) {
+            logger.debug("rpc_request_ack_retry_emit", {
+              requestId: pendingRequest.primaryRequestId,
+              attempt: pendingRequest.ackRetriesAttempted,
+              socketId: registeredAgentSocketId,
+            });
+          }
           liveAgentSocket.emit(socketEvents.rpcRequest, wireFrame);
 
           if (
@@ -439,7 +441,7 @@ export const createDispatchRpcCommandToAgent = (
           const hadAck = pendingRequest.acked;
           clearPendingRegistration();
           const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
-          if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          if (existingStream && existingStream.agentSocketId === registeredAgentSocketId) {
             removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
           if (!hadAck) {
@@ -451,7 +453,7 @@ export const createDispatchRpcCommandToAgent = (
             }
             logger.info("rpc_timeout_without_ack", {
               requestId: pendingRequest.primaryRequestId,
-              socketId: registeredAgent.socketId,
+              socketId: registeredAgentSocketId,
             });
           }
           registerAgentFailure(input.agentId, "rest");
@@ -467,7 +469,7 @@ export const createDispatchRpcCommandToAgent = (
         pendingRequest = {
           primaryRequestId: requestId,
           correlationIds,
-          socketId: registeredAgent.socketId,
+          socketId: registeredAgentSocketId,
           agentId: input.agentId,
           createdAtMs: Date.now(),
           resolve: resolveOnce,
@@ -502,7 +504,7 @@ export const createDispatchRpcCommandToAgent = (
         pendingSignalListener = () => {
           clearPendingRegistration();
           const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
-          if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          if (existingStream && existingStream.agentSocketId === registeredAgentSocketId) {
             removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
           rejectOnce(serviceUnavailable("HTTP request aborted by client"));
@@ -578,7 +580,7 @@ export const createDispatchRpcCommandToAgent = (
         } catch (error: unknown) {
           clearPendingRegistration();
           const existingStream = getActiveStreamRouteByRequestId(requestId);
-          if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
+          if (existingStream && existingStream.agentSocketId === registeredAgentSocketId) {
             removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
           registerAgentFailure(input.agentId, "rest");

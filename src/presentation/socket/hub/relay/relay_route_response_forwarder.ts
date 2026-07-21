@@ -45,6 +45,7 @@ import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
   encodeRelayOutboundFrameFromBytesAsync,
+  encodeRelayOutboundFrameFromPreencodedWireAsync,
   markRelayOutboundForceGzip,
 } from "./relay_outbound_queue";
 import { setRelayStreamFlowCredits } from "./relay_stream_flow_state";
@@ -223,9 +224,9 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       // `body.id == client_request_id`, so no rewrite is needed (Opcao A).
       const decodedResponseRecord = toRecord(decoded.data);
       const decodedBodyId = toRequestId(decodedResponseRecord?.id);
-      const registeredAgent = agentRegistry.findByAgentId(relayRoute.agentId);
+      const agentCapabilities = agentRegistry.getCapabilitiesByAgentId(relayRoute.agentId);
       const agentPhaseTimingsNegotiated =
-        registeredAgent != null && isAgentPhaseTimingsNegotiated(registeredAgent.capabilities);
+        agentCapabilities != null && isAgentPhaseTimingsNegotiated(agentCapabilities);
       const responseMeta = decodedResponseRecord?.meta;
       const responseHasAgentPhases =
         isRecord(responseMeta) &&
@@ -238,13 +239,23 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
 
       let responseFrame: PayloadFrameEnvelope;
       if (canBypassReencode) {
-        responseFrame = await encodeRelayOutboundFrameFromBytesAsync(
-          decoded.decodedBytes,
-          responseId,
-          {
-            inboundCmp: decoded.frame.cmp,
-          },
-        );
+        responseFrame =
+          decoded.frame.cmp === "gzip" && Buffer.isBuffer(decoded.frame.payload)
+            ? await encodeRelayOutboundFrameFromPreencodedWireAsync(
+                {
+                  originalSize: decoded.frame.originalSize,
+                  wireBytes: decoded.frame.payload,
+                  cmp: "gzip",
+                },
+                responseId,
+              )
+            : await encodeRelayOutboundFrameFromBytesAsync(
+                decoded.decodedBytes,
+                responseId,
+                {
+                  inboundCmp: decoded.frame.cmp,
+                },
+              );
       } else {
         // Measure the wall-clock cost of the re-encode path (vs bypass)
         // only when the cause is the body.id echo. If `shouldAttachServerTimings`
@@ -299,10 +310,10 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       forwardedResponse = true;
       if (relayRoute.jsonRpcMethod === "agent.getHealth") {
         noteAgentHealthRpcResponse(decoded.data);
-      } else if (registeredAgent) {
+      } else if (agentCapabilities) {
         maybeRecordAgentHealthPiggyback({
           agentId: relayRoute.agentId,
-          agentCapabilities: registeredAgent.capabilities,
+          agentCapabilities,
           rpcBody: decoded.data,
         });
       }

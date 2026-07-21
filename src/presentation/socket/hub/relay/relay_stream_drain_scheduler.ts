@@ -33,6 +33,7 @@ import {
   enqueueRelayOutbound,
   encodeRelayOutboundFrame,
   encodeRelayOutboundFrameFromBytesAsync,
+  encodeRelayOutboundFrameFromPreencodedWireAsync,
 } from "./relay_outbound_queue";
 import {
   isConsumerRelayTransportWritable,
@@ -110,52 +111,72 @@ const buildDrainContext = (
   emitToConsumer: EmitToConsumerFn,
   isActive: () => boolean,
   onComplete?: (streamId: string | null) => void,
-): DrainRelayStreamBufferContext => ({
-  requestId: route.requestId,
-  consumerSocketId: route.consumerSocketId,
-  agentSocketId: route.agentSocketId,
-  conversationId: route.conversationId,
-  agentId: route.agentId,
-  canEmitChunk: () => {
-    const consumerSocket = findConsumerBridgeSocketForRelay(route.consumerSocketId);
-    if (!consumerSocket) {
-      return true;
-    }
-    return isConsumerRelayTransportWritable(consumerSocket);
-  },
-  emitChunk: (frame: unknown) => {
-    const consumerSocket = findConsumerBridgeSocketForRelay(route.consumerSocketId);
-    if (consumerSocket && !isConsumerRelayTransportWritable(consumerSocket)) {
-      noteRelayStreamChunkEmitBackpressurePaused();
-      return false;
-    }
-    return emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame);
-  },
-  emitComplete: (frame: unknown) =>
-    emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
-  encodeFrame: (data: unknown) => encodeRelayOutboundFrame(data, route.requestId),
-  encodeFrameFromBytes: (rawForward: { readonly bytes: Buffer; readonly cmp: "none" | "gzip" }) =>
-    encodeRelayOutboundFrameFromBytesAsync(rawForward.bytes, route.requestId, {
-      inboundCmp: rawForward.cmp,
-    }),
-  isActive,
-  recordAudit: (eventType: string, extras?: Record<string, unknown>) => {
-    if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
-      return;
-    }
-    void recordSocketAuditEvent({
-      eventType,
-      actorSocketId: route.agentSocketId,
-      direction: "agent_to_consumer",
-      conversationId: route.conversationId,
-      agentId: route.agentId,
-      requestId: route.requestId,
-      ...extras,
-    });
-  },
-  onConsumerGone: finalizeRelayStreamOnConsumerGone,
-  ...(onComplete !== undefined ? { onComplete } : {}),
-});
+): DrainRelayStreamBufferContext => {
+  // Share one consumer-socket lookup across canEmitChunk → emitChunk for each
+  // drain iteration (outbound queue already serializes the drain job).
+  let socketForCurrentEmit: ReturnType<typeof findConsumerBridgeSocketForRelay> | undefined;
+
+  return {
+    requestId: route.requestId,
+    consumerSocketId: route.consumerSocketId,
+    agentSocketId: route.agentSocketId,
+    conversationId: route.conversationId,
+    agentId: route.agentId,
+    skipDrainSerialization: true,
+    canEmitChunk: () => {
+      socketForCurrentEmit = findConsumerBridgeSocketForRelay(route.consumerSocketId);
+      if (!socketForCurrentEmit) {
+        return true;
+      }
+      return isConsumerRelayTransportWritable(socketForCurrentEmit);
+    },
+    emitChunk: (frame: unknown) => {
+      const consumerSocket =
+        socketForCurrentEmit ?? findConsumerBridgeSocketForRelay(route.consumerSocketId);
+      socketForCurrentEmit = undefined;
+      if (consumerSocket && !isConsumerRelayTransportWritable(consumerSocket)) {
+        noteRelayStreamChunkEmitBackpressurePaused();
+        return false;
+      }
+      return emitToConsumer(route.consumerSocketId, socketEvents.relayRpcChunk, frame);
+    },
+    emitComplete: (frame: unknown) =>
+      emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame),
+    encodeFrame: (data: unknown) => encodeRelayOutboundFrame(data, route.requestId),
+    encodeFrameFromBytes: (rawForward) => {
+      if (rawForward.wireBytes !== undefined && rawForward.originalSize !== undefined) {
+        return encodeRelayOutboundFrameFromPreencodedWireAsync(
+          {
+            originalSize: rawForward.originalSize,
+            wireBytes: rawForward.wireBytes,
+            cmp: rawForward.cmp,
+          },
+          route.requestId,
+        );
+      }
+      return encodeRelayOutboundFrameFromBytesAsync(rawForward.bytes, route.requestId, {
+        inboundCmp: rawForward.cmp,
+      });
+    },
+    isActive,
+    recordAudit: (eventType: string, extras?: Record<string, unknown>) => {
+      if (!shouldAuditRelayChunks && eventType === socketEvents.relayRpcChunk) {
+        return;
+      }
+      void recordSocketAuditEvent({
+        eventType,
+        actorSocketId: route.agentSocketId,
+        direction: "agent_to_consumer",
+        conversationId: route.conversationId,
+        agentId: route.agentId,
+        requestId: route.requestId,
+        ...extras,
+      });
+    },
+    onConsumerGone: finalizeRelayStreamOnConsumerGone,
+    ...(onComplete !== undefined ? { onComplete } : {}),
+  };
+};
 
 const afterDrainMaybeReschedule = (input: {
   readonly requestId: string;
