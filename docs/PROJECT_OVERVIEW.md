@@ -88,7 +88,7 @@ Existem dois modos:
 - `agents:*`: bridge legado em JSON logico
 - `relay:*`: modo isolado por conversa, com `PayloadFrame` tambem no consumer
 
-Para **novas integracoes**, prefere `relay:*` quando precisares de streaming em tempo real, carga continua elevada ou idempotencia por conversa (`client_request_id`); o canal `agents:*` continua suportado como legado sem data de remocao anunciada neste documento.
+Para **novas integracoes**, prefere `relay:`_ quando precisares de streaming em tempo real, carga continua elevada ou idempotencia por conversa (`client_request_id`); o canal `agents:`_ continua suportado como legado sem data de remocao anunciada neste documento.
 
 Quando precisas de chunks em tempo real e `stream_pull`, prefere Socket.
 
@@ -103,18 +103,18 @@ Detalhes normativos:
 O agente usa o protocolo do `plug_agente` (perfil `plug-jsonrpc-profile/2.11.2`) no
 namespace `/agents`, incluindo:
 
-| Evento | Direcao | Notas |
-| ------ | ------- | ----- |
-| `agent:register` | agente -> hub | `PayloadFrame` com `agentId`, `timestamp`, `capabilities` (e `profile` opcional) |
-| `agent:register_error` | hub -> agente | **JSON puro** (NAO `PayloadFrame`) com `{ code, reason, message, details? }`. `reason` `transient_failure`/`rate_limited` orienta o agente a reagendar `agent:register`; outros valores indicam reconexao. Ver `docs/plug_agente/migracao_plug_agente_namespaces.md` |
-| `agent:session.superseded` | hub -> agente (socket substituido) | **JSON puro** quando `SOCKET_AGENT_SESSION_POLICY=takeover_disconnect_previous`; antecede `disconnect` da sessao antiga |
-| `agent:capabilities` | hub -> agente | Inclui `extensions.recommendedStreamPullWindowSize` / `maxStreamPullWindowSize` para calibrar pulls; o hub tambem aplica `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` como teto final |
-| `agent:ready` | agente -> hub | Opcional, quando o agente anuncia `extensions.protocolReadyAck`; payload completo `{ agent_id, timestamp, protocol }`. Compat legado aceita apenas `{ agent_id }` sem `timestamp/protocol`; payload parcial e rejeitado. |
-| `agent:heartbeat` | agente -> hub | Periodico; `hub:heartbeat_ack` confirma |
-| `rpc:request` / `rpc:response` | bidirecional | Comando JSON-RPC 2.0 em `PayloadFrame` |
-| `rpc:request_ack` / `rpc:batch_ack` | agente -> hub | Confirmacao de recebimento; o hub observa/propaga esses acks, mas ainda nao reenvia `rpc:request` automaticamente quando faltam |
-| `rpc:chunk` / `rpc:complete` | agente -> hub | Streaming de resultado (`terminal_status: aborted`/`error` em encerramento anormal) |
-| `rpc:stream.pull` | hub -> agente | Backpressure (`window_size` limitado pelo teto global do hub e por hints de capabilities do agente) |
+| Evento                              | Direcao                            | Notas                                                                                                                                                                                                                                                                |
+| ----------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent:register`                    | agente -> hub                      | `PayloadFrame` com `agentId`, `timestamp`, `capabilities` (e `profile` opcional)                                                                                                                                                                                     |
+| `agent:register_error`              | hub -> agente                      | **JSON puro** (NAO `PayloadFrame`) com `{ code, reason, message, details? }`. `reason` `transient_failure`/`rate_limited` orienta o agente a reagendar `agent:register`; outros valores indicam reconexao. Ver `docs/plug_agente/migracao_plug_agente_namespaces.md` |
+| `agent:session.superseded`          | hub -> agente (socket substituido) | **JSON puro** quando `SOCKET_AGENT_SESSION_POLICY=takeover_disconnect_previous`; antecede `disconnect` da sessao antiga                                                                                                                                              |
+| `agent:capabilities`                | hub -> agente                      | Inclui `extensions.recommendedStreamPullWindowSize` / `maxStreamPullWindowSize` para calibrar pulls; o hub tambem aplica `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` como teto final                                                                                   |
+| `agent:ready`                       | agente -> hub                      | Opcional, quando o agente anuncia `extensions.protocolReadyAck`; payload completo `{ agent_id, timestamp, protocol }`. Compat legado aceita apenas `{ agent_id }` sem `timestamp/protocol`; payload parcial e rejeitado.                                             |
+| `agent:heartbeat`                   | agente -> hub                      | Periodico; `hub:heartbeat_ack` confirma                                                                                                                                                                                                                              |
+| `rpc:request` / `rpc:response`      | bidirecional                       | Comando JSON-RPC 2.0 em `PayloadFrame`                                                                                                                                                                                                                               |
+| `rpc:request_ack` / `rpc:batch_ack` | agente -> hub                      | Confirmacao de recebimento; o hub observa/propaga esses acks, mas ainda nao reenvia `rpc:request` automaticamente quando faltam                                                                                                                                      |
+| `rpc:chunk` / `rpc:complete`        | agente -> hub                      | Streaming de resultado (`terminal_status: aborted`/`error` em encerramento anormal)                                                                                                                                                                                  |
+| `rpc:stream.pull`                   | hub -> agente                      | Backpressure (`window_size` limitado pelo teto global do hub e por hints de capabilities do agente)                                                                                                                                                                  |
 
 ## Fluxo resumido
 
@@ -181,28 +181,28 @@ Redis (quando configurado) cobre:
 
 - presence + forward inter-replica do bridge ([ADR 0010](adrs/0010-agent-hub-presence-redis.md))
 - rate limits partilhados, adapter Socket.IO, streams de backlog `client:custom.*`
-  ([`infrastructure/redis_streams_agent_backlog.md`](infrastructure/redis_streams_agent_backlog.md))
+  (`[infrastructure/redis_streams_agent_backlog.md](infrastructure/redis_streams_agent_backlog.md)`)
 
 Persistencia em DB relevante: auditoria Socket; traces de latencia (quando ativados).
 
-Implicacoes multi-instancia: [`studies/scaling_and_roadmap.md`](studies/scaling_and_roadmap.md).
+Implicacoes multi-instancia: `[studies/scaling_and_roadmap.md](studies/scaling_and_roadmap.md)`.
 
 ## Leitura recomendada
 
 Mapa rapido da documentacao: `docs/README.md`.
 
-| Tema | Documento |
-| ---- | --------- |
-| Contrato REST e `agents:*` | `docs/api/api_rest_bridge.md` |
-| Relay Socket e quotas | `docs/socket/socket_relay_protocol.md` |
-| Guia minimo para cliente Socket | `docs/socket/socket_client_sdk.md` |
-| Defaults e variaveis de ambiente | `docs/configuration.md` |
-| Tuning hub ↔ agente | `docs/performance/performance_hub_agent.md` |
-| Metricas, tracing e alertas | `docs/observability/observability.md` |
-| Estudo de fast-path relay (benchmark-gated) | `docs/studies/relay_fastpath_study.md` |
-| E2E, benchmark e carga | `docs/performance/e2e_benchmark_hub_agent.md`, `docs/performance/load_testing.md` |
-| Escala horizontal e backlog | `docs/studies/scaling_and_roadmap.md` |
-| Alinhamento com o `plug_agente` | `docs/plug_agente/communication_sync_plug_agente.md` |
+| Tema                                        | Documento                                                                         |
+| ------------------------------------------- | --------------------------------------------------------------------------------- |
+| Contrato REST e `agents:*`                  | `docs/api/api_rest_bridge.md`                                                     |
+| Relay Socket e quotas                       | `docs/socket/socket_relay_protocol.md`                                            |
+| Guia minimo para cliente Socket             | `docs/socket/socket_client_sdk.md`                                                |
+| Defaults e variaveis de ambiente            | `docs/configuration.md`                                                           |
+| Tuning hub ↔ agente                         | `docs/performance/performance_hub_agent.md`                                       |
+| Metricas, tracing e alertas                 | `docs/observability/observability.md`                                             |
+| Estudo de fast-path relay (benchmark-gated) | `docs/studies/relay_fastpath_study.md`                                            |
+| E2E, benchmark e carga                      | `docs/performance/e2e_benchmark_hub_agent.md`, `docs/performance/load_testing.md` |
+| Escala horizontal e backlog                 | `docs/studies/scaling_and_roadmap.md`                                             |
+| Alinhamento com o `plug_agente`             | `docs/plug_agente/communication_sync_plug_agente.md`                              |
 
 ## Resumo
 
