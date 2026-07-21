@@ -187,7 +187,10 @@ ligados **a essa instancia**:
 Consequencia: `/consumers` e `/agents` exigem **sticky sessions** (ou afinidade
 equivalente) enquanto esse estado nao for externalizado. Um `relay:rpc.request`
 sempre e despachado para o socket do agente **no mesmo processo** que detem a
-conversa.
+conversa. Se `relay:conversation.start` correr numa replica onde o agente so
+aparece via presence Redis noutro hub, a resposta e **503** (sticky affinity) —
+distinto de **404** agent offline. Contador:
+`plug_socket_relay_conversation_start_remote_hub_total`.
 
 ### Redis adapter (rooms-only)
 

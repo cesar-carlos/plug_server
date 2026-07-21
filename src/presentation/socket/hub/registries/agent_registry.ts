@@ -303,7 +303,12 @@ class InMemoryAgentRegistry {
           return { ok: false, reason: "SESSION_ACTIVE" };
         }
         this.agentIdBySocketId.delete(existing.socketId);
-        if (input.policy === "takeover_disconnect_previous") {
+        // takeover and legacy_silent_takeover both disconnect the previous peer
+        // via agent:session.superseded (avoids zombie sockets).
+        if (
+          input.policy === "takeover_disconnect_previous" ||
+          input.policy === "legacy_silent_takeover"
+        ) {
           replacedSocketId = existing.socketId;
         }
       } else {
@@ -458,6 +463,14 @@ class InMemoryAgentRegistry {
       ready: remaining <= 0,
       retryAfterMs: remaining,
     };
+  }
+
+  /** Protocol ready handshake mode recorded at register (`grace` | `explicit_ack`). */
+  getProtocolReadyMode(agentId: string): "grace" | "explicit_ack" | null {
+    if (!this.agents.has(agentId)) {
+      return null;
+    }
+    return this.protocolReadyModeByAgentId.get(agentId) ?? "grace";
   }
 
   resolveStreamPullWindow(

@@ -162,6 +162,47 @@ describe("agent_registry session policies", () => {
     expect(agentRegistry.findBySocketId("sock-reused")?.agentId).toBe("agent-new");
     expect(agentRegistry.listAll().map((agent) => agent.agentId)).toEqual(["agent-new"]);
   });
+
+  it("returns replacedSocketId under legacy_silent_takeover when a live peer is remapped", () => {
+    const alive = new Set(["sock-old"]);
+    agentRegistry.registerAgentSession({
+      agentId: "agent-1",
+      socketId: "sock-old",
+      userId: "u1",
+      capabilities: {},
+      policy: "legacy_silent_takeover",
+      isPeerConnected: (sid) => alive.has(sid),
+    });
+
+    const next = agentRegistry.registerAgentSession({
+      agentId: "agent-1",
+      socketId: "sock-new",
+      userId: "u1",
+      capabilities: {},
+      policy: "legacy_silent_takeover",
+      isPeerConnected: (sid) => alive.has(sid),
+    });
+
+    expect(next).toMatchObject({ ok: true, replacedSocketId: "sock-old" });
+    expect(agentRegistry.findBySocketId("sock-new")?.agentId).toBe("agent-1");
+  });
+
+  it("keeps explicit_ack agents not-ready until markProtocolReady touch", () => {
+    agentRegistry.registerAgentSession({
+      agentId: "ag-explicit",
+      socketId: "s1",
+      userId: "u1",
+      capabilities: { extensions: { protocolReadyAck: true } },
+      policy: "reject_active",
+      isPeerConnected: () => false,
+    });
+    expect(agentRegistry.getProtocolReadyMode("ag-explicit")).toBe("explicit_ack");
+    expect(agentRegistry.getProtocolReadiness("ag-explicit").ready).toBe(false);
+    agentRegistry.touch("ag-explicit", { socketId: "s1" });
+    expect(agentRegistry.getProtocolReadiness("ag-explicit").ready).toBe(false);
+    agentRegistry.touch("ag-explicit", { markProtocolReady: true, socketId: "s1" });
+    expect(agentRegistry.getProtocolReadiness("ag-explicit").ready).toBe(true);
+  });
 });
 
 describe("agent_registry dispatch policy negotiation", () => {

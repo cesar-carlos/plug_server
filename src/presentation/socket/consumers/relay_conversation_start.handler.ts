@@ -19,6 +19,7 @@ import {
 } from "./per_socket_inflight_gate";
 import { resolveAppErrorRetryAfterMs } from "./socket_retry_after";
 import { noteSocketErrorRetryAfterMsPropagated } from "../../../shared/metrics/socket_consumer.metrics";
+import { noteRelayConversationStartRemoteHub } from "../../../shared/metrics/socket_consumer.metrics";
 import { resolveAgentHubPresenceRoute } from "../../../application/services/agent_hub_presence_sync";
 import { findAgentBridgeSocketById } from "../hub/relay/rpc_bridge";
 
@@ -140,6 +141,7 @@ export const handleRelayConversationStart = async (
         remoteRoute.hubInstanceId.trim() !== "" &&
         remoteRoute.hubInstanceId !== env.hubInstanceId
       ) {
+        noteRelayConversationStartRemoteHub();
         throw serviceUnavailable(
           `Agent ${envelope.agentId} is connected on another hub instance; relay conversations require sticky session affinity to that hub`,
         );

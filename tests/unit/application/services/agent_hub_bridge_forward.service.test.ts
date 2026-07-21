@@ -77,6 +77,41 @@ describe("createDispatchOrForwardRpcCommand", () => {
     expect(result).toEqual({ requestId: "fwd-1", response: { forwarded: true } });
   });
 
+  it("refuses remote forward when streamHandlers are bound (live streaming needs sticky)", async () => {
+    const deps = buildDeps();
+    const dispatch = createDispatchOrForwardRpcCommand(deps);
+
+    await expect(
+      dispatch({
+        agentId: "agent-1",
+        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+        streamHandlers: { onChunk: () => undefined, onComplete: () => undefined },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      message: expect.stringContaining("live streaming"),
+    });
+    expect(deps.publishCommand).not.toHaveBeenCalled();
+  });
+
+  it("still dispatches locally with streamHandlers when the agent is on this replica", async () => {
+    const localDispatch = vi.fn().mockResolvedValue({ requestId: "local", response: {} });
+    const dispatch = createDispatchOrForwardRpcCommand(
+      buildDeps({
+        isAgentRegisteredLocally: vi.fn().mockReturnValue(true),
+        localDispatch,
+      }),
+    );
+
+    await dispatch({
+      agentId: "agent-1",
+      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+      streamHandlers: { onChunk: () => undefined, onComplete: () => undefined },
+    });
+
+    expect(localDispatch).toHaveBeenCalledOnce();
+  });
+
   it("throws agent_offline when known agent has no presence route", async () => {
     const dispatch = createDispatchOrForwardRpcCommand(
       buildDeps({

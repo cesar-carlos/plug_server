@@ -109,7 +109,7 @@ export const createRelayFailFastEmitters = (deps: {
       if (existingStream && existingStream.agentSocketId === socketId) {
         removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
       }
-      registerAgentFailure(pendingRequest.agentId);
+      registerAgentFailure(pendingRequest.agentId, "rest");
       pendingRequest.reject(serviceUnavailable(reasonMessage));
     }
 
@@ -159,7 +159,7 @@ export const createRelayFailFastEmitters = (deps: {
       if (existingStream && existingStream.agentSocketId === socketId) {
         removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
       }
-      registerAgentFailure(pendingRequest.agentId);
+      registerAgentFailure(pendingRequest.agentId, "rest");
       pendingRequest.reject(
         serviceUnavailable(`Failed to decode agent rpc:response frame: ${reasonMessage}`),
       );
@@ -263,7 +263,7 @@ export const createRelayFailFastEmitters = (deps: {
     if (route.restMaterializeState && !route.restMaterializeState.settled) {
       route.restMaterializeState.settled = true;
       clearTimeout(route.restMaterializeState.timeoutHandle);
-      registerAgentFailure(route.restMaterializeState.agentId);
+      registerAgentFailure(route.restMaterializeState.agentId, "rest");
       removeActiveStreamRoute(route, { restMaterialize: "detach" });
       route.restMaterializeState.reject(serviceUnavailable(failureMessage));
       return;
@@ -317,7 +317,7 @@ export const createRelayFailFastEmitters = (deps: {
         errorCode: "RELAY_BATCH_RESPONSE_UNSUPPORTED",
       });
       observeRelayRouteOutcome(route, "error");
-      registerAgentFailure(route.agentId);
+      registerAgentFailure(route.agentId, "relay");
       clearTimeout(route.timeoutHandle);
       conversationRegistry.touchInternal(route.conversationId);
 

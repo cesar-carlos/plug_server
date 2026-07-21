@@ -187,7 +187,7 @@ export const createRpcBridgeAgentInboundHandlers = (
               pendingRequest.agentId,
             );
             if (countOpenStreamRoutesForAgent(socketId) >= effectivePolicy.maxConcurrentStreams) {
-              registerAgentFailure(pendingRequest.agentId);
+              registerAgentFailure(pendingRequest.agentId, "rest");
               clearTimeout(pendingRequest.timeoutHandle);
               clearRestPendingRequest(pendingRequest);
               pendingRequest.reject(
@@ -225,7 +225,7 @@ export const createRpcBridgeAgentInboundHandlers = (
           });
         }
 
-        registerAgentSuccess(pendingRequest.agentId);
+        registerAgentSuccess(pendingRequest.agentId, "rest");
         observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
         clearTimeout(pendingRequest.timeoutHandle);
         clearRestPendingRequest(pendingRequest);

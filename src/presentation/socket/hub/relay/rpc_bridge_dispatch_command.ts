@@ -158,7 +158,7 @@ export const createDispatchRpcCommandToAgent = (
           readiness.retryAfterMs,
         );
       }
-      ensureAgentCircuitClosed(input.agentId);
+      ensureAgentCircuitClosed(input.agentId, "rest");
 
       if (!isRecord(input.command) && !Array.isArray(input.command)) {
         throw badRequest("Command must be a JSON object or JSON-RPC batch array");
@@ -288,7 +288,7 @@ export const createDispatchRpcCommandToAgent = (
             acceptedCommands: isBatchCommand(command) ? command.length : 1,
           };
         } catch (error: unknown) {
-          registerAgentFailure(input.agentId);
+          registerAgentFailure(input.agentId, "rest");
           throw error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
         } finally {
           releaseAgentSlot();
@@ -433,10 +433,9 @@ export const createDispatchRpcCommandToAgent = (
         };
 
         const timeoutHandle = setTimeout(() => {
-          // Current hub-side delivery guarantee is observational: we track
-          // `rpc:request_ack` / `rpc:batch_ack` and Socket.IO response acks for
-          // troubleshooting, but we do not automatically resend `rpc:request`
-          // when an ack is missing. Timeout remains the terminal safeguard.
+          // When SOCKET_AGENT_ACK_* is enabled, eligible commands may already have
+          // been re-emitted via scheduleAckRetry before this terminal timeout.
+          // Timeout remains the final safeguard after ack retries are exhausted.
           const hadAck = pendingRequest.acked;
           clearPendingRegistration();
           const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
@@ -455,7 +454,7 @@ export const createDispatchRpcCommandToAgent = (
               socketId: registeredAgent.socketId,
             });
           }
-          registerAgentFailure(input.agentId);
+          registerAgentFailure(input.agentId, "rest");
           rejectOnce(serviceUnavailable("Timed out waiting for agent response"));
         }, timeoutMs);
 
@@ -552,7 +551,7 @@ export const createDispatchRpcCommandToAgent = (
           input.latencyTrace?.addPhaseMs("encode_ms", performance.now() - tEncPending);
         } catch (error: unknown) {
           clearPendingRegistration();
-          registerAgentFailure(input.agentId);
+          registerAgentFailure(input.agentId, "rest");
           if (!pendingSettled) {
             pendingRequest.reject(
               error instanceof Error ? error : serviceUnavailable("Failed to encode rpc:request"),
@@ -582,7 +581,7 @@ export const createDispatchRpcCommandToAgent = (
           if (existingStream && existingStream.agentSocketId === registeredAgent.socketId) {
             removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
-          registerAgentFailure(input.agentId);
+          registerAgentFailure(input.agentId, "rest");
           const emitError =
             error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
           if (!pendingSettled) {

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createOrderedStreamInboundQueue } from "../../../../../src/presentation/socket/hub/relay/ordered_stream_inbound_queue";
+import {
+  createOrderedStreamInboundQueue,
+  getOrderedStreamInboundSlowWorkTotal,
+  resetOrderedStreamInboundSlowWorkTotalForTests,
+} from "../../../../../src/presentation/socket/hub/relay/ordered_stream_inbound_queue";
 
 describe("createOrderedStreamInboundQueue", () => {
   it("runs work for the same socket strictly in enqueue order", async () => {
@@ -120,5 +124,14 @@ describe("createOrderedStreamInboundQueue", () => {
       queue.reset();
       queue.reset();
     }).not.toThrow();
+  });
+
+  it("counts slow inbound work above the warn threshold without aborting", async () => {
+    resetOrderedStreamInboundSlowWorkTotalForTests();
+    const queue = createOrderedStreamInboundQueue({ slowWorkWarnMs: 5 });
+    queue.enqueue("socket-slow", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await vi.waitFor(() => expect(getOrderedStreamInboundSlowWorkTotal()).toBe(1));
   });
 });

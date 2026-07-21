@@ -140,7 +140,7 @@ const abortRestMaterializeIfPending = (route: ActiveStreamRoute): void => {
   mat.settled = true;
   restMaterializeStreamsInFlight = Math.max(0, restMaterializeStreamsInFlight - 1);
   clearTimeout(mat.timeoutHandle);
-  registerAgentFailure(mat.agentId);
+  registerAgentFailure(mat.agentId, "rest");
   mat.reject(serviceUnavailable("Agent disconnected while SQL stream in progress"));
 };
 

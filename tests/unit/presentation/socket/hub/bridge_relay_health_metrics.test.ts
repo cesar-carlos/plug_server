@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   buildRelayHubMetricsSnapshot,
+  ensureAgentCircuitClosed,
   noteBridgeAckRetryAttempt,
   noteBridgeAckRetryExhausted,
   registerAgentFailure,
   relayMetrics,
   resetRelayHubHealthAndMetrics,
 } from "../../../../../src/presentation/socket/hub/relay/bridge_relay_health_metrics";
+import { env } from "../../../../../src/shared/config/env";
 import { resetRelayRequestRegistry } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import { resetRestPendingRequestsStore } from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
 import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
@@ -35,7 +37,7 @@ describe("bridge_relay_health_metrics", () => {
 
   it("resetRelayHubHealthAndMetrics clears relayMetrics fields", () => {
     relayMetrics.chunksDropped = 9;
-    registerAgentFailure("agent-x");
+    registerAgentFailure("agent-x", "relay");
     resetRelayHubHealthAndMetrics();
     expect(relayMetrics.chunksDropped).toBe(0);
     const snap = buildRelayHubMetricsSnapshot({
@@ -63,5 +65,14 @@ describe("bridge_relay_health_metrics", () => {
     resetRelayHubHealthAndMetrics();
     expect(relayMetrics.ackRetryAttemptsByPath).toEqual({ rest: 0, relay: 0 });
     expect(relayMetrics.ackRetryExhaustedByPath).toEqual({ rest: 0, relay: 0 });
+  });
+
+  it("isolates circuit open state between rest and relay channels", () => {
+    const threshold = Math.max(1, env.socketRelayCircuitFailureThreshold);
+    for (let i = 0; i < threshold; i += 1) {
+      registerAgentFailure("agent-iso", "relay");
+    }
+    expect(() => ensureAgentCircuitClosed("agent-iso", "relay")).toThrow(/circuit is open/);
+    expect(() => ensureAgentCircuitClosed("agent-iso", "rest")).not.toThrow();
   });
 });

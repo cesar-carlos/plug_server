@@ -108,7 +108,7 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
   const responseId = relayRoute.requestId;
 
   observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
-  registerAgentSuccess(relayRoute.agentId);
+  registerAgentSuccess(relayRoute.agentId, "relay");
   clearTimeout(relayRoute.timeoutHandle);
   conversationRegistry.touchInternal(relayRoute.conversationId);
 

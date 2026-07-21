@@ -194,6 +194,14 @@ describe("rpc_bridge_command_helpers", () => {
       isAckRetryEligibleCommand({
         jsonrpc: "2.0",
         method: "sql.execute",
+        id: "multi-statement-disguised-read",
+        params: { sql: "SELECT 1; DELETE FROM users" },
+      }),
+    ).toBe(false);
+    expect(
+      isAckRetryEligibleCommand({
+        jsonrpc: "2.0",
+        method: "sql.execute",
         id: "write-idem",
         params: { sql: "UPDATE users SET name = 'x'", idempotency_key: "idem-1" },
       }),

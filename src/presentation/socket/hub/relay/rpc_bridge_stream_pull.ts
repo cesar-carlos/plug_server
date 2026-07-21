@@ -82,7 +82,7 @@ export const createPrepareAgentStreamPull = (
       route.restMaterializeState?.agentId ??
       agentRegistry.findBySocketId(route.agentSocketId)?.agentId;
     if (agentId) {
-      registerAgentFailure(agentId);
+      registerAgentFailure(agentId, "relay");
     }
 
     if (route.mode === "relay") {

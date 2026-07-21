@@ -267,12 +267,47 @@ export const hasNotificationCommand = (command: BridgeCommand): boolean => {
 
 const READ_ONLY_SQL_PREFIXES = ["select", "with", "show", "describe", "desc", "explain"] as const;
 
-const normalizeSqlPrefix = (sql: string): string => sql.trimStart().toLowerCase();
-
+/**
+ * Conservative read-only check for ack-retry eligibility. Rejects multi-statement
+ * SQL and leading-comment disguises so writes are never re-emitted as "reads".
+ */
 const isReadOnlySql = (sql: string): boolean => {
-  const normalized = normalizeSqlPrefix(sql);
+  const trimmed = sql.trim();
+  if (trimmed === "") {
+    return false;
+  }
+  // Multi-statement / stacked queries (ignore trailing semicolon alone).
+  const withoutTrailingSemi = trimmed.replace(/;+\s*$/u, "");
+  if (withoutTrailingSemi.includes(";")) {
+    return false;
+  }
+  // Strip simple leading line/block comments once; still reject if comments remain at head.
+  let normalized = withoutTrailingSemi.trimStart();
+  for (let i = 0; i < 8; i += 1) {
+    if (normalized.startsWith("--")) {
+      const nl = normalized.indexOf("\n");
+      if (nl < 0) {
+        return false;
+      }
+      normalized = normalized.slice(nl + 1).trimStart();
+      continue;
+    }
+    if (normalized.startsWith("/*")) {
+      const end = normalized.indexOf("*/");
+      if (end < 0) {
+        return false;
+      }
+      normalized = normalized.slice(end + 2).trimStart();
+      continue;
+    }
+    break;
+  }
+  if (normalized.startsWith("--") || normalized.startsWith("/*") || normalized === "") {
+    return false;
+  }
+  const lower = normalized.toLowerCase();
   return READ_ONLY_SQL_PREFIXES.some(
-    (prefix) => normalized === prefix || normalized.startsWith(`${prefix} `),
+    (prefix) => lower === prefix || lower.startsWith(`${prefix} `) || lower.startsWith(`${prefix}\n`),
   );
 };
 

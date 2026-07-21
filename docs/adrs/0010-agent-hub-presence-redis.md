@@ -36,6 +36,9 @@ which replica owns a given `/agents` socket.
 
 5. **Fail-open (ADR-0001)** — Boot or runtime Redis failures disable presence
    and forward; the hub keeps local-only `agentRegistry` behaviour.
+   Operators should alert on `plug_agent_hub_presence_redis_fallback_events_total`
+   and related `plug_agent_hub_presence_*` gauges — fail-open must not be silent
+   in production multi-replica deployments.
 
 ## Key layout
 
@@ -48,11 +51,16 @@ All keys include the `{plug}` hash tag via `redisKeyNamespace()`.
 ## Scope (v1)
 
 - `POST /api/v1/agents/commands` and shared `dispatchRpcCommandToAgent` used
-  by `agents:command`.
+  by `agents:command` (**unary** only when forwarded). Commands that bind live
+  `streamHandlers` (Socket `agents:command` streaming) refuse cross-replica
+  forward with HTTP/socket **503** and require sticky affinity to the owning hub.
 - `isAgentConnectedToHub` reads Redis when presence is active.
 
-Out of scope: relay `conversationRegistry`, cross-node pending REST
-materialization, cluster-wide `GET /agents` listing.
+Out of scope: relay `conversationRegistry` (sticky affinity required;
+`relay:conversation.start` returns **503** when presence shows another hub —
+not the same as agent offline **404**), cross-node pending REST
+materialization, cluster-wide `GET /agents` listing, streaming chunk relay over
+Redis.
 
 ## Requirements for multi-replica production
 

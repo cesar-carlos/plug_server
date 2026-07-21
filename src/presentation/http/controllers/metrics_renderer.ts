@@ -1415,6 +1415,12 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     );
     lines.push(
       metricLine(
+        "plug_socket_relay_conversation_start_remote_hub_total",
+        consumerRuntime.relayOptIns.conversationStartRemoteHubTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
         "plug_socket_relay_body_id_echo_total",
         consumerRuntime.relayOptIns.bodyIdEchoTotal,
       ),

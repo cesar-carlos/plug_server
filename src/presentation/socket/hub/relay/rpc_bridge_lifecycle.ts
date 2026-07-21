@@ -91,7 +91,7 @@ export const cleanupAgentStreamSubscriptions = (agentSocketId: string): void => 
     if (!route || route.agentSocketId !== agentSocketId) {
       continue;
     }
-    registerAgentFailure(route.agentId);
+    registerAgentFailure(route.agentId, "relay");
     removeRelayRequestRoute(requestId);
   }
 };
@@ -113,7 +113,7 @@ export const cleanupPendingRequestsForAgentSocket = (agentSocketId: string): num
     if (existingStream && existingStream.agentSocketId === agentSocketId) {
       removeActiveStreamRoute(existingStream);
     }
-    registerAgentFailure(pending.agentId);
+    registerAgentFailure(pending.agentId, "rest");
     pending.reject(serviceUnavailable("Agent disconnected while waiting for response"));
     cleaned += 1;
   }

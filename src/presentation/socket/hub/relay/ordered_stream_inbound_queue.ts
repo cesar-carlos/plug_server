@@ -1,4 +1,17 @@
+import { performance } from "node:perf_hooks";
+
 import { logger } from "../../../../shared/utils/logger";
+
+/** Warn when a single ordered inbound work unit blocks the socket chain this long. */
+const ORDERED_INBOUND_SLOW_WORK_MS = 5_000;
+
+let orderedInboundSlowWorkTotal = 0;
+
+export const getOrderedStreamInboundSlowWorkTotal = (): number => orderedInboundSlowWorkTotal;
+
+export const resetOrderedStreamInboundSlowWorkTotalForTests = (): void => {
+  orderedInboundSlowWorkTotal = 0;
+};
 
 export interface OrderedStreamInboundQueue {
   /**
@@ -26,7 +39,10 @@ export interface OrderedStreamInboundQueue {
  * `socketId`. Extracted from the `createRpcBridgeAgentInboundHandlers` closure
  * so the ordering guarantee is a small, independently testable unit.
  */
-export const createOrderedStreamInboundQueue = (): OrderedStreamInboundQueue => {
+export const createOrderedStreamInboundQueue = (options?: {
+  readonly slowWorkWarnMs?: number;
+}): OrderedStreamInboundQueue => {
+  const slowWorkWarnMs = options?.slowWorkWarnMs ?? ORDERED_INBOUND_SLOW_WORK_MS;
   const tailBySocketId = new Map<string, Promise<void>>();
   const generationBySocketId = new Map<string, number>();
 
@@ -51,7 +67,17 @@ export const createOrderedStreamInboundQueue = (): OrderedStreamInboundQueue => 
         if (currentGeneration(socketId) !== generation) {
           return;
         }
+        const startedAt = performance.now();
         await work();
+        const elapsedMs = performance.now() - startedAt;
+        if (elapsedMs >= slowWorkWarnMs) {
+          orderedInboundSlowWorkTotal += 1;
+          logger.warn("rpc_stream_inbound_work_slow", {
+            socketId,
+            elapsedMs: Math.round(elapsedMs),
+            thresholdMs: slowWorkWarnMs,
+          });
+        }
       })
       .catch((error: unknown) => {
         logger.warn("rpc_stream_inbound_processing_failed", {

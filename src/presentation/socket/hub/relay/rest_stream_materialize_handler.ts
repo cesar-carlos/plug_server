@@ -72,7 +72,7 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
   const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(pendingRequest.agentId);
   if (countOpenStreamRoutesForAgent(socketId) >= effectivePolicy.maxConcurrentStreams) {
     relayMetrics.restMaterializeActiveStreamLimitExceeded += 1;
-    registerAgentFailure(pendingRequest.agentId);
+    registerAgentFailure(pendingRequest.agentId, "rest");
     clearTimeout(pendingRequest.timeoutHandle);
     clearRestPendingRequest(pendingRequest);
     pendingRequest.reject(
@@ -91,7 +91,7 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
 
   if (materializeMaxRows > 0 && aggregatedRowCount > materializeMaxRows) {
     relayMetrics.restMaterializeRowLimitExceeded += 1;
-    registerAgentFailure(pendingRequest.agentId);
+    registerAgentFailure(pendingRequest.agentId, "rest");
     clearTimeout(pendingRequest.timeoutHandle);
     clearRestPendingRequest(pendingRequest);
     pendingRequest.reject(
@@ -116,7 +116,7 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
       chunkFramesSeen += 1;
       if (materializeMaxChunks > 0 && chunkFramesSeen > materializeMaxChunks) {
         relayMetrics.restMaterializeChunkLimitExceeded += 1;
-        registerAgentFailure(pendingRequest.agentId);
+        registerAgentFailure(pendingRequest.agentId, "rest");
         const route = getActiveStreamRouteByRequestId(primaryRequestId);
         if (route) {
           removeActiveStreamRoute(route, { restMaterialize: "detach" });
@@ -132,7 +132,7 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
       const chunkRows = countSqlStreamChunkRows(payload);
       if (materializeMaxRows > 0 && aggregatedRowCount + chunkRows > materializeMaxRows) {
         relayMetrics.restMaterializeRowLimitExceeded += 1;
-        registerAgentFailure(pendingRequest.agentId);
+        registerAgentFailure(pendingRequest.agentId, "rest");
         const route = getActiveStreamRouteByRequestId(primaryRequestId);
         if (route) {
           removeActiveStreamRoute(route, { restMaterialize: "detach" });
@@ -149,7 +149,7 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
         const chunkBytes = resolveStreamChunkOriginalSizeBytes(payload, metadata, 0);
         if (aggregatedByteCount + chunkBytes > materializeMaxBytes) {
           relayMetrics.restMaterializeByteLimitExceeded += 1;
-          registerAgentFailure(pendingRequest.agentId);
+          registerAgentFailure(pendingRequest.agentId, "rest");
           const route = getActiveStreamRouteByRequestId(primaryRequestId);
           if (route) {
             removeActiveStreamRoute(route, { restMaterialize: "detach" });
@@ -209,7 +209,7 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
     streamId,
     restMaterializeState,
   });
-  registerAgentSuccess(pendingRequest.agentId);
+  registerAgentSuccess(pendingRequest.agentId, "rest");
   observeAgentLatency(pendingRequest.agentId, Date.now() - pendingRequest.createdAtMs);
   clearRestPendingRequest(pendingRequest);
   pendingRequest.onStreamMaterializeStarted?.();

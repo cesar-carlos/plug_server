@@ -38,6 +38,12 @@ type RelayCircuitState = {
 
 export type BridgeAckRetryPath = "rest" | "relay";
 
+/** Circuit isolation: REST bridge failures must not open the relay circuit (and vice versa). */
+export type AgentCircuitChannel = "rest" | "relay";
+
+const circuitStateKey = (agentId: string, channel: AgentCircuitChannel): string =>
+  `${channel}:${agentId}`;
+
 const relayCircuitByAgentId = new Map<string, RelayCircuitState>();
 const latencyByAgentId = new Map<string, AgentLatencyStats>();
 let latencyByAgentCache: RelayHubMetricsSnapshot["latencyByAgent"] = [];
@@ -186,22 +192,25 @@ const pruneAgentHealthMaps = (nowMs = Date.now()): void => {
   pruneLatencyState(nowMs);
 };
 
-const getCircuitState = (agentId: string): RelayCircuitState => {
+const getCircuitState = (stateKey: string): RelayCircuitState => {
   const nowMs = Date.now();
   pruneRelayCircuitState(nowMs);
-  const existing = relayCircuitByAgentId.get(agentId);
+  const existing = relayCircuitByAgentId.get(stateKey);
   if (existing) {
     existing.lastTouchedAtMs = nowMs;
     return existing;
   }
 
   const created = { failures: 0, openUntilMs: 0, lastTouchedAtMs: nowMs };
-  relayCircuitByAgentId.set(agentId, created);
+  relayCircuitByAgentId.set(stateKey, created);
   return created;
 };
 
-export const ensureAgentCircuitClosed = (agentId: string): void => {
-  const state = getCircuitState(agentId);
+export const ensureAgentCircuitClosed = (
+  agentId: string,
+  channel: AgentCircuitChannel,
+): void => {
+  const state = getCircuitState(circuitStateKey(agentId, channel));
   const nowMs = Date.now();
   if (state.openUntilMs > nowMs) {
     relayMetrics.circuitOpenRejects += 1;
@@ -210,25 +219,27 @@ export const ensureAgentCircuitClosed = (agentId: string): void => {
   }
 };
 
-export const registerAgentFailure = (agentId: string): void => {
-  const state = getCircuitState(agentId);
+export const registerAgentFailure = (agentId: string, channel: AgentCircuitChannel): void => {
+  const key = circuitStateKey(agentId, channel);
+  const state = getCircuitState(key);
   state.failures += 1;
   state.lastTouchedAtMs = Date.now();
   if (state.failures >= relayCircuitFailureThreshold) {
     state.openUntilMs = Date.now() + relayCircuitOpenMs;
     state.failures = 0;
   }
-  relayCircuitByAgentId.set(agentId, state);
+  relayCircuitByAgentId.set(key, state);
 };
 
-export const registerAgentSuccess = (agentId: string): void => {
-  const state = getCircuitState(agentId);
+export const registerAgentSuccess = (agentId: string, channel: AgentCircuitChannel): void => {
+  const key = circuitStateKey(agentId, channel);
+  const state = getCircuitState(key);
   if (state.failures !== 0 || state.openUntilMs !== 0) {
     state.failures = 0;
     state.openUntilMs = 0;
   }
   state.lastTouchedAtMs = Date.now();
-  relayCircuitByAgentId.set(agentId, state);
+  relayCircuitByAgentId.set(key, state);
 };
 
 export const observeAgentLatency = (agentId: string, elapsedMs: number): void => {

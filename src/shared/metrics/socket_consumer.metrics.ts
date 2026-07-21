@@ -70,6 +70,11 @@ const relayOptInsCounters = {
    */
   fastPathForbiddenTotal: 0,
   /**
+   * Counter: `relay:conversation.start` rejected because presence shows the agent
+   * on another hub (sticky affinity required; not the same as agent offline).
+   */
+  conversationStartRemoteHubTotal: 0,
+  /**
    * Counter: incremented when the hub rewrote the JSON-RPC `body.id` of a
    * relay response from the hub-internal `requestId` back to the consumer's
    * `client_request_id` before forwarding `relay:rpc.response`. Tracks the
@@ -335,6 +340,10 @@ export const noteRelayFastPathStreamInadvertent = (): void => {
 
 export const noteRelayFastPathForbidden = (): void => {
   relayOptInsCounters.fastPathForbiddenTotal += 1;
+};
+
+export const noteRelayConversationStartRemoteHub = (): void => {
+  relayOptInsCounters.conversationStartRemoteHubTotal += 1;
 };
 
 export const noteRelayLateResponseAfterTimeout = (): void => {
@@ -725,6 +734,7 @@ export const resetSocketConsumerMetrics = (): void => {
   relayOptInsCounters.fastPathFallbackErrorTotal = 0;
   relayOptInsCounters.fastPathStreamInadvertentTotal = 0;
   relayOptInsCounters.fastPathForbiddenTotal = 0;
+  relayOptInsCounters.conversationStartRemoteHubTotal = 0;
   relayOptInsCounters.bodyIdEchoTotal = 0;
   relayOptInsCounters.bodyIdEchoOverheadSumMs = 0;
   relayOptInsCounters.bodyIdEchoOverheadMaxMs = 0;

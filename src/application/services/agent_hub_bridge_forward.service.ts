@@ -29,6 +29,11 @@ export interface DispatchRpcCommandInput {
   readonly timeoutMs?: number | undefined;
   readonly payloadFrameCompression?: PayloadFrameCompression | undefined;
   readonly signal?: AbortSignal | undefined;
+  /**
+   * When set, live stream callbacks are bound to this hub process. Cross-replica
+   * Redis forward cannot carry them — refuse with 503 instead of silently dropping chunks.
+   */
+  readonly streamHandlers?: object;
 }
 
 export type DispatchRpcCommandResult = BridgeForwardDispatchResult;
@@ -348,6 +353,12 @@ export const createDispatchOrForwardRpcCommand = (
 
     if (deps.isAgentRegisteredLocally(input.agentId)) {
       return deps.localDispatch(input);
+    }
+
+    if (input.streamHandlers !== undefined) {
+      throw serviceUnavailable(
+        `Agent ${input.agentId} is connected on another hub instance; live streaming commands require sticky session affinity to that hub`,
+      );
     }
 
     const localHubId = env.hubInstanceId.trim();

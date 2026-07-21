@@ -411,7 +411,15 @@ const handleAgentHeartbeat = async (socket: AgentHubSocket, rawPayload: unknown)
     return;
   }
 
-  agentRegistry.touch(currentAgentId, { markProtocolReady: true, socketId: socket.id });
+  const readiness = agentRegistry.getProtocolReadiness(currentAgentId);
+  const waitingExplicitAck =
+    !readiness.ready && agentRegistry.getProtocolReadyMode(currentAgentId) === "explicit_ack";
+
+  agentRegistry.touch(currentAgentId, {
+    // Under explicit protocolReadyAck, only agent:ready (not heartbeat) should clear the wait.
+    markProtocolReady: !waitingExplicitAck,
+    socketId: socket.id,
+  });
   void syncAgentHubPresenceOnTouch(currentAgentId);
 
   socket.emit(

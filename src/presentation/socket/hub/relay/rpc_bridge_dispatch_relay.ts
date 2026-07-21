@@ -271,7 +271,7 @@ export const createRpcBridgeRelayDispatch = (
         );
       }
 
-      ensureAgentCircuitClosed(conversation.agentId);
+      ensureAgentCircuitClosed(conversation.agentId, "relay");
 
       if (!hasRegisteredAgentSocketBridge()) {
         throw serviceUnavailable("Socket bridge is not initialized");
@@ -406,7 +406,7 @@ export const createRpcBridgeRelayDispatch = (
           removeActiveStreamRoute(existingStream);
         }
         relayMetrics.requestTimeouts += 1;
-        registerAgentFailure(route.agentId);
+        registerAgentFailure(route.agentId, "relay");
         if (route.latencyTrace && !route.latencyTrace.isFinalized()) {
           route.latencyTrace.finalizeOnce({
             outcome: "timeout",
@@ -528,7 +528,7 @@ export const createRpcBridgeRelayDispatch = (
         }
         const aborted = input.signal?.aborted === true;
         if (!aborted) {
-          registerAgentFailure(conversation.agentId);
+          registerAgentFailure(conversation.agentId, "relay");
         }
         const err = error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
         const appErr = err instanceof AppError ? err : null;
