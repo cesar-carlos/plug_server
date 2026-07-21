@@ -9,6 +9,8 @@ alwaysApply: true
 - This is a stack-specific rule file for the WebSocket transport.
 - Use WebSocket for real-time updates, bidirectional messaging, presence, streaming progress, and room-based communication.
 - Keep event handlers thin: validate the event, resolve the authenticated context, call the application layer, and emit a normalized response.
+- If a handler grows past that short pipeline (authz policy trees, persistence, multi-step orchestration), extract to application services or focused helpers — do not grow a God handler in the hub/relay layer.
+- Hub registration modules only wire events; business decisions stay out of `register_*_handlers` and mega relay files when those files are touched.
 - Define and centralize event names, payload schemas, namespace names, timeout constants, and outbound message shapes to avoid string duplication across the codebase.
 - Every client-initiated operation that expects an acknowledgement, response, or stream must carry a correlation id such as `requestId`.
 - Use a canonical response envelope for acknowledged operations: success messages should follow `{ success: true, requestId, data?, meta? }`.

@@ -29,8 +29,10 @@ Then apply the relevant rules from these groups:
 - TypeScript typing and language usage: `./.cursor/rules/typescript.mdc`
 - Security-sensitive changes: `./.cursor/rules/security.mdc`
 - Architecture and layer boundaries: `./.cursor/rules/architecture.mdc`, `./.cursor/rules/domain_layer.mdc`, `./.cursor/rules/project_structure.mdc`
+- Clean code, cohesion, and anti-God-class heuristics: `./.cursor/rules/coding_standards.mdc` (with placement rules in `architecture.mdc` / `domain_layer.mdc`)
 - Performance-sensitive runtime changes: `./.cursor/rules/performance.mdc`
 - Testing expectations: `./.cursor/rules/testing.mdc`
+- Stack libraries and Git agent workflow: `./.cursor/rules/project_stack.mdc`, `./.cursor/rules/git_workflow.mdc`
 
 ## Expected behavior
 

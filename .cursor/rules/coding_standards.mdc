@@ -6,12 +6,12 @@ alwaysApply: true
 
 # Coding Standards
 
-- This is a universal rule file. Keep language-specific guidance in dedicated stack rules such as `typescript.mdc`.
+- This is a universal rule file. Keep language-specific guidance in dedicated stack rules such as `typescript.mdc`. Architectural boundaries and God-class placement rules live in `architecture.mdc` and `domain_layer.mdc` (higher precedence).
 - Prefer simple modules and small functions over clever abstractions.
 - Keep files focused on one responsibility. Split large controllers, services, or middleware before they become hard to scan.
 - Use descriptive names from the domain or HTTP context, such as `createUser`, `accessToken`, or `authMiddleware`.
 - Follow the project naming pattern consistently and prefer names that reveal feature plus responsibility.
-- Replace business-significant literals with named constants.
+- Replace business-significant literals with named constants (timeouts, limits, thresholds, retry counts). Prefer `src/shared/constants` or feature-local constants over inlining in handlers.
 - Comments should explain non-obvious intent or trade-offs, not restate the code.
 - When comments are necessary, write them in English.
 - Do not leave commented-out code, empty catch blocks, or unused exports behind.
@@ -19,3 +19,14 @@ alwaysApply: true
 - Handle failures explicitly instead of swallowing or hiding them.
 - Avoid premature abstractions. Duplicate once if needed, then extract when the pattern is real.
 - Optimize for readability first: names, types, module boundaries, and control flow should help a reviewer understand the code quickly.
+
+## Cohesion, size, and anti-patterns
+
+- One module should have one primary reason to change. If a file owns unrelated workflows (e.g. access approval *and* token rotation *and* listing), split by workflow.
+- Prefer extracting a new use case, service, helper, or mapper over extending a known large module "just one more time".
+- Keep a function at one level of abstraction: orchestration *or* detail, not both. Prefer early returns over deep nesting.
+- Controllers and socket handlers stay a short pipeline: validate -> call application -> map result/emit. If branching business policy appears there, move it to application/domain.
+- Avoid Feature Envy: do not dig through another module's structure to decide behavior; ask the owning type or a dedicated policy.
+- Avoid Long Parameter Lists that smuggle a context object as many primitives; introduce a typed params/context object when several values always travel together.
+- Mega catalog files (metrics renderers, env schemas, OpenAPI schema bags, command validators) may be large by nature. When editing them, still split by cohesive sections or submodules rather than adding unrelated concerns to the same dump.
+- Do not treat line count alone as the goal. Responsibility seams matter more than numeric limits; however, multi-workflow classes and fat transport handlers are expected to be split when touched.

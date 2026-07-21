@@ -20,3 +20,26 @@ alwaysApply: true
 - Infrastructure implements repository contracts; application logic never depends on concrete persistence details.
 - Return explicit outcomes through `Result` objects or typed unions rather than booleans or magic strings.
 - Domain and application failures must remain transport-agnostic so presentation can map them to HTTP or socket responses later.
+
+## Placement: rich domain vs application coordination
+
+- Put invariants, state transitions, and rules about a single entity or value object on that type (or a focused domain policy), not as default logic bags in application services.
+- Put multi-aggregate workflows, idempotency orchestration, outbox/worker scheduling, and port coordination in `application`.
+- Avoid both extremes: anemic entities that are only field bags with all rules in services, and entities stuffed with infrastructure, HTTP, or persistence concerns.
+
+## Anti-God use case / service
+
+- One application service or use case should serve one primary actor goal. If the natural name needs "And" (approve *and* revoke *and* list *and* rotate token), split into separate use cases or focused services.
+- Prefer adding a new use case/service file over adding "one more public method" to an already large multi-workflow service.
+- Do not grow a single application module into enqueue + worker + prune + health + direct SQL/Redis access. Workers and persistence adapters belong behind ports in infrastructure; application orchestrates.
+- Keep the public surface small. Private helpers are fine; unrelated workflows in the same class are not.
+
+## Ports and Interface Segregation
+
+- Repository and external ports should reflect what use cases need. Prefer focused methods (or role-specific ports) over a mega-port that every caller partially uses.
+- Port implementations must honor the contract consistently (nullability, errors, idempotency). Do not add caller-specific escape hatches that only one adapter understands (LSP).
+
+## Primitive obsession at the domain boundary
+
+- Prefer value objects or branded/constrained types for identities and constrained statuses when raw `string` would otherwise spread meaning across layers.
+- Validate and construct those types at the boundary into domain/application; do not thread unchecked primitives through both transports and domain logic.

@@ -12,8 +12,9 @@ alwaysApply: true
 - Keep the bootstrap files at the root of `src`, such as `app.ts`, `server.ts`, and `socket.ts`, when they compose the application.
 - Use `src/presentation/http` for REST routes, controllers, request validators, and HTTP middleware.
 - Use `src/presentation/socket` for Socket.IO namespaces, gateways, event handlers, and socket auth helpers.
-- Use `src/presentation/docs` or `src/docs` for Swagger/OpenAPI setup and schema registration.
+- Use `src/presentation/docs` for Swagger/OpenAPI setup and schema registration (canonical location in this repo).
 - Keep feature modules grouped by business area when helpful, such as `auth`, `users`, `health`, `notifications`, or `chat`.
+- Prefer a new feature-scoped file (use case, service, handler, validator) over growing a cross-feature mega-module when adding behavior.
 - Place environment parsing and app configuration in `src/shared/config`.
 - Place logger, error classes, response helpers, transport contracts, and common constants in `src/shared`.
 - Keep reusable adapters for `bcryptjs`, `jsonwebtoken`, `uuid`, `moment`, and external services in focused modules instead of scattering direct usage.

@@ -15,7 +15,26 @@ alwaysApply: true
 - Business rules should live in shared use cases or services so REST and WebSocket do not duplicate behavior.
 - Prefer inward dependency flow even when organizing by feature.
 - `src/domain` must not import `application`, `presentation`, `infrastructure`, or framework libraries.
-- `src/application` must not import `presentation` or concrete `infrastructure` implementations.
+- `src/application` must not import `presentation` or concrete `infrastructure` implementations (including direct `prismaClient` / Redis client imports). Application depends on domain ports; infrastructure implements them.
 - `src/presentation` must not call repositories or datasources directly; it enters through application services or use cases.
 - Tests may use helpers or fixtures that cross boundaries when necessary, but production code must keep the architectural imports clean.
 - API documentation should be exposed through `Swagger`/`OpenAPI` and kept aligned with the real request and response contracts.
+
+## Composition and dependencies
+
+- Wire concrete implementations in the composition root (`src/shared/di` and bootstrap files such as `app.ts` / `socket.ts`), not via ad-hoc `new` inside domain or application modules.
+- Do not introduce circular imports across layers or across feature modules. Break cycles by extracting a shared port/type inward, or by depending on an interface instead of a sibling concrete.
+- Prefer depending on ports (interfaces) over sibling concretes when two application modules would otherwise couple tightly.
+
+## Collaboration boundaries (Law of Demeter / Feature Envy)
+
+- Call immediate collaborators only. Avoid train wrecks such as `a.b.c.d` across foreign aggregates, ORM graphs, or socket registries.
+- Pass already-resolved values (ids, entities, DTOs) rather than forcing callers to dig into another module's internals.
+- Mapping between transport shapes, persistence rows, and domain types belongs in mappers, serializers, or adapters — not scattered inside controllers, handlers, or unrelated services.
+- If code repeatedly reaches into another type's data to make decisions, move that behavior to the owning type or an application policy dedicated to that concern.
+
+## Thin registration and hubs
+
+- HTTP route aggregators and Socket.IO hub registration modules (`register_*_handlers`, namespace wiring) only mount, register, and adapt transport. They must not accumulate business policy, persistence, or multi-step workflows.
+- Large OpenAPI/JSDoc blocks in `*.routes.ts` are acceptable co-location; that bulk is documentation, not an excuse to embed business logic in the route file.
+- When a socket relay or bridge path grows beyond protocol adaptation (timeouts, pending maps, encode, authz, metrics), extract cohesive helpers or application services instead of growing one mega-handler.
