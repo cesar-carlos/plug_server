@@ -240,12 +240,51 @@ describe("forwardRelayRouteResponse", () => {
     }
   });
 
-  it("should preserve meta.agent_phases when agentPhaseTimings is negotiated", async () => {
+  it("should strip meta.agent_phases when agentPhaseTimings is negotiated but requestServerTimings is off", async () => {
     registerAgent({
       clientRequestIdEcho: "v1",
       agentPhaseTimings: "v1",
     });
     registerRoute();
+
+    const emitToConsumer = vi.fn();
+    const decoded = buildDecodedResponse({
+      jsonrpc: "2.0",
+      id: CLIENT_REQUEST_ID,
+      result: { rows: [], row_count: 0 },
+      meta: {
+        agent_phases: { dispatch_ms: 12 },
+      },
+    });
+
+    forwardRelayRouteResponse({
+      socketId: AGENT_SOCKET_ID,
+      candidateIds: [REQUEST_ID],
+      decoded,
+      streamId: null,
+      inboundSyncStart: performance.now(),
+      decodeMs: 1,
+      emitToConsumer,
+    });
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+
+    const [, , framePayload] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+    const consumerDecoded = decodePayloadFrame(framePayload);
+    expect(consumerDecoded.ok).toBe(true);
+    if (consumerDecoded.ok) {
+      const body = consumerDecoded.value.data as Record<string, unknown>;
+      const meta = body.meta as Record<string, unknown> | undefined;
+      expect(meta?.agent_phases).toBeUndefined();
+    }
+  });
+
+  it("should preserve meta.agent_phases when agentPhaseTimings is negotiated and requestServerTimings is true", async () => {
+    registerAgent({
+      clientRequestIdEcho: "v1",
+      agentPhaseTimings: "v1",
+    });
+    registerRoute({ requestServerTimings: true });
 
     const emitToConsumer = vi.fn();
     const decoded = buildDecodedResponse({

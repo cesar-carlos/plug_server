@@ -11,7 +11,7 @@
 /**
  * Histogram buckets in seconds. Extended past 10 s with `15` and `30` so
  * tail latency from REST bridge / materialize endpoints (subject to
- * `SOCKET_RELAY_REQUEST_TIMEOUT_MS=15000` and longer batch SQL) lands in a
+ * `SOCKET_RELAY_REQUEST_TIMEOUT_MS` default 30000 and longer batch SQL) lands in a
  * named bucket instead of the implicit `+Inf`. Helps p95/p99 dashboards.
  */
 const BUCKETS_SECONDS: readonly number[] = [

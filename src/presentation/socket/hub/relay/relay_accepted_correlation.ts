@@ -28,6 +28,26 @@ export const attachRelayClientRequestIdToAppError = (
   });
 };
 
+/**
+ * Ensures a thrown value becomes an {@link AppError} carrying `clientRequestId`
+ * so `relay:rpc.accepted { success: false }` can echo it. Plain `Error` throws
+ * after frame peek otherwise omit the id and hang Colmeia-style pending maps.
+ */
+export const ensureRelayClientRequestIdOnThrown = (
+  err: unknown,
+  clientRequestId: string,
+): AppError => {
+  if (err instanceof AppError) {
+    return attachRelayClientRequestIdToAppError(err, clientRequestId);
+  }
+  const message = err instanceof Error ? err.message : "Relay dispatch failed";
+  return new AppError(message, {
+    statusCode: 500,
+    code: "INTERNAL_SERVER_ERROR",
+    details: { clientRequestId },
+  });
+};
+
 export const readRelayClientRequestIdFromError = (err: unknown): string | undefined => {
   if (!(err instanceof AppError) || !isRecord(err.details)) {
     return undefined;

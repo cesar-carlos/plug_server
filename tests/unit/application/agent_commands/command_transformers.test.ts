@@ -301,5 +301,15 @@ describe("command_transformers", () => {
       };
       expect(computeBridgeWaitTimeoutMs(cmd, 500_000)).toBe(360_000);
     });
+
+    it("should default to BRIDGE_DEFAULT_WAIT_TIMEOUT_MS when timeoutMs omitted", () => {
+      const cmd = {
+        jsonrpc: "2.0" as const,
+        method: "sql.execute" as const,
+        id: "a",
+        params: { sql: "SELECT 1" },
+      };
+      expect(computeBridgeWaitTimeoutMs(cmd)).toBe(30_000);
+    });
   });
 });

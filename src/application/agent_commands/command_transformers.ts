@@ -152,6 +152,9 @@ export const extractSqlStatementTimeoutMs = (
   return undefined;
 };
 
+/** Default hub wait when caller omits `timeoutMs` (REST / agents:command). Matches `SOCKET_RELAY_REQUEST_TIMEOUT_MS` default. */
+export const BRIDGE_DEFAULT_WAIT_TIMEOUT_MS = 30_000;
+
 /**
  * HTTP/Socket bridge wait: at least the client `timeoutMs` (or default), bumped to cover `options.timeout_ms` on SQL commands.
  */
@@ -159,7 +162,7 @@ export const computeBridgeWaitTimeoutMs = (
   command: AgentCommandBody["command"],
   explicitTimeoutMs?: number,
 ): number => {
-  const defaultMs = 15_000;
+  const defaultMs = BRIDGE_DEFAULT_WAIT_TIMEOUT_MS;
   const sqlTimeout = extractSqlStatementTimeoutMs(command);
   const base = explicitTimeoutMs ?? defaultMs;
   if (sqlTimeout === undefined) {

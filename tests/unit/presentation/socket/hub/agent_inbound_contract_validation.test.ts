@@ -111,6 +111,10 @@ describe("agent inbound contract validation", () => {
               capturedAtMs: 1_719_234_567_890,
               status: "healthy",
             },
+            agentPhases: {
+              frame_decode_ms: 1.2,
+              sql_execute_ms: 10,
+            },
           },
         },
       }).ok,

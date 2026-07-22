@@ -54,9 +54,14 @@ const RPC_META_STRING_KEYS = new Set([
 
 /**
  * ADR 0011 / 0012 object-valued meta extensions on agent `rpc:response`.
- * `healthSnapshot` is accepted as a camelCase alias of `health_snapshot`.
+ * CamelCase aliases mirror the forwarder strip/passthrough keys.
  */
-const RPC_META_OBJECT_KEYS = new Set(["health_snapshot", "healthSnapshot", "agent_phases"]);
+const RPC_META_OBJECT_KEYS = new Set([
+  "health_snapshot",
+  "healthSnapshot",
+  "agent_phases",
+  "agentPhases",
+]);
 
 const RPC_META_ALLOWED_KEYS = new Set([...RPC_META_STRING_KEYS, ...RPC_META_OBJECT_KEYS]);
 
@@ -114,13 +119,16 @@ const validateHealthSnapshot = (
   return null;
 };
 
-const validateAgentPhases = (phases: unknown): ContractValidationFailure | null => {
+const validateAgentPhases = (
+  phases: unknown,
+  fieldName: "agent_phases" | "agentPhases",
+): ContractValidationFailure | null => {
   if (!isRecord(phases)) {
-    return reject("meta.agent_phases must be an object");
+    return reject(`meta.${fieldName} must be an object`);
   }
   for (const [key, value] of Object.entries(phases)) {
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-      return reject(`meta.agent_phases.${key} must be a non-negative finite number`);
+      return reject(`meta.${fieldName}.${key} must be a non-negative finite number`);
     }
   }
   return null;
@@ -148,8 +156,8 @@ const validateRpcMeta = (meta: unknown): ContractValidationFailure | null => {
       }
       continue;
     }
-    if (key === "agent_phases") {
-      const phasesValidation = validateAgentPhases(value);
+    if (key === "agent_phases" || key === "agentPhases") {
+      const phasesValidation = validateAgentPhases(value, key);
       if (phasesValidation !== null) {
         return phasesValidation;
       }

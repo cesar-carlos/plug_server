@@ -126,4 +126,6 @@ the change. If it doesn't, revert and reopen the investigation.
   diagnostics")
 - Existing study: `docs/studies/relay_fastpath_study.md`
 - Pending spike (HMAC offload): `docs/spikes/hmac_worker_offload.md`
-- Relay batch ADR (pending implementation): `docs/adrs/0008-relay-batch-protocol.md`
+- Relay batch ADR (**shipped**; gated by `SOCKET_RELAY_BATCH_ENABLED`, default
+  `false`): `docs/adrs/0008-relay-batch-protocol.md` — wire contract in
+  `docs/socket/socket_relay_protocol.md` ("Relay JSON-RPC batch")

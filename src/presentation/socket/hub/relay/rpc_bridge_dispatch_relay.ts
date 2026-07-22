@@ -72,7 +72,7 @@ import {
 import { recordRelayTimeoutTombstone } from "./relay_timeout_tombstone";
 import { trySettleRelayRoute } from "./relay_route_settlement";
 import { resolveAgentCompressionPreference } from "./relay_compression_preference";
-import { attachRelayClientRequestIdToAppError } from "./relay_accepted_correlation";
+import { ensureRelayClientRequestIdOnThrown } from "./relay_accepted_correlation";
 import type {
   PreparedAgentStreamPull,
   RequestAgentStreamPullInput,
@@ -615,10 +615,11 @@ export const createRpcBridgeRelayDispatch = (
       }
     }
     } catch (err: unknown) {
-      // Attach JSON-RPC `id` so `relay:rpc.accepted { success: false }` can echo
-      // `clientRequestId` and consumers settle pending maps instead of hanging.
-      if (err instanceof AppError && peekedClientRequestId) {
-        throw attachRelayClientRequestIdToAppError(err, peekedClientRequestId);
+      // Attach JSON-RPC `id` (including wrapping plain Error) so
+      // `relay:rpc.accepted { success: false }` can echo `clientRequestId`
+      // and consumers settle pending maps instead of hanging.
+      if (peekedClientRequestId) {
+        throw ensureRelayClientRequestIdOnThrown(err, peekedClientRequestId);
       }
       throw err;
     }

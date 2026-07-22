@@ -68,7 +68,7 @@ export const bridgeParityFeatureRows: readonly BridgeParityFeatureRow[] = [
     rest: true,
     agentsCommand: true,
     relay: true,
-    note: "relay uses the per-request relay timeout instead of the REST body timeoutMs field",
+    note: "REST/agents:command and relay share BRIDGE_DEFAULT_WAIT_TIMEOUT_MS / SOCKET_RELAY_REQUEST_TIMEOUT_MS default (30000); REST uses body timeoutMs, relay uses envelope timeoutMs",
   },
   {
     feature: "pagination_body",

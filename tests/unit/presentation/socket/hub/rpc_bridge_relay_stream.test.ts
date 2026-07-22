@@ -105,6 +105,10 @@ describe("rpc_bridge_relay_stream", () => {
     if (decoded.ok) {
       const data = decoded.value.data as Record<string, unknown>;
       expect(data.id).toBe("cid1");
+      const error = data.error as { data?: Record<string, unknown> };
+      expect(error.data?.code).toBe("RELAY_REQUEST_TIMEOUT");
+      expect(error.data?.conversation_id).toBe("conv1");
+      expect(error.data?.client_request_id).toBe("cid1");
       // Envelope still carries the wire-level hub requestId.
       expect(decoded.value.frame.requestId).toBe("r99");
     }

@@ -231,7 +231,10 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       const responseHasAgentPhases =
         isRecord(responseMeta) &&
         (responseMeta.agent_phases !== undefined || responseMeta.agentPhases !== undefined);
-      const mustStripAgentPhases = responseHasAgentPhases && !agentPhaseTimingsNegotiated;
+      // ADR 0012: forward only when consumer opted into timings AND agent negotiated.
+      const mustStripAgentPhases =
+        responseHasAgentPhases &&
+        (relayRoute.requestServerTimings !== true || !agentPhaseTimingsNegotiated);
       const shouldEchoClientBodyId =
         relayRoute.clientRequestId !== undefined && decodedBodyId !== relayRoute.clientRequestId;
       const canBypassReencode =

@@ -60,6 +60,7 @@ import {
   tryRegisterRestPendingRequest,
 } from "../registries/rest_pending_requests";
 import { hasRelayRequestRoute } from "../registries/relay_request_registry";
+import { BRIDGE_DEFAULT_WAIT_TIMEOUT_MS } from "../../../../application/agent_commands/command_transformers";
 import {
   clampCommandMaxRows,
   countBatchItems,
@@ -69,7 +70,7 @@ import {
   withBridgeMeta,
 } from "./rpc_bridge_command_helpers";
 
-const defaultRequestTimeoutMs = 15_000;
+const defaultRequestTimeoutMs = BRIDGE_DEFAULT_WAIT_TIMEOUT_MS;
 
 export interface DispatchRpcCommandInput {
   readonly agentId: string;

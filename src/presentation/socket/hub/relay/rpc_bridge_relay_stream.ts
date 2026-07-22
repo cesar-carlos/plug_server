@@ -278,6 +278,9 @@ export const emitRelayTimeoutResponse = (
       data: {
         code: "RELAY_REQUEST_TIMEOUT",
         conversation_id: route.conversationId,
+        ...(route.clientRequestId !== undefined
+          ? { client_request_id: route.clientRequestId }
+          : {}),
       },
     },
   };
