@@ -54,3 +54,21 @@ export const isParallelBatchDispatchNegotiated = (
   const agentBlock = readParallelBatchDispatchBlock(readAgentExtensions(agentCapabilities));
   return agentBlock?.enabled === true;
 };
+
+/** Negotiated transport flags snapshotted on {@link RelayRequestRoute} at dispatch. */
+export interface RelayRouteTransportFlags {
+  readonly clientRequestIdEcho: boolean;
+  readonly agentPhaseTimingsNegotiated: boolean;
+  readonly healthPiggybackNegotiated: boolean;
+}
+
+export const snapshotRelayRouteTransportFlags = (
+  agentCapabilities: Record<string, unknown> | null | undefined,
+): RelayRouteTransportFlags => ({
+  clientRequestIdEcho:
+    agentCapabilities != null && isClientRequestIdEchoNegotiated(agentCapabilities),
+  agentPhaseTimingsNegotiated:
+    agentCapabilities != null && isAgentPhaseTimingsNegotiated(agentCapabilities),
+  healthPiggybackNegotiated:
+    agentCapabilities != null && isHealthPiggybackNegotiated(agentCapabilities),
+});

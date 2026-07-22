@@ -44,6 +44,7 @@ export interface RelayStreamFlowEntry {
   bufferedChunkHead: number;
   bufferedBytes: number;
   pendingComplete?: Record<string, unknown>;
+  pendingCompleteRawForward?: RelayChunkRawForward;
   forwardedRows: number;
 }
 
@@ -252,18 +253,33 @@ export const getRelayStreamPendingComplete = (
   return entriesByRequestId.get(requestId)?.pendingComplete;
 };
 
+export const getRelayStreamPendingCompleteRawForward = (
+  requestId: string,
+): RelayChunkRawForward | undefined => entriesByRequestId.get(requestId)?.pendingCompleteRawForward;
+
 export const setRelayStreamPendingComplete = (
   requestId: string,
   complete: Record<string, unknown>,
+  rawForward?: RelayChunkRawForward,
 ): void => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   entry.pendingComplete = complete;
+  if (rawForward !== undefined) {
+    entry.pendingCompleteRawForward = rawForward;
+  } else {
+    delete entry.pendingCompleteRawForward;
+  }
 };
 
 export const clearRelayStreamPendingComplete = (requestId: string): void => {
   const entry = entriesByRequestId.get(requestId);
-  if (entry && entry.pendingComplete) {
-    delete entry.pendingComplete;
+  if (entry) {
+    if (entry.pendingComplete) {
+      delete entry.pendingComplete;
+    }
+    if (entry.pendingCompleteRawForward) {
+      delete entry.pendingCompleteRawForward;
+    }
   }
 };
 
@@ -506,7 +522,11 @@ export const drainRelayStreamBuffer = async (
 
     const pendingComplete = getRelayStreamPendingComplete(ctx.requestId);
     if (getRelayStreamBufferedChunkCount(ctx.requestId) === 0 && pendingComplete) {
-      const completeFrame = await ctx.encodeFrame(pendingComplete);
+      const completeRawForward = getRelayStreamPendingCompleteRawForward(ctx.requestId);
+      const completeFrame =
+        completeRawForward !== undefined && ctx.encodeFrameFromBytes !== undefined
+          ? await ctx.encodeFrameFromBytes(completeRawForward)
+          : await ctx.encodeFrame(pendingComplete);
       if (!isDrainContextActive(ctx)) {
         return { chunksDrained, completeEmitted, pausedForBackpressure };
       }

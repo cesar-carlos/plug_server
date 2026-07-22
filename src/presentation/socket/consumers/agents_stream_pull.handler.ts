@@ -15,7 +15,6 @@ import {
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteByStreamId,
 } from "../hub/registries/active_stream_registry";
-import { agentRegistry } from "../hub/registries/agent_registry";
 import { env } from "../../../shared/config/env";
 import { buildLegacySocketAppErrorPayload } from "../../../shared/constants/socket_app_error";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -105,7 +104,7 @@ const resolveStreamRouteAgentId = (payload: {
     return null;
   }
 
-  return agentRegistry.findBySocketId(route.agentSocketId)?.agentId ?? null;
+  return route.agentId;
 };
 
 export const handleAgentsStreamPull = (
@@ -197,6 +196,15 @@ const runAgentsStreamPull = async (
       commandQuotaConsumed = true;
 
       assertNotAborted();
+      const agentId = resolveStreamRouteAgentId({
+        ...(parsed.data.streamId ? { streamId: parsed.data.streamId } : {}),
+        ...(parsed.data.requestId ? { requestId: parsed.data.requestId } : {}),
+      });
+      if (!agentId) {
+        // Missing/expired stream is not client abuse — catch refunds shared agents:command quota.
+        throw new AppError("Stream route not found", { code: "NOT_FOUND", statusCode: 404 });
+      }
+
       const prepared = prepareLegacyAgentStreamPull({
         consumerSocketId: socket.id,
         ...(parsed.data.streamId ? { streamId: parsed.data.streamId } : {}),
@@ -204,15 +212,6 @@ const runAgentsStreamPull = async (
         ...(parsed.data.windowSize !== undefined ? { windowSize: parsed.data.windowSize } : {}),
       });
       assertNotAborted();
-
-      const agentId = resolveStreamRouteAgentId({
-        streamId: prepared.streamId,
-        requestId: prepared.requestId,
-      });
-      if (!agentId) {
-        // Missing/expired stream is not client abuse — catch refunds shared agents:command quota.
-        throw new AppError("Stream route not found", { code: "NOT_FOUND", statusCode: 404 });
-      }
 
       await assertConsumerSocketAgentAccess(socket.data.user, agentId, socket);
       assertNotAborted();

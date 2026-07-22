@@ -22,9 +22,9 @@ interface AgentQueueWaiter {
   readonly timeoutHandle: NodeJS.Timeout;
 }
 
-const maxInflight = env.socketRestAgentMaxInflight;
-const maxQueue = env.socketRestAgentMaxQueue;
-const queueWaitMs = env.socketRestAgentQueueWaitMs;
+const getMaxInflight = (): number => env.socketRestAgentMaxInflight;
+const getMaxQueue = (): number => env.socketRestAgentMaxQueue;
+const getQueueWaitMs = (): number => env.socketRestAgentQueueWaitMs;
 
 const agentInflightById = new Map<string, number>();
 /**
@@ -71,6 +71,11 @@ export const getRestAgentDispatchQueueMetricsSnapshot = (): {
 
 const getAgentInflight = (agentId: string): number => agentInflightById.get(agentId) ?? 0;
 
+export const getRestAgentDispatchInflight = (agentId: string): number => getAgentInflight(agentId);
+
+export const getRestAgentDispatchQueueDepth = (agentId: string): number =>
+  agentQueueById.get(agentId)?.size ?? 0;
+
 const setAgentInflight = (agentId: string, value: number): void => {
   if (value <= 0) {
     agentInflightById.delete(agentId);
@@ -80,11 +85,11 @@ const setAgentInflight = (agentId: string, value: number): void => {
 };
 
 const drainAgentQueue = (agentId: string): void => {
-  if (maxInflight <= 0) {
+  if (getMaxInflight() <= 0) {
     return;
   }
   const inflight = getAgentInflight(agentId);
-  if (inflight >= maxInflight) {
+  if (inflight >= getMaxInflight()) {
     return;
   }
 
@@ -139,12 +144,12 @@ export const acquireRestAgentDispatchSlot = async (
     throw serviceUnavailable("HTTP request aborted by client");
   }
 
-  if (maxInflight <= 0) {
+  if (getMaxInflight() <= 0) {
     return () => {};
   }
 
   const inflight = getAgentInflight(agentId);
-  if (inflight < maxInflight) {
+  if (inflight < getMaxInflight()) {
     setAgentInflight(agentId, inflight + 1);
     return () => {
       releaseAgentDispatchSlot(agentId);
@@ -152,11 +157,11 @@ export const acquireRestAgentDispatchSlot = async (
   }
 
   const queue = agentQueueById.get(agentId) ?? new Set<AgentQueueWaiter>();
-  if (maxQueue > 0 && queue.size >= maxQueue) {
+  if (getMaxQueue() > 0 && queue.size >= getMaxQueue()) {
     onRestDispatchQueueReject("queue_full");
     throw serviceUnavailableWithRetry(
       withAppendedMessage("Agent is overloaded", "queue is full"),
-      queueWaitMs,
+      getQueueWaitMs(),
     );
   }
 
@@ -197,10 +202,10 @@ export const acquireRestAgentDispatchSlot = async (
       rejectOnce(
         serviceUnavailableWithRetry(
           withAppendedMessage("Agent is overloaded", "queue wait timeout"),
-          queueWaitMs,
+          getQueueWaitMs(),
         ),
       );
-    }, queueWaitMs);
+    }, getQueueWaitMs());
 
     const waiter: AgentQueueWaiter = {
       resolve: resolveOnce,

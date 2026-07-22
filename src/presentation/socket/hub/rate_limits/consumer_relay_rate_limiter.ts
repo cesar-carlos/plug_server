@@ -3,6 +3,7 @@ import {
   consumeSocketRateLimitRedis,
   refundSocketRateLimitRedis,
 } from "../../../../infrastructure/redis/rate_limit/socket_rate_limit_redis";
+import { consumeSocketRateLimitLocalFirstAsync } from "./socket_rate_limit_redis_local_first";
 
 interface ConsumerRateLimitWindowState {
   windowStartMs: number;
@@ -267,18 +268,20 @@ export const allowRelayRpcRequestAsync = async (
   }
   const safeCost = Math.max(1, Math.floor(cost));
   const { key, scope } = buildIdentityKey(userSub, socketId);
-  const redisDecision = await consumeSocketRateLimitRedis({
-    scope: "relay_rpc_request",
-    key,
-    windowMs: env.socketRelayRateLimitWindowMs,
-    max: env.socketRelayRateLimitMaxRequests,
-    cost: safeCost,
-  });
-  if (redisDecision) {
-    noteRelayRequestDecision(scope, redisDecision.allowed);
-    return redisDecision.allowed;
-  }
-  return allowRelayRpcRequest(userSub, socketId, safeCost);
+  return consumeSocketRateLimitLocalFirstAsync(
+    {
+      scope: "relay_rpc_request",
+      key,
+      windowMs: env.socketRelayRateLimitWindowMs,
+      max: env.socketRelayRateLimitMaxRequests,
+      cost: safeCost,
+    },
+    {
+      allowLocal: () => allowRelayRpcRequest(userSub, socketId, safeCost),
+      refundLocal: () => refundRelayRpcRequest(userSub, socketId, safeCost),
+      onLegacyRedisDecision: (allowed) => noteRelayRequestDecision(scope, allowed),
+    },
+  );
 };
 
 export const refundRelayRpcRequest = (

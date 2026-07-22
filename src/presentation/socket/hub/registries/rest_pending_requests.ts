@@ -17,7 +17,10 @@ export interface StreamEventHandlers {
     metadata?: StreamChunkMetadata,
     rawForward?: RelayChunkRawForward,
   ) => void;
-  readonly onComplete: (payload: Record<string, unknown>) => void;
+  readonly onComplete: (
+    payload: Record<string, unknown>,
+    rawForward?: RelayChunkRawForward,
+  ) => void;
 }
 
 export interface PendingRequest {

@@ -24,12 +24,30 @@ describe("agent_registry session policies", () => {
     expect(agentRegistry.isRegistered("ag-peek")).toBe(true);
     expect(agentRegistry.getSocketIdByAgentId("ag-peek")).toBe("sock-peek");
     expect(agentRegistry.getCapabilitiesByAgentId("ag-peek")).toEqual({ compressions: ["gzip"] });
+    expect(agentRegistry.getHealthPiggybackFreshnessThresholdMs("ag-peek")).toBeNull();
     expect(agentRegistry.touchLiveness("ag-peek", { socketId: "sock-peek" })).toBe(true);
 
     vi.advanceTimersByTime(5_000);
     expect(agentRegistry.listIdleRefs(1_000)).toEqual([
       { agentId: "ag-peek", socketId: "sock-peek" },
     ]);
+  });
+
+  it("caches health piggyback freshness threshold at register when negotiated", () => {
+    agentRegistry.registerAgentSession({
+      agentId: "ag-piggyback",
+      socketId: "sock-piggyback",
+      userId: "u1",
+      capabilities: {
+        extensions: {
+          healthPiggyback: { intervalRequests: 50, freshnessThresholdMs: 12_000 },
+        },
+      },
+      policy: "reject_active",
+      isPeerConnected: () => false,
+    });
+
+    expect(agentRegistry.getHealthPiggybackFreshnessThresholdMs("ag-piggyback")).toBe(12_000);
   });
 
   it("reject_active blocks when peer socket is connected", () => {

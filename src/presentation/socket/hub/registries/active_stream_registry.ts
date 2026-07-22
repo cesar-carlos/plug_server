@@ -25,11 +25,12 @@ export type RestMaterializeStreamState = {
 export interface ActiveStreamRoute {
   readonly consumerSocketId: string;
   readonly agentSocketId: string;
+  readonly agentId: string;
   readonly requestId: string;
   readonly conversationId?: string;
   readonly mode: "legacy" | "relay";
   readonly onChunk: StreamEventHandlers["onChunk"];
-  readonly onComplete: (payload: Record<string, unknown>) => void;
+  readonly onComplete: StreamEventHandlers["onComplete"];
   streamId?: string;
   restMaterializeState?: RestMaterializeStreamState;
 }
@@ -199,6 +200,7 @@ export const removeActiveStreamRoute = (
 export const upsertActiveStreamRoute = (input: {
   readonly requestId: string;
   readonly agentSocketId: string;
+  readonly agentId: string;
   readonly streamHandlers: StreamEventHandlers;
   readonly streamId?: string;
   readonly restMaterializeState?: RestMaterializeStreamState;
@@ -214,6 +216,9 @@ export const upsertActiveStreamRoute = (input: {
   if (existing) {
     if (existing.agentSocketId !== input.agentSocketId) {
       throw new Error("Active stream route agent socket mismatch");
+    }
+    if (existing.agentId !== input.agentId) {
+      throw new Error("Active stream route agent id mismatch");
     }
     if (input.restMaterializeState && !existing.restMaterializeState) {
       restMaterializeStreamsInFlight += 1;
@@ -239,6 +244,7 @@ export const upsertActiveStreamRoute = (input: {
   const route: ActiveStreamRoute = {
     consumerSocketId: input.streamHandlers.consumerSocketId,
     agentSocketId: input.agentSocketId,
+    agentId: input.agentId,
     requestId: input.requestId,
     ...(input.streamHandlers.conversationId
       ? { conversationId: input.streamHandlers.conversationId }

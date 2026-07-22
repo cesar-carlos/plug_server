@@ -11,6 +11,7 @@ import {
   resetRelayRequestRegistry,
 } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import { createPrepareAgentStreamPull } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_stream_pull";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay/relay_outbound_queue";
 import { addRelayStreamForwardedRows } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
@@ -24,6 +25,8 @@ describe("rpc_bridge_stream_pull", () => {
     resetActiveStreamRegistry();
     resetRelayRequestRegistry();
     resetRelayOutboundQueueState();
+    agentRegistry.clear();
+    vi.restoreAllMocks();
     for (const handle of timeoutHandles.splice(0)) {
       clearTimeout(handle);
     }
@@ -55,6 +58,7 @@ describe("rpc_bridge_stream_pull", () => {
     upsertActiveStreamRoute({
       requestId: "req-1",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers: {
         consumerSocketId: "consumer-1",
         conversationId: "conv-1",
@@ -113,6 +117,7 @@ describe("rpc_bridge_stream_pull", () => {
     upsertActiveStreamRoute({
       requestId: "req-1",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers: {
         consumerSocketId: "consumer-1",
         onChunk: vi.fn(),
@@ -123,6 +128,7 @@ describe("rpc_bridge_stream_pull", () => {
     upsertActiveStreamRoute({
       requestId: "req-2",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers: {
         consumerSocketId: "consumer-1",
         onChunk: vi.fn(),
@@ -156,6 +162,7 @@ describe("rpc_bridge_stream_pull", () => {
     upsertActiveStreamRoute({
       requestId: "req-clamp",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers: {
         consumerSocketId: "consumer-1",
         onChunk: vi.fn(),
@@ -181,5 +188,40 @@ describe("rpc_bridge_stream_pull", () => {
         window_size: env.socketRestStreamPullMaxWindowSize,
       });
     }
+  });
+
+  it("resolves stream pull window from pinned route agentId without findBySocketId", () => {
+    const findBySocketIdSpy = vi.spyOn(agentRegistry, "findBySocketId");
+    const resolveWindowSpy = vi.spyOn(agentRegistry, "resolveStreamPullWindow").mockReturnValue(8);
+    vi.spyOn(agentRegistry, "isRegistered").mockReturnValue(true);
+
+    const agentEmit = vi.fn();
+    const prepare = createPrepareAgentStreamPull({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: () => ({ emit: agentEmit }),
+      emitToConsumer: vi.fn(),
+    });
+
+    upsertActiveStreamRoute({
+      requestId: "req-window",
+      agentSocketId: "agent-socket-1",
+      agentId: "agent-registered",
+      streamHandlers: {
+        consumerSocketId: "consumer-1",
+        onChunk: vi.fn(),
+        onComplete: vi.fn(),
+      },
+      streamId: "stream-window",
+    });
+
+    const prepared = prepare({
+      consumerSocketId: "consumer-1",
+      requestId: "req-window",
+      windowSize: 16,
+    });
+
+    expect(prepared.windowSize).toBe(8);
+    expect(resolveWindowSpy).toHaveBeenCalledWith("agent-registered", 1, 16);
+    expect(findBySocketIdSpy).not.toHaveBeenCalled();
   });
 });

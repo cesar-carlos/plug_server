@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createBridgeLatencyTraceForRequest } from "../../../application/services/bridge_latency_trace_builder";
 import { recordSocketAuditEvent } from "../../../application/services/socket_audit.service";
 import { dispatchRelayRpcToAgent } from "../hub/relay/rpc_bridge";
+import { observeRelayFrameDecode } from "../hub/relay/bridge_relay_health_metrics";
 import { AppError } from "../../../shared/errors/app_error";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
@@ -33,6 +34,7 @@ import {
   noteSocketErrorRetryAfterMsPropagated,
 } from "../../../shared/metrics/socket_consumer.metrics";
 import { readRelayClientRequestIdFromError } from "../hub/relay/relay_accepted_correlation";
+import { decodePayloadFrameAsync } from "../../../shared/utils/payload_frame";
 
 /**
  * Rate-limit refund policy for `relay:rpc.request` after quota was consumed:
@@ -210,10 +212,35 @@ export const handleRelayRpcRequest = (
 
       await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId, socket);
 
+      const frameDecodeStart = performance.now();
+      const decoded = await decodePayloadFrameAsync(envelope.frame);
+      const decodeElapsed = performance.now() - frameDecodeStart;
+      latencyTrace?.addPhaseMs("consumer_frame_decode_ms", decodeElapsed);
+      observeRelayFrameDecode(decodeElapsed);
+      if (!decoded.ok) {
+        if (effectiveFastPath) {
+          noteRelayFastPathFallbackError();
+        }
+        await refundRelayRpcRequestAsync(userSub, socket.id);
+        if (latencyTrace && !latencyTrace.isFinalized()) {
+          latencyTrace.dismissWithoutPersist();
+        }
+        emitRelayRpcAccepted(socket, {
+          success: false,
+          conversationId: envelope.conversationId,
+          error: {
+            code: "BAD_REQUEST",
+            message: decoded.error.message,
+            statusCode: 400,
+          },
+        });
+        return;
+      }
+
       const result = await dispatchRelayRpcToAgent({
         conversationId: envelope.conversationId,
         consumerSocketId: socket.id,
-        rawFramePayload: envelope.frame,
+        preDecodedData: decoded.value.data,
         ...(envelope.payloadFrameCompression !== undefined
           ? { payloadFrameCompression: envelope.payloadFrameCompression }
           : {}),

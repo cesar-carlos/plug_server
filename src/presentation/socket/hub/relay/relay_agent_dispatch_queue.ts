@@ -17,9 +17,9 @@ interface AgentQueueWaiter {
   readonly timeoutHandle: NodeJS.Timeout;
 }
 
-const maxInflight = env.socketRelayAgentMaxInflight;
-const maxQueue = env.socketRelayAgentMaxQueue;
-const queueWaitMs = env.socketRelayAgentQueueWaitMs;
+const getMaxInflight = (): number => env.socketRelayAgentMaxInflight;
+const getMaxQueue = (): number => env.socketRelayAgentMaxQueue;
+const getQueueWaitMs = (): number => env.socketRelayAgentQueueWaitMs;
 
 const agentInflightById = new Map<string, number>();
 /**
@@ -35,6 +35,11 @@ const metrics = {
 };
 
 const getAgentInflight = (agentId: string): number => agentInflightById.get(agentId) ?? 0;
+
+export const getRelayAgentDispatchInflight = (agentId: string): number => getAgentInflight(agentId);
+
+export const getRelayAgentDispatchQueueDepth = (agentId: string): number =>
+  agentQueueById.get(agentId)?.size ?? 0;
 
 const setAgentInflight = (agentId: string, value: number): void => {
   if (value <= 0) {
@@ -56,7 +61,7 @@ const removeQueuedWaiter = (agentId: string, waiter: AgentQueueWaiter): void => 
 };
 
 const drainAgentQueue = (agentId: string): void => {
-  if (maxInflight <= 0 || getAgentInflight(agentId) >= maxInflight) {
+  if (getMaxInflight() <= 0 || getAgentInflight(agentId) >= getMaxInflight()) {
     return;
   }
 
@@ -107,22 +112,22 @@ export const acquireRelayAgentDispatchSlot = async (
     throw serviceUnavailable("Consumer socket disconnected before relay dispatch completed");
   }
 
-  if (maxInflight <= 0) {
+  if (getMaxInflight() <= 0) {
     return () => {};
   }
 
   const inflight = getAgentInflight(agentId);
-  if (inflight < maxInflight) {
+  if (inflight < getMaxInflight()) {
     setAgentInflight(agentId, inflight + 1);
     return idempotentRelease(agentId);
   }
 
   const queue = agentQueueById.get(agentId) ?? new Set<AgentQueueWaiter>();
-  if (maxQueue > 0 && queue.size >= maxQueue) {
+  if (getMaxQueue() > 0 && queue.size >= getMaxQueue()) {
     metrics.queueFullRejected += 1;
     throw serviceUnavailableWithRetry(
       "Agent relay dispatch is overloaded; queue is full",
-      queueWaitMs,
+      getQueueWaitMs(),
     );
   }
 
@@ -170,10 +175,10 @@ export const acquireRelayAgentDispatchSlot = async (
       rejectOnce(
         serviceUnavailableWithRetry(
           "Agent relay dispatch is overloaded; queue wait timeout",
-          queueWaitMs,
+          getQueueWaitMs(),
         ),
       );
-    }, queueWaitMs);
+    }, getQueueWaitMs());
 
     const waiter: AgentQueueWaiter = {
       resolve: resolveOnce,

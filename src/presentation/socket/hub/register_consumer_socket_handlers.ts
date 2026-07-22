@@ -44,7 +44,10 @@ import {
   type ConsumerClientAgentRoomBootstrapState,
 } from "./scheduling/consumer_client_agent_room_reconcile";
 import { consumerRegistry } from "./registries/consumer_registry";
-import { touchConsumerRegistryOnSocketActivity } from "./scheduling/consumer_idle_touch_events";
+import {
+  clearConsumerIdleTouchDebounceState,
+  touchConsumerRegistryOnSocketActivity,
+} from "./scheduling/consumer_idle_touch_events";
 import {
   buildConsumerClientRoom as buildClientRoomName,
   buildConsumerPrincipalRoom as buildPrincipalRoomName,
@@ -153,6 +156,7 @@ export const runConsumerSocketDisconnectCleanup = (
   clearInflightValidationForSocket(socket.id);
   clearInflightAgentAccessForSocket(socket.id);
   clearAllConsumerSocketAgentAccessSnapshots(socket);
+  clearConsumerIdleTouchDebounceState(socket.id);
   consumerRegistry.removeBySocketId(socket.id);
   const abortedCommands = abortPendingConsumerCommands(socket.id);
   const removedCustomEventSubscriptions = removeCustomSocketEventSubscriptionsBySocketId(socket.id);

@@ -22,7 +22,9 @@ import {
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../../shared/utils/rpc_types";
-import { isClientRequestIdEchoNegotiated } from "../../../../shared/constants/transport_extension_negotiation";
+import {
+  snapshotRelayRouteTransportFlags,
+} from "../../../../shared/constants/transport_extension_negotiation";
 import {
   getActiveStreamRouteByRequestId,
   removeActiveStreamRoute,
@@ -59,9 +61,8 @@ import {
   reserveRelayPendingSlot,
 } from "../registries/relay_request_registry";
 import {
+  applyRelayOutboundCommandFields,
   clampCommandMaxRows,
-  resolveOutboundApiVersion,
-  sanitizeOutboundRpcMeta,
 } from "./rpc_bridge_command_helpers";
 import { emitRelayTimeoutResponse, type EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 import {
@@ -357,25 +358,18 @@ export const createRpcBridgeRelayDispatch = (
       }
 
       const traceId = inboundFrameTraceId ?? randomUUID();
-      const existingMeta = sanitizeOutboundRpcMeta(toRecord(cmdRecord.meta));
       const agentCapabilities = agentRegistry.getCapabilitiesByAgentId(conversation.agentId);
+      const transportFlags = snapshotRelayRouteTransportFlags(agentCapabilities);
       const echoClientRequestId =
-        clientRequestId != null &&
-        agentCapabilities != null &&
-        isClientRequestIdEchoNegotiated(agentCapabilities);
+        clientRequestId != null && transportFlags.clientRequestIdEcho;
       const rpcBodyId = echoClientRequestId ? clientRequestId : requestId;
-      const commandPayload: Record<string, unknown> = {
-        ...normalizedAndClamped,
-        id: rpcBodyId,
-        api_version: resolveOutboundApiVersion(cmdRecord),
-        meta: {
-          ...existingMeta,
-          request_id: requestId,
-          agent_id: conversation.agentId,
-          timestamp: new Date().toISOString(),
-          trace_id: traceId,
-        },
-      };
+      const commandPayload = applyRelayOutboundCommandFields(cmdRecord, {
+        rpcBodyId,
+        requestId,
+        agentId: conversation.agentId,
+        traceId,
+        timestamp: new Date().toISOString(),
+      });
 
       trace?.attachDispatchMeta({
         requestId,
@@ -469,6 +463,9 @@ export const createRpcBridgeRelayDispatch = (
         releaseAgentDispatchSlot,
         ...(input.requestServerTimings === true ? { requestServerTimings: true } : {}),
         ...(input.fastPath === true ? { fastPath: true } : {}),
+        clientRequestIdEcho: transportFlags.clientRequestIdEcho,
+        agentPhaseTimingsNegotiated: transportFlags.agentPhaseTimingsNegotiated,
+        healthPiggybackNegotiated: transportFlags.healthPiggybackNegotiated,
         acked: false,
         ackRetriesAttempted: 0,
       };

@@ -7,7 +7,6 @@ import { env } from "../../../../shared/config/env";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { maybeRecordAgentHealthPiggyback } from "../../../../application/services/agent_health_piggyback.service";
 import { noteAgentHealthRpcResponse } from "../../../../shared/metrics/socket_agent.metrics";
-import { isAgentPhaseTimingsNegotiated } from "../../../../shared/constants/transport_extension_negotiation";
 import {
   noteRelayBodyIdEcho,
   noteRelayFastPathStreamInadvertent,
@@ -111,7 +110,7 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
   observeAgentLatency(relayRoute.agentId, Date.now() - relayRoute.createdAtMs);
   registerAgentSuccess(relayRoute.agentId, "relay");
   clearTimeout(relayRoute.timeoutHandle);
-  conversationRegistry.touchInternal(relayRoute.conversationId);
+  conversationRegistry.touchInternalDebounced(relayRoute.conversationId);
 
   if (streamId && relayRoute.fastPath === true) {
     // Fast-path is intended for unary RPCs only — but the determination
@@ -187,6 +186,7 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
     upsertActiveStreamRoute({
       requestId: responseId,
       agentSocketId: socketId,
+      agentId: relayRoute.agentId,
       streamHandlers: createRelayStreamHandlers(relayRoute, emitToConsumer),
       streamId,
     });
@@ -224,9 +224,7 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       // `body.id == client_request_id`, so no rewrite is needed (Opcao A).
       const decodedResponseRecord = toRecord(decoded.data);
       const decodedBodyId = toRequestId(decodedResponseRecord?.id);
-      const agentCapabilities = agentRegistry.getCapabilitiesByAgentId(relayRoute.agentId);
-      const agentPhaseTimingsNegotiated =
-        agentCapabilities != null && isAgentPhaseTimingsNegotiated(agentCapabilities);
+      const agentPhaseTimingsNegotiated = relayRoute.agentPhaseTimingsNegotiated === true;
       const responseMeta = decodedResponseRecord?.meta;
       const responseHasAgentPhases =
         isRecord(responseMeta) &&
@@ -309,12 +307,17 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       forwardedResponse = true;
       if (relayRoute.jsonRpcMethod === "agent.getHealth") {
         noteAgentHealthRpcResponse(decoded.data);
-      } else if (agentCapabilities) {
-        maybeRecordAgentHealthPiggyback({
-          agentId: relayRoute.agentId,
-          agentCapabilities,
-          rpcBody: decoded.data,
-        });
+      } else if (relayRoute.healthPiggybackNegotiated === true) {
+        const negotiatedFreshnessThresholdMs = agentRegistry.getHealthPiggybackFreshnessThresholdMs(
+          relayRoute.agentId,
+        );
+        if (negotiatedFreshnessThresholdMs !== null) {
+          maybeRecordAgentHealthPiggyback({
+            agentId: relayRoute.agentId,
+            negotiatedFreshnessThresholdMs,
+            rpcBody: decoded.data,
+          });
+        }
       }
       relayRoute.latencyTrace?.addPhaseMs(
         "relay_forward_to_consumer_ms",

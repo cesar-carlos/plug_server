@@ -65,12 +65,14 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
+      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
     upsertActiveStreamRoute({
       requestId: "req-consumer",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers,
       streamId: "stream-1",
     });
@@ -100,12 +102,14 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
+      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
     upsertActiveStreamRoute({
       requestId: "req-agent",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers,
       streamId: "stream-1",
     });
@@ -128,12 +132,14 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
+      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
     upsertActiveStreamRoute({
       requestId: "req-conv",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers: { ...streamHandlers, conversationId },
       streamId: "stream-1",
     });
@@ -166,12 +172,14 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
+      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
     upsertActiveStreamRoute({
       requestId: "req-consumer-disconnect",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers: { ...streamHandlers, conversationId },
       streamId: "stream-1",
     });
@@ -183,6 +191,7 @@ describe("rpc_bridge_lifecycle", () => {
           conversationId,
           consumerSocketId: "consumer-1",
           agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
           agentId: "agent-1",
           createdAt: new Date().toISOString(),
           lastSeenAt: new Date().toISOString(),
@@ -195,6 +204,7 @@ describe("rpc_bridge_lifecycle", () => {
       expect.objectContaining({
         conversationId,
         agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       }),
     );
     expect(getActiveStreamRouteByRequestId("req-consumer-disconnect")).toBeUndefined();
@@ -209,12 +219,14 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
+      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
     upsertActiveStreamRoute({
       requestId: "req-idle-expired",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers: { ...streamHandlers, conversationId },
       streamId: "stream-1",
     });
@@ -231,6 +243,7 @@ describe("rpc_bridge_lifecycle", () => {
           conversationId,
           consumerSocketId: "consumer-1",
           agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
           agentId: "agent-1",
           createdAt: new Date().toISOString(),
           lastSeenAt: new Date().toISOString(),
@@ -250,6 +263,7 @@ describe("rpc_bridge_lifecycle", () => {
       expect.objectContaining({
         conversationId,
         agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       }),
     );
     expect(getActiveStreamRouteByRequestId("req-idle-expired")).toBeUndefined();

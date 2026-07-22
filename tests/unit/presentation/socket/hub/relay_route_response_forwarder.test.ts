@@ -14,6 +14,7 @@ import {
   getSocketConsumerMetricsSnapshot,
   resetSocketConsumerMetrics,
 } from "../../../../../src/shared/metrics/socket_consumer.metrics";
+import { snapshotRelayRouteTransportFlags } from "../../../../../src/shared/constants/transport_extension_negotiation";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import {
   decodePayloadFrame,
@@ -83,6 +84,8 @@ describe("forwardRelayRouteResponse", () => {
   const registerRoute = (
     overrides: Partial<Parameters<typeof registerRelayRequestRoute>[0]> = {},
   ): void => {
+    const agentCapabilities = agentRegistry.getCapabilitiesByAgentId(AGENT_ID);
+    const transportFlags = snapshotRelayRouteTransportFlags(agentCapabilities);
     registerRelayRequestRoute({
       requestId: REQUEST_ID,
       conversationId: CONVERSATION_ID,
@@ -93,6 +96,7 @@ describe("forwardRelayRouteResponse", () => {
       createdAtMs: Date.now(),
       clientRequestId: CLIENT_REQUEST_ID,
       jsonRpcMethod: "sql.execute",
+      ...transportFlags,
       ...overrides,
     });
   };
@@ -316,5 +320,89 @@ describe("forwardRelayRouteResponse", () => {
       const meta = body.meta as Record<string, unknown>;
       expect(meta.agent_phases).toEqual({ dispatch_ms: 12 });
     }
+  });
+
+  it("should use route-cached agentPhaseTimingsNegotiated without agent registry lookup", async () => {
+    registerAgent({
+      clientRequestIdEcho: "v1",
+      agentPhaseTimings: "v1",
+    });
+    registerRoute({
+      agentPhaseTimingsNegotiated: false,
+      healthPiggybackNegotiated: false,
+    });
+
+    const getCapsSpy = vi.spyOn(agentRegistry, "getCapabilitiesByAgentId");
+    const emitToConsumer = vi.fn();
+    const decoded = buildDecodedResponse({
+      jsonrpc: "2.0",
+      id: CLIENT_REQUEST_ID,
+      result: { rows: [], row_count: 0 },
+      meta: {
+        agent_phases: { dispatch_ms: 12 },
+      },
+    });
+
+    forwardRelayRouteResponse({
+      socketId: AGENT_SOCKET_ID,
+      candidateIds: [REQUEST_ID],
+      decoded,
+      streamId: null,
+      inboundSyncStart: performance.now(),
+      decodeMs: 1,
+      emitToConsumer,
+    });
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+    expect(getCapsSpy).not.toHaveBeenCalled();
+
+    const [, , framePayload] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+    const consumerDecoded = decodePayloadFrame(framePayload);
+    expect(consumerDecoded.ok).toBe(true);
+    if (consumerDecoded.ok) {
+      const body = consumerDecoded.value.data as Record<string, unknown>;
+      const meta = body.meta as Record<string, unknown> | undefined;
+      expect(meta?.agent_phases).toBeUndefined();
+    }
+  });
+
+  it("should record piggyback health using cached threshold without capabilities lookup", async () => {
+    registerAgent({
+      healthPiggyback: { intervalRequests: 50, freshnessThresholdMs: 5000 },
+    });
+    registerRoute({
+      healthPiggybackNegotiated: true,
+      jsonRpcMethod: "sql.execute",
+    });
+
+    const getCapsSpy = vi.spyOn(agentRegistry, "getCapabilitiesByAgentId");
+    const getThresholdSpy = vi.spyOn(agentRegistry, "getHealthPiggybackFreshnessThresholdMs");
+    const emitToConsumer = vi.fn();
+    const capturedAtMs = Date.now();
+    const decoded = buildDecodedResponse({
+      jsonrpc: "2.0",
+      id: CLIENT_REQUEST_ID,
+      result: { rows: [], row_count: 0 },
+      meta: {
+        health_snapshot: {
+          captured_at_ms: capturedAtMs,
+          status: "healthy",
+        },
+      },
+    });
+
+    forwardRelayRouteResponse({
+      socketId: AGENT_SOCKET_ID,
+      candidateIds: [REQUEST_ID],
+      decoded,
+      streamId: null,
+      inboundSyncStart: performance.now(),
+      decodeMs: 1,
+      emitToConsumer,
+    });
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+    expect(getThresholdSpy).toHaveBeenCalledWith(AGENT_ID);
+    expect(getCapsSpy).not.toHaveBeenCalled();
   });
 });

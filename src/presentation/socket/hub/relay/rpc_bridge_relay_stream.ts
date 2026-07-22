@@ -241,10 +241,10 @@ export const createRelayStreamHandlers = (
       }
       scheduleDrainAndFlush();
     },
-    onComplete: (payload) => {
+    onComplete: (payload, rawForward) => {
       completeReceived = true;
       touchRelayStreamTimeout(route.requestId);
-      setRelayStreamPendingComplete(route.requestId, payload);
+      setRelayStreamPendingComplete(route.requestId, payload, rawForward);
       scheduleDrainAndFlush();
     },
   };

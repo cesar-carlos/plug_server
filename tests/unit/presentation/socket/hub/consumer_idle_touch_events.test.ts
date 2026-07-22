@@ -4,20 +4,28 @@ import { consumerRegistry } from "../../../../../src/presentation/socket/hub/reg
 import {
   consumerIdleTouchEvents,
   isConsumerIdleTouchEvent,
+  resetConsumerIdleTouchDebounceState,
   touchConsumerRegistryOnInboundEvent,
   touchConsumerRegistryOnSocketActivity,
 } from "../../../../../src/presentation/socket/hub/scheduling/consumer_idle_touch_events";
+import { env } from "../../../../../src/shared/config/env";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
 describe("consumer_idle_touch_events", () => {
+  const originalDebounceMs = env.socketConsumerIdleTouchDebounceMs;
+
   beforeEach(() => {
     vi.useFakeTimers();
     consumerRegistry.clear();
+    resetConsumerIdleTouchDebounceState();
+    env.socketConsumerIdleTouchDebounceMs = originalDebounceMs;
   });
 
   afterEach(() => {
     vi.useRealTimers();
     consumerRegistry.clear();
+    resetConsumerIdleTouchDebounceState();
+    env.socketConsumerIdleTouchDebounceMs = originalDebounceMs;
   });
 
   it("documents the allowlist of meaningful idle-touch events", () => {
@@ -93,5 +101,44 @@ describe("consumer_idle_touch_events", () => {
     vi.setSystemTime(new Date("2026-05-08T10:04:00.000Z"));
     const touched = touchConsumerRegistryOnSocketActivity("sock-activity");
     expect(touched?.lastSeenAt).toBe("2026-05-08T10:04:00.000Z");
+  });
+
+  it("debounces registry touches within the configured window", () => {
+    env.socketConsumerIdleTouchDebounceMs = 5_000;
+    vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
+    consumerRegistry.registerSession({
+      socketId: "sock-debounce",
+      userId: "user-1",
+      principalType: "user",
+    });
+
+    vi.setSystemTime(new Date("2026-05-08T10:01:00.000Z"));
+    expect(touchConsumerRegistryOnSocketActivity("sock-debounce")?.lastSeenAt).toBe(
+      "2026-05-08T10:01:00.000Z",
+    );
+
+    vi.setSystemTime(new Date("2026-05-08T10:01:02.000Z"));
+    expect(touchConsumerRegistryOnSocketActivity("sock-debounce")).toBeNull();
+
+    vi.setSystemTime(new Date("2026-05-08T10:01:06.000Z"));
+    expect(touchConsumerRegistryOnSocketActivity("sock-debounce")?.lastSeenAt).toBe(
+      "2026-05-08T10:01:06.000Z",
+    );
+  });
+
+  it("debounce 0 preserves every-touch behavior", () => {
+    env.socketConsumerIdleTouchDebounceMs = 0;
+    vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
+    consumerRegistry.registerSession({
+      socketId: "sock-every",
+      userId: "user-1",
+      principalType: "user",
+    });
+
+    vi.setSystemTime(new Date("2026-05-08T10:01:00.000Z"));
+    touchConsumerRegistryOnSocketActivity("sock-every");
+    vi.setSystemTime(new Date("2026-05-08T10:01:01.000Z"));
+    const touched = touchConsumerRegistryOnSocketActivity("sock-every");
+    expect(touched?.lastSeenAt).toBe("2026-05-08T10:01:01.000Z");
   });
 });

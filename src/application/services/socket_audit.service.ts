@@ -35,12 +35,19 @@ const auditMetrics = {
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/** Event types subject to `SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT` (default 100% outside production). */
+const HIGH_VOLUME_SOCKET_AUDIT_EVENT_TYPES: ReadonlySet<string> = new Set([
+  socketEvents.relayRpcChunk,
+  socketEvents.relayRpcRequest,
+  socketEvents.relayRpcResponse,
+]);
+
 const shouldSampleSkipHighVolumeAudit = (input: SocketAuditEventInput): boolean => {
   const pct = env.socketAuditHighVolumeSamplePercent;
   if (pct >= 100) {
     return false;
   }
-  if (input.eventType !== socketEvents.relayRpcChunk) {
+  if (!HIGH_VOLUME_SOCKET_AUDIT_EVENT_TYPES.has(input.eventType)) {
     return false;
   }
   return Math.random() * 100 >= pct;

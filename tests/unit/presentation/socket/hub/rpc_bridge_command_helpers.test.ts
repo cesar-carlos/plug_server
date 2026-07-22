@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BridgeCommand } from "../../../../../src/shared/validators/agent_command";
 import {
+  applyRelayOutboundCommandFields,
   clampCommandMaxRows,
   countBatchItems,
   extractStreamIdFromRpcResponse,
@@ -52,6 +53,83 @@ describe("rpc_bridge_command_helpers", () => {
     ).toEqual({
       traceparent: "00-abc-def-01",
       request_id: "req-1",
+    });
+  });
+
+  it("applyRelayOutboundCommandFields mutates in place and matches withBridgeMeta semantics", () => {
+    const cmd = {
+      jsonrpc: "2.0",
+      method: "agent.getHealth",
+      id: "client-id",
+      api_version: "2.11",
+      meta: { traceparent: "00-parent", outbound_compression: "auto" },
+      params: {},
+    };
+    const input = {
+      rpcBodyId: "client-id",
+      requestId: "hub-req",
+      agentId: "agent-1",
+      traceId: "trace-1",
+      timestamp: "2026-05-08T10:00:00.000Z",
+    };
+
+    const out = applyRelayOutboundCommandFields({ ...cmd }, input);
+    expect(out).toEqual({
+      jsonrpc: "2.0",
+      method: "agent.getHealth",
+      id: "client-id",
+      api_version: "2.11",
+      params: {},
+      meta: {
+        traceparent: "00-parent",
+        request_id: "hub-req",
+        agent_id: "agent-1",
+        timestamp: "2026-05-08T10:00:00.000Z",
+        trace_id: "trace-1",
+      },
+    });
+
+    const viaWithBridgeMeta = withBridgeMeta(
+      {
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "client-id",
+        api_version: "2.11",
+        meta: { traceparent: "00-parent", outbound_compression: "auto" },
+        params: {},
+      },
+      {
+        requestId: "hub-req",
+        agentId: "agent-1",
+        traceId: "trace-1",
+        timestamp: "2026-05-08T10:00:00.000Z",
+      },
+    );
+    expect(Array.isArray(viaWithBridgeMeta)).toBe(false);
+    if (!Array.isArray(viaWithBridgeMeta)) {
+      expect(out).toEqual(viaWithBridgeMeta);
+    }
+  });
+
+  it("applyRelayOutboundCommandFields omits meta spread when caller meta is empty", () => {
+    const cmd = {
+      jsonrpc: "2.0",
+      method: "rpc.discover",
+      id: "rid",
+      params: {},
+    };
+    const out = applyRelayOutboundCommandFields(cmd, {
+      rpcBodyId: "hub-id",
+      requestId: "hub-req",
+      agentId: "agent-1",
+      traceId: "trace-1",
+      timestamp: "t0",
+    });
+    expect(out.meta).toEqual({
+      request_id: "hub-req",
+      agent_id: "agent-1",
+      timestamp: "t0",
+      trace_id: "trace-1",
     });
   });
 

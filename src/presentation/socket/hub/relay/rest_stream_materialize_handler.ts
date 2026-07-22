@@ -205,6 +205,7 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
   upsertActiveStreamRoute({
     requestId: primaryRequestId,
     agentSocketId: socketId,
+    agentId: pendingRequest.agentId,
     streamHandlers,
     streamId,
     restMaterializeState,

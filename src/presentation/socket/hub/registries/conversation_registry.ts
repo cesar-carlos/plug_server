@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { env } from "../../../../shared/config/env";
+
 export type ConversationCloseReason =
   | "consumer_ended"
   | "consumer_disconnected"
@@ -183,6 +185,29 @@ class InMemoryConversationRegistry {
     return this.toInternalView(existing);
   }
 
+  /**
+   * Debounced variant for stream hot paths (chunk/response floods).
+   * When {@link env.socketRelayConversationTouchDebounceMs} is > 0, at most one
+   * registry write per conversation per debounce window is performed.
+   */
+  touchInternalDebounced(conversationId: string): RelayConversationInternalView | null {
+    const debounceMs = env.socketRelayConversationTouchDebounceMs;
+    if (debounceMs > 0) {
+      const nowMs = Date.now();
+      const lastTouchMs = lastTouchAtMsByConversationId.get(conversationId);
+      if (lastTouchMs !== undefined && nowMs - lastTouchMs < debounceMs) {
+        return null;
+      }
+      lastTouchAtMsByConversationId.set(conversationId, nowMs);
+    }
+
+    const touched = this.touchInternal(conversationId);
+    if (touched === null) {
+      clearConversationTouchDebounceState(conversationId);
+    }
+    return touched;
+  }
+
   removeByConversationId(conversationId: string): RelayConversation | null {
     const existing = this.conversations.get(conversationId);
     if (!existing) {
@@ -192,6 +217,7 @@ class InMemoryConversationRegistry {
     this.conversations.delete(conversationId);
     removeIndexValue(this.conversationsByConsumerSocket, existing.consumerSocketId, conversationId);
     removeIndexValue(this.conversationsByAgentSocket, existing.agentSocketId, conversationId);
+    clearConversationTouchDebounceState(conversationId);
     return this.toPublic(existing);
   }
 
@@ -254,7 +280,20 @@ class InMemoryConversationRegistry {
     this.conversations.clear();
     this.conversationsByConsumerSocket.clear();
     this.conversationsByAgentSocket.clear();
+    resetConversationTouchDebounceState();
   }
 }
+
+const lastTouchAtMsByConversationId = new Map<string, number>();
+
+/** Clears debounce bookkeeping when a conversation ends or is removed. */
+export const clearConversationTouchDebounceState = (conversationId: string): void => {
+  lastTouchAtMsByConversationId.delete(conversationId);
+};
+
+/** Test helper — resets all conversation touch debounce state. */
+export const resetConversationTouchDebounceState = (): void => {
+  lastTouchAtMsByConversationId.clear();
+};
 
 export const conversationRegistry = new InMemoryConversationRegistry();

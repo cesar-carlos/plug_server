@@ -55,6 +55,7 @@ describe("cleanupAgentStreamSubscriptions agent disconnect notify", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
+      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
       clientRequestId: "client-req-1",
@@ -85,12 +86,14 @@ describe("cleanupAgentStreamSubscriptions agent disconnect notify", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
+      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
     upsertActiveStreamRoute({
       requestId: "req-stream",
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
       streamHandlers,
       streamId: "stream-1",
     });

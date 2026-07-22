@@ -1,4 +1,5 @@
 import { env } from "../../../../shared/config/env";
+import { sampledMetricDelta } from "../../../../shared/metrics/metrics_sample";
 import { serviceUnavailableWithRetry } from "../../../../shared/errors/http_errors";
 import { logger } from "../../../../shared/utils/logger";
 import {
@@ -267,24 +268,48 @@ export const observeAgentLatency = (agentId: string, elapsedMs: number): void =>
   latencyByAgentCacheDirty = true;
 };
 
+/**
+ * Applies `SOCKET_METRICS_SAMPLE_RATE` to per-RPC hot-path count+sum counters.
+ * At rate `1` every call is recorded; below `1`, kept samples scale by `1/rate`
+ * so totals and derived averages stay approximately unbiased.
+ */
+const observeSampledCountAndSum = (
+  apply: (countDelta: number, sumDelta: number) => void,
+  elapsedMs: number,
+): void => {
+  const delta = sampledMetricDelta(1);
+  if (delta === 0) {
+    return;
+  }
+  apply(delta, Math.max(0, elapsedMs) * delta);
+};
+
 export const observeRelayOverloadCheck = (elapsedMs: number): void => {
-  relayMetrics.overloadChecksTotal += 1;
-  relayMetrics.overloadCheckSumMs += Math.max(0, elapsedMs);
+  observeSampledCountAndSum((countDelta, sumDelta) => {
+    relayMetrics.overloadChecksTotal += countDelta;
+    relayMetrics.overloadCheckSumMs += sumDelta;
+  }, elapsedMs);
 };
 
 export const observeRelayFrameDecode = (elapsedMs: number): void => {
-  relayMetrics.frameDecodeCount += 1;
-  relayMetrics.frameDecodeSumMs += Math.max(0, elapsedMs);
+  observeSampledCountAndSum((countDelta, sumDelta) => {
+    relayMetrics.frameDecodeCount += countDelta;
+    relayMetrics.frameDecodeSumMs += sumDelta;
+  }, elapsedMs);
 };
 
 export const observeRelayCommandValidation = (elapsedMs: number): void => {
-  relayMetrics.commandValidateCount += 1;
-  relayMetrics.commandValidateSumMs += Math.max(0, elapsedMs);
+  observeSampledCountAndSum((countDelta, sumDelta) => {
+    relayMetrics.commandValidateCount += countDelta;
+    relayMetrics.commandValidateSumMs += sumDelta;
+  }, elapsedMs);
 };
 
 export const observeRelayBridgeEncode = (elapsedMs: number): void => {
-  relayMetrics.bridgeEncodeCount += 1;
-  relayMetrics.bridgeEncodeSumMs += Math.max(0, elapsedMs);
+  observeSampledCountAndSum((countDelta, sumDelta) => {
+    relayMetrics.bridgeEncodeCount += countDelta;
+    relayMetrics.bridgeEncodeSumMs += sumDelta;
+  }, elapsedMs);
 };
 
 export const observeRelayChunkForwardJob = (elapsedMs: number): void => {

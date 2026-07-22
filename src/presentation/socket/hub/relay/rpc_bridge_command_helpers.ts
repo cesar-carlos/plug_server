@@ -65,7 +65,7 @@ const OUTBOUND_RPC_META_KEYS = [
  * cost of building a fresh `{}` per dispatch — hot for `sql.executeBatch`
  * with N items where most items omit `meta`.
  */
-const EMPTY_OUTBOUND_RPC_META: Readonly<Record<string, unknown>> = Object.freeze({});
+export const EMPTY_OUTBOUND_RPC_META: Readonly<Record<string, unknown>> = Object.freeze({});
 
 export const sanitizeOutboundRpcMeta = (
   meta: Record<string, unknown> | null | undefined,
@@ -86,6 +86,46 @@ export const sanitizeOutboundRpcMeta = (
   }
 
   return sanitized ?? EMPTY_OUTBOUND_RPC_META;
+};
+
+/**
+ * Mutates a normalized relay command in place with hub outbound fields.
+ * Avoids a top-level object spread on the hot `relay:rpc.request` dispatch path.
+ * Safe when the command is not shared beyond the current dispatch scope.
+ */
+export const applyRelayOutboundCommandFields = (
+  command: Record<string, unknown>,
+  input: {
+    readonly rpcBodyId: string;
+    readonly requestId: string;
+    readonly agentId: string;
+    readonly traceId: string;
+    readonly timestamp: string;
+  },
+): Record<string, unknown> => {
+  const existingMeta = sanitizeOutboundRpcMeta(isRecord(command.meta) ? command.meta : null);
+
+  command.id = input.rpcBodyId;
+  command.api_version = resolveOutboundApiVersion(command);
+
+  if (existingMeta === EMPTY_OUTBOUND_RPC_META) {
+    command.meta = {
+      request_id: input.requestId,
+      agent_id: input.agentId,
+      timestamp: input.timestamp,
+      trace_id: input.traceId,
+    };
+  } else {
+    command.meta = {
+      ...existingMeta,
+      request_id: input.requestId,
+      agent_id: input.agentId,
+      timestamp: input.timestamp,
+      trace_id: input.traceId,
+    };
+  }
+
+  return command;
 };
 
 export const withBridgeMeta = (

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
+import { env } from "../../../../../src/shared/config/env";
 
 afterEach(() => {
   conversationRegistry.clear();
@@ -76,5 +77,52 @@ describe("conversation_registry", () => {
     expect(conversationRegistry.countByConsumerSocketId("consumer-new")).toBe(1);
     expect(conversationRegistry.removeByAgentSocketId("agent-socket-old")).toEqual([]);
     expect(conversationRegistry.removeByAgentSocketId("agent-socket-new")).toHaveLength(1);
+  });
+
+  it("debounces touchInternalDebounced within the configured window", () => {
+    const originalDebounceMs = env.socketRelayConversationTouchDebounceMs;
+    env.socketRelayConversationTouchDebounceMs = 5_000;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    conversationRegistry.create({
+      consumerSocketId: "c1",
+      agentSocketId: "a1",
+      agentId: "ag",
+      conversationId: "conv-debounce",
+    });
+
+    const first = conversationRegistry.touchInternalDebounced("conv-debounce");
+    expect(first?.lastSeenAtMs).toBe(Date.parse("2026-01-01T00:00:00.000Z"));
+
+    vi.setSystemTime(new Date("2026-01-01T00:00:02.000Z"));
+    expect(conversationRegistry.touchInternalDebounced("conv-debounce")).toBeNull();
+
+    vi.setSystemTime(new Date("2026-01-01T00:00:06.000Z"));
+    const second = conversationRegistry.touchInternalDebounced("conv-debounce");
+    expect(second?.lastSeenAtMs).toBe(Date.parse("2026-01-01T00:00:06.000Z"));
+
+    env.socketRelayConversationTouchDebounceMs = originalDebounceMs;
+  });
+
+  it("touchInternalDebounced with debounce 0 preserves every-touch behavior", () => {
+    const originalDebounceMs = env.socketRelayConversationTouchDebounceMs;
+    env.socketRelayConversationTouchDebounceMs = 0;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    conversationRegistry.create({
+      consumerSocketId: "c1",
+      agentSocketId: "a1",
+      agentId: "ag",
+      conversationId: "conv-every-touch",
+    });
+
+    conversationRegistry.touchInternalDebounced("conv-every-touch");
+    vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
+    const second = conversationRegistry.touchInternalDebounced("conv-every-touch");
+    expect(second?.lastSeenAtMs).toBe(Date.parse("2026-01-01T00:00:01.000Z"));
+
+    env.socketRelayConversationTouchDebounceMs = originalDebounceMs;
   });
 });

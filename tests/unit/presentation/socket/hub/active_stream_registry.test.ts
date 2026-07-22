@@ -27,6 +27,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r1",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
     });
     expect(getActiveStreamRouteCount()).toBe(1);
@@ -34,6 +35,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r1",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s1",
     });
@@ -47,6 +49,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r-rekey",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s-old",
     });
@@ -54,6 +57,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r-rekey",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s-new",
     });
@@ -66,6 +70,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r-collision",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
     });
 
@@ -73,15 +78,35 @@ describe("active_stream_registry", () => {
       upsertActiveStreamRoute({
         requestId: "r-collision",
         agentSocketId: "a2",
+        agentId: "agent-a2",
         streamHandlers: handlers,
       }),
     ).toThrow(/agent socket mismatch/i);
+  });
+
+  it("rejects upsert when agent id does not match an existing route", () => {
+    upsertActiveStreamRoute({
+      requestId: "r-agent-id",
+      agentSocketId: "a1",
+      agentId: "agent-a1",
+      streamHandlers: handlers,
+    });
+
+    expect(() =>
+      upsertActiveStreamRoute({
+        requestId: "r-agent-id",
+        agentSocketId: "a1",
+        agentId: "agent-other",
+        streamHandlers: handlers,
+      }),
+    ).toThrow(/agent id mismatch/i);
   });
 
   it("rejects stream id reuse by a different request id", () => {
     upsertActiveStreamRoute({
       requestId: "r-original",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "stream-shared",
     });
@@ -90,6 +115,7 @@ describe("active_stream_registry", () => {
       upsertActiveStreamRoute({
         requestId: "r-other",
         agentSocketId: "a1",
+        agentId: "agent-a1",
         streamHandlers: handlers,
         streamId: "stream-shared",
       }),
@@ -102,12 +128,14 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r-stream",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s-shared",
     });
     upsertActiveStreamRoute({
       requestId: "r-other",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
     });
 
@@ -123,6 +151,7 @@ describe("active_stream_registry", () => {
     const route = upsertActiveStreamRoute({
       requestId: "r2",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s2",
     });
@@ -144,6 +173,7 @@ describe("active_stream_registry", () => {
     const route = upsertActiveStreamRoute({
       requestId: "r-rest",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s-rest",
       restMaterializeState,
@@ -168,6 +198,7 @@ describe("active_stream_registry", () => {
     const route = upsertActiveStreamRoute({
       requestId: "r-rest2",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s-rest2",
       restMaterializeState,
@@ -180,6 +211,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r-no-sid",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
     });
     expect(countOpenStreamRoutesForAgent("a1")).toBe(0);
@@ -187,6 +219,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r-with-sid",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s1",
     });
@@ -198,7 +231,7 @@ describe("active_stream_registry", () => {
   });
 
   it("countOpenStreamRoutesForAgent increments when resolveActiveStreamRoute assigns streamId late", () => {
-    upsertActiveStreamRoute({ requestId: "r-late", agentSocketId: "a1", streamHandlers: handlers });
+    upsertActiveStreamRoute({ requestId: "r-late", agentSocketId: "a1", agentId: "agent-a1", streamHandlers: handlers });
     expect(countOpenStreamRoutesForAgent("a1")).toBe(0);
 
     resolveActiveStreamRoute("a1", { stream_id: "s-late", request_id: "r-late" });
@@ -213,6 +246,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r-replace",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s-old",
     });
@@ -221,6 +255,7 @@ describe("active_stream_registry", () => {
     upsertActiveStreamRoute({
       requestId: "r-replace",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s-new",
     });
@@ -246,6 +281,7 @@ describe("active_stream_registry", () => {
     const route = upsertActiveStreamRoute({
       requestId: "r-detach",
       agentSocketId: "a1",
+      agentId: "agent-a1",
       streamHandlers: handlers,
       streamId: "s-detach",
       restMaterializeState,

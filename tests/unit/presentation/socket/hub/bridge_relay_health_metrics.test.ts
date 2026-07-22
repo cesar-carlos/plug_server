@@ -1,10 +1,31 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mockSampleRate = vi.hoisted(() => ({ value: 1 }));
+
+vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const baseEnv = actual.env as Record<string, unknown>;
+  return {
+    ...actual,
+    env: new Proxy(baseEnv, {
+      get(target, prop, receiver) {
+        if (prop === "socketMetricsSampleRate") {
+          return mockSampleRate.value;
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }),
+  };
+});
 
 import {
   buildRelayHubMetricsSnapshot,
   ensureAgentCircuitClosed,
   noteBridgeAckRetryAttempt,
   noteBridgeAckRetryExhausted,
+  observeRelayBridgeEncode,
+  observeRelayFrameDecode,
+  observeRelayOverloadCheck,
   registerAgentFailure,
   relayMetrics,
   resetRelayHubHealthAndMetrics,
@@ -15,6 +36,8 @@ import { resetRestPendingRequestsStore } from "../../../../../src/presentation/s
 import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 
 afterEach(() => {
+  mockSampleRate.value = 1;
+  vi.restoreAllMocks();
   resetRelayHubHealthAndMetrics();
   resetRelayRequestRegistry();
   resetRestPendingRequestsStore();
@@ -74,5 +97,49 @@ describe("bridge_relay_health_metrics", () => {
     }
     expect(() => ensureAgentCircuitClosed("agent-iso", "relay")).toThrow(/circuit is open/);
     expect(() => ensureAgentCircuitClosed("agent-iso", "rest")).not.toThrow();
+  });
+
+  it("records hot-path observe metrics exactly when SOCKET_METRICS_SAMPLE_RATE is 1", () => {
+    mockSampleRate.value = 1;
+    observeRelayOverloadCheck(4);
+    observeRelayFrameDecode(2);
+    observeRelayBridgeEncode(3);
+
+    expect(relayMetrics.overloadChecksTotal).toBe(1);
+    expect(relayMetrics.overloadCheckSumMs).toBe(4);
+    expect(relayMetrics.frameDecodeCount).toBe(1);
+    expect(relayMetrics.frameDecodeSumMs).toBe(2);
+    expect(relayMetrics.bridgeEncodeCount).toBe(1);
+    expect(relayMetrics.bridgeEncodeSumMs).toBe(3);
+  });
+
+  it("scales hot-path observe metrics when SOCKET_METRICS_SAMPLE_RATE is below 1", () => {
+    mockSampleRate.value = 0.1;
+    vi.spyOn(Math, "random").mockReturnValue(0.05);
+
+    observeRelayOverloadCheck(5);
+    observeRelayFrameDecode(2);
+    observeRelayBridgeEncode(3);
+
+    expect(relayMetrics.overloadChecksTotal).toBe(10);
+    expect(relayMetrics.overloadCheckSumMs).toBe(50);
+    expect(relayMetrics.frameDecodeCount).toBe(10);
+    expect(relayMetrics.frameDecodeSumMs).toBe(20);
+    expect(relayMetrics.bridgeEncodeCount).toBe(10);
+    expect(relayMetrics.bridgeEncodeSumMs).toBe(30);
+  });
+
+  it("skips hot-path observe metrics when SOCKET_METRICS_SAMPLE_RATE is 0", () => {
+    mockSampleRate.value = 0;
+    observeRelayOverloadCheck(5);
+    observeRelayFrameDecode(2);
+    observeRelayBridgeEncode(3);
+
+    expect(relayMetrics.overloadChecksTotal).toBe(0);
+    expect(relayMetrics.overloadCheckSumMs).toBe(0);
+    expect(relayMetrics.frameDecodeCount).toBe(0);
+    expect(relayMetrics.frameDecodeSumMs).toBe(0);
+    expect(relayMetrics.bridgeEncodeCount).toBe(0);
+    expect(relayMetrics.bridgeEncodeSumMs).toBe(0);
   });
 });

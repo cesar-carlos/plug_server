@@ -30,6 +30,13 @@ export interface RelayRequestRoute {
    * `docs/socket_relay_protocol.md` ("Relay unary fast-path").
    */
   readonly fastPath?: boolean;
+  /**
+   * Snapshotted at route registration from agent capabilities so the response
+   * forwarder avoids repeated negotiation lookups per `relay:rpc.response`.
+   */
+  readonly clientRequestIdEcho?: boolean;
+  readonly agentPhaseTimingsNegotiated?: boolean;
+  readonly healthPiggybackNegotiated?: boolean;
   acked?: boolean | undefined;
   ackRetryTimer?: NodeJS.Timeout | undefined;
   ackRetriesAttempted?: number | undefined;

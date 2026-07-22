@@ -92,4 +92,26 @@ describe("agent_health_piggyback.service", () => {
 
     expect(recorded).toBe(false);
   });
+
+  it("records piggyback using negotiatedFreshnessThresholdMs without capabilities lookup", () => {
+    const capturedAtMs = Date.now();
+    const recorded = maybeRecordAgentHealthPiggyback({
+      agentId: "agent-cached-threshold",
+      negotiatedFreshnessThresholdMs: 5000,
+      rpcBody: {
+        meta: {
+          health_snapshot: {
+            captured_at_ms: capturedAtMs,
+            status: "healthy",
+          },
+        },
+      },
+      nowMs: capturedAtMs + 100,
+    });
+
+    expect(recorded).toBe(true);
+    expect(shouldSkipScheduledAgentHealthPoll("agent-cached-threshold", capturedAtMs + 100)).toBe(
+      true,
+    );
+  });
 });

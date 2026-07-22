@@ -10,6 +10,7 @@ import type {
 } from "../relay/rpc_bridge_dispatch_command";
 
 import { agentRegistry } from "../registries/agent_registry";
+import { shouldSkipAgentHealthPollDueToDispatchSaturation } from "./agent_dispatch_saturation";
 
 export type AgentHealthPollDispatch = (
   input: DispatchRpcCommandInput,
@@ -40,6 +41,11 @@ export const runAgentHealthPollSweep = async (
         outcomes.push("skipped");
         return;
       }
+    }
+
+    if (shouldSkipAgentHealthPollDueToDispatchSaturation(agent.agentId)) {
+      outcomes.push("skipped");
+      return;
     }
 
     try {

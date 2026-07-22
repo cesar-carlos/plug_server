@@ -6,6 +6,7 @@ import {
   isClientRequestIdEchoNegotiated,
   isHealthPiggybackNegotiated,
   isParallelBatchDispatchNegotiated,
+  snapshotRelayRouteTransportFlags,
 } from "../../../../src/shared/constants/transport_extension_negotiation";
 
 describe("transport_extension_negotiation", () => {
@@ -40,6 +41,19 @@ describe("transport_extension_negotiation", () => {
 
   it("returns true when agent advertises healthPiggyback object", () => {
     expect(isHealthPiggybackNegotiated(negotiatedAgentCapabilities)).toBe(true);
+  });
+
+  it("snapshots relay route transport flags from agent capabilities", () => {
+    expect(snapshotRelayRouteTransportFlags(negotiatedAgentCapabilities)).toEqual({
+      clientRequestIdEcho: true,
+      agentPhaseTimingsNegotiated: true,
+      healthPiggybackNegotiated: true,
+    });
+    expect(snapshotRelayRouteTransportFlags({ extensions: {} })).toEqual({
+      clientRequestIdEcho: false,
+      agentPhaseTimingsNegotiated: false,
+      healthPiggybackNegotiated: false,
+    });
   });
 });
 

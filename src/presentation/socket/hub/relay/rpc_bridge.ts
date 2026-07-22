@@ -16,7 +16,6 @@ import {
   stopRelayHubMetricsLogger,
   type RelayHubMetricsSnapshot,
 } from "./bridge_relay_health_metrics";
-import { agentRegistry } from "../registries/agent_registry";
 import { enqueueRelayOutbound, encodeRelayOutboundFrame } from "./relay_outbound_queue";
 import {
   getRelayRequestRoute,
@@ -128,9 +127,7 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
   if (!agentSocket) {
     const relayRoute = getRelayRequestRoute(route.requestId);
     const agentId =
-      relayRoute?.agentId ??
-      route.restMaterializeState?.agentId ??
-      agentRegistry.findBySocketId(route.agentSocketId)?.agentId;
+      route.agentId ?? relayRoute?.agentId ?? route.restMaterializeState?.agentId;
     if (agentId) {
       registerAgentFailure(agentId, "relay");
     }

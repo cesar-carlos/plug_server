@@ -78,9 +78,9 @@ export const createPrepareAgentStreamPull = (
   const cleanupMissingAgentSocketRoute = (route: ActiveStreamRoute): void => {
     const relayRoute = getRelayRequestRoute(route.requestId);
     const agentId =
+      route.agentId ??
       relayRoute?.agentId ??
-      route.restMaterializeState?.agentId ??
-      agentRegistry.findBySocketId(route.agentSocketId)?.agentId;
+      route.restMaterializeState?.agentId;
     if (agentId) {
       registerAgentFailure(agentId, "relay");
     }
@@ -154,10 +154,9 @@ export const createPrepareAgentStreamPull = (
       throw serviceUnavailable("Agent socket is unavailable");
     }
 
-    const registeredAgent = agentRegistry.findBySocketId(route.agentSocketId);
-    const windowSize = registeredAgent
+    const windowSize = agentRegistry.isRegistered(route.agentId)
       ? agentRegistry.resolveStreamPullWindow(
-          registeredAgent.agentId,
+          route.agentId,
           defaultStreamWindowSize,
           input.windowSize,
         )

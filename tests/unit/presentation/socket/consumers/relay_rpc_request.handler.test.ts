@@ -63,6 +63,7 @@ import {
 } from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
+import { encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
 import {
   noteRelayFastPathFallbackDedup,
   noteRelayFastPathFallbackError,
@@ -79,6 +80,14 @@ const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedRefundRelayRpc = vi.mocked(refundRelayRpcRequestAsync);
 const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
 const mockedReleaseInflight = vi.mocked(releaseSocketInflightSlot);
+
+const buildUnaryRelayFrame = (): unknown =>
+  encodePayloadFrame({
+    jsonrpc: "2.0",
+    method: "agent.getHealth",
+    id: "client-req-1",
+    params: {},
+  });
 
 const buildSocket = () =>
   ({
@@ -179,7 +188,7 @@ describe("handleRelayRpcRequest", () => {
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",
-      frame: { schemaVersion: "1.0" },
+      frame: buildUnaryRelayFrame(),
     });
 
     expect(mockedRefundRelayRpc).not.toHaveBeenCalled();
@@ -201,7 +210,7 @@ describe("handleRelayRpcRequest", () => {
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",
-      frame: { schemaVersion: "1.0" },
+      frame: buildUnaryRelayFrame(),
     });
 
     expect(socket.emit).not.toHaveBeenCalled();
@@ -218,7 +227,7 @@ describe("handleRelayRpcRequest", () => {
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",
-      frame: { schemaVersion: "1.0" },
+      frame: buildUnaryRelayFrame(),
     });
 
     await vi.waitFor(() => {
@@ -241,7 +250,7 @@ describe("handleRelayRpcRequest", () => {
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",
-      frame: { schemaVersion: "1.0" },
+      frame: buildUnaryRelayFrame(),
     });
 
     await vi.waitFor(() => {
@@ -261,7 +270,7 @@ describe("handleRelayRpcRequest", () => {
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",
-      frame: { schemaVersion: "1.0" },
+      frame: buildUnaryRelayFrame(),
     });
 
     await vi.waitFor(() => {
@@ -280,7 +289,7 @@ describe("handleRelayRpcRequest", () => {
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",
-      frame: { schemaVersion: "1.0" },
+      frame: buildUnaryRelayFrame(),
     });
 
     await vi.waitFor(() => {
@@ -302,7 +311,7 @@ describe("handleRelayRpcRequest", () => {
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",
-      frame: { schemaVersion: "1.0" },
+      frame: buildUnaryRelayFrame(),
     });
 
     await vi.waitFor(() => {
@@ -331,7 +340,7 @@ describe("handleRelayRpcRequest", () => {
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",
-      frame: { schemaVersion: "1.0" },
+      frame: buildUnaryRelayFrame(),
     });
 
     await vi.waitFor(() => expect(capturedSignal).toBeDefined());
@@ -341,11 +350,60 @@ describe("handleRelayRpcRequest", () => {
     expect(capturedSignal?.aborted).toBe(true);
   });
 
+  it("passes preDecodedData to dispatchRelayRpcToAgent (decode-once unary path)", async () => {
+    const socket = buildSocket();
+    mockedDispatchRelayRpcToAgent.mockResolvedValue({
+      requestId: "req-1",
+      clientRequestId: "client-req-1",
+    });
+
+    const frame = buildUnaryRelayFrame();
+    handleRelayRpcRequest(socket as never, {
+      conversationId: "conv-1",
+      frame,
+    });
+
+    await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalledTimes(1));
+
+    const input = mockedDispatchRelayRpcToAgent.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.preDecodedData).toMatchObject({
+      jsonrpc: "2.0",
+      method: "agent.getHealth",
+      id: "client-req-1",
+    });
+    expect(input.rawFramePayload).toBeUndefined();
+  });
+
+  it("refunds quota and emits BAD_REQUEST when the consumer frame fails decode", async () => {
+    const socket = buildSocket();
+
+    handleRelayRpcRequest(socket as never, {
+      conversationId: "conv-1",
+      frame: { not: "a-payload-frame" },
+    });
+
+    await vi.waitFor(() => {
+      expect(mockedRefundRelayRpc).toHaveBeenCalledWith("user-1", "consumer-1");
+    });
+    expect(mockedDispatchRelayRpcToAgent).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.relayRpcAccepted,
+      expect.objectContaining({
+        success: false,
+        conversationId: "conv-1",
+        error: expect.objectContaining({
+          code: "BAD_REQUEST",
+          statusCode: 400,
+        }),
+      }),
+    );
+  });
+
   describe("fast-path opt-in", () => {
     it("accepts `fastPath: true` on the envelope schema", () => {
       const result = parseRelayRpcRequestEnvelope({
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
       expect(result.success).toBe(true);
@@ -364,7 +422,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
 
@@ -383,7 +441,7 @@ describe("handleRelayRpcRequest", () => {
 
       const parsed = parseRelayRpcRequestEnvelope({
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         timeoutMs: 30_000,
       });
       expect(parsed.success).toBe(true);
@@ -393,7 +451,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         timeoutMs: 30_000,
       });
 
@@ -413,7 +471,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
 
@@ -437,7 +495,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
 
@@ -461,7 +519,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
 
@@ -498,7 +556,7 @@ describe("handleRelayRpcRequest", () => {
 
         handleRelayRpcRequest(socket as never, {
           conversationId: "conv-1",
-          frame: { schemaVersion: "1.0" },
+          frame: buildUnaryRelayFrame(),
           fastPath: true,
         });
 
@@ -538,7 +596,7 @@ describe("handleRelayRpcRequest", () => {
 
         handleRelayRpcRequest(socket as never, {
           conversationId: "conv-1",
-          frame: { schemaVersion: "1.0" },
+          frame: buildUnaryRelayFrame(),
           // fastPath omitted
         });
 
@@ -558,7 +616,7 @@ describe("handleRelayRpcRequest", () => {
     it("accepts `requestServerTimings: true` on the envelope schema", () => {
       const result = parseRelayRpcRequestEnvelope({
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         requestServerTimings: true,
       });
       expect(result.success).toBe(true);
@@ -576,7 +634,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         requestServerTimings: true,
       });
 
@@ -606,7 +664,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
 
@@ -629,7 +687,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
 
@@ -646,7 +704,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
 
@@ -666,7 +724,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "b04050f3-e9ea-498c-8d4e-ed0562b396a2",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         fastPath: true,
       });
 
@@ -693,7 +751,7 @@ describe("handleRelayRpcRequest", () => {
 
       handleRelayRpcRequest(socket as never, {
         conversationId: "conv-1",
-        frame: { schemaVersion: "1.0" },
+        frame: buildUnaryRelayFrame(),
         requestServerTimings: true,
       });
 

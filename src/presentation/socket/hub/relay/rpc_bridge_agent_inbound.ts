@@ -43,6 +43,7 @@ import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 import { extractStreamIdFromRpcResponse, pickResponseIds } from "./rpc_bridge_command_helpers";
 import { createOrderedStreamInboundQueue } from "./ordered_stream_inbound_queue";
 import { startRestStreamMaterialization } from "./rest_stream_materialize_handler";
+import type { RelayChunkRawForward } from "./relay_stream_flow_state";
 import { forwardRelayRouteResponse } from "./relay_route_response_forwarder";
 import { createRelayFailFastEmitters } from "./rpc_bridge_relay_fail_fast";
 
@@ -201,6 +202,7 @@ export const createRpcBridgeAgentInboundHandlers = (
             upsertActiveStreamRoute({
               requestId: pendingRequestId,
               agentSocketId: socketId,
+              agentId: pendingRequest.agentId,
               streamHandlers: pendingRequest.streamHandlers,
               streamId,
             });
@@ -311,7 +313,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     }
 
     if (route.conversationId) {
-      conversationRegistry.touchInternal(route.conversationId);
+      conversationRegistry.touchInternalDebounced(route.conversationId);
     }
 
     return { route, data, frame: result.value.frame, decodedBytes: result.value.decodedBytes };
@@ -369,14 +371,25 @@ export const createRpcBridgeAgentInboundHandlers = (
       if (!resolved) {
         return;
       }
-      const { route, data } = resolved;
+      const { route, data, frame, decodedBytes } = resolved;
       const liveRoute = getActiveStreamRouteByRequestId(route.requestId);
       if (!liveRoute || liveRoute !== route) {
         return;
       }
 
+      const completeRawForward: RelayChunkRawForward = {
+        bytes: decodedBytes,
+        cmp: frame.cmp,
+        ...(frame.cmp === "gzip" && Buffer.isBuffer(frame.payload)
+          ? {
+              wireBytes: frame.payload,
+              originalSize: frame.originalSize,
+            }
+          : {}),
+      };
+
       if (route.mode === "relay") {
-        route.onComplete(data);
+        route.onComplete(data, completeRawForward);
         return;
       }
 

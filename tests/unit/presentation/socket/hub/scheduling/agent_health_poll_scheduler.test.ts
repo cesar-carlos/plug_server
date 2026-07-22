@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clearAgentHealthPiggybackState } from "../../../../../../src/application/services/agent_health_piggyback.service";
 import { agentRegistry } from "../../../../../../src/presentation/socket/hub/registries/agent_registry";
+import * as agentDispatchSaturation from "../../../../../../src/presentation/socket/hub/scheduling/agent_dispatch_saturation";
 import {
   resetAgentHealthPollSchedulerForTests,
   runAgentHealthPollSweep,
@@ -25,6 +26,7 @@ describe("agent_health_poll_scheduler", () => {
     agentRegistry.clear();
     clearAgentHealthPiggybackState();
     resetAgentHealthPollSchedulerForTests();
+    vi.restoreAllMocks();
   });
 
   it("skips poll when piggyback snapshot is still fresh", async () => {
@@ -82,5 +84,23 @@ describe("agent_health_poll_scheduler", () => {
         command: expect.objectContaining({ method: "agent.getHealth" }),
       }),
     );
+  });
+
+  it("skips poll when dispatch saturation helper reports saturated", async () => {
+    const dispatch = vi.fn().mockResolvedValue({
+      requestId: "r1",
+      response: { result: { status: "healthy" } },
+    });
+
+    registerReadyAgent("agent-saturated", {});
+    vi.spyOn(
+      agentDispatchSaturation,
+      "shouldSkipAgentHealthPollDueToDispatchSaturation",
+    ).mockReturnValue(true);
+
+    const summary = await runAgentHealthPollSweep(dispatch);
+    expect(summary.skipped).toBe(1);
+    expect(summary.polled).toBe(0);
+    expect(dispatch).not.toHaveBeenCalled();
   });
 });

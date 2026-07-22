@@ -731,6 +731,14 @@ const envSchema = z.object({
     z.string(),
   ),
   /**
+   * When `true` and {@link SOCKET_RATE_LIMIT_REDIS_URL} is set, `relay:rpc.request`
+   * rate limits consult the in-process window first: local denies skip Redis RTT;
+   * local allows return immediately and reconcile with Redis asynchronously.
+   * Default `false` preserves exact await-Redis semantics. See
+   * `socket_rate_limit_redis_local_first.ts` for multi-replica accuracy tradeoffs.
+   */
+  SOCKET_RATE_LIMIT_REDIS_LOCAL_FIRST: z.coerce.boolean().default(false),
+  /**
    * Default `node-redis` socket connect timeout (ms) shared by every Redis-backed module
    * (rate-limits + idempotency). The Socket.IO adapter keeps its own override for backwards
    * compatibility (`SOCKET_IO_REDIS_ADAPTER_CONNECT_TIMEOUT_MS`).
@@ -916,6 +924,18 @@ const envSchema = z.object({
     .max(3_600_000)
     .default(60_000),
   /**
+   * Minimum interval between consumer registry `lastSeenAt` refreshes per socket (ms).
+   * `0` refreshes on every qualifying activity (default). When idle TTL is 30m,
+   * values like 5000 reduce hot-path registry writes; worst case a socket may idle
+   * out up to this many ms earlier than the nominal threshold.
+   */
+  SOCKET_CONSUMER_IDLE_TOUCH_DEBOUNCE_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(300_000)
+    .default(0),
+  /**
    * When > 0, successful `/agents` and `/consumers` handshake DB checks may be skipped for the same
    * JWT `sub` + `credentials_version` + principal type until the TTL expires (reduces DB load on reconnect storms).
    * Block/unblock can be delayed by up to this window; use `0` (default) to always hit the DB.
@@ -1058,6 +1078,16 @@ const envSchema = z.object({
   SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   SOCKET_RELAY_STREAM_MAX_LIFETIME_MS: z.coerce.number().int().positive().default(300_000),
   SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  /**
+   * Minimum interval between relay conversation registry `lastSeenAt` refreshes per
+   * conversation on stream hot paths (ms). `0` touches on every chunk/response (default).
+   */
+  SOCKET_RELAY_CONVERSATION_TOUCH_DEBOUNCE_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(300_000)
+    .default(0),
   SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   SOCKET_RELAY_MAX_CONVERSATIONS: z.coerce.number().int().positive().default(5_000),
   SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER: z.coerce.number().int().positive().default(20),
@@ -1879,6 +1909,7 @@ export const env = {
   socketAgentRegisterRateLimitWindowMs: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS,
   socketAgentRegisterRateLimitMax: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX,
   socketRateLimitRedisUrl: parsedEnv.SOCKET_RATE_LIMIT_REDIS_URL,
+  socketRateLimitRedisLocalFirst: parsedEnv.SOCKET_RATE_LIMIT_REDIS_LOCAL_FIRST,
   agentRegisterBindCacheTtlMs: parsedEnv.AGENT_REGISTER_BIND_CACHE_TTL_MS,
   agentRegisterBindCacheMaxSize: parsedEnv.AGENT_REGISTER_BIND_CACHE_MAX_SIZE,
   socketAuthRequired: parsedEnv.SOCKET_AUTH_REQUIRED,
@@ -1891,6 +1922,7 @@ export const env = {
   agentHealthPollConcurrency: parsedEnv.AGENT_HEALTH_POLL_CONCURRENCY,
   socketConsumerIdleTimeoutMs: parsedEnv.SOCKET_CONSUMER_IDLE_TIMEOUT_MS,
   socketConsumerIdleSweepIntervalMs: parsedEnv.SOCKET_CONSUMER_IDLE_SWEEP_INTERVAL_MS,
+  socketConsumerIdleTouchDebounceMs: parsedEnv.SOCKET_CONSUMER_IDLE_TOUCH_DEBOUNCE_MS,
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
   socketConsumerAgentAccessSnapshotTtlMs: parsedEnv.SOCKET_CONSUMER_AGENT_ACCESS_SNAPSHOT_TTL_MS,
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,
@@ -1924,6 +1956,7 @@ export const env = {
   socketRelayStreamIdleTimeoutMs: parsedEnv.SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS,
   socketRelayStreamMaxLifetimeMs: parsedEnv.SOCKET_RELAY_STREAM_MAX_LIFETIME_MS,
   socketRelayConversationIdleTimeoutMs: parsedEnv.SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS,
+  socketRelayConversationTouchDebounceMs: parsedEnv.SOCKET_RELAY_CONVERSATION_TOUCH_DEBOUNCE_MS,
   socketRelayConversationSweepIntervalMs: parsedEnv.SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS,
   socketRelayMaxConversations: parsedEnv.SOCKET_RELAY_MAX_CONVERSATIONS,
   socketRelayMaxConversationsPerConsumer: parsedEnv.SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER,

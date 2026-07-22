@@ -6,6 +6,7 @@ import { conversationRegistry } from "../../../../../src/presentation/socket/hub
 import {
   getRelayEffectivePendingCount,
   getRelayRegisteredRouteCount,
+  getRelayRequestRoute,
   resetRelayRequestRegistry,
 } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import {
@@ -606,5 +607,81 @@ describe("rpc_bridge_dispatch_relay", () => {
     });
     const eventName = emitToConsumer.mock.calls[0]?.[1];
     expect(eventName).toBe(socketEvents.relayRpcResponse);
+  });
+
+  it("accepts preDecodedData without re-decoding the consumer frame", async () => {
+    const agentId = "agent-predecoded";
+    const agentSocketId = "agent-socket-predecoded";
+    const consumerSocketId = "consumer-predecoded";
+    const conversationId = "conversation-predecoded";
+    const agentEmit = vi.fn();
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+        extensions: {
+          clientRequestIdEcho: "v1",
+          agentPhaseTimings: "v1",
+          healthPiggyback: { freshnessThresholdMs: 5000 },
+        },
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const preDecodedCommand = {
+      jsonrpc: "2.0",
+      method: "agent.getHealth",
+      id: "client-predecoded",
+      params: {},
+    };
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (socketId) =>
+        socketId === agentSocketId ? { emit: agentEmit } : null,
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    const result = await handlers.dispatchRelayRpcToAgent({
+      conversationId,
+      consumerSocketId,
+      preDecodedData: preDecodedCommand,
+    });
+
+    expect(result.clientRequestId).toBe("client-predecoded");
+    expect(agentEmit).toHaveBeenCalledWith(
+      socketEvents.rpcRequest,
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
+
+    const route = getRelayRequestRoute(result.requestId);
+    expect(route).toMatchObject({
+      clientRequestIdEcho: true,
+      agentPhaseTimingsNegotiated: true,
+      healthPiggybackNegotiated: true,
+    });
   });
 });

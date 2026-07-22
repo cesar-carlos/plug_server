@@ -11,7 +11,8 @@ vi.mock("../../../../../src/presentation/socket/hub/registries/active_stream_reg
 
 vi.mock("../../../../../src/presentation/socket/hub/registries/agent_registry", () => ({
   agentRegistry: {
-    findBySocketId: vi.fn(),
+    resolveStreamPullWindow: vi.fn(),
+    isRegistered: vi.fn(),
   },
 }));
 
@@ -63,7 +64,6 @@ import {
   getActiveStreamRouteByRequestId,
   getActiveStreamRouteByStreamId,
 } from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
-import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import {
   allowAgentsCommandSocketAsync,
@@ -79,7 +79,6 @@ import { AppError } from "../../../../../src/shared/errors/app_error";
 const mockedPrepareAgentStreamPull = vi.mocked(prepareLegacyAgentStreamPull);
 const mockedGetActiveStreamRouteByRequestId = vi.mocked(getActiveStreamRouteByRequestId);
 const mockedGetActiveStreamRouteByStreamId = vi.mocked(getActiveStreamRouteByStreamId);
-const mockedFindBySocketId = vi.mocked(agentRegistry.findBySocketId);
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
 const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocketAsync);
@@ -117,7 +116,6 @@ describe("handleAgentsStreamPull", () => {
     mockedPrepareAgentStreamPull.mockReset();
     mockedGetActiveStreamRouteByRequestId.mockReset();
     mockedGetActiveStreamRouteByStreamId.mockReset();
-    mockedFindBySocketId.mockReset();
     mockedAssertAccess.mockReset();
     mockedTryAcquire.mockReset();
     mockedAllowAgentsCommandSocket.mockReset();
@@ -138,11 +136,12 @@ describe("handleAgentsStreamPull", () => {
     });
     mockedGetActiveStreamRouteByRequestId.mockReturnValue({
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
     } as never);
     mockedGetActiveStreamRouteByStreamId.mockReturnValue({
       agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
     } as never);
-    mockedFindBySocketId.mockReturnValue({ agentId: "agent-1" } as never);
     mockedAssertAccess.mockResolvedValue({ type: "user", id: "user-1", role: "user" });
     mockedPrepareAgentStreamPull.mockReturnValue({
       requestId: "req-1",
@@ -235,7 +234,7 @@ describe("handleAgentsStreamPull", () => {
 
   it("refunds shared agents:command quota when the stream route is missing", async () => {
     const socket = buildSocket();
-    mockedFindBySocketId.mockReturnValue(undefined);
+    mockedGetActiveStreamRouteByRequestId.mockReturnValue(undefined);
 
     await handleAgentsStreamPull(socket as never, { requestId: "req-missing" });
 

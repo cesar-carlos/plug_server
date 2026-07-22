@@ -1,6 +1,7 @@
 import type { AgentSessionPolicy } from "../../../../shared/constants/agent_session_policy";
 import {
   clearAgentHealthPiggybackState,
+  resolveNegotiatedHealthPiggybackFreshnessThresholdMs,
   shouldSkipScheduledAgentHealthPoll,
 } from "../../../../application/services/agent_health_piggyback.service";
 import { env } from "../../../../shared/config/env";
@@ -39,6 +40,11 @@ interface InternalRegisteredAgent {
    * Used by `resolveStreamPullWindow` to skip re-parsing on each pull.
    */
   readonly streamPullWindowPolicy: ReturnType<typeof resolveStreamPullWindowPolicy>;
+  /**
+   * ADR 0011 piggyback freshness threshold resolved from `capabilities` at registration.
+   * `null` when health piggyback is not negotiated.
+   */
+  readonly healthPiggybackFreshnessThresholdMs: number | null;
 }
 
 type ProtocolReadyMode = "grace" | "explicit_ack";
@@ -330,6 +336,9 @@ class InMemoryAgentRegistry {
       lastSeenAtMs: nowMs,
       dispatchPolicy: resolveDispatchPolicy(input.capabilities),
       streamPullWindowPolicy: resolveStreamPullWindowPolicy(input.capabilities),
+      healthPiggybackFreshnessThresholdMs: resolveNegotiatedHealthPiggybackFreshnessThresholdMs(
+        input.capabilities,
+      ),
     };
 
     this.knownAgentIds.add(input.agentId);
@@ -453,6 +462,11 @@ class InMemoryAgentRegistry {
   /** Hot-path capabilities peek (immutable after register). */
   getCapabilitiesByAgentId(agentId: string): Record<string, unknown> | null {
     return this.agents.get(agentId)?.capabilities ?? null;
+  }
+
+  /** Cached ADR 0011 piggyback freshness threshold from register; `null` when not negotiated. */
+  getHealthPiggybackFreshnessThresholdMs(agentId: string): number | null {
+    return this.agents.get(agentId)?.healthPiggybackFreshnessThresholdMs ?? null;
   }
 
   shouldSkipScheduledHealthPoll(agentId: string, nowMs?: number): boolean {
