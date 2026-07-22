@@ -519,7 +519,7 @@ describe("rpc_bridge_agent_inbound", () => {
       expect(getActiveStreamRouteByRequestId("req-stream")).toMatchObject({
         requestId: "req-stream",
         agentSocketId: "socket-test",
-      agentId: "agent-test",
+        agentId: "agent-1",
         consumerSocketId: "consumer-1",
         streamId: "stream-1",
       });
