@@ -1,12 +1,13 @@
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Server, Socket } from "socket.io";
 
-import { handleAgentsCommand } from "../consumers/agents_command.handler";
+import { handleAgentsCommand, extractAgentsCommandRequestId } from "../consumers/agents_command.handler";
 import { handleAgentsStreamPull } from "../consumers/agents_stream_pull.handler";
 import {
   buildAgentsStreamPullResponseForWire,
   extractAgentsStreamPullRequestId,
 } from "../consumers/agents_stream_pull_wire";
+import { buildAgentsCommandResponseForWire } from "../consumers/agents_command_wire";
 import { abortPendingConsumerCommands } from "../consumers/consumer_command_abort_registry";
 import { handleCustomSocketEventPublish } from "../consumers/custom_socket_event_publish.handler";
 import {
@@ -206,6 +207,12 @@ export const registerConsumerSocketConnectionHandlers = ({
     });
     noteConsumerSocketConnected(socket.data.user?.principal_type ?? null);
 
+    // Register disconnect early so identity-room join failures still run full cleanup
+    // exactly once (avoids double-counting connected/disconnected metrics).
+    socket.on("disconnect", () => {
+      runConsumerSocketDisconnectCleanup(socket, agentsNsp, getUserId);
+    });
+
     try {
       await joinConsumerIdentityRooms(socket);
     } catch (error: unknown) {
@@ -214,7 +221,6 @@ export const registerConsumerSocketConnectionHandlers = ({
         userId: getUserId(socket),
         message: error instanceof Error ? error.message : String(error),
       });
-      unregisterConsumerBridgeSocket(socket.id);
       socket.emit(
         socketEvents.appError,
         buildLegacySocketAppErrorPayload(
@@ -222,7 +228,6 @@ export const registerConsumerSocketConnectionHandlers = ({
           "Consumer socket initialization failed",
         ),
       );
-      noteConsumerSocketDisconnected(socket.data.user?.principal_type ?? null);
       socket.disconnect(true);
       return;
     }
@@ -249,12 +254,40 @@ export const registerConsumerSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.agentsCommand, (rawPayload: unknown) => {
-      touchConsumerActivity();
-      handleAgentsCommand(socket, rawPayload);
+      void (async (): Promise<void> => {
+        const tOverload = performance.now();
+        const overload = getRelayOutboundQueueOverloadState();
+        observeRelayOverloadCheck(performance.now() - tOverload);
+        if (overload.overloaded) {
+          noteRelayOutboundQueueOverloadRejected();
+          const requestId = extractAgentsCommandRequestId(rawPayload);
+          const wire = await buildAgentsCommandResponseForWire(
+            {
+              success: false,
+              ...(requestId !== undefined ? { requestId } : {}),
+              error: buildConsumerOverloadError(
+                overload.retryAfterMs,
+                overload.reason ?? "relay_outbound_queue",
+              ),
+            },
+            { ...(requestId !== undefined ? { requestId } : {}) },
+          );
+          if (socket.connected) {
+            socket.emit(socketEvents.agentsCommandResponse, wire);
+          }
+          return;
+        }
+        // Idle touch runs inside the handler after structural validation succeeds.
+        await handleAgentsCommand(socket, rawPayload);
+      })().catch((error: unknown) => {
+        logger.warn("agents_command_handler_failed", {
+          socketId: socket.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
     });
 
     socket.on(socketEvents.agentsStreamPull, (rawPayload: unknown) => {
-      touchConsumerActivity();
       const tOverload = performance.now();
       const overload = getRelayOutboundQueueOverloadState();
       observeRelayOverloadCheck(performance.now() - tOverload);
@@ -277,11 +310,11 @@ export const registerConsumerSocketConnectionHandlers = ({
         return;
       }
 
-      handleAgentsStreamPull(socket, rawPayload);
+      // Idle touch runs inside the handler after structural validation succeeds.
+      void handleAgentsStreamPull(socket, rawPayload);
     });
 
     socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
-      touchConsumerActivity();
       void (async (): Promise<void> => {
         const requestId = extractRelayConversationStartRequestId(rawPayload);
         const tOverload = performance.now();
@@ -313,6 +346,8 @@ export const registerConsumerSocketConnectionHandlers = ({
           return;
         }
 
+        touchConsumerActivity();
+
         const userSub = socket.data.user?.sub;
         if (!(await allowRelayConversationStartAsync(userSub, socket.id))) {
           socket.emit(socketEvents.relayConversationStarted, {
@@ -333,16 +368,27 @@ export const registerConsumerSocketConnectionHandlers = ({
           socketId: socket.id,
           message: error instanceof Error ? error.message : String(error),
         });
+        const requestId = extractRelayConversationStartRequestId(rawPayload);
+        if (socket.connected) {
+          socket.emit(socketEvents.relayConversationStarted, {
+            success: false,
+            ...(requestId !== undefined ? { requestId } : {}),
+            error: {
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to start relay conversation",
+              statusCode: 500,
+            },
+          });
+        }
       });
     });
 
     socket.on(socketEvents.relayConversationEnd, (rawPayload: unknown) => {
-      touchConsumerActivity();
+      // Idle touch runs inside the handler after structural validation succeeds.
       handleRelayConversationEnd(socket, rawPayload);
     });
 
     socket.on(socketEvents.relayRpcRequest, (rawPayload: unknown) => {
-      touchConsumerActivity();
       void (async (): Promise<void> => {
         const tOverload = performance.now();
         const overload = getRelayOutboundQueueOverloadState();
@@ -373,6 +419,8 @@ export const registerConsumerSocketConnectionHandlers = ({
           return;
         }
 
+        touchConsumerActivity();
+
         const userSub = socket.data.user?.sub;
         if (!(await allowRelayRpcRequestAsync(userSub, socket.id))) {
           socket.emit(socketEvents.relayRpcAccepted, {
@@ -393,21 +441,34 @@ export const registerConsumerSocketConnectionHandlers = ({
           socketId: socket.id,
           message: error instanceof Error ? error.message : String(error),
         });
+        const conversationId = extractRelayEnvelopeConversationId(rawPayload);
+        if (socket.connected) {
+          socket.emit(socketEvents.relayRpcAccepted, {
+            success: false,
+            ...(conversationId !== undefined ? { conversationId } : {}),
+            error: {
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to relay RPC request",
+              statusCode: 500,
+            },
+          });
+        }
       });
     });
 
     // Batch variant — `relay:rpc.request.batch`. Gated by
     // `SOCKET_RELAY_BATCH_ENABLED`. See `docs/adrs/0008-relay-batch-protocol.md`.
     socket.on(socketEvents.relayRpcRequestBatch, (rawPayload: unknown) => {
-      touchConsumerActivity();
       void (async (): Promise<void> => {
         const tOverload = performance.now();
         const overload = getRelayOutboundQueueOverloadState();
         observeRelayOverloadCheck(performance.now() - tOverload);
         if (overload.overloaded) {
           noteRelayOutboundQueueOverloadRejected();
+          const conversationId = extractRelayEnvelopeConversationId(rawPayload);
           socket.emit(socketEvents.relayRpcBatchAccepted, {
             success: false,
+            ...(conversationId !== undefined ? { conversationId } : {}),
             error: buildConsumerOverloadError(
               overload.retryAfterMs,
               overload.reason ?? "relay_outbound_queue",
@@ -418,12 +479,16 @@ export const registerConsumerSocketConnectionHandlers = ({
 
         const envelope = parseRelayRpcRequestBatchEnvelope(rawPayload);
         if (!envelope.success) {
+          const conversationId = extractRelayEnvelopeConversationId(rawPayload);
           socket.emit(socketEvents.relayRpcBatchAccepted, {
             success: false,
+            ...(conversationId !== undefined ? { conversationId } : {}),
             error: { code: "VALIDATION_ERROR", message: envelope.errorMessage },
           });
           return;
         }
+
+        touchConsumerActivity();
 
         handleRelayRpcRequestBatch(socket, envelope.data);
       })().catch((error: unknown) => {
@@ -431,11 +496,22 @@ export const registerConsumerSocketConnectionHandlers = ({
           socketId: socket.id,
           message: error instanceof Error ? error.message : String(error),
         });
+        const conversationId = extractRelayEnvelopeConversationId(rawPayload);
+        if (socket.connected) {
+          socket.emit(socketEvents.relayRpcBatchAccepted, {
+            success: false,
+            ...(conversationId !== undefined ? { conversationId } : {}),
+            error: {
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to relay RPC batch request",
+              statusCode: 500,
+            },
+          });
+        }
       });
     });
 
     socket.on(socketEvents.relayRpcStreamPull, (rawPayload: unknown) => {
-      touchConsumerActivity();
       const tOverload = performance.now();
       const overload = getRelayOutboundQueueOverloadState();
       observeRelayOverloadCheck(performance.now() - tOverload);
@@ -467,26 +543,22 @@ export const registerConsumerSocketConnectionHandlers = ({
         return;
       }
 
+      touchConsumerActivity();
+
       handleRelayRpcStreamPull(socket, envelope.data);
     });
 
     socket.on(socketEvents.socketEventSubscribe, (rawPayload: unknown) => {
-      touchConsumerActivity();
+      // Idle touch runs inside the handler after Client principal auth succeeds.
       handleCustomSocketEventSubscribe(socket, rawPayload);
     });
 
     socket.on(socketEvents.socketEventUnsubscribe, (rawPayload: unknown) => {
-      touchConsumerActivity();
       handleCustomSocketEventUnsubscribe(socket, rawPayload);
     });
 
     socket.on(socketEvents.socketEventPublish, (rawPayload: unknown) => {
-      touchConsumerActivity();
       handleCustomSocketEventPublish(socket, rawPayload);
-    });
-
-    socket.on("disconnect", () => {
-      runConsumerSocketDisconnectCleanup(socket, agentsNsp, getUserId);
     });
   });
 };

@@ -8,6 +8,10 @@ import { consumerRegistry } from "../registries/consumer_registry";
  * High-frequency hub→consumer traffic (relay stream chunks/responses, command stream
  * chunks, profile push, etc.) must not refresh `lastSeenAt`. Only client-initiated
  * control and RPC paths belong here.
+ *
+ * Call sites should invoke {@link touchConsumerRegistryOnSocketActivity} only after
+ * structural validation (and custom-event Client auth) succeeds — malformed spam,
+ * overload sheds, and auth failures must not keep idle sockets alive.
  */
 export const consumerIdleTouchEvents = [
   socketEvents.agentsCommand,

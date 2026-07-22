@@ -29,6 +29,7 @@ import {
   isNonClientCustomSocketEventPrincipalError,
   isTerminalCustomSocketEventAuthFailure,
 } from "./custom_socket_event_guard";
+import { touchConsumerRegistryOnSocketActivity } from "../hub/scheduling/consumer_idle_touch_events";
 
 type SubscriptionResponse =
   | {
@@ -153,6 +154,7 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
       );
       return;
     }
+    touchConsumerRegistryOnSocketActivity(socket.id);
 
     const isAlreadySubscribed = hasCustomSocketEventSubscription(socket.id, eventName);
     if (
@@ -289,6 +291,7 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
       );
       return;
     }
+    touchConsumerRegistryOnSocketActivity(socket.id);
 
     try {
       await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));

@@ -37,6 +37,7 @@ import {
   handleCustomSocketEventAuthFailure,
   isTerminalCustomSocketEventAuthFailure,
 } from "./custom_socket_event_guard";
+import { touchConsumerRegistryOnSocketActivity } from "../hub/scheduling/consumer_idle_touch_events";
 
 type PublishedAck =
   | {
@@ -165,6 +166,7 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
       }
       return;
     }
+    touchConsumerRegistryOnSocketActivity(socket.id);
 
     const acquiredInflight = useDedicatedPublishInflight
       ? tryAcquireCustomPublishInflightSlot(inflightSocket, publishInflightMax)

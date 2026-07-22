@@ -23,7 +23,7 @@ import { toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
-import { allowAgentsCommandSocketAsync } from "../hub/rate_limits/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync, refundAgentsCommandSocketAsync } from "../hub/rate_limits/agents_command_socket_rate_limiter";
 import {
   allowAgentsStreamPullCredits,
   refundAgentsStreamPullCredits,
@@ -43,6 +43,7 @@ import {
   extractAgentsStreamPullRequestId,
   type AgentsStreamPullResponsePayload,
 } from "./agents_stream_pull_wire";
+import { touchConsumerRegistryOnSocketActivity } from "../hub/scheduling/consumer_idle_touch_events";
 
 const streamPullPayloadSchema = z
   .object({
@@ -138,6 +139,9 @@ const runAgentsStreamPull = async (
     return;
   }
 
+  // Valid pull envelope counts as meaningful activity (not malformed spam).
+  touchConsumerRegistryOnSocketActivity(socket.id);
+
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
     emitStreamPullResponse(
       socket,
@@ -170,6 +174,7 @@ const runAgentsStreamPull = async (
 
   void (async () => {
     let grantedCredits = 0;
+    let commandQuotaConsumed = false;
     try {
       if (!(await allowAgentsCommandSocketAsync(userSub, socket.id))) {
         emitStreamPullResponse(
@@ -186,6 +191,7 @@ const runAgentsStreamPull = async (
         );
         return;
       }
+      commandQuotaConsumed = true;
 
       assertNotAborted();
       const prepared = prepareLegacyAgentStreamPull({
@@ -201,6 +207,7 @@ const runAgentsStreamPull = async (
         requestId: prepared.requestId,
       });
       if (!agentId) {
+        // Missing/expired stream is not client abuse — catch refunds shared agents:command quota.
         throw new AppError("Stream route not found", { code: "NOT_FOUND", statusCode: 404 });
       }
 
@@ -263,6 +270,27 @@ const runAgentsStreamPull = async (
         }
       }
       const appError = err instanceof AppError ? err : undefined;
+      // Refund shared command quota on transient/server faults after consume.
+      // Keep quota on client authz faults (401/403) and other 4xx except 404
+      // (404 already refunded above when stream route is missing).
+      if (
+        commandQuotaConsumed &&
+        (appError === undefined ||
+          appError.statusCode === undefined ||
+          appError.statusCode >= 500 ||
+          appError.statusCode === 404)
+      ) {
+        try {
+          await refundAgentsCommandSocketAsync(userSub, socket.id);
+        } catch (refundError: unknown) {
+          logger.warn("agents_stream_pull_command_quota_refund_failed", {
+            socketId: socket.id,
+            userSub,
+            reason: appError?.code ?? "STREAM_PULL_FAILED",
+            message: refundError instanceof Error ? refundError.message : String(refundError),
+          });
+        }
+      }
       const code = appError?.code ?? "STREAM_PULL_FAILED";
       const message = err instanceof Error ? err.message : "Failed to pull stream";
       const statusCode = appError?.statusCode;

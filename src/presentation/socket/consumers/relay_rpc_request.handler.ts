@@ -37,7 +37,8 @@ import {
  * - **No refund**: authorization/routing/conflict/rate-limit 4xx
  *   (`401`, `403`, `404`, `409`, `429`, etc.).
  *
- * Envelope `VALIDATION_ERROR` is rejected before quota consumption in `socket.ts`.
+ * Envelope `VALIDATION_ERROR` is rejected before quota consumption in
+ * `register_consumer_socket_handlers.ts`.
  * Idempotent dedupe (`deduplicated: true`) refunds on the success path separately.
  */
 export const shouldRefundRelayRpcRequestRateLimit = (error: unknown): boolean => {
@@ -77,12 +78,11 @@ export const relayRpcEnvelopeSchema = z.object({
    * ("Relay unary fast-path").
    *
    * Streaming-capable methods (e.g. `sql.execute` with `prefer_db_streaming`
-   * or `multi_result`, `sql.executeBatch`) SHOULD NOT set this flag: the
+   * or `multi_result`, `sql.executeBatch`) MUST NOT set this flag: the
    * window/credit handshake requires `relay:rpc.accepted` to anchor
-   * `requestId` before `relay:rpc.stream.pull`. The hub does not reject those
-   * methods on the request, but consumers that set the flag for streaming
-   * RPCs may not be able to issue further `stream.pull` until the first
-   * chunk arrives.
+   * `requestId` before `relay:rpc.stream.pull`. The hub rejects
+   * `fastPath: true` for those methods at dispatch with `BAD_REQUEST` on
+   * `relay:rpc.accepted`.
    */
   fastPath: z.boolean().optional(),
 });

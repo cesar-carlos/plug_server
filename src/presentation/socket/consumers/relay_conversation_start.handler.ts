@@ -28,7 +28,8 @@ import { findAgentBridgeSocketById } from "../hub/relay/rpc_bridge";
  * - **Refund**: non-`AppError` (unexpected / transient) and `AppError` outside the 4xx range (e.g. 503).
  * - **No refund**: any **4xx** (404 agent missing, 409 per-consumer cap, auth/forbidden, etc.).
  *
- * Envelope `VALIDATION_ERROR` is rejected before quota consumption in `socket.ts`.
+ * Envelope `VALIDATION_ERROR` is rejected before quota consumption in
+ * `register_consumer_socket_handlers.ts`.
  */
 export const shouldRefundRelayConversationStartRateLimit = (error: unknown): boolean => {
   if (!(error instanceof AppError)) {

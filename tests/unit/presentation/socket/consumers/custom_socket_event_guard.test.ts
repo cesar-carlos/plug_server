@@ -109,9 +109,23 @@ describe("custom_socket_event_guard", () => {
     });
 
     expect(isTerminalCustomSocketEventAuthFailure(unauthorized)).toBe(true);
-    expect(isTerminalCustomSocketEventAuthFailure(forbidden)).toBe(true);
+    expect(isTerminalCustomSocketEventAuthFailure(forbidden)).toBe(false);
     expect(isTerminalCustomSocketEventAuthFailure(rateLimited)).toBe(false);
     expect(isNonClientCustomSocketEventPrincipalError(forbidden)).toBe(true);
     expect(isNonClientCustomSocketEventPrincipalError(unauthorized)).toBe(false);
+  });
+
+  it("treats blocked-account FORBIDDEN as terminal but keeps non-client FORBIDDEN non-terminal", () => {
+    const blocked = new AppError("Account is blocked", {
+      statusCode: 403,
+      code: "FORBIDDEN",
+    });
+    const nonClient = new AppError("Only Client principals may use custom socket events", {
+      statusCode: 403,
+      code: "FORBIDDEN",
+    });
+
+    expect(isTerminalCustomSocketEventAuthFailure(blocked)).toBe(true);
+    expect(isTerminalCustomSocketEventAuthFailure(nonClient)).toBe(false);
   });
 });

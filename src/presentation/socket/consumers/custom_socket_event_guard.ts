@@ -55,9 +55,20 @@ export const handleCustomSocketEventAuthFailure = (error: unknown): AppError => 
   return appError;
 };
 
-export const isTerminalCustomSocketEventAuthFailure = (error: AppError): boolean =>
-  error.statusCode === 401 || error.statusCode === 403;
-
 export const isNonClientCustomSocketEventPrincipalError = (error: AppError): boolean =>
   error.code === "FORBIDDEN" &&
   error.message === "Only Client principals may use custom socket events";
+
+/**
+ * True when custom-event auth failure must tear down the `/consumers` socket.
+ *
+ * Account/auth failures (`401`/`403` such as blocked account) disconnect.
+ * Non-client principals (`user`/`admin`) only get a `403` ack — they remain
+ * connected for relay / `agents:*` (custom events are Client-only).
+ */
+export const isTerminalCustomSocketEventAuthFailure = (error: AppError): boolean => {
+  if (isNonClientCustomSocketEventPrincipalError(error)) {
+    return false;
+  }
+  return error.statusCode === 401 || error.statusCode === 403;
+};

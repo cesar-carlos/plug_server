@@ -52,7 +52,17 @@ vi.mock("../../../../../src/presentation/socket/consumers/custom_socket_event_gu
     }
     return { code: "UNAUTHORIZED", message: "Authentication required", statusCode: 401 };
   }),
-  isTerminalCustomSocketEventAuthFailure: vi.fn(() => true),
+  isTerminalCustomSocketEventAuthFailure: vi.fn(
+    (error: { code?: string; message?: string; statusCode?: number }) => {
+      if (
+        error.code === "FORBIDDEN" &&
+        error.message === "Only Client principals may use custom socket events"
+      ) {
+        return false;
+      }
+      return error.statusCode === 401 || error.statusCode === 403;
+    },
+  ),
   isNonClientCustomSocketEventPrincipalError: vi.fn(
     (error: { code?: string; message?: string }) =>
       error.code === "FORBIDDEN" &&
@@ -124,6 +134,7 @@ describe("custom_socket_event_subscription.handler", () => {
     expect(mockedAllow).not.toHaveBeenCalled();
     expect(mockedNoteForbidden).toHaveBeenCalledTimes(1);
     expect(mockedNoteRejected).not.toHaveBeenCalled();
+    expect(mockedDisconnect).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.socketEventSubscribed,
       expect.objectContaining({
@@ -148,6 +159,7 @@ describe("custom_socket_event_subscription.handler", () => {
     expect(mockedAllow).not.toHaveBeenCalled();
     expect(mockedNoteForbidden).toHaveBeenCalledTimes(1);
     expect(mockedNoteRejected).not.toHaveBeenCalled();
+    expect(mockedDisconnect).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(
       socketEvents.socketEventUnsubscribed,
       expect.objectContaining({

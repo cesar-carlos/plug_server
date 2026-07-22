@@ -27,6 +27,10 @@ Autorizacao resumida do relay:
 - o handshake autentica o principal no namespace `/consumers`
 - o namespace `/consumers` e **fail-closed**: conexoes sem JWT valido sao rejeitadas mesmo que outros namespaces usem fallback mais permissivo em ambiente de teste
 - nas operacoes sensiveis, o servidor revalida conta ativa e acesso ao agente por evento
+  (com defaults estritos: `SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS` e
+  `SOCKET_CONSUMER_AGENT_ACCESS_SNAPSHOT_TTL_MS` em `0` = DB a cada evento; TTLs > 0
+  podem atrasar a observacao de block/revoke ate ao fim da janela — ver
+  `docs/configuration.md`)
 - `user` autoriza por `AgentIdentity`
 - `client` autoriza por `ClientAgentAccess`
 - `admin` pode operar qualquer agente ativo
@@ -134,7 +138,7 @@ Regras:
   `connection:*`, `app:*`, `client:agent.*`, `socket:event.*`) ficam fora do
   prefixo aceito e nao podem ser publicados;
 - subscribe/unsubscribe/publish usam JSON puro com envelope de ack no subscribe/unsubscribe e em `socket:event.published` para publish;
-- `socket:event.subscribe` / `socket:event.unsubscribe` aceitam apenas principal **Client** (JWT com `principal_type: client` e `sub`); `user`/`admin` recebem `403` / `FORBIDDEN` sem consumir o rate limit de subscribe;
+- `socket:event.subscribe` / `socket:event.unsubscribe` aceitam apenas principal **Client** (JWT com `principal_type: client` e `sub`); `user`/`admin` recebem `403` / `FORBIDDEN` no ack **sem** disconnect (a sessao relay / `agents:*` permanece aberta) e sem consumir o rate limit de subscribe;
 - `socket:event.publish` aplica o limite de inflight partilhado (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) **ou**, quando `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` > 0, um contador **dedicado** so para publicacoes custom (relay/comandos nao consomem esse teto; com **ambos** > 0 os contadores somam no maximo em voo); e um rate limit **separado** do Express; por defeito usam-se as mesmas env numericas que `POST /client/me/socket-events` (`REST_SOCKET_EVENT_RATE_LIMIT_*`), com overrides opcionais **só Socket** `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` (ver `docs/configuration.md`); com `SOCKET_RATE_LIMIT_REDIS_URL`, o scope Redis e `client_socket_event_publish` e a chave de identidade e `client:<JWT sub do Client>`; apos consumir quota, falhas **transientes** do publish (ex.: `503` fan-out local) **devolvem** a contagem na janela (best-effort: se o refund falhar, `WARN` `client_socket_event_publish_rate_limit_refund_failed` e o ack mantem o erro original do publish); **4xx** do `execute` (validacao, `413`, etc.) e conflitos de idempotencia (`409` / `IDEMPOTENCY_KEY_CONFLICT`) **nao** devolvem quota; **429** por inflight cheio ou por `allow === false` **nao** consumiram essa quota de publish; **429** em `socket:event.subscribe` (ex. `SUBSCRIPTION_LIMIT_EXCEEDED`) vem de outro limitador e nao afecta esta quota;
 - antes do parse Zod, o hub rejeita envelopes JSON brutos acima de um teto derivado dos limites REST e de `SOCKET_IO_MAX_HTTP_BUFFER_BYTES` (`PAYLOAD_TOO_LARGE` / `413` no ack; `error.details` inclui `maxRawEnvelopeUtf8Bytes` / `maxEngineIoBufferBytes` quando aplicavel) para cortar cargas maliciosas cedo;
 - cada socket tem limite configuravel de inscricoes simultaneas
@@ -431,7 +435,7 @@ Regras do contrato:
   mesmo com `fastPath: true`. Caso contrario o consumer ficaria sem sinal.
 - Para **metodos streaming-capable** (`sql.execute` com `prefer_db_streaming` ou
   `multi_result`, `sql.executeBatch`), o hub **rejeita** `fastPath: true` no
-  dispatch com `VALIDATION_ERROR` em `relay:rpc.accepted` (`fastPath is not
+  dispatch com `BAD_REQUEST` em `relay:rpc.accepted` (`fastPath is not
   allowed for streaming-capable RPC methods`). O handshake de window/credit
   (`relay:rpc.stream.pull`) precisa do `requestId` ancorado por
   `relay:rpc.accepted` antes do primeiro pull. Metrica:
@@ -805,8 +809,9 @@ Metricas adicionais: `plug_socket_rate_limit_redis_*` para Redis/fallback,
 
 ### Refund de quota apos consumo (`relay:conversation.start`, `relay:rpc.request`)
 
-Depois de a quota da janela fixa ser consumida (em `socket.ts`, apos validacao
-barata do envelope), falhas no handler podem **devolver** o hit na janela
+Depois de a quota da janela fixa ser consumida (em
+`register_consumer_socket_handlers.ts`, apos validacao barata do envelope),
+falhas no handler podem **devolver** o hit na janela
 (best-effort via `refundRelayConversationStartAsync` / `refundRelayRpcRequestAsync`;
 com Redis, scope `relay_conversation_start` / `relay_rpc_request`):
 
@@ -826,6 +831,14 @@ com Redis, scope `relay_conversation_start` / `relay_rpc_request`):
   (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) **mantem** a quota (4xx); aceite
   idempotente (`deduplicated: true`) **devolve** no caminho de sucesso porque
   nao houve novo dispatch.
+- **`relay:rpc.request.batch` — casos extra**: o custo proporcional da janela e
+  consumido **dentro** do handler (depois de validar o array). Se o gate de
+  inflight all-or-nothing falhar (`429`), o hub **devolve** esse custo
+  proporcional — distinto do unary, onde o `allow` corre no wiring antes do
+  inflight. Preferir o batch quando o consumer precisa de refund previsivel
+  sob pressão de inflight.
+- **`relay:conversation.start` — casos extra**: `429` por inflight partilhado
+  apos consumir a quota de start **mantem** a quota (mesmo padrao do unary RPC).
 
 O `400` profundo marcado de `relay:rpc.request` e uma excecao deliberada a
 paridade geral com `socket:event.publish` para evitar cobrar quota por payloads
@@ -862,13 +875,15 @@ preserva backpressure entre varias conversas apontando para o mesmo agente.
 Quando o orçamento estoura, o hub responde com `success: false`, `error.code = "RATE_LIMITED"` e preserva o bloco `rateLimit` com o saldo restante.
 
 Separadamente do orçamento de relay, handlers consumer (`agents:command`,
-`relay:rpc.request`, `agents:stream_pull`, `relay:rpc.stream.pull`) tambem
-respeitam `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`. Acima desse teto o hub
-responde `RATE_LIMITED` imediatamente, sem entrar na bridge.
+`relay:conversation.start`, `relay:rpc.request`, `relay:rpc.request.batch`,
+`agents:stream_pull`, `relay:rpc.stream.pull`, e `socket:event.publish` quando
+nao usa o teto dedicado) tambem respeitam
+`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`. Acima desse teto o hub responde
+`RATE_LIMITED` imediatamente, sem entrar na bridge.
 
 ### Shed load em `/consumers`
 
-Se a fila outbound relay exceder backlog ou latência p95 configurados, o hub passa a rejeitar temporariamente novos eventos relay em `/consumers` com `SERVICE_UNAVAILABLE` e `retryAfterMs`. O gate aplica-se a `relay:conversation.start`, `relay:rpc.request`, `relay:rpc.request.batch`, `relay:rpc.stream.pull` e ao legacy `agents:stream_pull`. Variáveis principais:
+Se a fila outbound relay exceder backlog ou latência p95 configurados, o hub passa a rejeitar temporariamente novos eventos em `/consumers` com `SERVICE_UNAVAILABLE` e `retryAfterMs`. O gate aplica-se a `relay:conversation.start`, `relay:rpc.request`, `relay:rpc.request.batch`, `relay:rpc.stream.pull`, ao legacy `agents:stream_pull` e a `agents:command`. Variáveis principais:
 
 - `SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG`
 - `SOCKET_RELAY_OUTBOUND_OVERLOAD_P95_MS`

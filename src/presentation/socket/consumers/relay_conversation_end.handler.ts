@@ -13,6 +13,7 @@ import {
   findAgentBridgeSocketById,
 } from "../hub/relay/rpc_bridge";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
+import { touchConsumerRegistryOnSocketActivity } from "../hub/scheduling/consumer_idle_touch_events";
 
 const relayConversationEndRequestIdMaxLength = 128;
 
@@ -97,6 +98,7 @@ export const handleRelayConversationEnd = (
     });
     return;
   }
+  touchConsumerRegistryOnSocketActivity(socket.id);
   const parsed = { success: true as const, data: envelope.data };
   const resolvedRequestId = parsed.data.requestId ?? requestId;
 

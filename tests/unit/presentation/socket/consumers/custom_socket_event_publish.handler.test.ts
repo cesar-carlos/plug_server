@@ -45,6 +45,12 @@ vi.mock("../../../../../src/presentation/socket/consumers/custom_socket_event_gu
         }),
   ),
   isTerminalCustomSocketEventAuthFailure: vi.fn((error: AppError) => {
+    if (
+      error.code === "FORBIDDEN" &&
+      error.message === "Only Client principals may use custom socket events"
+    ) {
+      return false;
+    }
     return error.statusCode === 401 || error.statusCode === 403;
   }),
   disconnectSocketAfterCustomSocketEventAuthFailure: vi.fn(),

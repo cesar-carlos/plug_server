@@ -28,6 +28,7 @@ vi.mock(
   "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter",
   () => ({
     allowAgentsCommandSocketAsync: vi.fn(() => Promise.resolve(true)),
+    refundAgentsCommandSocketAsync: vi.fn(() => Promise.resolve()),
   }),
 );
 
@@ -64,7 +65,7 @@ import {
 } from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
-import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
+import { allowAgentsCommandSocketAsync, refundAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 import {
   allowAgentsStreamPullCredits,
   refundAgentsStreamPullCredits,
@@ -79,6 +80,7 @@ const mockedFindBySocketId = vi.mocked(agentRegistry.findBySocketId);
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedTryAcquire = vi.mocked(tryAcquireSocketInflightSlot);
 const mockedAllowAgentsCommandSocket = vi.mocked(allowAgentsCommandSocketAsync);
+const mockedRefundAgentsCommandSocket = vi.mocked(refundAgentsCommandSocketAsync);
 const mockedAllowAgentsStreamPullCredits = vi.mocked(allowAgentsStreamPullCredits);
 const mockedRefundAgentsStreamPullCredits = vi.mocked(refundAgentsStreamPullCredits);
 
@@ -116,11 +118,13 @@ describe("handleAgentsStreamPull", () => {
     mockedAssertAccess.mockReset();
     mockedTryAcquire.mockReset();
     mockedAllowAgentsCommandSocket.mockReset();
+    mockedRefundAgentsCommandSocket.mockReset();
     mockedAllowAgentsStreamPullCredits.mockReset();
     mockedRefundAgentsStreamPullCredits.mockReset();
 
     mockedTryAcquire.mockReturnValue(true);
     mockedAllowAgentsCommandSocket.mockResolvedValue(true);
+    mockedRefundAgentsCommandSocket.mockResolvedValue(undefined);
     mockedAllowAgentsStreamPullCredits.mockResolvedValue({
       allowed: true,
       scope: "user",
@@ -223,6 +227,26 @@ describe("handleAgentsStreamPull", () => {
         },
       });
     });
+    expect(mockedRefundAgentsCommandSocket).not.toHaveBeenCalled();
+  });
+
+  it("refunds shared agents:command quota when the stream route is missing", async () => {
+    const socket = buildSocket();
+    mockedFindBySocketId.mockReturnValue(undefined);
+
+    await handleAgentsStreamPull(socket as never, { requestId: "req-missing" });
+
+    await vi.waitFor(() => {
+      expect(mockedRefundAgentsCommandSocket).toHaveBeenCalledWith("user-1", "consumer-1");
+      expectAgentsStreamPullResponse(socket.emit, {
+        success: false,
+        error: {
+          code: "NOT_FOUND",
+          message: "Stream route not found",
+          statusCode: 404,
+        },
+      });
+    });
   });
 
   it("does not pull from the agent if the consumer disconnects while access is being checked", async () => {
@@ -270,6 +294,7 @@ describe("handleAgentsStreamPull", () => {
 
     await vi.waitFor(() => {
       expect(mockedRefundAgentsStreamPullCredits).toHaveBeenCalledWith("user-1", "consumer-1", 16);
+      expect(mockedRefundAgentsCommandSocket).toHaveBeenCalledWith("user-1", "consumer-1");
       expectAgentsStreamPullResponse(socket.emit, {
         success: false,
         error: {

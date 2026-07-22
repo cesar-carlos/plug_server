@@ -48,8 +48,13 @@ import {
   type AgentsCommandResponsePayload,
 } from "./agents_command_wire";
 import type { PayloadFrameCompressionPreference } from "../../../shared/utils/payload_frame";
+import { touchConsumerRegistryOnSocketActivity } from "../hub/scheduling/consumer_idle_touch_events";
 
-const extractAgentsCommandRequestId = (rawPayload: unknown): string | undefined => {
+/**
+ * Best-effort correlation id from a plain JSON (or already-decoded) `agents:command` body.
+ * Used for overload/validation error responses before full schema validation.
+ */
+export const extractAgentsCommandRequestId = (rawPayload: unknown): string | undefined => {
   if (!isRecord(rawPayload)) {
     return undefined;
   }
@@ -125,6 +130,9 @@ const runAgentsCommand = async (socket: Socket, rawPayload: unknown): Promise<vo
     });
     return;
   }
+
+  // Valid inbound command counts as meaningful activity (not malformed spam).
+  touchConsumerRegistryOnSocketActivity(socket.id);
 
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   const body = parsed.data;

@@ -42,7 +42,7 @@ acima de alguns MiB), preferir Socket/relay e sinalizar
 - Dados em `PayloadFrame`: `connection:ready`, `agents:command_response`, `agents:command_stream_chunk`, `agents:command_stream_complete`, `agents:stream_pull_response`, `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
 - **Bridge legado (`agents:*`)**: inbound `agents:command` e `agents:stream_pull` aceitam plain JSON **ou** `PayloadFrame` durante a transicao; outbound de respostas e stream usa `PayloadFrame` por defeito. Ver _Migração PayloadFrame no bridge legado_ abaixo e shims em `docs/configuration.md`.
 - **Push de catalogo (role `client`, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/api/client_agent_business_rules.md`.
-- **Pub/sub customizado:** apenas tokens de **Client** no `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe` / `socket:event.unsubscribe`; publicacoes com o mesmo tipo de token chegam ao `eventName` em `PayloadFrame` via **`POST /api/v1/client/me/socket-events`** (REST) ou **`socket:event.publish`** (Socket; ack em `socket:event.published`). `socket:event.*` revalida conta ativa por evento; conta bloqueada recebe erro no envelope atual e o socket e desconectado de forma controlada.
+- **Pub/sub customizado:** apenas tokens de **Client** no `/consumers` podem assinar `client:custom.*` com `socket:event.subscribe` / `socket:event.unsubscribe`; publicacoes com o mesmo tipo de token chegam ao `eventName` em `PayloadFrame` via **`POST /api/v1/client/me/socket-events`** (REST) ou **`socket:event.publish`** (Socket; ack em `socket:event.published`). `socket:event.*` revalida conta ativa por evento; conta bloqueada recebe erro no envelope atual e o socket e desconectado de forma controlada. Principais `user`/`admin` que emitam `socket:event.*` recebem `403` no ack **sem** disconnect (mantêm relay / `agents:*`).
 
 ## Estrutura do PayloadFrame
 
@@ -161,7 +161,7 @@ Campos de arquivo diferentes de `files` sao rejeitados.
 - **Retry-After**: erros Socket de overload podem incluir `retryAfterMs`. Em `agents:command_response`, se o agente retornar erro JSON-RPC `-32013` com `error.data.retry_after_ms`, o hub adiciona `retryAfterSeconds`, espelhando o header `Retry-After` do REST. No relay, o frame JSON-RPC do agente continua sendo fonte de verdade; leia `error.data.retry_after_ms`.
 - **Helper recomendado**: clientes podem copiar a politica pura de `src/shared/utils/socket_retry_after_policy.ts` para normalizar todos os formatos publicos de retry em milissegundos antes de aplicar backoff com jitter.
 - **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`). Se o agente abrir `stream_id` e nunca enviar `rpc:complete`, o hub encerra por idle timeout ou lifetime maximo com `relay:rpc.complete` (`terminal_status: "error"`, `error_code: "RELAY_STREAM_TIMEOUT"`).
-- **Consumer idle timeout**: sweeps desligam sockets `/consumers` inactivos apos `SOCKET_CONSUMER_IDLE_TIMEOUT_MS` (defeito 30 min); emite `app:error` com `code: CONSUMER_IDLE_TIMEOUT` antes do disconnect. Apenas eventos **inbound iniciados pelo cliente** refrescam `lastSeenAt` (`consumer_idle_touch_events.ts`): `agents:command`, `agents:stream_pull`, `relay:conversation.start/end`, `relay:rpc.request`, `relay:rpc.stream.pull`, `socket:event.subscribe/unsubscribe/publish`. Trafego hub→consumer de alta frequencia (`agents:command_response`, `agents:command_stream_*`, chunks/respostas relay reflectidas, `client:agent.profile.updated`, etc.) **nao** reinicia o relogio idle — receber stream passivo nao mantem a sessao viva. Para sessoes longas com pouco trafego de comando, emitir periodicamente um evento significativo (ex. heartbeat de aplicacao via `agents:command` ou `relay:rpc.request`). Config: `docs/configuration.md` (_Idle enforcement_). Metrica: `plug_consumer_idle_timeout_disconnect_total` — ver `docs/observability/observability.md`.
+- **Consumer idle timeout**: sweeps desligam sockets `/consumers` inactivos apos `SOCKET_CONSUMER_IDLE_TIMEOUT_MS` (defeito 30 min); emite `app:error` com `code: CONSUMER_IDLE_TIMEOUT` antes do disconnect. Apenas eventos **inbound validos iniciados pelo cliente** refrescam `lastSeenAt` (`consumer_idle_touch_events.ts`): `agents:command`, `agents:stream_pull`, `relay:conversation.start/end`, `relay:rpc.request`, `relay:rpc.request.batch`, `relay:rpc.stream.pull`, `socket:event.subscribe/unsubscribe/publish`. Payloads malformados, rejeicoes de overload (`503`) e envelopes invalidos **nao** renovam o relogio. Trafego hub→consumer de alta frequencia (`agents:command_response`, `agents:command_stream_*`, chunks/respostas relay reflectidas, `client:agent.profile.updated`, etc.) **nao** reinicia o relogio idle — receber stream passivo nao mantem a sessao viva. Para sessoes longas com pouco trafego de comando, emitir periodicamente um evento significativo (ex. heartbeat de aplicacao via `agents:command` ou `relay:rpc.request`). Config: `docs/configuration.md` (_Idle enforcement_). Metrica: `plug_consumer_idle_timeout_disconnect_total` — ver `docs/observability/observability.md`.
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).
 - **Multi-réplica**: correlação REST e muito estado do bridge são **por processo**; Redis adapter/idempotencia Redis ajudam `client:custom.*`, mas relay/pending/registry ainda precisam de afinidade — ver `docs/studies/scaling_and_roadmap.md`.
 - **PayloadFrame signature**: quando o cliente assina frames com HMAC-SHA256, em deployments com `PAYLOAD_SIGNING_KEY_ID` ou `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON` configurado no hub o `signature.key_id` passa a ser **obrigatorio** e validado contra a keyring.
@@ -253,7 +253,7 @@ Regras essenciais:
 - Em **erros** (validacao, conversa nao encontrada, autorizacao, rate-limit), o hub **sempre** emite `relay:rpc.accepted { success: false, error }`. Caso contrario o consumer ficaria sem sinal.
 - Para **metodos streaming-capable** (`sql.execute` com `prefer_db_streaming` /
   `multi_result`, `sql.executeBatch`), **nao** use `fastPath: true`. O hub
-  **rejeita** o flag no dispatch com `VALIDATION_ERROR` em
+  **rejeita** o flag no dispatch com `BAD_REQUEST` em
   `relay:rpc.accepted`. Sem `accepted` para ancorar o `requestId`, o
   `relay:rpc.stream.pull` so podera ser emitido depois do primeiro chunk.
 - Cancelamento e desconexao funcionam normalmente: o relay nao tem `rpc.cancel`; aborts vem por socket disconnect ou `sql.cancel` por `stream_id`.
@@ -388,7 +388,8 @@ houver rejeicao):
 - O servidor aplica rate-limit por consumer em:
   - `relay:conversation.start`
   - `relay:rpc.request`
-- `agents:command` e `agents:stream_pull` partilham o mesmo budget por janela no `/consumers`; o hub so consome esse budget depois da validacao estrutural e do inflight gate por socket
+- `agents:command` e `agents:stream_pull` partilham o mesmo budget por janela no `/consumers`; o hub so consome esse budget depois da validacao estrutural e do inflight gate por socket. Em `agents:stream_pull`, `404` (stream inexistente/expirado) e falhas `5xx`/inesperadas **devolvem** esse budget partilhado; `401`/`403` e `429` de credito de pull **mantem**.
+- Sob shed de overload da fila outbound relay, `agents:command` tambem recebe `SERVICE_UNAVAILABLE` (mesmo padrao dos eventos relay / `agents:stream_pull`).
 
 ## Desconexoes forçadas pelo servidor
 
@@ -397,6 +398,12 @@ disconnect:
 
 - `ACCOUNT_BLOCKED`: `User` ou `Client` foi bloqueado apos o socket conectar
 - `AGENT_ACCESS_REVOKED`: o acesso `Client -> Agent` foi revogado pelo owner ou pelo proprio client
+- `CONSUMER_IDLE_TIMEOUT`: inactividade alem de `SOCKET_CONSUMER_IDLE_TIMEOUT_MS`
+- `CONSUMER_SOCKET_INITIALIZATION_FAILED`: falha ao entrar nas rooms de identidade no connect
+- Conta bloqueada detectada em `socket:event.*` (mesmo sinal `ACCOUNT_BLOCKED` / auth terminal)
+
+Nota: `user`/`admin` que emitam `socket:event.*` recebem apenas `403` no ack —
+**nao** forcam disconnect da sessao.
 
 Recomendacao do SDK:
 
