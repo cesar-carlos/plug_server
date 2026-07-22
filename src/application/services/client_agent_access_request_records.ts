@@ -23,9 +23,12 @@ export const toRequestRecord = (
   agentId: request.agentId,
   ...(request.agentName !== undefined ? { agentName: request.agentName } : {}),
   status: request.status,
+  retryCount: request.retryCount,
   requestedAt: request.requestedAt,
   ...(request.decidedAt !== undefined ? { decidedAt: request.decidedAt } : {}),
   ...(request.decisionReason !== undefined ? { decisionReason: request.decisionReason } : {}),
+  createdAt: request.createdAt,
+  updatedAt: request.updatedAt,
 });
 
 export const filterRequestRecords = (

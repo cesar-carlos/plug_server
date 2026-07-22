@@ -1,7 +1,10 @@
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Server, Socket } from "socket.io";
 
-import { handleAgentsCommand, extractAgentsCommandRequestId } from "../consumers/agents_command.handler";
+import {
+  handleAgentsCommand,
+  extractAgentsCommandRequestId,
+} from "../consumers/agents_command.handler";
 import { handleAgentsStreamPull } from "../consumers/agents_stream_pull.handler";
 import {
   buildAgentsStreamPullResponseForWire,

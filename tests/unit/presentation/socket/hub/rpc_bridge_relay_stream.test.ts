@@ -82,11 +82,7 @@ describe("rpc_bridge_relay_stream", () => {
     route.settled = true;
     emitRelayTimeoutResponse(route, emit);
     await flushRelayOutbound();
-    expect(emit).toHaveBeenCalledWith(
-      "cons1",
-      socketEvents.relayRpcResponse,
-      expect.anything(),
-    );
+    expect(emit).toHaveBeenCalledWith("cons1", socketEvents.relayRpcResponse, expect.anything());
   });
 
   it("emitRelayTimeoutResponse emits error frame and stores idempotency response", async () => {

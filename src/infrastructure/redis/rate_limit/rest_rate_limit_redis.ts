@@ -53,6 +53,7 @@ export type RestHttpRateLimitStoreScope =
   | "agents_self_profile"
   | "admin_user_status"
   | "client_me_agents_post"
+  | "client_me_agent_token_put"
   | "client_socket_event_publish"
   | "client_thumbnail"
   | "client_password_recovery_request"

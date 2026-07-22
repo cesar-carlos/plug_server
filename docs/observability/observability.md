@@ -354,6 +354,7 @@ rate(plug_client_agent_access_request_post_reopened_total[5m])
 rate(plug_client_agent_access_request_post_debounced_total[5m])
 rate(plug_client_agent_access_request_post_already_approved_total[5m])
 rate(plug_rest_http_rate_limit_client_me_agents_post_rejected_total[5m])
+rate(plug_rest_http_rate_limit_client_me_agent_token_put_rejected_total[5m])
 plug_agent_data_maintenance_pending_operations
 ```
 

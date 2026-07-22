@@ -307,7 +307,8 @@ const isReadOnlySql = (sql: string): boolean => {
   }
   const lower = normalized.toLowerCase();
   return READ_ONLY_SQL_PREFIXES.some(
-    (prefix) => lower === prefix || lower.startsWith(`${prefix} `) || lower.startsWith(`${prefix}\n`),
+    (prefix) =>
+      lower === prefix || lower.startsWith(`${prefix} `) || lower.startsWith(`${prefix}\n`),
   );
 };
 

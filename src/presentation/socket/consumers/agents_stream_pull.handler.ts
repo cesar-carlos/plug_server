@@ -23,7 +23,10 @@ import { toRequestId } from "../../../shared/utils/rpc_types";
 import { AppError } from "../../../shared/errors/app_error";
 import { nonEmptyStringSchema } from "../../../shared/validators/schemas";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
-import { allowAgentsCommandSocketAsync, refundAgentsCommandSocketAsync } from "../hub/rate_limits/agents_command_socket_rate_limiter";
+import {
+  allowAgentsCommandSocketAsync,
+  refundAgentsCommandSocketAsync,
+} from "../hub/rate_limits/agents_command_socket_rate_limiter";
 import {
   allowAgentsStreamPullCredits,
   refundAgentsStreamPullCredits,

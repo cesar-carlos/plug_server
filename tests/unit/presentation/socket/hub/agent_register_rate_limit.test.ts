@@ -107,16 +107,16 @@ describe("agent_register_rate_limit", () => {
   });
 
   it("refund restores one attempt in the local sliding window", () => {
-    expect(tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 })).toEqual(
-      { ok: true },
-    );
-    expect(tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 })).toEqual(
-      { ok: false },
-    );
+    expect(
+      tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 }),
+    ).toEqual({ ok: true });
+    expect(
+      tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 }),
+    ).toEqual({ ok: false });
     refundAgentRegisterRateLimit("u-ref", "a-ref");
-    expect(tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 })).toEqual(
-      { ok: true },
-    );
+    expect(
+      tryConsumeAgentRegisterRateLimit("u-ref", "a-ref", { windowMs: 60_000, max: 1 }),
+    ).toEqual({ ok: true });
   });
 
   it("sweep removes stale register buckets", () => {

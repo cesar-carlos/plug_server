@@ -206,10 +206,7 @@ const getCircuitState = (stateKey: string): RelayCircuitState => {
   return created;
 };
 
-export const ensureAgentCircuitClosed = (
-  agentId: string,
-  channel: AgentCircuitChannel,
-): void => {
+export const ensureAgentCircuitClosed = (agentId: string, channel: AgentCircuitChannel): void => {
   const state = getCircuitState(circuitStateKey(agentId, channel));
   const nowMs = Date.now();
   if (state.openUntilMs > nowMs) {

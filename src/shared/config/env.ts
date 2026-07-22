@@ -190,6 +190,19 @@ const envSchema = z.object({
     .min(0)
     .max(10_000_000)
     .default(60),
+  /** Per client JWT `sub` on `PUT /api/v1/client/me/agents/:agentId/client-token`. */
+  REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(900_000),
+  /** `0` = unlimited. */
+  REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(120),
   REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   /** `0` = unlimited. */
   REST_SOCKET_EVENT_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(120),
@@ -1743,6 +1756,9 @@ export const env = {
   restClientMeAgentsPostRateLimitWindowMs:
     parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_WINDOW_MS,
   restClientMeAgentsPostRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_MAX,
+  restClientMeAgentTokenPutRateLimitWindowMs:
+    parsedEnv.REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_WINDOW_MS,
+  restClientMeAgentTokenPutRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_MAX,
   restSocketEventRateLimitWindowMs: parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS,
   restSocketEventRateLimitMax: parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_MAX,
   restSocketEventMaxFiles: parsedEnv.REST_SOCKET_EVENT_MAX_FILES,

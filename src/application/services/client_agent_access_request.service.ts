@@ -183,8 +183,15 @@ export class ClientAgentAccessRequestService {
         }
       }
 
+      // Only count true retries (rejected/expired/revoked, or approved without access).
+      // Pending email resends after debounce must not burn CLIENT_AGENT_ACCESS_MAX_RETRIES.
+      const shouldIncrementRetry =
+        existing !== undefined &&
+        existing.status !== "pending" &&
+        (isClientAccessRequestRetryEligible(existing.status) || existing.status === "approved");
+
       const maxRetries = env.clientAgentAccessMaxRetries;
-      if (existing && maxRetries > 0 && existing.retryCount >= maxRetries) {
+      if (existing && shouldIncrementRetry && maxRetries > 0 && existing.retryCount >= maxRetries) {
         return err(
           conflict(
             `Maximum retry attempts (${maxRetries}) reached for agent ${agentId}. Contact the agent owner.`,
@@ -199,7 +206,7 @@ export class ClientAgentAccessRequestService {
         request = new ClientAgentAccessRequest({
           ...baseRequest,
           status: "pending",
-          retryCount: existing.retryCount + 1,
+          retryCount: shouldIncrementRetry ? existing.retryCount + 1 : existing.retryCount,
           requestedAt: new Date(),
           updatedAt: new Date(),
         });
@@ -323,17 +330,14 @@ export class ClientAgentAccessRequestService {
 
   async removeApprovedAccess(clientId: string, agentIds: string[]): Promise<Result<void>> {
     const uniqueAgentIds = [...new Set(agentIds)];
-    const approvedAgentIds = await this.clientAgentAccessRepository.listAccessAgentIdsForClientIn(
-      clientId,
-      uniqueAgentIds,
-    );
+    const [approvedAgentIds, requestsByAgent] = await Promise.all([
+      this.clientAgentAccessRepository.listAccessAgentIdsForClientIn(clientId, uniqueAgentIds),
+      this.clientAgentAccessRequestRepository.findByClientAndAgents(clientId, uniqueAgentIds),
+    ]);
     await this.clientAgentAccessRepository.removeAgentIds(clientId, uniqueAgentIds);
     for (const agentId of uniqueAgentIds) {
       this.liveProfileDeps?.onAccessRevoked?.(clientId, agentId);
-      const request = await this.clientAgentAccessRequestRepository.findByClientAndAgent(
-        clientId,
-        agentId,
-      );
+      const request = requestsByAgent.get(agentId);
       if (request?.status === "approved") {
         await this.clientAgentAccessRequestRepository.setStatus(request.id, "revoked", {
           reason: clientAgentAccessRevokedByClientDecisionReason,

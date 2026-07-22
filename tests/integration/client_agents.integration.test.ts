@@ -670,6 +670,18 @@ describe("Client agent access API", () => {
     expect(statusResponse.status).toBe(200);
     expect(statusResponse.body).toEqual({ status: "expired" });
 
+    const requestsAfterStatus = await request(app)
+      .get("/api/v1/client/me/agent-access-requests")
+      .query({ status: "expired", search: agent.agentId })
+      .set("Authorization", `Bearer ${clientAccessToken}`);
+    expect(requestsAfterStatus.status).toBe(200);
+    expect(requestsAfterStatus.body.count).toBe(1);
+    expect(requestsAfterStatus.body.requests[0]?.status).toBe("expired");
+    expect(requestsAfterStatus.body.requests[0]?.decisionReason).toBe("Approval token expired");
+    expect(typeof requestsAfterStatus.body.requests[0]?.retryCount).toBe("number");
+    expect(typeof requestsAfterStatus.body.requests[0]?.createdAt).toBe("string");
+    expect(typeof requestsAfterStatus.body.requests[0]?.updatedAt).toBe("string");
+
     const approveResponse = await request(app)
       .post("/api/v1/client-access/approve")
       .send({ token });

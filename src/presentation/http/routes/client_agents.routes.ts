@@ -17,6 +17,7 @@ import {
 } from "../controllers/client_agents.controller";
 import { asyncHandler } from "../middlewares/async_handler";
 import {
+  clientMeAgentTokenPutRateLimit,
   clientMeAgentsPostRateLimit,
   credentialAuthRateLimit,
 } from "../middlewares/rate_limit.middleware";
@@ -194,6 +195,7 @@ clientAgentsRouter.delete(
  *               agentIds:
  *                 type: array
  *                 minItems: 1
+ *                 maxItems: 100
  *                 items: { type: string, format: uuid }
  *     responses:
  *       200:
@@ -267,6 +269,7 @@ clientAgentsRouter.post(
  *               agentIds:
  *                 type: array
  *                 minItems: 1
+ *                 maxItems: 100
  *                 items: { type: string, format: uuid }
  *     responses:
  *       200:
@@ -315,12 +318,14 @@ clientAgentsRouter.delete(
  *           application/json:
  *             schema:
  *               type: object
- *               required: [requests, total, page, pageSize]
+ *               required: [requests, count, total, page, pageSize]
  *               properties:
  *                 requests:
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/ClientAgentAccessRequestRecord'
+ *                 count:
+ *                   type: integer
  *                 total:
  *                   type: integer
  *                 page:
@@ -496,6 +501,7 @@ clientAgentsRouter.get(
 clientAgentsRouter.put(
   "/client/me/agents/:agentId/client-token",
   ...requireClientAuthAndActiveAccount,
+  clientMeAgentTokenPutRateLimit,
   validateRequest({
     params: clientAgentIdParamSchema,
     body: clientAgentTokenBodySchema,

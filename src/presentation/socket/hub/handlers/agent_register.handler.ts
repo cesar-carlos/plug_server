@@ -5,7 +5,10 @@ import {
   AGENT_SESSION_SUPERSEDED_MESSAGE,
   emitAgentRegisterError,
 } from "../handshake/agent_register_error";
-import { tryConsumeAgentRegisterRateLimitAsync, refundAgentRegisterRateLimitAsync } from "../rate_limits/agent_register_rate_limit";
+import {
+  tryConsumeAgentRegisterRateLimitAsync,
+  refundAgentRegisterRateLimitAsync,
+} from "../rate_limits/agent_register_rate_limit";
 import {
   resolveAgentRegisterProfileSnapshot,
   resolveRequiresExplicitProtocolReadyAck,

@@ -6,6 +6,7 @@ import {
   incrementRestHttpAgentsCommandsIpRateLimitRejected,
   incrementRestHttpAgentsCommandsUserRateLimitRejected,
   incrementRestHttpAgentsSelfProfileRateLimitRejected,
+  incrementRestHttpClientMeAgentTokenPutRateLimitRejected,
   incrementRestHttpClientMeAgentsPostRateLimitRejected,
   incrementRestHttpClientPasswordRecoveryPollRateLimitRejected,
   incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected,
@@ -99,6 +100,9 @@ export let adminUserStatusRateLimit: RequestHandler = globalRateLimitNotRegister
 /** Per authenticated client (`JWT sub`) on `POST /client/me/agents`. */
 export let clientMeAgentsPostRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
+/** Per authenticated client (`JWT sub`) on `PUT /client/me/agents/:agentId/client-token`. */
+export let clientMeAgentTokenPutRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
 export let clientSocketEventPublishRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
 export let clientThumbnailRateLimit: RequestHandler = globalRateLimitNotRegistered;
@@ -142,6 +146,13 @@ export const clientMeAgentsPostRateLimitKey = (res: Response): string => {
   const authClient = res.locals.authClient as JwtAccessPayload | undefined;
   const sub = authClient?.sub?.trim();
   return sub ? `client_me_agents_post:${sub}` : "client_me_agents_post:anonymous";
+};
+
+/** Rate-limit store key for `PUT .../client-token` keyed by client JWT `sub`. */
+export const clientMeAgentTokenPutRateLimitKey = (res: Response): string => {
+  const authClient = res.locals.authClient as JwtAccessPayload | undefined;
+  const sub = authClient?.sub?.trim();
+  return sub ? `client_me_agent_token_put:${sub}` : "client_me_agent_token_put:anonymous";
 };
 
 export const clientSocketEventPublishRateLimitKey = (res: Response): string => {
@@ -350,6 +361,26 @@ export function registerHttpRateLimits(): void {
           keyGenerator: (_req: Request, res: Response) => clientMeAgentsPostRateLimitKey(res),
           handler: async (request, response, _next, optionsUsed) => {
             incrementRestHttpClientMeAgentsPostRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  clientMeAgentTokenPutRateLimit =
+    env.restClientMeAgentTokenPutRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restClientMeAgentTokenPutRateLimitWindowMs,
+          limit: env.restClientMeAgentTokenPutRateLimitMax,
+          ...(optionalRedisStore("client_me_agent_token_put") ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many client agent token updates, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          keyGenerator: (_req: Request, res: Response) => clientMeAgentTokenPutRateLimitKey(res),
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpClientMeAgentTokenPutRateLimitRejected();
             await sendRateLimitResponse(request, response, optionsUsed);
           },
         });

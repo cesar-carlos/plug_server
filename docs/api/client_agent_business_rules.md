@@ -161,6 +161,8 @@ Regras:
 - resposta JSON inclui `requested`, `alreadyApproved`, `newRequests`, `reopened`, `debounced` (este ultimo quando um segundo `POST` chega ainda `pending` dentro da janela `CLIENT_AGENT_ACCESS_REQUEST_EMAIL_DEBOUNCE_MS` — sem novo email)
 - listagens de pedidos usam paginação/filtros no repositório para evitar carregar todo o histórico em memória antes de paginar
 - rate limit por cliente em `POST /api/v1/client/me/agents` (`REST_CLIENT_ME_AGENTS_POST_RATE_LIMIT_*`)
+- rate limit por cliente em `PUT /api/v1/client/me/agents/{agentId}/client-token` (`REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_*`)
+- `retryCount` so incrementa em reopen apos `rejected` / `expired` / `revoked` (ou `approved` sem linha de acesso); reenvio de email ainda `pending` (apos debounce) nao consome a cota de retries
 - depois de aprovado, o `Client` pode consultar os dados gerais e de perfil desses agentes pela propria area `/client/me/agents`
 - introspecao da politica de autorizacao do `client_token` no plug_agente (sem executar SQL): RPC `client_token.getPolicy` via `POST /api/v1/agents/commands` ou Socket, quando o agente expuser o metodo; contrato e limites em `docs/api/api_rest_bridge.md`
 
@@ -178,6 +180,7 @@ Regras:
 
 - token de aprovacao deve existir e estar valido
 - pedido deve estar `pending` para decisao
+- `GET /api/v1/client-access/status` com token expirado devolve `{ status: "expired" }` e, se o pedido ainda estiver `pending`, marca-o como `expired` (o token permanece para que approve/reject ainda respondam `410`)
 - `Client` deve continuar `active` no momento da aprovacao
 - `Agent` deve continuar `active` no momento da aprovacao
 - aprovacao cria (ou mantem) vinculo em `ClientAgentAccess`
@@ -257,7 +260,7 @@ Endpoint:
 
 Regras:
 
-- a listagem retorna os pedidos do `Client` com `status`, timestamps e `decisionReason` quando houver
+- a listagem retorna os pedidos do `Client` com `status`, `retryCount`, timestamps (`requestedAt`, `createdAt`, `updatedAt`) e `decisionReason` quando houver
 - a listagem pode incluir o nome do agente para facilitar acompanhamento
 - a listagem suporta filtros por `status`, busca por `search` e paginacao com `page` e `pageSize`
 

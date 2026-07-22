@@ -65,7 +65,10 @@ import {
 } from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
-import { allowAgentsCommandSocketAsync, refundAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
+import {
+  allowAgentsCommandSocketAsync,
+  refundAgentsCommandSocketAsync,
+} from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 import {
   allowAgentsStreamPullCredits,
   refundAgentsStreamPullCredits,

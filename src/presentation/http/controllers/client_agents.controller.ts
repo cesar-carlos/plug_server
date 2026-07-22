@@ -68,19 +68,21 @@ export const getMyClientAgent = async (
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
-  // `findApprovedAgent` and `hasClientTokenForAgent` are independent reads; run
-  // them concurrently to halve the round-trips on the detail endpoint.
-  const [result, hasClientToken] = await Promise.all([
-    container.clientAgentAccessQueryService.findApprovedAgent(authClient.sub, agentId),
-    container.clientAgentAccessQueryService.hasClientTokenForAgent(authClient.sub, agentId),
-  ]);
+  // Authorize first; skip token/presence reads when access is denied.
+  const result = await container.clientAgentAccessQueryService.findApprovedAgent(
+    authClient.sub,
+    agentId,
+  );
   if (!result.ok) {
     next(result.error);
     return;
   }
-  const isHubConnected =
-    (await container.restAgentBridgeService.isAgentConnectedCluster?.(agentId)) ??
-    container.restAgentBridgeService.isAgentConnected(agentId);
+  const [hasClientToken, isHubConnected] = await Promise.all([
+    container.clientAgentAccessQueryService.hasClientTokenForAgent(authClient.sub, agentId),
+    (async (): Promise<boolean> =>
+      (await container.restAgentBridgeService.isAgentConnectedCluster?.(agentId)) ??
+      container.restAgentBridgeService.isAgentConnected(agentId))(),
+  ]);
   recordClientMeAgentsDetailResponse(isHubConnected);
   response.status(200).json({
     agent: toClientAgentDto(result.value, isHubConnected, hasClientToken),
@@ -375,25 +377,34 @@ const toClientAgentAccessRequestDto = (request: {
   agentId: string;
   agentName?: string;
   status: "pending" | "approved" | "rejected" | "expired" | "revoked";
+  retryCount: number;
   requestedAt: Date;
   decidedAt?: Date;
   decisionReason?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }): {
   id: string;
   clientId: string;
   agentId: string;
   agentName: string | null;
   status: "pending" | "approved" | "rejected" | "expired" | "revoked";
+  retryCount: number;
   requestedAt: string;
   decidedAt: string | null;
   decisionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
 } => ({
   id: request.id,
   clientId: request.clientId,
   agentId: request.agentId,
   agentName: request.agentName ?? null,
   status: request.status,
+  retryCount: request.retryCount,
   requestedAt: request.requestedAt.toISOString(),
   decidedAt: request.decidedAt?.toISOString() ?? null,
   decisionReason: request.decisionReason ?? null,
+  createdAt: request.createdAt.toISOString(),
+  updatedAt: request.updatedAt.toISOString(),
 });

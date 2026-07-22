@@ -22,9 +22,13 @@ export interface ClientAgentAccessRequestRecord {
   readonly agentId: string;
   readonly agentName?: string;
   readonly status: "pending" | "approved" | "rejected" | "expired" | "revoked";
+  /** Retries after rejection/expiry/revocation (or approved-without-access). Not bumped on pending email resend. */
+  readonly retryCount: number;
   readonly requestedAt: Date;
   readonly decidedAt?: Date;
   readonly decisionReason?: string;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
 }
 
 export interface ApprovedClientAgentListItem {

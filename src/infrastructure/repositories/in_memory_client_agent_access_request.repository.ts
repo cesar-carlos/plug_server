@@ -108,6 +108,17 @@ export class InMemoryClientAgentAccessRequestRepository implements IClientAgentA
   }
 
   async save(request: ClientAgentAccessRequest): Promise<void> {
+    // Mirror DB @@unique([clientId, agentId]): concurrent first-time writes with
+    // different ids must collapse to a single row for the pair.
+    for (const [id, existing] of this.store) {
+      if (
+        existing.clientId === request.clientId &&
+        existing.agentId === request.agentId &&
+        id !== request.id
+      ) {
+        this.store.delete(id);
+      }
+    }
     this.store.set(request.id, request);
   }
 

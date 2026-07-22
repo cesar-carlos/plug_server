@@ -104,10 +104,8 @@ const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_E
   socket.emit(socketEvents.appError, buildLegacySocketAppErrorPayload(code, message));
 };
 
-export const handleAgentsCommand = (
-  socket: Socket,
-  rawPayload: unknown,
-): Promise<void> => runAgentsCommand(socket, rawPayload);
+export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): Promise<void> =>
+  runAgentsCommand(socket, rawPayload);
 
 const runAgentsCommand = async (socket: Socket, rawPayload: unknown): Promise<void> => {
   const decodedInbound = await decodeAgentsCommandInboundPayload(rawPayload);

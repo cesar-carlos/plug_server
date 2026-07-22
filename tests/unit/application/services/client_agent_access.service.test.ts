@@ -403,6 +403,83 @@ describe("ClientAgentAccessService", () => {
     expect(emailSender.ownerAccessRequests).toHaveLength(0);
   });
 
+  it("does not increment retryCount when resending a pending request after debounce", async () => {
+    const { env } = await import("../../../../src/shared/config/env");
+    const previousDebounce = env.clientAgentAccessRequestEmailDebounceMs;
+    (
+      env as { clientAgentAccessRequestEmailDebounceMs: number }
+    ).clientAgentAccessRequestEmailDebounceMs = 1;
+    try {
+      const created = await requestService.requestAccess(clientId, [agentId]);
+      expect(created.ok).toBe(true);
+      const first = await requestRepository.findByClientAndAgent(clientId, agentId);
+      expect(first?.retryCount).toBe(0);
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      emailSender.ownerAccessRequests = [];
+
+      const again = await requestService.requestAccess(clientId, [agentId]);
+      expect(again.ok).toBe(true);
+      if (!again.ok) {
+        return;
+      }
+      expect(again.value.reopened).toEqual([agentId]);
+      expect(emailSender.ownerAccessRequests).toHaveLength(1);
+
+      const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+      expect(stored?.status).toBe("pending");
+      expect(stored?.retryCount).toBe(0);
+    } finally {
+      (
+        env as { clientAgentAccessRequestEmailDebounceMs: number }
+      ).clientAgentAccessRequestEmailDebounceMs = previousDebounce;
+    }
+  });
+
+  it("increments retryCount when retrying after rejection", async () => {
+    const created = await requestService.requestAccess(clientId, [agentId]);
+    expect(created.ok).toBe(true);
+    const token = emailSender.ownerAccessRequests[0]?.token;
+    expect(token).toBeTruthy();
+    const rejected = await decisionService.rejectByToken(token!);
+    expect(rejected.ok).toBe(true);
+
+    emailSender.ownerAccessRequests = [];
+    const again = await requestService.requestAccess(clientId, [agentId]);
+    expect(again.ok).toBe(true);
+    if (!again.ok) {
+      return;
+    }
+    expect(again.value.reopened).toEqual([agentId]);
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored?.status).toBe("pending");
+    expect(stored?.retryCount).toBe(1);
+  });
+
+  it("marks pending request expired when public status is polled with an expired token", async () => {
+    await requestService.requestAccess(clientId, [agentId]);
+    const tokenId = emailSender.ownerAccessRequests[0]?.token;
+    expect(tokenId).toBeTruthy();
+    const storedToken = await tokenRepository.findById(tokenId!);
+    expect(storedToken).not.toBeNull();
+    await tokenRepository.save({
+      ...storedToken!,
+      expiresAt: new Date(Date.now() - 1000),
+    });
+
+    const status = await decisionService.getRequestStatusByToken(tokenId!);
+    expect(status.ok).toBe(true);
+    if (!status.ok) {
+      return;
+    }
+    expect(status.value).toEqual({ status: "expired" });
+
+    const stored = await requestRepository.findByClientAndAgent(clientId, agentId);
+    expect(stored?.status).toBe("expired");
+    // Token kept so a later approve/reject can still return 410.
+    await expect(tokenRepository.findById(tokenId!)).resolves.not.toBeNull();
+  });
+
   it("returns alreadyApproved when retrying an approved request with active access", async () => {
     const created = await requestService.requestAccess(clientId, [agentId]);
     expect(created.ok).toBe(true);

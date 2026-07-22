@@ -236,7 +236,9 @@ const peekRelayStreamBufferedChunkRawForward = (
   return entry.bufferedChunkRawForward[entry.bufferedChunkHead];
 };
 
-const peekRelayStreamBufferedChunkMeta = (requestId: string): RelayBufferedChunkMeta | undefined => {
+const peekRelayStreamBufferedChunkMeta = (
+  requestId: string,
+): RelayBufferedChunkMeta | undefined => {
   const entry = entriesByRequestId.get(requestId);
   if (!entry || entry.bufferedChunkHead >= entry.bufferedChunkMeta.length) {
     return undefined;
@@ -483,8 +485,7 @@ export const drainRelayStreamBuffer = async (
           break;
         }
         popRelayStreamBufferedChunk(ctx.requestId);
-        const rowCount =
-          chunkMeta?.rowCount ?? (chunk !== null ? countChunkRows(chunk) : 0);
+        const rowCount = chunkMeta?.rowCount ?? (chunk !== null ? countChunkRows(chunk) : 0);
         addRelayStreamForwardedRows(ctx.requestId, rowCount);
         chunksDrained += 1;
 

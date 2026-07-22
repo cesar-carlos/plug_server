@@ -530,7 +530,8 @@ export const createRpcBridgeRelayDispatch = (
         if (!aborted) {
           registerAgentFailure(conversation.agentId, "relay");
         }
-        const err = error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
+        const err =
+          error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
         const appErr = err instanceof AppError ? err : null;
         if (trace && !trace.isFinalized()) {
           trace.finalizeOnce({

@@ -484,7 +484,11 @@ export const encodeRelayOutboundFrameFromBytesAsync = async (
  * were validated and the JSON-RPC body is not mutated.
  */
 export const encodeRelayOutboundFrameFromPreencodedWireAsync = async (
-  body: { readonly originalSize: number; readonly wireBytes: Buffer; readonly cmp: "none" | "gzip" },
+  body: {
+    readonly originalSize: number;
+    readonly wireBytes: Buffer;
+    readonly cmp: "none" | "gzip";
+  },
   requestId: string,
 ): Promise<PayloadFrameEnvelope> =>
   encodePayloadFrameFromPreencodedWire(body, {

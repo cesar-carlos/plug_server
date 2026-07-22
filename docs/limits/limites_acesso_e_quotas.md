@@ -229,6 +229,17 @@ Cenário típico: dezenas de agentes no **mesmo IP** a renovar token após queda
 
 **Resposta:** 429, `"Too many client agent access requests, please try again later."`
 
+### Cliente Colmeia — token por agente
+
+| Variável | Default | Produção (exemplo) |
+| -------- | ------- | ------------------ |
+| `REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_WINDOW_MS` | 900000 | 900000 |
+| `REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_MAX` | 120 | **0** |
+
+**Rota:** `PUT /api/v1/client/me/agents/{agentId}/client-token`
+
+**Resposta:** 429, `"Too many client agent token updates, please try again later."`
+
 ### Publicação de eventos Socket (REST)
 
 | Variável | Default | Produção (exemplo) |

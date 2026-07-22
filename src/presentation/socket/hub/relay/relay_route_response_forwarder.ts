@@ -249,13 +249,9 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
                 },
                 responseId,
               )
-            : await encodeRelayOutboundFrameFromBytesAsync(
-                decoded.decodedBytes,
-                responseId,
-                {
-                  inboundCmp: decoded.frame.cmp,
-                },
-              );
+            : await encodeRelayOutboundFrameFromBytesAsync(decoded.decodedBytes, responseId, {
+                inboundCmp: decoded.frame.cmp,
+              });
       } else {
         // Measure the wall-clock cost of the re-encode path (vs bypass)
         // only when the cause is the body.id echo. If `shouldAttachServerTimings`

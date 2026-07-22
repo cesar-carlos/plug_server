@@ -459,12 +459,20 @@ export class ClientAgentAccessDecisionService {
     if (!token) {
       return err(notFound("Access token"));
     }
-    if (isExpired(token.expiresAt)) {
-      return ok({ status: "expired" });
-    }
     const request = await this.clientAgentAccessRequestRepository.findById(token.requestId);
     if (!request) {
       return err(notFound("Access request"));
+    }
+    if (isExpired(token.expiresAt)) {
+      // Persist expiry for pending requests so list filters match public status polls
+      // without waiting for the maintenance sweep. Keep the token so a later
+      // approve/reject still returns REGISTRATION_TOKEN_EXPIRED (410), not 404.
+      if (request.status === "pending") {
+        await this.clientAgentAccessRequestRepository.setStatus(request.id, "expired", {
+          reason: clientAgentAccessExpiredDecisionReason,
+        });
+      }
+      return ok({ status: "expired" });
     }
     return ok({ status: request.status });
   }

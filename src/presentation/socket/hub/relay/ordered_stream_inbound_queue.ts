@@ -46,8 +46,7 @@ export const createOrderedStreamInboundQueue = (options?: {
   const tailBySocketId = new Map<string, Promise<void>>();
   const generationBySocketId = new Map<string, number>();
 
-  const currentGeneration = (socketId: string): number =>
-    generationBySocketId.get(socketId) ?? 0;
+  const currentGeneration = (socketId: string): number => generationBySocketId.get(socketId) ?? 0;
 
   const pruneGenerationIfIdle = (socketId: string, expectedGeneration: number): void => {
     if (tailBySocketId.has(socketId)) {

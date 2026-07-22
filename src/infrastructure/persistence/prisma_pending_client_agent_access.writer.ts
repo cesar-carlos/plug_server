@@ -17,8 +17,15 @@ export class PrismaPendingClientAgentAccessWriter implements IPendingClientAgent
     }
     await prismaClient.$transaction(async (tx) => {
       for (const { request, token } of items) {
-        await tx.clientAgentAccessRequest.upsert({
-          where: { id: request.id },
+        // Upsert by the unique (clientId, agentId) pair so concurrent first-time
+        // POSTs cannot collide on that constraint with different request UUIDs.
+        const upserted = await tx.clientAgentAccessRequest.upsert({
+          where: {
+            clientId_agentId: {
+              clientId: request.clientId,
+              agentId: request.agentId,
+            },
+          },
           create: {
             id: request.id,
             clientId: request.clientId,
@@ -43,10 +50,10 @@ export class PrismaPendingClientAgentAccessWriter implements IPendingClientAgent
           },
         });
         await tx.clientAgentAccessApprovalToken.upsert({
-          where: { requestId: token.requestId },
+          where: { requestId: upserted.id },
           create: {
             id: token.id,
-            requestId: token.requestId,
+            requestId: upserted.id,
             expiresAt: token.expiresAt,
             createdAt: token.createdAt,
           },
