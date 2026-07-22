@@ -186,6 +186,7 @@ describe("handleRelayRpcRequest", () => {
     expect(mockedReleaseInflight).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayRpcAccepted, {
       success: false,
+      conversationId: "conv-1",
       error: {
         code: "RATE_LIMITED",
         message: "Per-socket inflight gate exceeded",
@@ -287,6 +288,7 @@ describe("handleRelayRpcRequest", () => {
         socketEvents.relayRpcAccepted,
         expect.objectContaining({
           success: false,
+          conversationId: "conv-1",
           error: expect.objectContaining({ code: "BAD_REQUEST", statusCode: 400 }),
         }),
       );
@@ -308,6 +310,7 @@ describe("handleRelayRpcRequest", () => {
         socketEvents.relayRpcAccepted,
         expect.objectContaining({
           success: false,
+          conversationId: "conv-1",
           error: expect.objectContaining({ code: "NOT_FOUND", statusCode: 404 }),
         }),
       );
@@ -368,6 +371,35 @@ describe("handleRelayRpcRequest", () => {
       await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
       expect(mockedDispatchRelayRpcToAgent.mock.calls[0]?.[0]).toMatchObject({
         fastPath: true,
+      });
+    });
+
+    it("accepts and forwards `timeoutMs` on the envelope", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockResolvedValue({
+        requestId: "req-1",
+        clientRequestId: "client-req-1",
+      });
+
+      const parsed = parseRelayRpcRequestEnvelope({
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        timeoutMs: 30_000,
+      });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.timeoutMs).toBe(30_000);
+      }
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "conv-1",
+        frame: { schemaVersion: "1.0" },
+        timeoutMs: 30_000,
+      });
+
+      await vi.waitFor(() => expect(mockedDispatchRelayRpcToAgent).toHaveBeenCalled());
+      expect(mockedDispatchRelayRpcToAgent.mock.calls[0]?.[0]).toMatchObject({
+        timeoutMs: 30_000,
       });
     });
 
@@ -620,6 +652,36 @@ describe("handleRelayRpcRequest", () => {
 
       await vi.waitFor(() => expect(noteRelayFastPathFallbackError).toHaveBeenCalled());
       expect(noteRelayFastPathFallbackError).toHaveBeenCalledTimes(1);
+    });
+
+    it("echoes conversationId and clientRequestId on fastPath streaming-capable rejection", async () => {
+      const socket = buildSocket();
+      mockedDispatchRelayRpcToAgent.mockRejectedValue(
+        new AppError("fastPath is not allowed for streaming-capable RPC methods", {
+          code: "BAD_REQUEST",
+          statusCode: 400,
+          details: { clientRequestId: "4955b711-9444-4061-82bc-4d97e270b2b1" },
+        }),
+      );
+
+      handleRelayRpcRequest(socket as never, {
+        conversationId: "b04050f3-e9ea-498c-8d4e-ed0562b396a2",
+        frame: { schemaVersion: "1.0" },
+        fastPath: true,
+      });
+
+      await vi.waitFor(() => {
+        expect(socket.emit).toHaveBeenCalledWith(socketEvents.relayRpcAccepted, {
+          success: false,
+          conversationId: "b04050f3-e9ea-498c-8d4e-ed0562b396a2",
+          clientRequestId: "4955b711-9444-4061-82bc-4d97e270b2b1",
+          error: {
+            code: "BAD_REQUEST",
+            message: "fastPath is not allowed for streaming-capable RPC methods",
+            statusCode: 400,
+          },
+        });
+      });
     });
 
     it("increments server timings opt-in when consumer set requestServerTimings", async () => {

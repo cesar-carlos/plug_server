@@ -260,6 +260,24 @@ Regras essenciais:
 
 Detalhes completos do contrato em [`docs/socket/socket_relay_protocol.md`](socket_relay_protocol.md) ("Relay unary fast-path").
 
+### `timeoutMs: number` — espera do hub por request (paridade REST)
+
+Aplicavel a `relay:rpc.request` e `relay:rpc.request.batch`. Controla quanto tempo
+o hub espera a resposta do agente **neste** request. Sem o campo, vale
+`SOCKET_RELAY_REQUEST_TIMEOUT_MS` (default 30000 ms).
+
+```json
+{
+  "conversationId": "<conv-id>",
+  "frame": "<PayloadFrame>",
+  "timeoutMs": 30000
+}
+```
+
+- O timer local do consumer (`bridgeTimeoutMs`) **nao** estende a espera do hub.
+- Se o SQL puder passar de ~15–30s, envie `timeoutMs` (ou configure o env).
+- Em estouro: `relay:rpc.response` com `error.data.code = "RELAY_REQUEST_TIMEOUT"`.
+
 ### `requestServerTimings: boolean` — fases de latencia no envelope
 
 Aplicavel a `relay:rpc.request`, ao Socket `agents:command` e ao REST `POST /api/v1/agents/commands`. Quando `true`, o hub anexa um snapshot de fases de latencia a resposta, permitindo correlacionar wall-clock fim-a-fim com tempo gasto internamente no hub e no agente.

@@ -37,7 +37,7 @@ Autorizacao resumida do relay:
 
 ## Handshake: `connection:ready`
 
-Emitido imediatamente após autenticacao bem-sucedida. **Desde versao mais recente, enviado como `PayloadFrame`** para consistencia com outros eventos RPC.
+Emitido imediatamente após autenticacao bem-sucedida. **Desde versao mais recente, enviado como** `PayloadFrame` para consistencia com outros eventos RPC.
 No caso de principals `client`, o hub entra primeiro na room `client:<clientId>` e
 so depois emite `connection:ready`; ao receber esse evento, o cliente ja esta apto
 para eventos enviados a essa room base.
@@ -84,8 +84,8 @@ Controle:
 
 Dados:
 
-- `relay:rpc.request` — envelope JSON: `{ conversationId, frame, payloadFrameCompression?, requestServerTimings?, fastPath? }`. Os dois ultimos sao opt-in documentados em "Relay unary fast-path" e "Server-side phase diagnostics" abaixo.
-- `relay:rpc.request.batch` — batch variant. Envelope JSON: `{ conversationId, frame, payloadFrameCompression?, requestServerTimings?, fastPath? }` onde `frame.data` decodifica para um array de 1..32 JSON-RPC requests. Gated por `SOCKET_RELAY_BATCH_ENABLED` (default `false`). Ver "Relay JSON-RPC batch" abaixo.
+- `relay:rpc.request` — envelope JSON: `{ conversationId, frame, payloadFrameCompression?, requestServerTimings?, fastPath?, timeoutMs? }`. Opt-ins documentados em "Relay unary fast-path", "Server-side phase diagnostics" e "Per-request timeout" abaixo.
+- `relay:rpc.request.batch` — batch variant. Envelope JSON: `{ conversationId, frame, payloadFrameCompression?, requestServerTimings?, fastPath?, timeoutMs? }` onde `frame.data` decodifica para um array de 1..32 JSON-RPC requests. Gated por `SOCKET_RELAY_BATCH_ENABLED` (default `false`). Ver "Relay JSON-RPC batch" abaixo.
 - `relay:rpc.accepted`
 - `relay:rpc.batch_accepted` — ack unico para o batch envelope acima, carrega per-item `clientRequestId → requestId` + dedup state.
 - `relay:rpc.response`
@@ -126,9 +126,9 @@ Eventos abaixo usam payload JSON logico (nao `PayloadFrame`):
 ## Pub/sub customizado REST ou Socket
 
 O namespace `/consumers` tambem oferece um pub/sub simples para eventos de
-aplicacao. Sockets autenticados como **Client** (`principal_type: client`) assinam eventos `client:custom.*`; um `Client`
-publica via **`POST /api/v1/client/me/socket-events`** (REST) **ou**
-**`socket:event.publish`** no `/consumers` com o mesmo JWT; o hub emite o
+aplicacao. Sockets autenticados como **Client** (`principal_type: client`) assinam eventos `client:custom.`\*; um `Client`
+publica via `POST /api/v1/client/me/socket-events` (REST) **ou**
+`socket:event.publish` no `/consumers` com o mesmo JWT; o hub emite o
 evento dinamico para todos os sockets locais inscritos.
 
 Regras:
@@ -138,8 +138,8 @@ Regras:
   `connection:*`, `app:*`, `client:agent.*`, `socket:event.*`) ficam fora do
   prefixo aceito e nao podem ser publicados;
 - subscribe/unsubscribe/publish usam JSON puro com envelope de ack no subscribe/unsubscribe e em `socket:event.published` para publish;
-- `socket:event.subscribe` / `socket:event.unsubscribe` aceitam apenas principal **Client** (JWT com `principal_type: client` e `sub`); `user`/`admin` recebem `403` / `FORBIDDEN` no ack **sem** disconnect (a sessao relay / `agents:*` permanece aberta) e sem consumir o rate limit de subscribe;
-- `socket:event.publish` aplica o limite de inflight partilhado (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) **ou**, quando `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` > 0, um contador **dedicado** so para publicacoes custom (relay/comandos nao consomem esse teto; com **ambos** > 0 os contadores somam no maximo em voo); e um rate limit **separado** do Express; por defeito usam-se as mesmas env numericas que `POST /client/me/socket-events` (`REST_SOCKET_EVENT_RATE_LIMIT_*`), com overrides opcionais **só Socket** `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` (ver `docs/configuration.md`); com `SOCKET_RATE_LIMIT_REDIS_URL`, o scope Redis e `client_socket_event_publish` e a chave de identidade e `client:<JWT sub do Client>`; apos consumir quota, falhas **transientes** do publish (ex.: `503` fan-out local) **devolvem** a contagem na janela (best-effort: se o refund falhar, `WARN` `client_socket_event_publish_rate_limit_refund_failed` e o ack mantem o erro original do publish); **4xx** do `execute` (validacao, `413`, etc.) e conflitos de idempotencia (`409` / `IDEMPOTENCY_KEY_CONFLICT`) **nao** devolvem quota; **429** por inflight cheio ou por `allow === false` **nao** consumiram essa quota de publish; **429** em `socket:event.subscribe` (ex. `SUBSCRIPTION_LIMIT_EXCEEDED`) vem de outro limitador e nao afecta esta quota;
+- `socket:event.subscribe` / `socket:event.unsubscribe` aceitam apenas principal **Client** (JWT com `principal_type: client` e `sub`); `user`/`admin` recebem `403` / `FORBIDDEN` no ack **sem** disconnect (a sessao relay / `agents:`\* permanece aberta) e sem consumir o rate limit de subscribe;
+- `socket:event.publish` aplica o limite de inflight partilhado (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) **ou**, quando `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` > 0, um contador **dedicado** so para publicacoes custom (relay/comandos nao consomem esse teto; com **ambos** > 0 os contadores somam no maximo em voo); e um rate limit **separado** do Express; por defeito usam-se as mesmas env numericas que `POST /client/me/socket-events` (`REST_SOCKET_EVENT_RATE_LIMIT_`_), com overrides opcionais **só Socket** `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_`_ (ver `docs/configuration.md`); com `SOCKET_RATE_LIMIT_REDIS_URL`, o scope Redis e `client_socket_event_publish` e a chave de identidade e `client:<JWT sub do Client>`; apos consumir quota, falhas **transientes** do publish (ex.: `503` fan-out local) **devolvem** a contagem na janela (best-effort: se o refund falhar, `WARN` `client_socket_event_publish_rate_limit_refund_failed` e o ack mantem o erro original do publish); **4xx** do `execute` (validacao, `413`, etc.) e conflitos de idempotencia (`409` / `IDEMPOTENCY_KEY_CONFLICT`) **nao** devolvem quota; **429** por inflight cheio ou por `allow === false` **nao** consumiram essa quota de publish; **429** em `socket:event.subscribe` (ex. `SUBSCRIPTION_LIMIT_EXCEEDED`) vem de outro limitador e nao afecta esta quota;
 - antes do parse Zod, o hub rejeita envelopes JSON brutos acima de um teto derivado dos limites REST e de `SOCKET_IO_MAX_HTTP_BUFFER_BYTES` (`PAYLOAD_TOO_LARGE` / `413` no ack; `error.details` inclui `maxRawEnvelopeUtf8Bytes` / `maxEngineIoBufferBytes` quando aplicavel) para cortar cargas maliciosas cedo;
 - cada socket tem limite configuravel de inscricoes simultaneas
   (`SOCKET_CUSTOM_EVENT_MAX_SUBSCRIPTIONS_PER_SOCKET`) e rate limit local para
@@ -153,7 +153,7 @@ Regras:
 - `publisher` e derivado do JWT do `Client`, nunca do corpo da publicacao;
 - `attachments` sao inline e pequenos (`base64`); no REST vêm de multipart; no Socket podem ir no array `attachments` com o mesmo shape logico;
 - a resposta REST ou o ack `socket:event.published` confirmam emissao local no hub, nao processamento por listeners; se o socket fechar antes do hub emitir o ack, o cliente pode nao receber `socket:event.published` (o hub evita escrever num socket ja desligado);
-- **Idempotencia unificada (REST e Socket):** por defeito, o cache em memoria e partilhado por `clientId` (JWT `sub` do `Client`) e pela mesma chave logica: cabecalho HTTP `Idempotency-Key` e campo `idempotencyKey` no `socket:event.publish` escrevem na **mesma** entrada (`client_socket_event_idempotency_store`). O corpo e resumido por fingerprint (SHA-256 canonico); repetir a chave noutro canal com o mesmo corpo devolve replay sem nova emissao; corpo divergente devolve `409` / `IDEMPOTENCY_KEY_CONFLICT` em qualquer canal. Com `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`, replay/conflito e lock da primeira emissao tambem sao coordenados entre replicas. Com `REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS` > 0, publicacoes **concorrentes** no mesmo processo com a mesma chave passam por **fila por chave** (`client_socket_event_publish_idempotency_serialization`) para nao emitir duas vezes antes da escrita no cache; quando a cadeia termina, a entrada do mapa e removida. Com TTL **`0`**, nao ha replay guardado: pedidos **sequenciais** com a mesma chave podem **emitir de novo**. Opcional: `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS` > 0 limita quantas chaves **distintas** podem estar em serializacao em simultaneo neste processo; em excesso, novas chaves recebem `503` / `SERVICE_UNAVAILABLE` com `error.details.retry_after_ms` = `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS`. Quando `REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES` enche, o hub remove entradas pela **ordem de insercao** do mapa. Cuidado em migracoes e testes para nao reutilizar chaves globais entre canais sem querer.
+- **Idempotencia unificada (REST e Socket):** por defeito, o cache em memoria e partilhado por `clientId` (JWT `sub` do `Client`) e pela mesma chave logica: cabecalho HTTP `Idempotency-Key` e campo `idempotencyKey` no `socket:event.publish` escrevem na **mesma** entrada (`client_socket_event_idempotency_store`). O corpo e resumido por fingerprint (SHA-256 canonico); repetir a chave noutro canal com o mesmo corpo devolve replay sem nova emissao; corpo divergente devolve `409` / `IDEMPOTENCY_KEY_CONFLICT` em qualquer canal. Com `REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`, replay/conflito e lock da primeira emissao tambem sao coordenados entre replicas. Com `REST_SOCKET_EVENT_IDEMPOTENCY_TTL_MS` > 0, publicacoes **concorrentes** no mesmo processo com a mesma chave passam por **fila por chave** (`client_socket_event_publish_idempotency_serialization`) para nao emitir duas vezes antes da escrita no cache; quando a cadeia termina, a entrada do mapa e removida. Com TTL `0`, nao ha replay guardado: pedidos **sequenciais** com a mesma chave podem **emitir de novo**. Opcional: `REST_SOCKET_EVENT_IDEMPOTENCY_SERIALIZATION_MAX_KEYS` > 0 limita quantas chaves **distintas** podem estar em serializacao em simultaneo neste processo; em excesso, novas chaves recebem `503` / `SERVICE_UNAVAILABLE` com `error.details.retry_after_ms` = `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS`. Quando `REST_SOCKET_EVENT_IDEMPOTENCY_MAX_ENTRIES` enche, o hub remove entradas pela **ordem de insercao** do mapa. Cuidado em migracoes e testes para nao reutilizar chaves globais entre canais sem querer.
 - `Idempotency-Key` no REST **ou** campo `idempotencyKey` no `socket:event.publish` evita emissao duplicada em retry; replay retorna
   `idempotentReplay: true`, e reuso da chave com outro corpo retorna `409` (REST) ou `success: false` com `IDEMPOTENCY_KEY_CONFLICT` (Socket);
 - `REST_SOCKET_EVENT_MAX_RECIPIENTS` pode limitar fan-out e rejeitar com
@@ -233,8 +233,7 @@ Valores publicos documentados:
 Quando o agente desconecta com RPCs relay pendentes ou streams abertos, o hub
 notifica o consumer **antes** de limpar rotas:
 
-- unary pendente → `relay:rpc.response` com erro JSON-RPC (`error.data.code =
-  "AGENT_DISCONNECTED"`, `retryable: true`)
+- unary pendente → `relay:rpc.response` com erro JSON-RPC (`error.data.code = "AGENT_DISCONNECTED"`, `retryable: true`)
 - stream ativo → `relay:rpc.complete` terminal (`terminal_status: "error"`,
   `error_code: "AGENT_DISCONNECTED"`)
 
@@ -251,7 +250,7 @@ O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 
 **Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.bulkInsert`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`.
 
-**Opcoes relevantes em `sql.execute`:** `execution_mode` (`managed` | `preserve`),
+**Opcoes relevantes em** `sql.execute`**:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`,
 `prefer_db_streaming`, etc. Em `sql.executeBatch`, o hub tambem aceita
 `max_parallel_read_only_batch_items` como pass-through para o agente.
@@ -285,7 +284,7 @@ No relay, o consumer envia `PayloadFrame` em:
 - `relay:rpc.request` (campo `frame`)
 - `relay:rpc.stream.pull` (campo `frame`)
 
-Envelope JSON de `relay:rpc.request`: `conversationId`, `frame` (PayloadFrame) e, opcional, `payloadFrameCompression`: `default` \| `none` \| `always` — define gzip do frame que o hub **re-encoda** ao emitir `rpc:request` para o agente (o consumer frame e sempre descodificado antes).
+Envelope JSON de `relay:rpc.request`: `conversationId`, `frame` (PayloadFrame) e, opcional, `payloadFrameCompression`: `default` `none` `always` — define gzip do frame que o hub **re-encoda** ao emitir `rpc:request` para o agente (o consumer frame e sempre descodificado antes).
 
 O servidor encaminha para o agente como `rpc:*` e reenvelopa respostas/chunks em
 `PayloadFrame` para o consumer.
@@ -352,7 +351,7 @@ Regras atuais no servidor:
   o hub **nao** sobrescreve `body.id` — preserva o id do consumer end-to-end e
   pode saltar o re-encode (`canBypassReencode`). Ver
   [ADR 0009](../adrs/0009-client-request-id-echo.md).
-- Historico do defeito / racional: [`01_relay_body_id_echo.md`](../plug_agente/01_relay_body_id_echo.md).
+- Historico do defeito / racional: `[01_relay_body_id_echo.md](../plug_agente/01_relay_body_id_echo.md)`.
 - Respostas `relay:rpc.response/chunk/complete` correlacionam pelo `requestId`
   interno no **envelope PayloadFrame** (`envelope.requestId`) — fonte de verdade
   wire-level e `correlation_id` em erros sinteticos.
@@ -377,13 +376,13 @@ construidos antes do dispatch (decode failure, etc.) tambem tenham um
 
 Comportamento esperado:
 
-| consumer enviou | `body.id` na resposta | `envelope.requestId` |
-| --------------- | --------------------- | -------------------- |
-| `id: "client-X"` | `"client-X"` (echo) | `"hub-Y"` (UUID interno) |
-| `id: 42` (numero) | `42` (echo) | `"hub-Y"` (UUID interno) |
-| `id` omitido | `"hub-Y"` (fallback) | `"hub-Y"` (mesmo valor) |
-| `id: null` | **rejeitado** (`BAD_REQUEST`) | n/a |
-| metodo invalido | erro sintetico com `body.id` = `client-X` se enviado, senao `hub-Y` | `"hub-Y"` |
+| consumer enviou   | `body.id` na resposta                                               | `envelope.requestId`     |
+| ----------------- | ------------------------------------------------------------------- | ------------------------ |
+| `id: "client-X"`  | `"client-X"` (echo)                                                 | `"hub-Y"` (UUID interno) |
+| `id: 42` (numero) | `42` (echo)                                                         | `"hub-Y"` (UUID interno) |
+| `id` omitido      | `"hub-Y"` (fallback)                                                | `"hub-Y"` (mesmo valor)  |
+| `id: null`        | **rejeitado** (`BAD_REQUEST`)                                       | n/a                      |
+| metodo invalido   | erro sintetico com `body.id` = `client-X` se enviado, senao `hub-Y` | `"hub-Y"`                |
 
 A metrica `plug_socket_relay_body_id_echo_total` so incrementa quando
 **houve** uma reescrita real (`body.id !== envelope.requestId`).
@@ -433,24 +432,30 @@ Regras do contrato:
 - Erros (validacao, conversa nao encontrada, autorizacao, rate-limit, etc.)
   **sempre** sao reportados via `relay:rpc.accepted { success: false, error }`
   mesmo com `fastPath: true`. Caso contrario o consumer ficaria sem sinal.
+  - O hub **MUST** incluir `conversationId` do envelope inbound nesse `accepted`
+    de erro quando o envelope ja foi parseado.
+  - O hub **SHOULD** incluir `clientRequestId` (JSON-RPC `id` do PayloadFrame)
+    sempre que o frame tiver sido decodificado o bastante para ler o `id`
+    (incluindo a rejeicao `fastPath` + metodo streaming-capable). Sem esse eco,
+    consumers que indexam pendings por `clientRequestId` ignoram o evento e
+    ficam em hang ate o timer local.
 - Para **metodos streaming-capable** (`sql.execute` com `prefer_db_streaming` ou
   `multi_result`, `sql.executeBatch`), o hub **rejeita** `fastPath: true` no
-  dispatch com `BAD_REQUEST` em `relay:rpc.accepted` (`fastPath is not
-  allowed for streaming-capable RPC methods`). O handshake de window/credit
+  dispatch com `BAD_REQUEST` em `relay:rpc.accepted` (`fastPath is not allowed for streaming-capable RPC methods`). O handshake de window/credit
   (`relay:rpc.stream.pull`) precisa do `requestId` ancorado por
   `relay:rpc.accepted` antes do primeiro pull. Metrica:
   `plug_socket_relay_fast_path_stream_inadvertent_total` continua a cobrir
   respostas que abrem stream apesar de `fastPath` (caminhos legados ou race).
 - O cliente deve estar preparado para receber `relay:rpc.response` **antes**
   ou **sem** ter recebido `relay:rpc.accepted` quando enviou `fastPath: true`.
-  - O `body.id` da resposta JSON-RPC carrega o **`client_request_id`** original
+  - O `body.id` da resposta JSON-RPC carrega o `client_request_id` original
     (= JSON-RPC `id` enviado pelo consumer), conforme JSON-RPC 2.0 §5. E
     seguro rotear a resposta direto pelo `id` que o consumer mantém em seu
     mapa de pendings.
   - O envelope PayloadFrame (`envelope.requestId`) continua sendo o UUID
     interno do hub, util para correlacionar com `correlation_id` em logs
     de ops.
-  - Veja [`docs/plug_agente/01_relay_body_id_echo.md`](plug_agente/01_relay_body_id_echo.md)
+  - Veja `[docs/plug_agente/01_relay_body_id_echo.md](plug_agente/01_relay_body_id_echo.md)`
     para o racional do fix (issue Colmeia `relay_unary_fast_path.md §1`).
 
 Sem cancelamento explicito: o relay nao possui evento `relay:rpc.cancel`.
@@ -459,11 +464,39 @@ via comando `sql.cancel` com o `stream_id` retornado para streams ativos.
 Nenhum dos dois depende do `requestId` ancorado por `relay:rpc.accepted`, entao
 `fastPath` nao afeta o cancelamento.
 
+### Per-request timeout (`timeoutMs` no envelope)
+
+`relay:rpc.request` e `relay:rpc.request.batch` aceitam o campo opcional
+`timeoutMs` (inteiro positivo, teto `AGENT_TIMEOUT_MS_LIMIT + 60000` = 360000 ms)
+no envelope — paridade com o body REST `timeoutMs`.
+
+Espera efetiva do hub:
+
+```text
+effective = computeBridgeWaitTimeoutMs(command, timeoutMs ?? SOCKET_RELAY_REQUEST_TIMEOUT_MS)
+```
+
+Ou seja: o maior entre o valor pedido (ou o default de env) e
+`options.timeout_ms` do SQL + 5s de headroom, limitado ao teto acima.
+
+Regras:
+
+- Sem `timeoutMs` no envelope, o hub usa `SOCKET_RELAY_REQUEST_TIMEOUT_MS`
+  (default **30000** ms).
+- `bridgeTimeoutMs` / timer local do consumer **nao** estende a espera do hub;
+  o cliente deve enviar `timeoutMs` (ou o ops deve subir o env) quando o SQL
+  puder passar de ~15–30s.
+- Em timeout o hub emite `relay:rpc.response` com
+  `error.data.code = RELAY_REQUEST_TIMEOUT` e loga
+  `relay_request_timeout` com `conversationId`, `agentId`, `requestId` e
+  `clientRequestId`.
+- No batch, o mesmo `timeoutMs` do envelope propaga para **cada** item.
+
 ### Server-side phase diagnostics (`requestServerTimings` no envelope)
 
 `relay:rpc.request` aceita o campo opcional `requestServerTimings: boolean` no
 envelope. Quando `true`, o hub anexa um snapshot de latencias por fase ao
-**JSON-RPC `meta`** da resposta antes de codificar o `PayloadFrame` de saida.
+**JSON-RPC** `meta` da resposta antes de codificar o `PayloadFrame` de saida.
 
 Forma do envelope:
 
@@ -522,7 +555,7 @@ antes do encode de saida (`isAgentPhaseTimingsNegotiated` em
 `relay_route_response_forwarder.ts`). O agente ja auto-gateia em builds recentes;
 esta regra protege consumers de agentes legados ou mal configurados.
 
-**Acao no `plug_agente`:** nenhuma mudanca obrigatoria — continuar a anunciar
+**Acao no** `plug_agente`**:** nenhuma mudanca obrigatoria — continuar a anunciar
 `agentPhaseTimings: "v1"` apenas quando o suporte estiver ativo.
 
 ### Relay JSON-RPC batch (`relay:rpc.request.batch`)
@@ -599,7 +632,7 @@ Em rejeicao do envelope (sem dispatch de itens):
 }
 ```
 
-Per-item responses continuam chegando via **`relay:rpc.response` existente**
+Per-item responses continuam chegando via `relay:rpc.response` **existente**
 — um por item, correlacionados via `requestId` na envelope ou `id` no
 JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
 **inteira** no `batch_accepted.items[]` para correlacao no client.
@@ -608,7 +641,7 @@ JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
 
 - **Cap de items**: 1..`SOCKET_RELAY_BATCH_MAX_ITEMS` (default `32`). Excede
   retorna `BATCH_TOO_LARGE`.
-- **Cada item DEVE ter JSON-RPC `id`** (notifications NAO suportadas em v1).
+- **Cada item DEVE ter JSON-RPC** `id` (notifications NAO suportadas em v1).
   Faltando retorna `BATCH_ITEM_REQUIRES_ID`.
 - **IDs DEVEM ser unicos** dentro do batch. Duplicados retornam
   `BATCH_DUPLICATE_ID`.
@@ -647,7 +680,7 @@ JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
 - `plug_socket_relay_batch_envelope_decode_avg_ms` / `_max_ms` (gauge por processo)
 - `plug_socket_relay_batch_items_per_envelope_avg` / `_max` (gauge por processo)
 
-Dashboard Grafana: [`docs/grafana/relay_batch_dashboard.json`](../grafana/relay_batch_dashboard.json).
+Dashboard Grafana: `[docs/grafana/relay_batch_dashboard.json](../grafana/relay_batch_dashboard.json)`.
 
 ## Isolamento por conversa
 
@@ -711,7 +744,7 @@ Dashboard Grafana: [`docs/grafana/relay_batch_dashboard.json`](../grafana/relay_
   **antes** de o hub conceder novos credits/pulls ao agente. Se o pull for aceite
   mas a execucao falhar antes de concluir, os creditos concedidos nessa tentativa
   sao devolvidos para a janela do consumer.
-- **Chunks tardios apos `rpc:complete`**: o hub descarta `rpc:chunk` que chegam
+- **Chunks tardios apos** `rpc:complete`: o hub descarta `rpc:chunk` que chegam
   depois do terminal do agente (`completeReceived`); regista log
   `relay_chunk_after_complete_dropped` (contador interno
   `chunkAfterCompleteDroppedTotal`).
@@ -785,8 +818,8 @@ Variaveis principais do relay:
 - `SOCKET_RATE_LIMIT_REDIS_URL`
 
 Valores default, envelopes HTTP/Socket ao atingir quotas e Nginx edge:
-[`docs/limits/limites_acesso_e_quotas.md`](../limits/limites_acesso_e_quotas.md)
-e [`docs/configuration.md`](../configuration.md).
+`[docs/limits/limites_acesso_e_quotas.md](../limits/limites_acesso_e_quotas.md)`
+e `[docs/configuration.md](../configuration.md)`.
 
 ### Rate limit por consumer (janela fixa)
 
@@ -827,17 +860,17 @@ com Redis, scope `relay_conversation_start` / `relay_rpc_request`):
   incompatível, etc.).
 - **Antes do consumo**: `VALIDATION_ERROR` no envelope e `429` do proprio
   limitador (`allow === false`) **nao** consomem quota.
-- **`relay:rpc.request` — casos extra**: `429` por inflight partilhado por socket
+- `relay:rpc.request` **— casos extra**: `429` por inflight partilhado por socket
   (`SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET`) **mantem** a quota (4xx); aceite
   idempotente (`deduplicated: true`) **devolve** no caminho de sucesso porque
   nao houve novo dispatch.
-- **`relay:rpc.request.batch` — casos extra**: o custo proporcional da janela e
+- `relay:rpc.request.batch` **— casos extra**: o custo proporcional da janela e
   consumido **dentro** do handler (depois de validar o array). Se o gate de
   inflight all-or-nothing falhar (`429`), o hub **devolve** esse custo
   proporcional — distinto do unary, onde o `allow` corre no wiring antes do
   inflight. Preferir o batch quando o consumer precisa de refund previsivel
   sob pressão de inflight.
-- **`relay:conversation.start` — casos extra**: `429` por inflight partilhado
+- `relay:conversation.start` **— casos extra**: `429` por inflight partilhado
   apos consumir a quota de start **mantem** a quota (mesmo padrao do unary RPC).
 
 O `400` profundo marcado de `relay:rpc.request` e uma excecao deliberada a
@@ -942,9 +975,9 @@ Arquivo da migration:
 ## Compatibilidade
 
 Fluxo legado Socket (`agents:command` e `agents:stream_pull`) permanece ativo.
-Outbound desse canal usa **`PayloadFrame` por defeito**; inbound aceita JSON
+Outbound desse canal usa `PayloadFrame` **por defeito**; inbound aceita JSON
 ou frame durante a transicao — ver
-[`socket_client_sdk.md`](socket_client_sdk.md) ("Migração PayloadFrame no bridge legado")
+`[socket_client_sdk.md](socket_client_sdk.md)` ("Migração PayloadFrame no bridge legado")
 e `SOCKET_AGENTS_COMMAND_COMPAT_MODE` em `docs/configuration.md`.
 
 O mesmo contrato de comando ao agente existe em **paralelo** via

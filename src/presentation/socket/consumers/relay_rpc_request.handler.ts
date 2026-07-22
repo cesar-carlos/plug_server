@@ -8,7 +8,10 @@ import { AppError } from "../../../shared/errors/app_error";
 import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { conversationIdSchema } from "../../../shared/validators/schemas";
-import { payloadFrameCompressionSchema } from "../../../shared/validators/agent_command";
+import {
+  AGENT_TIMEOUT_MS_LIMIT,
+  payloadFrameCompressionSchema,
+} from "../../../shared/validators/agent_command";
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { isRecord } from "../../../shared/utils/rpc_types";
 import { conversationRegistry } from "../hub/registries/conversation_registry";
@@ -29,6 +32,7 @@ import {
   noteServerTimingsOptIn,
   noteSocketErrorRetryAfterMsPropagated,
 } from "../../../shared/metrics/socket_consumer.metrics";
+import { readRelayClientRequestIdFromError } from "../hub/relay/relay_accepted_correlation";
 
 /**
  * Rate-limit refund policy for `relay:rpc.request` after quota was consumed:
@@ -85,6 +89,18 @@ export const relayRpcEnvelopeSchema = z.object({
    * `relay:rpc.accepted`.
    */
   fastPath: z.boolean().optional(),
+  /**
+   * Per-request hub wait for the agent response (REST `timeoutMs` parity).
+   * Effective wait is `computeBridgeWaitTimeoutMs(command, timeoutMs ?? SOCKET_RELAY_REQUEST_TIMEOUT_MS)`
+   * so SQL `options.timeout_ms` still bumps the wait. Ceiling matches REST
+   * (`AGENT_TIMEOUT_MS_LIMIT` + 60s).
+   */
+  timeoutMs: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(AGENT_TIMEOUT_MS_LIMIT + 60_000)
+    .optional(),
 });
 
 export type RelayRpcRequestEnvelope = z.infer<typeof relayRpcEnvelopeSchema>;
@@ -101,6 +117,14 @@ type RelayRpcAcceptedPayload =
     }
   | {
       success: false;
+      /** Always echoed from the inbound envelope when present (known before frame decode). */
+      conversationId?: string;
+      /**
+       * Echoed whenever the PayloadFrame was decoded far enough to read JSON-RPC
+       * `id` (attached to {@link AppError}.details by the dispatcher). Required so
+       * consumers can settle pending maps keyed by `clientRequestId`.
+       */
+      clientRequestId?: string;
       error: { code: string; message: string; statusCode?: number; retryAfterMs?: number };
     };
 
@@ -134,6 +158,7 @@ export const handleRelayRpcRequest = (
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
     emitRelayRpcAccepted(socket, {
       success: false,
+      conversationId: envelope.conversationId,
       error: {
         code: "RATE_LIMITED",
         message: "Per-socket inflight gate exceeded",
@@ -196,6 +221,7 @@ export const handleRelayRpcRequest = (
         signal: abortController.signal,
         ...(envelope.requestServerTimings === true ? { requestServerTimings: true } : {}),
         ...(effectiveFastPath ? { fastPath: true } : {}),
+        ...(envelope.timeoutMs !== undefined ? { timeoutMs: envelope.timeoutMs } : {}),
       });
 
       // Fast-path: when the consumer opted in AND the request was not
@@ -282,8 +308,11 @@ export const handleRelayRpcRequest = (
           latencyTrace.dismissWithoutPersist();
         }
       }
+      const clientRequestId = readRelayClientRequestIdFromError(err);
       emitRelayRpcAccepted(socket, {
         success: false,
+        conversationId: envelope.conversationId,
+        ...(clientRequestId ? { clientRequestId } : {}),
         error: {
           code: appError?.code ?? "RELAY_RPC_REQUEST_FAILED",
           message: err instanceof Error ? err.message : "Failed to relay request",

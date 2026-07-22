@@ -39,6 +39,7 @@ import { env } from "../../../shared/config/env";
 import { socketEvents } from "../../../shared/constants/socket_events";
 import { conversationIdSchema } from "../../../shared/validators/schemas";
 import {
+  AGENT_TIMEOUT_MS_LIMIT,
   bridgeSingleCommandSchema,
   payloadFrameCompressionSchema,
 } from "../../../shared/validators/agent_command";
@@ -69,6 +70,13 @@ export const relayRpcRequestBatchEnvelopeSchema = z.object({
   payloadFrameCompression: payloadFrameCompressionSchema.optional(),
   requestServerTimings: z.boolean().optional(),
   fastPath: z.boolean().optional(),
+  /** Per-item hub wait; propagates to each `dispatchRelayRpcToAgent` (REST `timeoutMs` parity). */
+  timeoutMs: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(AGENT_TIMEOUT_MS_LIMIT + 60_000)
+    .optional(),
 });
 
 export type RelayRpcRequestBatchEnvelope = z.infer<typeof relayRpcRequestBatchEnvelopeSchema>;
@@ -111,6 +119,7 @@ type RelayRpcBatchAcceptedPayload =
     }
   | {
       success: false;
+      conversationId?: string;
       error: {
         code: string;
         message: string;
@@ -263,6 +272,7 @@ export const handleRelayRpcRequestBatch = (
     noteRelayBatchRejected("disabled");
     emitBatchAccepted(socket, {
       success: false,
+      conversationId: envelope.conversationId,
       error: {
         code: "RELAY_BATCH_DISABLED",
         message:
@@ -289,6 +299,7 @@ export const handleRelayRpcRequestBatch = (
         noteRelayBatchRejected("not_found");
         emitBatchAccepted(socket, {
           success: false,
+          conversationId: envelope.conversationId,
           error: {
             code: "NOT_FOUND",
             message: "Conversation not found",
@@ -308,6 +319,7 @@ export const handleRelayRpcRequestBatch = (
         noteRelayBatchRejected("frame_decode_failed");
         emitBatchAccepted(socket, {
           success: false,
+          conversationId: envelope.conversationId,
           error: {
             code: "BAD_REQUEST",
             message: decoded.error.message,
@@ -322,6 +334,7 @@ export const handleRelayRpcRequestBatch = (
         noteRelayBatchRejected("not_array");
         emitBatchAccepted(socket, {
           success: false,
+          conversationId: envelope.conversationId,
           error: {
             code: "BAD_REQUEST",
             message:
@@ -335,7 +348,7 @@ export const handleRelayRpcRequestBatch = (
       const validation = validateBatchItems(data);
       if (!validation.ok) {
         noteRelayBatchRejected("validation_failed");
-        emitBatchAccepted(socket, { success: false, error: validation.error });
+        emitBatchAccepted(socket, { success: false, conversationId: envelope.conversationId, error: validation.error });
         return;
       }
       const items = validation.items;
@@ -344,6 +357,7 @@ export const handleRelayRpcRequestBatch = (
         noteRelayBatchRejected("rate_limited");
         emitBatchAccepted(socket, {
           success: false,
+          conversationId: envelope.conversationId,
           error: {
             code: "RATE_LIMITED",
             message: "Rate limit exceeded for relay:rpc.request.batch",
@@ -377,6 +391,7 @@ export const handleRelayRpcRequestBatch = (
         rateLimitCost = 0;
         emitBatchAccepted(socket, {
           success: false,
+          conversationId: envelope.conversationId,
           error: {
             code: "RATE_LIMITED",
             message: "Per-socket inflight gate cannot accommodate the full batch",
@@ -410,6 +425,7 @@ export const handleRelayRpcRequestBatch = (
                   : {}),
                 ...(envelope.requestServerTimings === true ? { requestServerTimings: true } : {}),
                 ...(effectiveFastPath ? { fastPath: true } : {}),
+                ...(envelope.timeoutMs !== undefined ? { timeoutMs: envelope.timeoutMs } : {}),
                 ...(latencyTrace !== null ? { latencyTrace } : {}),
                 signal: abortController.signal,
               });
@@ -505,6 +521,7 @@ export const handleRelayRpcRequestBatch = (
       noteRelayBatchRejected("envelope_error");
       emitBatchAccepted(socket, {
         success: false,
+        conversationId: envelope.conversationId,
         error: {
           code: appError?.code ?? "RELAY_BATCH_REQUEST_FAILED",
           message: err instanceof Error ? err.message : "Failed to relay batch request",

@@ -1054,7 +1054,7 @@ const envSchema = z.object({
     .min(0)
     .max(300_000)
     .default(0),
-  SOCKET_RELAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  SOCKET_RELAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   SOCKET_RELAY_STREAM_MAX_LIFETIME_MS: z.coerce.number().int().positive().default(300_000),
   SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),

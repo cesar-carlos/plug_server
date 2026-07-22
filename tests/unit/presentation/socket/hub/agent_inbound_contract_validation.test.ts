@@ -68,6 +68,102 @@ describe("agent inbound contract validation", () => {
     ).toBe(true);
   });
 
+  it("accepts ADR 0011 health_snapshot and ADR 0012 agent_phases object meta", () => {
+    setMode("strict");
+
+    expect(
+      validateAgentInboundContract({
+        eventName: socketEvents.rpcResponse,
+        socketId: "agent-socket",
+        payload: {
+          jsonrpc: "2.0",
+          id: "r1",
+          result: { ok: true },
+          meta: {
+            request_id: "r1",
+            health_snapshot: {
+              captured_at_ms: 1_719_234_567_890,
+              sql_queue_pressure: 0.42,
+              active_streams: 2,
+              circuit_state: "closed",
+            },
+            agent_phases: {
+              frame_decode_ms: 0.8,
+              sql_queue_wait_ms: 12.4,
+              sql_execute_ms: 340.1,
+              frame_encode_ms: 2.1,
+            },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+
+    expect(
+      validateAgentInboundContract({
+        eventName: socketEvents.rpcResponse,
+        socketId: "agent-socket",
+        payload: {
+          jsonrpc: "2.0",
+          id: "r2",
+          result: {},
+          meta: {
+            healthSnapshot: {
+              capturedAtMs: 1_719_234_567_890,
+              status: "healthy",
+            },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects malformed health_snapshot and agent_phases meta shapes", () => {
+    setMode("strict");
+
+    const badSnapshot = validateAgentInboundContract({
+      eventName: socketEvents.rpcResponse,
+      socketId: "agent-socket",
+      payload: {
+        jsonrpc: "2.0",
+        id: "r1",
+        result: {},
+        meta: { health_snapshot: "not-an-object" },
+      },
+    });
+    expect(badSnapshot.ok).toBe(false);
+    expect(badSnapshot.message).toBe("meta.health_snapshot must be an object");
+
+    const badCapturedAt = validateAgentInboundContract({
+      eventName: socketEvents.rpcResponse,
+      socketId: "agent-socket",
+      payload: {
+        jsonrpc: "2.0",
+        id: "r1",
+        result: {},
+        meta: { health_snapshot: { captured_at_ms: -1 } },
+      },
+    });
+    expect(badCapturedAt.ok).toBe(false);
+    expect(badCapturedAt.message).toBe(
+      "meta.health_snapshot.captured_at_ms must be a positive finite number",
+    );
+
+    const badPhase = validateAgentInboundContract({
+      eventName: socketEvents.rpcResponse,
+      socketId: "agent-socket",
+      payload: {
+        jsonrpc: "2.0",
+        id: "r1",
+        result: {},
+        meta: { agent_phases: { sql_execute_ms: -3 } },
+      },
+    });
+    expect(badPhase.ok).toBe(false);
+    expect(badPhase.message).toBe(
+      "meta.agent_phases.sql_execute_ms must be a non-negative finite number",
+    );
+  });
+
   it("rejects invalid rpc:response payloads in strict mode", () => {
     setMode("strict");
 

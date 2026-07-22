@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { BridgeLatencyTraceSession } from "../../../../application/services/bridge_latency_trace_builder";
 import { inferBridgeCommandMethod } from "../../../../application/services/bridge_latency_trace_builder";
 import { observeBridgeRpcMethod } from "../../../../application/services/bridge_rpc_method_metrics.service";
+import { computeBridgeWaitTimeoutMs } from "../../../../application/agent_commands/command_transformers";
 import { env } from "../../../../shared/config/env";
 import { AppError } from "../../../../shared/errors/app_error";
 import {
@@ -13,6 +14,7 @@ import {
 } from "../../../../shared/errors/http_errors";
 import type { PayloadFrameCompression } from "../../../../shared/validators/agent_command";
 import { socketEvents } from "../../../../shared/constants/socket_events";
+import { logger } from "../../../../shared/utils/logger";
 import {
   decodePayloadFrameAsync,
   encodePayloadFrameBridge,
@@ -70,13 +72,13 @@ import {
 import { recordRelayTimeoutTombstone } from "./relay_timeout_tombstone";
 import { trySettleRelayRoute } from "./relay_route_settlement";
 import { resolveAgentCompressionPreference } from "./relay_compression_preference";
+import { attachRelayClientRequestIdToAppError } from "./relay_accepted_correlation";
 import type {
   PreparedAgentStreamPull,
   RequestAgentStreamPullInput,
   RequestAgentStreamPullResult,
 } from "./rpc_bridge_stream_pull";
 
-const relayRequestTimeoutMs = env.socketRelayRequestTimeoutMs;
 const relayMaxPendingRequestsPerConversation = env.socketRelayMaxPendingRequestsPerConversation;
 const relayMaxPendingRequestsPerConsumer = env.socketRelayMaxPendingRequestsPerConsumer;
 const relayIdempotencyTtlMs = env.socketRelayIdempotencyTtlMs;
@@ -106,6 +108,12 @@ export type DispatchRelayRpcInput = {
    * dispatcher itself.
    */
   readonly fastPath?: boolean;
+  /**
+   * Per-request hub wait (ms) for the agent response. When omitted, uses
+   * {@link env.socketRelayRequestTimeoutMs}. Combined with SQL
+   * `options.timeout_ms` via {@link computeBridgeWaitTimeoutMs}.
+   */
+  readonly timeoutMs?: number;
 } & (
   | { readonly rawFramePayload: unknown; readonly preDecodedData?: never }
   | { readonly rawFramePayload?: never; readonly preDecodedData: unknown }
@@ -218,72 +226,74 @@ export const createRpcBridgeRelayDispatch = (
       inboundFrameTraceId = toRequestId(decoded.value.frame.traceId);
     }
     const relayPreflightStart = performance.now();
+    const peekedClientRequestId = isRecord(decodedData) ? toRequestId(decodedData.id) : null;
 
-    const { command, normalizedCommand } = validateAndNormalizeRelayCommand(decodedData);
-
-    const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
-    if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
-      throw notFound("Conversation");
-    }
-    const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(conversation.agentId);
-    const clamped = clampCommandMaxRows(normalizedCommand, effectivePolicy.maxRows);
-    const normalizedAndClamped = clamped.command as typeof normalizedCommand;
-
-    if (
-      input.fastPath === true &&
-      isRelayStreamingCapableCommand(normalizedAndClamped as { method: string; params?: unknown })
-    ) {
-      throw badRequest("fastPath is not allowed for streaming-capable RPC methods");
-    }
-
-    const pendingReservation = reserveRelayPendingSlot(
-      conversation.conversationId,
-      conversation.consumerSocketId,
-    );
-    if (!pendingReservation) {
-      if (
-        getRelayPendingRequestCountForConversation(conversation.conversationId) >=
-        relayMaxPendingRequestsPerConversation
-      ) {
-        throw serviceUnavailable("Relay pending request capacity reached for conversation");
-      }
-      if (
-        getRelayPendingRequestCountForConsumer(conversation.consumerSocketId) >=
-        relayMaxPendingRequestsPerConsumer
-      ) {
-        throw serviceUnavailable("Relay pending request capacity reached for consumer");
-      }
-      throw serviceUnavailable("Relay pending request capacity reached");
-    }
-
-    /**
-     * Reservation must be released on every early exit (not-ready, circuit,
-     * missing socket, idempotent dedupe). Once `registerRelayRequestRoute`
-     * consumes it via `countersReserved: true`, the route owns the counters.
-     */
-    let pendingReservationConsumed = false;
     try {
-      const readiness = agentRegistry.getProtocolReadiness(conversation.agentId);
-      if (!readiness.ready) {
-        throw serviceUnavailableWithRetry(
-          `Agent ${conversation.agentId} protocol negotiation is not ready`,
-          readiness.retryAfterMs,
-        );
+      const { command, normalizedCommand } = validateAndNormalizeRelayCommand(decodedData);
+
+      const conversation = conversationRegistry.findInternalByConversationId(input.conversationId);
+      if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
+        throw notFound("Conversation");
+      }
+      const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(conversation.agentId);
+      const clamped = clampCommandMaxRows(normalizedCommand, effectivePolicy.maxRows);
+      const normalizedAndClamped = clamped.command as typeof normalizedCommand;
+
+      if (
+        input.fastPath === true &&
+        isRelayStreamingCapableCommand(normalizedAndClamped as { method: string; params?: unknown })
+      ) {
+        throw badRequest("fastPath is not allowed for streaming-capable RPC methods");
       }
 
-      ensureAgentCircuitClosed(conversation.agentId, "relay");
-
-      if (!hasRegisteredAgentSocketBridge()) {
-        throw serviceUnavailable("Socket bridge is not initialized");
+      const pendingReservation = reserveRelayPendingSlot(
+        conversation.conversationId,
+        conversation.consumerSocketId,
+      );
+      if (!pendingReservation) {
+        if (
+          getRelayPendingRequestCountForConversation(conversation.conversationId) >=
+          relayMaxPendingRequestsPerConversation
+        ) {
+          throw serviceUnavailable("Relay pending request capacity reached for conversation");
+        }
+        if (
+          getRelayPendingRequestCountForConsumer(conversation.consumerSocketId) >=
+          relayMaxPendingRequestsPerConsumer
+        ) {
+          throw serviceUnavailable("Relay pending request capacity reached for consumer");
+        }
+        throw serviceUnavailable("Relay pending request capacity reached");
       }
 
-      const agentSocket = findAgentSocketById(conversation.agentSocketId);
-      if (!agentSocket) {
-        throw serviceUnavailable("Agent socket is unavailable");
-      }
+      /**
+       * Reservation must be released on every early exit (not-ready, circuit,
+       * missing socket, idempotent dedupe). Once `registerRelayRequestRoute`
+       * consumes it via `countersReserved: true`, the route owns the counters.
+       */
+      let pendingReservationConsumed = false;
+      try {
+        const readiness = agentRegistry.getProtocolReadiness(conversation.agentId);
+        if (!readiness.ready) {
+          throw serviceUnavailableWithRetry(
+            `Agent ${conversation.agentId} protocol negotiation is not ready`,
+            readiness.retryAfterMs,
+          );
+        }
 
-      const cmdRecord = normalizedAndClamped as Record<string, unknown>;
-      const clientRequestId = toRequestId(cmdRecord.id);
+        ensureAgentCircuitClosed(conversation.agentId, "relay");
+
+        if (!hasRegisteredAgentSocketBridge()) {
+          throw serviceUnavailable("Socket bridge is not initialized");
+        }
+
+        const agentSocket = findAgentSocketById(conversation.agentSocketId);
+        if (!agentSocket) {
+          throw serviceUnavailable("Agent socket is unavailable");
+        }
+
+        const cmdRecord = normalizedAndClamped as Record<string, unknown>;
+        const clientRequestId = toRequestId(cmdRecord.id) ?? peekedClientRequestId;
       const idempotencyMap = clientRequestId
         ? getOrCreateRelayIdempotencyMap(conversation.conversationId)
         : null;
@@ -392,6 +402,11 @@ export const createRpcBridgeRelayDispatch = (
         throw error;
       });
 
+      const effectiveTimeoutMs = computeBridgeWaitTimeoutMs(
+        command,
+        input.timeoutMs ?? env.socketRelayRequestTimeoutMs,
+      );
+
       const timeoutHandle = setTimeout(() => {
         const route = getRelayRequestRoute(requestId);
         if (!route || !trySettleRelayRoute(route)) {
@@ -407,6 +422,15 @@ export const createRpcBridgeRelayDispatch = (
         }
         relayMetrics.requestTimeouts += 1;
         registerAgentFailure(route.agentId, "relay");
+        logger.warn("relay_request_timeout", {
+          requestId: route.requestId,
+          conversationId: route.conversationId,
+          agentId: route.agentId,
+          clientRequestId: route.clientRequestId ?? null,
+          timeoutMs: effectiveTimeoutMs,
+          waitedMs: Date.now() - route.createdAtMs,
+          jsonRpcMethod: route.jsonRpcMethod ?? null,
+        });
         if (route.latencyTrace && !route.latencyTrace.isFinalized()) {
           route.latencyTrace.finalizeOnce({
             outcome: "timeout",
@@ -429,7 +453,7 @@ export const createRpcBridgeRelayDispatch = (
           elapsedMs: Date.now() - route.createdAtMs,
         });
         emitRelayTimeoutResponse(route, emitToConsumer);
-      }, relayRequestTimeoutMs);
+      }, effectiveTimeoutMs);
 
       const relayRoute: RelayRequestRoute = {
         requestId,
@@ -589,6 +613,14 @@ export const createRpcBridgeRelayDispatch = (
       if (!pendingReservationConsumed) {
         pendingReservation.release();
       }
+    }
+    } catch (err: unknown) {
+      // Attach JSON-RPC `id` so `relay:rpc.accepted { success: false }` can echo
+      // `clientRequestId` and consumers settle pending maps instead of hanging.
+      if (err instanceof AppError && peekedClientRequestId) {
+        throw attachRelayClientRequestIdToAppError(err, peekedClientRequestId);
+      }
+      throw err;
     }
   };
 

@@ -42,7 +42,8 @@ const isPositiveInteger = (value: unknown): value is number =>
 
 const reject = (message: string): ContractValidationFailure => ({ message });
 
-const RPC_META_ALLOWED_KEYS = new Set([
+/** Trace / correlation fields — all string-valued (W3C + legacy). */
+const RPC_META_STRING_KEYS = new Set([
   "trace_id",
   "traceparent",
   "tracestate",
@@ -50,6 +51,14 @@ const RPC_META_ALLOWED_KEYS = new Set([
   "agent_id",
   "timestamp",
 ]);
+
+/**
+ * ADR 0011 / 0012 object-valued meta extensions on agent `rpc:response`.
+ * `healthSnapshot` is accepted as a camelCase alias of `health_snapshot`.
+ */
+const RPC_META_OBJECT_KEYS = new Set(["health_snapshot", "healthSnapshot", "agent_phases"]);
+
+const RPC_META_ALLOWED_KEYS = new Set([...RPC_META_STRING_KEYS, ...RPC_META_OBJECT_KEYS]);
 
 const RPC_CHUNK_ALLOWED_KEYS = new Set([
   "stream_id",
@@ -88,6 +97,35 @@ const ensureOnlyKeys = (
   return null;
 };
 
+const validateHealthSnapshot = (
+  snapshot: unknown,
+  fieldName: "health_snapshot" | "healthSnapshot",
+): ContractValidationFailure | null => {
+  if (!isRecord(snapshot)) {
+    return reject(`meta.${fieldName} must be an object`);
+  }
+  const capturedAt =
+    snapshot.captured_at_ms !== undefined ? snapshot.captured_at_ms : snapshot.capturedAtMs;
+  if (capturedAt !== undefined) {
+    if (typeof capturedAt !== "number" || !Number.isFinite(capturedAt) || capturedAt <= 0) {
+      return reject(`meta.${fieldName}.captured_at_ms must be a positive finite number`);
+    }
+  }
+  return null;
+};
+
+const validateAgentPhases = (phases: unknown): ContractValidationFailure | null => {
+  if (!isRecord(phases)) {
+    return reject("meta.agent_phases must be an object");
+  }
+  for (const [key, value] of Object.entries(phases)) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      return reject(`meta.agent_phases.${key} must be a non-negative finite number`);
+    }
+  }
+  return null;
+};
+
 const validateRpcMeta = (meta: unknown): ContractValidationFailure | null => {
   if (!isRecord(meta)) {
     return reject("meta must be an object");
@@ -97,8 +135,24 @@ const validateRpcMeta = (meta: unknown): ContractValidationFailure | null => {
     return reject(`meta.${extraKey.message}`);
   }
   for (const [key, value] of Object.entries(meta)) {
-    if (typeof value !== "string") {
-      return reject(`meta.${key} must be a string`);
+    if (RPC_META_STRING_KEYS.has(key)) {
+      if (typeof value !== "string") {
+        return reject(`meta.${key} must be a string`);
+      }
+      continue;
+    }
+    if (key === "health_snapshot" || key === "healthSnapshot") {
+      const snapshotValidation = validateHealthSnapshot(value, key);
+      if (snapshotValidation !== null) {
+        return snapshotValidation;
+      }
+      continue;
+    }
+    if (key === "agent_phases") {
+      const phasesValidation = validateAgentPhases(value);
+      if (phasesValidation !== null) {
+        return phasesValidation;
+      }
     }
   }
   return null;

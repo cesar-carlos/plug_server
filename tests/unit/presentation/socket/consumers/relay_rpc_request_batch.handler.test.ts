@@ -287,7 +287,7 @@ describe("handleRelayRpcRequestBatch", () => {
     }
   });
 
-  it("forwards requestServerTimings and fastPath to each dispatch call", async () => {
+  it("forwards requestServerTimings, fastPath, and timeoutMs to each dispatch call", async () => {
     const socket = buildSocket();
     mockedDispatch.mockResolvedValue({ requestId: "req-1", fastPath: true });
 
@@ -296,6 +296,7 @@ describe("handleRelayRpcRequestBatch", () => {
       frame: buildBatchFrame(["a", "b"]),
       requestServerTimings: true,
       fastPath: true,
+      timeoutMs: 30_000,
     });
 
     await vi.waitFor(() => expect(mockedDispatch).toHaveBeenCalledTimes(2));
@@ -309,6 +310,7 @@ describe("handleRelayRpcRequestBatch", () => {
       expect(call[0]).toMatchObject({
         requestServerTimings: true,
         fastPath: true,
+        timeoutMs: 30_000,
       });
     }
   });

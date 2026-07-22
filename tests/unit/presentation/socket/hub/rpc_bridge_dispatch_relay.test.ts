@@ -463,4 +463,148 @@ describe("rpc_bridge_dispatch_relay", () => {
     expect(getRelayEffectivePendingCount()).toBe(pendingBefore);
     expect(getRelayRegisteredRouteCount()).toBe(0);
   });
+
+  it("attaches clientRequestId on fastPath + streaming-capable BAD_REQUEST", async () => {
+    const agentId = "agent-fastpath-stream";
+    const agentSocketId = "agent-socket-fastpath-stream";
+    const consumerSocketId = "consumer-fastpath-stream";
+    const conversationId = "conversation-fastpath-stream";
+    const clientRequestId = "4955b711-9444-4061-82bc-4d97e270b2b1";
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: () => ({ emit: vi.fn() }),
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    let caught: unknown;
+    try {
+      await handlers.dispatchRelayRpcToAgent({
+        conversationId,
+        consumerSocketId,
+        fastPath: true,
+        rawFramePayload: encodePayloadFrame({
+          jsonrpc: "2.0",
+          method: "sql.execute",
+          id: clientRequestId,
+          params: {
+            sql: "SELECT 1",
+            options: { prefer_db_streaming: true },
+          },
+        }),
+      });
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AppError);
+    const appError = caught as AppError;
+    expect(appError.code).toBe("BAD_REQUEST");
+    expect(appError.message).toBe("fastPath is not allowed for streaming-capable RPC methods");
+    expect(appError.details).toMatchObject({ clientRequestId });
+  });
+
+  it("honors per-request timeoutMs shorter than SOCKET_RELAY_REQUEST_TIMEOUT_MS", async () => {
+    vi.useFakeTimers();
+    env.socketAgentAckRetryEnabled = false;
+
+    const agentId = "agent-timeout-ms";
+    const agentSocketId = "agent-socket-timeout-ms";
+    const consumerSocketId = "consumer-timeout-ms";
+    const conversationId = "conversation-timeout-ms";
+    const emitToConsumer = vi.fn();
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: () => ({ emit: vi.fn() }),
+      emitToConsumer,
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    await handlers.dispatchRelayRpcToAgent({
+      conversationId,
+      consumerSocketId,
+      timeoutMs: 100,
+      rawFramePayload: encodePayloadFrame({
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: "client-timeout-ms",
+        params: {},
+      }),
+    });
+
+    expect(emitToConsumer).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(99);
+    expect(emitToConsumer).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    // Outbound encode is async — flush microtasks / pending promises.
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.waitFor(() => {
+      expect(emitToConsumer).toHaveBeenCalled();
+    });
+    const eventName = emitToConsumer.mock.calls[0]?.[1];
+    expect(eventName).toBe(socketEvents.relayRpcResponse);
+  });
 });
