@@ -214,6 +214,29 @@ export const agentCatalogSchemas = {
       },
     },
   },
+  OwnerClientAgentAccessRequestRecord: {
+    allOf: [
+      { $ref: "#/components/schemas/ClientAgentAccessRequestRecord" },
+      {
+        type: "object",
+        description:
+          "Owner inbox shape for `GET /me/client-access-requests`. Adds requesting client identity fields.",
+        properties: {
+          clientEmail: {
+            type: "string",
+            format: "email",
+            nullable: true,
+            description: "Email of the client that requested access.",
+          },
+          clientName: {
+            type: "string",
+            nullable: true,
+            description: "Display name of the requesting client.",
+          },
+        },
+      },
+    ],
+  },
   PaginatedAgentCatalogResponse: {
     type: "object",
     required: ["agents", "count", "total", "page", "pageSize"],

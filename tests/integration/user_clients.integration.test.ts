@@ -373,6 +373,16 @@ describe("User client governance API", () => {
       .query({ status: "pending", agentId: agent.agentId });
     expect(ownerRequests.status).toBe(200);
     expect(ownerRequests.body.count).toBe(1);
+    expect(ownerRequests.body.requests[0]).toMatchObject({
+      agentId: agent.agentId,
+      clientId: registerClient.body.client.id,
+      clientEmail: registerClient.body.client.email,
+      status: "pending",
+    });
+    expect(typeof ownerRequests.body.requests[0]?.clientName).toBe("string");
+    expect(typeof ownerRequests.body.requests[0]?.requestedAt).toBe("string");
+    expect(typeof ownerRequests.body.requests[0]?.createdAt).toBe("string");
+    expect(typeof ownerRequests.body.requests[0]?.retryCount).toBe("number");
     const requestId = ownerRequests.body.requests[0]?.id as string;
     expect(typeof requestId).toBe("string");
 

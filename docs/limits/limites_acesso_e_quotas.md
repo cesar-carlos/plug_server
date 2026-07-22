@@ -240,6 +240,17 @@ Cenário típico: dezenas de agentes no **mesmo IP** a renovar token após queda
 
 **Resposta:** 429, `"Too many client agent token updates, please try again later."`
 
+### User owner — decisões de client (email)
+
+| Variável | Default | Produção (exemplo) |
+| -------- | ------- | ------------------ |
+| `REST_ME_CLIENT_DECISION_RATE_LIMIT_WINDOW_MS` | 900000 | 900000 |
+| `REST_ME_CLIENT_DECISION_RATE_LIMIT_MAX` | 60 | **0** |
+
+**Rotas:** `POST /api/v1/me/clients/{clientId}/registration/approve|reject`, `POST /api/v1/me/client-access-requests/{requestId}/approve|reject`
+
+**Resposta:** 429, `"Too many client decision requests, please try again later."`
+
 ### Publicação de eventos Socket (REST)
 
 | Variável | Default | Produção (exemplo) |

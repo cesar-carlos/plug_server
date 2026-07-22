@@ -21,6 +21,10 @@ export interface ClientAgentAccessRequestRecord {
   readonly clientId: string;
   readonly agentId: string;
   readonly agentName?: string;
+  /** Present on owner inbox listings when the repository enriches the client join. */
+  readonly clientEmail?: string;
+  /** Present on owner inbox listings when the repository enriches the client join. */
+  readonly clientName?: string;
   readonly status: "pending" | "approved" | "rejected" | "expired" | "revoked";
   /** Retries after rejection/expiry/revocation (or approved-without-access). Not bumped on pending email resend. */
   readonly retryCount: number;

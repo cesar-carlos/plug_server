@@ -233,6 +233,12 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     );
     lines.push(
       metricLine(
+        "plug_rest_http_rate_limit_me_client_decision_rejected_total",
+        restHttpRl.meClientDecisionRejectedTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
         "plug_rest_http_rate_limit_client_thumbnail_rejected_total",
         restHttpRl.clientThumbnailRejectedTotal,
       ),

@@ -141,7 +141,7 @@ export const listMyClientAccessRequests = async (
     return;
   }
   response.status(200).json({
-    requests: result.value.items,
+    requests: result.value.items.map(toOwnerClientAgentAccessRequestDto),
     count: result.value.items.length,
     total: result.value.total,
     page: result.value.page,
@@ -251,3 +251,47 @@ export const revokeMyAgentClientAccess = async (
     clientId,
   });
 };
+
+const toOwnerClientAgentAccessRequestDto = (request: {
+  id: string;
+  clientId: string;
+  agentId: string;
+  agentName?: string;
+  clientEmail?: string;
+  clientName?: string;
+  status: "pending" | "approved" | "rejected" | "expired" | "revoked";
+  retryCount: number;
+  requestedAt: Date;
+  decidedAt?: Date;
+  decisionReason?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}): {
+  id: string;
+  clientId: string;
+  agentId: string;
+  agentName: string | null;
+  clientEmail: string | null;
+  clientName: string | null;
+  status: "pending" | "approved" | "rejected" | "expired" | "revoked";
+  retryCount: number;
+  requestedAt: string;
+  decidedAt: string | null;
+  decisionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+} => ({
+  id: request.id,
+  clientId: request.clientId,
+  agentId: request.agentId,
+  agentName: request.agentName ?? null,
+  clientEmail: request.clientEmail ?? null,
+  clientName: request.clientName ?? null,
+  status: request.status,
+  retryCount: request.retryCount,
+  requestedAt: request.requestedAt.toISOString(),
+  decidedAt: request.decidedAt?.toISOString() ?? null,
+  decisionReason: request.decisionReason ?? null,
+  createdAt: request.createdAt.toISOString(),
+  updatedAt: request.updatedAt.toISOString(),
+});

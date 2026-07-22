@@ -286,8 +286,10 @@ Regras:
 - `PATCH /api/v1/me/clients/{clientId}/status` nao processa `Client` em `pending`; nesse estado a decisao deve passar pelo fluxo oficial de aprovacao/rejeicao do cadastro (`POST /api/v1/me/clients/{clientId}/registration/approve|reject` ou links publicos por token)
 - `POST /api/v1/me/clients/{clientId}/registration/approve|reject` decide cadastros `pending` do owner autenticado mesmo quando o link publico por email expirou
 - o owner possui inbox autenticada para listar pedidos de acesso aos seus agentes e decidir por `requestId`
+- a listagem `GET /api/v1/me/client-access-requests` inclui `clientEmail` e `clientName` do solicitante (alem de `agentName`, `retryCount` e timestamps ISO)
+- mutacoes de decisao autenticadas que enviam email (`registration/approve|reject`, `client-access-requests/.../approve|reject`) tem rate limit por `JWT sub` (`REST_ME_CLIENT_DECISION_RATE_LIMIT_*`)
 - o owner pode listar quais `Clients` estao aprovados para um agente especifico seu
-- o owner pode revogar um acesso aprovado `clientId + agentId` sem alterar ownership do agente; se o pedido estava `approved`, passa a `revoked` com motivo `owner_revoked_access`
+- o owner pode revogar um acesso aprovado `clientId + agentId` sem alterar ownership do agente; se o pedido estava `approved`, passa a `revoked` com motivo `owner_revoked_access`; sockets `/consumers` so sao derrubados quando o access existia
 - o fluxo por token/email continua valido como canal alternativo para approve/reject
 
 ## 5) Regras de autorizacao por principal

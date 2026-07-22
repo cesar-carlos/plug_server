@@ -203,6 +203,18 @@ const envSchema = z.object({
     .min(0)
     .max(10_000_000)
     .default(120),
+  /**
+   * Per user JWT `sub` on owner inbox mutations that send email
+   * (`/me/clients/.../registration/*`, `/me/client-access-requests/.../approve|reject`).
+   */
+  REST_ME_CLIENT_DECISION_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+  /** `0` = unlimited. */
+  REST_ME_CLIENT_DECISION_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10_000_000)
+    .default(60),
   REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   /** `0` = unlimited. */
   REST_SOCKET_EVENT_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(120),
@@ -1759,6 +1771,8 @@ export const env = {
   restClientMeAgentTokenPutRateLimitWindowMs:
     parsedEnv.REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_WINDOW_MS,
   restClientMeAgentTokenPutRateLimitMax: parsedEnv.REST_CLIENT_ME_AGENT_TOKEN_PUT_RATE_LIMIT_MAX,
+  restMeClientDecisionRateLimitWindowMs: parsedEnv.REST_ME_CLIENT_DECISION_RATE_LIMIT_WINDOW_MS,
+  restMeClientDecisionRateLimitMax: parsedEnv.REST_ME_CLIENT_DECISION_RATE_LIMIT_MAX,
   restSocketEventRateLimitWindowMs: parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_WINDOW_MS,
   restSocketEventRateLimitMax: parsedEnv.REST_SOCKET_EVENT_RATE_LIMIT_MAX,
   restSocketEventMaxFiles: parsedEnv.REST_SOCKET_EVENT_MAX_FILES,

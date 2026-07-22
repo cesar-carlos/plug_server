@@ -16,12 +16,18 @@ import type {
  */
 
 export const toRequestRecord = (
-  request: ClientAgentAccessRequest & { readonly agentName?: string },
+  request: ClientAgentAccessRequest & {
+    readonly agentName?: string;
+    readonly clientEmail?: string;
+    readonly clientName?: string;
+  },
 ): ClientAgentAccessRequestRecord => ({
   id: request.id,
   clientId: request.clientId,
   agentId: request.agentId,
   ...(request.agentName !== undefined ? { agentName: request.agentName } : {}),
+  ...(request.clientEmail !== undefined ? { clientEmail: request.clientEmail } : {}),
+  ...(request.clientName !== undefined ? { clientName: request.clientName } : {}),
   status: request.status,
   retryCount: request.retryCount,
   requestedAt: request.requestedAt,

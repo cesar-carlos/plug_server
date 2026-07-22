@@ -822,6 +822,21 @@ describe("ClientAgentAccessService", () => {
     expect(stored?.status).toBe("revoked");
   });
 
+  it("does not notify sockets when owner revoke is idempotent and no access exists", async () => {
+    const revokeClientAccess = vi.fn();
+    socketControlDisposers.push(
+      registerConsumerSocketControlHandler({
+        disconnectPrincipal: vi.fn(),
+        revokeClientAccess,
+        grantClientAccess: vi.fn(),
+      }),
+    );
+
+    const revoked = await decisionService.revokeAccessByOwner(ownerUserId, agentId, clientId);
+    expect(revoked.ok).toBe(true);
+    expect(revokeClientAccess).not.toHaveBeenCalled();
+  });
+
   it("denies revoke by owner when caller does not own the agent", async () => {
     const otherOwnerId = "11111111-1111-4111-8111-111111111111";
     await userRepository.save(

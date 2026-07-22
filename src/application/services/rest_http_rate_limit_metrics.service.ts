@@ -12,6 +12,7 @@ let agentsSelfProfileRejectedTotal = 0;
 let adminUserStatusRejectedTotal = 0;
 let clientMeAgentsPostRejectedTotal = 0;
 let clientMeAgentTokenPutRejectedTotal = 0;
+let meClientDecisionRejectedTotal = 0;
 let clientThumbnailRejectedTotal = 0;
 let clientPasswordRecoveryRequestRejectedTotal = 0;
 let clientPasswordRecoveryPollRejectedTotal = 0;
@@ -57,6 +58,10 @@ export const incrementRestHttpClientMeAgentTokenPutRateLimitRejected = (): void 
   clientMeAgentTokenPutRejectedTotal += 1;
 };
 
+export const incrementRestHttpMeClientDecisionRateLimitRejected = (): void => {
+  meClientDecisionRejectedTotal += 1;
+};
+
 export const incrementRestHttpClientThumbnailRateLimitRejected = (): void => {
   clientThumbnailRejectedTotal += 1;
 };
@@ -84,6 +89,7 @@ export const getRestHttpRateLimitMetricsSnapshot = (): {
   readonly adminUserStatusRejectedTotal: number;
   readonly clientMeAgentsPostRejectedTotal: number;
   readonly clientMeAgentTokenPutRejectedTotal: number;
+  readonly meClientDecisionRejectedTotal: number;
   readonly clientThumbnailRejectedTotal: number;
   readonly clientPasswordRecoveryRequestRejectedTotal: number;
   readonly clientPasswordRecoveryPollRejectedTotal: number;
@@ -99,6 +105,7 @@ export const getRestHttpRateLimitMetricsSnapshot = (): {
   adminUserStatusRejectedTotal,
   clientMeAgentsPostRejectedTotal,
   clientMeAgentTokenPutRejectedTotal,
+  meClientDecisionRejectedTotal,
   clientThumbnailRejectedTotal,
   clientPasswordRecoveryRequestRejectedTotal,
   clientPasswordRecoveryPollRejectedTotal,
@@ -116,6 +123,7 @@ export const resetRestHttpRateLimitMetrics = (): void => {
   adminUserStatusRejectedTotal = 0;
   clientMeAgentsPostRejectedTotal = 0;
   clientMeAgentTokenPutRejectedTotal = 0;
+  meClientDecisionRejectedTotal = 0;
   clientThumbnailRejectedTotal = 0;
   clientPasswordRecoveryRequestRejectedTotal = 0;
   clientPasswordRecoveryPollRejectedTotal = 0;

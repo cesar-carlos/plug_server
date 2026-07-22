@@ -8,6 +8,7 @@ import {
   incrementRestHttpAgentsSelfProfileRateLimitRejected,
   incrementRestHttpClientMeAgentTokenPutRateLimitRejected,
   incrementRestHttpClientMeAgentsPostRateLimitRejected,
+  incrementRestHttpMeClientDecisionRateLimitRejected,
   incrementRestHttpClientPasswordRecoveryPollRateLimitRejected,
   incrementRestHttpClientPasswordRecoveryRequestRateLimitRejected,
   incrementRestHttpClientSocketEventPublishRateLimitRejected,
@@ -103,6 +104,9 @@ export let clientMeAgentsPostRateLimit: RequestHandler = globalRateLimitNotRegis
 /** Per authenticated client (`JWT sub`) on `PUT /client/me/agents/:agentId/client-token`. */
 export let clientMeAgentTokenPutRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
+/** Per authenticated user (`JWT sub`) on owner inbox decisions that send email. */
+export let meClientDecisionRateLimit: RequestHandler = globalRateLimitNotRegistered;
+
 export let clientSocketEventPublishRateLimit: RequestHandler = globalRateLimitNotRegistered;
 
 export let clientThumbnailRateLimit: RequestHandler = globalRateLimitNotRegistered;
@@ -153,6 +157,13 @@ export const clientMeAgentTokenPutRateLimitKey = (res: Response): string => {
   const authClient = res.locals.authClient as JwtAccessPayload | undefined;
   const sub = authClient?.sub?.trim();
   return sub ? `client_me_agent_token_put:${sub}` : "client_me_agent_token_put:anonymous";
+};
+
+/** Rate-limit store key for owner `/me/clients` and `/me/client-access-requests` decisions. */
+export const meClientDecisionRateLimitKey = (res: Response): string => {
+  const authUser = res.locals.authUser as JwtAccessPayload | undefined;
+  const sub = authUser?.sub?.trim();
+  return sub ? `me_client_decision:${sub}` : "me_client_decision:anonymous";
 };
 
 export const clientSocketEventPublishRateLimitKey = (res: Response): string => {
@@ -381,6 +392,26 @@ export function registerHttpRateLimits(): void {
           keyGenerator: (_req: Request, res: Response) => clientMeAgentTokenPutRateLimitKey(res),
           handler: async (request, response, _next, optionsUsed) => {
             incrementRestHttpClientMeAgentTokenPutRateLimitRejected();
+            await sendRateLimitResponse(request, response, optionsUsed);
+          },
+        });
+
+  meClientDecisionRateLimit =
+    env.restMeClientDecisionRateLimitMax === 0
+      ? passthrough
+      : rateLimit({
+          windowMs: env.restMeClientDecisionRateLimitWindowMs,
+          limit: env.restMeClientDecisionRateLimitMax,
+          ...(optionalRedisStore("me_client_decision") ?? {}),
+          standardHeaders: true,
+          legacyHeaders: false,
+          message: {
+            message: "Too many client decision requests, please try again later.",
+            code: "TOO_MANY_REQUESTS",
+          },
+          keyGenerator: (_req: Request, res: Response) => meClientDecisionRateLimitKey(res),
+          handler: async (request, response, _next, optionsUsed) => {
+            incrementRestHttpMeClientDecisionRateLimitRejected();
             await sendRateLimitResponse(request, response, optionsUsed);
           },
         });

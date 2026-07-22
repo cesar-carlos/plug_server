@@ -55,23 +55,29 @@ export type UserListClientAccessRequestsQuery = z.infer<
   typeof userListClientAccessRequestsQuerySchema
 >;
 
-export const userRejectClientAccessRequestBodySchema = z.object({
-  reason: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().trim().max(500).optional(),
-  ),
-});
+export const userRejectClientAccessRequestBodySchema = z.preprocess(
+  (value) => (value === undefined || value === null ? {} : value),
+  z.object({
+    reason: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().trim().max(500).optional(),
+    ),
+  }),
+);
 
 export type UserRejectClientAccessRequestBody = z.infer<
   typeof userRejectClientAccessRequestBodySchema
 >;
 
-export const userRejectClientRegistrationBodySchema = z.object({
-  reason: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z.string().trim().max(500).optional(),
-  ),
-});
+export const userRejectClientRegistrationBodySchema = z.preprocess(
+  (value) => (value === undefined || value === null ? {} : value),
+  z.object({
+    reason: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().trim().max(500).optional(),
+    ),
+  }),
+);
 
 export type UserRejectClientRegistrationBody = z.infer<
   typeof userRejectClientRegistrationBodySchema

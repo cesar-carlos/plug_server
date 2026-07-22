@@ -331,8 +331,11 @@ export class ClientRegistrationService {
       return err(conflict("Client registration already processed"));
     }
 
-    return this.wrapRegistrationDecisionTxn("approve", () =>
-      this.clientRegistrationDecisionTxn.approveByClientId(clientId),
+    return this.wrapRegistrationDecisionTxn(
+      "approve",
+      () => this.clientRegistrationDecisionTxn.approveByClientId(clientId),
+      undefined,
+      Date.now(),
     );
   }
 
@@ -358,6 +361,7 @@ export class ClientRegistrationService {
       "reject",
       () => this.clientRegistrationDecisionTxn.rejectByClientId(clientId),
       reason,
+      Date.now(),
     );
   }
 

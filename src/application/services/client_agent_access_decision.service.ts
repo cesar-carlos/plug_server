@@ -482,7 +482,7 @@ export class ClientAgentAccessDecisionService {
     filter?: OwnerClientAccessRequestListFilter,
   ): Promise<Result<ClientAgentAccessRequestPage>> {
     const page = Math.max(1, filter?.page ?? 1);
-    const pageSize = Math.max(1, filter?.pageSize ?? 20);
+    const pageSize = Math.max(1, Math.min(100, filter?.pageSize ?? 20));
     const result = await this.clientAgentAccessRequestRepository.listByOwnerPage(ownerUserId, {
       ...(filter?.status !== undefined ? { status: filter.status } : {}),
       ...(filter?.search !== undefined ? { search: filter.search } : {}),
@@ -491,8 +491,31 @@ export class ClientAgentAccessDecisionService {
       page,
       pageSize,
     });
+
+    // Prisma may already join client identity; in-memory (and sparse adapters) may not.
+    const missingClientIds = result.items
+      .filter((item) => item.clientEmail === undefined)
+      .map((item) => item.clientId);
+    const clientsById =
+      missingClientIds.length > 0
+        ? await loadClientsById(this.clientRepository, missingClientIds)
+        : new Map();
+
     return ok({
-      items: result.items.map((item) => toRequestRecord(item)),
+      items: result.items.map((item) => {
+        const client = clientsById.get(item.clientId);
+        return toRequestRecord(
+          Object.assign(
+            item,
+            item.clientEmail === undefined && client !== undefined
+              ? {
+                  clientEmail: client.email,
+                  clientName: `${client.name} ${client.lastName}`.trim(),
+                }
+              : {},
+          ),
+        );
+      }),
       total: result.total,
       page,
       pageSize,
@@ -692,6 +715,7 @@ export class ClientAgentAccessDecisionService {
     if (!client) {
       return err(notFound("Client"));
     }
+    const hadAccess = await this.clientAgentAccessRepository.hasAccess(clientId, agentId);
     await this.clientAgentAccessRepository.removeAccess(clientId, agentId);
     this.liveProfileDeps?.onAccessRevoked?.(clientId, agentId);
     const request = await this.clientAgentAccessRequestRepository.findByClientAndAgent(
@@ -703,11 +727,13 @@ export class ClientAgentAccessDecisionService {
         reason: clientAgentAccessRevokedByOwnerDecisionReason,
       });
     }
-    await revokeConsumerClientAccessSockets({
-      clientId,
-      agentId,
-      reason: "client_access_revoked",
-    });
+    if (hadAccess) {
+      await revokeConsumerClientAccessSockets({
+        clientId,
+        agentId,
+        reason: "client_access_revoked",
+      });
+    }
     return ok(undefined);
   }
 
