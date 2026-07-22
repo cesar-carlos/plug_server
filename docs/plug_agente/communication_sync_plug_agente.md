@@ -58,7 +58,8 @@ OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
 | ---- | ------------- | --------------- |
 | Namespace do agente em `/agents` | alinhado | `docs/plug_agente/migracao_plug_agente_namespaces.md` |
 | Handshake autenticado e `agent:register` (zod schema) | alinhado | `docs/api/api_rest_bridge.md`, `src/shared/validators/agent_register.ts` |
-| Rejeicao de `agent:register` via `agent:register_error` (JSON puro, `{ code, reason, message, details? }`) | alinhado | `docs/plug_agente/migracao_plug_agente_namespaces.md`, `src/presentation/socket/hub/handshake/agent_register_error.ts` |
+| Rejeicao de `agent:register` via `agent:register_error` (JSON puro, `{ code, reason, message, details? }`) | alinhado | `docs/plug_agente/migracao_plug_agente_namespaces.md`, `src/presentation/socket/hub/handshake/agent_register_error.ts`; agente classifica por `reason` (`transient_failure`/`rate_limited` recuperaveis; demais forcam reconnect) |
+| `agent:session.superseded` (takeover) | alinhado no hub; agente escuta e loga antes do disconnect | `agent_register_error.ts`, runtime `transport_socket_event_binder.dart` |
 | Negociacao de capabilities (com hints de stream pull) | alinhado | `docs/socket/socket_relay_protocol.md` |
 | Readiness explicito com `agent:ready` | alinhado | `docs/api/api_rest_bridge.md`, `docs/socket/socket_relay_protocol.md` |
 | `PayloadFrame` com gzip, assinatura opcional e payload base64 | alinhado | `docs/socket/socket_relay_protocol.md` |

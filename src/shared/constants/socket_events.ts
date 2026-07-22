@@ -5,10 +5,12 @@ export const socketEvents = {
   /**
    * Hub → agent rejection of `agent:register`. Emitted as **plain JSON**
    * (NOT a `PayloadFrame`) per `socket_communication_standard.md` "Mapa rapido
-   * de eventos": `{ code, reason, message }`. The agent uses `reason` to decide
-   * between rescheduling registration (`transient_failure`, `rate_limited`) or
-   * forcing a reconnect (anything else, e.g. `authentication_failed`,
-   * `invalid_request`).
+   * de eventos": `{ code, reason, message, details? }`. Prefer `reason` for
+   * recovery: only `transient_failure` / `rate_limited` keep the socket open
+   * for another `agent:register`. Any other reason (e.g.
+   * `authentication_failed`, `session_active`, `invalid_request`,
+   * `internal_error`) forces a reconnect. Do not classify by numeric `code`
+   * alone — `-32603` is shared by transient and internal failures.
    */
   agentRegisterError: "agent:register_error",
   /** Hub → agent: previous session replaced under `takeover_disconnect_previous` policy (plain JSON). */
