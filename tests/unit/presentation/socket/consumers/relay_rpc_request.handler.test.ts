@@ -461,6 +461,30 @@ describe("handleRelayRpcRequest", () => {
       });
     });
 
+    it("accepts timeoutMs at the 360000ms ceiling", () => {
+      const result = parseRelayRpcRequestEnvelope({
+        conversationId: "conv-1",
+        frame: buildUnaryRelayFrame(),
+        timeoutMs: 360_000,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.timeoutMs).toBe(360_000);
+      }
+    });
+
+    it("rejects timeoutMs above the 360000ms ceiling", () => {
+      const result = parseRelayRpcRequestEnvelope({
+        conversationId: "conv-1",
+        frame: buildUnaryRelayFrame(),
+        timeoutMs: 360_001,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.errorMessage).toMatch(/timeoutMs/i);
+      }
+    });
+
     it("skips relay:rpc.accepted when fast-path is honored on the non-dedup happy path", async () => {
       const socket = buildSocket();
       mockedDispatchRelayRpcToAgent.mockResolvedValue({

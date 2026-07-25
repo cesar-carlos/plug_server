@@ -85,6 +85,7 @@ import { logEnvRestSocketEventHints } from "./shared/config/log_env_rest_socket_
 import { logEnvWorldAlignmentHints } from "./shared/config/log_env_world_alignment";
 import { logSocketAuthBootstrapHints } from "./shared/config/log_socket_auth_bootstrap_hints";
 import { logSocketConsumerBootstrapHints } from "./shared/config/log_socket_consumer_bootstrap_hints";
+import { logSocketPerfBootstrapHints } from "./shared/config/log_socket_perf_bootstrap_hints";
 import { warnIfConnectionReadyLegacyCompatExpired } from "./presentation/socket/hub/handshake/connection_ready_handshake";
 import { warnIfAgentsCommandLegacyCompatExpired } from "./presentation/socket/consumers/agents_command_wire";
 import { warnIfAgentsStreamPullLegacyCompatExpired } from "./presentation/socket/consumers/agents_stream_pull_wire";
@@ -178,6 +179,7 @@ const bootstrap = async (): Promise<void> => {
   await initSocketIoRedisAdapter(io);
   logSocketAuthBootstrapHints();
   logSocketConsumerBootstrapHints();
+  logSocketPerfBootstrapHints();
   warnIfConnectionReadyLegacyCompatExpired();
   warnIfAgentsCommandLegacyCompatExpired();
   warnIfAgentsStreamPullLegacyCompatExpired();

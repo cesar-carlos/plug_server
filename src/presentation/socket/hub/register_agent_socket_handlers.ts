@@ -521,6 +521,12 @@ export const registerAgentSocketConnectionHandlers = ({
       userId: getUserId(socket),
     });
 
+    // Register disconnect early so identity-room join failures still run full cleanup
+    // exactly once (avoids leaving bridge/registry state behind on early disconnect).
+    socket.on("disconnect", () => {
+      runAgentSocketDisconnectCleanup(socket, consumersNsp);
+    });
+
     try {
       await joinAgentIdentityRooms(socket);
     } catch (error: unknown) {
@@ -585,10 +591,6 @@ export const registerAgentSocketConnectionHandlers = ({
 
     socket.on(socketEvents.rpcComplete, (rawPayload: unknown) => {
       handleAgentRpcComplete(socket.id, rawPayload);
-    });
-
-    socket.on("disconnect", () => {
-      runAgentSocketDisconnectCleanup(socket, consumersNsp);
     });
   });
 };

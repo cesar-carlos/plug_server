@@ -162,14 +162,9 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
   registerSocketBridgeServer(agentsNsp);
   registerConsumerBridgeServer(consumersNsp);
 
+  // Conversation idle expiry only — independent of rate-limit/outbound pruning so a burst of
+  // expired conversations cannot stall map sweeps (and vice versa).
   state.conversationSweepTimer = setInterval(() => {
-    sweepRelayRateLimitState();
-    sweepAgentsCommandSocketRateLimitState();
-    sweepClientSocketEventPublishSocketRateLimitState();
-    sweepAgentProfileSocketRateLimitState();
-    sweepCustomSocketEventSubscriptionRateLimitState();
-    sweepAgentRegisterRateLimitState();
-    sweepRelayOutboundQueueState();
     const expiredConversations = conversationRegistry.removeExpired(
       env.socketRelayConversationIdleTimeoutMs,
     );
@@ -179,6 +174,19 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     runExpiredConversationCleanup(expiredConversations, consumersNsp, agentsNsp);
   }, env.socketRelayConversationSweepIntervalMs);
   state.conversationSweepTimer.unref?.();
+
+  // Rate-limit map pruning + relay outbound queue orphan/overload refresh.
+  // Cadence: SOCKET_RATE_LIMIT_SWEEP_INTERVAL_MS (falls back to SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS).
+  state.rateLimitSweepTimer = setInterval(() => {
+    sweepRelayRateLimitState();
+    sweepAgentsCommandSocketRateLimitState();
+    sweepClientSocketEventPublishSocketRateLimitState();
+    sweepAgentProfileSocketRateLimitState();
+    sweepCustomSocketEventSubscriptionRateLimitState();
+    sweepAgentRegisterRateLimitState();
+    sweepRelayOutboundQueueState();
+  }, env.socketRateLimitSweepIntervalMs);
+  state.rateLimitSweepTimer.unref?.();
   if (env.socketConsumerClientAgentRoomReconcileIntervalMs > 0) {
     scheduleConsumerClientAgentRoomReconcile(state, consumersNsp);
   } else {

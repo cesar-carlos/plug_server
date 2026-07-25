@@ -318,7 +318,12 @@ export const registerConsumerSocketConnectionHandlers = ({
       }
 
       // Idle touch runs inside the handler after structural validation succeeds.
-      void handleAgentsStreamPull(socket, rawPayload);
+      void handleAgentsStreamPull(socket, rawPayload).catch((error: unknown) => {
+        logger.warn("agents_stream_pull_handler_failed", {
+          socketId: socket.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
     });
 
     socket.on(socketEvents.relayConversationStart, (rawPayload: unknown) => {
@@ -497,6 +502,8 @@ export const registerConsumerSocketConnectionHandlers = ({
 
         touchConsumerActivity();
 
+        // Rate limit (allowRelayRpcRequestAsync) is applied per item inside the
+        // batch handler; the outer wire handler only pre-validates the envelope.
         handleRelayRpcRequestBatch(socket, envelope.data);
       })().catch((error: unknown) => {
         logger.warn("relay_rpc_request_batch_handler_failed", {

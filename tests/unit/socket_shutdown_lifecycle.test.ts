@@ -31,7 +31,9 @@ const createLifecycleState = (): SocketServerState => {
       consecutiveFailures: 0,
       openedUntilEpochMs: 0,
     },
+    customEventRecipientCountCache: new TtlCache(1_000, 2_048),
     conversationSweepTimer: null,
+    rateLimitSweepTimer: null,
     consumerClientAgentRoomReconcileTimer: null,
     consumerClientAgentRoomReconcileStartTimeout: null,
     consumerClientAgentRoomReconcileInFlight: null,
@@ -58,6 +60,7 @@ describe("socket shutdown lifecycle", () => {
     });
 
     state.conversationSweepTimer = setInterval(() => undefined, 60_000);
+    state.rateLimitSweepTimer = setInterval(() => undefined, 60_000);
     state.consumerClientAgentRoomReconcileTimer = setInterval(() => undefined, 60_000);
     state.consumerClientAgentRoomReconcileStartTimeout = setTimeout(() => undefined, 60_000);
     state.consumerClientAgentRoomReconcileCursor = 3;
@@ -85,6 +88,7 @@ describe("socket shutdown lifecycle", () => {
     expect(state.consumerClientAgentRoomReconcileInFlight).toBeNull();
     expect(state.consumerClientAgentRoomReconcileCursor).toBe(0);
     expect(state.conversationSweepTimer).toBeNull();
+    expect(state.rateLimitSweepTimer).toBeNull();
     expect(state.consumerClientAgentRoomReconcileTimer).toBeNull();
     expect(state.consumerClientAgentRoomReconcileStartTimeout).toBeNull();
     expect(state.pendingAgentProfilePushByAgentId.size).toBe(0);

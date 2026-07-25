@@ -81,6 +81,10 @@ const stopSocketServerLifecycleTasks = async (state: SocketServerState): Promise
     clearInterval(state.conversationSweepTimer);
     state.conversationSweepTimer = null;
   }
+  if (state.rateLimitSweepTimer) {
+    clearInterval(state.rateLimitSweepTimer);
+    state.rateLimitSweepTimer = null;
+  }
   if (state.consumerClientAgentRoomReconcileTimer) {
     clearInterval(state.consumerClientAgentRoomReconcileTimer);
     state.consumerClientAgentRoomReconcileTimer = null;

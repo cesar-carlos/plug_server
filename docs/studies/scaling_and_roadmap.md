@@ -146,6 +146,26 @@ bridge/relay, mas **nao** duplica mais o trabalho dos schedulers de retencao/pru
    `client:custom.*` e idempotencia dessa publicacao ja tem caminho Redis opcional;
    o restante do bridge ainda requer desenho cuidadoso de chaves e TTL.
 
+### Epic: estado relay distribuido (proximo)
+
+**Objetivo:** permitir `/consumers` + `/agents` multi-replica **sem** sticky sessions
+para o caminho relay (hoje process-local).
+
+**Escopo candidato (ADR futuro):**
+
+1. Externalizar `conversationRegistry` (criar, touch, idle expiry, ownership) para Redis
+   ou store partilhado com TTL alinhado a `SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS`.
+2. Externalizar pending requests relay/REST e correlacao `requestId` → rota (socket/agente)
+   com cleanup em disconnect e timeout.
+3. Completar idempotencia relay entre replicas (hoje parcial/local; Redis opcional
+   so cobre parte do pub/sub custom).
+4. Definir afinidade ou lookup de agente (`agentRegistry` + presence Redis ja cobre
+   parte do REST forward) para despacho `relay:rpc.request` cross-replica.
+5. Criterios de remocao de sticky: testes multi-hub + runbook Nginx sem affinity.
+
+Ate este epic fechar, o contrato continua a exigir sticky (ou instância unica).
+Ver tambem `docs/socket/socket_relay_protocol.md` (Modelo multi-replica).
+
 Ver tambem a checklist em `docs/api/api_rest_bridge.md` (gaps / replicas).
 
 ## Streaming progressivo no REST (SSE ou chunked)

@@ -86,7 +86,15 @@ Copia as linhas para o teu `.env` e ajusta por carga. Valores aqui **substituem*
 
 ### Baseline produção (sem copiar nada)
 
-Com `NODE_ENV=production` e variáveis **omitidas**, o hub já aplica: `SOCKET_IO_TRANSPORTS=websocket`, `SOCKET_IO_HTTP_COMPRESSION=false`, `PAYLOAD_FRAME_GZIP_LEVEL=3`, amostragem de auditoria em chunks relay a **25%**. Confirma `SOCKET_IO_PER_MESSAGE_DEFLATE=false` (defeito).
+Com `NODE_ENV=production` e variáveis **omitidas**, o hub já aplica: `SOCKET_IO_TRANSPORTS=websocket`, `SOCKET_IO_HTTP_COMPRESSION=false`, `PAYLOAD_FRAME_GZIP_LEVEL=3`, amostragem de auditoria em chunks relay a **25%**. Confirma `SOCKET_IO_PER_MESSAGE_DEFLATE=false` (defeito). No boot, `logSocketPerfBootstrapHints` emite `WARN` se overrides de produção forem piores (deflate on, polling, gzip level > 3) e `INFO` se ambos os TTLs de snapshot de auth/acesso estiverem em `0`.
+
+### Snapshots de auth / agent access (opt-in)
+
+Defaults de segurança: `SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS=0` e
+`SOCKET_CONSUMER_AGENT_ACCESS_SNAPSHOT_TTL_MS=0` (DB a cada evento sensível).
+Em hubs com muitos eventos consumer por segundo, TTLs curtos (ex. `15000`–`30000`
+para conta, `15000` para acesso a agente) cortam round-trips; block/revoke podem
+atrasar até ao TTL salvo invalidação explícita. Ver `.env.example`.
 
 ### Alto throughput (muito relay + streams, RAM suficiente)
 

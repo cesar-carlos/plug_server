@@ -17,7 +17,11 @@ import { resetRelayStreamFlowState } from "../../../../../src/presentation/socke
 import { env } from "../../../../../src/shared/config/env";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { AppError } from "../../../../../src/shared/errors/app_error";
-import { encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
+import { forwardRelayRouteResponse } from "../../../../../src/presentation/socket/hub/relay/relay_route_response_forwarder";
+import {
+  decodePayloadFrame,
+  encodePayloadFrame,
+} from "../../../../../src/shared/utils/payload_frame";
 
 const originalAckRetryConfig = {
   enabled: env.socketAgentAckRetryEnabled,
@@ -607,6 +611,183 @@ describe("rpc_bridge_dispatch_relay", () => {
     });
     const eventName = emitToConsumer.mock.calls[0]?.[1];
     expect(eventName).toBe(socketEvents.relayRpcResponse);
+  });
+
+  it("bumps effective wait toward sql.execute options.timeout_ms without envelope timeoutMs", async () => {
+    vi.useFakeTimers();
+    env.socketAgentAckRetryEnabled = false;
+
+    const agentId = "agent-sql-timeout-ms";
+    const agentSocketId = "agent-socket-sql-timeout-ms";
+    const consumerSocketId = "consumer-sql-timeout-ms";
+    const conversationId = "conversation-sql-timeout-ms";
+    const emitToConsumer = vi.fn();
+    const effectiveTimeoutMs = 125_000;
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: () => ({ emit: vi.fn() }),
+      emitToConsumer,
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    await handlers.dispatchRelayRpcToAgent({
+      conversationId,
+      consumerSocketId,
+      rawFramePayload: encodePayloadFrame({
+        jsonrpc: "2.0",
+        method: "sql.execute",
+        id: "client-sql-timeout-ms",
+        params: {
+          sql: "SELECT 1",
+          options: { timeout_ms: 120_000 },
+        },
+      }),
+    });
+
+    expect(emitToConsumer).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(effectiveTimeoutMs - 1);
+    expect(emitToConsumer).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.waitFor(() => {
+      expect(emitToConsumer).toHaveBeenCalled();
+    });
+    expect(emitToConsumer.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcResponse);
+  });
+
+  it("clears the relay wait timer when the agent response is forwarded", async () => {
+    vi.useFakeTimers();
+    env.socketAgentAckRetryEnabled = false;
+
+    const agentId = "agent-timer-cleanup";
+    const agentSocketId = "agent-socket-timer-cleanup";
+    const consumerSocketId = "consumer-timer-cleanup";
+    const conversationId = "conversation-timer-cleanup";
+    const clientRequestId = "client-timer-cleanup";
+    const emitToConsumer = vi.fn();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+        extensions: { clientRequestIdEcho: "v1" },
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: () => ({ emit: vi.fn() }),
+      emitToConsumer,
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    const result = await handlers.dispatchRelayRpcToAgent({
+      conversationId,
+      consumerSocketId,
+      timeoutMs: 60_000,
+      rawFramePayload: encodePayloadFrame({
+        jsonrpc: "2.0",
+        method: "agent.getHealth",
+        id: clientRequestId,
+        params: {},
+      }),
+    });
+
+    const route = getRelayRequestRoute(result.requestId);
+    expect(route).toBeDefined();
+
+    const decoded = decodePayloadFrame(
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id: clientRequestId,
+          result: { status: "ok" },
+        },
+        { requestId: result.requestId },
+      ),
+    );
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) {
+      return;
+    }
+
+    forwardRelayRouteResponse({
+      socketId: agentSocketId,
+      candidateIds: [result.requestId],
+      decoded: decoded.value,
+      streamId: null,
+      inboundSyncStart: performance.now(),
+      decodeMs: 1,
+      emitToConsumer,
+    });
+
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(route?.timeoutHandle);
+
+    await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+
+    expect(emitToConsumer).toHaveBeenCalledTimes(1);
+
+    clearTimeoutSpy.mockRestore();
   });
 
   it("accepts preDecodedData without re-decoding the consumer frame", async () => {

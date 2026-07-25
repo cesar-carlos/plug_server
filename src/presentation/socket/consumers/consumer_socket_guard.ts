@@ -35,6 +35,12 @@ type GuardSocket = Socket & {
 const inFlightAgentAccessBySocketAgent = new Map<string, Promise<AgentAccessPrincipal>>();
 
 /**
+ * Reverse index: socketId → Set of inflight keys (`socketId:agentId`) for that socket.
+ * Keeps `clearInflightAgentAccessForSocket` O(keys for socket) instead of O(all inflight).
+ */
+const inflightKeysBySocketId = new Map<string, Set<string>>();
+
+/**
  * Reverse index: agentId → Set of socketIds that have a cached access snapshot for that agent.
  * Used by `invalidateAgentAccessSnapshot` to avoid an O(N) scan over all consumer sockets.
  */
@@ -98,15 +104,24 @@ const removeAgentAccessSnapshotIndexEntry = (agentId: string, socketId: string):
 const inFlightAgentAccessKey = (socketId: string, agentId: string): string =>
   `${socketId}:${agentId}`;
 
-const inFlightAgentAccessKeysForSocket = (socketId: string): string[] => {
-  const prefix = `${socketId}:`;
-  const keys: string[] = [];
-  for (const key of inFlightAgentAccessBySocketAgent.keys()) {
-    if (key.startsWith(prefix)) {
-      keys.push(key);
-    }
+const trackInflightKeyForSocket = (socketId: string, inflightKey: string): void => {
+  let socketInflight = inflightKeysBySocketId.get(socketId);
+  if (!socketInflight) {
+    socketInflight = new Set<string>();
+    inflightKeysBySocketId.set(socketId, socketInflight);
   }
-  return keys;
+  socketInflight.add(inflightKey);
+};
+
+const untrackInflightKeyForSocket = (socketId: string, inflightKey: string): void => {
+  const socketKeys = inflightKeysBySocketId.get(socketId);
+  if (!socketKeys) {
+    return;
+  }
+  socketKeys.delete(inflightKey);
+  if (socketKeys.size === 0) {
+    inflightKeysBySocketId.delete(socketId);
+  }
 };
 
 /**
@@ -114,9 +129,14 @@ const inFlightAgentAccessKeysForSocket = (socketId: string): string[] => {
  * DB checks cannot repopulate `socketIdsByAgentId` after cleanup.
  */
 export const clearInflightAgentAccessForSocket = (socketId: string): void => {
-  for (const key of inFlightAgentAccessKeysForSocket(socketId)) {
+  const keys = inflightKeysBySocketId.get(socketId);
+  if (!keys) {
+    return;
+  }
+  for (const key of keys) {
     inFlightAgentAccessBySocketAgent.delete(key);
   }
+  inflightKeysBySocketId.delete(socketId);
 };
 
 export const resolveSocketActorRole = (user: JwtAccessPayload | undefined): string | null =>
@@ -374,6 +394,7 @@ export const assertConsumerSocketAgentAccess = async (
       rejectValidation = reject;
     });
     inFlightAgentAccessBySocketAgent.set(inflightKey, validationPromise);
+    trackInflightKeyForSocket(socket.id, inflightKey);
 
     void (async () => {
       try {
@@ -390,6 +411,7 @@ export const assertConsumerSocketAgentAccess = async (
         if (inFlightAgentAccessBySocketAgent.get(inflightKey) === validationPromise) {
           inFlightAgentAccessBySocketAgent.delete(inflightKey);
         }
+        untrackInflightKeyForSocket(socket.id, inflightKey);
       }
     })();
 

@@ -179,6 +179,30 @@ describe("parseRelayRpcRequestBatchEnvelope", () => {
       expect(result.data.requestServerTimings).toBe(true);
     }
   });
+
+  it("accepts timeoutMs at the 360000ms ceiling", () => {
+    const result = parseRelayRpcRequestBatchEnvelope({
+      conversationId: "conv-1",
+      frame: {},
+      timeoutMs: 360_000,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.timeoutMs).toBe(360_000);
+    }
+  });
+
+  it("rejects timeoutMs above the 360000ms ceiling", () => {
+    const result = parseRelayRpcRequestBatchEnvelope({
+      conversationId: "conv-1",
+      frame: {},
+      timeoutMs: 360_001,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorMessage).toMatch(/timeoutMs/i);
+    }
+  });
 });
 
 describe("handleRelayRpcRequestBatch", () => {
@@ -312,6 +336,39 @@ describe("handleRelayRpcRequestBatch", () => {
         fastPath: true,
         timeoutMs: 30_000,
       });
+    }
+  });
+
+  it("forwards timeoutMs at the 360000ms ceiling to every batch item", async () => {
+    const socket = buildSocket();
+    mockedDispatch.mockResolvedValue({ requestId: "req-1" });
+
+    handleRelayRpcRequestBatch(socket as never, {
+      conversationId: "conv-1",
+      frame: buildBatchFrame(["a", "b", "c"]),
+      timeoutMs: 360_000,
+    });
+
+    await vi.waitFor(() => expect(mockedDispatch).toHaveBeenCalledTimes(3));
+
+    for (const call of mockedDispatch.mock.calls) {
+      expect(call[0]).toMatchObject({ timeoutMs: 360_000 });
+    }
+  });
+
+  it("does not forward timeoutMs when omitted from the batch envelope", async () => {
+    const socket = buildSocket();
+    mockedDispatch.mockResolvedValue({ requestId: "req-1" });
+
+    handleRelayRpcRequestBatch(socket as never, {
+      conversationId: "conv-1",
+      frame: buildBatchFrame(["a", "b"]),
+    });
+
+    await vi.waitFor(() => expect(mockedDispatch).toHaveBeenCalledTimes(2));
+
+    for (const call of mockedDispatch.mock.calls) {
+      expect(call[0]).not.toHaveProperty("timeoutMs");
     }
   });
 

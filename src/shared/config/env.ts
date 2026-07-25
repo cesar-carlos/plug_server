@@ -991,6 +991,24 @@ const envSchema = z.object({
     .min(0)
     .max(1_000_000)
     .default(240),
+  /**
+   * Short TTL cache for custom-event room recipient counts (`countSocketsInRoom` without
+   * `captureSockets`). `0` disables (always fresh `fetchSockets` / local count). Opt-in under
+   * publish bursts to cut cluster RPCs; counts may lag up to the TTL.
+   */
+  SOCKET_CUSTOM_EVENT_RECIPIENT_COUNT_CACHE_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(5_000)
+    .default(0),
+  /** Max room entries retained in the custom-event recipient count cache. */
+  SOCKET_CUSTOM_EVENT_RECIPIENT_COUNT_CACHE_MAX_SIZE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(2_048),
   SOCKET_AGENT_ROLES: z
     .string()
     .default("agent")
@@ -1089,6 +1107,25 @@ const envSchema = z.object({
     .max(300_000)
     .default(0),
   SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  /**
+   * Cadence for in-process Socket rate-limit map pruning and relay outbound queue sweep.
+   * Independent of `SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS` so conversation expiry bursts
+   * do not stall rate-limit cleanup. When unset, falls back to
+   * `SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS` (legacy alias).
+   */
+  SOCKET_RATE_LIMIT_SWEEP_INTERVAL_MS: z.preprocess(
+    (val) => {
+      if (val !== undefined && val !== "" && String(val).trim() !== "") {
+        return val;
+      }
+      const outbound = process.env.SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS;
+      if (outbound !== undefined && outbound !== "" && String(outbound).trim() !== "") {
+        return outbound;
+      }
+      return "60000";
+    },
+    z.coerce.number().int().positive(),
+  ),
   SOCKET_RELAY_MAX_CONVERSATIONS: z.coerce.number().int().positive().default(5_000),
   SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER: z.coerce.number().int().positive().default(20),
   SOCKET_RELAY_MAX_PENDING_REQUESTS: z.coerce.number().int().positive().default(10_000),
@@ -1146,7 +1183,11 @@ const envSchema = z.object({
   SOCKET_METRICS_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(1),
   /** How long an unresolved per-request outbound tail may stay untouched before being swept as orphaned. */
   SOCKET_RELAY_OUTBOUND_TAIL_STALE_MS: z.coerce.number().int().positive().default(300_000),
-  /** Background sweep cadence for stale outbound tails. */
+  /**
+   * Legacy alias for the rate-limit/outbound sweep cadence.
+   * Prefer `SOCKET_RATE_LIMIT_SWEEP_INTERVAL_MS`. Still parsed so existing deploys keep working;
+   * used as fallback when `SOCKET_RATE_LIMIT_SWEEP_INTERVAL_MS` is unset.
+   */
   SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   /** `0` disables overload shedding by backlog size. */
   SOCKET_RELAY_OUTBOUND_OVERLOAD_BACKLOG: z.coerce.number().int().min(0).default(200),
@@ -1934,6 +1975,10 @@ export const env = {
     parsedEnv.SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_WINDOW_MS,
   socketCustomEventSubscriptionRateLimitMax:
     parsedEnv.SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_MAX,
+  socketCustomEventRecipientCountCacheTtlMs:
+    parsedEnv.SOCKET_CUSTOM_EVENT_RECIPIENT_COUNT_CACHE_TTL_MS,
+  socketCustomEventRecipientCountCacheMaxSize:
+    parsedEnv.SOCKET_CUSTOM_EVENT_RECIPIENT_COUNT_CACHE_MAX_SIZE,
   socketAgentRoles: parsedEnv.SOCKET_AGENT_ROLES,
   socketConsumerRoles: parsedEnv.SOCKET_CONSUMER_ROLES.roles,
   socketConsumerRolesClientAppended: parsedEnv.SOCKET_CONSUMER_ROLES.clientAppended,
@@ -1958,6 +2003,7 @@ export const env = {
   socketRelayConversationIdleTimeoutMs: parsedEnv.SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS,
   socketRelayConversationTouchDebounceMs: parsedEnv.SOCKET_RELAY_CONVERSATION_TOUCH_DEBOUNCE_MS,
   socketRelayConversationSweepIntervalMs: parsedEnv.SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS,
+  socketRateLimitSweepIntervalMs: parsedEnv.SOCKET_RATE_LIMIT_SWEEP_INTERVAL_MS,
   socketRelayMaxConversations: parsedEnv.SOCKET_RELAY_MAX_CONVERSATIONS,
   socketRelayMaxConversationsPerConsumer: parsedEnv.SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER,
   socketRelayMaxPendingRequests: parsedEnv.SOCKET_RELAY_MAX_PENDING_REQUESTS,

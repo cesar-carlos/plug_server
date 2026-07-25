@@ -39,7 +39,12 @@ acima de alguns MiB), preferir Socket/relay e sinalizar
 
 - **Handshake**: `connection:ready` (PayloadFrame; contrato e compat detalhados em `docs/socket/socket_relay_protocol.md` -> _Handshake:_ `connection:ready`). Quando esse evento chega para principal `client`, a room base `client:<clientId>` ja foi associada; rooms derivadas por agente aprovado convergem logo depois em backfill assincrono.
 - Controle em JSON: `relay:conversation.*`, `relay:rpc.accepted`, `relay:rpc.stream.pull_response`, acks `socket:event.*`
-- Dados em `PayloadFrame`: `connection:ready`, `agents:command_response`, `agents:command_stream_chunk`, `agents:command_stream_complete`, `agents:stream_pull_response`, `relay:rpc.request`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`, `relay:rpc.request_ack`, `relay:rpc.batch_ack`, `relay:rpc.stream.pull`
+- Eventos outbound (servidor → consumer) em `PayloadFrame` completo: `connection:ready`,
+  `agents:command_response`, `agents:command_stream_chunk`, `agents:command_stream_complete`,
+  `agents:stream_pull_response`, `relay:rpc.response`, `relay:rpc.chunk`, `relay:rpc.complete`,
+  `relay:rpc.request_ack`, `relay:rpc.batch_ack`
+- Eventos inbound (consumer → servidor) com campo `frame` em `PayloadFrame` (envelope é JSON):
+  `relay:rpc.request`, `relay:rpc.stream.pull`
 - **Bridge legado (**`agents:`**\*)**: inbound `agents:command` e `agents:stream_pull` aceitam plain JSON **ou** `PayloadFrame` durante a transicao; outbound de respostas e stream usa `PayloadFrame` por defeito. Ver _Migração PayloadFrame no bridge legado_ abaixo e shims em `docs/configuration.md`.
 - **Push de catalogo (role** `client`**, acesso aprovado ao agente):** `client:agent.profile.updated` em `PayloadFrame` quando o perfil catalogado desse agente muda (HTTP/socket/pull sync no hub). Payload tipico: `agent_id`, `profile_version`, `profileUpdatedAt`, `changed_fields`, `source`. Regras de acesso: `docs/api/client_agent_business_rules.md`.
 - **Pub/sub customizado:** apenas tokens de **Client** no `/consumers` podem assinar `client:custom.`_ com `socket:event.subscribe` / `socket:event.unsubscribe`; publicacoes com o mesmo tipo de token chegam ao `eventName` em `PayloadFrame` via `POST /api/v1/client/me/socket-events` (REST) ou `socket:event.publish` (Socket; ack em `socket:event.published`). `socket:event._`revalida conta ativa por evento; conta bloqueada recebe erro no envelope atual e o socket e desconectado de forma controlada. Principais`user`/`admin`que emitam`socket:event._`recebem`403`no ack **sem** disconnect (mantêm relay /`agents:`_).

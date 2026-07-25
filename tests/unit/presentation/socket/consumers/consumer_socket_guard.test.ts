@@ -312,6 +312,47 @@ describe("consumer_socket_guard", () => {
     expect(socket.data.agentAccessSnapshots?.has("agent-1") ?? false).toBe(false);
   });
 
+  it("clearInflightAgentAccessForSocket clears multiple concurrent agent validations for one socket", async () => {
+    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    const user = {
+      sub: "user-1",
+      principal_type: "user",
+      credentials_version: 1,
+    } as never;
+
+    mockedAssertJwtUserAccountActive.mockResolvedValue(user);
+
+    let releaseAccessCheck!: () => void;
+    const accessGate = new Promise<void>((resolve) => {
+      releaseAccessCheck = resolve;
+    });
+    mockedAssertPrincipalAccess.mockImplementation(async () => {
+      await accessGate;
+      return ok(undefined);
+    });
+
+    const socket = {
+      id: "socket-inflight-multi-agent",
+      data: {},
+    } as never;
+
+    const validation1 = assertConsumerSocketAgentAccess(user, "agent-1", socket);
+    const validation2 = assertConsumerSocketAgentAccess(user, "agent-2", socket);
+    await Promise.resolve();
+    clearInflightAgentAccessForSocket("socket-inflight-multi-agent");
+    releaseAccessCheck();
+    await Promise.all([validation1, validation2]);
+
+    expect(getSocketIdsWithAgentAccessSnapshot("agent-1").has("socket-inflight-multi-agent")).toBe(
+      false,
+    );
+    expect(getSocketIdsWithAgentAccessSnapshot("agent-2").has("socket-inflight-multi-agent")).toBe(
+      false,
+    );
+    expect(socket.data.agentAccessSnapshots?.has("agent-1") ?? false).toBe(false);
+    expect(socket.data.agentAccessSnapshots?.has("agent-2") ?? false).toBe(false);
+  });
+
   it("invalidateLocalAgentAccessSnapshotsByAgentId clears local sockets and prunes stale index entries", async () => {
     env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
     const user = {

@@ -59,6 +59,9 @@ endpoints REST de catalogo/acesso como fonte de verdade para estado completo.
 }
 ```
 
+> **Nota:** o campo `requestId` no envelope `PayloadFrame` deste evento é o literal
+> `"handshake"` (não um UUID). Não use este valor para correlação de requisições normais.
+
 **Cliente deve decodificar**:
 
 ```typescript
@@ -173,7 +176,10 @@ publicacoes custom.
 ## Modelo multi-replica (P1)
 
 O hub combina **estado local por processo** com um **adapter Redis apenas para
-rooms/broadcast** do Socket.IO. Nao confunda os dois planos.
+rooms/broadcast** do Socket.IO. Nao confunda os dois planos. O estado relay
+(`conversationRegistry`, pending RPC, filas/buffers) **continua process-local**;
+remover sticky sessions exige o epic documentado em
+`docs/studies/scaling_and_roadmap.md` (Estado relay distribuido).
 
 ### Process-local (nao atravessa replicas)
 
@@ -240,8 +246,10 @@ notifica o consumer **antes** de limpar rotas:
 No encerramento explicito (`consumer_ended`), o hub emite `relay:conversation.ended`
 ao consumer e tambem ao agente ligado, em modo best-effort.
 
-`consumer_disconnected` pode existir como razao **interna** de cleanup do hub, mas
-nao deve ser tratado como contrato publico para SDKs.
+`consumer_disconnected` é emitido ao **agente** (namespace `/agents`) quando o consumer
+desconecta enquanto a conversa está ativa. Não é enviado ao consumer como evento de retorno.
+SDKs de agente podem usar este valor para liberar recursos; não tratar como contrato público
+para SDKs consumer.
 
 ## Contrato RPC e metodos suportados
 

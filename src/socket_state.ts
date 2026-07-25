@@ -43,6 +43,13 @@ export type RoomRecipientCount = {
   readonly fetchedSockets?: ReadonlyArray<RoomRemoteSocket>;
 };
 
+/** Cacheable recipient count (never stores `fetchedSockets` — those go stale immediately). */
+export type CachedRoomRecipientCount = {
+  readonly recipients: number;
+  readonly recipientCountBestEffort: boolean;
+  readonly recipientCountLocalOnly: boolean;
+};
+
 export type SocketSinkDisposer = () => void;
 
 export type SocketServerState = {
@@ -55,7 +62,14 @@ export type SocketServerState = {
   readonly pendingApprovedAgentIdsByClientId: Map<string, Promise<readonly string[]>>;
   readonly profilePushRecipientsInFlightByAgentId: Map<string, Promise<readonly string[]>>;
   readonly customEventDistributedCountCircuit: DistributedCountCircuitState;
+  /**
+   * Short-lived cache for custom-event room recipient counts. Used only when
+   * `SOCKET_CUSTOM_EVENT_RECIPIENT_COUNT_CACHE_TTL_MS` > 0 and `captureSockets` is false.
+   */
+  readonly customEventRecipientCountCache: TtlCache<string, CachedRoomRecipientCount>;
   conversationSweepTimer: NodeJS.Timeout | null;
+  /** Prunes Socket rate-limit maps and sweeps relay outbound queue tails. */
+  rateLimitSweepTimer: NodeJS.Timeout | null;
   consumerClientAgentRoomReconcileTimer: NodeJS.Timeout | null;
   consumerClientAgentRoomReconcileStartTimeout: NodeJS.Timeout | null;
   consumerClientAgentRoomReconcileInFlight: Promise<void> | null;
@@ -86,7 +100,12 @@ export const createSocketServerState = (
   pendingApprovedAgentIdsByClientId: new Map<string, Promise<readonly string[]>>(),
   profilePushRecipientsInFlightByAgentId: new Map<string, Promise<readonly string[]>>(),
   customEventDistributedCountCircuit: createInitialDistributedCountCircuitState(),
+  customEventRecipientCountCache: new TtlCache<string, CachedRoomRecipientCount>(
+    Math.max(1, env.socketCustomEventRecipientCountCacheTtlMs),
+    env.socketCustomEventRecipientCountCacheMaxSize,
+  ),
   conversationSweepTimer: null,
+  rateLimitSweepTimer: null,
   consumerClientAgentRoomReconcileTimer: null,
   consumerClientAgentRoomReconcileStartTimeout: null,
   consumerClientAgentRoomReconcileInFlight: null,
