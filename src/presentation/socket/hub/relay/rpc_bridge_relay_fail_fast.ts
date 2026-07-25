@@ -20,6 +20,7 @@ import {
   getRelayRequestRoute,
   removeRelayRequestRoute,
 } from "../registries/relay_request_registry";
+import { trySettleRelayRoute } from "./relay_route_settlement";
 import type { EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 import {
   createRelayBatchResponseUnsupportedPayload,
@@ -118,6 +119,12 @@ export const createRelayFailFastEmitters = (deps: {
       return;
     }
 
+    // Settle before enqueueing to prevent a concurrent timeout from also
+    // enqueueing a terminal response for the same route (double-emit).
+    if (!trySettleRelayRoute(relayRoute)) {
+      return;
+    }
+
     relayRoute.latencyTrace?.finalizeOnce({
       outcome: "error",
       httpStatus: 503,
@@ -170,6 +177,12 @@ export const createRelayFailFastEmitters = (deps: {
       return;
     }
 
+    // Settle before enqueueing to prevent a concurrent timeout from also
+    // enqueueing a terminal response for the same route (double-emit).
+    if (!trySettleRelayRoute(relayRoute)) {
+      return;
+    }
+
     relayRoute.latencyTrace?.finalizeOnce({
       outcome: "error",
       errorCode: "AGENT_FRAME_DECODE_FAILED",
@@ -201,6 +214,13 @@ export const createRelayFailFastEmitters = (deps: {
     if (!relayRoute || relayRoute.agentSocketId !== socketId) {
       return;
     }
+
+    // Note: trySettleRelayRoute is intentionally NOT called here. By the time a
+    // relay stream emits chunks the RelayRequestRoute is already settled (the
+    // route was settled in forwardRelayRouteResponse when the stream opened).
+    // emitRelayTerminalFailure emits relay:rpc.complete, not relay:rpc.response,
+    // so the settled flag does not apply. The ordered inbound queue and the
+    // ActiveStreamRoute registry prevent duplicate stream-terminal emissions.
 
     relayMetrics.streamTerminalCompletions += 1;
     relayRoute.latencyTrace?.finalizeOnce({
@@ -305,6 +325,13 @@ export const createRelayFailFastEmitters = (deps: {
             socketId,
           });
         }
+        continue;
+      }
+
+      // Defensively settle the route (beyond the timedOut check above) so that
+      // any other concurrent settler — e.g. the response forwarder receiving a
+      // non-batch response for the same requestId — cannot also enqueue output.
+      if (!trySettleRelayRoute(route)) {
         continue;
       }
 

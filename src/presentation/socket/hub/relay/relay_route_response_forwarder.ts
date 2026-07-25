@@ -360,35 +360,43 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
         errorCode: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
       });
       observeRelayRouteOutcome(relayRoute, "error");
-      try {
-        const errorPayload = {
-          jsonrpc: "2.0",
-          id: resolveOutboundBodyId(responseId, relayRoute),
-          error: {
-            code: -32603,
-            message: "internal error",
-            data: {
-              code: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
-              retryable: true,
+      // Only emit a synthetic error when the real response has not been sent yet.
+      // When forwardedResponse=true the consumer already received the response; emitting
+      // here would double-deliver and violate the JSON-RPC single-response contract.
+      if (!forwardedResponse) {
+        try {
+          const errorPayload = {
+            jsonrpc: "2.0",
+            id: resolveOutboundBodyId(responseId, relayRoute),
+            error: {
+              code: -32603,
+              message: "internal error",
+              data: {
+                code: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
+                retryable: true,
+              },
             },
-          },
-        };
-        const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
-        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
-        noteRelayOutboundJobFailureNotified();
-      } catch {
-        // Best-effort: consumer may still hang if synthetic error emit fails.
+          };
+          const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
+          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+          noteRelayOutboundJobFailureNotified();
+        } catch {
+          // Best-effort: consumer may still hang if synthetic error emit fails.
+        }
       }
       throw error;
     } finally {
-      if (streamId && forwardedResponse) {
-        return;
+      // For a successful relay stream open (streamId present and response delivered), the
+      // active stream route and relay route must stay alive until the stream completes —
+      // do not clean them up here. All other outcomes (pre-emit failure, unary response,
+      // or no stream) require immediate cleanup so resources are not leaked.
+      if (!streamId || !forwardedResponse) {
+        const existingStream = getActiveStreamRouteByRequestId(responseId);
+        if (existingStream && existingStream.agentSocketId === socketId) {
+          removeActiveStreamRoute(existingStream);
+        }
+        removeRelayRequestRoute(responseId);
       }
-      const existingStream = getActiveStreamRouteByRequestId(responseId);
-      if (existingStream && existingStream.agentSocketId === socketId) {
-        removeActiveStreamRoute(existingStream);
-      }
-      removeRelayRequestRoute(responseId);
     }
   });
 };
