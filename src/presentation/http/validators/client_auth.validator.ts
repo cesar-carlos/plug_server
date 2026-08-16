@@ -13,7 +13,7 @@ export const clientRegisterBodySchema = z.object({
   password: passwordSchema,
   name: z.string().trim().min(1).max(120),
   lastName: z.string().trim().min(1).max(120),
-  mobile: z.union([z.undefined(), brazilianCelularSchema]),
+  mobile: brazilianCelularSchema.optional(),
 });
 
 export type ClientRegisterBody = z.infer<typeof clientRegisterBodySchema>;

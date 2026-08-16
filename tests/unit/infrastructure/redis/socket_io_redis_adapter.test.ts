@@ -136,6 +136,7 @@ describe("socket_io_redis_adapter", () => {
 
     expect(createClientMock).toHaveBeenCalledWith({
       url: "redis://127.0.0.1:6379",
+      RESP: 2,
       socket: {
         connectTimeout: 5_000,
         reconnectStrategy: expect.any(Function),
@@ -177,6 +178,7 @@ describe("socket_io_redis_adapter", () => {
 
     expect(createClientMock).toHaveBeenCalledWith({
       url: "redis://127.0.0.1:6379",
+      RESP: 2,
       socket: {
         connectTimeout: 9_000,
         reconnectStrategy: expect.any(Function),

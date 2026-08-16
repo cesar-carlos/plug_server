@@ -7,7 +7,7 @@
  *   2. **Sentinel**: `redis-sentinel://[user:pass@]host1:port[,host2:port]/master/db`
  *      and `rediss+sentinel://...`. Parses to a structured shape; the caller
  *      decides how to wire it (today: warn + fall back to the first host
- *      with the `redis://` scheme rewritten in, since `node-redis@5` has
+ *      with the `redis://` scheme rewritten in, since `node-redis` has
  *      `createSentinel()` but not all features we need).
  *   3. **Managed services with multi-host**: `redis://host1:port,host2:port@/...`
  *      Some managed providers expose comma-separated hosts in the authority.
@@ -21,7 +21,7 @@
 import { logger } from "../../../shared/utils/logger";
 
 export interface ResolvedRedisUrl {
-  /** URL acceptable to `node-redis@5 createClient({ url })`. */
+  /** URL acceptable to `node-redis createClient({ url })`. */
   readonly url: string;
   /** Optional Sentinel topology metadata when the input was Sentinel-shaped. */
   readonly sentinel?: {

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { Client } from "../../domain/entities/client.entity";
 import type { User } from "../../domain/entities/user.entity";
 import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
@@ -14,7 +16,6 @@ import { parseExpiryToDate } from "../../shared/utils/date";
 import { generateOpaqueClientRegistrationToken } from "../../shared/utils/client_registration_token";
 import { signAccessToken, signRefreshToken } from "../../shared/utils/jwt";
 import { ClientRefreshToken } from "../../domain/entities/client_refresh_token.entity";
-import { v4 as uuidv4 } from "uuid";
 
 /**
  * Pure helpers shared by the client auth/registration/profile/management/
@@ -99,7 +100,7 @@ export const issueClientTokens = async (
   client: Client,
   refreshRepo: Pick<IClientRefreshTokenRepository, "save">,
 ): Promise<ClientAuthTokensDto> => {
-  const jti = uuidv4();
+  const jti = randomUUID();
   const expiresAt = parseExpiryToDate(env.jwtRefreshExpiresIn);
   const accessToken = signAccessToken({
     sub: client.id,

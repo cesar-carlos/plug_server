@@ -6,7 +6,7 @@ import { User } from "../../../../src/domain/entities/user.entity";
 import { env } from "../../../../src/shared/config/env";
 import { ok } from "../../../../src/shared/errors/result";
 
-describe("AuthService registration email retry", () => {
+describe("UserRegistrationService registration email retry", () => {
   const registerExecute = vi.fn();
   const hash = vi.fn();
   const compare = vi.fn();

@@ -4,7 +4,7 @@ import { UserRegistrationService } from "../../../../src/application/services/us
 import { User } from "../../../../src/domain/entities/user.entity";
 import { env } from "../../../../src/shared/config/env";
 
-describe("AuthService retryRejectedRegistration", () => {
+describe("UserRegistrationService retryRejectedRegistration", () => {
   const compare = vi.fn();
   const saveUser = vi.fn();
   const findUserByEmail = vi.fn();

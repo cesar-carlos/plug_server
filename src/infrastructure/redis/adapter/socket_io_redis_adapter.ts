@@ -17,28 +17,20 @@ import { env } from "../../../shared/config/env";
 import { logger } from "../../../shared/utils/logger";
 import type { InstrumentedRedisClient } from "../connection/instrumented_redis_client";
 import { createPubSubInstrumentedRedisClients } from "../connection/pubsub_instrumented_redis_client";
+import { buildResilientRedisClientOptions } from "../connection/redis_client_options";
 
 type RedisClient = InstrumentedRedisClient;
 
-const SOCKET_IO_ADAPTER_RECONNECT_RETRY_CAP = 8;
-
-export const buildSocketIoRedisAdapterClientOptions = (): {
-  readonly url: string;
-  readonly socket: {
-    readonly connectTimeout: number;
-    readonly reconnectStrategy: (retries: number) => number;
-  };
-} => ({
-  url: env.socketIoRedisAdapterUrl.trim(),
-  socket: {
-    connectTimeout: env.socketIoRedisAdapterConnectTimeoutMs,
-    reconnectStrategy: (retries: number): number => {
-      const cappedRetries = Math.min(retries, SOCKET_IO_ADAPTER_RECONNECT_RETRY_CAP);
-      const delay = env.socketIoRedisAdapterReconnectBaseMs * 2 ** cappedRetries;
-      return Math.min(delay, env.socketIoRedisAdapterReconnectMaxMs);
-    },
-  },
-});
+export const buildSocketIoRedisAdapterClientOptions = (): ReturnType<
+  typeof buildResilientRedisClientOptions
+> =>
+  buildResilientRedisClientOptions({
+    url: env.socketIoRedisAdapterUrl.trim(),
+    logName: "socket_io_redis_adapter",
+    connectTimeoutMs: env.socketIoRedisAdapterConnectTimeoutMs,
+    reconnectBaseMs: env.socketIoRedisAdapterReconnectBaseMs,
+    reconnectMaxMs: env.socketIoRedisAdapterReconnectMaxMs,
+  });
 
 export const buildSocketIoRedisAdapterOptions = (): {
   readonly key: string;

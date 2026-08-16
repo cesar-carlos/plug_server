@@ -936,11 +936,16 @@ describe("Client auth authenticated session flow", () => {
     const { client } = await registerOwnerAndClientSession(app, {
       suffix: `${Date.now()}-thumbnail-upload`,
     });
-    // 1x1 transparent PNG
-    const tinyPng = Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2x0AAAAASUVORK5CYII=",
-      "base64",
-    );
+    const tinyPng = await sharp({
+      create: {
+        width: 1,
+        height: 1,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .png()
+      .toBuffer();
 
     const response = await request(app)
       .post("/api/v1/client-auth/thumbnail")

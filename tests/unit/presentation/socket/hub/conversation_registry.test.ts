@@ -92,15 +92,22 @@ describe("conversation_registry", () => {
       conversationId: "conv-debounce",
     });
 
-    const first = conversationRegistry.touchInternalDebounced("conv-debounce");
-    expect(first?.lastSeenAtMs).toBe(Date.parse("2026-01-01T00:00:00.000Z"));
+    conversationRegistry.touchInternalDebounced("conv-debounce");
+    expect(conversationRegistry.findInternalByConversationId("conv-debounce")?.lastSeenAtMs).toBe(
+      Date.parse("2026-01-01T00:00:00.000Z"),
+    );
 
     vi.setSystemTime(new Date("2026-01-01T00:00:02.000Z"));
-    expect(conversationRegistry.touchInternalDebounced("conv-debounce")).toBeNull();
+    conversationRegistry.touchInternalDebounced("conv-debounce");
+    expect(conversationRegistry.findInternalByConversationId("conv-debounce")?.lastSeenAtMs).toBe(
+      Date.parse("2026-01-01T00:00:00.000Z"),
+    );
 
     vi.setSystemTime(new Date("2026-01-01T00:00:06.000Z"));
-    const second = conversationRegistry.touchInternalDebounced("conv-debounce");
-    expect(second?.lastSeenAtMs).toBe(Date.parse("2026-01-01T00:00:06.000Z"));
+    conversationRegistry.touchInternalDebounced("conv-debounce");
+    expect(conversationRegistry.findInternalByConversationId("conv-debounce")?.lastSeenAtMs).toBe(
+      Date.parse("2026-01-01T00:00:06.000Z"),
+    );
 
     env.socketRelayConversationTouchDebounceMs = originalDebounceMs;
   });
@@ -120,8 +127,10 @@ describe("conversation_registry", () => {
 
     conversationRegistry.touchInternalDebounced("conv-every-touch");
     vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
-    const second = conversationRegistry.touchInternalDebounced("conv-every-touch");
-    expect(second?.lastSeenAtMs).toBe(Date.parse("2026-01-01T00:00:01.000Z"));
+    conversationRegistry.touchInternalDebounced("conv-every-touch");
+    expect(conversationRegistry.findInternalByConversationId("conv-every-touch")?.lastSeenAtMs).toBe(
+      Date.parse("2026-01-01T00:00:01.000Z"),
+    );
 
     env.socketRelayConversationTouchDebounceMs = originalDebounceMs;
   });

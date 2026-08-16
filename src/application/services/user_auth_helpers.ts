@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "node:crypto";
 
 import { RefreshToken } from "../../domain/entities/refresh_token.entity";
 import type { User } from "../../domain/entities/user.entity";
@@ -31,7 +31,7 @@ export const issueUserTokens = async (
   refreshRepo: Pick<IRefreshTokenRepository, "save">,
   agentId?: string,
 ): Promise<AuthTokensDto> => {
-  const jti = uuidv4();
+  const jti = randomUUID();
   const expiresAt = parseExpiryToDate(env.jwtRefreshExpiresIn);
   const credentialsVersion = user.credentialsUpdatedAt.getTime();
 

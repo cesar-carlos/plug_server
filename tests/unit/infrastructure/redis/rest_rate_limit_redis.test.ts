@@ -72,10 +72,14 @@ const setupRedisModuleWithStore = async (
     createClient: createClientMock,
   }));
   vi.doMock("rate-limit-redis", () => ({
-    RedisStore: vi.fn((options: CapturedRedisStoreOptions) => {
-      capturedStores.push(options);
-      return storeFactory ? storeFactory(options) : { options };
-    }),
+    RedisStore: class RedisStore {
+      constructor(options: CapturedRedisStoreOptions) {
+        capturedStores.push(options);
+        if (storeFactory !== undefined) {
+          Object.assign(this, storeFactory(options));
+        }
+      }
+    },
   }));
 
   const module =

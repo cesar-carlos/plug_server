@@ -78,7 +78,7 @@ class FakeEmailSender implements IEmailSender {
   async sendClientPasswordRecovery(): Promise<void> {}
 }
 
-describe("ClientAgentAccessService", () => {
+describe("Client agent access services", () => {
   const ownerUserId = "35fdbf4a-8f33-45b6-a53b-a2cfd7a52d3f";
   const clientId = "f61cbcc5-f036-43b8-b1da-f5f8579580a4";
   const otherClientId = "8f4ed539-4da6-4862-bfcf-d4a5dbf9e8aa";

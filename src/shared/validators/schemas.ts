@@ -95,13 +95,12 @@ export const brazilianCelularSchema = z
   });
 
 /** Optional request field: empty/absent → undefined; otherwise validated BR mobile → E.164. */
-export const optionalBrazilianCelularSchema = z.preprocess(
-  (raw) => {
+export const optionalBrazilianCelularSchema = z
+  .preprocess((raw) => {
     if (raw === "" || raw === null || raw === undefined) return undefined;
     return typeof raw === "string" ? raw.trim() : String(raw).trim();
-  },
-  z.union([z.undefined(), brazilianCelularSchema]),
-);
+  }, brazilianCelularSchema.optional())
+  .optional();
 
 // ─── Pagination ───────────────────────────────────────────────────────────────
 

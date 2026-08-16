@@ -35,6 +35,7 @@ describe("buildResilientRedisClientOptions", () => {
     });
     const options = buildResilientRedisClientOptions({ url: "redis://localhost:6379" });
     expect(options.url).toBe("redis://localhost:6379");
+    expect(options.RESP).toBe(2);
     expect(options.socket).toBeDefined();
     expect(typeof options.socket).toBe("object");
     const socket = options.socket as { readonly connectTimeout: number };

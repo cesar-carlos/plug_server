@@ -1,4 +1,4 @@
-import type { RedisClientOptions } from "redis";
+import type { AnyRedisClientOptions } from "redis";
 
 import { env } from "../../../shared/config/env";
 import { resolveRedisUrlWithWarning } from "./redis_url_resolver";
@@ -32,7 +32,7 @@ const RECONNECT_RETRY_CAP = 8;
 
 export const buildResilientRedisClientOptions = (
   input: ResilientRedisClientOptionsInput,
-): RedisClientOptions => {
+): AnyRedisClientOptions => {
   const connectTimeout = input.connectTimeoutMs ?? env.redisDefaultConnectTimeoutMs;
   const reconnectBase = input.reconnectBaseMs ?? env.redisDefaultReconnectBaseMs;
   const reconnectMax = input.reconnectMaxMs ?? env.redisDefaultReconnectMaxMs;
@@ -41,6 +41,12 @@ export const buildResilientRedisClientOptions = (
 
   return {
     url: resolved.url,
+    /**
+     * node-redis@6 defaults to RESP3, which changes reply shapes for streams
+     * and some module commands. Pin RESP2 so existing parsers and tests keep
+     * the v5 wire format until a dedicated RESP3 migration.
+     */
+    RESP: 2,
     socket: {
       connectTimeout,
       reconnectStrategy: (retries: number): number => {
