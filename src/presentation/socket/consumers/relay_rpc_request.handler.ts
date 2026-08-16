@@ -241,14 +241,14 @@ export const handleRelayRpcRequest = (
         conversationId: envelope.conversationId,
         consumerSocketId: socket.id,
         preDecodedData: decoded.value.data,
-        ...(envelope.payloadFrameCompression !== undefined
-          ? { payloadFrameCompression: envelope.payloadFrameCompression }
-          : {}),
-        ...(latencyTrace ? { latencyTrace } : {}),
+        ...(envelope.payloadFrameCompression !== undefined && {
+          payloadFrameCompression: envelope.payloadFrameCompression,
+        }),
+        ...(latencyTrace && { latencyTrace }),
         signal: abortController.signal,
-        ...(envelope.requestServerTimings === true ? { requestServerTimings: true } : {}),
-        ...(effectiveFastPath ? { fastPath: true } : {}),
-        ...(envelope.timeoutMs !== undefined ? { timeoutMs: envelope.timeoutMs } : {}),
+        ...(envelope.requestServerTimings === true && { requestServerTimings: true }),
+        ...(effectiveFastPath && { fastPath: true }),
+        ...(envelope.timeoutMs !== undefined && { timeoutMs: envelope.timeoutMs }),
       });
 
       // Fast-path: when the consumer opted in AND the request was not
@@ -273,10 +273,10 @@ export const handleRelayRpcRequest = (
           success: true,
           conversationId: envelope.conversationId,
           requestId: result.requestId,
-          ...(result.clientRequestId ? { clientRequestId: result.clientRequestId } : {}),
-          ...(result.deduplicated ? { deduplicated: true } : {}),
-          ...(result.replayed ? { replayed: true } : {}),
-          ...(result.inFlight ? { inFlight: true } : {}),
+          ...(result.clientRequestId && { clientRequestId: result.clientRequestId }),
+          ...(result.deduplicated && { deduplicated: true }),
+          ...(result.replayed && { replayed: true }),
+          ...(result.inFlight && { inFlight: true }),
         });
       }
       if (result.deduplicated) {
@@ -288,7 +288,7 @@ export const handleRelayRpcRequest = (
         eventType: socketEvents.relayRpcRequest,
         actorSocketId: socket.id,
         actorUserId: socket.data.user?.sub ?? null,
-        ...(actorRole ? { actorRole } : {}),
+        ...(actorRole && { actorRole }),
         direction: "consumer_to_agent",
         conversationId: envelope.conversationId,
         requestId: result.requestId,
@@ -339,12 +339,12 @@ export const handleRelayRpcRequest = (
       emitRelayRpcAccepted(socket, {
         success: false,
         conversationId: envelope.conversationId,
-        ...(clientRequestId ? { clientRequestId } : {}),
+        ...(clientRequestId && { clientRequestId }),
         error: {
           code: appError?.code ?? "RELAY_RPC_REQUEST_FAILED",
           message: err instanceof Error ? err.message : "Failed to relay request",
-          ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
-          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+          ...(typeof appError?.statusCode === "number" && { statusCode: appError.statusCode }),
+          ...(retryAfterMs !== undefined && { retryAfterMs }),
         },
       });
     } finally {

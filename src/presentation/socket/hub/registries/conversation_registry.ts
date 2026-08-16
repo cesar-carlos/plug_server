@@ -189,23 +189,29 @@ class InMemoryConversationRegistry {
    * Debounced variant for stream hot paths (chunk/response floods).
    * When {@link env.socketRelayConversationTouchDebounceMs} is > 0, at most one
    * registry write per conversation per debounce window is performed.
+   *
+   * Returns `void` — callers on the streaming path never use the return value.
+   * Inlines the mutation to avoid the `toInternalView` object allocation and
+   * reuses the single `Date.now()` call for both the debounce guard and the
+   * `lastSeenAtMs` write.
    */
-  touchInternalDebounced(conversationId: string): RelayConversationInternalView | null {
+  touchInternalDebounced(conversationId: string): void {
     const debounceMs = env.socketRelayConversationTouchDebounceMs;
+    const nowMs = Date.now();
     if (debounceMs > 0) {
-      const nowMs = Date.now();
       const lastTouchMs = lastTouchAtMsByConversationId.get(conversationId);
       if (lastTouchMs !== undefined && nowMs - lastTouchMs < debounceMs) {
-        return null;
+        return;
       }
       lastTouchAtMsByConversationId.set(conversationId, nowMs);
     }
 
-    const touched = this.touchInternal(conversationId);
-    if (touched === null) {
+    const existing = this.conversations.get(conversationId);
+    if (!existing) {
       clearConversationTouchDebounceState(conversationId);
+      return;
     }
-    return touched;
+    existing.lastSeenAtMs = nowMs;
   }
 
   removeByConversationId(conversationId: string): RelayConversation | null {

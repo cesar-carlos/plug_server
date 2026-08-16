@@ -93,7 +93,7 @@ export const createRpcBridgeAgentInboundHandlers = (
     ack?: () => void,
   ): void => {
     const inboundSyncStart = performance.now();
-    const decodeStart = performance.now();
+    const decodeStart = inboundSyncStart;
     let ackInvoked = false;
     const fireAck = (): void => {
       if (ackInvoked || typeof ack !== "function") {
@@ -156,9 +156,23 @@ export const createRpcBridgeAgentInboundHandlers = (
 
       const frameRequestId = toRequestId(decoded.frame.requestId);
       const responseIds = pickResponseIds(decoded.data);
-      const candidateIds = Array.from(
-        new Set([...responseIds, ...(frameRequestId ? [frameRequestId] : [])]),
-      );
+      // Fast paths avoid Set+spread+Array.from for the common cases:
+      //   - no frame id   → reuse responseIds as-is
+      //   - empty body    → single-element array from frame id
+      //   - single match  → reuse responseIds (both sides are the same id)
+      // The general path (batch or mismatch) uses Set dedup.
+      let candidateIds: readonly string[];
+      if (frameRequestId === null) {
+        candidateIds = responseIds;
+      } else if (responseIds.length === 0) {
+        candidateIds = [frameRequestId];
+      } else if (responseIds.length === 1 && responseIds[0] === frameRequestId) {
+        candidateIds = responseIds;
+      } else {
+        const idSet = new Set(responseIds);
+        idSet.add(frameRequestId);
+        candidateIds = Array.from(idSet);
+      }
 
       if (candidateIds.length === 0) {
         return;
@@ -536,15 +550,19 @@ export const createRpcBridgeAgentInboundHandlers = (
         return;
       }
 
-      const requestIds = Array.isArray(data.request_ids)
-        ? Array.from(
-            new Set(
-              (data.request_ids as unknown[])
-                .map((id) => toRequestId(id))
-                .filter((id): id is string => id !== null),
-            ),
-          )
-        : [];
+      // Single-pass dedup: replaces .map().filter().Set().Array.from()
+      // (four intermediate allocations) with one loop + one Set.
+      const requestIds: string[] = [];
+      if (Array.isArray(data.request_ids)) {
+        const seenIds = new Set<string>();
+        for (const rawId of data.request_ids as unknown[]) {
+          const resolved = toRequestId(rawId);
+          if (resolved !== null && !seenIds.has(resolved)) {
+            seenIds.add(resolved);
+            requestIds.push(resolved);
+          }
+        }
+      }
 
       let ackedCount = 0;
       const relayBatchAckByConsumer = new Map<

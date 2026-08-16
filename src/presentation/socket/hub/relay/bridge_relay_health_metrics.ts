@@ -53,6 +53,13 @@ const maxTrackedAgentStates = 2_048;
 const staleCircuitRetentionMs = Math.max(relayCircuitOpenMs * 4, 5 * 60 * 1_000);
 const staleLatencyRetentionMs = 30 * 60 * 1_000;
 
+// Prune debounce: avoid O(n·agents) scan on every relay response / circuit check.
+// The full prune still runs unconditionally from pruneAgentHealthMaps (metrics snapshot)
+// and from resetRelayHubHealthAndMetrics. These sentinels only guard the hot-path callers.
+let lastCircuitPruneAtMs = 0;
+let lastLatencyPruneAtMs = 0;
+const PRUNE_DEBOUNCE_MS = 30_000;
+
 /** Mutable counters for relay + REST bridge paths (also wired from `rest_agent_dispatch_queue`). */
 export const relayMetrics = {
   requestsAccepted: 0,
@@ -195,7 +202,11 @@ const pruneAgentHealthMaps = (nowMs = Date.now()): void => {
 
 const getCircuitState = (stateKey: string): RelayCircuitState => {
   const nowMs = Date.now();
-  pruneRelayCircuitState(nowMs);
+  // Debounce the O(n) prune to avoid scanning all circuit entries on every relay request.
+  if (nowMs - lastCircuitPruneAtMs >= PRUNE_DEBOUNCE_MS) {
+    lastCircuitPruneAtMs = nowMs;
+    pruneRelayCircuitState(nowMs);
+  }
   const existing = relayCircuitByAgentId.get(stateKey);
   if (existing) {
     existing.lastTouchedAtMs = nowMs;
@@ -209,10 +220,10 @@ const getCircuitState = (stateKey: string): RelayCircuitState => {
 
 export const ensureAgentCircuitClosed = (agentId: string, channel: AgentCircuitChannel): void => {
   const state = getCircuitState(circuitStateKey(agentId, channel));
-  const nowMs = Date.now();
-  if (state.openUntilMs > nowMs) {
+  // lastTouchedAtMs was just set to Date.now() by getCircuitState — reuse it.
+  if (state.openUntilMs > state.lastTouchedAtMs) {
     relayMetrics.circuitOpenRejects += 1;
-    const retryAfterMs = Math.max(0, state.openUntilMs - nowMs);
+    const retryAfterMs = Math.max(0, state.openUntilMs - state.lastTouchedAtMs);
     throw serviceUnavailableWithRetry("Agent circuit is open", retryAfterMs);
   }
 };
@@ -220,29 +231,33 @@ export const ensureAgentCircuitClosed = (agentId: string, channel: AgentCircuitC
 export const registerAgentFailure = (agentId: string, channel: AgentCircuitChannel): void => {
   const key = circuitStateKey(agentId, channel);
   const state = getCircuitState(key);
+  // getCircuitState already set lastTouchedAtMs = Date.now(); reuse it for openUntilMs.
   state.failures += 1;
-  state.lastTouchedAtMs = Date.now();
   if (state.failures >= relayCircuitFailureThreshold) {
-    state.openUntilMs = Date.now() + relayCircuitOpenMs;
+    state.openUntilMs = state.lastTouchedAtMs + relayCircuitOpenMs;
     state.failures = 0;
   }
-  relayCircuitByAgentId.set(key, state);
+  // No need to re-set: the Map already holds a reference to this mutable object.
 };
 
 export const registerAgentSuccess = (agentId: string, channel: AgentCircuitChannel): void => {
   const key = circuitStateKey(agentId, channel);
   const state = getCircuitState(key);
+  // getCircuitState already set lastTouchedAtMs = Date.now(); no extra Date.now() needed.
+  // No need to re-set: the Map already holds a reference to this mutable object.
   if (state.failures !== 0 || state.openUntilMs !== 0) {
     state.failures = 0;
     state.openUntilMs = 0;
   }
-  state.lastTouchedAtMs = Date.now();
-  relayCircuitByAgentId.set(key, state);
 };
 
 export const observeAgentLatency = (agentId: string, elapsedMs: number): void => {
   const nowMs = Date.now();
-  pruneLatencyState(nowMs);
+  // Debounce the O(n) prune to avoid scanning all agent latency entries on every response.
+  if (nowMs - lastLatencyPruneAtMs >= PRUNE_DEBOUNCE_MS) {
+    lastLatencyPruneAtMs = nowMs;
+    pruneLatencyState(nowMs);
+  }
   const safeElapsedMs = Math.max(0, elapsedMs);
   const existing = latencyByAgentId.get(agentId);
   if (existing) {
@@ -251,7 +266,7 @@ export const observeAgentLatency = (agentId: string, elapsedMs: number): void =>
     existing.maxMs = Math.max(existing.maxMs, safeElapsedMs);
     existing.lastTouchedAtMs = nowMs;
     pushLatencyRingBuffer(existing.ring, safeElapsedMs);
-    latencyByAgentId.set(agentId, existing);
+    // No need to re-set: the Map already holds a reference to this mutable object.
     latencyByAgentCacheDirty = true;
     return;
   }
@@ -469,6 +484,8 @@ export const resetRelayHubHealthAndMetrics = (): void => {
   latencyByAgentId.clear();
   latencyByAgentCache = [];
   latencyByAgentCacheDirty = true;
+  lastCircuitPruneAtMs = 0;
+  lastLatencyPruneAtMs = 0;
 
   relayMetrics.requestsAccepted = 0;
   relayMetrics.requestsDeduplicated = 0;

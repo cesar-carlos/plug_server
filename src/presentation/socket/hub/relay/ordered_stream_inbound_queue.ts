@@ -60,9 +60,12 @@ export const createOrderedStreamInboundQueue = (options?: {
   const enqueue = (socketId: string, work: () => Promise<void>): void => {
     const generation = currentGeneration(socketId);
     const prev = tailBySocketId.get(socketId) ?? Promise.resolve();
-    const next = prev
-      .catch(() => undefined)
-      .then(async () => {
+    // Single .then hop with try/catch/finally replaces the previous
+    // three-hop chain (.catch → .then → .catch) plus a separate
+    // `void next.finally(cleanup)` Promise. Eliminates two Promise
+    // allocations per enqueued stream frame on the hot inbound path.
+    const next = prev.catch(() => undefined).then(async () => {
+      try {
         if (currentGeneration(socketId) !== generation) {
           return;
         }
@@ -77,20 +80,19 @@ export const createOrderedStreamInboundQueue = (options?: {
             thresholdMs: slowWorkWarnMs,
           });
         }
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         logger.warn("rpc_stream_inbound_processing_failed", {
           socketId,
           message: error instanceof Error ? error.message : String(error),
         });
-      });
-    tailBySocketId.set(socketId, next);
-    void next.finally(() => {
-      if (tailBySocketId.get(socketId) === next) {
-        tailBySocketId.delete(socketId);
+      } finally {
+        if (tailBySocketId.get(socketId) === next) {
+          tailBySocketId.delete(socketId);
+        }
+        pruneGenerationIfIdle(socketId, generation);
       }
-      pruneGenerationIfIdle(socketId, generation);
     });
+    tailBySocketId.set(socketId, next);
   };
 
   return {

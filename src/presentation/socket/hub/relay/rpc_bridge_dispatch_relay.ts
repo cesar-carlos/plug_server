@@ -458,11 +458,11 @@ export const createRpcBridgeRelayDispatch = (
         jsonRpcMethod: inferBridgeCommandMethod(command),
         timeoutHandle,
         createdAtMs: Date.now(),
-        ...(clientRequestId !== null ? { clientRequestId } : {}),
-        ...(trace ? { latencyTrace: trace } : {}),
+        ...(clientRequestId !== null && { clientRequestId }),
+        ...(trace && { latencyTrace: trace }),
         releaseAgentDispatchSlot,
-        ...(input.requestServerTimings === true ? { requestServerTimings: true } : {}),
-        ...(input.fastPath === true ? { fastPath: true } : {}),
+        ...(input.requestServerTimings === true && { requestServerTimings: true }),
+        ...(input.fastPath === true && { fastPath: true }),
         clientRequestIdEcho: transportFlags.clientRequestIdEcho,
         agentPhaseTimingsNegotiated: transportFlags.agentPhaseTimingsNegotiated,
         healthPiggybackNegotiated: transportFlags.healthPiggybackNegotiated,
@@ -603,8 +603,8 @@ export const createRpcBridgeRelayDispatch = (
 
       return {
         requestId,
-        ...(clientRequestId !== null ? { clientRequestId } : {}),
-        ...(input.fastPath === true ? { fastPath: true } : {}),
+        ...(clientRequestId !== null && { clientRequestId }),
+        ...(input.fastPath === true && { fastPath: true }),
       };
     } finally {
       if (!pendingReservationConsumed) {
@@ -661,11 +661,10 @@ export const createRpcBridgeRelayDispatch = (
     const prepared = prepareAgentStreamPull({
       consumerSocketId: input.consumerSocketId,
       conversationId: input.conversationId,
-      ...(requestId ? { requestId } : {}),
-      ...(streamId ? { streamId } : {}),
-      ...(typeof payload.window_size === "number" && Number.isFinite(payload.window_size)
-        ? { windowSize: payload.window_size }
-        : {}),
+      ...(requestId && { requestId }),
+      ...(streamId && { streamId }),
+      ...(typeof payload.window_size === "number" &&
+        Number.isFinite(payload.window_size) && { windowSize: payload.window_size }),
     });
 
     return {

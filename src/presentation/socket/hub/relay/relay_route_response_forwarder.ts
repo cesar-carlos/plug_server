@@ -260,7 +260,7 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
         // pathway instead — bodyIdEcho overhead must reflect only its
         // marginal contribution to ops decisions about Option A.
         const reencodeStart = shouldEchoClientBodyId ? performance.now() : 0;
-        const decodedResponse = decodedResponseRecord ?? toRecord(decoded.data);
+        const decodedResponse = decodedResponseRecord;
         const baseOutboundResponse =
           decoded.frame.cmp === "gzip" && decodedResponse
             ? markRelayOutboundForceGzip(decodedResponse)

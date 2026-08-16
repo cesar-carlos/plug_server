@@ -44,13 +44,13 @@ const metrics = {
 };
 
 type OverloadStateCache = {
-  readonly overloaded: boolean;
-  readonly reason: "backlog" | "p95_latency" | null;
-  readonly retryAfterMs: number;
-  readonly p95Ms: number;
-  readonly p99Ms: number;
-  readonly backlog: number;
-  readonly computedAtMs: number;
+  overloaded: boolean;
+  reason: "backlog" | "p95_latency" | null;
+  retryAfterMs: number;
+  p95Ms: number;
+  p99Ms: number;
+  backlog: number;
+  computedAtMs: number;
 };
 
 let cachedOrphanedRequestIds = 0;
@@ -158,15 +158,14 @@ const updateOverloadStateCache = (input: {
     p95Ms,
     wasOverloaded,
   );
-  overloadStateCache = {
-    overloaded: overloadedByBacklog || overloadedByP95,
-    reason: overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null,
-    retryAfterMs: overloadedByBacklog || overloadedByP95 ? retryAfterFromSweep() : 0,
-    p95Ms,
-    p99Ms,
-    backlog,
-    computedAtMs: nowMs,
-  };
+  const isOverloaded = overloadedByBacklog || overloadedByP95;
+  overloadStateCache.overloaded = isOverloaded;
+  overloadStateCache.reason = overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null;
+  overloadStateCache.retryAfterMs = isOverloaded ? retryAfterFromSweep() : 0;
+  overloadStateCache.p95Ms = p95Ms;
+  overloadStateCache.p99Ms = p99Ms;
+  overloadStateCache.backlog = backlog;
+  overloadStateCache.computedAtMs = nowMs;
 };
 
 const updateBacklogOnlyOverloadStateCache = (nowMs = Date.now()): void => {
@@ -177,15 +176,12 @@ const updateBacklogOnlyOverloadStateCache = (nowMs = Date.now()): void => {
     overloadStateCache.p95Ms,
     wasOverloaded,
   );
-  overloadStateCache = {
-    overloaded: overloadedByBacklog || overloadedByP95,
-    reason: overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null,
-    retryAfterMs: overloadedByBacklog || overloadedByP95 ? retryAfterFromSweep() : 0,
-    p95Ms: overloadStateCache.p95Ms,
-    p99Ms: overloadStateCache.p99Ms,
-    backlog,
-    computedAtMs: nowMs,
-  };
+  const isOverloaded = overloadedByBacklog || overloadedByP95;
+  overloadStateCache.overloaded = isOverloaded;
+  overloadStateCache.reason = overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null;
+  overloadStateCache.retryAfterMs = isOverloaded ? retryAfterFromSweep() : 0;
+  overloadStateCache.backlog = backlog;
+  overloadStateCache.computedAtMs = nowMs;
 };
 
 export const getRelayOutboundQueueMetricsSnapshot = (): RelayOutboundQueueMetricsSnapshot => {
@@ -374,30 +370,22 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
       });
     } finally {
       const ms = performance.now() - t0;
+      const doneMs = Date.now();
       metrics.jobsFinishedTotal += 1;
       metrics.jobDurationSumMs += ms;
       metrics.jobDurationMaxMs = Math.max(metrics.jobDurationMaxMs, ms);
       pushLatencyRingBuffer(metrics.durationRing, ms);
-      updateBacklogOnlyOverloadStateCache();
+      updateBacklogOnlyOverloadStateCache(doneMs);
       entry.activeJobs = Math.max(0, entry.activeJobs - 1);
-      entry.lastActivityAtMs = Date.now();
+      entry.pendingJobs = Math.max(0, entry.pendingJobs - 1);
+      entry.lastActivityAtMs = doneMs;
+      if (entry.tail === next && entry.pendingJobs === 0) {
+        tailByRequestId.delete(requestId);
+      }
     }
   });
   entry.tail = next;
   tailByRequestId.set(requestId, entry);
-  void next.finally(() => {
-    const current = tailByRequestId.get(requestId);
-    if (!current) {
-      return;
-    }
-    current.pendingJobs = Math.max(0, current.pendingJobs - 1);
-    current.lastActivityAtMs = Date.now();
-    if (current.tail === next && current.pendingJobs === 0) {
-      tailByRequestId.delete(requestId);
-      return;
-    }
-    tailByRequestId.set(requestId, current);
-  });
 };
 
 export const markRelayOutboundForceGzip = <T extends Record<string, unknown>>(payload: T): T => {
