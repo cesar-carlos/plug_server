@@ -261,6 +261,8 @@ Regras essenciais:
   **rejeita** o flag no dispatch com `BAD_REQUEST` em
   `relay:rpc.accepted`. Sem `accepted` para ancorar o `requestId`, o
   `relay:rpc.stream.pull` so podera ser emitido depois do primeiro chunk.
+- Kill switch de deploy: `SOCKET_RELAY_FAST_PATH_FORBIDDEN=true` ignora o
+  opt-in e volta ao fluxo de 3 eventos. Nao existe `SOCKET_RELAY_FAST_PATH_ENABLED`.
 - Cancelamento e desconexao funcionam normalmente: o relay nao tem `rpc.cancel`; aborts vem por socket disconnect ou `sql.cancel` por `stream_id`.
 
 Detalhes completos do contrato em `[docs/socket/socket_relay_protocol.md](socket_relay_protocol.md)` ("Relay unary fast-path").

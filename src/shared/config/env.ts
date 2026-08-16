@@ -1261,7 +1261,7 @@ const envSchema = z.object({
    * server ack). Default `false` (fast-path honored when consumer opts in).
    *
    * Does NOT affect non-fast-path traffic. See
-   * `docs/socket_relay_protocol.md` ("Relay unary fast-path") and
+   * `docs/socket/socket_relay_protocol.md` ("Relay unary fast-path") and
    * `docs/plug_agente/01_relay_body_id_echo.md` for context.
    */
   SOCKET_RELAY_FAST_PATH_FORBIDDEN: z.coerce.boolean().default(false),

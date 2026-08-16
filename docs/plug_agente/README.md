@@ -8,8 +8,7 @@
 > (relay batch, fast-path, agents:command hang, phase diagnostics).
 >
 > **Estado (2026-07):** itens Colmeia 1–4 e roadmap 1–9 **shipped**. Aberto:
-> item 10 (brotli). Hub: observabilidade relay + gate `agent_phases` +
-> contador `parallelBatchDispatch` (2026-07-07). Ver `CHANGELOG.md`.
+> item 10 (brotli). Hub H1–H12 shipped (H12 = hot path 2026-08). Ver `CHANGELOG.md`.
 
 ## Quatro itens Colmeia
 

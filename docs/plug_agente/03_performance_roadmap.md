@@ -17,9 +17,9 @@
 
 Coluna **Status**: `proposed | discussing | in-progress | shipped | rejected`.
 
-> **Snapshot 2026-07 (atual).** Itens 1–9 **shipped** (ondas 2026-05-28 e
+> **Snapshot 2026-08 (atual).** Itens 1–9 **shipped** (ondas 2026-05-28 e
 > 2026-06-24). Item 10 (brotli) permanece `proposed (no active gate)`.
-> Hub H1–H11 shipped. Ledger de commits:
+> Hub H1–H12 shipped. Ledger de commits:
 > [`04_agent_implementation_status.md`](04_agent_implementation_status.md).
 
 | # | Item | Impacto | Esforco | Status | Gate | Hub coord? |
@@ -65,6 +65,7 @@ no `plug_agente`:
 | H9 | `parallelBatchDispatch` em `agent:capabilities` — desbloqueia paralelismo batch no agente | medium | ✅ **shipped** (2026-06-24) |
 | H10 | Health poll scheduler opcional (`AGENT_HEALTH_POLL_ENABLED`) com skip piggyback | low-medium | ✅ **shipped** (2026-06-24) — ver [ADR 0011](../adrs/0011-health-piggyback.md) |
 | H11 | Auditoria comunicação 2026-07-07 — métricas relay late/outbound-failure, gate `agentPhaseTimings`, contador adoção `parallelBatchDispatch` | observability | ✅ **shipped** (2026-07-07) — ver [ADR 0012](../adrs/0012-agent-phase-timings.md), [`04_agent_implementation_status.md`](04_agent_implementation_status.md) |
+| H12 | Hot path 2026-08 — prune debounce de circuit/latency (~30 s), menos alocações no inbound (`candidateIds`, batch ack, inbound queue), `touchInternalDebounced` void, kill-switch `SOCKET_RELAY_FAST_PATH_FORBIDDEN` ja existente | medium | ✅ **shipped** (2026-08-16) — contrato publico inalterado |
 
 **Cross-repo (ADRs, implementacao no `plug_agente`)**:
 

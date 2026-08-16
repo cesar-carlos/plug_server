@@ -33,6 +33,8 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api/api_rest_bri
 - **Overload gate O(1)**: os handlers de `/consumers` leem estado cacheado da fila relay (backlog/p95) e o refresh pesado (percentis + varredura órfãos) fica no sweep periódico/métricas. Isso reduz CPU por evento em `relay:conversation.start`, `relay:rpc.request` e `relay:rpc.stream.pull`.
 - **Drain em lote por `requestId`**: chunks buffered são drenados em jobs agregados da fila outbound (sem perder ordenação), reduzindo custo de Promise chaining e de encode por chunk em bursts.
 - **Lookup relay durante `rpc:stream.pull`**: ao drenar buffer interno após um pull, o hub reutiliza a rota relay já resolvida onde possível (`rpc_bridge_stream_pull.ts`), evitando consultas repetidas ao registo por chunk no mesmo tick.
+- **Touch de conversa no stream**: `SOCKET_RELAY_CONVERSATION_TOUCH_DEBOUNCE_MS` (defeito **0**) limita writes de `lastSeenAtMs` no flood de chunks; o TTL de idle não muda.
+- **Circuit / latency maps**: prune O(n) no hot path de `getCircuitState` / `observeAgentLatency` é debounceado (~30 s). O snapshot de métricas (`pruneAgentHealthMaps`) continua a podar na hora.
 
 **Nota de hot path:** `rpc:chunk` ja chega decodificado como `PayloadFrame`; o
 hub usa `originalSize` do envelope para aplicar limites de bytes em relay e no
@@ -56,6 +58,7 @@ legadas/testes sem metadata, mas nao fica no hot path normal.
 | `SOCKET_REST_AGENT_MAX_INFLIGHT` / `MAX_QUEUE` / `QUEUE_WAIT_MS` | Paralelismo e fila por agente no bridge REST (defeitos **32** / **64** / **200** ms). Observar `plug_socket_relay_rest_dispatch_*` em `GET /metrics` para profundidade agregada; subir `INFLIGHT`/`MAX_QUEUE` se bursts forem saudáveis e o agente aguentar; `QUEUE_WAIT_MS` baixo falha cedo com `Retry-After`. |
 | `SOCKET_RELAY_AGENT_MAX_INFLIGHT` / `MAX_QUEUE` / `QUEUE_WAIT_MS` | Paralelismo e fila por agente no relay (defeitos **32** / **64** / **200** ms). Observar `plug_socket_relay_dispatch_*`; overload retorna `SERVICE_UNAVAILABLE` com `retryAfterMs`. |
 | `SOCKET_RELAY_STREAM_IDLE_TIMEOUT_MS` / `SOCKET_RELAY_STREAM_MAX_LIFETIME_MS` | Encerram streams relay abertas sem `rpc:complete` (defeitos **30000** / **300000** ms), removendo rotas/buffers e emitindo `relay:rpc.complete` com `RELAY_STREAM_TIMEOUT`. |
+| `SOCKET_RELAY_CONVERSATION_TOUCH_DEBOUNCE_MS` | Debounce de `lastSeenAt` no hot path de stream (defeito **0** = cada touch). `5000` reduz writes no registry em floods de chunk. |
 | `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` / `..._CONVERSATION_STARTS` | Teto de pedidos relay por janela; subir em workloads intensos (com cuidado). |
 | `SOCKET_RATE_LIMIT_REDIS_URL` | Redis opcional para rate limits Socket compartilhados entre replicas. Mantem fallback fail-open local; nao substitui sticky sessions porque conversas, pending requests, streams e idempotencia relay continuam em memoria. |
 | `SOCKET_IO_REDIS_ADAPTER_URL` | Redis adapter opcional do Socket.IO para rooms/pubsub entre replicas. Ajuda `client:custom.*` e contagens remotas, mas nao externaliza pending requests, conversas relay ou registry de agente. |
@@ -208,7 +211,7 @@ Usa este fluxo para aplicar várias melhorias sem perder controle:
 2. **Fase 1 (baixo risco):** ajustes de documentação operacional + política de canal.
 3. **Fase 2 (código):** mudanças de handshake/sync e validação em testes de integração.
 4. **Fase 3 (tuning):** aplicar presets de throughput ou baixa latência por ambiente.
-5. **Fase 4 (estudo):** avaliar fast-path relay apenas com benchmark-gate.
+5. **Fase 4 (já shipped):** unary fast-path via `fastPath: true` no envelope; ver `docs/studies/relay_fastpath_study.md` (historico) e o contrato em `socket_relay_protocol.md`. Kill switch: `SOCKET_RELAY_FAST_PATH_FORBIDDEN`.
 
 Critérios de promoção entre fases:
 

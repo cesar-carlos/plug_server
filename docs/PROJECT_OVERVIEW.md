@@ -199,7 +199,7 @@ Mapa rapido da documentacao: `docs/README.md`.
 | Defaults e variaveis de ambiente            | `docs/configuration.md`                                                           |
 | Tuning hub ↔ agente                         | `docs/performance/performance_hub_agent.md`                                       |
 | Metricas, tracing e alertas                 | `docs/observability/observability.md`                                             |
-| Estudo de fast-path relay (benchmark-gated) | `docs/studies/relay_fastpath_study.md`                                            |
+| Fast-path relay (shipped; estudo historico) | `docs/studies/relay_fastpath_study.md` + contrato em `docs/socket/socket_relay_protocol.md` |
 | E2E, benchmark e carga                      | `docs/performance/e2e_benchmark_hub_agent.md`, `docs/performance/load_testing.md` |
 | Escala horizontal e backlog                 | `docs/studies/scaling_and_roadmap.md`                                             |
 | Alinhamento com o `plug_agente`             | `docs/plug_agente/communication_sync_plug_agente.md`                              |

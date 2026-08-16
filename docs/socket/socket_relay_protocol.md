@@ -429,6 +429,10 @@ no caminho feliz unary — o consumer ve diretamente `relay:rpc.response` (ou
 Salva-se uma viagem de wire por RPC. Em `mergeAll` cross-agent o ganho compoe
 proporcionalmente ao numero de RPCs por onda.
 
+Kill switch operacional: `SOCKET_RELAY_FAST_PATH_FORBIDDEN=true` ignora o
+opt-in do envelope e volta a emitir `relay:rpc.accepted` em todos os caminhos.
+Nao existe `SOCKET_RELAY_FAST_PATH_ENABLED` — o fast-path e opt-in por request.
+
 Regras do contrato:
 
 - `fastPath` aplica-se apenas ao caminho feliz **nao-deduplicado**. Quando o
@@ -801,6 +805,7 @@ Variaveis principais do relay:
 - `SOCKET_RELAY_STREAM_MAX_LIFETIME_MS`
 - `SOCKET_RELAY_CONVERSATION_IDLE_TIMEOUT_MS`
 - `SOCKET_RELAY_CONVERSATION_SWEEP_INTERVAL_MS`
+- `SOCKET_RELAY_CONVERSATION_TOUCH_DEBOUNCE_MS`
 - `SOCKET_RELAY_MAX_CONVERSATIONS`
 - `SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER`
 - `SOCKET_RELAY_MAX_PENDING_REQUESTS`
@@ -816,6 +821,9 @@ Variaveis principais do relay:
 - `SOCKET_RELAY_IDEMPOTENCY_MAX_TOTAL_ENTRIES`
 - `SOCKET_RELAY_CIRCUIT_FAILURE_THRESHOLD`
 - `SOCKET_RELAY_CIRCUIT_OPEN_MS`
+- `SOCKET_RELAY_FAST_PATH_FORBIDDEN`
+- `SOCKET_RELAY_BATCH_ENABLED`
+- `SOCKET_RELAY_BATCH_MAX_ITEMS`
 - `SOCKET_RELAY_METRICS_LOG_INTERVAL_MS`
 - `SOCKET_RELAY_RATE_LIMIT_WINDOW_MS`
 - `SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS`

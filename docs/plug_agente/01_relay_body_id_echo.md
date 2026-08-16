@@ -137,7 +137,9 @@ npm run test -- tests/unit/presentation/socket/hub/rpc_bridge_agent_inbound.test
 ```
 
 E2E Colmeia (referencia no repo do cliente: `docs/server_adjustments/relay_unary_fast_path.md`):
-baseline `~7 s` com `SOCKET_RELAY_FAST_PATH_ENABLED=true`.
+baseline `~7 s` com `fastPath: true` no envelope de `relay:rpc.request`.
+Kill switch de deploy no hub: `SOCKET_RELAY_FAST_PATH_FORBIDDEN=true` (nao existe
+`SOCKET_RELAY_FAST_PATH_ENABLED`).
 
 ## Referencias
 
