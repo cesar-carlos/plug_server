@@ -6,6 +6,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ClientRefreshToken } from "../../../../src/domain/entities/client_refresh_token.entity";
 import { RefreshToken } from "../../../../src/domain/entities/refresh_token.entity";
 import { prismaClient } from "../../../../src/infrastructure/database/prisma/client";
+import { deletePrismaTestPrincipals } from "../../../helpers/prisma_test_principal_cleanup";
 import { PrismaClientRefreshTokenRepository } from "../../../../src/infrastructure/repositories/prisma_client_refresh_token.repository";
 import { PrismaRefreshTokenRepository } from "../../../../src/infrastructure/repositories/prisma_refresh_token.repository";
 
@@ -82,16 +83,10 @@ describe("Prisma token repositories", () => {
         where: { id: { in: Array.from(createdRefreshTokenIds) } },
       });
     }
-    if (createdClientIds.size > 0) {
-      await prismaClient.client.deleteMany({
-        where: { id: { in: Array.from(createdClientIds) } },
-      });
-    }
-    if (createdUserIds.size > 0) {
-      await prismaClient.user.deleteMany({
-        where: { id: { in: Array.from(createdUserIds) } },
-      });
-    }
+    await deletePrismaTestPrincipals({
+      userIds: Array.from(createdUserIds),
+      clientIds: Array.from(createdClientIds),
+    });
   });
 
   it("persists, loads, and consumes a user refresh token", async () => {

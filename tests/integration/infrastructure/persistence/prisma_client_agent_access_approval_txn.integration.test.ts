@@ -4,6 +4,7 @@ import type { Agent, Client, User } from "@prisma/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { prismaClient } from "../../../../src/infrastructure/database/prisma/client";
+import { deletePrismaTestPrincipals } from "../../../helpers/prisma_test_principal_cleanup";
 import { PrismaClientAgentAccessApprovalTxn } from "../../../../src/infrastructure/persistence/prisma_client_agent_access_approval_txn";
 import { generateOpaqueClientAccessToken } from "../../../../src/shared/utils/client_access_token";
 
@@ -79,34 +80,11 @@ describe("PrismaClientAgentAccessApprovalTxn", () => {
     if (!databaseAvailable) {
       return;
     }
-    for (const { clientId, agentId } of createdAccessPairs) {
-      await prismaClient.clientAgentAccess.deleteMany({
-        where: { clientId, agentId },
-      });
-    }
-    if (createdRequestIds.size > 0) {
-      await prismaClient.clientAgentAccessApprovalToken.deleteMany({
-        where: { requestId: { in: Array.from(createdRequestIds) } },
-      });
-      await prismaClient.clientAgentAccessRequest.deleteMany({
-        where: { id: { in: Array.from(createdRequestIds) } },
-      });
-    }
-    if (createdAgentIds.size > 0) {
-      await prismaClient.agent.deleteMany({
-        where: { agentId: { in: Array.from(createdAgentIds) } },
-      });
-    }
-    if (createdClientIds.size > 0) {
-      await prismaClient.client.deleteMany({
-        where: { id: { in: Array.from(createdClientIds) } },
-      });
-    }
-    if (createdUserIds.size > 0) {
-      await prismaClient.user.deleteMany({
-        where: { id: { in: Array.from(createdUserIds) } },
-      });
-    }
+    await deletePrismaTestPrincipals({
+      userIds: Array.from(createdUserIds),
+      clientIds: Array.from(createdClientIds),
+      agentIds: Array.from(createdAgentIds),
+    });
   });
 
   it("approvePendingAndGrantAccess updates request, upserts access, removes token", async () => {

@@ -10,6 +10,7 @@ import {
 } from "../../src/application/services/agent_data_maintenance.service";
 import { clientAgentAccessExpiredDecisionReason } from "../../src/application/services/client_agent_access_decision_reasons";
 import { prismaClient } from "../../src/infrastructure/database/prisma/client";
+import { deletePrismaTestPrincipals } from "../helpers/prisma_test_principal_cleanup";
 
 describe("agent_data_maintenance.service (integration)", () => {
   let tablesAvailable = false;
@@ -101,39 +102,11 @@ describe("agent_data_maintenance.service (integration)", () => {
 
   afterEach(async () => {
     resetAgentDataMaintenanceServiceForTests();
-
-    if (createdRequestIds.size > 0) {
-      await prismaClient.clientAgentAccessApprovalToken.deleteMany({
-        where: { requestId: { in: Array.from(createdRequestIds) } },
-      });
-      await prismaClient.clientAgentAccessRequest.deleteMany({
-        where: { id: { in: Array.from(createdRequestIds) } },
-      });
-    }
-
-    if (createdAgentIds.size > 0) {
-      await prismaClient.agentProfileWriteIdempotency.deleteMany({
-        where: { agentId: { in: Array.from(createdAgentIds) } },
-      });
-      await prismaClient.agentProfileRevision.deleteMany({
-        where: { agentId: { in: Array.from(createdAgentIds) } },
-      });
-      await prismaClient.agent.deleteMany({
-        where: { agentId: { in: Array.from(createdAgentIds) } },
-      });
-    }
-
-    if (createdClientIds.size > 0) {
-      await prismaClient.client.deleteMany({
-        where: { id: { in: Array.from(createdClientIds) } },
-      });
-    }
-
-    if (createdUserIds.size > 0) {
-      await prismaClient.user.deleteMany({
-        where: { id: { in: Array.from(createdUserIds) } },
-      });
-    }
+    await deletePrismaTestPrincipals({
+      userIds: Array.from(createdUserIds),
+      clientIds: Array.from(createdClientIds),
+      agentIds: Array.from(createdAgentIds),
+    });
   });
 
   afterAll(() => {

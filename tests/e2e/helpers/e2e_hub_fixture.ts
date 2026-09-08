@@ -3,6 +3,10 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { agentLoginToken, registerHubUser } from "./auth_tokens";
 import { createTestServer } from "./e2e_server";
+import {
+  cleanupTrackedSuiteScopePrincipals,
+  trackPrismaTestPrincipal,
+} from "../../helpers/prisma_test_principal_cleanup";
 
 export type E2EHubFixture = {
   readonly baseUrl: string;
@@ -39,14 +43,18 @@ export const startE2EHubFixture = async (): Promise<E2EHubFixture> => {
   await waitForReady(baseUrl);
   const agentId = randomUUID();
   const email = `e2e-${Date.now()}-${randomUUID().slice(0, 8)}@plug.test`;
-  const user = await registerHubUser(baseUrl, email, "E2eHubFixture1");
+  const user = await registerHubUser(baseUrl, email, "E2eHubFixture1", { cleanupScope: "suite" });
   const agentAccessToken = await agentLoginToken(baseUrl, user.email, user.password, agentId);
+  trackPrismaTestPrincipal({ scope: "suite", agentId });
 
   return {
     baseUrl,
     agentId,
     user,
     agentAccessToken,
-    close: () => server.close(),
+    close: async () => {
+      await cleanupTrackedSuiteScopePrincipals();
+      await server.close();
+    },
   };
 };

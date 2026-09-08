@@ -3,6 +3,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 
+import { enablePrismaTestPrincipalCleanup } from "../../helpers/prisma_test_principal_cleanup";
+
 export interface DistributedHubProcess {
   readonly baseUrl: string;
   close(): Promise<void>;
@@ -80,6 +82,7 @@ const connectTestNamespace = (baseUrl: string): Promise<ClientSocket> =>
 export const spawnDistributedHubProcess = async (
   options?: SpawnDistributedHubProcessOptions,
 ): Promise<DistributedHubProcess> => {
+  enablePrismaTestPrincipalCleanup();
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     NODE_ENV: "test",

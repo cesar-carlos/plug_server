@@ -9,6 +9,7 @@ export default defineConfig({
       "tests/setup/vitest.rate_limits.ts",
       "tests/setup/vitest.socket_consumer_roles.ts",
       "tests/setup/vitest.uploads_dir.ts",
+      "tests/setup/vitest.prisma_test_cleanup.ts",
     ],
     globals: true,
     environment: "node",

@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { ClientAgentAccessRequest } from "../../../../src/domain/entities/client_agent_access_request.entity";
 import { prismaClient } from "../../../../src/infrastructure/database/prisma/client";
+import { deletePrismaTestPrincipals } from "../../../helpers/prisma_test_principal_cleanup";
 import { PrismaPendingClientAgentAccessWriter } from "../../../../src/infrastructure/persistence/prisma_pending_client_agent_access.writer";
 import { PrismaClientAgentAccessApprovalTokenRepository } from "../../../../src/infrastructure/repositories/prisma_client_agent_access_approval_token.repository";
 import { generateOpaqueClientAccessToken } from "../../../../src/shared/utils/client_access_token";
@@ -80,29 +81,11 @@ describe("PrismaPendingClientAgentAccessWriter", () => {
     if (!databaseAvailable) {
       return;
     }
-    if (createdRequestIds.size > 0) {
-      await prismaClient.clientAgentAccessApprovalToken.deleteMany({
-        where: { requestId: { in: Array.from(createdRequestIds) } },
-      });
-      await prismaClient.clientAgentAccessRequest.deleteMany({
-        where: { id: { in: Array.from(createdRequestIds) } },
-      });
-    }
-    if (createdAgentIds.size > 0) {
-      await prismaClient.agent.deleteMany({
-        where: { agentId: { in: Array.from(createdAgentIds) } },
-      });
-    }
-    if (createdClientIds.size > 0) {
-      await prismaClient.client.deleteMany({
-        where: { id: { in: Array.from(createdClientIds) } },
-      });
-    }
-    if (createdUserIds.size > 0) {
-      await prismaClient.user.deleteMany({
-        where: { id: { in: Array.from(createdUserIds) } },
-      });
-    }
+    await deletePrismaTestPrincipals({
+      userIds: Array.from(createdUserIds),
+      clientIds: Array.from(createdClientIds),
+      agentIds: Array.from(createdAgentIds),
+    });
   });
 
   it("writes request and token in a single transaction", async () => {

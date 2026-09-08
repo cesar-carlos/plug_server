@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { RegistrationApprovalToken } from "../../../../src/domain/entities/registration_approval_token.entity";
 import { prismaClient } from "../../../../src/infrastructure/database/prisma/client";
+import { deletePrismaTestPrincipals } from "../../../helpers/prisma_test_principal_cleanup";
 import { PrismaClientRegistrationDecisionTxn } from "../../../../src/infrastructure/persistence/prisma_client_registration_decision_txn";
 import { PrismaRegistrationDecisionTxn } from "../../../../src/infrastructure/persistence/prisma_registration_decision_txn";
 import { PrismaClientRegistrationApprovalTokenRepository } from "../../../../src/infrastructure/repositories/prisma_client_registration_approval_token.repository";
@@ -39,22 +40,10 @@ describe("Prisma registration decision transactions", () => {
     if (!databaseAvailable) {
       return;
     }
-    if (createdClientIds.size > 0) {
-      await prismaClient.clientRegistrationApprovalToken.deleteMany({
-        where: { clientId: { in: Array.from(createdClientIds) } },
-      });
-      await prismaClient.client.deleteMany({
-        where: { id: { in: Array.from(createdClientIds) } },
-      });
-    }
-    if (createdUserIds.size > 0) {
-      await prismaClient.registrationApprovalToken.deleteMany({
-        where: { userId: { in: Array.from(createdUserIds) } },
-      });
-      await prismaClient.user.deleteMany({
-        where: { id: { in: Array.from(createdUserIds) } },
-      });
-    }
+    await deletePrismaTestPrincipals({
+      userIds: Array.from(createdUserIds),
+      clientIds: Array.from(createdClientIds),
+    });
   });
 
   const createUser = async (status: "pending" | "active" = "pending"): Promise<string> => {

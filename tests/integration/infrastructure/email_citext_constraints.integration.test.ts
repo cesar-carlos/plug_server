@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { prismaClient } from "../../../src/infrastructure/database/prisma/client";
+import { deletePrismaTestPrincipals } from "../../helpers/prisma_test_principal_cleanup";
 
 describe("Postgres citext email uniqueness (users / clients)", () => {
   let databaseAvailable = false;
@@ -24,14 +25,12 @@ describe("Postgres citext email uniqueness (users / clients)", () => {
     if (!databaseAvailable) {
       return;
     }
-    if (createdClientIds.size > 0) {
-      await prismaClient.client.deleteMany({ where: { id: { in: [...createdClientIds] } } });
-      createdClientIds.clear();
-    }
-    if (createdUserIds.size > 0) {
-      await prismaClient.user.deleteMany({ where: { id: { in: [...createdUserIds] } } });
-      createdUserIds.clear();
-    }
+    await deletePrismaTestPrincipals({
+      userIds: Array.from(createdUserIds),
+      clientIds: Array.from(createdClientIds),
+    });
+    createdClientIds.clear();
+    createdUserIds.clear();
   });
 
   it("rejects a second user whose email only differs by letter casing", async () => {

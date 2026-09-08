@@ -14,6 +14,7 @@ import {
   type DistributedHubProcess,
 } from "./helpers/distributed_hub_process";
 import { registerOwnerAndClientSession } from "./helpers/client_sessions";
+import { trackPrismaTestPrincipal } from "../helpers/prisma_test_principal_cleanup";
 import {
   assertInfrastructureOrSkip,
   integrationHookTimeoutMs,
@@ -299,6 +300,7 @@ describe("consumer client-agent room reconciliation", () => {
       },
     });
     createdAgentIds.add(agentId);
+    trackPrismaTestPrincipal({ agentId });
 
     expect(await server.getConsumerRoomCount(room)).toBe(0);
 
@@ -428,6 +430,7 @@ describe("consumer client-agent room reconciliation across Redis replicas", () =
         status: "active",
       },
     });
+    trackPrismaTestPrincipal({ agentId });
     await prismaClient.agentIdentity.create({
       data: {
         agentId,

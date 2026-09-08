@@ -14,6 +14,7 @@ import {
   type DistributedHubProcess,
 } from "./helpers/distributed_hub_process";
 import { registerOwnerAndClientSession } from "./helpers/client_sessions";
+import { trackPrismaTestPrincipal } from "../helpers/prisma_test_principal_cleanup";
 import {
   assertInfrastructureOrSkip,
   integrationHookTimeoutMs,
@@ -123,6 +124,7 @@ const seedRelayAgentFixture = async (
       status: "active",
     },
   });
+  trackPrismaTestPrincipal({ agentId });
   await prismaClient.agentIdentity.create({
     data: {
       agentId,

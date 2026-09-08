@@ -1,9 +1,14 @@
 import request from "supertest";
 
+import {
+  trackPrismaTestPrincipal,
+  type PrismaTestPrincipalScope,
+} from "../../helpers/prisma_test_principal_cleanup";
 import { approveClientRegistrationByToken } from "../../integration/helpers/approve_client_registration";
 import { approveRegistrationByToken } from "../../integration/helpers/approve_registration";
 
 export interface HubUserTokens {
+  readonly userId: string;
   readonly email: string;
   readonly password: string;
   readonly accessToken: string;
@@ -21,6 +26,7 @@ export const registerHubUser = async (
   baseUrl: string,
   email: string,
   password: string,
+  options?: { readonly cleanupScope?: PrismaTestPrincipalScope },
 ): Promise<HubUserTokens> => {
   const res = await request(baseUrl).post("/api/v1/auth/register").send({ email, password });
   if (res.status !== 201) {
@@ -32,6 +38,7 @@ export const registerHubUser = async (
       "register response missing approvalToken; e2e expects NODE_ENV !== production (see registration flow).",
     );
   }
+  const userId = res.body.user.id as string;
   await approveRegistrationByToken(baseUrl, approvalToken);
   const loginRes = await request(baseUrl).post("/api/v1/auth/login").send({ email, password });
   if (loginRes.status !== 200) {
@@ -39,7 +46,12 @@ export const registerHubUser = async (
       `login after register failed: ${loginRes.status} ${JSON.stringify(loginRes.body)}`,
     );
   }
+  trackPrismaTestPrincipal({
+    scope: options?.cleanupScope ?? "test",
+    userId,
+  });
   return {
+    userId,
     email,
     password,
     accessToken: loginRes.body.accessToken as string,
@@ -68,6 +80,7 @@ export const registerHubClient = async (
   ownerEmail: string,
   email: string,
   password: string,
+  options?: { readonly cleanupScope?: PrismaTestPrincipalScope },
 ): Promise<HubClientTokens> => {
   const registerRes = await request(baseUrl).post("/api/v1/client-auth/register").send({
     ownerEmail,
@@ -97,8 +110,14 @@ export const registerHubClient = async (
     throw new Error(`client login failed: ${loginRes.status} ${JSON.stringify(loginRes.body)}`);
   }
 
+  const clientId = registerRes.body.client.id as string;
+  trackPrismaTestPrincipal({
+    scope: options?.cleanupScope ?? "test",
+    clientId,
+  });
+
   return {
-    clientId: registerRes.body.client.id as string,
+    clientId,
     email,
     password,
     accessToken: loginRes.body.accessToken as string,
