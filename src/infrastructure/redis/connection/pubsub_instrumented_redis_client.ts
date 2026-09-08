@@ -1,4 +1,4 @@
-import type { AnyRedisClientOptions } from "redis";
+import type { RedisClientOptions } from "redis";
 import { createClient } from "redis";
 
 import { logger } from "../../../shared/utils/logger";
@@ -49,7 +49,7 @@ export interface PubSubInstrumentedRedisClientsInput {
    * Caller-provided builder so adapter-specific knobs (e.g. backoff envs
    * dedicated to the Socket.IO adapter) can override the defaults.
    */
-  readonly buildClientOptions: () => AnyRedisClientOptions;
+  readonly buildClientOptions: () => RedisClientOptions;
   readonly callbacks: PubSubInstrumentedRedisClientsCallbacks;
   /**
    * Optional gate so listeners ignore stale callbacks after a generation

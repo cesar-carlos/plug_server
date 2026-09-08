@@ -231,7 +231,12 @@ describe("active_stream_registry", () => {
   });
 
   it("countOpenStreamRoutesForAgent increments when resolveActiveStreamRoute assigns streamId late", () => {
-    upsertActiveStreamRoute({ requestId: "r-late", agentSocketId: "a1", agentId: "agent-a1", streamHandlers: handlers });
+    upsertActiveStreamRoute({
+      requestId: "r-late",
+      agentSocketId: "a1",
+      agentId: "agent-a1",
+      streamHandlers: handlers,
+    });
     expect(countOpenStreamRoutesForAgent("a1")).toBe(0);
 
     resolveActiveStreamRoute("a1", { stream_id: "s-late", request_id: "r-late" });

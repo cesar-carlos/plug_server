@@ -1,4 +1,4 @@
-import type { AnyRedisClientOptions } from "redis";
+import type { RedisClientOptions } from "redis";
 
 import { env } from "../../../shared/config/env";
 import { resolveRedisUrlWithWarning } from "./redis_url_resolver";
@@ -32,7 +32,7 @@ const RECONNECT_RETRY_CAP = 8;
 
 export const buildResilientRedisClientOptions = (
   input: ResilientRedisClientOptionsInput,
-): AnyRedisClientOptions => {
+): RedisClientOptions => {
   const connectTimeout = input.connectTimeoutMs ?? env.redisDefaultConnectTimeoutMs;
   const reconnectBase = input.reconnectBaseMs ?? env.redisDefaultReconnectBaseMs;
   const reconnectMax = input.reconnectMaxMs ?? env.redisDefaultReconnectMaxMs;

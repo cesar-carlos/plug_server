@@ -1215,7 +1215,7 @@ interface BuiltSwaggerSpec {
  * `/docs.json` hits avoid `JSON.stringify` on the hot path. Called once from
  * {@link setupSwagger} when documentation is enabled.
  */
-const buildSwaggerSpec = (): BuiltSwaggerSpec => {
+export const buildSwaggerSpec = (): BuiltSwaggerSpec => {
   /**
    * Lazy `require` so the relatively expensive `swagger-jsdoc` parser (and its
    * `doctrine` / `glob` transitive deps) only land in the require cache when

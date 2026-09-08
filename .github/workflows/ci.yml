@@ -58,14 +58,5 @@ jobs:
       - name: Migrate test database
         run: npm run db:migrate:deploy
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm run test
-
-      - name: Build
-        run: npm run build
+      - name: Release gate
+        run: npm run release:check

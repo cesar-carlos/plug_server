@@ -929,12 +929,7 @@ const envSchema = z.object({
    * values like 5000 reduce hot-path registry writes; worst case a socket may idle
    * out up to this many ms earlier than the nominal threshold.
    */
-  SOCKET_CONSUMER_IDLE_TOUCH_DEBOUNCE_MS: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(300_000)
-    .default(0),
+  SOCKET_CONSUMER_IDLE_TOUCH_DEBOUNCE_MS: z.coerce.number().int().min(0).max(300_000).default(0),
   /**
    * When > 0, successful `/agents` and `/consumers` handshake DB checks may be skipped for the same
    * JWT `sub` + `credentials_version` + principal type until the TTL expires (reduces DB load on reconnect storms).
@@ -1113,19 +1108,16 @@ const envSchema = z.object({
    * do not stall rate-limit cleanup. When unset, falls back to
    * `SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS` (legacy alias).
    */
-  SOCKET_RATE_LIMIT_SWEEP_INTERVAL_MS: z.preprocess(
-    (val) => {
-      if (val !== undefined && val !== "" && String(val).trim() !== "") {
-        return val;
-      }
-      const outbound = process.env.SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS;
-      if (outbound !== undefined && outbound !== "" && String(outbound).trim() !== "") {
-        return outbound;
-      }
-      return "60000";
-    },
-    z.coerce.number().int().positive(),
-  ),
+  SOCKET_RATE_LIMIT_SWEEP_INTERVAL_MS: z.preprocess((val) => {
+    if (val !== undefined && val !== "" && String(val).trim() !== "") {
+      return val;
+    }
+    const outbound = process.env.SOCKET_RELAY_OUTBOUND_SWEEP_INTERVAL_MS;
+    if (outbound !== undefined && outbound !== "" && String(outbound).trim() !== "") {
+      return outbound;
+    }
+    return "60000";
+  }, z.coerce.number().int().positive()),
   SOCKET_RELAY_MAX_CONVERSATIONS: z.coerce.number().int().positive().default(5_000),
   SOCKET_RELAY_MAX_CONVERSATIONS_PER_CONSUMER: z.coerce.number().int().positive().default(20),
   SOCKET_RELAY_MAX_PENDING_REQUESTS: z.coerce.number().int().positive().default(10_000),

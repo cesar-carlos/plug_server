@@ -64,34 +64,36 @@ export const createOrderedStreamInboundQueue = (options?: {
     // three-hop chain (.catch → .then → .catch) plus a separate
     // `void next.finally(cleanup)` Promise. Eliminates two Promise
     // allocations per enqueued stream frame on the hot inbound path.
-    const next = prev.catch(() => undefined).then(async () => {
-      try {
-        if (currentGeneration(socketId) !== generation) {
-          return;
-        }
-        const startedAt = performance.now();
-        await work();
-        const elapsedMs = performance.now() - startedAt;
-        if (elapsedMs >= slowWorkWarnMs) {
-          orderedInboundSlowWorkTotal += 1;
-          logger.warn("rpc_stream_inbound_work_slow", {
+    const next = prev
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          if (currentGeneration(socketId) !== generation) {
+            return;
+          }
+          const startedAt = performance.now();
+          await work();
+          const elapsedMs = performance.now() - startedAt;
+          if (elapsedMs >= slowWorkWarnMs) {
+            orderedInboundSlowWorkTotal += 1;
+            logger.warn("rpc_stream_inbound_work_slow", {
+              socketId,
+              elapsedMs: Math.round(elapsedMs),
+              thresholdMs: slowWorkWarnMs,
+            });
+          }
+        } catch (error: unknown) {
+          logger.warn("rpc_stream_inbound_processing_failed", {
             socketId,
-            elapsedMs: Math.round(elapsedMs),
-            thresholdMs: slowWorkWarnMs,
+            message: error instanceof Error ? error.message : String(error),
           });
+        } finally {
+          if (tailBySocketId.get(socketId) === next) {
+            tailBySocketId.delete(socketId);
+          }
+          pruneGenerationIfIdle(socketId, generation);
         }
-      } catch (error: unknown) {
-        logger.warn("rpc_stream_inbound_processing_failed", {
-          socketId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        if (tailBySocketId.get(socketId) === next) {
-          tailBySocketId.delete(socketId);
-        }
-        pruneGenerationIfIdle(socketId, generation);
-      }
-    });
+      });
     tailBySocketId.set(socketId, next);
   };
 

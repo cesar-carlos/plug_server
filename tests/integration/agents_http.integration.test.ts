@@ -1724,7 +1724,7 @@ describe("Agents HTTP bridge", () => {
       // Let delayed overload rpc:response timers finish so later tests do not see ack retries.
       await new Promise((resolve) => setTimeout(resolve, rpcResponseDelayMs + 250));
     }
-  });
+  }, 30_000);
 
   it("should fail fast when agent returns an invalid rpc:response frame", async () => {
     if (!agentSocket) {

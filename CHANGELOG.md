@@ -6,6 +6,14 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Added — contrato REST para o MCP
+
+- Gerador determinístico `scripts/generate-plug-mcp-contract.ts` e artefato versionado `contracts/plug-mcp-rest-v1.json`, derivado do OpenAPI público.
+- Scripts `npm run contract:generate` e `npm run contract:check`; a CI falha quando o contrato não está atualizado.
+- O contrato cobre autenticação, agentes/acessos, comandos, policy, `sql.execute`, envelopes de erro/sucesso e metadados/timings de execução.
+- Baseline versionado `contracts/plug-mcp-rest-v1.compatibility.json`: `contract:check` também falha se uma operação/status público perder campo de resposta, request ficar mais restritivo (required/tipo/enum/limites) ou se um campo novo ainda não foi registrado. Adição exige baseline explícito e incremento minor; atualização incompatível requer major paralelo e confirmação explícita.
+- Gate `npm run release:check` reúne formatação, lint, tipos, contrato, testes e build; a CI o executa depois das migrations.
+
 ### Fixed (Auditoria de comunicação plug_agente ↔ plug_server — 2026-07-07)
 
 Correções e melhorias de observabilidade/negociação identificadas no audit
@@ -29,8 +37,8 @@ cross-repo de alinhamento hub × agente:
   no registro de agente (visibilidade apenas — dispatch continua 100% no
   agente).
 - Métricas novas em [`socket_consumer.metrics.ts`](src/shared/metrics/socket_consumer.metrics.ts)
-  + [`socket_agent.metrics.ts`](src/shared/metrics/socket_agent.metrics.ts),
-  expostas em [`metrics_renderer.ts`](src/presentation/http/controllers/metrics_renderer.ts).
+  - [`socket_agent.metrics.ts`](src/shared/metrics/socket_agent.metrics.ts),
+    expostas em [`metrics_renderer.ts`](src/presentation/http/controllers/metrics_renderer.ts).
 - Lint: tipo de retorno explícito em
   [`plug_agente_live_server.e2e.test.ts`](tests/e2e/flows/plug_agente_live_server.e2e.test.ts).
 
@@ -88,7 +96,7 @@ volta ao pending — `agent_sql_bridge_e2e_test.dart` ia de **7 s → 278 s**
 
 - [`rpc_bridge_agent_inbound.ts`](src/presentation/socket/hub/relay/rpc_bridge_agent_inbound.ts):
   novo `shouldEchoClientBodyId` no forwarder; quando `clientRequestId !==
-  responseId` o bypass `encodeRelayOutboundFrameFromBytes` e sacrificado
+responseId` o bypass `encodeRelayOutboundFrameFromBytes` e sacrificado
   para reescrever `body.id` no payload do agente antes do encode final.
   Helper `resolveOutboundBodyId` aplica a mesma logica nas funcoes
   sinteticas de erro (`createRelayDecodeFailurePayload`,
@@ -141,12 +149,12 @@ Complementos ao fix do fast-path:
   quando o env acima trip nega um opt-in de consumer. Permite observar a
   configuracao via Prometheus.
 - Novo histograma-pares `plug_socket_relay_body_id_echo_overhead_sum_ms`
-  + `_max_ms` + `_avg_ms` (derivado): quantificam o custo CPU da
-  reescrita de `body.id` que sacrifica `canBypassReencode`. Pareados com
-  `bodyIdEchoTotal`, formam o gate para a futura Opcao A (ver
-  [`docs/adrs/0009-client-request-id-echo.md`](docs/adrs/0009-client-request-id-echo.md)).
-  Sintetizados em [`rpc_bridge_agent_inbound.ts`](src/presentation/socket/hub/relay/rpc_bridge_agent_inbound.ts)
-  via novo helper `observeRelayBodyIdEchoOverhead(elapsedMs)`.
+  - `_max_ms` + `_avg_ms` (derivado): quantificam o custo CPU da
+    reescrita de `body.id` que sacrifica `canBypassReencode`. Pareados com
+    `bodyIdEchoTotal`, formam o gate para a futura Opcao A (ver
+    [`docs/adrs/0009-client-request-id-echo.md`](docs/adrs/0009-client-request-id-echo.md)).
+    Sintetizados em [`rpc_bridge_agent_inbound.ts`](src/presentation/socket/hub/relay/rpc_bridge_agent_inbound.ts)
+    via novo helper `observeRelayBodyIdEchoOverhead(elapsedMs)`.
 - Novo log estruturado `relay_body_id_rewritten` gated em
   `logger.isLevelEnabled("debug")` para facilitar diagnostico em
   desenvolvimento (zero custo em producao com level=info).
@@ -246,7 +254,7 @@ Mudancas no hub:
   com 3 testes (echo basico, fallback sem `clientRequestId`, echo no
   erro sintetico). Teste existente
   `rejects relay batch rpc responses per consumer without leaking
-  original payloads` ajustado para validar a reescrita.
+original payloads` ajustado para validar a reescrita.
 - [`tests/unit/presentation/socket/hub/rpc_bridge_relay_stream.test.ts`](tests/unit/presentation/socket/hub/rpc_bridge_relay_stream.test.ts)
   o teste de `emitRelayTimeoutResponse` agora decoda o frame e valida
   que `body.id === clientRequestId` e que `envelope.requestId` continua
@@ -457,7 +465,7 @@ caps, rate-limits criticos permanecem ativos).
 
 - **Pub/sub `client:custom.*` — seguranca e operacao**: `socket:event.subscribe` / `socket:event.unsubscribe` restringem-se a principals **Client** (`403` antes do rate limit de controlo); `503` por fan-out local (`REST_SOCKET_EVENT_MAX_RECIPIENTS`) usa `REST_SOCKET_EVENT_FANOUT_RETRY_AFTER_MS` (por defeito `2000 ms`) em `retry_after_ms`, independente da janela de rate limit REST; `refundSocketRateLimitRedis` passa a um **EVAL** atomico (evita `DECRBY` aplicado e `DEL` a falhar seguido de retry que decrementava duas vezes); metricas Prometheus `plug_socket_consumer_client_agent_room_grant_*` para tentativas de `grantClientAccess`, joins bem-sucedidos e falhas. Codigo: `custom_socket_event_subscription.handler.ts`, `socket.ts`, `socket_rate_limit_redis.ts`, `env.ts`, `socket_consumer.metrics.ts`, `metrics.controller.ts`. Testes: `custom_socket_event_subscription.handler.test.ts`, `socket_rate_limit_redis.test.ts`. Docs: `socket_relay_protocol.md`, `socket_client_sdk.md`, `configuration.md`, `scaling_and_roadmap.md`, `observability.md`, `.env.example`.
 
-- **Handshake `/agents`**: o hub entra na sala de identidade `agent:principal:{JWT sub}` **antes** de emitir `connection:ready`, alinhando o fluxo ao namespace `/consumers`. Teste de contrato: `tests/integration/socket.integration.test.ts` (*should have joined agent:principal room when connection:ready fires*). Documentação: `docs/api_rest_bridge.md` (*Erros e fases do handshake Socket*), `docs/migracao_plug_agente_namespaces.md`, `docs/README.md`, `docs/PROJECT_OVERVIEW.md`, `docs/configuration.md` (`SOCKET_AUTH_REQUIRED`), `docs/socket_client_sdk.md` (nota de capacidade em salas `consumer:client-agent:*`).
+- **Handshake `/agents`**: o hub entra na sala de identidade `agent:principal:{JWT sub}` **antes** de emitir `connection:ready`, alinhando o fluxo ao namespace `/consumers`. Teste de contrato: `tests/integration/socket.integration.test.ts` (_should have joined agent:principal room when connection:ready fires_). Documentação: `docs/api_rest_bridge.md` (_Erros e fases do handshake Socket_), `docs/migracao_plug_agente_namespaces.md`, `docs/README.md`, `docs/PROJECT_OVERVIEW.md`, `docs/configuration.md` (`SOCKET_AUTH_REQUIRED`), `docs/socket_client_sdk.md` (nota de capacidade em salas `consumer:client-agent:*`).
 - **`agent:register` performance / fiabilidade**: (1) rate limit de `agent:register` corre **antes** de `bindOwnershipOnRegister`, reduzindo carga na BD em rajadas; (2) limite em janela deslizante passa a **podar** timestamps expirados ao rejeitar e liberta buckets quando a janela esvazia; (3) cache opcional `AGENT_REGISTER_BIND_CACHE_*` para omitir trabalho repetido de stub do catálogo + `bindIfUnbound` após `assertOwnershipEligible`, invalidado com `invalidateAccessCache*` / `invalidateAccessCacheForAgent`; documentação de **multi-réplica** na secção de validação de registo em `docs/configuration.md`. Testes: `agent_register_rate_limit.test.ts`, `agent_access_bind_cache.test.ts`.
 - **CI (GitHub Actions)**: `actions/checkout@v5` e `actions/setup-node@v5`; removido `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`. Servico **PostgreSQL 16** com healthcheck e passo `npx prisma migrate deploy` antes de `npm run test`, para `DATABASE_URL` de CI corresponder a uma BD real e as integracoes Prisma nao ficarem a `return` cedo por BD indisponivel.
 
@@ -504,7 +512,7 @@ caps, rate-limits criticos permanecem ativos).
 
 - **Contas de utilizador (`UserStatus`)**: valor `blocked`; middleware `requireActiveAccount` + `requireAuthAndActiveAccount` (verificacao na BD apos JWT) nas rotas protegidas; `PATCH /api/v1/admin/users/:id/status` (admin) para `{ "status": "blocked" | "active" }` — ao bloquear, revogam-se todos os refresh tokens do utilizador. Métricas Prometheus em `GET /metrics`: `plug_auth_login_blocked_total`, `plug_auth_refresh_blocked_total`, `plug_admin_user_status_set_total`. Documentacao: `docs/user_status.md`; OpenAPI atualizado para `/auth/me` (403 quando bloqueado). Testes: `tests/unit/domain/use_cases/admin_set_user_status.use_case.test.ts`, `tests/integration/admin_users.integration.test.ts`.
 
-- **Documentacao de desempenho**: `docs/performance_hub_agent.md` — secções *Presets recomendados* (`.env`) e *Checklist operacional*; fragmento espelhado em `.env.example`. `docs/configuration.md` e `docs/scaling_and_roadmap.md` apontam para estes presets.
+- **Documentacao de desempenho**: `docs/performance_hub_agent.md` — secções _Presets recomendados_ (`.env`) e _Checklist operacional_; fragmento espelhado em `.env.example`. `docs/configuration.md` e `docs/scaling_and_roadmap.md` apontam para estes presets.
 - **Métricas Prometheus** (`GET /metrics`): `plug_socket_relay_outbound_queue_jobs_finished_total`, `jobs_failed_total`, `job_duration_sum_ms`, `job_duration_avg_ms`, `job_duration_max_ms`, `inflight_request_ids`; `docs/observability.md` com exemplos PromQL. Testes em `tests/unit/presentation/socket/hub/relay_outbound_queue.test.ts`.
 - **Playbook de performance (baseline e rollout)**: `docs/performance_hub_agent.md` ganhou secções de baseline obrigatório antes/depois, estratégia de auditoria por perfil e rollout agressivo faseado com critérios de promoção/rollback.
 - **Snapshot mínimo de tuning**: `docs/observability.md` passa a listar o conjunto mínimo de métricas para comparação antes/depois em mudanças de bridge/relay.
@@ -531,7 +539,7 @@ caps, rate-limits criticos permanecem ativos).
 - **Documentacao**: `docs/performance_hub_agent.md` — relay outbound alinhado à fila + bridge async; lookup de rota relay no drain de `rpc:stream.pull`.
 - **Guidance de canal REST vs relay/socket**: `docs/api_rest_bridge.md` e `docs/PROJECT_OVERVIEW.md` passam a incluir matriz/prática operacional para escolher canal por volume, latência e padrão de streaming.
 - **Relay stream pull**: `rpc_bridge_stream_pull.ts` — uma leitura `getRelayRequestRoute` por pull ao drenar buffer (reutilizada para auditoria de chunks e complete).
-- **Documentacao**: `docs/communication_sync_plug_agente.md` — secção *Implementação no plug_server (fluxos)* com diagramas Mermaid (REST/`agents:command` e relay); tabela de ficheiros corrige onde vive `api_version` (`rpc_bridge_command_helpers.ts` / relay), em vez de `rpc_bridge.ts`.
+- **Documentacao**: `docs/communication_sync_plug_agente.md` — secção _Implementação no plug_server (fluxos)_ com diagramas Mermaid (REST/`agents:command` e relay); tabela de ficheiros corrige onde vive `api_version` (`rpc_bridge_command_helpers.ts` / relay), em vez de `rpc_bridge.ts`.
 - **REST stream materialization**: `mergeSqlStreamRpcResponse` junta linhas de chunks com loop em vez de `push(...rows)`, evitando limites de argumentos do motor JS em resultados muito grandes.
 - **Bridge latency trace retention**: `pruneBridgeLatencyTracesOlderThanDays` passa a receber opcoes (`defaultRetentionDays`, `relayRetentionDays`, `batchSize`) em vez de dias como primeiro argumento; o scheduler usa apenas `env` + `batchSize`.
 - **PayloadFrame inbound**: `isPayloadFrameEnvelope` alinhado ao schema `payload-frame.schema.json` do plug_agente (`schemaVersion` 1.0, `contentType` application/json, tamanhos inteiros ≥ 0, sem propriedades extra, `signature` só com chaves permitidas); export `PAYLOAD_FRAME_SCHEMA_VERSION`; `requestId` no envelope aceita `null`; testes em `tests/unit/shared/utils/payload_frame.envelope.test.ts`.
@@ -609,4 +617,4 @@ caps, rate-limits criticos permanecem ativos).
 
 ## Roadmap tecnico
 
-- **Modularizar `rpc_bridge.ts`**: *feito* — modulos acima + `rpc_bridge_stream_pull.ts`, `rpc_bridge_dispatch_relay.ts`, `rpc_bridge_dispatch_command.ts`, `rpc_bridge_lifecycle.ts`; `rpc_bridge.ts` concentra namespaces Socket.IO, `emitToConsumer`, metricas e composicao das factories.
+- **Modularizar `rpc_bridge.ts`**: _feito_ — modulos acima + `rpc_bridge_stream_pull.ts`, `rpc_bridge_dispatch_relay.ts`, `rpc_bridge_dispatch_command.ts`, `rpc_bridge_lifecycle.ts`; `rpc_bridge.ts` concentra namespaces Socket.IO, `emitToConsumer`, metricas e composicao das factories.

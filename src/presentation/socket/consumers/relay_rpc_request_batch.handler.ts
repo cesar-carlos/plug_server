@@ -348,7 +348,11 @@ export const handleRelayRpcRequestBatch = (
       const validation = validateBatchItems(data);
       if (!validation.ok) {
         noteRelayBatchRejected("validation_failed");
-        emitBatchAccepted(socket, { success: false, conversationId: envelope.conversationId, error: validation.error });
+        emitBatchAccepted(socket, {
+          success: false,
+          conversationId: envelope.conversationId,
+          error: validation.error,
+        });
         return;
       }
       const items = validation.items;

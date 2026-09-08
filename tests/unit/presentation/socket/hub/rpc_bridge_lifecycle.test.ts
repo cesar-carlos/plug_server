@@ -191,7 +191,7 @@ describe("rpc_bridge_lifecycle", () => {
           conversationId,
           consumerSocketId: "consumer-1",
           agentSocketId: "agent-socket-1",
-      agentId: "agent-1",
+          agentId: "agent-1",
           agentId: "agent-1",
           createdAt: new Date().toISOString(),
           lastSeenAt: new Date().toISOString(),
@@ -204,7 +204,7 @@ describe("rpc_bridge_lifecycle", () => {
       expect.objectContaining({
         conversationId,
         agentSocketId: "agent-socket-1",
-      agentId: "agent-1",
+        agentId: "agent-1",
       }),
     );
     expect(getActiveStreamRouteByRequestId("req-consumer-disconnect")).toBeUndefined();
@@ -243,7 +243,7 @@ describe("rpc_bridge_lifecycle", () => {
           conversationId,
           consumerSocketId: "consumer-1",
           agentSocketId: "agent-socket-1",
-      agentId: "agent-1",
+          agentId: "agent-1",
           agentId: "agent-1",
           createdAt: new Date().toISOString(),
           lastSeenAt: new Date().toISOString(),
@@ -263,7 +263,7 @@ describe("rpc_bridge_lifecycle", () => {
       expect.objectContaining({
         conversationId,
         agentSocketId: "agent-socket-1",
-      agentId: "agent-1",
+        agentId: "agent-1",
       }),
     );
     expect(getActiveStreamRouteByRequestId("req-idle-expired")).toBeUndefined();

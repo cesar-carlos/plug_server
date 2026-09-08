@@ -33,6 +33,7 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "lint:fix": "eslint --fix \"src/**/*.ts\" \"tests/**/*.ts\"",
     "test": "vitest run",
+    "release:check": "npm run format:check && npm run lint && npm run typecheck && npm run contract:check && npm run test:contract && npm run test && npm run build",
     "test:access-flow": "vitest run tests/integration/client_auth.integration.test.ts tests/integration/user_clients.integration.test.ts tests/integration/client_agents.integration.test.ts tests/unit/application/services/client_agent_access.service.test.ts tests/unit/application/services/client_agent_access.service.client_token.test.ts tests/unit/application/services/client_agent_access_query.service.test.ts tests/unit/application/services/client_agent_access_decision.service.test.ts tests/unit/domain/policies/client_agent_access_request.policy.test.ts",
     "test:contract": "vitest run tests/contract",
     "test:watch": "vitest",
@@ -45,7 +46,10 @@
     "check:openrpc": "vitest run tests/integration/agent_rpc_contract.integration.test.ts tests/contract/plug_agente_optional.contract.test.ts",
     "sync:swagger-static": "bash scripts/sync-swagger-ui-static.sh",
     "check:swagger-edge": "bash scripts/check_swagger_edge.sh",
-    "check:swagger-flaky": "LOOPS=30 BURST=10 bash scripts/check_swagger_edge.sh"
+    "check:swagger-flaky": "LOOPS=30 BURST=10 bash scripts/check_swagger_edge.sh",
+    "contract:generate": "tsx scripts/generate-plug-mcp-contract.ts",
+    "contract:check": "tsx scripts/generate-plug-mcp-contract.ts --check",
+    "contract:baseline": "tsx scripts/generate-plug-mcp-contract.ts --update-baseline"
   },
   "repository": {
     "type": "git",

@@ -79,7 +79,12 @@ describe("consumer_relay_rate_limiter allowRelayRpcRequestAsync", () => {
     vi.useFakeTimers();
     env.socketRateLimitRedisLocalFirst = true;
 
-    let resolveRedis!: (value: { allowed: boolean; remaining: number; limit: number; used: number }) => void;
+    let resolveRedis!: (value: {
+      allowed: boolean;
+      remaining: number;
+      limit: number;
+      used: number;
+    }) => void;
     consumeSocketRateLimitRedisMock.mockImplementation(
       () =>
         new Promise((resolve) => {

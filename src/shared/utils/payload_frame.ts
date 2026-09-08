@@ -624,9 +624,15 @@ export const encodePayloadFrameFromBytes = (
   );
   const body = preencodeUtf8Buffer(bytes, {
     compressionThreshold,
-    ...(options?.compressionPolicy !== undefined && { compressionPolicy: options.compressionPolicy }),
-    ...(options?.maxInflationRatio !== undefined && { maxInflationRatio: options.maxInflationRatio }),
-    ...(options?.maxGzipInputBytes !== undefined && { maxGzipInputBytes: options.maxGzipInputBytes }),
+    ...(options?.compressionPolicy !== undefined && {
+      compressionPolicy: options.compressionPolicy,
+    }),
+    ...(options?.maxInflationRatio !== undefined && {
+      maxInflationRatio: options.maxInflationRatio,
+    }),
+    ...(options?.maxGzipInputBytes !== undefined && {
+      maxGzipInputBytes: options.maxGzipInputBytes,
+    }),
   });
   return finishPayloadFrameEnvelope(body, options);
 };
@@ -653,9 +659,15 @@ export const encodePayloadFrameFromBytesAsync = async (
   );
   const preOpts: PreencodePayloadFrameJsonOptions = {
     compressionThreshold,
-    ...(options?.compressionPolicy !== undefined && { compressionPolicy: options.compressionPolicy }),
-    ...(options?.maxInflationRatio !== undefined && { maxInflationRatio: options.maxInflationRatio }),
-    ...(options?.maxGzipInputBytes !== undefined && { maxGzipInputBytes: options.maxGzipInputBytes }),
+    ...(options?.compressionPolicy !== undefined && {
+      compressionPolicy: options.compressionPolicy,
+    }),
+    ...(options?.maxInflationRatio !== undefined && {
+      maxInflationRatio: options.maxInflationRatio,
+    }),
+    ...(options?.maxGzipInputBytes !== undefined && {
+      maxGzipInputBytes: options.maxGzipInputBytes,
+    }),
   };
 
   if (minAsync <= 0) {
@@ -769,9 +781,15 @@ export const encodePayloadFrame = (
   );
   const body = preencodeUtf8Buffer(encoded, {
     compressionThreshold,
-    ...(options?.compressionPolicy !== undefined && { compressionPolicy: options.compressionPolicy }),
-    ...(options?.maxInflationRatio !== undefined && { maxInflationRatio: options.maxInflationRatio }),
-    ...(options?.maxGzipInputBytes !== undefined && { maxGzipInputBytes: options.maxGzipInputBytes }),
+    ...(options?.compressionPolicy !== undefined && {
+      compressionPolicy: options.compressionPolicy,
+    }),
+    ...(options?.maxInflationRatio !== undefined && {
+      maxInflationRatio: options.maxInflationRatio,
+    }),
+    ...(options?.maxGzipInputBytes !== undefined && {
+      maxGzipInputBytes: options.maxGzipInputBytes,
+    }),
   });
   return finishPayloadFrameEnvelope(body, options);
 };
@@ -796,9 +814,15 @@ export const encodePayloadFrameBridge = async (
   );
   const preOpts: PreencodePayloadFrameJsonOptions = {
     compressionThreshold,
-    ...(options?.compressionPolicy !== undefined && { compressionPolicy: options.compressionPolicy }),
-    ...(options?.maxInflationRatio !== undefined && { maxInflationRatio: options.maxInflationRatio }),
-    ...(options?.maxGzipInputBytes !== undefined && { maxGzipInputBytes: options.maxGzipInputBytes }),
+    ...(options?.compressionPolicy !== undefined && {
+      compressionPolicy: options.compressionPolicy,
+    }),
+    ...(options?.maxInflationRatio !== undefined && {
+      maxInflationRatio: options.maxInflationRatio,
+    }),
+    ...(options?.maxGzipInputBytes !== undefined && {
+      maxGzipInputBytes: options.maxGzipInputBytes,
+    }),
   };
 
   const threshold = preOpts.compressionThreshold ?? defaultCompressionThreshold;

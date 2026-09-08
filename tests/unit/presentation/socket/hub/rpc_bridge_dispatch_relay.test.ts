@@ -831,8 +831,7 @@ describe("rpc_bridge_dispatch_relay", () => {
 
     const handlers = createRpcBridgeRelayDispatch({
       hasRegisteredAgentSocketBridge: () => true,
-      findAgentSocketById: (socketId) =>
-        socketId === agentSocketId ? { emit: agentEmit } : null,
+      findAgentSocketById: (socketId) => (socketId === agentSocketId ? { emit: agentEmit } : null),
       emitToConsumer: vi.fn(),
       prepareAgentStreamPull: () => ({
         requestId: "req-1",

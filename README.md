@@ -41,6 +41,8 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - `npm run dev` - desenvolvimento
 - `npm run typecheck` - checagem de tipos
 - `npm run lint` - lint
+- `npm run contract:generate` / `contract:check` - gera e confere o contrato REST consumido pelo MCP; o check protege rotas/status, requests e respostas contra remoção ou estreitamento silencioso
+- `npm run release:check` - gate local: formato, lint, tipos, contrato, testes e build
 - `npm run test` - testes (unit/integration/contract; e2e excluídos)
 - `npm run test:access-flow` - regressão focada no fluxo cliente→agente (pedido, inbox owner, rotas `/client-access/*`, unitário do serviço); útil antes de deploy ou após alterações nessa área
 - `npm run test:e2e` - Vitest e2e (HTTP + Socket.IO). Com `E2E_TESTS_ENABLED=true` no `.env` e `DATABASE_URL` acessível (ver `.env.example`); se estiver desligado, termina com exit 0 sem correr a suíte. Pode ser invocado no CI após `npm run test` (idempotente quando desligado).
@@ -53,4 +55,3 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - Em falhas ao aprovar ou recusar, a API pode responder **503**; consultar logs estruturados `client_agent_access_txn_failed` e `client_agent_access_txn_prisma_error` (ver também [docs/observability/observability.md](./docs/observability/observability.md)).
 - Detalhes adicionais em `.env.example` junto a `DATABASE_URL`.
 - Para regressão E2E opcional do link público (review HTML + POST approve), ativar `E2E_TESTS_ENABLED=true` e correr `npm run test:e2e` (ficheiro `tests/e2e/flows/client_access_public_token.e2e.test.ts`).
-

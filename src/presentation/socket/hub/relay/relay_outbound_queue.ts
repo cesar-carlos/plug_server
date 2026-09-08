@@ -160,7 +160,11 @@ const updateOverloadStateCache = (input: {
   );
   const isOverloaded = overloadedByBacklog || overloadedByP95;
   overloadStateCache.overloaded = isOverloaded;
-  overloadStateCache.reason = overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null;
+  overloadStateCache.reason = overloadedByBacklog
+    ? "backlog"
+    : overloadedByP95
+      ? "p95_latency"
+      : null;
   overloadStateCache.retryAfterMs = isOverloaded ? retryAfterFromSweep() : 0;
   overloadStateCache.p95Ms = p95Ms;
   overloadStateCache.p99Ms = p99Ms;
@@ -178,7 +182,11 @@ const updateBacklogOnlyOverloadStateCache = (nowMs = Date.now()): void => {
   );
   const isOverloaded = overloadedByBacklog || overloadedByP95;
   overloadStateCache.overloaded = isOverloaded;
-  overloadStateCache.reason = overloadedByBacklog ? "backlog" : overloadedByP95 ? "p95_latency" : null;
+  overloadStateCache.reason = overloadedByBacklog
+    ? "backlog"
+    : overloadedByP95
+      ? "p95_latency"
+      : null;
   overloadStateCache.retryAfterMs = isOverloaded ? retryAfterFromSweep() : 0;
   overloadStateCache.backlog = backlog;
   overloadStateCache.computedAtMs = nowMs;

@@ -14,6 +14,18 @@
 HTTP vivo: OpenAPI em `GET /docs` / `GET /docs.json`. Prefixo canonico `/api/v1`
 (aliases `/auth/*`). Metrics: `/metrics` e `/api/v1/metrics` (JWT `role=admin`).
 
+O contrato consumido pelo `plug_mcp` é gerado do mesmo OpenAPI em
+`contracts/plug-mcp-rest-v1.json`. O baseline
+`contracts/plug-mcp-rest-v1.compatibility.json` registra operações, status,
+campos de resposta e superfície pública de request (obrigatoriedade, tipo,
+enum e limites). Remoção ou estreitamento exige novo major e atualização
+explícita do baseline. Rode
+`npm run contract:generate` após alterar validators/rotas, `npm run contract:check`
+na CI para detectar drift, remoções, estreitamentos e campos ainda não rastreados, e
+`PLUG_MCP_CONTRACT_VERSION=1.N.0 npm run contract:baseline` depois de toda alteração pública aditiva (com minor maior). Uma
+mudança incompatível exige também major novo, `--accept-breaking` e um
+artefato paralelo `plug-mcp-rest-vN.json`; não reescreva o major usado pelo MCP.
+
 ## Inicio rapido
 
 | Doc                                                                        | Para que                |

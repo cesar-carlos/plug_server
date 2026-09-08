@@ -128,9 +128,9 @@ describe("conversation_registry", () => {
     conversationRegistry.touchInternalDebounced("conv-every-touch");
     vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
     conversationRegistry.touchInternalDebounced("conv-every-touch");
-    expect(conversationRegistry.findInternalByConversationId("conv-every-touch")?.lastSeenAtMs).toBe(
-      Date.parse("2026-01-01T00:00:01.000Z"),
-    );
+    expect(
+      conversationRegistry.findInternalByConversationId("conv-every-touch")?.lastSeenAtMs,
+    ).toBe(Date.parse("2026-01-01T00:00:01.000Z"));
 
     env.socketRelayConversationTouchDebounceMs = originalDebounceMs;
   });

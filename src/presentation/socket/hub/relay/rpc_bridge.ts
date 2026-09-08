@@ -126,8 +126,7 @@ const emitRpcStreamPullForRoute = (route: ActiveStreamRoute, windowSize: number)
   const agentSocket = findAgentSocketById(route.agentSocketId);
   if (!agentSocket) {
     const relayRoute = getRelayRequestRoute(route.requestId);
-    const agentId =
-      route.agentId ?? relayRoute?.agentId ?? route.restMaterializeState?.agentId;
+    const agentId = route.agentId ?? relayRoute?.agentId ?? route.restMaterializeState?.agentId;
     if (agentId) {
       registerAgentFailure(agentId, "relay");
     }
