@@ -1,4 +1,4 @@
-import type { RedisClientOptions } from "redis";
+import type { AnyRedisClientOptions } from "redis";
 import { createClient } from "redis";
 
 import { logger } from "../../../shared/utils/logger";
@@ -44,12 +44,12 @@ export interface PubSubInstrumentedRedisClientsInput {
   readonly url: string;
   readonly logName: string;
   /**
-   * Builds the `RedisClientOptions` used for the `pub` client. The `sub`
+   * Builds the client options used for the `pub` client. The `sub`
    * client is built via `pub.duplicate()` so it inherits the same options.
    * Caller-provided builder so adapter-specific knobs (e.g. backoff envs
    * dedicated to the Socket.IO adapter) can override the defaults.
    */
-  readonly buildClientOptions: () => RedisClientOptions;
+  readonly buildClientOptions: () => AnyRedisClientOptions;
   readonly callbacks: PubSubInstrumentedRedisClientsCallbacks;
   /**
    * Optional gate so listeners ignore stale callbacks after a generation
