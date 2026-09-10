@@ -63,7 +63,8 @@
     "node": ">=24.18.0 <27"
   },
   "overrides": {
-    "deepmerge-ts": "8.0.2"
+    "deepmerge-ts": "8.0.2",
+    "mysql2": "3.24.4"
   },
   "bugs": {
     "url": "https://github.com/cesar-carlos/plug_backend/issues"
