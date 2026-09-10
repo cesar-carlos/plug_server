@@ -7,11 +7,7 @@ const latencyHistogramBucketsMs = [
 
 export type BridgeRpcMethodMetricChannel = "rest" | "consumer_socket" | "relay" | "unknown";
 export type BridgeRpcMethodMetricOutcome =
-  | "success"
-  | "notification"
-  | "error"
-  | "timeout"
-  | "abort";
+  "success" | "notification" | "error" | "timeout" | "abort";
 
 interface BridgeRpcMethodMetricState {
   count: number;

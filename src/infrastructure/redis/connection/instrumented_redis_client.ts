@@ -1,10 +1,19 @@
 import { createClient } from "redis";
+import type { RedisDefaultModules, TypeMapping } from "redis";
 
 import { logger } from "../../../shared/utils/logger";
 import { buildResilientRedisClientOptions } from "./redis_client_options";
 import { runRedisPostConnectAuthCheck, toSafeRedisErrorMessage } from "./redis_auth";
 
-export type InstrumentedRedisClient = ReturnType<typeof createClient>;
+export type InstrumentedRedisClient = ReturnType<
+  typeof createClient<
+    RedisDefaultModules,
+    Record<string, never>,
+    Record<string, never>,
+    2,
+    TypeMapping
+  >
+>;
 
 export interface InstrumentedRedisClientCallbacks {
   /** Invoked once after the initial successful `connect()`. */

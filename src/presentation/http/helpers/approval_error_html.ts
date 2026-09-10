@@ -9,11 +9,7 @@ import { renderApprovalErrorPage } from "./approval_pages";
 import { normalizeZodIssues } from "../middlewares/validate.middleware";
 
 export type ApprovalErrorHtmlRoute =
-  | "client_access"
-  | "user_registration"
-  | "client_registration"
-  | "client_password_recovery"
-  | null;
+  "client_access" | "user_registration" | "client_registration" | "client_password_recovery" | null;
 
 const stripQuery = (url: string | undefined): string => {
   if (url === undefined || url === "") {

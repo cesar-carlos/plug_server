@@ -1,11 +1,7 @@
 import type { RefreshToken } from "../entities/refresh_token.entity";
 
 export type ConsumeRefreshTokenStatus =
-  | "consumed"
-  | "not_found"
-  | "user_mismatch"
-  | "revoked"
-  | "expired";
+  "consumed" | "not_found" | "user_mismatch" | "revoked" | "expired";
 
 export interface IRefreshTokenRepository {
   findById(id: string): Promise<RefreshToken | null>;

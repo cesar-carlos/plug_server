@@ -1,9 +1,5 @@
 export type ClientAgentAccessRequestStatus =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "expired"
-  | "revoked";
+  "pending" | "approved" | "rejected" | "expired" | "revoked";
 
 export interface ClientAgentAccessRequestProps {
   readonly id: string;

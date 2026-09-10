@@ -1,9 +1,9 @@
-import type { AnyRedisClientOptions } from "redis";
 import { createClient } from "redis";
 
 import { logger } from "../../../shared/utils/logger";
 import type { InstrumentedRedisClient } from "./instrumented_redis_client";
 import { runRedisPostConnectAuthCheck, toSafeRedisErrorMessage } from "./redis_auth";
+import type { Resp2RedisClientOptions } from "./redis_client_options";
 
 /**
  * Pub/Sub flavour of the instrumented Redis client factory: creates the
@@ -49,7 +49,7 @@ export interface PubSubInstrumentedRedisClientsInput {
    * Caller-provided builder so adapter-specific knobs (e.g. backoff envs
    * dedicated to the Socket.IO adapter) can override the defaults.
    */
-  readonly buildClientOptions: () => AnyRedisClientOptions;
+  readonly buildClientOptions: () => Resp2RedisClientOptions;
   readonly callbacks: PubSubInstrumentedRedisClientsCallbacks;
   /**
    * Optional gate so listeners ignore stale callbacks after a generation

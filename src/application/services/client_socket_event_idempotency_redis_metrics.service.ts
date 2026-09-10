@@ -9,11 +9,7 @@ import {
 } from "./redis_command_latency_histogram";
 
 export type ClientSocketEventIdempotencyRedisLatencyOp =
-  | "get"
-  | "set"
-  | "lock"
-  | "unlock"
-  | "extend";
+  "get" | "set" | "lock" | "unlock" | "extend";
 
 const latencyHistograms: Record<
   ClientSocketEventIdempotencyRedisLatencyOp,

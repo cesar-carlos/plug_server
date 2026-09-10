@@ -103,11 +103,7 @@ export interface AgentAutoUpdateDiagnosticsRepository {
 }
 
 export type AgentAutoUpdateDiagnosticsIngestStatus =
-  | "accepted"
-  | "disabled"
-  | "validation_drop"
-  | "rate_limited_drop"
-  | "persist_failed";
+  "accepted" | "disabled" | "validation_drop" | "rate_limited_drop" | "persist_failed";
 
 export interface AgentAutoUpdateDiagnosticsIngestResult {
   readonly status: AgentAutoUpdateDiagnosticsIngestStatus;

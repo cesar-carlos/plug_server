@@ -5,8 +5,7 @@ import { type Result, ok, err } from "../../shared/errors/result";
 import { isExpired } from "../../shared/utils/date";
 
 export type RegistrationStatusPayload =
-  | { readonly status: "pending" }
-  | { readonly status: "expired" };
+  { readonly status: "pending" } | { readonly status: "expired" };
 
 export class GetRegistrationStatusUseCase {
   constructor(private readonly approvalTokenRepository: IRegistrationApprovalTokenRepository) {}

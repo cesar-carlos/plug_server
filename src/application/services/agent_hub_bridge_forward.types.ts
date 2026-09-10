@@ -12,8 +12,7 @@ export interface BridgeForwardDispatchNotificationResult {
 }
 
 export type BridgeForwardDispatchResult =
-  | BridgeForwardDispatchSuccessResult
-  | BridgeForwardDispatchNotificationResult;
+  BridgeForwardDispatchSuccessResult | BridgeForwardDispatchNotificationResult;
 
 export interface BridgeForwardCommandEnvelope {
   readonly kind: "bridge_forward_command";

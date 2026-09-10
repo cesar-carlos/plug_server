@@ -65,8 +65,7 @@ export type AgentsCommandResponsePayload =
     };
 
 export type DecodeAgentsCommandInboundResult =
-  | { readonly ok: true; readonly data: unknown }
-  | { readonly ok: false; readonly message: string };
+  { readonly ok: true; readonly data: unknown } | { readonly ok: false; readonly message: string };
 
 /**
  * Inbound `/consumers` `agents:command` accepts plain JSON (legacy) and `PayloadFrame`

@@ -95,8 +95,7 @@ interface DispatchRpcCommandNotificationResult {
 }
 
 export type DispatchRpcCommandResult =
-  | DispatchRpcCommandResponseResult
-  | DispatchRpcCommandNotificationResult;
+  DispatchRpcCommandResponseResult | DispatchRpcCommandNotificationResult;
 
 type AgentSocketEmitter = {
   emit: (eventName: string, payload: unknown) => void;

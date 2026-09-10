@@ -22,10 +22,13 @@ import {
   AGENT_TIMEOUT_MS_LIMIT,
 } from "../../shared/validators/agent_command";
 
-const routeDocGlobs =
+const routeDocGlob =
   env.nodeEnv === "production"
-    ? [path.join(process.cwd(), "dist/presentation/http/routes/**/*.js")]
-    : [path.join(process.cwd(), "src/presentation/http/routes/**/*.ts")];
+    ? path.join(process.cwd(), "dist/presentation/http/routes/**/*.js")
+    : path.join(process.cwd(), "src/presentation/http/routes/**/*.ts");
+
+/** `swagger-jsdoc` delegates glob parsing to a POSIX-style matcher on every platform. */
+const routeDocGlobs = [routeDocGlob.split(path.sep).join("/")];
 
 /**
  * Static OpenAPI definition used as input for {@link buildSwaggerSpec}.

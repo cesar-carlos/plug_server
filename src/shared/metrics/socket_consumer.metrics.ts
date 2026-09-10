@@ -1,8 +1,5 @@
 type ConsumerAuthRejectReason =
-  | "missing_token"
-  | "invalid_token"
-  | "role_denied"
-  | "blocked_account";
+  "missing_token" | "invalid_token" | "role_denied" | "blocked_account";
 
 const activeConnections = {
   user: 0,

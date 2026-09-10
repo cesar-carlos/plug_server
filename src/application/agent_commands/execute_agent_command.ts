@@ -49,8 +49,7 @@ export interface ExecuteAgentCommandNotificationResult {
 }
 
 export type ExecuteAgentCommandResult =
-  | ExecuteAgentCommandResponseResult
-  | ExecuteAgentCommandNotificationResult;
+  ExecuteAgentCommandResponseResult | ExecuteAgentCommandNotificationResult;
 
 export type AgentCommandDispatcher = (input: {
   readonly agentId: string;

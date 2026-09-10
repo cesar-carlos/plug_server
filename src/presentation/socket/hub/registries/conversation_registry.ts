@@ -3,10 +3,7 @@ import { randomUUID } from "node:crypto";
 import { env } from "../../../../shared/config/env";
 
 export type ConversationCloseReason =
-  | "consumer_ended"
-  | "consumer_disconnected"
-  | "agent_disconnected"
-  | "expired";
+  "consumer_ended" | "consumer_disconnected" | "agent_disconnected" | "expired";
 
 export interface RelayConversation {
   readonly conversationId: string;

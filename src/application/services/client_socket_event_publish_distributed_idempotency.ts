@@ -58,5 +58,4 @@ export const registerClientSocketEventPublishDistributedIdempotencyStore = (
 };
 
 export const getClientSocketEventPublishDistributedIdempotencyStore = ():
-  | ClientSocketEventPublishDistributedIdempotencyStore
-  | undefined => store;
+  ClientSocketEventPublishDistributedIdempotencyStore | undefined => store;

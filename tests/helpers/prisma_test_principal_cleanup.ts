@@ -118,7 +118,9 @@ export const deletePrismaTestPrincipals = async (ids: PrismaTestPrincipalIds): P
         }),
   ]);
 
-  const deletableUserIds = users.filter((row) => isTestPrincipalEmail(row.email)).map((row) => row.id);
+  const deletableUserIds = users
+    .filter((row) => isTestPrincipalEmail(row.email))
+    .map((row) => row.id);
   const deletableClientIds = clients
     .filter((row) => isTestPrincipalEmail(row.email))
     .map((row) => row.id);

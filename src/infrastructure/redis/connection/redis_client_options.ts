@@ -1,4 +1,4 @@
-import type { AnyRedisClientOptions } from "redis";
+import type { RedisClientOptions, RedisDefaultModules, TypeMapping } from "redis";
 
 import { env } from "../../../shared/config/env";
 import { resolveRedisUrlWithWarning } from "./redis_url_resolver";
@@ -30,9 +30,22 @@ export interface ResilientRedisClientOptionsInput {
 
 const RECONNECT_RETRY_CAP = 8;
 
+/**
+ * `node-redis` defaults to RESP3 in v6. Keep this alias narrow so callers
+ * cannot accidentally construct a client with reply shapes incompatible with
+ * the existing RESP2 parsers.
+ */
+export type Resp2RedisClientOptions = RedisClientOptions<
+  RedisDefaultModules,
+  Record<string, never>,
+  Record<string, never>,
+  2,
+  TypeMapping
+>;
+
 export const buildResilientRedisClientOptions = (
   input: ResilientRedisClientOptionsInput,
-): AnyRedisClientOptions => {
+): Resp2RedisClientOptions => {
   const connectTimeout = input.connectTimeoutMs ?? env.redisDefaultConnectTimeoutMs;
   const reconnectBase = input.reconnectBaseMs ?? env.redisDefaultReconnectBaseMs;
   const reconnectMax = input.reconnectMaxMs ?? env.redisDefaultReconnectMaxMs;

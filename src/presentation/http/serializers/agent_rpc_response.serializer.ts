@@ -36,9 +36,7 @@ interface NormalizedRpcRawResponse {
 }
 
 export type NormalizedAgentRpcResponse =
-  | NormalizedRpcSingleResponse
-  | NormalizedRpcBatchResponse
-  | NormalizedRpcRawResponse;
+  NormalizedRpcSingleResponse | NormalizedRpcBatchResponse | NormalizedRpcRawResponse;
 
 const normalizeRpcError = (value: unknown): NormalizedRpcError => {
   if (!isRecord(value)) {

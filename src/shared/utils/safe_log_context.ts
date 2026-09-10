@@ -1,10 +1,5 @@
 type JsonLike =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonLike[]
-  | { readonly [key: string]: JsonLike };
+  null | boolean | number | string | JsonLike[] | { readonly [key: string]: JsonLike };
 
 const normalizePrimitive = (value: unknown): JsonLike => {
   if (value === null || typeof value === "string" || typeof value === "boolean") {

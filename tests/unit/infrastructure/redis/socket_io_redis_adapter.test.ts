@@ -260,8 +260,7 @@ describe("socket_io_redis_adapter", () => {
     expect(isSocketIoRedisAdapterActive()).toBe(true);
 
     const errorHandler = pubClient.on.mock.calls.find(([event]) => event === "error")?.[1] as
-      | ((error: Error) => void)
-      | undefined;
+      ((error: Error) => void) | undefined;
     expect(errorHandler).toBeTypeOf("function");
 
     errorHandler?.(new Error("pub/sub lost"));

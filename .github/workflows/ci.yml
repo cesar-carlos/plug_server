@@ -2,15 +2,23 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
@@ -23,7 +31,7 @@ jobs:
           --health-timeout 3s
           --health-retries 20
       redis:
-        image: redis:7-alpine
+        image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
         ports:
           - 6379:6379
         options: >-
@@ -32,7 +40,6 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       NODE_ENV: test
       DATABASE_URL: postgresql://ci:ci@localhost:5432/plug_test
       INTEGRATION_REDIS_TESTS_ENABLED: "true"
@@ -41,19 +48,12 @@ jobs:
       SOCKET_RATE_LIMIT_REDIS_URL: redis://127.0.0.1:6379
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          node-version: 24.18.0
-          cache: npm
+          persist-credentials: false
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Generate Prisma client
-        run: npm run db:generate
+      - name: Set up project
+        uses: ./.github/actions/setup-node-project
 
       - name: Migrate test database
         run: npm run db:migrate:deploy

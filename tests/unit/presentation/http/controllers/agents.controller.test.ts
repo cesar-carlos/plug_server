@@ -203,8 +203,7 @@ describe("agents.controller", () => {
         await proxyCommandToAgent({} as never, response, vi.fn());
 
         const lastJsonCall = vi.mocked(response.json).mock.calls.at(-1)?.[0] as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         expect(lastJsonCall).toBeDefined();
         expect(lastJsonCall).toMatchObject({
           mode: "bridge",
@@ -246,8 +245,7 @@ describe("agents.controller", () => {
         await proxyCommandToAgent({} as never, response, vi.fn());
 
         const lastJsonCall = vi.mocked(response.json).mock.calls.at(-1)?.[0] as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         expect(lastJsonCall).toBeDefined();
         expect(lastJsonCall).not.toHaveProperty("serverTimings");
       });

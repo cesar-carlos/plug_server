@@ -32,9 +32,4 @@ export interface ClientRegistrationRequestResponseDto {
 
 /** `GET /client-auth/registration/status` — reflects client row via poll token. */
 export type ClientRegistrationPollStatus =
-  | "pending"
-  | "expired"
-  | "approved"
-  | "rejected"
-  | "blocked"
-  | "unknown";
+  "pending" | "expired" | "approved" | "rejected" | "blocked" | "unknown";

@@ -57,8 +57,7 @@ export type AgentsStreamPullResponsePayload =
     };
 
 export type DecodeAgentsStreamPullInboundResult =
-  | { readonly ok: true; readonly data: unknown }
-  | { readonly ok: false; readonly message: string };
+  { readonly ok: true; readonly data: unknown } | { readonly ok: false; readonly message: string };
 
 /**
  * Inbound `/consumers` `agents:stream_pull` accepts plain JSON (legacy) and `PayloadFrame`
