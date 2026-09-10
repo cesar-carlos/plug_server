@@ -190,5 +190,5 @@ O servico nao inclui SDK OTel por defeito. Integracao tipica:
 
 Um pacote npm partilhado (encode `PayloadFrame`, politica gzip **auto**) reduz
 copia de codigo entre apps. Referencia minima em
-[`docs/snippets/payload_frame_client_encode.ts`](snippets/payload_frame_client_encode.ts)
+[`docs/snippets/payload_frame_client_encode.ts`](../snippets/payload_frame_client_encode.ts)
 e em `docs/socket/socket_client_sdk.md`.

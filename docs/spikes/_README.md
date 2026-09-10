@@ -3,14 +3,14 @@
 Time-boxed experiments evaluated during the Redis hardening sprints. Each
 spike has a sibling document with the methodology, decision criteria, and
 final GO / NO-GO outcome. Code that supports the spike is kept under
-`src/infrastructure/redis/*_sliding.ts` (etc.) until the decision is
+`src/infrastructure/redis/rate_limit/` until the decision is
 revisited or the branch is removed.
 
 ## Index
 
 | Spike | Status | Document | Implementation branch |
 | --- | --- | --- | --- |
-| Sliding-window rate limit | NO-GO | [sliding_window_rate_limit.md](sliding_window_rate_limit.md) | [src/infrastructure/redis/socket_rate_limit_redis_sliding.ts](../../src/infrastructure/redis/socket_rate_limit_redis_sliding.ts) |
+| Sliding-window rate limit | NO-GO | [sliding_window_rate_limit.md](sliding_window_rate_limit.md) | [src/infrastructure/redis/rate_limit/socket_rate_limit_redis_sliding.ts](../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis_sliding.ts) |
 | RedisClientPool for REST rate-limit | NO-GO | [redis_client_pool.md](redis_client_pool.md) | (no branch — analytical only) |
 | HMAC worker-thread offload | Gated / revisit | [hmac_worker_offload.md](hmac_worker_offload.md) | ver doc + runbook de signing |
 
@@ -51,7 +51,7 @@ these triggers fires:
 
 ## Adding a new spike
 
-1. Create the implementation branch under `src/infrastructure/redis/`
+1. Create the implementation branch under `src/infrastructure/redis/rate_limit/`
    (or another suitable directory) named with `_spike.ts` or `_<topic>.ts`
    suffix. Mark with a top-of-file comment "EXPERIMENTAL (spike)".
 2. Add `docs/spikes/<topic>.md` with: goal, decision criteria

@@ -33,7 +33,7 @@ Validacao automatizada no hub: `npm run test:contract`.
 - `docs/socket/socket_client_sdk.md`
 - `docs/configuration.md`
 - `docs/performance/performance_hub_agent.md`
-- [`docs/plug_agente/`](plug_agente/) — orientacoes especificas para o
+- [esta pasta](./) — orientacoes especificas para o
   time do agente: o que muda (ou nao muda) no agente para cada melhoria
   do hub, **mais** roadmap proativo de melhorias cross-repo. Use como
   porta de entrada quando uma mudanca no contrato afetar o
@@ -92,9 +92,11 @@ agente mantem orientacoes em `../plug_agente/docs/plug_server/`:
 
 - [`readme.md`](../../../plug_agente/docs/plug_server/readme.md) — resumo das extensoes
 - [`01_transport_extensions.md`](../../../plug_agente/docs/plug_server/01_transport_extensions.md) — contrato tecnico
-- [`02_implementation_checklist.md`](../../../plug_agente/docs/plug_server/02_implementation_checklist.md) — checklist de homologacao
 
-Espelho hub → agente: esta pasta [`docs/plug_agente/`](plug_agente/).
+O checklist de homologacao passou a ser mantido junto aos contract tests do
+`plug_agente`; consulte o repositorio irmao antes de uma mudanca de protocolo.
+
+Espelho hub → agente: [esta pasta](./).
 
 ## Diferencas intencionais
 

@@ -89,7 +89,7 @@ Isto e independente da [matriz oficial de paridade do bridge](#matriz-oficial-de
 Regra pratica: se o mesmo fluxo gera streams grandes repetidamente, migre para
 Socket/relay em vez de aumentar apenas limites de materializacao no REST.
 Clientes/SDKs podem usar o helper de referencia em
-[`docs/snippets/agent_command_performance_options.ts`](snippets/agent_command_performance_options.ts)
+[`docs/snippets/agent_command_performance_options.ts`](../snippets/agent_command_performance_options.ts)
 para ativar `prefer_db_streaming` e `max_parallel_read_only_batch_items` sem
 espalhar heuristicas inconsistentes.
 
@@ -1655,7 +1655,7 @@ relay pendentes e indices), `bridge_relay_health_metrics.ts` (circuit, latencia,
 `rpc_bridge_stream_pull.ts` / `rpc_bridge_dispatch_relay.ts` / `rpc_bridge_dispatch_command.ts` (stream pull, dispatch relay, dispatch REST/Socket).
 O que resta em `rpc_bridge.ts` e sobretudo **wiring** (namespaces, `emitToConsumer`, factories) e **`resetSocketBridgeState`** (delega stores a `rpc_bridge_lifecycle.ts`); pode
 seguir o mesmo padrao. Acompanhamento:
-[CHANGELOG.md](../CHANGELOG.md)
+[CHANGELOG.md](../../CHANGELOG.md)
 (secao _Roadmap tecnico_).
 
 ## Mapa de arquivos relevantes

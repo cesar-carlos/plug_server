@@ -2,7 +2,7 @@
 
 Este guia documenta os ajustes recomendados de Nginx para o `plug_server`.
 
-**Ficheiros prontos a copiar:** [`deploy/nginx/conf.d/`](../deploy/nginx/conf.d/), [`deploy/nginx/snippets/`](../deploy/nginx/snippets/), [`deploy/nginx/sites/plug-server.example.conf`](../deploy/nginx/sites/plug-server.example.conf) (ajustar `server_name`, SSL e caminhos). Indice em [`deploy/nginx/plug_server.conf.example`](../deploy/nginx/plug_server.conf.example).
+**Ficheiros prontos a copiar:** [`deploy/nginx/conf.d/`](../../deploy/nginx/conf.d/), [`deploy/nginx/snippets/`](../../deploy/nginx/snippets/), [`deploy/nginx/sites/plug-server.example.conf`](../../deploy/nginx/sites/plug-server.example.conf) (ajustar `server_name`, SSL e caminhos). Indice em [`deploy/nginx/plug_server.conf.example`](../../deploy/nginx/plug_server.conf.example).
 
 Cobertura:
 
@@ -297,7 +297,7 @@ No ambiente de producao atual, a configuracao pode estar dividida assim:
 | `/etc/nginx/snippets/plug_server_proxy.conf` | Headers e `proxy_pass` para o Node |
 | `sites-available/plug-server...` | `server` HTTPS, `location` por rota |
 
-O mapa completo comentado esta em [`deploy/nginx/plug_server.conf.example`](../deploy/nginx/plug_server.conf.example).
+O mapa completo comentado esta em [`deploy/nginx/plug_server.conf.example`](../../deploy/nginx/plug_server.conf.example).
 
 ### Diagnostico: Swagger em branco ou 503 (ex.: `favicon-16x16.png`, `swagger-ui-*.js`)
 
@@ -308,7 +308,7 @@ O mapa completo comentado esta em [`deploy/nginx/plug_server.conf.example`](../d
 
 O teste de integracao `tests/integration/swagger_docs.integration.test.ts` confirma que `/docs/`, o bundle e o `favicon` (quando presente) respondem a nivel da aplicacao.
 
-Script operacional (no servidor, com `bash`): [`scripts/check_swagger_edge.sh`](../scripts/check_swagger_edge.sh) — define `PORT` e `PUBLIC_URL` para comparar HTTP codes no Node vs na borda.
+Script operacional (no servidor, com `bash`): [`scripts/check_swagger_edge.sh`](../../scripts/check_swagger_edge.sh) — define `PORT` e `PUBLIC_URL` para comparar HTTP codes no Node vs na borda.
 
 Para incidente intermitente (F5 as vezes carrega, as vezes 503), rode a amostragem repetida:
 
@@ -335,8 +335,8 @@ A **aplicação** (`REST_*_RATE_LIMIT_*`) é a autoridade — respostas **429 JS
 
 - **Sem `limit_req` em `/docs/`** — Swagger carrega assets em paralelo.
 - Ficheiros: `deploy/nginx/conf.d/01-plug-rate-limit.conf`, `deploy/nginx/sites/plug-server.example.conf`.
-- Guia completo: [`docs/limits/limites_acesso_e_quotas.md`](limits/limites_acesso_e_quotas.md).
-- Alertas Prometheus: [`docs/observability/alerts/rate_limits.yml`](observability/alerts/rate_limits.yml).
+- Guia completo: [`docs/limits/limites_acesso_e_quotas.md`](../limits/limites_acesso_e_quotas.md).
+- Alertas Prometheus: [`docs/observability/alerts/rate_limits.yml`](../observability/alerts/rate_limits.yml).
 
 Ajuste `rate`/`burst` se houver falsos positivos; prefira subir limites **na app** antes de apertar Nginx em login/refresh.
 

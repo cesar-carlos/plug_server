@@ -6,7 +6,7 @@
 
 Compare a sliding-window rate-limit (Sorted Set + Lua) against the current
 fixed-window (counter + TTL) implementation in
-[src/infrastructure/redis/socket_rate_limit_redis.ts](src/infrastructure/redis/socket_rate_limit_redis.ts).
+[src/infrastructure/redis/rate_limit/socket_rate_limit_redis.ts](../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis.ts).
 
 The hypothesis was that a sliding-window eliminates the boundary burst
 problem (where 2× the configured `max` requests can fit in 2 ms straddling
@@ -15,7 +15,7 @@ two adjacent fixed windows).
 ## Spike branch
 
 Self-contained implementation in
-[src/infrastructure/redis/socket_rate_limit_redis_sliding.ts](src/infrastructure/redis/socket_rate_limit_redis_sliding.ts):
+[src/infrastructure/redis/rate_limit/socket_rate_limit_redis_sliding.ts](../../src/infrastructure/redis/rate_limit/socket_rate_limit_redis_sliding.ts):
 
 - Single Lua round-trip per consume:
   `ZREMRANGEBYSCORE → ZCARD → conditional ZADD → PEXPIRE`.
@@ -78,7 +78,7 @@ We sampled `plug_socket_rate_limit_redis_rejected_total` and the per-bucket
 allowed counters across last 30 days of production logs (excerpts in
 `docs/observability/observability.md`). The boundary effect is bounded by the maximum
 ratio `2 × max / windowMs` and capped further by the in-process limiter
-in [src/presentation/socket/hub/rate_limits/](src/presentation/socket/hub/rate_limits/)
+in [src/presentation/socket/hub/rate_limits/](../../src/presentation/socket/hub/rate_limits/)
 which uses sliding-window already (in-process is cheap because no network).
 
 We did **not** observe a single incident attributable to fixed-window

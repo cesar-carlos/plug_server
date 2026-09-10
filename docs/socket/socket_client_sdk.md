@@ -223,7 +223,7 @@ validar `enc === "json"` e `cmp` em `gzip` `none`; conferir `bytes.length === co
 apos descompressao, `decoded.length === originalSize`; limitar tamanho maximo e **razao de inflacao** (ex.: 10x,
 como o hub em `payload_frame.ts` / `decodePayloadFrame`); se existir `signature`, verificar HMAC com a chave
 negociada (ver `plug_agente/docs/communication/socketio_client_binary_transport.md`). Encode reutilizavel:
-`[docs/snippets/payload_frame_client_encode.ts](snippets/payload_frame_client_encode.ts)`.
+`[docs/snippets/payload_frame_client_encode.ts](../snippets/payload_frame_client_encode.ts)`.
 
 ## Fluxo minimo (chat-like)
 
@@ -355,7 +355,7 @@ caminho recomendado para carga alta, streaming, idempotencia e backpressure.
 | Fan-out cross-agent unary com baixa latencia                                                                 | `relay:*` com `fastPath: true` (ver "Opt-ins de performance" abaixo)                                                               |
 | Medicao A/B REST vs Socket por fase                                                                          | qualquer canal com `requestServerTimings: true`                                                                                    |
 
-Helper de referencia para clientes TypeScript: `[docs/snippets/agent_command_performance_options.ts](snippets/agent_command_performance_options.ts)`.
+Helper de referencia para clientes TypeScript: `[docs/snippets/agent_command_performance_options.ts](../snippets/agent_command_performance_options.ts)`.
 
 ### Resposta de `relay:rpc.stream.pull`
 
@@ -525,7 +525,7 @@ socket.on("agents:stream_pull_response", (raw) => {
 ```
 
 `decodeFrame` e o tipo `PayloadFrame`: secao _Estrutura do PayloadFrame_ / snippet
-`[docs/snippets/payload_frame_client_encode.ts](snippets/payload_frame_client_encode.ts)`.
+`[docs/snippets/payload_frame_client_encode.ts](../snippets/payload_frame_client_encode.ts)`.
 No servidor, helpers espelhados em `agents_command_wire.ts` e `agents_stream_pull_wire.ts`.
 
 **Shims de compatibilidade (remocao prevista** `2026-09-30`**):**

@@ -26,7 +26,7 @@ on the relay channel therefore pays:
   fast-path")
 
 The Colmeia client's proposal
-([`docs/server_adjustments/relay_rpc_batch_protocol.md`](../../../Flutter/colmeia/docs/server_adjustments/relay_rpc_batch_protocol.md)
+([`docs/server_adjustments/relay_rpc_batch_protocol.md`](../../../../Flutter/colmeia/docs/server_adjustments/relay_rpc_batch_protocol.md)
 in the client repo) sketches a new event `relay:rpc.request.batch`. The
 proposal is sound in intent but leaves three contract gaps that block
 implementation. This ADR records the decisions that close those gaps so the
@@ -278,7 +278,7 @@ The dispatcher behind `relay:rpc.request.batch` checks
 ## References
 
 - Client proposal:
-  [Flutter/colmeia/docs/server_adjustments/relay_rpc_batch_protocol.md](../../../Flutter/colmeia/docs/server_adjustments/relay_rpc_batch_protocol.md)
+  [Flutter/colmeia/docs/server_adjustments/relay_rpc_batch_protocol.md](../../../../Flutter/colmeia/docs/server_adjustments/relay_rpc_batch_protocol.md)
 - Current relay protocol: [docs/socket/socket_relay_protocol.md](../socket/socket_relay_protocol.md)
 - Existing batch on REST/Socket: [docs/api/api_rest_bridge.md](../api/api_rest_bridge.md)
 - Companion Item 3 (unary fast-path), already shipped:

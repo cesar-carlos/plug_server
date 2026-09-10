@@ -85,7 +85,7 @@ que poucos chunks muito grandes consumam memoria excessiva.
 
 ## Presets recomendados (`.env`)
 
-Copia as linhas para o teu `.env` e ajusta por carga. Valores aqui **substituem** os defaults de `env.ts`. Fragmento comentado também em [`.env.example`](../.env.example) (secção *Performance presets*).
+Copia as linhas para o teu `.env` e ajusta por carga. Valores aqui **substituem** os defaults de `env.ts`. Fragmento comentado também em [`.env.example`](../../.env.example) (secção *Performance presets*).
 
 ### Baseline produção (sem copiar nada)
 

@@ -467,7 +467,7 @@ Regras do contrato:
   - O envelope PayloadFrame (`envelope.requestId`) continua sendo o UUID
     interno do hub, util para correlacionar com `correlation_id` em logs
     de ops.
-  - Veja `[docs/plug_agente/01_relay_body_id_echo.md](plug_agente/01_relay_body_id_echo.md)`
+  - Veja `[docs/plug_agente/01_relay_body_id_echo.md](../plug_agente/01_relay_body_id_echo.md)`
     para o racional do fix (issue Colmeia `relay_unary_fast_path.md §1`).
 
 Sem cancelamento explicito: o relay nao possui evento `relay:rpc.cancel`.

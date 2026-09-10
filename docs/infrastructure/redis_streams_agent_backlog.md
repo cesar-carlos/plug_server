@@ -19,15 +19,16 @@ Default disabled.
 
 ## Components
 
-- `src/infrastructure/redis/agent_event_stream.ts` — XADD / XREAD / XDEL public
+- `src/infrastructure/redis/event_stream/agent_event_stream.ts` — XADD / XREAD /
+  XDEL/XACK public
   API plus init/close lifecycle. Exposes both the per-frame
   `appendAgentEventFrame(principalId, frame)` (single-recipient) and the
   pipelined `appendAgentEventFramesBatch(entries)` (multi-recipient,
   `MULTI/EXEC` — see "Batch fan-out" below).
-- `src/infrastructure/redis/agent_event_stream_cursor.ts` — get / commit /
+- `src/infrastructure/redis/event_stream/agent_event_stream_cursor.ts` — get / commit /
   purge for the `lastSeenStreamId` per `(principalId, eventName)`.
 - `src/presentation/socket/hub/agent_event_stream_drain.ts` — orchestrates the
-  drain on subscribe (read backlog → emit with ack → commit cursor → XDEL).
+  drain on subscribe (read backlog → emit with ack → commit cursor → XDEL/XACK).
 - `src/application/services/agent_event_stream_metrics.service.ts` — counters,
   gauges, and per-op latency histogram (including batch size histogram).
 - `AGENT_EVENT_STREAM_*` envs (see `.env.example`).
@@ -117,7 +118,7 @@ flowchart LR
     HubB -->|"emit event-specific backlog with ack"| Reconnect
     Reconnect -->|ack stream ids| HubB
     HubB -->|SET cursor| Cursor
-    HubB -->|"XDEL acked ids"| Streams
+    HubB -->|"XDEL/XACK finalized ids"| Streams
 ```
 
 ## Wiring (live)
@@ -125,25 +126,26 @@ flowchart LR
 The module is wired end-to-end. Default off (`AGENT_EVENT_STREAM_ENABLED=false`)
 keeps current behaviour. Operators flip the env to enable durable delivery.
 
-1. **Append on publish** — in [src/socket.ts](src/socket.ts) the
+1. **Append on publish** — in [src/socket.ts](../../src/socket.ts) the
    `client:custom.*` sink resolves the local recipient principal ids via
    `consumersNsp.in(room).fetchSockets()` (only when the env is on), returns
    them in `PublishConsumerSocketEventResult.recipientPrincipalIds`, and
-   [src/application/services/client_socket_event_publish.service.ts](src/application/services/client_socket_event_publish.service.ts)
+   [src/application/services/client_socket_event_publish.service.ts](../../src/application/services/client_socket_event_publish.service.ts)
    appends a JSON-encoded frame to each principal-and-event stream after the live
    emit. Append failures degrade silently; the live emit already happened.
 
 2. **Read on subscribe** — in
-   [src/presentation/socket/consumers/custom_socket_event_subscription.handler.ts](src/presentation/socket/consumers/custom_socket_event_subscription.handler.ts)
+   [src/presentation/socket/consumers/custom_socket_event_subscription.handler.ts](../../src/presentation/socket/consumers/custom_socket_event_subscription.handler.ts)
    after a successful subscribe, the drain orchestrator
-   ([src/presentation/socket/hub/agent_event_stream_drain.ts](src/presentation/socket/hub/agent_event_stream_drain.ts))
+   ([src/presentation/socket/hub/agent_event_stream_drain.ts](../../src/presentation/socket/hub/agent_event_stream_drain.ts))
    reads the backlog and cursor for the just-subscribed event name, then emits
    frames with a Socket.IO ack callback gated by
    `AGENT_EVENT_STREAM_DRAIN_ACK_TIMEOUT_MS`.
 
 3. **Ack after delivery** — once the ack arrives, the drain commits the new
-   cursor (`agent_event_stream_cursor.ts`) and `XDEL`s the entries via
-   `ackAgentEventFrames`.
+   cursor (`agent_event_stream_cursor.ts`) and finalizes the entries via
+   `ackAgentEventFrames`: `XDEL` for cursor mode or `XACK` for consumer-group
+   mode.
 
 4. **Cursor persistence** —
    `plug_agent_stream_cursor_v2:{plug}:<principalId>:<event-hash>` stores the

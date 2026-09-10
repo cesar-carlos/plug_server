@@ -11,8 +11,8 @@ contínuas via `socket_audit.service.ts` / `bridge_latency_trace.service.ts`,
 batches de até 48 linhas a cada 200ms) e mantidas por **90 dias**
 (`SOCKET_AUDIT_RETENTION_DAYS=90`, `BRIDGE_LATENCY_TRACE_RETENTION_DAYS=90`).
 A retenção atual usa `DELETE ... WHERE created_at < cutoff ORDER BY created_at LIMIT batch`
-em loop ([`socket_audit.service.ts:298-321`](../src/application/services/socket_audit.service.ts),
-[`bridge_latency_trace.service.ts:322-346`](../src/application/services/bridge_latency_trace.service.ts)).
+em loop ([`socket_audit.service.ts:298-321`](../../src/application/services/socket_audit.service.ts),
+[`bridge_latency_trace.service.ts:322-346`](../../src/application/services/bridge_latency_trace.service.ts)).
 
 Problemas observados quando essas tabelas crescem para dezenas de milhões de linhas:
 
@@ -139,7 +139,7 @@ partitioning pleno.
 
 > Atualizar com `SELECT pg_total_relation_size('audit_events')` em produção.
 > Métricas-base estimadas a partir do tráfego documentado em
-> [`docs/performance/load_testing.md`](./load_testing.md):
+> [`docs/performance/load_testing.md`](../performance/load_testing.md):
 
 | Tabela | INSERT/s estimado (prod) | Linhas/dia | Tamanho/90 dias |
 | --- | --- | --- | --- |

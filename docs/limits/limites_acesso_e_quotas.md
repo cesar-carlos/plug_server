@@ -42,7 +42,10 @@ Valores abaixo reflectem o servidor actual; confirmar com `grep REST_.*RATE_LIMI
 | Refresh (`REST_TOKEN_REFRESH_*`) | **15 min** | **800** / IP | Só rotas `.../refresh` |
 | Comandos (`REST_AGENTS_COMMANDS_*`) | **1 min** | **600** / JWT `sub` | `POST .../agents/commands` + `agents:command` (contador Socket separado) |
 | Password recovery (`REST_CLIENT_PASSWORD_RECOVERY_*`) | **5 min** | **20** / IP | Pedido de recovery |
-| Socket event / publish / relay / register | — | **0** | Limitadores por janela **desligados** (`*_MAX=0`) |
+| Custom publish | **1 min** | **120** / JWT `sub` | Espelha `REST_SOCKET_EVENT_*`; contador Socket e independente do HTTP |
+| Relay | **10 s** | **8** starts, **64** requests, **1000** credits | Limites por consumer; ver tabela detalhada abaixo |
+| `agent:register` | — | **0** | Limitador por janela desligado por default |
+| `agent:heartbeat` | **1 min** | **240** / socket | Protege liveness, presence Redis e o ACK contra floods |
 | Perfil agente, admin status, client/me/agents, thumbnail | — | **0** | Desligados em produção |
 
 Redis: `REST_RATE_LIMIT_REDIS_URL` e `SOCKET_RATE_LIMIT_REDIS_URL` activos quando configurados (contadores partilhados entre réplicas).
@@ -349,13 +352,14 @@ Ficheiros de referência: [`deploy/nginx/conf.d/01-plug-rate-limit.conf`](../../
 | Variável | Default | Produção (exemplo) | Evento / contexto |
 | -------- | ------- | ------------------ | ----------------- |
 | `REST_AGENTS_COMMANDS_RATE_LIMIT_*` | 60s / 100 | **60s / 600** | `agents:command` (mesmos números; contador **independente** do REST) |
-| `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` | espelha REST socket event | **0** | `socket:event.publish` |
-| `SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_*` | 60s / 240 | **0** | `socket:event.subscribe` / `unsubscribe` |
-| `SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS` | 8 | **0** | `relay:conversation.start` |
-| `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` | 64 | **0** | `relay:rpc.request` |
-| `SOCKET_RELAY_RATE_LIMIT_MAX_STREAM_PULL_CREDITS` | 1000 | **0** | créditos stream pull relay |
+| `SOCKET_CUSTOM_EVENT_PUBLISH_RATE_LIMIT_*` | 60s / 120 (espelha REST socket event) | **60s / 120** | `socket:event.publish` |
+| `SOCKET_CUSTOM_EVENT_SUBSCRIPTION_RATE_LIMIT_*` | 60s / 240 | **60s / 240** | `socket:event.subscribe` / `unsubscribe` |
+| `SOCKET_RELAY_RATE_LIMIT_MAX_CONVERSATION_STARTS` | 8 | **8** | `relay:conversation.start` |
+| `SOCKET_RELAY_RATE_LIMIT_MAX_REQUESTS` | 64 | **64** | `relay:rpc.request` |
+| `SOCKET_RELAY_RATE_LIMIT_MAX_STREAM_PULL_CREDITS` | 1000 | **1000** | créditos stream pull relay |
 | `SOCKET_AGENTS_STREAM_PULL_RATE_LIMIT_MAX_CREDITS` | 0 | **0** | `agents:stream_pull` legacy |
 | `SOCKET_AGENT_REGISTER_RATE_LIMIT_*` | 0 / 0 | **0** | `agent:register` por `(userId, agentId)` |
+| `SOCKET_AGENT_HEARTBEAT_RATE_LIMIT_*` | 60s / 240 | **60s / 240** | `agent:heartbeat` por socket `/agents` |
 
 **Resposta Socket (consumidor `/consumers`):** envelope canónico, exemplo:
 
@@ -377,10 +381,13 @@ Códigos comuns: `RATE_LIMITED`, `TOO_MANY_REQUESTS` (janela de comandos).
 
 | Variável | Default | Produção (exemplo) |
 | -------- | ------- | ------------------ |
-| `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET` | 1024 | 1024 |
-| `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` | 1024 | 1024 |
+| `SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET` | 32 | 32 |
+| `SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET` | 0 (partilha o teto acima) | 0 |
 
-Limita comandos **paralelos** na mesma ligação Socket. Acima do teto → `RATE_LIMITED` imediato (`"Per-socket inflight gate exceeded"`).
+Limita comandos **paralelos** na mesma ligação Socket. Quando o teto dedicado
+de custom publish é `0`, `socket:event.publish` partilha o primeiro contador;
+um valor dedicado `> 0` cria um segundo teto independente. Acima do teto
+aplicável, o hub devolve `RATE_LIMITED` imediato (`"Per-socket inflight gate exceeded"`).
 
 ### Filas e sessão de agente (podem bloquear sem rate limit)
 

@@ -5,7 +5,7 @@
 ## Goal
 
 Evaluate whether replacing the single `redis@5.x` client used by
-[src/infrastructure/redis/rest_rate_limit_redis.ts](src/infrastructure/redis/rest_rate_limit_redis.ts)
+[src/infrastructure/redis/rate_limit/rest_rate_limit_redis.ts](../../src/infrastructure/redis/rate_limit/rest_rate_limit_redis.ts)
 (and the other rate-limit modules) with `RedisClientPool` improves p95
 latency under sustained 5k req/s.
 

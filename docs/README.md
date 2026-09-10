@@ -113,16 +113,11 @@ HTTP vs Socket (resumo): REST cobre API de produto; Socket cobre tempo real
 - `[runbooks/socket_perf_investigation.md](runbooks/socket_perf_investigation.md)`
 - `[runbooks/payload_signing_key_rotation_runbook.md](runbooks/payload_signing_key_rotation_runbook.md)`
 
-## Papel de cada documento (resumo)
+## Manutencao
 
-| Doc                                                            | Papel                                   |
-| -------------------------------------------------------------- | --------------------------------------- |
-| `PROJECT_OVERVIEW`                                             | Visao executiva                         |
-| `client_agent_business_rules`                                  | Regras de negocio                       |
-| `api_rest_bridge`                                              | Contrato REST + `agents:*`              |
-| `socket_relay_protocol`                                        | Contrato relay                          |
-| `socket_client_sdk`                                            | Guia (nao normativo completo)           |
-| `configuration` + `env.ts`                                     | Config                                  |
-| `limites_acesso_e_quotas`                                      | Quotas / respostas ao atingir limites   |
-| `observability` / `performance_hub_agent` / `nginx_production` | Operacao                                |
-| `studies/*` / `spikes/*` / ADRs                                | Nao normativo / decisoes / experimentos |
+- Mantenha este indice apenas como navegacao: o contrato detalhado pertence
+  aos documentos canonicos indicados em cada secao.
+- `src/shared/config/env.ts` e o `.env` ativo prevalecem sobre valores de
+  exemplo em Markdown.
+- ADRs, estudos e spikes registram decisoes e hipoteses historicas; nao devem
+  duplicar contratos ou instrucoes operacionais atuais.
