@@ -1,6 +1,8 @@
 import { PrismaClient } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
+import { env } from "../../../shared/config/env";
 import { logger } from "../../../shared/utils/logger";
 
 declare global {
@@ -31,6 +33,7 @@ const createPrismaClient = (): PrismaClient => {
    * `$on` overload cannot narrow. The runtime contract is unchanged.
    */
   const client = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: env.databaseUrl }),
     log: resolveLogDefinitions(),
   });
   client.$on("warn" as never, (event: Prisma.LogEvent) => {
