@@ -16,8 +16,10 @@ vi.mock("../../../../src/infrastructure/redis/presence/agent_hub_presence_redis"
 }));
 
 import { env } from "../../../../src/shared/config/env";
+import { logger } from "../../../../src/shared/utils/logger";
 import {
   resetAgentHubPresenceTouchThrottleForTests,
+  runAgentHubPresenceSyncSafely,
   syncAgentHubPresenceOnDisconnect,
   syncAgentHubPresenceOnRegister,
   syncAgentHubPresenceOnTouch,
@@ -85,5 +87,29 @@ describe("agent_hub_presence_sync touch throttle", () => {
     } finally {
       Object.defineProperty(env, "hubInstanceId", { value: originalHubId, configurable: true });
     }
+  });
+
+  it("logs a rejected background presence sync without leaking a rejection", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+    runAgentHubPresenceSyncSafely({
+      operation: "touch",
+      agentId: "agent-failed",
+      socketId: "sock-failed",
+      sync: async () => {
+        throw new Error("redis unavailable");
+      },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(warn).toHaveBeenCalledWith(
+      "agent_hub_presence_sync_failed",
+      expect.objectContaining({
+        operation: "touch",
+        agentId: "agent-failed",
+        socketId: "sock-failed",
+        message: "redis unavailable",
+      }),
+    );
   });
 });

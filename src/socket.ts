@@ -23,6 +23,7 @@ import { sweepClientSocketEventPublishSocketRateLimitState } from "./presentatio
 import { sweepAgentProfileSocketRateLimitState } from "./presentation/socket/hub/rate_limits/agent_profile_socket_rate_limiter";
 import { sweepCustomSocketEventSubscriptionRateLimitState } from "./presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
 import { sweepAgentRegisterRateLimitState } from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
+import { sweepAgentHeartbeatSocketRateLimitState } from "./presentation/socket/hub/rate_limits/agent_heartbeat_socket_rate_limiter";
 import { sweepRelayOutboundQueueState } from "./presentation/socket/hub/relay/relay_outbound_queue";
 import {
   registerConsumerBridgeServer,
@@ -184,6 +185,7 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
     sweepAgentProfileSocketRateLimitState();
     sweepCustomSocketEventSubscriptionRateLimitState();
     sweepAgentRegisterRateLimitState();
+    sweepAgentHeartbeatSocketRateLimitState();
     sweepRelayOutboundQueueState();
   }, env.socketRateLimitSweepIntervalMs);
   state.rateLimitSweepTimer.unref?.();

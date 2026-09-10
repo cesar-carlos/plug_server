@@ -14,6 +14,7 @@ import type { Namespace } from "socket.io";
 import {
   syncAgentHubPresenceOnDisconnect,
   syncAgentHubPresenceOnTouch,
+  runAgentHubPresenceSyncSafely,
 } from "../../../application/services/agent_hub_presence_sync";
 import { AgentProfileSyncScheduler } from "./scheduling/agent_profile_sync_scheduler";
 import { agentRegistry } from "./registries/agent_registry";
@@ -78,6 +79,10 @@ import {
 } from "./handlers/_shared";
 import { handleAgentRegister } from "./handlers/agent_register.handler";
 import { handleAgentAutoUpdateDiagnosticsRpcRequest } from "./handlers/agent_auto_update_diagnostics.handler";
+import {
+  allowAgentHeartbeatSocketEvent,
+  clearAgentHeartbeatSocketRateLimitStateForSocketId,
+} from "./rate_limits/agent_heartbeat_socket_rate_limiter";
 
 export type { AgentHubSocket } from "./handlers/_shared";
 
@@ -180,6 +185,32 @@ const scheduleAgentProfileSync = (
   agentProfileSyncScheduler.schedule(input, delayMs);
 };
 
+/**
+ * Socket.IO does not await listener promises. Keep every asynchronous agent
+ * handler observable and contained so a transient service failure cannot turn
+ * into a process-level `unhandledRejection`.
+ */
+const runAgentSocketAsyncHandler = (
+  socket: AgentHubSocket,
+  eventName: string,
+  operation: () => Promise<void>,
+): void => {
+  void operation().catch((error: unknown) => {
+    logger.warn("agent_socket_event_handler_failed", {
+      socketId: socket.id,
+      eventName,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    try {
+      if (socket.connected) {
+        emitAppError(socket, `${eventName} could not be processed`);
+      }
+    } catch {
+      // The socket can disconnect while the failure is being reported.
+    }
+  });
+};
+
 // ─── Disconnect cleanup ───────────────────────────────────────────────────────
 
 export const runAgentSocketDisconnectCleanup = (
@@ -187,6 +218,7 @@ export const runAgentSocketDisconnectCleanup = (
   consumersNsp: Namespace,
 ): void => {
   unregisterAgentBridgeSocket(socket.id);
+  clearAgentHeartbeatSocketRateLimitStateForSocketId(socket.id);
   const cleanedPendingRequests = cleanupPendingRequestsForAgentSocket(socket.id);
   cleanupAgentInboundSocketState(socket.id);
   cleanupAgentStreamSubscriptions(socket.id);
@@ -203,9 +235,15 @@ export const runAgentSocketDisconnectCleanup = (
 
   const removedAgent = agentRegistry.removeBySocketId(socket.id);
   if (removedAgent) {
-    void syncAgentHubPresenceOnDisconnect({
+    runAgentHubPresenceSyncSafely({
+      operation: "disconnect",
       agentId: removedAgent.agentId,
       socketId: socket.id,
+      sync: () =>
+        syncAgentHubPresenceOnDisconnect({
+          agentId: removedAgent.agentId,
+          socketId: socket.id,
+        }),
     });
     clearAgentProfileSyncState(removedAgent.agentId);
     clearAgentProfileSocketRateLimitStateForAgentId(removedAgent.agentId);
@@ -388,6 +426,11 @@ const handleAgentProfileUpdate = async (
  * (mirroring the `trace_id` so the agent can correlate without a synced clock).
  */
 const handleAgentHeartbeat = (socket: AgentHubSocket, rawPayload: unknown): void => {
+  if (!allowAgentHeartbeatSocketEvent(socket.id)) {
+    emitAppError(socket, "agent:heartbeat rate limit exceeded");
+    socket.disconnect(true);
+    return;
+  }
   // Control-plane frames are tiny and almost always `cmp: none`; sync decode
   // avoids async scheduling overhead on the highest-frequency agent event.
   const decoded = decodePayloadFrame(rawPayload);
@@ -423,7 +466,12 @@ const handleAgentHeartbeat = (socket: AgentHubSocket, rawPayload: unknown): void
     markProtocolReady: !waitingExplicitAck,
     socketId: socket.id,
   });
-  void syncAgentHubPresenceOnTouch(currentAgentId);
+  runAgentHubPresenceSyncSafely({
+    operation: "touch",
+    agentId: currentAgentId,
+    socketId: socket.id,
+    sync: () => syncAgentHubPresenceOnTouch(currentAgentId),
+  });
 
   socket.emit(
     socketEvents.hubHeartbeatAck,
@@ -482,7 +530,12 @@ const handleAgentReady = async (socket: AgentHubSocket, rawPayload: unknown): Pr
   }
 
   agentRegistry.touchLiveness(currentAgentId, { markProtocolReady: true, socketId: socket.id });
-  void syncAgentHubPresenceOnTouch(currentAgentId);
+  runAgentHubPresenceSyncSafely({
+    operation: "touch",
+    agentId: currentAgentId,
+    socketId: socket.id,
+    sync: () => syncAgentHubPresenceOnTouch(currentAgentId),
+  });
 
   const capabilities = isRecord(socket.data.capabilities) ? socket.data.capabilities : null;
   if (capabilities && resolveRequiresExplicitProtocolReadyAck(capabilities)) {
@@ -551,10 +604,12 @@ export const registerAgentSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.agentRegister, (rawPayload: unknown) => {
-      void handleAgentRegister(socket, rawPayload, {
-        agentsNsp,
-        scheduleAgentProfileSync,
-      });
+      runAgentSocketAsyncHandler(socket, socketEvents.agentRegister, () =>
+        handleAgentRegister(socket, rawPayload, {
+          agentsNsp,
+          scheduleAgentProfileSync,
+        }),
+      );
     });
 
     socket.on(socketEvents.agentHeartbeat, (rawPayload: unknown) => {
@@ -562,15 +617,21 @@ export const registerAgentSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.agentReady, (rawPayload: unknown) => {
-      void handleAgentReady(socket, rawPayload);
+      runAgentSocketAsyncHandler(socket, socketEvents.agentReady, () =>
+        handleAgentReady(socket, rawPayload),
+      );
     });
 
     socket.on(socketEvents.agentProfileUpdate, (rawPayload: unknown) => {
-      void handleAgentProfileUpdate(socket, rawPayload);
+      runAgentSocketAsyncHandler(socket, socketEvents.agentProfileUpdate, () =>
+        handleAgentProfileUpdate(socket, rawPayload),
+      );
     });
 
     socket.on(socketEvents.rpcRequest, (rawPayload: unknown) => {
-      void handleAgentAutoUpdateDiagnosticsRpcRequest(socket, rawPayload);
+      runAgentSocketAsyncHandler(socket, socketEvents.rpcRequest, () =>
+        handleAgentAutoUpdateDiagnosticsRpcRequest(socket, rawPayload),
+      );
     });
 
     socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: () => void) => {

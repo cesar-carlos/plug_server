@@ -11,11 +11,13 @@
  * The Socket.IO Redis adapter (pub/sub) remains the fast online path: we use
  * Streams strictly as a durable backlog buffer.
  *
- * **Naming.** The module API uses `principalId` (consumer Client `JWT sub`)
- * for the recipient identifier. The key prefix `plug_agent_stream:` stays
- * unchanged for back-compat with data already at rest — see ADR-0003.
+ * **Naming.** Every `(principalId, eventName)` pair owns an independent
+ * stream. The logical event name is hashed before it enters the key, avoiding
+ * collisions introduced by Redis-key sanitization and allowing each
+ * subscription to advance and acknowledge its own backlog independently.
  */
 
+import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 import { withRedisSpan } from "../../observability/redis_span";
@@ -63,8 +65,15 @@ const toSafeErrorMessage = (error: unknown): string =>
 
 const sanitizePrincipalId = (principalId: string): string => sanitizeRedisKeySegment(principalId);
 
-const streamKey = (principalId: string): string =>
-  `plug_agent_stream:${redisKeyNamespace()}:${sanitizePrincipalId(principalId)}`;
+const eventNameHash = (eventName: string): string =>
+  createHash("sha256").update(eventName).digest("hex").slice(0, 32);
+
+const streamKey = (
+  principalId: string,
+  eventName: string,
+  hashedEventName = eventNameHash(eventName),
+): string =>
+  `plug_agent_stream_v2:${redisKeyNamespace()}:${sanitizePrincipalId(principalId)}:${hashedEventName}`;
 
 /**
  * Schema version embedded in every appended frame. Bump when the shape of the
@@ -161,6 +170,7 @@ export const appendAgentEventFramesBatch = async (
   const result: (string | undefined)[] = new Array<string | undefined>(entries.length).fill(
     undefined,
   );
+  const eventNameHashes = new Map<string, string>();
   for (let i = 0; i < entries.length; i += 1) {
     const entry = entries[i];
     if (entry === undefined) {
@@ -169,7 +179,14 @@ export const appendAgentEventFramesBatch = async (
     if (!isPrincipalInAllowlist(entry.principalId)) {
       continue;
     }
-    accepted.push({ entry, key: streamKey(entry.principalId), resultIndex: i });
+    const { eventName } = entry.frame;
+    const hashedEventName = eventNameHashes.get(eventName) ?? eventNameHash(eventName);
+    eventNameHashes.set(eventName, hashedEventName);
+    accepted.push({
+      entry,
+      key: streamKey(entry.principalId, eventName, hashedEventName),
+      resultIndex: i,
+    });
   }
   if (accepted.length === 0) {
     return result;
@@ -375,27 +392,96 @@ const ensureConsumerGroup = async (client: InstrumentedRedisClient, key: string)
 
 const consumerName = (): string => `replica:${env.hubInstanceId}`;
 
+const parseConsumerGroupMessages = (
+  rawMessages: readonly unknown[],
+): AgentEventStreamBacklogEntry[] => {
+  const entries: AgentEventStreamBacklogEntry[] = [];
+  for (const raw of rawMessages) {
+    if (!Array.isArray(raw) || raw.length < 2) {
+      noteAgentEventStreamDropped();
+      continue;
+    }
+    const [id, fields] = raw as [unknown, unknown];
+    if (typeof id !== "string" || !Array.isArray(fields)) {
+      noteAgentEventStreamDropped();
+      continue;
+    }
+    const message: Record<string, string> = {};
+    for (let i = 0; i + 1 < fields.length; i += 2) {
+      const k = fields[i];
+      const v = fields[i + 1];
+      if (typeof k === "string" && typeof v === "string") {
+        message[k] = v;
+      }
+    }
+    const parsed = parseStreamMessage({ id, message });
+    if (parsed !== undefined) {
+      entries.push(parsed);
+    } else {
+      noteAgentEventStreamDropped();
+    }
+  }
+  return entries;
+};
+
+const parseConsumerGroupReadResult = (
+  result: unknown,
+  key: string,
+): AgentEventStreamBacklogEntry[] => {
+  if (!Array.isArray(result)) {
+    return [];
+  }
+  const entries: AgentEventStreamBacklogEntry[] = [];
+  for (const candidate of result) {
+    if (!Array.isArray(candidate) || candidate.length < 2) {
+      continue;
+    }
+    const [streamName, messages] = candidate as [unknown, unknown];
+    if (typeof streamName !== "string" || streamName !== key || !Array.isArray(messages)) {
+      continue;
+    }
+    entries.push(...parseConsumerGroupMessages(messages));
+  }
+  return entries;
+};
+
+const parseAutoClaimResult = (result: unknown): AgentEventStreamBacklogEntry[] => {
+  if (!Array.isArray(result) || !Array.isArray(result[1])) {
+    return [];
+  }
+  return parseConsumerGroupMessages(result[1]);
+};
+
+const appendDistinctEntries = (
+  target: AgentEventStreamBacklogEntry[],
+  candidates: readonly AgentEventStreamBacklogEntry[],
+): void => {
+  const seen = new Set(target.map((entry) => entry.streamId));
+  for (const candidate of candidates) {
+    if (!seen.has(candidate.streamId)) {
+      seen.add(candidate.streamId);
+      target.push(candidate);
+    }
+  }
+};
+
 /**
- * Reads frames appended to the per-recipient stream after `lastSeenStreamId`.
- * Pass `"$"` (the special node-redis sentinel meaning "end of stream") on the
- * first connect to skip historical entries; otherwise pass the last known
- * stream id received by the recipient (recovered from cursor persistence).
- *
- * When `AGENT_EVENT_STREAM_USE_CONSUMER_GROUPS=true`, this reads via
- * XREADGROUP so cross-replica coordination prevents duplicate delivery; the
- * `lastSeenStreamId` argument is ignored in that mode (`>` is always used).
+ * Reads frames appended to the stream for exactly one `(principalId, eventName)`
+ * subscription after `lastSeenStreamId`. A first connect passes `"$"` to skip
+ * historical frames; later reconnects use the event-specific persisted cursor.
  */
 export const readAgentEventBacklog = async (
   principalId: string,
+  eventName: string,
   lastSeenStreamId: string,
 ): Promise<readonly AgentEventStreamBacklogEntry[]> => {
   const client = connection.getClient();
   if (!client || !env.agentEventStreamEnabled) {
     return [];
   }
-  const key = streamKey(principalId);
+  const key = streamKey(principalId, eventName);
   if (env.agentEventStreamUseConsumerGroups) {
-    return readAgentEventBacklogConsumerGroup(client, principalId, key);
+    return readAgentEventBacklogConsumerGroup(client, principalId, eventName, key);
   }
   const startedAtMs = performance.now();
   try {
@@ -424,6 +510,7 @@ export const readAgentEventBacklog = async (
     noteAgentEventStreamCommandError();
     logger.warn("agent_event_stream_read_failed", {
       principalId,
+      eventName,
       message: toSafeErrorMessage(error),
     });
     return [];
@@ -435,59 +522,57 @@ export const readAgentEventBacklog = async (
 const readAgentEventBacklogConsumerGroup = async (
   client: InstrumentedRedisClient,
   principalId: string,
+  eventName: string,
   key: string,
 ): Promise<readonly AgentEventStreamBacklogEntry[]> => {
   const startedAtMs = performance.now();
   try {
     await ensureConsumerGroup(client, key);
-    const result: unknown = await client.sendCommand([
+    const maxEntries = env.agentEventStreamBacklogMaxEntries;
+    const ownPendingResult: unknown = await client.sendCommand([
       "XREADGROUP",
       "GROUP",
       env.agentEventStreamConsumerGroup,
       consumerName(),
       "COUNT",
-      String(env.agentEventStreamBacklogMaxEntries),
+      String(maxEntries),
       "STREAMS",
       key,
-      ">",
+      "0",
     ]);
-    const entries: AgentEventStreamBacklogEntry[] = [];
-    if (Array.isArray(result)) {
-      for (const candidate of result) {
-        if (!Array.isArray(candidate) || candidate.length < 2) {
-          continue;
-        }
-        const [streamName, messages] = candidate as [unknown, unknown];
-        if (typeof streamName !== "string" || streamName !== key || !Array.isArray(messages)) {
-          continue;
-        }
-        for (const raw of messages) {
-          if (!Array.isArray(raw) || raw.length < 2) {
-            noteAgentEventStreamDropped();
-            continue;
-          }
-          const [id, fields] = raw as [unknown, unknown];
-          if (typeof id !== "string" || !Array.isArray(fields)) {
-            noteAgentEventStreamDropped();
-            continue;
-          }
-          // Redis returns flat field array `[k1, v1, k2, v2, ...]`.
-          const message: Record<string, string> = {};
-          for (let i = 0; i + 1 < fields.length; i += 2) {
-            const k = fields[i];
-            const v = fields[i + 1];
-            if (typeof k === "string" && typeof v === "string") {
-              message[k] = v;
-            }
-          }
-          const parsed = parseStreamMessage({ id, message });
-          if (parsed !== undefined) {
-            entries.push(parsed);
-          } else {
-            noteAgentEventStreamDropped();
-          }
-        }
-      }
+    const entries = parseConsumerGroupReadResult(ownPendingResult, key);
+
+    // A reconnect to the same replica must resume its own PEL before newer
+    // frames so per-event stream order remains intact.
+    if (entries.length < maxEntries) {
+      // Recover PEL entries left on a terminated replica. The minimum idle
+      // time is deliberately longer than the socket ack window, avoiding
+      // claims while a healthy replica is still awaiting an acknowledgement.
+      const claimedResult: unknown = await client.sendCommand([
+        "XAUTOCLAIM",
+        key,
+        env.agentEventStreamConsumerGroup,
+        consumerName(),
+        String(env.agentEventStreamConsumerClaimIdleMs),
+        "0-0",
+        "COUNT",
+        String(maxEntries - entries.length),
+      ]);
+      appendDistinctEntries(entries, parseAutoClaimResult(claimedResult));
+    }
+    if (entries.length < maxEntries) {
+      const newResult: unknown = await client.sendCommand([
+        "XREADGROUP",
+        "GROUP",
+        env.agentEventStreamConsumerGroup,
+        consumerName(),
+        "COUNT",
+        String(maxEntries - entries.length),
+        "STREAMS",
+        key,
+        ">",
+      ]);
+      appendDistinctEntries(entries, parseConsumerGroupReadResult(newResult, key));
     }
     noteAgentEventStreamBacklogRead(entries.length);
     return entries;
@@ -501,6 +586,7 @@ const readAgentEventBacklogConsumerGroup = async (
     noteAgentEventStreamCommandError();
     logger.warn("agent_event_stream_xreadgroup_failed", {
       principalId,
+      eventName,
       message: toSafeErrorMessage(error),
     });
     return [];
@@ -520,13 +606,14 @@ const readAgentEventBacklogConsumerGroup = async (
  */
 export const ackAgentEventFrames = async (
   principalId: string,
+  eventName: string,
   streamIds: readonly string[],
 ): Promise<void> => {
   const client = connection.getClient();
   if (!client || !env.agentEventStreamEnabled || streamIds.length === 0) {
     return;
   }
-  const key = streamKey(principalId);
+  const key = streamKey(principalId, eventName);
   const startedAtMs = performance.now();
   try {
     if (env.agentEventStreamUseConsumerGroups) {
@@ -544,6 +631,7 @@ export const ackAgentEventFrames = async (
     noteAgentEventStreamCommandError();
     logger.warn("agent_event_stream_ack_failed", {
       principalId,
+      eventName,
       count: streamIds.length,
       message: toSafeErrorMessage(error),
     });
@@ -603,8 +691,8 @@ export async function initAgentEventStream(): Promise<void> {
     client: result.client,
     logName: "agent_event_stream",
     sampleKeys: [
-      `plug_agent_stream:${redisKeyNamespace()}:probe-agent-1`,
-      `plug_agent_stream_cursor:${redisKeyNamespace()}:probe-agent-1`,
+      `plug_agent_stream_v2:${redisKeyNamespace()}:probe-agent-1:probe-event`,
+      `plug_agent_stream_cursor_v2:${redisKeyNamespace()}:probe-agent-1:probe-event`,
     ],
   });
 }

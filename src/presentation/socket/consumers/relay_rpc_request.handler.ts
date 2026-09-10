@@ -154,7 +154,7 @@ export const parseRelayRpcRequestEnvelope = (
 export const handleRelayRpcRequest = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   envelope: RelayRpcRequestEnvelope,
-): void => {
+): Promise<void> => {
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
 
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
@@ -167,7 +167,7 @@ export const handleRelayRpcRequest = (
         statusCode: 429,
       },
     });
-    return;
+    return Promise.resolve();
   }
   // Track adoption for the relay opt-ins before any dispatch path can
   // short-circuit. Outcome counters (honored / fallback) are incremented
@@ -201,7 +201,7 @@ export const handleRelayRpcRequest = (
     abortController,
   );
 
-  void (async () => {
+  return (async () => {
     try {
       const conversation = conversationRegistry.findInternalByConversationId(
         envelope.conversationId,

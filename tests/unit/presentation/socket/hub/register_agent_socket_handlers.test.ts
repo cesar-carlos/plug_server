@@ -1,6 +1,22 @@
 import type { Namespace } from "socket.io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const handlerMocks = vi.hoisted(() => ({
+  autoUpdateDiagnostics: vi.fn(),
+  profileUpdate: vi.fn(),
+  ready: vi.fn(),
+  register: vi.fn(),
+}));
+
+vi.mock("../../../../../src/presentation/socket/hub/handlers/agent_register.handler", () => ({
+  handleAgentRegister: handlerMocks.register,
+}));
+
+vi.mock(
+  "../../../../../src/presentation/socket/hub/handlers/agent_auto_update_diagnostics.handler",
+  () => ({ handleAgentAutoUpdateDiagnosticsRpcRequest: handlerMocks.autoUpdateDiagnostics }),
+);
+
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
     agentProfileSyncService: {
@@ -38,6 +54,9 @@ vi.mock("../../../../../src/presentation/socket/hub/relay/rpc_bridge", () => ({
 vi.mock("../../../../../src/application/services/agent_hub_presence_sync", () => ({
   syncAgentHubPresenceOnDisconnect: vi.fn(),
   syncAgentHubPresenceOnTouch: vi.fn(),
+  runAgentHubPresenceSyncSafely: vi.fn((input: { sync: () => Promise<void> }) => {
+    void input.sync().catch(() => undefined);
+  }),
 }));
 
 import * as rpcBridge from "../../../../../src/presentation/socket/hub/relay/rpc_bridge";
@@ -47,6 +66,10 @@ import { socketEvents } from "../../../../../src/shared/constants/socket_events"
 describe("registerAgentSocketConnectionHandlers", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    handlerMocks.autoUpdateDiagnostics.mockReset();
+    handlerMocks.profileUpdate.mockReset();
+    handlerMocks.ready.mockReset();
+    handlerMocks.register.mockReset();
   });
 
   it("should register disconnect cleanup before identity-room join so join failures still clean up", async () => {
@@ -97,5 +120,41 @@ describe("registerAgentSocketConnectionHandlers", () => {
     expect(rpcBridge.cleanupAgentStreamSubscriptions).toHaveBeenCalledWith("agent-room-join-fail");
     // Protocol handlers must not be registered after a failed join.
     expect(listeners.has(socketEvents.agentRegister)).toBe(false);
+  });
+
+  it("contains rejected async agent handlers and reports a protocol error", async () => {
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    let connectionHandler: ((socket: unknown) => void | Promise<void>) | undefined;
+    const agentsNsp = {
+      on: (event: string, handler: (socket: unknown) => void | Promise<void>) => {
+        if (event === "connection") {
+          connectionHandler = handler;
+        }
+      },
+    } as unknown as Namespace;
+    const consumersNsp = { sockets: new Map() } as unknown as Namespace;
+    const socket = {
+      connected: true,
+      data: { user: { sub: "user-1" } },
+      disconnect: vi.fn(),
+      emit: vi.fn(),
+      id: "agent-async-failure",
+      join: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        listeners.set(event, handler);
+      }),
+    };
+    handlerMocks.autoUpdateDiagnostics.mockRejectedValueOnce(new Error("database unavailable"));
+
+    registerAgentSocketConnectionHandlers({ agentsNsp, consumersNsp });
+    await connectionHandler!(socket);
+    listeners.get(socketEvents.rpcRequest)?.({});
+
+    await vi.waitFor(() => {
+      expect(socket.emit).toHaveBeenCalledWith(
+        socketEvents.appError,
+        expect.objectContaining({ code: "SOCKET_PROTOCOL_ERROR" }),
+      );
+    });
   });
 });

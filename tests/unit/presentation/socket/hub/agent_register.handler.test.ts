@@ -20,7 +20,10 @@ vi.mock("../../../../../src/presentation/socket/hub/rate_limits/agent_register_r
 }));
 
 vi.mock("../../../../../src/application/services/agent_hub_presence_sync", () => ({
-  syncAgentHubPresenceOnRegister: vi.fn(),
+  syncAgentHubPresenceOnRegister: vi.fn(async () => undefined),
+  runAgentHubPresenceSyncSafely: vi.fn((input: { sync: () => Promise<void> }) => {
+    void input.sync().catch(() => undefined);
+  }),
 }));
 
 import { syncAgentHubPresenceOnRegister } from "../../../../../src/application/services/agent_hub_presence_sync";

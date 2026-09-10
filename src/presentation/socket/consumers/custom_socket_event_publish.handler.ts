@@ -144,6 +144,25 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
   const publishInflightMax = env.socketCustomEventPublishMaxInflightPerSocket;
   const useDedicatedPublishInflight = publishInflightMax > 0;
   const inflightSocket = socket as SocketWithInflightCounter & SocketWithCustomPublishInflight;
+  const acquiredInflight = useDedicatedPublishInflight
+    ? tryAcquireCustomPublishInflightSlot(inflightSocket, publishInflightMax)
+    : tryAcquireSocketInflightSlot(inflightSocket, env.socketConsumerMaxInflightPerSocket);
+
+  if (!acquiredInflight) {
+    noteCustomSocketEventPublishRejected();
+    emitPublishedIfConnected(socket, {
+      success: false,
+      requestId,
+      error: {
+        code: "RATE_LIMITED",
+        message: useDedicatedPublishInflight
+          ? "Custom publish concurrent limit exceeded"
+          : "Per-socket inflight gate exceeded",
+        statusCode: 429,
+      },
+    });
+    return;
+  }
 
   void (async (): Promise<void> => {
     let clientSub: string;
@@ -167,26 +186,6 @@ export const handleCustomSocketEventPublish = (socket: Socket, rawPayload: unkno
       return;
     }
     touchConsumerRegistryOnSocketActivity(socket.id);
-
-    const acquiredInflight = useDedicatedPublishInflight
-      ? tryAcquireCustomPublishInflightSlot(inflightSocket, publishInflightMax)
-      : tryAcquireSocketInflightSlot(inflightSocket, env.socketConsumerMaxInflightPerSocket);
-
-    if (!acquiredInflight) {
-      noteCustomSocketEventPublishRejected();
-      emitPublishedIfConnected(socket, {
-        success: false,
-        requestId,
-        error: {
-          code: "RATE_LIMITED",
-          message: useDedicatedPublishInflight
-            ? "Custom publish concurrent limit exceeded"
-            : "Per-socket inflight gate exceeded",
-          statusCode: 429,
-        },
-      });
-      return;
-    }
 
     try {
       const body = toClientSocketEventPublishInput(parsed.data);

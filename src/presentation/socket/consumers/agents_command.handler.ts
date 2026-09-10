@@ -194,7 +194,7 @@ const runAgentsCommand = async (socket: Socket, rawPayload: unknown): Promise<vo
     },
   } as const;
 
-  void (async () => {
+  await (async () => {
     try {
       if (!(await allowAgentsCommandSocketAsync(userSub, socket.id, rateLimitCost))) {
         await emitCommandResponse(

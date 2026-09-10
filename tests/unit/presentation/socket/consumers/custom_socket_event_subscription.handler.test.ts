@@ -94,9 +94,9 @@ const mockedRemove = vi.mocked(removeCustomSocketEventSubscription);
 const mockedDisconnect = vi.mocked(disconnectSocketAfterCustomSocketEventAuthFailure);
 
 const flushMicrotasks = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
 };
 
 const buildSocket = (principalType: "client" | "user"): Socket => {
@@ -215,7 +215,7 @@ describe("custom_socket_event_subscription.handler", () => {
     );
   });
 
-  it("should reject subscribe when rate limit is exceeded after join succeeds", async () => {
+  it("should reject subscribe before joining when rate limit is exceeded", async () => {
     mockedAllow.mockReturnValueOnce({
       allowed: false,
       limit: 240,
@@ -231,8 +231,8 @@ describe("custom_socket_event_subscription.handler", () => {
     });
 
     await flushMicrotasks();
-    expect(socket.join).toHaveBeenCalled();
-    expect(socket.leave).toHaveBeenCalled();
+    expect(socket.join).not.toHaveBeenCalled();
+    expect(socket.leave).not.toHaveBeenCalled();
     expect(mockedNoteRejected).toHaveBeenCalledTimes(1);
     expect(mockedAdd).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(
@@ -283,7 +283,7 @@ describe("custom_socket_event_subscription.handler", () => {
     await flushMicrotasks();
 
     expect(mockedDisconnect).not.toHaveBeenCalled();
-    expect(mockedAllow).not.toHaveBeenCalled();
+    expect(mockedAllow).toHaveBeenCalled();
     expect(mockedNoteRejected).toHaveBeenCalled();
     expect(mockedAdd).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith(
@@ -306,6 +306,33 @@ describe("custom_socket_event_subscription.handler", () => {
     await flushMicrotasks();
 
     expect(socket.emit).not.toHaveBeenCalled();
+  });
+
+  it("should serialize concurrent subscribe operations for the same socket", async () => {
+    let releaseFirstJoin!: () => void;
+    const firstJoin = new Promise<void>((resolve) => {
+      releaseFirstJoin = resolve;
+    });
+    const socket = buildSocket("client");
+    (socket.join as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce(firstJoin)
+      .mockResolvedValueOnce(undefined);
+
+    handleCustomSocketEventSubscribe(socket, {
+      requestId: "r-serial-1",
+      eventName: "client:custom.serial-one",
+    });
+    handleCustomSocketEventSubscribe(socket, {
+      requestId: "r-serial-2",
+      eventName: "client:custom.serial-two",
+    });
+    await flushMicrotasks();
+
+    expect(socket.join).toHaveBeenCalledTimes(1);
+    releaseFirstJoin();
+    await flushMicrotasks();
+
+    expect(socket.join).toHaveBeenCalledTimes(2);
   });
 
   it("includes wasSubscribed on unsubscribe ack from registry removal", async () => {

@@ -81,7 +81,7 @@ const emitRelayStreamPullResponse = (
 export const handleRelayRpcStreamPull = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   envelope: RelayRpcStreamPullEnvelope,
-): void => {
+): Promise<void> => {
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
 
   if (!tryAcquireSocketInflightSlot(socket, env.socketConsumerMaxInflightPerSocket)) {
@@ -93,7 +93,7 @@ export const handleRelayRpcStreamPull = (
         statusCode: 429,
       },
     });
-    return;
+    return Promise.resolve();
   }
   const abortController = new AbortController();
   const unregisterAbortController = registerConsumerCommandAbortController(
@@ -109,7 +109,7 @@ export const handleRelayRpcStreamPull = (
     }
   };
 
-  void (async () => {
+  return (async () => {
     try {
       assertNotAborted();
       const conversation = conversationRegistry.findInternalByConversationId(

@@ -31,8 +31,8 @@ on the same slot regardless of the rest of the key:
 - `plug_rl:{plug}:<scope>:<key>`
 - `plug_socket_event_idem:{plug}:<digest>`
 - `plug_socket_event_idem_lock:{plug}:<digest>`
-- `plug_agent_stream:{plug}:<principalId>`
-- `plug_agent_stream_cursor:{plug}:<principalId>`
+- `plug_agent_stream_v2:{plug}:<principalId>:<eventHash>`
+- `plug_agent_stream_cursor_v2:{plug}:<principalId>:<eventHash>`
 
 The Socket.IO adapter (`@socket.io/redis-adapter`) has its own pub/sub
 channel naming controlled by `SOCKET_IO_REDIS_ADAPTER_KEY` and was

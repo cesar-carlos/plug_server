@@ -1,6 +1,14 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as AgentEventStreamModule from "../../../../src/infrastructure/redis/event_stream/agent_event_stream";
+
+const streamKey = (principalId: string, eventName: string): string =>
+  `plug_agent_stream_v2:{plug}:${principalId}:${createHash("sha256")
+    .update(eventName)
+    .digest("hex")
+    .slice(0, 32)}`;
 
 const setupModule = async (
   options: {
@@ -79,6 +87,7 @@ const setupModule = async (
       agentEventStreamDrainAckTimeoutMs: 1_000,
       agentEventStreamUseConsumerGroups: options.useConsumerGroups ?? false,
       agentEventStreamConsumerGroup: "plug_hub",
+      agentEventStreamConsumerClaimIdleMs: 1_000,
       hubInstanceId: "test-replica",
       redisDefaultConnectTimeoutMs: 5_000,
       redisTenantId: "",
@@ -120,7 +129,7 @@ describe("agent_event_stream", () => {
     expect(client.multi).toHaveBeenCalledTimes(1);
     expect(multiCalls).toHaveLength(2);
     expect(multiCalls[0]?.method).toBe("xAdd");
-    expect(multiCalls[0]?.args[0]).toBe("plug_agent_stream:{plug}:agent-abc");
+    expect(multiCalls[0]?.args[0]).toBe(streamKey("agent-abc", "client:custom.test"));
     expect(multiCalls[0]?.args[1]).toBe("*");
     expect(multiCalls[0]?.args[2]).toMatchObject({
       schemaVersion: "1",
@@ -132,7 +141,7 @@ describe("agent_event_stream", () => {
       TRIM: { strategy: "MAXLEN", strategyModifier: "~", threshold: 250 },
     });
     expect(multiCalls[1]?.method).toBe("pExpire");
-    expect(multiCalls[1]?.args).toEqual(["plug_agent_stream:{plug}:agent-abc", 30_000]);
+    expect(multiCalls[1]?.args).toEqual([streamKey("agent-abc", "client:custom.test"), 30_000]);
 
     await module.closeAgentEventStream();
   });
@@ -156,7 +165,7 @@ describe("agent_event_stream", () => {
     const { module, client } = await setupModule({ backlogMaxEntries: 10 });
     client.xRead.mockResolvedValue([
       {
-        name: "plug_agent_stream:{plug}:agent-bk",
+        name: streamKey("agent-bk", "client:custom.a"),
         messages: [
           {
             id: "100-0",
@@ -181,13 +190,13 @@ describe("agent_event_stream", () => {
     ]);
 
     await module.initAgentEventStream();
-    const entries = await module.readAgentEventBacklog("agent-bk", "$");
+    const entries = await module.readAgentEventBacklog("agent-bk", "client:custom.a", "$");
 
     expect(entries).toHaveLength(2);
     expect(entries[0]).toMatchObject({ streamId: "100-0", eventId: "e1" });
     expect(entries[1]).toMatchObject({ streamId: "101-0", eventId: "e2" });
     expect(client.xRead).toHaveBeenCalledWith(
-      [{ key: "plug_agent_stream:{plug}:agent-bk", id: "$" }],
+      [{ key: streamKey("agent-bk", "client:custom.a"), id: "$" }],
       { COUNT: 10 },
     );
   });
@@ -196,7 +205,7 @@ describe("agent_event_stream", () => {
     const { module, client } = await setupModule();
     client.xRead.mockResolvedValue([
       {
-        name: "plug_agent_stream:{plug}:agent-bad",
+        name: streamKey("agent-bad", "client:custom.x"),
         messages: [
           {
             id: "1-0",
@@ -216,7 +225,7 @@ describe("agent_event_stream", () => {
     ]);
 
     await module.initAgentEventStream();
-    const entries = await module.readAgentEventBacklog("agent-bad", "$");
+    const entries = await module.readAgentEventBacklog("agent-bad", "client:custom.x", "$");
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.eventId).toBe("ok");
@@ -226,7 +235,7 @@ describe("agent_event_stream", () => {
     const { module, client } = await setupModule();
     client.xRead.mockResolvedValue([
       {
-        name: "plug_agent_stream:{plug}:agent-future",
+        name: streamKey("agent-future", "client:custom.x"),
         messages: [
           {
             id: "1-0",
@@ -253,7 +262,7 @@ describe("agent_event_stream", () => {
     ]);
 
     await module.initAgentEventStream();
-    const entries = await module.readAgentEventBacklog("agent-future", "$");
+    const entries = await module.readAgentEventBacklog("agent-future", "client:custom.x", "$");
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.eventId).toBe("current");
@@ -263,7 +272,7 @@ describe("agent_event_stream", () => {
     const { module, client } = await setupModule();
     client.xRead.mockResolvedValue([
       {
-        name: "plug_agent_stream:{plug}:agent-legacy",
+        name: streamKey("agent-legacy", "client:custom.x"),
         messages: [
           {
             id: "1-0",
@@ -279,7 +288,7 @@ describe("agent_event_stream", () => {
     ]);
 
     await module.initAgentEventStream();
-    const entries = await module.readAgentEventBacklog("agent-legacy", "$");
+    const entries = await module.readAgentEventBacklog("agent-legacy", "client:custom.x", "$");
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.eventId).toBe("legacy");
@@ -290,16 +299,19 @@ describe("agent_event_stream", () => {
     client.xDel.mockResolvedValue(2);
 
     await module.initAgentEventStream();
-    await module.ackAgentEventFrames("agent-ack", ["1-0", "2-0"]);
+    await module.ackAgentEventFrames("agent-ack", "client:custom.x", ["1-0", "2-0"]);
 
-    expect(client.xDel).toHaveBeenCalledWith("plug_agent_stream:{plug}:agent-ack", ["1-0", "2-0"]);
+    expect(client.xDel).toHaveBeenCalledWith(streamKey("agent-ack", "client:custom.x"), [
+      "1-0",
+      "2-0",
+    ]);
   });
 
   it("ack is a no-op when given an empty array", async () => {
     const { module, client } = await setupModule();
 
     await module.initAgentEventStream();
-    await module.ackAgentEventFrames("agent-empty", []);
+    await module.ackAgentEventFrames("agent-empty", "client:custom.x", []);
 
     expect(client.xDel).not.toHaveBeenCalled();
   });
@@ -339,7 +351,7 @@ describe("agent_event_stream", () => {
       if (Array.isArray(args) && args[0] === "XREADGROUP") {
         return [
           [
-            "plug_agent_stream:{plug}:agent-cg",
+            streamKey("agent-cg", "client:custom.x"),
             [
               [
                 "111-0",
@@ -364,7 +376,7 @@ describe("agent_event_stream", () => {
     });
 
     await module.initAgentEventStream();
-    const entries = await module.readAgentEventBacklog("agent-cg", "$");
+    const entries = await module.readAgentEventBacklog("agent-cg", "client:custom.x", "$");
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.eventId).toBe("evt-cg");
@@ -375,7 +387,7 @@ describe("agent_event_stream", () => {
       (c: unknown[]) => Array.isArray(c[0]) && (c[0] as string[])[0] === "XREADGROUP",
     );
     expect(xgroupCalls).toHaveLength(1);
-    expect(xreadgroupCalls).toHaveLength(1);
+    expect(xreadgroupCalls).toHaveLength(2);
   });
 
   it("consumer-groups path: caches the group so repeated reads skip XGROUP CREATE", async () => {
@@ -391,9 +403,9 @@ describe("agent_event_stream", () => {
     });
 
     await module.initAgentEventStream();
-    await module.readAgentEventBacklog("agent-cg-cache", "$");
-    await module.readAgentEventBacklog("agent-cg-cache", "$");
-    await module.readAgentEventBacklog("agent-cg-cache", "$");
+    await module.readAgentEventBacklog("agent-cg-cache", "client:custom.x", "$");
+    await module.readAgentEventBacklog("agent-cg-cache", "client:custom.x", "$");
+    await module.readAgentEventBacklog("agent-cg-cache", "client:custom.x", "$");
 
     const xgroupCalls = client.sendCommand.mock.calls.filter(
       (c: unknown[]) => Array.isArray(c[0]) && (c[0] as string[])[0] === "XGROUP",
@@ -401,9 +413,65 @@ describe("agent_event_stream", () => {
     const xreadgroupCalls = client.sendCommand.mock.calls.filter(
       (c: unknown[]) => Array.isArray(c[0]) && (c[0] as string[])[0] === "XREADGROUP",
     );
-    // XGROUP CREATE only on the first read; XREADGROUP on every read.
+    // XGROUP CREATE only on the first read. Each empty drain checks new
+    // entries and the current consumer's PEL before attempting stale claims.
     expect(xgroupCalls).toHaveLength(1);
-    expect(xreadgroupCalls).toHaveLength(3);
+    expect(xreadgroupCalls).toHaveLength(6);
+  });
+
+  it("consumer-groups path: claims stale pending entries left by another replica", async () => {
+    const { module, client } = await setupModule({ useConsumerGroups: true });
+    const key = streamKey("agent-cg-claim", "client:custom.x");
+    client.sendCommand.mockImplementation(async (args: unknown) => {
+      if (!Array.isArray(args)) {
+        return undefined;
+      }
+      if (args[0] === "XGROUP" && args[1] === "CREATE") {
+        return "OK";
+      }
+      if (args[0] === "XREADGROUP") {
+        return null;
+      }
+      if (args[0] === "XAUTOCLAIM") {
+        return [
+          "0-0",
+          [
+            [
+              "222-0",
+              [
+                "schemaVersion",
+                "1",
+                "eventId",
+                "evt-stale",
+                "eventName",
+                "client:custom.x",
+                "emittedAt",
+                "2026-01-01T00:00:00.000Z",
+                "payload",
+                "{}",
+              ],
+            ],
+          ],
+          [],
+        ];
+      }
+      return undefined;
+    });
+
+    await module.initAgentEventStream();
+    const entries = await module.readAgentEventBacklog("agent-cg-claim", "client:custom.x", "$");
+
+    expect(entries).toEqual([expect.objectContaining({ streamId: "222-0", eventId: "evt-stale" })]);
+    expect(client.sendCommand).toHaveBeenCalledWith([
+      "XAUTOCLAIM",
+      key,
+      "plug_hub",
+      "replica:test-replica",
+      "1000",
+      "0-0",
+      "COUNT",
+      "50",
+    ]);
   });
 
   it("consumer-groups path: NOGROUP on read invalidates the cache so the next read recreates the group", async () => {
@@ -424,8 +492,8 @@ describe("agent_event_stream", () => {
     });
 
     await module.initAgentEventStream();
-    await module.readAgentEventBacklog("agent-cg-nogroup", "$");
-    await module.readAgentEventBacklog("agent-cg-nogroup", "$");
+    await module.readAgentEventBacklog("agent-cg-nogroup", "client:custom.x", "$");
+    await module.readAgentEventBacklog("agent-cg-nogroup", "client:custom.x", "$");
 
     const xgroupCalls = client.sendCommand.mock.calls.filter(
       (c: unknown[]) => Array.isArray(c[0]) && (c[0] as string[])[0] === "XGROUP",
@@ -440,7 +508,7 @@ describe("agent_event_stream", () => {
     client.sendCommand.mockResolvedValue(2);
 
     await module.initAgentEventStream();
-    await module.ackAgentEventFrames("agent-cg", ["1-0", "2-0"]);
+    await module.ackAgentEventFrames("agent-cg", "client:custom.x", ["1-0", "2-0"]);
 
     const xackCalls = client.sendCommand.mock.calls.filter(
       (c: unknown[]) => Array.isArray(c[0]) && (c[0] as string[])[0] === "XACK",
@@ -462,7 +530,7 @@ describe("agent_event_stream", () => {
     });
 
     await module.initAgentEventStream();
-    const entries = await module.readAgentEventBacklog("agent-cg-busy", "$");
+    const entries = await module.readAgentEventBacklog("agent-cg-busy", "client:custom.x", "$");
     expect(entries).toHaveLength(0);
   });
 
@@ -511,9 +579,28 @@ describe("agent_event_stream", () => {
       const pexpireCalls = multiCalls.filter((c) => c.method === "pExpire");
       expect(xaddCalls).toHaveLength(3);
       expect(pexpireCalls).toHaveLength(3);
-      expect(xaddCalls[0]?.args[0]).toBe("plug_agent_stream:{plug}:agent-a");
-      expect(xaddCalls[1]?.args[0]).toBe("plug_agent_stream:{plug}:agent-b");
-      expect(xaddCalls[2]?.args[0]).toBe("plug_agent_stream:{plug}:agent-c");
+      expect(xaddCalls[0]?.args[0]).toBe(streamKey("agent-a", "client:custom.test"));
+      expect(xaddCalls[1]?.args[0]).toBe(streamKey("agent-b", "client:custom.test"));
+      expect(xaddCalls[2]?.args[0]).toBe(streamKey("agent-c", "client:custom.test"));
+    });
+
+    it("isolates streams for different event names owned by the same principal", async () => {
+      const { module, multiCalls, multiExecMock } = await setupModule({ ttlMs: 0 });
+      multiExecMock.mockResolvedValue(["100-0", "200-0"]);
+
+      await module.initAgentEventStream();
+      await module.appendAgentEventFramesBatch([
+        { principalId: "agent-shared", frame: baseFrame },
+        {
+          principalId: "agent-shared",
+          frame: { ...baseFrame, eventName: "client:custom.other" },
+        },
+      ]);
+
+      const xaddCalls = multiCalls.filter((call) => call.method === "xAdd");
+      expect(xaddCalls).toHaveLength(2);
+      expect(xaddCalls[0]?.args[0]).toBe(streamKey("agent-shared", "client:custom.test"));
+      expect(xaddCalls[1]?.args[0]).toBe(streamKey("agent-shared", "client:custom.other"));
     });
 
     it("omits PEXPIRE when TTL is disabled", async () => {
@@ -545,6 +632,7 @@ describe("agent_event_stream", () => {
           agentEventStreamDrainAckTimeoutMs: 1_000,
           agentEventStreamUseConsumerGroups: false,
           agentEventStreamConsumerGroup: "plug_hub",
+          agentEventStreamConsumerClaimIdleMs: 1_000,
           hubInstanceId: "test-replica",
           redisDefaultConnectTimeoutMs: 5_000,
           redisTenantId: "",
@@ -590,8 +678,8 @@ describe("agent_event_stream", () => {
       expect(out).toEqual(["100-0", undefined, "300-0"]);
       const xaddCalls = multiCalls.filter((c) => c.method === "xAdd");
       expect(xaddCalls).toHaveLength(2);
-      expect(xaddCalls[0]?.args[0]).toBe("plug_agent_stream:{plug}:agent-a");
-      expect(xaddCalls[1]?.args[0]).toBe("plug_agent_stream:{plug}:agent-c");
+      expect(xaddCalls[0]?.args[0]).toBe(streamKey("agent-a", "client:custom.test"));
+      expect(xaddCalls[1]?.args[0]).toBe(streamKey("agent-c", "client:custom.test"));
     });
 
     it("treats per-entry rejected replies as partial failures", async () => {

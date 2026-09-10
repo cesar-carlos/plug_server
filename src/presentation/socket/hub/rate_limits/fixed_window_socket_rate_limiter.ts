@@ -12,8 +12,12 @@ interface WindowState {
 }
 
 export interface FixedWindowSocketRateLimiterConfig {
-  /** Redis bucket scope (counters stay isolated per scope and from the Express limiter). */
-  readonly redisScope: SocketRateLimitScope;
+  /**
+   * Optional Redis bucket scope. Omit for limits that are intrinsically local
+   * to one socket connection, where sharing a socket-id key across replicas has
+   * no correctness benefit.
+   */
+  readonly redisScope?: SocketRateLimitScope;
   /** Window length; read lazily so env overrides applied after import are honored. */
   readonly getWindowMs: () => number;
   /** Per-window cap; `0` disables enforcement (always allows). Read lazily for the same reason. */
@@ -98,6 +102,9 @@ export const createFixedWindowSocketRateLimiter = (
     if (config.getMax() === 0) {
       return true;
     }
+    if (config.redisScope === undefined) {
+      return allow(key, cost);
+    }
     const safeCost = Math.max(1, Math.floor(cost));
     const redisDecision = await consumeSocketRateLimitRedis({
       scope: config.redisScope,
@@ -128,7 +135,9 @@ export const createFixedWindowSocketRateLimiter = (
 
   const refundAsync = async (key: string, cost = 1): Promise<void> => {
     const safeCost = Math.max(1, Math.floor(cost));
-    await refundSocketRateLimitRedis({ scope: config.redisScope, key, cost: safeCost });
+    if (config.redisScope !== undefined) {
+      await refundSocketRateLimitRedis({ scope: config.redisScope, key, cost: safeCost });
+    }
     refund(key, safeCost);
   };
 

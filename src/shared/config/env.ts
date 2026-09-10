@@ -723,6 +723,19 @@ const envSchema = z.object({
   /** Max `agent:register` attempts per window per `(userId, agentId)`. `0` disables. */
   SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(100_000).default(0),
   /**
+   * Fixed window for inbound `agent:heartbeat` frames, keyed by socket id.
+   * The limiter protects the hub's liveness registry and outbound heartbeat ACKs
+   * from a compromised or defective agent. `0` on either value disables it.
+   */
+  SOCKET_AGENT_HEARTBEAT_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(600_000)
+    .default(60_000),
+  /** Max inbound `agent:heartbeat` frames per socket per window. `0` disables. */
+  SOCKET_AGENT_HEARTBEAT_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(1_000_000).default(240),
+  /**
    * Optional Redis URL for Socket rate-limit state shared across hub replicas.
    * Empty = in-memory per process. Sticky sessions are still required for Socket bridge state.
    */
@@ -785,7 +798,7 @@ const envSchema = z.object({
   ),
   /**
    * Optional Redis Streams URL for at-least-once delivery of `client:custom.*` frames
-   * to agents that briefly disconnect/reconnect across hub replicas. Empty = streams
+   * to consumer Clients that briefly disconnect/reconnect across hub replicas. Empty = streams
    * disabled (current pub/sub-only behaviour).
    */
   AGENT_EVENT_STREAM_REDIS_URL: z.preprocess(
@@ -793,17 +806,17 @@ const envSchema = z.object({
     z.string(),
   ),
   /**
-   * When `true`, append outbound `client:custom.*` frames to the per-agent Redis
-   * stream so agents that reconnect retrieve a backlog. Default `false` (opt-in).
+   * When `true`, append outbound `client:custom.*` frames to a per-recipient-and-event
+   * Redis stream so reconnecting clients retrieve an isolated backlog. Default `false` (opt-in).
    */
   AGENT_EVENT_STREAM_ENABLED: z
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
-  /** Cap per-agent stream length via `XADD MAXLEN ~ N`. Older entries are trimmed automatically. */
+  /** Cap each recipient-event stream length via `XADD MAXLEN ~ N`. Older entries are trimmed automatically. */
   AGENT_EVENT_STREAM_MAX_LEN: z.coerce.number().int().positive().max(1_000_000).default(1_000),
   /**
-   * TTL applied to a per-agent stream key whenever a frame is appended. When the agent
+   * TTL applied to a recipient-event stream key whenever a frame is appended. When it
    * goes idle longer than this, the entire stream is GC'd. `0` = never expire.
    */
   AGENT_EVENT_STREAM_TTL_MS: z.coerce
@@ -855,6 +868,17 @@ const envSchema = z.object({
    * Customise only if you run multiple hub clusters off the same Redis.
    */
   AGENT_EVENT_STREAM_CONSUMER_GROUP: z.string().min(1).max(64).default("plug_hub"),
+  /**
+   * Minimum pending-idle time before a replica may claim a consumer-group
+   * frame left by another replica. Keep this at or above the drain ack timeout
+   * so healthy in-flight deliveries are not claimed prematurely.
+   */
+  AGENT_EVENT_STREAM_CONSUMER_CLAIM_IDLE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(60_000)
+    .default(5_000),
   /**
    * Backpressure mode for the per-recipient stream append on the publish hot
    * path. Trade-off:
@@ -1941,6 +1965,8 @@ export const env = {
   socketAgentSessionPolicy: parsedEnv.SOCKET_AGENT_SESSION_POLICY,
   socketAgentRegisterRateLimitWindowMs: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_WINDOW_MS,
   socketAgentRegisterRateLimitMax: parsedEnv.SOCKET_AGENT_REGISTER_RATE_LIMIT_MAX,
+  socketAgentHeartbeatRateLimitWindowMs: parsedEnv.SOCKET_AGENT_HEARTBEAT_RATE_LIMIT_WINDOW_MS,
+  socketAgentHeartbeatRateLimitMax: parsedEnv.SOCKET_AGENT_HEARTBEAT_RATE_LIMIT_MAX,
   socketRateLimitRedisUrl: parsedEnv.SOCKET_RATE_LIMIT_REDIS_URL,
   socketRateLimitRedisLocalFirst: parsedEnv.SOCKET_RATE_LIMIT_REDIS_LOCAL_FIRST,
   agentRegisterBindCacheTtlMs: parsedEnv.AGENT_REGISTER_BIND_CACHE_TTL_MS,
@@ -2095,6 +2121,7 @@ export const env = {
   agentEventStreamDrainAckTimeoutMs: parsedEnv.AGENT_EVENT_STREAM_DRAIN_ACK_TIMEOUT_MS,
   agentEventStreamUseConsumerGroups: parsedEnv.AGENT_EVENT_STREAM_USE_CONSUMER_GROUPS,
   agentEventStreamConsumerGroup: parsedEnv.AGENT_EVENT_STREAM_CONSUMER_GROUP,
+  agentEventStreamConsumerClaimIdleMs: parsedEnv.AGENT_EVENT_STREAM_CONSUMER_CLAIM_IDLE_MS,
   agentEventStreamAppendMode: parsedEnv.AGENT_EVENT_STREAM_APPEND_MODE,
   agentEventStreamAppendTimeoutMs: parsedEnv.AGENT_EVENT_STREAM_APPEND_TIMEOUT_MS,
   socketAuditRetentionDays: parsedEnv.SOCKET_AUDIT_RETENTION_DAYS,

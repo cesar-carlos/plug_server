@@ -30,6 +30,7 @@ import {
   isTerminalCustomSocketEventAuthFailure,
 } from "./custom_socket_event_guard";
 import { touchConsumerRegistryOnSocketActivity } from "../hub/scheduling/consumer_idle_touch_events";
+import { enqueueSocketSubscriptionOperation } from "./per_socket_subscription_operation_queue";
 
 type SubscriptionResponse =
   | {
@@ -140,7 +141,7 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
 
   const { eventName, requestId } = parsed.value;
 
-  void (async (): Promise<void> => {
+  void enqueueSocketSubscriptionOperation(socket, async (): Promise<void> => {
     let principalId: string;
     try {
       principalId = await assertActiveClientCustomSocketEventPrincipal(socket);
@@ -176,29 +177,8 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
       return;
     }
 
-    try {
-      await Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)));
-    } catch (error: unknown) {
-      noteCustomSocketEventSubscriptionRejected();
-      emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
-        success: false,
-        requestId,
-        error: {
-          code: "INTERNAL_SERVER_ERROR",
-          message:
-            error instanceof Error ? error.message : "Failed to join custom socket event room",
-        },
-      });
-      return;
-    }
-
     const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
     if (!allowance.allowed) {
-      try {
-        await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
-      } catch {
-        // Best-effort rollback when subscribe quota is exhausted after join.
-      }
       noteCustomSocketEventSubscriptionRejected();
       emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
         success: false,
@@ -213,6 +193,22 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
           limit: allowance.limit,
           remaining: allowance.remaining,
           resetAtMs: allowance.resetAtMs,
+        },
+      });
+      return;
+    }
+
+    try {
+      await Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)));
+    } catch (error: unknown) {
+      noteCustomSocketEventSubscriptionRejected();
+      emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
+        success: false,
+        requestId,
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error ? error.message : "Failed to join custom socket event room",
         },
       });
       return;
@@ -251,7 +247,7 @@ export const handleCustomSocketEventSubscribe = (socket: Socket, rawPayload: unk
         });
       });
     }
-  })().catch((error: unknown) => {
+  }).catch((error: unknown) => {
     noteCustomSocketEventSubscriptionRejected();
     emitSubscriptionResponse(socket, socketEvents.socketEventSubscribed, {
       success: false,
@@ -278,7 +274,7 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
 
   const { eventName, requestId } = parsed.value;
 
-  void (async (): Promise<void> => {
+  void enqueueSocketSubscriptionOperation(socket, async (): Promise<void> => {
     try {
       await assertActiveClientCustomSocketEventPrincipal(socket);
     } catch (error: unknown) {
@@ -293,29 +289,8 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
     }
     touchConsumerRegistryOnSocketActivity(socket.id);
 
-    try {
-      await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
-    } catch (error: unknown) {
-      noteCustomSocketEventSubscriptionRejected();
-      emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
-        success: false,
-        requestId,
-        error: {
-          code: "INTERNAL_SERVER_ERROR",
-          message:
-            error instanceof Error ? error.message : "Failed to leave custom socket event room",
-        },
-      });
-      return;
-    }
-
     const allowance = allowCustomSocketEventSubscriptionControl(socket.id);
     if (!allowance.allowed) {
-      try {
-        await Promise.resolve(socket.join(buildCustomSocketEventRoom(eventName)));
-      } catch {
-        // Best-effort rollback when unsubscribe quota is exhausted after leave.
-      }
       noteCustomSocketEventSubscriptionRejected();
       emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
         success: false,
@@ -335,6 +310,22 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
       return;
     }
 
+    try {
+      await Promise.resolve(socket.leave(buildCustomSocketEventRoom(eventName)));
+    } catch (error: unknown) {
+      noteCustomSocketEventSubscriptionRejected();
+      emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
+        success: false,
+        requestId,
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error ? error.message : "Failed to leave custom socket event room",
+        },
+      });
+      return;
+    }
+
     const wasSubscribed = removeCustomSocketEventSubscription(socket.id, eventName);
     if (wasSubscribed) {
       noteCustomSocketEventUnsubscribed();
@@ -344,7 +335,7 @@ export const handleCustomSocketEventUnsubscribe = (socket: Socket, rawPayload: u
       requestId,
       data: { eventName, subscribed: false, wasSubscribed },
     });
-  })().catch((error: unknown) => {
+  }).catch((error: unknown) => {
     noteCustomSocketEventSubscriptionRejected();
     emitSubscriptionResponse(socket, socketEvents.socketEventUnsubscribed, {
       success: false,

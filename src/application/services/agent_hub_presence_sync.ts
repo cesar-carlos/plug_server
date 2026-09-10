@@ -1,6 +1,7 @@
 import type { AgentHubPresenceRoute } from "../../domain/ports/agent_hub_presence.port";
 import { getAgentHubPresencePort } from "../../infrastructure/redis/presence/agent_hub_presence_redis";
 import { env } from "../../shared/config/env";
+import { logger } from "../../shared/utils/logger";
 
 /**
  * Local throttle for Redis presence TTL refreshes. Heartbeats update local
@@ -14,6 +15,29 @@ const PRESENCE_REDIS_TOUCH_MIN_INTERVAL_FRACTION = 1 / 3;
 
 const presenceRedisTouchMinIntervalMs = (): number =>
   Math.max(1, Math.floor(env.agentHubPresenceTtlMs * PRESENCE_REDIS_TOUCH_MIN_INTERVAL_FRACTION));
+
+/**
+ * Presence replication is auxiliary to the local socket registry. Handlers use
+ * this wrapper for fire-and-forget updates so a runtime Redis failure is logged
+ * without escaping as an unhandled promise rejection.
+ */
+export const runAgentHubPresenceSyncSafely = (input: {
+  readonly operation: "register" | "touch" | "disconnect";
+  readonly agentId: string;
+  readonly socketId: string;
+  readonly sync: () => Promise<void>;
+}): void => {
+  void Promise.resolve()
+    .then(input.sync)
+    .catch((error: unknown) => {
+      logger.warn("agent_hub_presence_sync_failed", {
+        operation: input.operation,
+        agentId: input.agentId,
+        socketId: input.socketId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+};
 
 export const syncAgentHubPresenceOnRegister = async (input: {
   readonly agentId: string;

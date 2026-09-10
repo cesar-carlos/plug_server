@@ -447,7 +447,7 @@ export const registerConsumerSocketConnectionHandlers = ({
           return;
         }
 
-        handleRelayRpcRequest(socket, envelope.data);
+        await handleRelayRpcRequest(socket, envelope.data);
       })().catch((error: unknown) => {
         logger.warn("relay_rpc_request_handler_failed", {
           socketId: socket.id,
@@ -504,7 +504,7 @@ export const registerConsumerSocketConnectionHandlers = ({
 
         // Rate limit (allowRelayRpcRequestAsync) is applied per item inside the
         // batch handler; the outer wire handler only pre-validates the envelope.
-        handleRelayRpcRequestBatch(socket, envelope.data);
+        await handleRelayRpcRequestBatch(socket, envelope.data);
       })().catch((error: unknown) => {
         logger.warn("relay_rpc_request_batch_handler_failed", {
           socketId: socket.id,
@@ -559,7 +559,12 @@ export const registerConsumerSocketConnectionHandlers = ({
 
       touchConsumerActivity();
 
-      handleRelayRpcStreamPull(socket, envelope.data);
+      void handleRelayRpcStreamPull(socket, envelope.data).catch((error: unknown) => {
+        logger.warn("relay_rpc_stream_pull_handler_failed", {
+          socketId: socket.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
     });
 
     socket.on(socketEvents.socketEventSubscribe, (rawPayload: unknown) => {

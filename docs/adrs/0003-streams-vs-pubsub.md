@@ -25,8 +25,8 @@ adapter**, not a replacement.
 - Pub/sub stays the fast online path (latency dominated by network RTT).
 - Streams append happens **after** the live emit, on the same publish
   path, only when `AGENT_EVENT_STREAM_ENABLED=true`.
-- Drain happens on `socket:event.subscribe` ack: the consumer reads
-  `lastSeenStreamId` from a per-principal cursor and emits matching
+- Drain happens on `socket:event.subscribe` ack: the consumer reads an
+  event-specific `lastSeenStreamId` cursor and emits that subscription's
   frames serially with ack-based confirmation.
 - `MAXLEN ~ N` bounds storage; `PEXPIRE` per append handles idle
   cleanup; `XDEL` after ack keeps active streams trim.
@@ -40,11 +40,10 @@ adapter**, not a replacement.
 - **No fork in the publish path**: every frame still goes through
   `consumersNsp.to(room).emit(...)`. The stream append is additional
   work, not a replacement.
-- **Cursor per principal, not per (principal, eventName)**: keeps
-  Redis cardinality bounded. The drain filters by event name at read
-  time. Trade-off: clients subscribing to many events drain the same
-  stream multiple times — acceptable because most subscribers have a
-  small subscription set.
+- **Cursor and stream per `(principal, eventName)`**: prevents an ack for one
+  subscription from skipping another event that happens to precede it in a
+  shared stream. The extra cardinality is bounded by configured subscription
+  limits and is preferable to violating the at-least-once delivery contract.
 - **Allowlist for rollout**: `AGENT_EVENT_STREAM_AGENT_ALLOWLIST`
   restricts the durable backlog to specific principal ids during gradual
   enablement.
@@ -54,10 +53,6 @@ adapter**, not a replacement.
 - **Replace pub/sub with Streams entirely**: rejected because online
   delivery would gain ~1 ms per hop (XADD round-trip), and pub/sub
   delivers correctly to everyone-online which is the common case.
-- **Per (principal, eventName) stream key**: rejected because
-  cardinality balloons (`active_principals × subscriptions_per_principal`
-  streams).
-- **Consumer groups (`XGROUP CREATE`, `XREADGROUP`)**: deferred. Adds
-  pending-entries-list bookkeeping that we don't need yet because we
-  drain serially per principal. Revisit if multiple replicas drain the
-  same principal in parallel.
+- **Shared stream plus a shared cursor**: rejected after implementation
+  review: filtering after a read lets an acknowledged later event advance the
+  cursor past an earlier unmatched event.

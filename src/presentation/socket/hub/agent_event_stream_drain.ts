@@ -31,6 +31,7 @@ import {
 } from "../../../infrastructure/redis/event_stream/agent_event_stream_cursor";
 import { env } from "../../../shared/config/env";
 import { logger } from "../../../shared/utils/logger";
+import { hasCustomSocketEventSubscription } from "./custom_events/custom_socket_event_subscription_registry";
 
 interface DrainBacklogInput {
   readonly socket: Socket;
@@ -74,7 +75,7 @@ export const drainAgentEventBacklogForSubscription = async (
 
   let lastSeenStreamId: string;
   try {
-    lastSeenStreamId = await getAgentEventCursor(input.principalId);
+    lastSeenStreamId = await getAgentEventCursor(input.principalId, input.eventName);
   } catch (error: unknown) {
     logger.warn("agent_event_stream_drain_cursor_failed", {
       principalId: input.principalId,
@@ -85,7 +86,7 @@ export const drainAgentEventBacklogForSubscription = async (
 
   let entries: readonly AgentEventStreamBacklogEntry[];
   try {
-    entries = await readAgentEventBacklog(input.principalId, lastSeenStreamId);
+    entries = await readAgentEventBacklog(input.principalId, input.eventName, lastSeenStreamId);
   } catch (error: unknown) {
     logger.warn("agent_event_stream_drain_read_failed", {
       principalId: input.principalId,
@@ -97,17 +98,24 @@ export const drainAgentEventBacklogForSubscription = async (
     return;
   }
 
-  const matching = entries.filter((entry) => entry.eventName === input.eventName);
-  if (matching.length === 0) {
-    return;
-  }
-
   const timeoutMs = env.agentEventStreamDrainAckTimeoutMs;
   const acked: string[] = [];
 
-  for (const entry of matching) {
-    if (!input.socket.connected) {
+  for (const entry of entries) {
+    if (
+      !input.socket.connected ||
+      !hasCustomSocketEventSubscription(input.socket.id, input.eventName)
+    ) {
       break;
+    }
+    if (entry.eventName !== input.eventName) {
+      logger.warn("agent_event_stream_drain_event_key_mismatch", {
+        principalId: input.principalId,
+        requestedEventName: input.eventName,
+        entryEventName: entry.eventName,
+        streamId: entry.streamId,
+      });
+      continue;
     }
     const ackOk = await emitFrameWithAck(input.socket, entry.eventName, entry.payload, timeoutMs);
     if (!ackOk) {
@@ -116,7 +124,7 @@ export const drainAgentEventBacklogForSubscription = async (
     }
     acked.push(entry.streamId);
     try {
-      await commitAgentEventCursor(input.principalId, entry.streamId);
+      await commitAgentEventCursor(input.principalId, input.eventName, entry.streamId);
     } catch (error: unknown) {
       logger.warn("agent_event_stream_drain_cursor_commit_failed", {
         principalId: input.principalId,
@@ -130,7 +138,7 @@ export const drainAgentEventBacklogForSubscription = async (
 
   if (acked.length > 0) {
     try {
-      await ackAgentEventFrames(input.principalId, acked);
+      await ackAgentEventFrames(input.principalId, input.eventName, acked);
     } catch (error: unknown) {
       logger.warn("agent_event_stream_drain_xdel_failed", {
         principalId: input.principalId,

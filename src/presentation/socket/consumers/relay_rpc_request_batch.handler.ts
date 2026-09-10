@@ -264,7 +264,7 @@ const validateBatchItems = (
 export const handleRelayRpcRequestBatch = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   envelope: RelayRpcRequestBatchEnvelope,
-): void => {
+): Promise<void> => {
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   noteRelayBatchEnvelopeReceived();
 
@@ -280,7 +280,7 @@ export const handleRelayRpcRequestBatch = (
         statusCode: 503,
       },
     });
-    return;
+    return Promise.resolve();
   }
 
   const abortController = new AbortController();
@@ -289,7 +289,7 @@ export const handleRelayRpcRequestBatch = (
     abortController,
   );
 
-  void (async (): Promise<void> => {
+  return (async (): Promise<void> => {
     let rateLimitCost = 0;
     try {
       const conversation = conversationRegistry.findInternalByConversationId(

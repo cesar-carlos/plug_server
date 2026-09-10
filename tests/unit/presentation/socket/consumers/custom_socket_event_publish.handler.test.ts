@@ -73,6 +73,7 @@ import { logger } from "../../../../../src/shared/utils/logger";
 import { assertClientSocketEventPublishInputWithinLimits } from "../../../../../src/application/services/client_socket_event_publish.service";
 import { env } from "../../../../../src/shared/config/env";
 import { disconnectSocketAfterCustomSocketEventAuthFailure } from "../../../../../src/presentation/socket/consumers/custom_socket_event_guard";
+import { assertActiveClientCustomSocketEventPrincipal } from "../../../../../src/presentation/socket/consumers/custom_socket_event_guard";
 
 const mockedExecute = vi.mocked(executeClientSocketEventPublish);
 const mockedAssertLimits = vi.mocked(assertClientSocketEventPublishInputWithinLimits);
@@ -82,6 +83,7 @@ const mockedNoteViaSocket = vi.mocked(noteCustomSocketEventPublishViaSocket);
 const mockedNoteRejected = vi.mocked(noteCustomSocketEventPublishRejected);
 const mockedLoggerWarn = vi.mocked(logger.warn);
 const mockedDisconnect = vi.mocked(disconnectSocketAfterCustomSocketEventAuthFailure);
+const mockedAssertActiveClient = vi.mocked(assertActiveClientCustomSocketEventPrincipal);
 
 const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();
@@ -359,6 +361,40 @@ describe("handleCustomSocketEventPublish dedicated inflight", () => {
         }),
       }),
     );
+  });
+
+  it("should reserve the dedicated inflight slot before asynchronous principal validation", async () => {
+    (
+      env as { socketCustomEventPublishMaxInflightPerSocket: number }
+    ).socketCustomEventPublishMaxInflightPerSocket = 1;
+    let resolvePrincipal!: (value: string) => void;
+    mockedAssertActiveClient.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolvePrincipal = resolve;
+        }),
+    );
+    const socket = buildClientSocket();
+
+    handleCustomSocketEventPublish(socket, validPublishPayload);
+    await flushMicrotasks();
+    handleCustomSocketEventPublish(socket, {
+      ...validPublishPayload,
+      requestId: "req-before-auth",
+    });
+
+    expect(mockedAssertActiveClient).toHaveBeenCalledTimes(1);
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.socketEventPublished,
+      expect.objectContaining({
+        success: false,
+        requestId: "req-before-auth",
+        error: expect.objectContaining({ code: "RATE_LIMITED" }),
+      }),
+    );
+
+    resolvePrincipal("client-sub-xyz");
+    await flushMicrotasks();
   });
 
   it("should not emit published ack when socket is disconnected", async () => {

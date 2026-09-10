@@ -32,7 +32,10 @@ import {
 } from "../../../../shared/utils/payload_frame";
 import { agentRegisterPayloadSchema } from "../../../../shared/validators/agent_register";
 import type { AgentRegisterProfileSnapshot } from "../../../../application/services/agent_profile_sync.service";
-import { syncAgentHubPresenceOnRegister } from "../../../../application/services/agent_hub_presence_sync";
+import {
+  runAgentHubPresenceSyncSafely,
+  syncAgentHubPresenceOnRegister,
+} from "../../../../application/services/agent_hub_presence_sync";
 import {
   type AgentHubNamespace,
   type AgentHubSocket,
@@ -267,10 +270,16 @@ export const handleAgentRegister = async (
   });
 
   const connectedAtMs = Date.parse(registration.agent.connectedAt);
-  void syncAgentHubPresenceOnRegister({
+  runAgentHubPresenceSyncSafely({
+    operation: "register",
     agentId,
     socketId: socket.id,
-    connectedAtMs: Number.isFinite(connectedAtMs) ? connectedAtMs : Date.now(),
+    sync: () =>
+      syncAgentHubPresenceOnRegister({
+        agentId,
+        socketId: socket.id,
+        connectedAtMs: Number.isFinite(connectedAtMs) ? connectedAtMs : Date.now(),
+      }),
   });
 
   socket.emit(

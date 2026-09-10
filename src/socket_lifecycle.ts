@@ -16,6 +16,7 @@ import { resetConsumerCommandAbortRegistry } from "./presentation/socket/consume
 import { resetCustomSocketEventSubscriptions } from "./presentation/socket/hub/custom_events/custom_socket_event_subscription_registry";
 import { resetCustomSocketEventSubscriptionRateLimitState } from "./presentation/socket/hub/rate_limits/custom_socket_event_subscription_limiter";
 import { resetAgentRegisterRateLimitState } from "./presentation/socket/hub/rate_limits/agent_register_rate_limit";
+import { resetAgentHeartbeatSocketRateLimitState } from "./presentation/socket/hub/rate_limits/agent_heartbeat_socket_rate_limiter";
 import { resetAgentProfileSyncScheduler } from "./presentation/socket/hub/register_agent_socket_handlers";
 import { clearConsumerProfilePushState } from "./presentation/socket/hub/scheduling/consumer_client_agent_room_reconcile";
 import { resetRestBridgeMetrics } from "./application/services/rest_bridge_metrics.service";
@@ -150,6 +151,7 @@ export const closeSocketServer = async (io: Server, signal = "shutdown"): Promis
     resetSocketConsumerMetrics();
     resetSocketAgentMetrics();
     resetAgentRegisterRateLimitState();
+    resetAgentHeartbeatSocketRateLimitState();
     resetAgentProfileSyncScheduler();
     resetSocketBridgeState();
     resetRestBridgeMetrics();
