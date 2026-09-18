@@ -181,11 +181,11 @@ Redis (quando configurado) cobre:
 
 - presence + forward inter-replica do bridge ([ADR 0010](adrs/0010-agent-hub-presence-redis.md))
 - rate limits partilhados, adapter Socket.IO, streams de backlog `client:custom.*`
-  (`[infrastructure/redis_streams_agent_backlog.md](infrastructure/redis_streams_agent_backlog.md)`)
+  ([infrastructure/redis_streams_agent_backlog.md](infrastructure/redis_streams_agent_backlog.md))
 
 Persistencia em DB relevante: auditoria Socket; traces de latencia (quando ativados).
 
-Implicacoes multi-instancia: `[studies/scaling_and_roadmap.md](studies/scaling_and_roadmap.md)`.
+Implicacoes multi-instancia: [studies/scaling_and_roadmap.md](studies/scaling_and_roadmap.md).
 
 ## Leitura recomendada
 

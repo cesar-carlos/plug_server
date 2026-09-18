@@ -359,7 +359,7 @@ Regras atuais no servidor:
   o hub **nao** sobrescreve `body.id` — preserva o id do consumer end-to-end e
   pode saltar o re-encode (`canBypassReencode`). Ver
   [ADR 0009](../adrs/0009-client-request-id-echo.md).
-- Historico do defeito / racional: `[01_relay_body_id_echo.md](../plug_agente/01_relay_body_id_echo.md)`.
+- Historico do defeito / racional: [01_relay_body_id_echo.md](../plug_agente/01_relay_body_id_echo.md).
 - Respostas `relay:rpc.response/chunk/complete` correlacionam pelo `requestId`
   interno no **envelope PayloadFrame** (`envelope.requestId`) — fonte de verdade
   wire-level e `correlation_id` em erros sinteticos.
@@ -467,7 +467,7 @@ Regras do contrato:
   - O envelope PayloadFrame (`envelope.requestId`) continua sendo o UUID
     interno do hub, util para correlacionar com `correlation_id` em logs
     de ops.
-  - Veja `[docs/plug_agente/01_relay_body_id_echo.md](../plug_agente/01_relay_body_id_echo.md)`
+  - Veja [docs/plug_agente/01_relay_body_id_echo.md](../plug_agente/01_relay_body_id_echo.md)
     para o racional do fix (issue Colmeia `relay_unary_fast_path.md §1`).
 
 Sem cancelamento explicito: o relay nao possui evento `relay:rpc.cancel`.
@@ -692,7 +692,7 @@ JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
 - `plug_socket_relay_batch_envelope_decode_avg_ms` / `_max_ms` (gauge por processo)
 - `plug_socket_relay_batch_items_per_envelope_avg` / `_max` (gauge por processo)
 
-Dashboard Grafana: `[docs/grafana/relay_batch_dashboard.json](../grafana/relay_batch_dashboard.json)`.
+Dashboard Grafana: [docs/grafana/relay_batch_dashboard.json](../grafana/relay_batch_dashboard.json).
 
 ## Isolamento por conversa
 
@@ -834,8 +834,8 @@ Variaveis principais do relay:
 - `SOCKET_RATE_LIMIT_REDIS_URL`
 
 Valores default, envelopes HTTP/Socket ao atingir quotas e Nginx edge:
-`[docs/limits/limites_acesso_e_quotas.md](../limits/limites_acesso_e_quotas.md)`
-e `[docs/configuration.md](../configuration.md)`.
+[docs/limits/limites_acesso_e_quotas.md](../limits/limites_acesso_e_quotas.md)
+e [docs/configuration.md](../configuration.md).
 
 ### Rate limit por consumer (janela fixa)
 
@@ -993,7 +993,7 @@ Arquivo da migration:
 Fluxo legado Socket (`agents:command` e `agents:stream_pull`) permanece ativo.
 Outbound desse canal usa `PayloadFrame` **por defeito**; inbound aceita JSON
 ou frame durante a transicao — ver
-`[socket_client_sdk.md](socket_client_sdk.md)` ("Migração PayloadFrame no bridge legado")
+[socket_client_sdk.md](socket_client_sdk.md) ("Migração PayloadFrame no bridge legado")
 e `SOCKET_AGENTS_COMMAND_COMPAT_MODE` em `docs/configuration.md`.
 
 O mesmo contrato de comando ao agente existe em **paralelo** via

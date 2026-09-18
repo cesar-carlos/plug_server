@@ -2,13 +2,13 @@
 
 ## Fonte de verdade para defaults
 
-- **Variaveis**: valores por defeito e parsing em `[src/shared/config/env.ts](../src/shared/config/env.ts)` (Zod `.default()` / `preprocess`).
-- **Exemplo local**: `[.env.example](../.env.example)` (copiar para `.env`).
-- **Documentacao narrativa**: `docs/api/api_rest_bridge.md`, `docs/socket/socket_relay_protocol.md`, `docs/performance/performance_hub_agent.md`, `docs/api/user_status.md` (estados de utilizador e bloqueio).
-- **Mapa da documentacao**: `docs/README.md`.
+- **Variaveis**: valores por defeito e parsing em [src/shared/config/env.ts](../src/shared/config/env.ts) (Zod `.default()` / `preprocess`).
+- **Exemplo local**: [.env.example](../.env.example) (copiar para `.env`).
+- **Documentacao narrativa**: [REST bridge](api/api_rest_bridge.md), [relay](socket/socket_relay_protocol.md), [performance](performance/performance_hub_agent.md) e [estados de utilizador](api/user_status.md).
+- **Mapa da documentacao**: [docs/README.md](README.md).
 - **Runtime alvo**: Node `24.18.x` (`.nvmrc`, `package.json.engines` e CI).
 
-Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, confira o ficheiro de env ou `.env.example`.
+Evite duplicar numeros em varios sitios sem atualizar `env.ts`; quando duvidar, confira o ficheiro de env ou `.env.example`. As variaveis sao lidas no arranque: qualquer mudanca exige reiniciar a instancia.
 
 ### `HUB_INSTANCE_ID` (opcional)
 
@@ -210,6 +210,22 @@ Migração do wire format de `agents:stream_pull` no namespace `/consumers` (pla
 
 **Relay multi-replica:** conversas, rotas pendentes e lookups `findAgentBridgeSocketById` / `findConsumerSocketById` sao **por processo**. Mesmo com `SOCKET_IO_REDIS_ADAPTER_URL`, o dispatch relay exige que consumer e agent estejam na mesma instancia (sticky sessions). Detalhes em `docs/socket/socket_relay_protocol.md` (secao «Modelo multi-replica»).
 
+### Diagnóstico e traces do bridge
+
+| Variável | Defeito | Notas |
+| --- | --- | --- |
+| `BRIDGE_LOG_JSONRPC_AUTO_ID` | `false` | Registra em produção o evento `bridge_jsonrpc_id_assigned` quando o hub precisa gerar o `id` JSON-RPC. Em development esse diagnóstico já é emitido em DEBUG. |
+| `BRIDGE_LATENCY_TRACE_ENABLED` | `false` | Persiste em PostgreSQL as fases do bridge REST, `agents:command` e relay. Ative após validar retenção e capacidade do banco. |
+| `BRIDGE_LATENCY_TRACE_SAMPLE_PERCENT` / `BRIDGE_LATENCY_TRACE_SLOW_TOTAL_MS` | `100` / `0` | A amostragem afeta comandos rápidos bem-sucedidos; erros, timeouts e aborts são preservados. O limiar de lentidão força persistência (`0` desativa). |
+| `BRIDGE_LATENCY_TRACE_BATCH_MAX` / `BRIDGE_LATENCY_TRACE_BATCH_FLUSH_MS` / `BRIDGE_LATENCY_TRACE_MAX_QUEUE` | `48` / `200` / `50000` | Orçamento do writer assíncrono. A fila é limitada para não crescer sem controle durante lentidão do banco; acompanhe `plug_bridge_latency_trace_*` antes de aumentar. |
+| `BRIDGE_LATENCY_TRACE_RETENTION_DAYS` / `BRIDGE_LATENCY_TRACE_RETENTION_INTERVAL_MINUTES` / `BRIDGE_LATENCY_TRACE_PRUNE_BATCH_SIZE` | `90` / `1440` / `5000` | Política e orçamento do prune. `BRIDGE_LATENCY_TRACE_RELAY_RETENTION_DAYS`, quando definido, substitui a retenção apenas para o canal relay. |
+| `BRIDGE_LATENCY_TRACE_ROLLUP_REFRESH_INTERVAL_MINUTES` | `10` | Atualiza a materialized view horária com advisory lock entre réplicas; `0` deixa o refresh manual. |
+| `BRIDGE_LATENCY_TRACE_OTEL_ENABLED` | `false` | Emite `bridge.command` apenas se houver tracer OpenTelemetry configurado. |
+| `BRIDGE_LATENCY_TRACE_PHASES_MISMATCH_WARN_MS` | `0` | Aciona métrica e log DEBUG quando a soma das fases diverge do tempo total; `0` desativa. |
+| `BRIDGE_LATENCY_TRACE_REDACT_USER_ID` / `BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS` | `false` / `0` | Reduz PII persistida: remove `user_id` e limita `request_id`; `0` mantém o identificador completo. |
+
+Consulte [observabilidade do bridge](observability/observability.md#tabela-postgresql-bridge_latency_traces-latencia-por-fase) para métricas, consultas e o dashboard; o comportamento de `requestServerTimings` está no [contrato REST](api/api_rest_bridge.md#server-side-phase-diagnostics).
+
 ### Byte caps do buffer relay
 
 `SOCKET_RELAY_MAX_BUFFERED_BYTES_PER_REQUEST` (default `16777216`) e
@@ -344,7 +360,7 @@ dedicado se for usado em UI com edição contínua.
 | `REST_TOKEN_REFRESH_RATE_LIMIT_*`                                                      | `400` requests / `15m` (padrão)       | Aplicado só a `POST /auth/refresh` e `POST /client-auth/refresh` (e aliases `/api/v1/...`), para permitir rotação em massa de access tokens após quedas (muitos agentes no mesmo IP).                                                                                                                                                                                                                                                                   |
 | `REST_RATE_LIMIT_REDIS_URL`                                                            | _(vazio)_                             | Opcional. URL Redis (`redis://host:6379`) para estado partilhado dos limitadores HTTP entre réplicas; vazio mantém store em memória por processo. Sem palavra-passe na URL = Redis sem `requirepass` (reforçar rede/firewall). Fail-open com circuito temporário em falha runtime. Métricas: `plug_rest_http_rate_limit_redis_` em `/metrics`.                                                                                                          |
 
-**Checklist plug_agente / UI (reconexão):** refresh proativo do access JWT antes do `exp`; em falha de handshake `/agents` com 401, chamar `POST /auth/refresh` e reconectar; ao receber `app:error` com `code: SERVER_SHUTDOWN`, backoff com jitter antes de retentar; tratar `agent:register_error.reason` (`transient_failure` / `rate_limited` vs reconexão forçada) conforme `[agent_register_error.ts](../src/presentation/socket/hub/handshake/agent_register_error.ts)`.
+**Checklist plug_agente / UI (reconexão):** refresh proativo do access JWT antes do `exp`; em falha de handshake `/agents` com 401, chamar `POST /auth/refresh` e reconectar; ao receber `app:error` com `code: SERVER_SHUTDOWN`, backoff com jitter antes de retentar; tratar `agent:register_error.reason` (`transient_failure` / `rate_limited` vs reconexão forçada) conforme [agent_register_error.ts](../src/presentation/socket/hub/handshake/agent_register_error.ts).
 
 | Cookie `refresh_token` / `client_refresh_token` | `HttpOnly`, `Secure` em prod, `SameSite=Strict`, `Path=/`, `Max-Age` = `JWT_REFRESH_EXPIRES_IN` correspondente | `Max-Age` usa o mesmo env do JWT para evitar cookie órfão após revogação. Logout sempre limpa o cookie; change-password de `User` e `Client` também limpa para refletir invalidação de sessão. |
 | `/metrics` (root e `/api/v1/metrics`) | exige `requireAuthAndActiveAccount` + role `admin` | Restrito a admin. Use `HUB_INSTANCE_ID` para distinguir réplicas em scrape. |
@@ -435,9 +451,9 @@ e' lancada. Quando ha tambem uma flag `_ENABLED`, essa flag domina (mesmo
 com a URL preenchida, `*_ENABLED=false` mantem o modulo desligado).
 
 > Para guidance de auth/TLS, ACLs, eviction policies e network isolation, ver
-> `[docs/infrastructure/redis_security.md](infrastructure/redis_security.md)`. Para a arquitetura interna dos
+> [docs/infrastructure/redis_security.md](infrastructure/redis_security.md). Para a arquitetura interna dos
 > 5 modulos Redis e factories ver
-> `[src/infrastructure/redis/README.md](../src/infrastructure/redis/README.md)`.
+> [src/infrastructure/redis/README.md](../src/infrastructure/redis/README.md).
 
 | Modulo                           | URL env                                   | Flag opcional `_ENABLED`           | Default operacional                |
 | -------------------------------- | ----------------------------------------- | ---------------------------------- | ---------------------------------- |
@@ -465,7 +481,7 @@ suas proprias envs `SOCKET_IO_REDIS_ADAPTER_*`):
 > esta unreachable, o tempo total de boot passa de `Σ(initᵢ)` para
 > `max(initᵢ)`. O adapter Socket.IO continua sequencial porque depende do
 > `io` instance criado em `createSocketServer`. Ver
-> `[docs/adrs/0007-parallel-redis-init.md](adrs/0007-parallel-redis-init.md)`.
+> [docs/adrs/0007-parallel-redis-init.md](adrs/0007-parallel-redis-init.md).
 
 ### Streams backlog (`AGENT_EVENT_STREAM_*`)
 
@@ -502,8 +518,8 @@ a fan-out (`MULTI/EXEC` — Sprint P1).
 ## Generous profile — perfil de capacidade
 
 O perfil "generous" prioriza throughput maximo aceitando custos previsiveis de
-RAM/CPU/conexoes. Aplicado em `[.env](../.env)` por default; defaults do schema
-em `[env.ts](../src/shared/config/env.ts)` ficam intencionalmente conservadores
+RAM/CPU/conexoes. Aplicado no `.env` local por default; defaults do schema
+em [env.ts](../src/shared/config/env.ts) ficam intencionalmente conservadores
 para single-replica / dev. Trade-offs documentados em
 [CHANGELOG.md](../CHANGELOG.md) (entrada `Generous profile`).
 
