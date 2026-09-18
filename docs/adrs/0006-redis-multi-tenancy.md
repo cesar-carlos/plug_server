@@ -25,7 +25,7 @@ same tenant land on the same Redis Cluster slot:
 - `REDIS_TENANT_ID=""` (default) →  `plug_socket_rl:{plug}:scope:user:abc`
 - `REDIS_TENANT_ID="acme"`        →  `plug_socket_rl:{plug}:acme:scope:user:abc`
 
-The shared helper `src/infrastructure/redis/redis_key_namespace.ts` exports
+The shared helper [src/infrastructure/redis/keyspace/redis_key_namespace.ts](../../src/infrastructure/redis/keyspace/redis_key_namespace.ts) exports
 `redisKeyNamespace()` returning `"{plug}"` or `"{plug}:<tenant>"`. Every
 module that previously used the literal `{plug}` calls the helper.
 

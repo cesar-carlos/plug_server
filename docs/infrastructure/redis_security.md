@@ -92,7 +92,7 @@ Alert on `fallback_events_total` rate or sustained `circuit_open == 1`.
 
 ## 7. Resilience defaults
 
-`buildResilientRedisClientOptions` (`src/infrastructure/redis/redis_client_options.ts`)
+[buildResilientRedisClientOptions](../../src/infrastructure/redis/connection/redis_client_options.ts)
 sets `socket.connectTimeout` and a capped exponential `reconnectStrategy` on
 every client. Override per-deployment via:
 
