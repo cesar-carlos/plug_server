@@ -17,11 +17,14 @@ describe("connection_ready_handshake", () => {
     expect(env.socketConnectionReadyCompatMode).toBe("payload_frame");
     expect(CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-    const payload = buildConnectionReadyPayloadForWire({
-      id: "socket-1",
-      message: "ready",
-      user: null,
-    });
+    const payload = buildConnectionReadyPayloadForWire(
+      {
+        id: "socket-1",
+        message: "ready",
+        user: null,
+      },
+      { includeRelayBatchCapabilities: true },
+    );
 
     expect(isPayloadFrameEnvelope(payload)).toBe(true);
     const decoded = decodePayloadFrame(payload);
@@ -31,6 +34,12 @@ describe("connection_ready_handshake", () => {
         id: "socket-1",
         message: "ready",
         user: null,
+        relay: {
+          batch: {
+            enabled: env.socketRelayBatchEnabled,
+            maxItems: env.socketRelayBatchMaxItems,
+          },
+        },
       });
     }
   });
@@ -40,25 +49,53 @@ describe("connection_ready_handshake", () => {
     vi.doMock("../../../../../src/shared/config/env", () => ({
       env: {
         socketConnectionReadyCompatMode: "raw_json",
+        socketRelayBatchEnabled: false,
+        socketRelayBatchMaxItems: 32,
       },
     }));
 
     const mod =
       await import("../../../../../src/presentation/socket/hub/handshake/connection_ready_handshake");
-    const payload = mod.buildConnectionReadyPayloadForWire({
-      id: "socket-legacy",
-      message: "legacy",
-      user: null,
-    });
+    const payload = mod.buildConnectionReadyPayloadForWire(
+      {
+        id: "socket-legacy",
+        message: "legacy",
+        user: null,
+      },
+      { includeRelayBatchCapabilities: true },
+    );
 
     expect(payload).toEqual({
       id: "socket-legacy",
       message: "legacy",
       user: null,
+      relay: {
+        batch: {
+          enabled: false,
+          maxItems: 32,
+        },
+      },
     });
 
     vi.doUnmock("../../../../../src/shared/config/env");
     vi.resetModules();
+  });
+
+  it("keeps the agent namespace handshake shape unchanged", () => {
+    const wire = buildConnectionReadyPayloadForWire({
+      id: "agent-socket-1",
+      message: "ready",
+      user: null,
+    });
+    const decoded = decodePayloadFrame(wire);
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) {
+      expect(decoded.value.data).toEqual({
+        id: "agent-socket-1",
+        message: "ready",
+        user: null,
+      });
+    }
   });
 
   it("warns at boot when the legacy compat removal date has passed", () => {

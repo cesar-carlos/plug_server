@@ -64,7 +64,7 @@ Fases tipicas (apos o TCP/WebSocket do Socket.IO):
 
 1. **Middleware de namespace** (`/agents` ou `/consumers`): valida JWT, `role` e conta activa. Falhas aqui aparecem ao cliente como **`connect_error`** (nao chega `connection`).
 2. **Handler `connection`**: entra em salas de identidade (`agent:principal:{sub}` em `/agents` quando ha `sub`; em `/consumers` salas de principal, `client:{id}` e `consumer:client-agent:*` para agentes aprovados). Falha ao entrar nas salas → hub emite **`app:error`** (ex.: codigo `ROOM_JOIN_FAILED` em `/agents`, `CONSUMER_SOCKET_INITIALIZATION_FAILED` em `/consumers`) e **`disconnect`**.
-3. **`connection:ready`**: emitido **depois** das salas de identidade estarem aplicadas no mesmo processo; o payload e normalmente um **`PayloadFrame`** (ver `SOCKET_CONNECTION_READY_COMPAT_MODE` / `docs/socket/socket_relay_protocol.md`). O cliente deve tratar `connection:ready` como sinal de sessao pronta para o protocolo de aplicacao (`agent:register`, `agents:command`, `relay:*`, etc.).
+3. **`connection:ready`**: emitido **depois** das salas de identidade estarem aplicadas no mesmo processo; o payload e normalmente um **`PayloadFrame`** (ver `SOCKET_CONNECTION_READY_COMPAT_MODE` / `docs/socket/socket_relay_protocol.md`). O cliente deve tratar `connection:ready` como sinal de sessao pronta para o protocolo de aplicacao (`agent:register`, `agents:command`, `relay:*`, etc.). No namespace `/consumers`, `relay.batch.enabled` e `relay.batch.maxItems` no payload lógico anunciam a configuração efetiva da instância conectada.
 
 Outros **`app:error`** relevantes: ligacao ao namespace padrao `/` (codigo `NAMESPACE_DEPRECATED`) antes do disconnect.
 

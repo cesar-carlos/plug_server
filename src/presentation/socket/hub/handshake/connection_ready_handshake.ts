@@ -37,6 +37,25 @@ export type ConnectionReadyPayload = {
   readonly user: JwtAccessPayload | null;
 };
 
+type ConnectionReadyWirePayload = ConnectionReadyPayload & {
+  readonly relay: {
+    readonly batch: {
+      readonly enabled: boolean;
+      readonly maxItems: number;
+    };
+  };
+};
+
+const withRelayCapabilities = (payload: ConnectionReadyPayload): ConnectionReadyWirePayload => ({
+  ...payload,
+  relay: {
+    batch: {
+      enabled: env.socketRelayBatchEnabled,
+      maxItems: env.socketRelayBatchMaxItems,
+    },
+  },
+});
+
 /**
  * Transitional compatibility shim for the handshake contract.
  * Default/current mode is `PayloadFrame`; `raw_json` exists only for narrow, time-boxed migrations.
@@ -44,13 +63,24 @@ export type ConnectionReadyPayload = {
  */
 export const buildConnectionReadyPayloadForWire = (
   payload: ConnectionReadyPayload,
-): ConnectionReadyPayload | ReturnType<typeof encodePayloadFrameHotPath> => {
+  options: { readonly includeRelayBatchCapabilities?: boolean } = {},
+):
+  | ConnectionReadyPayload
+  | ConnectionReadyWirePayload
+  | ReturnType<typeof encodePayloadFrameHotPath> => {
+  const wirePayload = options.includeRelayBatchCapabilities
+    ? withRelayCapabilities(payload)
+    : payload;
   if (env.socketConnectionReadyCompatMode === "raw_json") {
-    return payload;
+    return wirePayload;
   }
-  return encodePayloadFrameHotPath(payload, { requestId: "handshake" });
+  return encodePayloadFrameHotPath(wirePayload, { requestId: "handshake" });
 };
 
-export const emitConnectionReady = (socket: Socket, payload: ConnectionReadyPayload): void => {
-  socket.emit(socketEvents.connectionReady, buildConnectionReadyPayloadForWire(payload));
+export const emitConnectionReady = (
+  socket: Socket,
+  payload: ConnectionReadyPayload,
+  options: { readonly includeRelayBatchCapabilities?: boolean } = {},
+): void => {
+  socket.emit(socketEvents.connectionReady, buildConnectionReadyPayloadForWire(payload, options));
 };

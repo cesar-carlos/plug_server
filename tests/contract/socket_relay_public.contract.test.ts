@@ -36,11 +36,14 @@ describe("socket relay public contract", () => {
   it("encodes `connection:ready` as PayloadFrame by default", () => {
     expect(CONNECTION_READY_LEGACY_COMPAT_REMOVE_AFTER).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-    const wire = buildConnectionReadyPayloadForWire({
-      id: "socket-123",
-      message: "ready",
-      user: null,
-    });
+    const wire = buildConnectionReadyPayloadForWire(
+      {
+        id: "socket-123",
+        message: "ready",
+        user: null,
+      },
+      { includeRelayBatchCapabilities: true },
+    );
 
     expect(isPayloadFrameEnvelope(wire)).toBe(true);
     const decoded = decodePayloadFrame(wire);
@@ -50,6 +53,12 @@ describe("socket relay public contract", () => {
         id: "socket-123",
         message: "ready",
         user: null,
+        relay: {
+          batch: {
+            enabled: expect.any(Boolean),
+            maxItems: expect.any(Number),
+          },
+        },
       });
     }
   });

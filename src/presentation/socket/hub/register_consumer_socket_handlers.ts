@@ -239,11 +239,15 @@ export const registerConsumerSocketConnectionHandlers = ({
       return;
     }
 
-    emitConnectionReady(socket, {
-      id: socket.id,
-      message: "Consumer socket connected successfully",
-      user: socket.data.user ?? null,
-    });
+    emitConnectionReady(
+      socket,
+      {
+        id: socket.id,
+        message: "Consumer socket connected successfully",
+        user: socket.data.user ?? null,
+      },
+      { includeRelayBatchCapabilities: true },
+    );
     consumerRegistry.registerSession({
       socketId: socket.id,
       userId: getUserId(socket),

@@ -55,9 +55,20 @@ endpoints REST de catalogo/acesso como fonte de verdade para estado completo.
 {
   "id": "<socket.id>",
   "message": "Consumer socket connected successfully",
-  "user": { "sub": "...", "role": "...", "iat": ..., "exp": ... }
+  "user": { "sub": "...", "role": "...", "iat": ..., "exp": ... },
+  "relay": {
+    "batch": {
+      "enabled": false,
+      "maxItems": 32
+    }
+  }
 }
 ```
+
+`relay.batch` anuncia a capacidade da instância conectada do hub. Clientes
+com batch relay automático devem usar relay unary quando `enabled` for `false`
+e limitar cada envelope a `maxItems`. Hubs antigos podem omitir `relay.batch`;
+nesse caso, o cliente deve manter fallback para relay unary.
 
 > **Nota:** o campo `requestId` no envelope `PayloadFrame` deste evento é o literal
 > `"handshake"` (não um UUID). Não use este valor para correlação de requisições normais.
@@ -593,7 +604,8 @@ payload (JSON):
   frame: PayloadFrame,                 // payload.data = JSON-RPC array (1..32 items)
   payloadFrameCompression?: "default" | "none" | "always",
   requestServerTimings?: boolean,
-  fastPath?: boolean
+  fastPath?: boolean,
+  timeoutMs?: number
 }
 ```
 
@@ -651,8 +663,9 @@ JSON-RPC body. A relacao `clientRequestId → requestId` para cada item esta
 
 ### Regras do contrato v1
 
-- **Cap de items**: 1..`SOCKET_RELAY_BATCH_MAX_ITEMS` (default `32`). Excede
-  retorna `BATCH_TOO_LARGE`.
+- **Cap de items**: 1..`SOCKET_RELAY_BATCH_MAX_ITEMS` (default `32`). O valor
+  atual é anunciado em `connection:ready.relay.batch.maxItems`. Excedê-lo
+  retorna `BATCH_TOO_LARGE` com `details.maxItems`.
 - **Cada item DEVE ter JSON-RPC** `id` (notifications NAO suportadas em v1).
   Faltando retorna `BATCH_ITEM_REQUIRES_ID`.
 - **IDs DEVEM ser unicos** dentro do batch. Duplicados retornam

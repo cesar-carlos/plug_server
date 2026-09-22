@@ -209,11 +209,12 @@ SHALL expose the following histograms on `/metrics`:
 The existing per-item phase metrics (encode, queue wait, etc.) continue to
 fire per item, so existing dashboards keep working.
 
-### 9. Configuration
+### 9. Configuration (historical)
 
 New env keys, default values aligned with `agents:command` batch:
 
-- `SOCKET_RELAY_BATCH_ENABLED` (default `false` until the feature ships)
+- `SOCKET_RELAY_BATCH_ENABLED` (default `false`; the feature shipped on
+  2026-05-28)
 - `SOCKET_RELAY_BATCH_MAX_ITEMS` (default `32`, mirrors
   `HUB_MAX_BATCH_SIZE`)
 
@@ -221,6 +222,10 @@ The dispatcher behind `relay:rpc.request.batch` checks
 `SOCKET_RELAY_BATCH_ENABLED`; when off, returns `success: false` with code
 `RELAY_BATCH_DISABLED` and a 503 retry hint. The single-request event
 `relay:rpc.request` is unaffected by this flag.
+
+The hub also advertises the effective `enabled` and
+`maxItems` values at `connection:ready.relay.batch`. The canonical relay
+protocol supersedes this historical section for client integration details.
 
 ## Consequences
 
