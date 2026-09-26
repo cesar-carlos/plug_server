@@ -306,4 +306,24 @@ describe("validateFrameSignature key_id enforcement (PAYLOAD_SIGNING_KEY_ID)", (
     );
     expect(first.signature?.value).toBe(second.signature?.value);
   });
+
+  it("keeps the same signature for a large frame that bypasses the canonical cache", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSigningKey: SIGNING_KEY,
+      payloadSignOutbound: true,
+    });
+    mod._resetSignatureInputCacheForTests();
+    const payload = { blob: "a".repeat(70_000) };
+    const options = {
+      omitTraceId: true,
+      requestId: "req-large",
+      compressionThreshold: Number.POSITIVE_INFINITY,
+    };
+    const first = mod.encodePayloadFrame(payload, options);
+    const second = mod.encodePayloadFrame(payload, options);
+    expect(first.compressedSize).toBeGreaterThan(64 * 1024);
+    expect(first.signature?.value).toBe(second.signature?.value);
+    const decoded = mod.decodePayloadFrame(first);
+    expect(decoded.ok).toBe(true);
+  });
 });

@@ -146,6 +146,26 @@ describe("agent_command contract (plug_agente compatibility)", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("should accept sql.cancel with the same client token aliases used by sql.execute", () => {
+    const payload = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        method: "sql.cancel",
+        id: "cancel-token",
+        params: {
+          request_id: "req-1",
+          client_token: "token-value",
+          clientToken: "token-value",
+          auth: "token-value",
+        },
+      },
+    };
+
+    const parsed = agentCommandBodySchema.safeParse(payload);
+    expect(parsed.success).toBe(true);
+  });
+
   it("should accept rpc.discover", () => {
     const payload = {
       agentId: "agent-01",

@@ -257,6 +257,10 @@ notifica o consumer **antes** de limpar rotas:
 No encerramento explicito (`consumer_ended`), o hub emite `relay:conversation.ended`
 ao consumer e tambem ao agente ligado, em modo best-effort.
 
+No disconnect e no reconnect L0 o agente invalida a geracao da sessao antes do
+novo `agent:register`. Respostas da sessao perdida nao sao reenviadas. O hub
+encerra o relay pendente com `AGENT_DISCONNECTED` e nao espera replay.
+
 `consumer_disconnected` é emitido ao **agente** (namespace `/agents`) quando o consumer
 desconecta enquanto a conversa está ativa. Não é enviado ao consumer como evento de retorno.
 SDKs de agente podem usar este valor para liberar recursos; não tratar como contrato público
@@ -267,7 +271,7 @@ para SDKs consumer.
 O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 `plug_agente/docs/communication/socket_communication_standard.md`.
 
-**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.bulkInsert`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `client_token.getPolicy`.
+**Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.bulkInsert`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `agent.action.run`, `agent.action.validateRun`, `agent.action.cancel`, `agent.action.getExecution`, `client_token.getPolicy`.
 
 **Opcoes relevantes em** `sql.execute`**:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`,
@@ -483,9 +487,11 @@ Regras do contrato:
 
 Sem cancelamento explicito: o relay nao possui evento `relay:rpc.cancel`.
 Cancelamento opera via desconexao do socket consumer (`abort` no inflight) ou
-via comando `sql.cancel` com o `stream_id` retornado para streams ativos.
-Nenhum dos dois depende do `requestId` ancorado por `relay:rpc.accepted`, entao
-`fastPath` nao afeta o cancelamento.
+via comando `sql.cancel` com `execution_id` ou `request_id` do trabalho SQL
+ativo (streaming, materializado, batch ou fila). Quando o agente exige client
+token, reenvie a mesma credencial (`client_token` / `clientToken` / `auth`).
+Nenhum dos dois caminhos depende do `requestId` ancorado por
+`relay:rpc.accepted`, entao `fastPath` nao afeta o cancelamento.
 
 ### Per-request timeout (`timeoutMs` no envelope)
 

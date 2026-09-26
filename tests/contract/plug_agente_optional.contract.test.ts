@@ -394,7 +394,11 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       params: bulkInsertParams,
     });
 
-    const cancelParams = { execution_id: "exec-1", request_id: "req-1" };
+    const cancelParams = {
+      execution_id: "exec-1",
+      request_id: "req-1",
+      client_token: "a1b2c3d4",
+    };
     expect(validateSqlCancelParams!(cancelParams)).toBe(true);
     assertZodAcceptsCommand({
       jsonrpc: "2.0",

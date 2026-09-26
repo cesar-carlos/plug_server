@@ -387,7 +387,7 @@ O limite HTTP total continua a ser `REQUEST_BODY_LIMIT`; estes tetos evitam carg
 | `execution_mode`      | string  | nao         | `managed` \| `preserve`            | Modo de tratamento da SQL. `managed` (default) permite reescrita gerenciada para paginacao. `preserve` executa a SQL exatamente como enviada, sem reescrita. Nao pode ser combinado com `page`, `page_size` ou `cursor` |
 | `preserve_sql`        | boolean | nao         | exclusivo com paginacao            | Alias legado para `execution_mode: "preserve"`. Nao pode ser combinado com `page`, `page_size` ou `cursor`                                                                                                              |
 | `multi_result`        | boolean | nao         | exclusivo com paginacao e `params` | Habilita retorno de multiplos result sets                                                                                                                                                                               |
-| `prefer_db_streaming` | boolean | nao         | preferencia apenas                 | Preferencia para streaming direto do banco em `SELECT` elegivel; o hub valida e repassa, e a decisao final fica no runtime do agente                                                                                    |
+| `prefer_db_streaming` | boolean | nao         | preferencia apenas                 | Preferencia para streaming direto do banco em `SELECT` elegivel; o hub valida e repassa, e a decisao final fica no runtime do agente. Sem este flag, um `SELECT` sem paginacao, cursor nem `multi_result` ainda pode ser promovido a chunks quando as linhas materializadas passam do menor entre 512 KiB e um quarto de `max_decoded_payload_bytes` |
 
 Regras de combinacao:
 
@@ -448,18 +448,77 @@ Executa multiplos comandos SQL em sequencia.
 
 ---
 
+### `sql.bulkInsert`
+
+Insert nativo ODBC para cargas grandes. O hub valida tetos de linhas
+(`AGENT_SQL_BULK_INSERT_MAX_ROWS`) e de JSON UTF-8
+(`AGENT_SQL_BULK_INSERT_MAX_JSON_BYTES`) antes do `PayloadFrame`.
+
+No agente, o caminho chunked `executeDirect` e atomico (begin/commit).
+Parallel/BCP nao entra quando a atomicidade e exigida. Falha nesse caminho
+pode deixar escrita parcial: inspecione a tabela antes de retentar. O hub
+nao reescreve o lote nem deduz atomicidade.
+
+---
+
 ### `sql.cancel`
 
-Cancela uma execucao em streaming ativa.
+Cancela trabalho SQL rastreado ainda ativo: streaming, execucao materializada,
+batch e trabalho enfileirado. Disponivel quando `enableSocketCancelMethod`
+esta ativo no agente. IDs desconhecidos continuam `-32109` /
+`execution_not_found`.
 
 #### `command.params`
 
-| Campo          | Tipo   | Obrigatorio | Descricao                                          |
-| -------------- | ------ | ----------- | -------------------------------------------------- |
-| `execution_id` | string | condicional | ID da execucao a cancelar (pelo menos um dos dois) |
-| `request_id`   | string | condicional | ID do request a cancelar (pelo menos um dos dois)  |
+| Campo          | Tipo   | Obrigatorio | Descricao                                                                                          |
+| -------------- | ------ | ----------- | -------------------------------------------------------------------------------------------------- |
+| `execution_id` | string | condicional | ID da execucao a cancelar (pelo menos um de `execution_id` ou `request_id`)                        |
+| `request_id`   | string | condicional | ID do request a cancelar (pelo menos um de `execution_id` ou `request_id`)                         |
+| `client_token` | string | condicional | Mesma credencial que iniciou a request quando `enableClientTokenAuthorization` esta ativo no agente |
+| `clientToken`  | string | condicional | Alias de `client_token`                                                                            |
+| `auth`         | string | condicional | Alias de `client_token`                                                                            |
 
-Nao requer token de autorizacao.
+O hub valida e encaminha o token. O agente associa a execucao ao hash SHA-256
+da credencial e nao guarda o segredo. Token divergente volta `-32002` /
+`unauthorized` com `error.data.subreason` `cancel_token_mismatch`. Com
+autorizacao por token ativa, execucao sem proprietario verificavel tambem nao
+cancela via RPC. O cancelamento interno por disconnect do socket continua
+best-effort no agente e nao passa por este gate.
+
+Um request pode ter varios handles ODBC (batch read-only paralelo). O
+cancelamento tenta todos os handles da request. Timeout, cancelamento ou
+handle incerto podem colocar o pool nativo do agente em quarentena; isso e
+interno do runtime e nao muda o envelope do hub.
+
+---
+
+### `agent.action.*`
+
+O bridge aceita `agent.action.run`, `agent.action.validateRun`,
+`agent.action.cancel` e `agent.action.getExecution` em REST, `agents:command`
+e relay. O hub valida o shape e repassa. A feature flag
+`enableRemoteAgentActions` e a admissao concreta ficam no agente.
+
+`capabilities.extensions.agentActions.supportedTypes` e uma fotografia dos
+adapters elegiveis para remoto (tipicamente `executable`, `script`, `jar`) e
+pode variar por instalacao. `commandLine` e somente local/manual e nao e
+anunciado como tipo remoto. `agent.action.validateRun` e a fonte de verdade
+para saber se uma acao concreta pode ser iniciada.
+
+| Metodo                      | Side effect | Params obrigatorios                         | Notas                                                                                                                                                                                                 |
+| --------------------------- | ----------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent.action.run`          | sim         | `action_id`, `idempotency_key`              | `trigger_id` opcional. Gatilho `remote` ausente ou ambiguo falha antes de consumir cota de rate limit                                                                                                 |
+| `agent.action.validateRun`  | nao         | `action_id`, `idempotency_key`              | Preflight sem persistir execucao nem iniciar processo. Mesmo gate de gatilho `remote`                                                                                                                 |
+| `agent.action.cancel`       | sim         | `execution_id`                              | No Windows, processo associado a Job Object e encerrado como arvore. Rate limit e auditoria usam `action_id` da execucao, nao `execution_id`                                                          |
+| `agent.action.getExecution` | nao         | `execution_id`                              | Leitura redigida. Paginacao UTF-8 de stdout/stderr via `stdout_offset`, `stderr_offset` e `max_output_bytes` (defeito 65536, teto 524288 por stream). Prefetch nao hidrata o output capturado          |
+
+Aliases `client_token` / `clientToken` / `auth` seguem a mesma regra dos
+metodos SQL quando `enableClientTokenAuthorization` esta ativo. Ausencia do
+token: `-32001` / `missing_client_token`. Feature desligada: `-32002` /
+`agent_actions_remote_disabled`. Rate limit: `-32013` /
+`agent_action_remote_rate_limited` com `retry_after_ms` (o hub propaga
+`Retry-After`). Detalhe normativo:
+`plug_agente/docs/communication/socket_agent_actions.md`.
 
 ---
 
@@ -470,7 +529,19 @@ Introspecao da **politica de autorizacao** ja resolvida para o token apresentado
 inclui identificadores, flags (`all_tables`, `all_views`,
 `global_permissions`, `all_permissions` legado derivado), regras por recurso,
 estado de revogacao e `payload` com metadados (valores sensiveis podem ser
-redigidos no agente).
+redigidos no agente). `all_permissions` e o acesso SQL global derivado, nao um
+bypass: `payload.database` continua exigindo o database correspondente, SQL
+sem recurso classificavel continua bloqueado, e `agent.action.*` exige os
+proprios escopos e allowlist.
+
+Mudanca efetiva de permissao SQL, `payload.database`, escopo de
+`agent.action.*` ou allowlist de `action_ids` rotaciona o token opaco no
+agente. O valor anterior deixa de autorizar. Campos de payload sem efeito
+autorizativo nao rotacionam a credencial.
+
+No transporte do agente, so `token_revoked` pede refresh da credencial do hub,
+uma vez por sessao. `authentication_failed` de client token e registado e nao
+renova o JWT do hub.
 
 Requer plug*agente com o metodo implementado (introduzido no perfil **2.7**). Com auth desativada no agente ou introspecao desativada
 (`enableClientTokenPolicyIntrospection`), o agente pode responder com erro
@@ -976,7 +1047,8 @@ operacao puder ser reentregue com um novo `command.id`.
     "method": "sql.cancel",
     "id": "cancel-001",
     "params": {
-      "execution_id": "exec-456"
+      "execution_id": "exec-456",
+      "client_token": "a1b2c3d4e5f6"
     }
   }
 }
@@ -1446,13 +1518,13 @@ Quando o agente retorna erro, `response.item.error` segue:
 | Codigo   | Descricao          | `reason`                                         | `retryable` |
 | -------- | ------------------ | ------------------------------------------------ | ----------- |
 | `-32001` | Authentication     | `authentication_failed` / `missing_client_token` | false       |
-| `-32002` | Unauthorized       | `unauthorized` / `token_revoked`                 | false       |
+| `-32002` | Unauthorized       | `unauthorized` / `token_revoked` / `agent_actions_remote_disabled`; `sql.cancel` com credencial divergente usa `unauthorized` e `data.subreason` `cancel_token_mismatch` | false       |
 | `-32008` | Timeout            | `timeout`                                        | true        |
 | `-32009` | Invalid payload    | `invalid_payload`                                | false       |
 | `-32010` | Decoding failed    | `decoding_failed`                                | false       |
 | `-32011` | Compression failed | `compression_failed`                             | false       |
 | `-32012` | Network error      | `network_error`                                  | true        |
-| `-32013` | Rate limit         | `rate_limited`                                   | false       |
+| `-32013` | Rate limit         | `rate_limited` / `client_token_get_policy_rate_limited` / `agent_action_remote_rate_limited` / `outbound_response_capacity_exceeded` | false       |
 | `-32014` | Replay detected    | `replay_detected`                                | false       |
 
 ### Dominio SQL
@@ -1476,6 +1548,10 @@ Quando o agente retorna erro, `response.item.error` segue:
 - Oferecer "Tentar novamente" quando `error.data.retryable` for `true`.
 - Registrar `error.data.correlation_id` nos logs para suporte.
 - Nunca exibir `technical_message` ou stack traces ao usuario.
+- `-32013` com `reason` `outbound_response_capacity_exceeded` significa que o
+  agente ja aceitou trabalho e segurou capacidade de resposta porque o hub
+  estava lento. A resposta ja aceita nao e descartada. Novas requests que
+  ainda nao iniciaram dispatch recebem o mesmo codigo. Nao reescreva o SQL.
 
 ---
 
@@ -1491,8 +1567,8 @@ deste arquivo e em `docs/socket/socket_relay_protocol.md`.
 | ---------------------------------------------------------------------- | -------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sql.execute`                                                          | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
 | `sql.executeBatch`                                                     | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
-| `sql.bulkInsert`                                                       | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
-| `sql.cancel`                                                           | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
+| `sql.bulkInsert`                                                       | implementado               | exposto           | chunked `executeDirect` no agente e atomico; falha parallel/BCP pode deixar escrita parcial — nao retentar sem inspecionar a tabela                                                                                                                                                                                     |
+| `sql.cancel`                                                           | implementado               | exposto           | hub aceita `client_token` / `clientToken` / `auth` e encaminha; ownership e `-32002` / `cancel_token_mismatch` sao do agente                                                                                                                                                                                            |
 | `rpc.discover`                                                         | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
 | `client_token.getPolicy`                                               | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
 | PayloadFrame encode/decode                                             | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                                       |
@@ -1517,13 +1593,13 @@ deste arquivo e em `docs/socket/socket_relay_protocol.md`.
 | `meta` na response (agent_id, timestamp)                               | implementado               | exposto           | serializer preserva `meta` do agente                                                                                                                                                                                                                                                                                    |
 | Batch max 32 itens                                                     | implementado               | validado          | servidor rejeita batches > 32 com 400                                                                                                                                                                                                                                                                                   |
 | Capacidade de pendencias REST                                          | implementado               | validado          | limite global (`SOCKET_REST_MAX_PENDING_REQUESTS`) + limite/fila por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `SOCKET_REST_AGENT_MAX_QUEUE`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`) com `Retry-After` em overload                                                                                                          |
-| Streaming chunked (`rpc:chunk`/`rpc:complete`)                         | implementado               | **materializado** | REST (`sql.execute` unico): hub faz pull interno, agrega linhas e devolve **uma** resposta HTTP (sem streaming progressivo). Socket /consumers continua com eventos em tempo real                                                                                                                                       |
+| Streaming chunked (`rpc:chunk`/`rpc:complete`)                         | implementado               | **materializado** | REST (`sql.execute` unico): hub faz pull interno, agrega linhas e devolve **uma** resposta HTTP (sem streaming progressivo). Um `SELECT` sem paginacao, cursor nem `multi_result` pode ser promovido a chunks no agente ao passar do menor entre 512 KiB e um quarto de `max_decoded_payload_bytes`. Socket /consumers continua com eventos em tempo real |
 | Backpressure (`rpc:stream.pull`)                                       | implementado               | **interno**       | REST nao expoe pull ao cliente; o hub emite `rpc:stream.pull` com janela base em `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, sempre limitada por `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` e pelo menor teto anunciado pelo agente. Controle fino permanece no Socket (`agents:stream_pull` / relay)                         |
 | Delivery guarantee (`rpc:request_ack`)                                 | implementado               | exposto           | hub registra ack e marca `acked`; se o ACK nao chega, reemite o mesmo frame apenas para requests elegiveis e idempotentes/seguras, limitado por `SOCKET_AGENT_ACK_*`                                                                                                                                                    |
 | Batch ack (`rpc:batch_ack`)                                            | implementado               | exposto           | hub registra acks para cada `request_id`; retry automatico de batch so ocorre quando todos os itens sao elegiveis, tem `id` e usam leitura segura ou `params.idempotency_key`                                                                                                                                           |
 | Notification JSON-RPC (`id: null`)                                     | implementado               | exposto           | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202                                                                                                                                                                                                                             |
 | Falha rapida em disconnect do agente                                   | implementado               | exposto           | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout; **novo** pedido REST com `id` correlacionavel contra agente catalogado sem socket devolve **200** + envelope normalizado `agent_offline` (`-32000`)                                                                           |
-| Heartbeat (`agent:heartbeat`)                                          | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                                       |
+| Heartbeat (`agent:heartbeat`)                                          | implementado               | transparente      | o hub espelha `trace_id` em `hub:heartbeat_ack`. O agente so reinicia liveness quando o `trace_id` e a epoca da sessao ativa coincidem; ACK atrasado, duplicado ou de sessao anterior e descartado                                                                                                                      |
 | Capabilities negotiation                                               | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                                       |
 
 ### Limitacoes intencionais do canal REST

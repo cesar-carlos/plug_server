@@ -13,6 +13,10 @@ import {
   payloadFrameEncodeOptionsFromPreference,
   preencodePayloadFrameJson,
 } from "../../../../src/shared/utils/payload_frame";
+import {
+  recordAutoGzipAttempt,
+  shouldSkipAutoGzip,
+} from "../../../../src/shared/utils/payload_frame_adaptive_compression";
 
 describe("payloadFrameEncodeOptionsFromPreference", () => {
   it("returns empty object for default and undefined", () => {
@@ -427,6 +431,98 @@ describe("encodePayloadFrameFromPreencodedWire", () => {
     expect(decoded.ok).toBe(true);
     if (decoded.ok) {
       expect(decoded.value.data).toEqual(data);
+    }
+  });
+});
+
+describe("auto gzip negative cache", () => {
+  const encodeOptions = {
+    compressionThreshold: 1024,
+    compressionPolicy: "auto" as const,
+    maxInflationRatio: Number.POSITIVE_INFINITY,
+    compressionCacheEvent: "sql.execute",
+  };
+
+  it("expires a skip after 30 seconds", () => {
+    recordAutoGzipAttempt("sql.execute", 5000, false, 1_000);
+    expect(shouldSkipAutoGzip("sql.execute", 5000, 1_000 + 29_000)).toBe(true);
+    expect(shouldSkipAutoGzip("sql.execute", 5000, 1_000 + 30_000)).toBe(false);
+  });
+
+  it("skips a later compressible payload in the same event and size tier after gzip did not shrink", () => {
+    const blocked = encodePayloadFrame(
+      { blob: "b".repeat(6000) },
+      {
+        ...encodeOptions,
+        maxInflationRatio: 0.001,
+      },
+    );
+    expect(blocked.cmp).toBe("none");
+
+    const second = encodePayloadFrame({ blob: "a".repeat(6000) }, encodeOptions);
+    expect(second.cmp).toBe("none");
+  });
+
+  it("still gzips the same size tier for a different event", () => {
+    encodePayloadFrame({ blob: "b".repeat(6000) }, { ...encodeOptions, maxInflationRatio: 0.001 });
+    const frame = encodePayloadFrame(
+      { blob: "a".repeat(6000) },
+      { ...encodeOptions, compressionCacheEvent: "rpc.discover" },
+    );
+    expect(frame.cmp).toBe("gzip");
+  });
+
+  it("does not consult the cache for explicit always_gzip", () => {
+    encodePayloadFrame({ blob: "b".repeat(6000) }, { ...encodeOptions, maxInflationRatio: 0.001 });
+    const frame = encodePayloadFrame(
+      { blob: "a".repeat(5000) },
+      {
+        ...encodeOptions,
+        compressionPolicy: "always_gzip",
+      },
+    );
+    expect(frame.cmp).toBe("gzip");
+  });
+});
+
+describe("bounded gzip decode", () => {
+  it("stops gunzip at the existing inflation cap", () => {
+    const raw = Buffer.alloc(200_000, 0x61);
+    const compressed = gzipSync(raw);
+    const frame = {
+      schemaVersion: "1.0",
+      enc: "json",
+      cmp: "gzip",
+      contentType: "application/json",
+      originalSize: raw.length,
+      compressedSize: compressed.length,
+      payload: compressed,
+    };
+
+    const syncResult = decodePayloadFrame(frame);
+    expect(syncResult.ok).toBe(false);
+    if (!syncResult.ok) {
+      expect(syncResult.error.message).toBe("PayloadFrame inflation ratio exceeds limit");
+    }
+  });
+
+  it("stops async gunzip at the same inflation cap", async () => {
+    const raw = Buffer.alloc(200_000, 0x61);
+    const compressed = gzipSync(raw);
+    const frame = {
+      schemaVersion: "1.0",
+      enc: "json",
+      cmp: "gzip",
+      contentType: "application/json",
+      originalSize: raw.length,
+      compressedSize: compressed.length,
+      payload: compressed,
+    };
+
+    const asyncResult = await decodePayloadFrameAsync(frame);
+    expect(asyncResult.ok).toBe(false);
+    if (!asyncResult.ok) {
+      expect(asyncResult.error.message).toBe("PayloadFrame inflation ratio exceeds limit");
     }
   });
 });

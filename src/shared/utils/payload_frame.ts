@@ -16,6 +16,7 @@ import {
   type PayloadFrameSignatureAcceptedKeyKind,
   type PayloadFrameSignatureRejectReason,
 } from "../metrics/payload_frame.metrics";
+import { recordAutoGzipAttempt, shouldSkipAutoGzip } from "./payload_frame_adaptive_compression";
 
 const defaultCompressionThreshold = HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES;
 
@@ -55,6 +56,11 @@ export interface PreencodePayloadFrameJsonOptions {
   readonly maxInflationRatio?: number;
   /** Override max UTF-8 length eligible for gzip attempt (default: `env.payloadFrameMaxGzipInputBytes`). */
   readonly maxGzipInputBytes?: number;
+  /**
+   * Event label for the auto-gzip negative cache. Content is never part of the key.
+   * Omitted callers share the `frame` tier.
+   */
+  readonly compressionCacheEvent?: string;
 }
 
 /**
@@ -236,7 +242,9 @@ const toSignatureEnvelope = (value: unknown): SignatureEnvelope | null => {
 };
 
 const SIGNATURE_INPUT_CACHE_MAX_ENTRIES = 512;
-const signatureInputCanonicalCache = new Map<string, string>();
+/** Skip the canonical-string cache for large frames: the lookup hashes the whole payload and the stored string keeps a base64 copy. */
+const SIGNATURE_INPUT_CACHE_MAX_PAYLOAD_BYTES = 64 * 1024;
+const signatureInputCanonicalCache = new Map<string, Buffer>();
 
 const buildSignatureInputCacheKey = (
   frame: PayloadFrameEnvelope,
@@ -259,16 +267,8 @@ export const _resetSignatureInputCacheForTests = (): void => {
   signatureInputCanonicalCache.clear();
 };
 
-const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer): Buffer => {
-  const cacheKey = buildSignatureInputCacheKey(frame, binaryPayload);
-  const cachedCanonical = signatureInputCanonicalCache.get(cacheKey);
-  if (cachedCanonical !== undefined) {
-    return Buffer.from(cachedCanonical, "utf8");
-  }
-
-  // Fixed key order matching alphabetical `canonicalJsonStringify` for this
-  // known shape — avoids Object.keys + localeCompare on every sign/verify.
-  const canonicalFrame = [
+const buildCanonicalSignatureFrame = (frame: PayloadFrameEnvelope, binaryPayload: Buffer): string =>
+  [
     "{",
     `"cmp":${JSON.stringify(frame.cmp)},`,
     `"compressedSize":${JSON.stringify(frame.compressedSize)},`,
@@ -282,6 +282,21 @@ const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer)
     "}",
   ].join("");
 
+const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer): Buffer => {
+  if (binaryPayload.length > SIGNATURE_INPUT_CACHE_MAX_PAYLOAD_BYTES) {
+    return Buffer.from(buildCanonicalSignatureFrame(frame, binaryPayload), "utf8");
+  }
+
+  const cacheKey = buildSignatureInputCacheKey(frame, binaryPayload);
+  const cachedCanonical = signatureInputCanonicalCache.get(cacheKey);
+  if (cachedCanonical !== undefined) {
+    return cachedCanonical;
+  }
+
+  // Fixed key order matching alphabetical `canonicalJsonStringify` for this
+  // known shape — avoids Object.keys + localeCompare on every sign/verify.
+  const canonicalFrame = Buffer.from(buildCanonicalSignatureFrame(frame, binaryPayload), "utf8");
+
   if (signatureInputCanonicalCache.size >= SIGNATURE_INPUT_CACHE_MAX_ENTRIES) {
     const oldestKey = signatureInputCanonicalCache.keys().next().value;
     if (oldestKey !== undefined) {
@@ -290,7 +305,7 @@ const buildSignatureInput = (frame: PayloadFrameEnvelope, binaryPayload: Buffer)
   }
   signatureInputCanonicalCache.set(cacheKey, canonicalFrame);
 
-  return Buffer.from(canonicalFrame, "utf8");
+  return canonicalFrame;
 };
 
 const signOutboundFrameIfConfigured = (
@@ -484,6 +499,42 @@ const normalizePreencodeOptions = (
   return options ?? {};
 };
 
+const uncompressedBody = (encoded: Buffer): PreencodedPayloadFrameBody => ({
+  originalSize: encoded.length,
+  wireBytes: encoded,
+  cmp: "none",
+});
+
+const finishAutoGzipBody = (
+  encoded: Buffer,
+  compressed: Buffer,
+  policy: PayloadFrameOutboundCompressionPolicy,
+  inflationRatioLimit: number,
+  minSavingsBytes: number,
+  opts: PreencodePayloadFrameJsonOptions,
+): PreencodedPayloadFrameBody => {
+  const inflationExceeded = exceedsMaxInflationRatio(
+    encoded.length,
+    compressed.length,
+    inflationRatioLimit,
+  );
+  if (policy === "auto") {
+    const reduced = !inflationExceeded && encoded.length - compressed.length >= minSavingsBytes;
+    recordAutoGzipAttempt(opts.compressionCacheEvent, encoded.length, reduced);
+    if (!reduced) {
+      return uncompressedBody(encoded);
+    }
+  } else if (inflationExceeded) {
+    return uncompressedBody(encoded);
+  }
+
+  return {
+    originalSize: encoded.length,
+    wireBytes: compressed,
+    cmp: "gzip",
+  };
+};
+
 const preencodeUtf8Buffer = (
   encoded: Buffer,
   opts: PreencodePayloadFrameJsonOptions,
@@ -503,38 +554,26 @@ const preencodeUtf8Buffer = (
     };
   }
 
-  const gzipLevel = env.payloadFrameGzipLevel;
-  const minSavingsBytes = env.payloadFrameAutoGzipMinSavingsBytes;
-  const compressed =
-    gzipLevel !== undefined ? gzipSync(encoded, { level: gzipLevel }) : gzipSync(encoded);
-  if (exceedsMaxInflationRatio(encoded.length, compressed.length, inflationRatioLimit)) {
+  if (policy === "auto" && shouldSkipAutoGzip(opts.compressionCacheEvent, encoded.length)) {
     return {
       originalSize: encoded.length,
       wireBytes: encoded,
       cmp: "none",
     };
   }
-  if (policy === "always_gzip") {
-    return {
-      originalSize: encoded.length,
-      wireBytes: compressed,
-      cmp: "gzip",
-    };
-  }
 
-  if (encoded.length - compressed.length >= minSavingsBytes) {
-    return {
-      originalSize: encoded.length,
-      wireBytes: compressed,
-      cmp: "gzip",
-    };
-  }
-
-  return {
-    originalSize: encoded.length,
-    wireBytes: encoded,
-    cmp: "none",
-  };
+  const gzipLevel = env.payloadFrameGzipLevel;
+  const minSavingsBytes = env.payloadFrameAutoGzipMinSavingsBytes;
+  const compressed =
+    gzipLevel !== undefined ? gzipSync(encoded, { level: gzipLevel }) : gzipSync(encoded);
+  return finishAutoGzipBody(
+    encoded,
+    compressed,
+    policy,
+    inflationRatioLimit,
+    minSavingsBytes,
+    opts,
+  );
 };
 
 const preencodeUtf8BufferAsync = async (
@@ -556,38 +595,26 @@ const preencodeUtf8BufferAsync = async (
     };
   }
 
-  const gzipLevel = env.payloadFrameGzipLevel;
-  const minSavingsBytes = env.payloadFrameAutoGzipMinSavingsBytes;
-  const zlibOpts = gzipLevel !== undefined ? { level: gzipLevel } : {};
-  const compressed = await gzipAsync(encoded, zlibOpts);
-  if (exceedsMaxInflationRatio(encoded.length, compressed.length, inflationRatioLimit)) {
+  if (policy === "auto" && shouldSkipAutoGzip(opts.compressionCacheEvent, encoded.length)) {
     return {
       originalSize: encoded.length,
       wireBytes: encoded,
       cmp: "none",
     };
   }
-  if (policy === "always_gzip") {
-    return {
-      originalSize: encoded.length,
-      wireBytes: compressed,
-      cmp: "gzip",
-    };
-  }
 
-  if (encoded.length - compressed.length >= minSavingsBytes) {
-    return {
-      originalSize: encoded.length,
-      wireBytes: compressed,
-      cmp: "gzip",
-    };
-  }
-
-  return {
-    originalSize: encoded.length,
-    wireBytes: encoded,
-    cmp: "none",
-  };
+  const gzipLevel = env.payloadFrameGzipLevel;
+  const minSavingsBytes = env.payloadFrameAutoGzipMinSavingsBytes;
+  const zlibOpts = gzipLevel !== undefined ? { level: gzipLevel } : {};
+  const compressed = await gzipAsync(encoded, zlibOpts);
+  return finishAutoGzipBody(
+    encoded,
+    compressed,
+    policy,
+    inflationRatioLimit,
+    minSavingsBytes,
+    opts,
+  );
 };
 
 export const preencodePayloadFrameJson = (
@@ -738,6 +765,8 @@ export type EncodePayloadFrameOptions = {
   readonly compressionPolicy?: PayloadFrameOutboundCompressionPolicy;
   readonly maxInflationRatio?: number;
   readonly maxGzipInputBytes?: number;
+  /** Event label for the auto-gzip negative cache. Not part of the wire frame. */
+  readonly compressionCacheEvent?: string;
   readonly requestId?: string;
   readonly traceId?: string;
   readonly omitTraceId?: boolean;
@@ -790,6 +819,9 @@ export const encodePayloadFrame = (
     ...(options?.maxGzipInputBytes !== undefined && {
       maxGzipInputBytes: options.maxGzipInputBytes,
     }),
+    ...(options?.compressionCacheEvent !== undefined && {
+      compressionCacheEvent: options.compressionCacheEvent,
+    }),
   });
   return finishPayloadFrameEnvelope(body, options);
 };
@@ -822,6 +854,9 @@ export const encodePayloadFrameBridge = async (
     }),
     ...(options?.maxGzipInputBytes !== undefined && {
       maxGzipInputBytes: options.maxGzipInputBytes,
+    }),
+    ...(options?.compressionCacheEvent !== undefined && {
+      compressionCacheEvent: options.compressionCacheEvent,
     }),
   };
 
@@ -912,15 +947,80 @@ const finalizeDecodedPayloadBytes = (
   }
 };
 
+const gzipOutputCap = (
+  originalSize: number,
+  compressedSize: number,
+): { readonly bytes: number; readonly message: string } => {
+  const ratioCap =
+    compressedSize <= 0 ? maxDecodedPayloadBytes : Math.floor(compressedSize * maxInflationRatio);
+  const decoded = {
+    bytes: maxDecodedPayloadBytes,
+    message: "PayloadFrame decoded payload exceeds limit",
+  };
+  const inflation = { bytes: ratioCap, message: "PayloadFrame inflation ratio exceeds limit" };
+  const original = { bytes: originalSize, message: "PayloadFrame original size mismatch" };
+  return [decoded, inflation, original].reduce((tightest, candidate) =>
+    candidate.bytes < tightest.bytes ? candidate : tightest,
+  );
+};
+
+const isGzipOutputCapError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as { code?: unknown }).code === "ERR_BUFFER_TOO_LARGE";
+
+const decompressGzipBounded = (binaryPayload: Buffer, originalSize: number): Result<Buffer> => {
+  const cap = gzipOutputCap(originalSize, binaryPayload.length);
+  if (cap.bytes < 1) {
+    try {
+      const decoded = gunzipSync(binaryPayload);
+      if (decoded.length > 0) {
+        return err(badRequest(cap.message));
+      }
+      return ok(decoded);
+    } catch {
+      return err(badRequest("Failed to decompress PayloadFrame payload"));
+    }
+  }
+
+  try {
+    return ok(gunzipSync(binaryPayload, { maxOutputLength: cap.bytes }));
+  } catch (error: unknown) {
+    if (isGzipOutputCapError(error)) {
+      return err(badRequest(cap.message));
+    }
+    return err(badRequest("Failed to decompress PayloadFrame payload"));
+  }
+};
+
+const decompressGzipBoundedAsync = async (
+  binaryPayload: Buffer,
+  originalSize: number,
+): Promise<Result<Buffer>> => {
+  const cap = gzipOutputCap(originalSize, binaryPayload.length);
+  if (cap.bytes < 1) {
+    return decompressGzipBounded(binaryPayload, originalSize);
+  }
+
+  try {
+    return ok(await gunzipAsync(binaryPayload, { maxOutputLength: cap.bytes }));
+  } catch (error: unknown) {
+    if (isGzipOutputCapError(error)) {
+      return err(badRequest(cap.message));
+    }
+    return err(badRequest("Failed to decompress PayloadFrame payload"));
+  }
+};
+
 const decompressPayloadFrameSync = (
   envelope: PayloadFrameEnvelope,
   binaryPayload: Buffer,
 ): Result<Buffer> => {
-  try {
-    return ok(envelope.cmp === "gzip" ? gunzipSync(binaryPayload) : binaryPayload);
-  } catch {
-    return err(badRequest("Failed to decompress PayloadFrame payload"));
+  if (envelope.cmp !== "gzip") {
+    return ok(binaryPayload);
   }
+  return decompressGzipBounded(binaryPayload, envelope.originalSize);
 };
 
 export const decodePayloadFrame = (payload: unknown): Result<DecodedPayloadFrame> => {
@@ -955,21 +1055,18 @@ export const decodePayloadFrameAsync = async (
 
   const { envelope, binaryPayload } = prep.value;
 
-  // Fast path: uncompressed frames need no gunzip — skip the try/catch and zlib branches.
   if (envelope.cmp !== "gzip") {
     return finalizeDecodedPayloadBytes(envelope, binaryPayload, binaryPayload);
   }
 
   const minAsync = env.payloadFrameAsyncGunzipMinCompressedBytes;
-  let decodedBytes: Buffer;
-  try {
-    decodedBytes =
-      minAsync > 0 && binaryPayload.length >= minAsync
-        ? await gunzipAsync(binaryPayload)
-        : gunzipSync(binaryPayload);
-  } catch {
-    return err(badRequest("Failed to decompress PayloadFrame payload"));
+  const decompressed =
+    minAsync > 0 && binaryPayload.length >= minAsync
+      ? await decompressGzipBoundedAsync(binaryPayload, envelope.originalSize)
+      : decompressGzipBounded(binaryPayload, envelope.originalSize);
+  if (!decompressed.ok) {
+    return decompressed;
   }
 
-  return finalizeDecodedPayloadBytes(envelope, binaryPayload, decodedBytes);
+  return finalizeDecodedPayloadBytes(envelope, binaryPayload, decompressed.value);
 };

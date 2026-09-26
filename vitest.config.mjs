@@ -10,6 +10,7 @@ export default defineConfig({
       "tests/setup/vitest.socket_consumer_roles.ts",
       "tests/setup/vitest.uploads_dir.ts",
       "tests/setup/vitest.prisma_test_cleanup.ts",
+      "tests/setup/vitest.payload_frame_compression_cache.ts",
     ],
     globals: true,
     environment: "node",

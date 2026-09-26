@@ -152,6 +152,10 @@ BULK_INSERT_COLUMNS_JSON='[{"name":"id","type":"i64"},{"name":"payload","type":"
 npm run load:socket-bridge
 ```
 
+O caminho chunked `executeDirect` do agente e atomico. Falha em parallel/BCP
+pode deixar escrita parcial. Use tabela descartavel e inspecione-a antes de
+repetir o mesmo lote.
+
 Para `client:custom.*`, `AGENT_ID` nao e necessario. Todos os sockets subscrevem
 `CUSTOM_EVENT_NAME`; cada job publica e espera `socket:event.published`:
 

@@ -7,7 +7,11 @@ import { defineConfig } from "vitest/config";
  */
 export default defineConfig({
   test: {
-    setupFiles: ["tests/setup/vitest.rate_limits.ts", "tests/setup/vitest.prisma_test_cleanup.ts"],
+    setupFiles: [
+      "tests/setup/vitest.rate_limits.ts",
+      "tests/setup/vitest.prisma_test_cleanup.ts",
+      "tests/setup/vitest.payload_frame_compression_cache.ts",
+    ],
     globals: true,
     environment: "node",
     root: ".",

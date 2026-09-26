@@ -6,6 +6,13 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Changed — alinhamento com o contrato do plug_agente (pos-2.11.2)
+
+- `sql.cancel` no bridge aceita `client_token`, `clientToken` e `auth` e encaminha a mesma credencial que iniciou o SQL. O agente cobre streaming, materializacao, batch e fila; token divergente volta `-32002` / `unauthorized` / `subreason` `cancel_token_mismatch`.
+- Documentacao do bridge, relay, SDK, overview, configuracao, carga e sync com o agente alinhada a `agent.action.*`, atomicidade de `sql.bulkInsert`, promocao de SELECT para chunks, heartbeat por `trace_id`, sessao perdida no reconnect e ingestao de `agent.autoUpdate.diagnostics.push` (notificacao no `/agents`, nao endpoint HTTP).
+- GZIP `auto` deixa de repetir a compressao quando a mesma faixa de tamanho de um evento nao encolhe (cache interna de 30s, sem o conteudo do payload). `always_gzip` nao usa essa cache. O gunzip para no menor teto que o contrato ja tinha (`originalSize`, 10 MiB, razao de inflacao), em vez de expandir o frame inteiro antes de recusar.
+- Assinatura HMAC de `PayloadFrame` deixa de guardar o JSON canonico de frames acima de 64 KiB. O valor da assinatura nao muda; frames grandes deixam de pagar um SHA-256 extra so para a chave da cache.
+
 ### Added — contrato REST para o MCP
 
 - Gerador determinístico `scripts/generate-plug-mcp-contract.ts` e artefato versionado `contracts/plug-mcp-rest-v1.json`, derivado do OpenAPI público.

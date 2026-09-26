@@ -640,11 +640,15 @@ O ownership oficial do agente nasce em `agent:register`, depois de um `agent-log
 
 ## Auto-update diagnostics do agente (`AGENT_AUTO_UPDATE_DIAGNOSTICS_*`)
 
-Feature opt-in para receber e persistir diagnósticos de auto-atualização do agente via RPC. Desabilitada por defeito; use apenas em ambientes onde o agente envia eventos de diagnóstico de versao.
+Ingestao opt-in da notificacao JSON-RPC `agent.autoUpdate.diagnostics.push`
+no namespace `/agents` (`rpc:request` em `PayloadFrame`, sem `id`). Nao e
+endpoint HTTP e nao entra no bridge do consumer nem em `rpc.discover`.
+Desabilitada por defeito. O metodo ainda nao faz parte do OpenRPC publicado
+pelo agente; o hub ja aceita a notificacao quando a flag esta ligada.
 
 | Variavel                                                   | Defeito          | Notas                                                    |
 | ---------------------------------------------------------- | ---------------- | -------------------------------------------------------- |
-| `AGENT_AUTO_UPDATE_DIAGNOSTICS_ENABLED`                    | `false`          | Liga o endpoint de ingestao de diagnósticos.             |
+| `AGENT_AUTO_UPDATE_DIAGNOSTICS_ENABLED`                    | `false`          | Liga a ingestao da notificacao no `/agents`.             |
 | `AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_WINDOW_MS`       | `60000`          | Janela do rate limit por agente.                         |
 | `AGENT_AUTO_UPDATE_DIAGNOSTICS_RATE_LIMIT_MAX`             | `1`              | Maximo de diagnosticos por janela por agente.            |
 | `AGENT_AUTO_UPDATE_DIAGNOSTICS_RETENTION_DAYS`             | `90`             | Retencao em dias dos registos na BD.                     |

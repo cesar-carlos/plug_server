@@ -238,9 +238,14 @@ export const bridgeSchemas = {
   },
   SqlCancelParams: {
     type: "object",
+    description:
+      "Cancels tracked SQL work (streaming, materialized, batched, or queued). When the agent has client-token authorization enabled, resend the same client_token, clientToken, or auth that started the request. A mismatch is an agent-side -32002 / unauthorized / subreason cancel_token_mismatch.",
     properties: {
       execution_id: { type: "string", minLength: 1 },
       request_id: { type: "string", minLength: 1 },
+      client_token: { type: "string", minLength: 1 },
+      clientToken: { type: "string", minLength: 1 },
+      auth: { type: "string", minLength: 1 },
     },
     anyOf: [{ required: ["execution_id"] }, { required: ["request_id"] }],
     additionalProperties: false,

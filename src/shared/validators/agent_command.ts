@@ -290,6 +290,8 @@ const sqlCancelParamsSchema = z
     execution_id: nonEmptyStringSchema.optional(),
     request_id: nonEmptyStringSchema.optional(),
   })
+  .merge(tokenCarrierSchema)
+  .strict()
   .superRefine((value, ctx) => {
     const hasExecutionId = value.execution_id !== undefined;
     const hasRequestId = value.request_id !== undefined;
@@ -301,8 +303,7 @@ const sqlCancelParamsSchema = z
         message: "Provide at least one of `execution_id` or `request_id`",
       });
     }
-  })
-  .strict();
+  });
 
 const sqlExecuteCommandSchema = z
   .object({

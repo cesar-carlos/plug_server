@@ -267,7 +267,7 @@ agentsRouter.patch(
  *                     options:
  *                       execution_mode: "preserve"
  *             sqlCancel:
- *               summary: sql.cancel by execution_id or request_id
+ *               summary: sql.cancel by execution_id or request_id, with the same client token that started the SQL
  *               value:
  *                 agentId: "3183a9f2-429b-46d6-a339-3580e5e5cb31"
  *                 command:
@@ -277,6 +277,7 @@ agentsRouter.patch(
  *                   params:
  *                     execution_id: "exec-456"
  *                     request_id: "stream-req-1"
+ *                     client_token: "token-value"
  *             rpcDiscover:
  *               summary: rpc.discover (OpenRPC catalog from agent)
  *               value:

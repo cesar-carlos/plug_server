@@ -110,11 +110,20 @@ namespace `/agents`, incluindo:
 | `agent:session.superseded`          | hub -> agente (socket substituido) | **JSON puro** quando a sessao e substituida (`takeover_disconnect_previous` ou `legacy_silent_takeover`); antecede `disconnect` da sessao antiga                                                                                                                                              |
 | `agent:capabilities`                | hub -> agente                      | Inclui `extensions.recommendedStreamPullWindowSize` / `maxStreamPullWindowSize` para calibrar pulls; o hub tambem aplica `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` como teto final                                                                                   |
 | `agent:ready`                       | agente -> hub                      | Opcional, quando o agente anuncia `extensions.protocolReadyAck`; payload completo `{ agent_id, timestamp, protocol }`. Compat legado aceita apenas `{ agent_id }` sem `timestamp/protocol`; payload parcial e rejeitado.                                             |
-| `agent:heartbeat`                   | agente -> hub                      | Periodico; `hub:heartbeat_ack` confirma. Com `protocolReadyAck`, o heartbeat **nao** marca protocol ready — so `agent:ready` o faz.                                                                                                                                                              |
+| `agent:heartbeat`                   | agente -> hub                      | Periodico; `hub:heartbeat_ack` espelha `trace_id`. O agente so conta o ACK se o `trace_id` e a epoca da sessao ativa coincidirem. Com `protocolReadyAck`, o heartbeat **nao** marca protocol ready — so `agent:ready` o faz. |
 | `rpc:request` / `rpc:response`      | bidirecional                       | Comando JSON-RPC 2.0 em `PayloadFrame`                                                                                                                                                                                                                               |
 | `rpc:request_ack` / `rpc:batch_ack` | agente -> hub                      | Confirmacao de recebimento; com `SOCKET_AGENT_ACK_*` o hub pode reemitir `rpc:request` elegivel (idempotente / SQL read-safe) ate `SOCKET_AGENT_ACK_MAX_RETRIES`                                                                                                                              |
 | `rpc:chunk` / `rpc:complete`        | agente -> hub                      | Streaming de resultado (`terminal_status: aborted`/`error` em encerramento anormal)                                                                                                                                                                                  |
 | `rpc:stream.pull`                   | hub -> agente                      | Backpressure (`window_size` limitado pelo teto global do hub e por hints de capabilities do agente)                                                                                                                                                                  |
+
+Notificacao `agent.autoUpdate.diagnostics.push` chega no mesmo `rpc:request`
+(`/agents`, `PayloadFrame`, sem `id`). So e persistida quando
+`AGENT_AUTO_UPDATE_DIAGNOSTICS_ENABLED=true`. Nao entra em `rpc.discover` nem
+no bridge do consumer. Ver `docs/configuration.md`.
+
+No disconnect e no reconnect L0 o agente descarta capabilities, ACKs e trabalho
+pendente da geracao anterior. Respostas da sessao perdida nao sao reenviadas;
+o hub encerra pendencias REST com 503 e relay com `AGENT_DISCONNECTED`.
 
 ## Fluxo resumido
 
