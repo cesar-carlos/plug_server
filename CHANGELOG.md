@@ -6,6 +6,11 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Changed — docs de coordenacao com o plug_agente
+
+- `docs/plug_agente/03_performance_roadmap.md` voltou a ser arquivo curto. O passo a passo dos itens 1–9 saiu: duplicava o ledger e citava codigo e changelog defasados.
+- Extensoes de transporte documentadas como ADR 0009 / 0011 / 0012. ADR 0010 continua sendo presenca Redis.
+
 ### Changed — alinhamento com o contrato do plug_agente (pos-2.11.2)
 
 - `sql.cancel` no bridge aceita `client_token`, `clientToken` e `auth` e encaminha a mesma credencial que iniciou o SQL. O agente cobre streaming, materializacao, batch e fila; token divergente volta `-32002` / `unauthorized` / `subreason` `cancel_token_mismatch`.

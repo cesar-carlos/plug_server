@@ -7,8 +7,10 @@
 > **Demanda Colmeia:** docs do cliente em `docs/server_adjustments/`
 > (relay batch, fast-path, agents:command hang, phase diagnostics).
 >
-> **Estado (2026-07):** itens Colmeia 1–4 e roadmap 1–9 **shipped**. Aberto:
-> item 10 (brotli). Hub H1–H12 shipped (H12 = hot path 2026-08). Ver `CHANGELOG.md`.
+> **Estado:** itens Colmeia 1–4 e roadmap 1–9 **shipped**. Aberto: item 10
+> (brotli). Hub H1–H12 shipped. Alinhamento de contrato mais recente:
+> [`communication_sync_plug_agente.md`](communication_sync_plug_agente.md).
+> Extensoes de transporte: ADR 0009 / 0011 / 0012 (ADR 0010 e presenca Redis).
 
 ## Quatro itens Colmeia
 
@@ -44,7 +46,7 @@ Detalhe historico do roadmap: [`03_performance_roadmap.md`](03_performance_roadm
 - [`socket_relay_protocol.md`](../socket/socket_relay_protocol.md) — `relay:*`
 - [`api_rest_bridge.md`](../api/api_rest_bridge.md) — REST + `agents:*`
 - [`docs/adrs/`](../adrs/) — 0008 batch, 0009 echo, 0011 health, 0012 phases
-- Repo agente (checkout lado-a-lado): `../plug_agente/docs/communication/`
+- Repo agente (checkout lado a lado): `../../../plug_agente/docs/communication/`
 
 ## Politica
 
