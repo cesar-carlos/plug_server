@@ -27,6 +27,7 @@ const buildDeps = (
     removeIfSocketMatches: vi.fn(),
     removeIfHubInstanceMatches: vi.fn(),
     resolveRoute: vi.fn().mockResolvedValue({ hubInstanceId: "hub-remote" }),
+    resolveRoutes: vi.fn(async () => new Map()),
   },
   isAgentRegisteredLocally: vi.fn().mockReturnValue(false),
   hasKnownAgentId: vi.fn().mockReturnValue(true),
@@ -122,6 +123,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
           removeIfSocketMatches: vi.fn(),
           removeIfHubInstanceMatches: vi.fn(),
           resolveRoute: vi.fn().mockResolvedValue(null),
+          resolveRoutes: vi.fn(async () => new Map()),
         },
         hasKnownAgentId: vi.fn().mockReturnValue(true),
       }),
@@ -148,6 +150,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
         removeIfSocketMatches: vi.fn(),
         removeIfHubInstanceMatches: vi.fn(),
         resolveRoute,
+        resolveRoutes: vi.fn(async () => new Map()),
       },
       isAgentRegisteredLocally: vi.fn().mockReturnValue(false),
     });
@@ -176,6 +179,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
           removeIfSocketMatches: vi.fn(),
           removeIfHubInstanceMatches: vi.fn(),
           resolveRoute,
+          resolveRoutes: vi.fn(async () => new Map()),
         },
         isAgentRegisteredLocally: vi.fn().mockReturnValue(false),
         hasKnownAgentId: vi.fn().mockReturnValue(true),
@@ -200,6 +204,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
         removeIfSocketMatches: vi.fn(),
         removeIfHubInstanceMatches: vi.fn(),
         resolveRoute: vi.fn().mockResolvedValue(null),
+        resolveRoutes: vi.fn(async () => new Map()),
       },
     });
     const dispatch = createDispatchOrForwardRpcCommand(deps);
@@ -224,6 +229,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
           removeIfSocketMatches: vi.fn(),
           removeIfHubInstanceMatches: vi.fn(),
           resolveRoute: vi.fn().mockResolvedValue(null),
+          resolveRoutes: vi.fn(async () => new Map()),
         },
         hasKnownAgentId: vi.fn().mockReturnValue(false),
       }),

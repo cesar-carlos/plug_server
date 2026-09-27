@@ -27,6 +27,7 @@ export const resolveClusterHubConnectedAgentIds = async (
   agentIds: readonly string[],
 ): Promise<ReadonlySet<string>> => {
   const connected = new Set<string>();
+  const remoteIds: string[] = [];
   const presence = getAgentHubPresencePort();
   for (const agentId of agentIds) {
     if (agentRegistry.isRegistered(agentId)) {
@@ -34,6 +35,21 @@ export const resolveClusterHubConnectedAgentIds = async (
       continue;
     }
     if (presence.isEnabled) {
+      remoteIds.push(agentId);
+    }
+  }
+  if (remoteIds.length === 0) {
+    return connected;
+  }
+  try {
+    const routes = await presence.resolveRoutes(remoteIds);
+    for (const agentId of remoteIds) {
+      if (routes.get(agentId) !== undefined) {
+        connected.add(agentId);
+      }
+    }
+  } catch {
+    for (const agentId of remoteIds) {
       const route = await presence.resolveRoute(agentId);
       if (route !== null) {
         connected.add(agentId);

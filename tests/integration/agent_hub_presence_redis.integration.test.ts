@@ -61,4 +61,23 @@ describe("agent hub presence redis (integration)", () => {
     await presence.removeIfSocketMatches(agentId, "socket-1");
     expect(await presence.resolveRoute(agentId)).toBeNull();
   });
+
+  it("resolves many routes with a single batched lookup", async (ctx) => {
+    assertInfrastructureOrSkip(ctx, infrastructureProbe);
+    const presence = getAgentHubPresencePort();
+    const ids = ["00000000-0000-4000-8000-00000000c101", "00000000-0000-4000-8000-00000000c102"];
+    for (const agentId of ids) {
+      await presence.upsert(agentId, {
+        hubInstanceId: "hub-presence-itest",
+        socketId: `socket-${agentId.slice(-4)}`,
+        connectedAtMs: Date.now(),
+      });
+    }
+    const routes = await presence.resolveRoutes(ids);
+    expect(routes.size).toBe(2);
+    for (const agentId of ids) {
+      expect(routes.get(agentId)).toEqual({ hubInstanceId: "hub-presence-itest" });
+      await presence.removeIfSocketMatches(agentId, `socket-${agentId.slice(-4)}`);
+    }
+  });
 });

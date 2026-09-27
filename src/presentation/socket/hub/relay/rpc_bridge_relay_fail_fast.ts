@@ -134,18 +134,22 @@ export const createRelayFailFastEmitters = (deps: {
     if (bodyId !== requestId) {
       noteRelayBodyIdEcho();
     }
-    enqueueRelayOutbound(requestId, async () => {
-      const frame = await encodeRelayOutboundFrame(
-        createRelayUnexpectedFailurePayload(bodyId, reasonMessage),
-        requestId,
-      );
-      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
-      const existingStream = getActiveStreamRouteByRequestId(requestId);
-      if (existingStream && existingStream.agentSocketId === socketId) {
-        removeActiveStreamRoute(existingStream);
-      }
-      removeRelayRequestRoute(requestId);
-    });
+    enqueueRelayOutbound(
+      requestId,
+      async () => {
+        const frame = await encodeRelayOutboundFrame(
+          createRelayUnexpectedFailurePayload(bodyId, reasonMessage),
+          requestId,
+        );
+        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+        const existingStream = getActiveStreamRouteByRequestId(requestId);
+        if (existingStream && existingStream.agentSocketId === socketId) {
+          removeActiveStreamRoute(existingStream);
+        }
+        removeRelayRequestRoute(requestId);
+      },
+      { consumerSocketId: relayRoute.consumerSocketId, priority: "control" },
+    );
   };
 
   const failFastInvalidAgentResponseFrame = (
@@ -191,18 +195,22 @@ export const createRelayFailFastEmitters = (deps: {
     if (bodyId !== requestId) {
       noteRelayBodyIdEcho();
     }
-    enqueueRelayOutbound(requestId, async () => {
-      const frame = await encodeRelayOutboundFrame(
-        createRelayDecodeFailurePayload(requestId, reasonMessage, bodyId),
-        requestId,
-      );
-      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
-      const existingStream = getActiveStreamRouteByRequestId(requestId);
-      if (existingStream && existingStream.agentSocketId === socketId) {
-        removeActiveStreamRoute(existingStream);
-      }
-      removeRelayRequestRoute(requestId);
-    });
+    enqueueRelayOutbound(
+      requestId,
+      async () => {
+        const frame = await encodeRelayOutboundFrame(
+          createRelayDecodeFailurePayload(requestId, reasonMessage, bodyId),
+          requestId,
+        );
+        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+        const existingStream = getActiveStreamRouteByRequestId(requestId);
+        if (existingStream && existingStream.agentSocketId === socketId) {
+          removeActiveStreamRoute(existingStream);
+        }
+        removeRelayRequestRoute(requestId);
+      },
+      { consumerSocketId: relayRoute.consumerSocketId, priority: "control" },
+    );
   };
 
   const emitRelayTerminalFailure = (
@@ -219,7 +227,7 @@ export const createRelayFailFastEmitters = (deps: {
     // relay stream emits chunks the RelayRequestRoute is already settled (the
     // route was settled in forwardRelayRouteResponse when the stream opened).
     // emitRelayTerminalFailure emits relay:rpc.complete, not relay:rpc.response,
-    // so the settled flag does not apply. The ordered inbound queue and the
+    // so the settled flag does not apply. The inbound sequencer and the
     // ActiveStreamRoute registry prevent duplicate stream-terminal emissions.
 
     relayMetrics.streamTerminalCompletions += 1;
@@ -228,39 +236,43 @@ export const createRelayFailFastEmitters = (deps: {
       httpStatus: 503,
       errorCode: "AGENT_STREAM_FRAME_DECODE_FAILED",
     });
-    enqueueRelayOutbound(route.requestId, async () => {
-      try {
-        const terminalPayload: Record<string, unknown> = {
-          request_id: route.requestId,
-          total_rows: getRelayStreamForwardedRows(route.requestId),
-          terminal_status: "error",
-          ...(route.streamId ? { stream_id: route.streamId } : {}),
-        };
-        const frame = await encodeRelayOutboundFrame(terminalPayload, route.requestId);
-        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcComplete, frame);
-        void recordSocketAuditEvent({
-          eventType: socketEvents.relayRpcComplete,
-          actorSocketId: socketId,
-          direction: "agent_to_consumer",
-          conversationId: relayRoute.conversationId,
-          agentId: relayRoute.agentId,
-          requestId: route.requestId,
-          ...(route.streamId ? { streamId: route.streamId } : {}),
-        });
-      } finally {
-        const existingStream = getActiveStreamRouteByRequestId(route.requestId);
-        if (existingStream && existingStream.agentSocketId === socketId) {
-          removeActiveStreamRoute(existingStream);
+    enqueueRelayOutbound(
+      route.requestId,
+      async () => {
+        try {
+          const terminalPayload: Record<string, unknown> = {
+            request_id: route.requestId,
+            total_rows: getRelayStreamForwardedRows(route.requestId),
+            terminal_status: "error",
+            ...(route.streamId ? { stream_id: route.streamId } : {}),
+          };
+          const frame = await encodeRelayOutboundFrame(terminalPayload, route.requestId);
+          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcComplete, frame);
+          void recordSocketAuditEvent({
+            eventType: socketEvents.relayRpcComplete,
+            actorSocketId: socketId,
+            direction: "agent_to_consumer",
+            conversationId: relayRoute.conversationId,
+            agentId: relayRoute.agentId,
+            requestId: route.requestId,
+            ...(route.streamId ? { streamId: route.streamId } : {}),
+          });
+        } finally {
+          const existingStream = getActiveStreamRouteByRequestId(route.requestId);
+          if (existingStream && existingStream.agentSocketId === socketId) {
+            removeActiveStreamRoute(existingStream);
+          }
+          removeRelayRequestRoute(route.requestId);
+          logger.warn("relay_stream_failed_fast", {
+            requestId: route.requestId,
+            conversationId: relayRoute.conversationId,
+            socketId,
+            reason: reasonMessage,
+          });
         }
-        removeRelayRequestRoute(route.requestId);
-        logger.warn("relay_stream_failed_fast", {
-          requestId: route.requestId,
-          conversationId: relayRoute.conversationId,
-          socketId,
-          reason: reasonMessage,
-        });
-      }
-    });
+      },
+      { consumerSocketId: relayRoute.consumerSocketId, priority: "control" },
+    );
   };
 
   const failFastInvalidAgentStreamFrame = (

@@ -35,6 +35,7 @@ import {
   handleRelayRpcStreamPull,
   parseRelayRpcStreamPullEnvelope,
 } from "../consumers/relay_rpc_stream_pull.handler";
+import { env } from "../../../shared/config/env";
 import { observeRelayOverloadCheck } from "./relay/bridge_relay_health_metrics";
 import { emitConnectionReady } from "./handshake/connection_ready_handshake";
 import { conversationRegistry } from "./registries/conversation_registry";
@@ -69,6 +70,7 @@ import {
   unregisterConsumerBridgeSocket,
 } from "./relay/rpc_bridge";
 import {
+  admitRelayOutboundConsumerWork,
   getRelayOutboundQueueOverloadState,
   noteRelayOutboundQueueOverloadRejected,
 } from "./relay/relay_outbound_queue";
@@ -113,6 +115,34 @@ const buildConsumerOverloadError = (
   statusCode: 503,
   retryAfterMs,
 });
+
+const resolveConsumerOutboundBlock = (
+  socket: ConsumerHubSocket,
+): { readonly retryAfterMs: number; readonly reason: string } | null => {
+  const overload = getRelayOutboundQueueOverloadState();
+  if (overload.overloaded) {
+    noteRelayOutboundQueueOverloadRejected();
+    return {
+      retryAfterMs: overload.retryAfterMs,
+      reason: overload.reason ?? "relay_outbound_queue",
+    };
+  }
+  const bytes = admitRelayOutboundConsumerWork(socket.id);
+  if (bytes === "ok") {
+    return null;
+  }
+  if (bytes === "hard") {
+    if (env.socketRelayOutboundHardLimitAction === "disconnect_consumer") {
+      socket.disconnect(true);
+    } else {
+      cleanupConsumerStreamSubscriptions(socket.id);
+    }
+  }
+  return {
+    retryAfterMs: Math.max(250, overload.retryAfterMs),
+    reason: bytes === "hard" ? "outbound_bytes_hard" : "outbound_bytes",
+  };
+};
 
 const extractRelayEnvelopeConversationId = (rawPayload: unknown): string | undefined => {
   if (typeof rawPayload !== "object" || rawPayload === null) {
@@ -267,19 +297,15 @@ export const registerConsumerSocketConnectionHandlers = ({
     socket.on(socketEvents.agentsCommand, (rawPayload: unknown) => {
       void (async (): Promise<void> => {
         const tOverload = performance.now();
-        const overload = getRelayOutboundQueueOverloadState();
+        const blocked = resolveConsumerOutboundBlock(socket);
         observeRelayOverloadCheck(performance.now() - tOverload);
-        if (overload.overloaded) {
-          noteRelayOutboundQueueOverloadRejected();
+        if (blocked) {
           const requestId = extractAgentsCommandRequestId(rawPayload);
           const wire = await buildAgentsCommandResponseForWire(
             {
               success: false,
               ...(requestId !== undefined ? { requestId } : {}),
-              error: buildConsumerOverloadError(
-                overload.retryAfterMs,
-                overload.reason ?? "relay_outbound_queue",
-              ),
+              error: buildConsumerOverloadError(blocked.retryAfterMs, blocked.reason),
             },
             { ...(requestId !== undefined ? { requestId } : {}) },
           );
@@ -300,20 +326,16 @@ export const registerConsumerSocketConnectionHandlers = ({
 
     socket.on(socketEvents.agentsStreamPull, (rawPayload: unknown) => {
       const tOverload = performance.now();
-      const overload = getRelayOutboundQueueOverloadState();
+      const blocked = resolveConsumerOutboundBlock(socket);
       observeRelayOverloadCheck(performance.now() - tOverload);
-      if (overload.overloaded) {
-        noteRelayOutboundQueueOverloadRejected();
+      if (blocked) {
         const requestId = extractAgentsStreamPullRequestId(rawPayload);
         socket.emit(
           socketEvents.agentsStreamPullResponse,
           buildAgentsStreamPullResponseForWire(
             {
               success: false,
-              error: buildConsumerOverloadError(
-                overload.retryAfterMs,
-                overload.reason ?? "relay_outbound_queue",
-              ),
+              error: buildConsumerOverloadError(blocked.retryAfterMs, blocked.reason),
             },
             { ...(requestId !== undefined ? { requestId } : {}) },
           ),
@@ -334,17 +356,13 @@ export const registerConsumerSocketConnectionHandlers = ({
       void (async (): Promise<void> => {
         const requestId = extractRelayConversationStartRequestId(rawPayload);
         const tOverload = performance.now();
-        const overload = getRelayOutboundQueueOverloadState();
+        const blocked = resolveConsumerOutboundBlock(socket);
         observeRelayOverloadCheck(performance.now() - tOverload);
-        if (overload.overloaded) {
-          noteRelayOutboundQueueOverloadRejected();
+        if (blocked) {
           socket.emit(socketEvents.relayConversationStarted, {
             success: false,
             ...(requestId !== undefined ? { requestId } : {}),
-            error: buildConsumerOverloadError(
-              overload.retryAfterMs,
-              overload.reason ?? "relay_outbound_queue",
-            ),
+            error: buildConsumerOverloadError(blocked.retryAfterMs, blocked.reason),
           });
           return;
         }
@@ -407,18 +425,14 @@ export const registerConsumerSocketConnectionHandlers = ({
     socket.on(socketEvents.relayRpcRequest, (rawPayload: unknown) => {
       void (async (): Promise<void> => {
         const tOverload = performance.now();
-        const overload = getRelayOutboundQueueOverloadState();
+        const blocked = resolveConsumerOutboundBlock(socket);
         observeRelayOverloadCheck(performance.now() - tOverload);
-        if (overload.overloaded) {
-          noteRelayOutboundQueueOverloadRejected();
+        if (blocked) {
           const conversationId = extractRelayEnvelopeConversationId(rawPayload);
           socket.emit(socketEvents.relayRpcAccepted, {
             success: false,
             ...(conversationId !== undefined ? { conversationId } : {}),
-            error: buildConsumerOverloadError(
-              overload.retryAfterMs,
-              overload.reason ?? "relay_outbound_queue",
-            ),
+            error: buildConsumerOverloadError(blocked.retryAfterMs, blocked.reason),
           });
           return;
         }
@@ -477,18 +491,14 @@ export const registerConsumerSocketConnectionHandlers = ({
     socket.on(socketEvents.relayRpcRequestBatch, (rawPayload: unknown) => {
       void (async (): Promise<void> => {
         const tOverload = performance.now();
-        const overload = getRelayOutboundQueueOverloadState();
+        const blocked = resolveConsumerOutboundBlock(socket);
         observeRelayOverloadCheck(performance.now() - tOverload);
-        if (overload.overloaded) {
-          noteRelayOutboundQueueOverloadRejected();
+        if (blocked) {
           const conversationId = extractRelayEnvelopeConversationId(rawPayload);
           socket.emit(socketEvents.relayRpcBatchAccepted, {
             success: false,
             ...(conversationId !== undefined ? { conversationId } : {}),
-            error: buildConsumerOverloadError(
-              overload.retryAfterMs,
-              overload.reason ?? "relay_outbound_queue",
-            ),
+            error: buildConsumerOverloadError(blocked.retryAfterMs, blocked.reason),
           });
           return;
         }
@@ -531,18 +541,14 @@ export const registerConsumerSocketConnectionHandlers = ({
 
     socket.on(socketEvents.relayRpcStreamPull, (rawPayload: unknown) => {
       const tOverload = performance.now();
-      const overload = getRelayOutboundQueueOverloadState();
+      const blocked = resolveConsumerOutboundBlock(socket);
       observeRelayOverloadCheck(performance.now() - tOverload);
-      if (overload.overloaded) {
-        noteRelayOutboundQueueOverloadRejected();
+      if (blocked) {
         const conversationId = extractRelayEnvelopeConversationId(rawPayload);
         socket.emit(socketEvents.relayRpcStreamPullResponse, {
           success: false,
           ...(conversationId !== undefined ? { conversationId } : {}),
-          error: buildConsumerOverloadError(
-            overload.retryAfterMs,
-            overload.reason ?? "relay_outbound_queue",
-          ),
+          error: buildConsumerOverloadError(blocked.retryAfterMs, blocked.reason),
         });
         return;
       }

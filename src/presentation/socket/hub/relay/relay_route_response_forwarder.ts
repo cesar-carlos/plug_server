@@ -168,18 +168,26 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
       if (!trySettleRelayRoute(relayRoute)) {
         return;
       }
-      enqueueRelayOutbound(responseId, async () => {
-        try {
-          const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
-          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
-        } finally {
-          const existingStream = getActiveStreamRouteByRequestId(responseId);
-          if (existingStream && existingStream.agentSocketId === socketId) {
-            removeActiveStreamRoute(existingStream);
+      enqueueRelayOutbound(
+        responseId,
+        async () => {
+          try {
+            const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
+            emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+          } finally {
+            const existingStream = getActiveStreamRouteByRequestId(responseId);
+            if (existingStream && existingStream.agentSocketId === socketId) {
+              removeActiveStreamRoute(existingStream);
+            }
+            removeRelayRequestRoute(responseId);
           }
-          removeRelayRequestRoute(responseId);
-        }
-      });
+        },
+        {
+          consumerSocketId: relayRoute.consumerSocketId,
+          pendingBytes: decoded.frame.originalSize,
+          priority: "control",
+        },
+      );
       return;
     }
     relayRoute.latencyTrace?.markRelayStreamOpenWall();
@@ -200,203 +208,238 @@ export const forwardRelayRouteResponse = (params: ForwardRelayRouteResponseParam
     return;
   }
 
-  enqueueRelayOutbound(responseId, async () => {
-    let forwardedResponse = false;
-    try {
-      // Hot-path bypass: forward the agent's already-encoded bytes
-      // verbatim when no payload mutation is needed. Skips one JSON
-      // parse-stringify round-trip per response (significant on
-      // streaming flows). Conditions:
-      //   - consumer did NOT opt into `meta.serverTimings` (would mutate)
-      //   - we do NOT need to rewrite the JSON-RPC `body.id` back to the
-      //     consumer's original id (JSON-RPC 2.0 §5 / fast-path requirement,
-      //     see `docs/plug_agente/01_relay_body_id_echo.md`)
-      //   - the response is NOT a stream open (already short-circuited
-      //     above via `streamId`-driven path; we are in the unary leg
-      //     when reaching this block)
-      const shouldAttachServerTimings =
-        relayRoute.requestServerTimings === true && relayRoute.latencyTrace !== undefined;
-      // The hub overwrites `body.id` with its internal `requestId` before
-      // dispatching to legacy agents (so `RpcRequestGuard` / `rpc:request_ack`
-      // keep working). On the way out we restore the consumer's
-      // `client_request_id` when the agent echoed the hub UUID (Opcao B).
-      // When `clientRequestIdEcho` is negotiated the agent already returns
-      // `body.id == client_request_id`, so no rewrite is needed (Opcao A).
-      const decodedResponseRecord = toRecord(decoded.data);
-      const decodedBodyId = toRequestId(decodedResponseRecord?.id);
-      const agentPhaseTimingsNegotiated = relayRoute.agentPhaseTimingsNegotiated === true;
-      const responseMeta = decodedResponseRecord?.meta;
-      const responseHasAgentPhases =
-        isRecord(responseMeta) &&
-        (responseMeta.agent_phases !== undefined || responseMeta.agentPhases !== undefined);
-      // ADR 0012: forward only when consumer opted into timings AND agent negotiated.
-      const mustStripAgentPhases =
-        responseHasAgentPhases &&
-        (relayRoute.requestServerTimings !== true || !agentPhaseTimingsNegotiated);
-      const shouldEchoClientBodyId =
-        relayRoute.clientRequestId !== undefined && decodedBodyId !== relayRoute.clientRequestId;
-      const canBypassReencode =
-        !shouldAttachServerTimings && !shouldEchoClientBodyId && !mustStripAgentPhases;
+  const queued = enqueueRelayOutbound(
+    responseId,
+    async () => {
+      let forwardedResponse = false;
+      try {
+        // Hot-path bypass: forward the agent's already-encoded bytes
+        // verbatim when no payload mutation is needed. Skips one JSON
+        // parse-stringify round-trip per response (significant on
+        // streaming flows). Conditions:
+        //   - consumer did NOT opt into `meta.serverTimings` (would mutate)
+        //   - we do NOT need to rewrite the JSON-RPC `body.id` back to the
+        //     consumer's original id (JSON-RPC 2.0 §5 / fast-path requirement,
+        //     see `docs/plug_agente/01_relay_body_id_echo.md`)
+        //   - the response is NOT a stream open (already short-circuited
+        //     above via `streamId`-driven path; we are in the unary leg
+        //     when reaching this block)
+        const shouldAttachServerTimings =
+          relayRoute.requestServerTimings === true && relayRoute.latencyTrace !== undefined;
+        // The hub overwrites `body.id` with its internal `requestId` before
+        // dispatching to legacy agents (so `RpcRequestGuard` / `rpc:request_ack`
+        // keep working). On the way out we restore the consumer's
+        // `client_request_id` when the agent echoed the hub UUID (Opcao B).
+        // When `clientRequestIdEcho` is negotiated the agent already returns
+        // `body.id == client_request_id`, so no rewrite is needed (Opcao A).
+        const decodedResponseRecord = toRecord(decoded.data);
+        const decodedBodyId = toRequestId(decodedResponseRecord?.id);
+        const agentPhaseTimingsNegotiated = relayRoute.agentPhaseTimingsNegotiated === true;
+        const responseMeta = decodedResponseRecord?.meta;
+        const responseHasAgentPhases =
+          isRecord(responseMeta) &&
+          (responseMeta.agent_phases !== undefined || responseMeta.agentPhases !== undefined);
+        // ADR 0012: forward only when consumer opted into timings AND agent negotiated.
+        const mustStripAgentPhases =
+          responseHasAgentPhases &&
+          (relayRoute.requestServerTimings !== true || !agentPhaseTimingsNegotiated);
+        const shouldEchoClientBodyId =
+          relayRoute.clientRequestId !== undefined && decodedBodyId !== relayRoute.clientRequestId;
+        const canBypassReencode =
+          !shouldAttachServerTimings && !shouldEchoClientBodyId && !mustStripAgentPhases;
 
-      let responseFrame: PayloadFrameEnvelope;
-      if (canBypassReencode) {
-        responseFrame =
-          decoded.frame.cmp === "gzip" && Buffer.isBuffer(decoded.frame.payload)
-            ? await encodeRelayOutboundFrameFromPreencodedWireAsync(
-                {
-                  originalSize: decoded.frame.originalSize,
-                  wireBytes: decoded.frame.payload,
-                  cmp: "gzip",
-                },
-                responseId,
-              )
-            : await encodeRelayOutboundFrameFromBytesAsync(decoded.decodedBytes, responseId, {
-                inboundCmp: decoded.frame.cmp,
+        let responseFrame: PayloadFrameEnvelope;
+        if (canBypassReencode) {
+          responseFrame =
+            decoded.frame.cmp === "gzip" && Buffer.isBuffer(decoded.frame.payload)
+              ? await encodeRelayOutboundFrameFromPreencodedWireAsync(
+                  {
+                    originalSize: decoded.frame.originalSize,
+                    wireBytes: decoded.frame.payload,
+                    cmp: "gzip",
+                  },
+                  responseId,
+                )
+              : await encodeRelayOutboundFrameFromBytesAsync(decoded.decodedBytes, responseId, {
+                  inboundCmp: decoded.frame.cmp,
+                });
+        } else {
+          // Measure the wall-clock cost of the re-encode path (vs bypass)
+          // only when the cause is the body.id echo. If `shouldAttachServerTimings`
+          // is what forced the re-encode, attribute the cost to that
+          // pathway instead — bodyIdEcho overhead must reflect only its
+          // marginal contribution to ops decisions about Option A.
+          const reencodeStart = shouldEchoClientBodyId ? performance.now() : 0;
+          const decodedResponse = decodedResponseRecord;
+          const baseOutboundResponse =
+            decoded.frame.cmp === "gzip" && decodedResponse
+              ? markRelayOutboundForceGzip(decodedResponse)
+              : decoded.data;
+          if (shouldEchoClientBodyId && isRecord(baseOutboundResponse)) {
+            baseOutboundResponse.id = relayRoute.clientRequestId;
+            if (logger.isLevelEnabled("debug")) {
+              logger.debug("relay_body_id_rewritten", {
+                requestId: responseId,
+                clientRequestId: relayRoute.clientRequestId,
+                jsonRpcMethod: relayRoute.jsonRpcMethod ?? null,
+                conversationId: relayRoute.conversationId,
               });
-      } else {
-        // Measure the wall-clock cost of the re-encode path (vs bypass)
-        // only when the cause is the body.id echo. If `shouldAttachServerTimings`
-        // is what forced the re-encode, attribute the cost to that
-        // pathway instead — bodyIdEcho overhead must reflect only its
-        // marginal contribution to ops decisions about Option A.
-        const reencodeStart = shouldEchoClientBodyId ? performance.now() : 0;
-        const decodedResponse = decodedResponseRecord;
-        const baseOutboundResponse =
-          decoded.frame.cmp === "gzip" && decodedResponse
-            ? markRelayOutboundForceGzip(decodedResponse)
-            : decoded.data;
-        if (shouldEchoClientBodyId && isRecord(baseOutboundResponse)) {
-          baseOutboundResponse.id = relayRoute.clientRequestId;
-          if (logger.isLevelEnabled("debug")) {
-            logger.debug("relay_body_id_rewritten", {
-              requestId: responseId,
-              clientRequestId: relayRoute.clientRequestId,
-              jsonRpcMethod: relayRoute.jsonRpcMethod ?? null,
-              conversationId: relayRoute.conversationId,
+            }
+          }
+          if (
+            mustStripAgentPhases &&
+            isRecord(baseOutboundResponse) &&
+            isRecord(baseOutboundResponse.meta)
+          ) {
+            const gatedMeta = { ...baseOutboundResponse.meta };
+            delete gatedMeta.agent_phases;
+            delete gatedMeta.agentPhases;
+            baseOutboundResponse.meta = gatedMeta;
+          }
+          // Opt-in `meta.serverTimings`: capture the snapshot just before
+          // encoding so the values reflect the forwarder's contribution too.
+          // For the dedup-replayed path the cached frame keeps the original
+          // request's timings — by design (see `server_timings_envelope.ts`).
+          const outboundResponse =
+            shouldAttachServerTimings && isRecord(baseOutboundResponse)
+              ? attachServerTimingsToResponse(
+                  baseOutboundResponse,
+                  buildServerTimingsEnvelope(relayRoute.latencyTrace!),
+                )
+              : baseOutboundResponse;
+          responseFrame = await encodeRelayOutboundFrame(outboundResponse, responseId);
+          if (shouldEchoClientBodyId) {
+            observeRelayBodyIdEchoOverhead(performance.now() - reencodeStart);
+          }
+        }
+        const tRelayForward = performance.now();
+        emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
+        forwardedResponse = true;
+        if (relayRoute.jsonRpcMethod === "agent.getHealth") {
+          noteAgentHealthRpcResponse(decoded.data);
+        } else if (relayRoute.healthPiggybackNegotiated === true) {
+          const negotiatedFreshnessThresholdMs =
+            agentRegistry.getHealthPiggybackFreshnessThresholdMs(relayRoute.agentId);
+          if (negotiatedFreshnessThresholdMs !== null) {
+            maybeRecordAgentHealthPiggyback({
+              agentId: relayRoute.agentId,
+              negotiatedFreshnessThresholdMs,
+              rpcBody: decoded.data,
             });
           }
         }
-        if (
-          mustStripAgentPhases &&
-          isRecord(baseOutboundResponse) &&
-          isRecord(baseOutboundResponse.meta)
-        ) {
-          const gatedMeta = { ...baseOutboundResponse.meta };
-          delete gatedMeta.agent_phases;
-          delete gatedMeta.agentPhases;
-          baseOutboundResponse.meta = gatedMeta;
-        }
-        // Opt-in `meta.serverTimings`: capture the snapshot just before
-        // encoding so the values reflect the forwarder's contribution too.
-        // For the dedup-replayed path the cached frame keeps the original
-        // request's timings — by design (see `server_timings_envelope.ts`).
-        const outboundResponse =
-          shouldAttachServerTimings && isRecord(baseOutboundResponse)
-            ? attachServerTimingsToResponse(
-                baseOutboundResponse,
-                buildServerTimingsEnvelope(relayRoute.latencyTrace!),
-              )
-            : baseOutboundResponse;
-        responseFrame = await encodeRelayOutboundFrame(outboundResponse, responseId);
-        if (shouldEchoClientBodyId) {
-          observeRelayBodyIdEchoOverhead(performance.now() - reencodeStart);
-        }
-      }
-      const tRelayForward = performance.now();
-      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, responseFrame);
-      forwardedResponse = true;
-      if (relayRoute.jsonRpcMethod === "agent.getHealth") {
-        noteAgentHealthRpcResponse(decoded.data);
-      } else if (relayRoute.healthPiggybackNegotiated === true) {
-        const negotiatedFreshnessThresholdMs = agentRegistry.getHealthPiggybackFreshnessThresholdMs(
-          relayRoute.agentId,
+        relayRoute.latencyTrace?.addPhaseMs(
+          "relay_forward_to_consumer_ms",
+          performance.now() - tRelayForward,
         );
-        if (negotiatedFreshnessThresholdMs !== null) {
-          maybeRecordAgentHealthPiggyback({
-            agentId: relayRoute.agentId,
-            negotiatedFreshnessThresholdMs,
-            rpcBody: decoded.data,
-          });
-        }
-      }
-      relayRoute.latencyTrace?.addPhaseMs(
-        "relay_forward_to_consumer_ms",
-        performance.now() - tRelayForward,
-      );
-      relayMetrics.responsesForwarded += 1;
+        relayMetrics.responsesForwarded += 1;
 
-      if (relayRoute.clientRequestId) {
-        const waiters = persistRelayIdempotentResponseFrame(relayRoute, responseFrame);
-        if (waiters && waiters.size > 0) {
-          for (const waiterSocketId of waiters) {
-            if (waiterSocketId === relayRoute.consumerSocketId) {
-              continue;
+        if (relayRoute.clientRequestId) {
+          const waiters = persistRelayIdempotentResponseFrame(relayRoute, responseFrame);
+          if (waiters && waiters.size > 0) {
+            for (const waiterSocketId of waiters) {
+              if (waiterSocketId === relayRoute.consumerSocketId) {
+                continue;
+              }
+              emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, responseFrame);
+              relayMetrics.responsesForwarded += 1;
             }
-            emitToConsumer(waiterSocketId, socketEvents.relayRpcResponse, responseFrame);
-            relayMetrics.responsesForwarded += 1;
           }
         }
-      }
 
-      void recordSocketAuditEvent({
-        eventType: socketEvents.relayRpcResponse,
-        actorSocketId: socketId,
-        direction: "agent_to_consumer",
-        conversationId: relayRoute.conversationId,
-        agentId: relayRoute.agentId,
-        requestId: responseId,
-        ...(streamId ? { streamId } : {}),
-      });
+        void recordSocketAuditEvent({
+          eventType: socketEvents.relayRpcResponse,
+          actorSocketId: socketId,
+          direction: "agent_to_consumer",
+          conversationId: relayRoute.conversationId,
+          agentId: relayRoute.agentId,
+          requestId: responseId,
+          ...(streamId ? { streamId } : {}),
+        });
 
-      if (!streamId) {
-        relayRoute.latencyTrace?.recordPendingResolveEnd();
-        relayRoute.latencyTrace?.finalizeOnce({ outcome: "success" });
-        observeRelayRouteOutcome(relayRoute, "success");
-      }
-    } catch (error: unknown) {
-      relayRoute.latencyTrace?.finalizeOnce({
-        outcome: "error",
-        httpStatus: 503,
-        errorCode: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
-      });
-      observeRelayRouteOutcome(relayRoute, "error");
-      // Only emit a synthetic error when the real response has not been sent yet.
-      // When forwardedResponse=true the consumer already received the response; emitting
-      // here would double-deliver and violate the JSON-RPC single-response contract.
-      if (!forwardedResponse) {
-        try {
-          const errorPayload = {
-            jsonrpc: "2.0",
-            id: resolveOutboundBodyId(responseId, relayRoute),
-            error: {
-              code: -32603,
-              message: "internal error",
-              data: {
-                code: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
-                retryable: true,
+        if (!streamId) {
+          relayRoute.latencyTrace?.recordPendingResolveEnd();
+          relayRoute.latencyTrace?.finalizeOnce({ outcome: "success" });
+          observeRelayRouteOutcome(relayRoute, "success");
+        }
+      } catch (error: unknown) {
+        relayRoute.latencyTrace?.finalizeOnce({
+          outcome: "error",
+          httpStatus: 503,
+          errorCode: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
+        });
+        observeRelayRouteOutcome(relayRoute, "error");
+        // Only emit a synthetic error when the real response has not been sent yet.
+        // When forwardedResponse=true the consumer already received the response; emitting
+        // here would double-deliver and violate the JSON-RPC single-response contract.
+        if (!forwardedResponse) {
+          try {
+            const errorPayload = {
+              jsonrpc: "2.0",
+              id: resolveOutboundBodyId(responseId, relayRoute),
+              error: {
+                code: -32603,
+                message: "internal error",
+                data: {
+                  code: "BRIDGE_OUTBOUND_PROCESSING_FAILED",
+                  retryable: true,
+                },
               },
-            },
-          };
-          const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
-          emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
-          noteRelayOutboundJobFailureNotified();
-        } catch {
-          // Best-effort: consumer may still hang if synthetic error emit fails.
+            };
+            const frame = await encodeRelayOutboundFrame(errorPayload, responseId);
+            emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+            noteRelayOutboundJobFailureNotified();
+          } catch {
+            // Best-effort: consumer may still hang if synthetic error emit fails.
+          }
+        }
+        throw error;
+      } finally {
+        // For a successful relay stream open (streamId present and response delivered), the
+        // active stream route and relay route must stay alive until the stream completes —
+        // do not clean them up here. All other outcomes (pre-emit failure, unary response,
+        // or no stream) require immediate cleanup so resources are not leaked.
+        if (!streamId || !forwardedResponse) {
+          const existingStream = getActiveStreamRouteByRequestId(responseId);
+          if (existingStream && existingStream.agentSocketId === socketId) {
+            removeActiveStreamRoute(existingStream);
+          }
+          removeRelayRequestRoute(responseId);
         }
       }
-      throw error;
-    } finally {
-      // For a successful relay stream open (streamId present and response delivered), the
-      // active stream route and relay route must stay alive until the stream completes —
-      // do not clean them up here. All other outcomes (pre-emit failure, unary response,
-      // or no stream) require immediate cleanup so resources are not leaked.
-      if (!streamId || !forwardedResponse) {
-        const existingStream = getActiveStreamRouteByRequestId(responseId);
-        if (existingStream && existingStream.agentSocketId === socketId) {
-          removeActiveStreamRoute(existingStream);
-        }
-        removeRelayRequestRoute(responseId);
-      }
-    }
-  });
+    },
+    {
+      consumerSocketId: relayRoute.consumerSocketId,
+      pendingBytes: decoded.frame.originalSize,
+      priority: streamId ? "control" : "normal",
+    },
+  );
+  if (queued.ok) {
+    return;
+  }
+  const existingStream = getActiveStreamRouteByRequestId(responseId);
+  if (existingStream && existingStream.agentSocketId === socketId) {
+    removeActiveStreamRoute(existingStream);
+  }
+  removeRelayRequestRoute(responseId);
+  const outboundBodyId = resolveOutboundBodyId(responseId, relayRoute);
+  enqueueRelayOutbound(
+    responseId,
+    async () => {
+      const frame = await encodeRelayOutboundFrame(
+        {
+          jsonrpc: "2.0",
+          id: outboundBodyId,
+          error: {
+            code: -32000,
+            message: "Relay outbound byte budget exceeded",
+            data: { code: "RELAY_OUTBOUND_BYTE_LIMIT", retryable: true },
+          },
+        },
+        responseId,
+      );
+      emitToConsumer(relayRoute.consumerSocketId, socketEvents.relayRpcResponse, frame);
+    },
+    { consumerSocketId: relayRoute.consumerSocketId, priority: "control" },
+  );
 };

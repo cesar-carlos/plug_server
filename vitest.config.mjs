@@ -16,7 +16,7 @@ export default defineConfig({
     environment: "node",
     root: ".",
     include: ["tests/**/*.test.ts", "tests/**/*.spec.ts"],
-    exclude: ["node_modules", "dist", "tests/e2e/**"],
+    exclude: ["node_modules", "dist", "tests/e2e/**", "tests/performance/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html", "json-summary"],

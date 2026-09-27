@@ -10,6 +10,8 @@ import {
   noteAgentHubPresenceFallback,
   noteAgentHubPresenceSkippedEmptyUrl,
   observeAgentHubPresenceRedisLatency,
+  noteAgentHubPresenceResolveRoutes,
+  noteAgentHubPresenceResolveRoutesFallback,
 } from "../../../application/services/agent_hub_presence_redis_metrics.service";
 import { env } from "../../../shared/config/env";
 import { logger } from "../../../shared/utils/logger";
@@ -26,6 +28,10 @@ import {
   agentHubBridgeReplyChannel,
   agentHubPresenceKey,
 } from "./agent_hub_presence_keys";
+import {
+  parseAgentHubPresenceRecord,
+  resolvePresenceRoutesWithMget,
+} from "./agent_hub_presence_resolve_routes";
 
 const dataConnection = createManagedRedisConnection();
 let pubSubClients: PubSubInstrumentedRedisClients | undefined;
@@ -49,31 +55,7 @@ const recordCommandLatency = async <T>(fn: () => Promise<T>): Promise<T> => {
 
 const getDataClient = (): InstrumentedRedisClient | undefined => dataConnection.getClient();
 
-const parsePresenceRecord = (raw: string): AgentHubPresenceRecord | null => {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return null;
-    }
-    const record = parsed as Record<string, unknown>;
-    if (
-      typeof record.hubInstanceId !== "string" ||
-      typeof record.socketId !== "string" ||
-      typeof record.connectedAtMs !== "number" ||
-      typeof record.lastSeenAtMs !== "number"
-    ) {
-      return null;
-    }
-    return {
-      hubInstanceId: record.hubInstanceId,
-      socketId: record.socketId,
-      connectedAtMs: record.connectedAtMs,
-      lastSeenAtMs: record.lastSeenAtMs,
-    };
-  } catch {
-    return null;
-  }
-};
+const parsePresenceRecord = parseAgentHubPresenceRecord;
 
 const serializePresenceRecord = (record: AgentHubPresenceRecord): string => JSON.stringify(record);
 
@@ -207,6 +189,34 @@ class AgentHubPresenceRedis implements AgentHubPresencePort {
       return null;
     }
     return { hubInstanceId: record.hubInstanceId };
+  }
+
+  async resolveRoutes(
+    agentIds: readonly string[],
+  ): Promise<ReadonlyMap<string, { readonly hubInstanceId: string }>> {
+    const resolved = new Map<string, { readonly hubInstanceId: string }>();
+    if (!this.isEnabled || agentIds.length === 0) {
+      return resolved;
+    }
+    const client = getDataClient();
+    if (client === undefined) {
+      noteAgentHubPresenceResolveRoutesFallback();
+      return resolved;
+    }
+    const uniqueIds = [...new Set(agentIds)];
+    const startedAt = performance.now();
+    try {
+      const batched = await resolvePresenceRoutesWithMget(uniqueIds, (keys) =>
+        recordCommandLatency(() => client.mGet([...keys])),
+      );
+      for (const [agentId, route] of batched) {
+        resolved.set(agentId, route);
+      }
+      noteAgentHubPresenceResolveRoutes(uniqueIds.length, performance.now() - startedAt);
+    } catch {
+      noteAgentHubPresenceResolveRoutesFallback();
+    }
+    return resolved;
   }
 }
 

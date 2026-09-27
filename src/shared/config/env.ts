@@ -680,6 +680,36 @@ const envSchema = z.object({
     .max(10 * 1024 * 1024)
     .default(64 * 1024),
   SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION: z.enum(["strict", "warn", "off"]).default("strict"),
+  /**
+   * `observe` records ingress metrics without rejecting. `enforce` sheds frames
+   * that exceed per-socket windows and may disconnect after repeated violations.
+   */
+  SOCKET_AGENT_INBOUND_GUARD_MODE: z.enum(["observe", "enforce"]).default("observe"),
+  /** `0` disables this cap. Window is 1000ms. ACK frames use a separate, smaller ceiling. */
+  SOCKET_AGENT_INBOUND_MAX_FRAMES_PER_WINDOW: z.coerce.number().int().min(0).default(2_000),
+  SOCKET_AGENT_INBOUND_MAX_ACK_FRAMES_PER_WINDOW: z.coerce.number().int().min(0).default(500),
+  SOCKET_AGENT_INBOUND_MAX_COMPRESSED_BYTES_PER_WINDOW: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(32 * 1024 * 1024),
+  SOCKET_AGENT_INBOUND_MAX_DECODED_BYTES_PER_WINDOW: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(64 * 1024 * 1024),
+  SOCKET_AGENT_INBOUND_MAX_PENDING_WORK: z.coerce.number().int().min(0).default(256),
+  SOCKET_AGENT_INBOUND_VIOLATIONS_BEFORE_DISCONNECT: z.coerce.number().int().min(0).default(8),
+  SOCKET_RELAY_OUTBOUND_MAX_PENDING_BYTES: z.coerce.number().int().min(0).default(0),
+  SOCKET_RELAY_OUTBOUND_MAX_PENDING_BYTES_PER_CONSUMER: z.coerce.number().int().min(0).default(0),
+  SOCKET_RELAY_OUTBOUND_MAX_PENDING_REQUEST_IDS_PER_CONSUMER: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(0),
+  SOCKET_RELAY_OUTBOUND_HARD_LIMIT_ACTION: z
+    .enum(["close_stream", "disconnect_consumer"])
+    .default("close_stream"),
   SOCKET_AGENT_ACK_RETRY_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -1956,6 +1986,22 @@ export const env = {
   agentAutoUpdateDiagnosticsMaxMessageBytes:
     parsedEnv.AGENT_AUTO_UPDATE_DIAGNOSTICS_MAX_MESSAGE_BYTES,
   socketAgentInboundContractValidation: parsedEnv.SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION,
+  socketAgentInboundGuardMode: parsedEnv.SOCKET_AGENT_INBOUND_GUARD_MODE,
+  socketAgentInboundMaxFramesPerWindow: parsedEnv.SOCKET_AGENT_INBOUND_MAX_FRAMES_PER_WINDOW,
+  socketAgentInboundMaxAckFramesPerWindow: parsedEnv.SOCKET_AGENT_INBOUND_MAX_ACK_FRAMES_PER_WINDOW,
+  socketAgentInboundMaxCompressedBytesPerWindow:
+    parsedEnv.SOCKET_AGENT_INBOUND_MAX_COMPRESSED_BYTES_PER_WINDOW,
+  socketAgentInboundMaxDecodedBytesPerWindow:
+    parsedEnv.SOCKET_AGENT_INBOUND_MAX_DECODED_BYTES_PER_WINDOW,
+  socketAgentInboundMaxPendingWork: parsedEnv.SOCKET_AGENT_INBOUND_MAX_PENDING_WORK,
+  socketAgentInboundViolationsBeforeDisconnect:
+    parsedEnv.SOCKET_AGENT_INBOUND_VIOLATIONS_BEFORE_DISCONNECT,
+  socketRelayOutboundMaxPendingBytes: parsedEnv.SOCKET_RELAY_OUTBOUND_MAX_PENDING_BYTES,
+  socketRelayOutboundMaxPendingBytesPerConsumer:
+    parsedEnv.SOCKET_RELAY_OUTBOUND_MAX_PENDING_BYTES_PER_CONSUMER,
+  socketRelayOutboundMaxPendingRequestIdsPerConsumer:
+    parsedEnv.SOCKET_RELAY_OUTBOUND_MAX_PENDING_REQUEST_IDS_PER_CONSUMER,
+  socketRelayOutboundHardLimitAction: parsedEnv.SOCKET_RELAY_OUTBOUND_HARD_LIMIT_ACTION,
   socketAgentAckRetryEnabled: parsedEnv.SOCKET_AGENT_ACK_RETRY_ENABLED,
   socketAgentAckTimeoutMs: parsedEnv.SOCKET_AGENT_ACK_TIMEOUT_MS,
   socketAgentAckMaxRetries: parsedEnv.SOCKET_AGENT_ACK_MAX_RETRIES,

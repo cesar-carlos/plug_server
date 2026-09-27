@@ -28,6 +28,7 @@ import {
   clearAgentProfileSocketRateLimitStateForSocketId,
 } from "./rate_limits/agent_profile_socket_rate_limiter";
 import { parseAgentReadyPayload } from "./handshake/agent_ready_payload";
+import { markAgentRegisterSocketDisconnected } from "./handshake/agent_register_handshake_state";
 import { emitConnectionReady } from "./handshake/connection_ready_handshake";
 import { conversationRegistry } from "./registries/conversation_registry";
 import {
@@ -217,6 +218,7 @@ export const runAgentSocketDisconnectCleanup = (
   socket: AgentHubSocket,
   consumersNsp: Namespace,
 ): void => {
+  markAgentRegisterSocketDisconnected(socket);
   unregisterAgentBridgeSocket(socket.id);
   clearAgentHeartbeatSocketRateLimitStateForSocketId(socket.id);
   const cleanedPendingRequests = cleanupPendingRequestsForAgentSocket(socket.id);

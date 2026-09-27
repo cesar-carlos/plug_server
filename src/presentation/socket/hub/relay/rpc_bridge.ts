@@ -272,6 +272,12 @@ export const dispatchRpcCommandToAgent = createAgentHubBridgeDispatch({
 const agentInboundHandlers = createRpcBridgeAgentInboundHandlers({
   emitToConsumer,
   emitRpcStreamPullForRoute,
+  disconnectAgentSocket: (socketId: string): void => {
+    const socket = findAgentSocketById(socketId);
+    if (socket?.connected) {
+      socket.disconnect(true);
+    }
+  },
 });
 
 export const handleAgentRpcResponse = agentInboundHandlers.handleAgentRpcResponse;

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BridgeLatencyTraceSession } from "../../../../../src/application/services/bridge_latency_trace_builder";
 import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import { createRpcBridgeAgentInboundHandlers } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_agent_inbound";
+import { resetAgentInboundSequencerForTests } from "../../../../../src/presentation/socket/hub/relay/agent_inbound_sequencer";
+import { resetRelayOutboundQueueState } from "../../../../../src/presentation/socket/hub/relay/relay_outbound_queue";
 import {
   getActiveStreamRouteByRequestId,
   resetActiveStreamRegistry,
@@ -30,8 +32,10 @@ import {
 } from "../../../../../src/shared/metrics/socket_agent.metrics";
 import {
   decodePayloadFrame,
+  decodePayloadFrameAsync,
   encodePayloadFrame,
 } from "../../../../../src/shared/utils/payload_frame";
+import { isRecord } from "../../../../../src/shared/utils/rpc_types";
 import {
   getSocketConsumerMetricsSnapshot,
   resetSocketConsumerMetrics,
@@ -47,6 +51,7 @@ describe("rpc_bridge_agent_inbound", () => {
     resetRelayHubHealthAndMetrics();
     resetSocketAgentMetrics();
     resetSocketConsumerMetrics();
+    resetAgentInboundSequencerForTests();
     vi.useRealTimers();
   });
 
@@ -57,6 +62,7 @@ describe("rpc_bridge_agent_inbound", () => {
     resetRelayHubHealthAndMetrics();
     resetSocketAgentMetrics();
     resetSocketConsumerMetrics();
+    resetAgentInboundSequencerForTests();
     for (const handle of timeoutHandles.splice(0)) {
       clearTimeout(handle);
     }
@@ -966,6 +972,63 @@ describe("rpc_bridge_agent_inbound", () => {
     expect(callOrder).toEqual(["ack", "emit"]);
   });
 
+  it("should wait for decode and validation before acknowledging a response", async () => {
+    let finishDecode!: () => void;
+    const decodeGate = new Promise<void>((resolve) => {
+      finishDecode = resolve;
+    });
+    const ack = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: vi.fn(),
+      decodePayloadFrameAsync: async (raw) => {
+        await decodeGate;
+        return decodePayloadFrameAsync(raw);
+      },
+    });
+
+    h.handleAgentRpcResponse("socket-test", { not: "a-frame" }, ack);
+    expect(ack).not.toHaveBeenCalled();
+    finishDecode();
+    await vi.waitFor(() => expect(ack).toHaveBeenCalledTimes(1));
+  });
+
+  it("should fail fast after an unexpected decoder rejection instead of dropping the response", async () => {
+    const ack = vi.fn();
+    const emitToConsumer = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+      decodePayloadFrameAsync: async () => {
+        throw new Error("decoder unavailable");
+      },
+    });
+    registerRelayRequestRoute({
+      requestId: "req-decode-throws",
+      conversationId: "conv-1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+    });
+
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame(
+        { jsonrpc: "2.0", id: "req-decode-throws", result: { ok: true } },
+        { requestId: "req-decode-throws" },
+      ),
+      ack,
+    );
+
+    await vi.waitFor(() => {
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(emitToConsumer).toHaveBeenCalledTimes(1);
+    });
+    expect(getRelayRequestRoute("req-decode-throws")).toBeUndefined();
+  });
+
   it("should fail fast instead of leaking an unhandled rejection on unexpected relay processing errors", async () => {
     const emitToConsumer = vi.fn();
     const ack = vi.fn();
@@ -1586,5 +1649,331 @@ describe("rpc_bridge_agent_inbound", () => {
       expect(emitToConsumer).not.toHaveBeenCalled();
       expect(getRelayRequestRoute("req-ack-mismatch")?.acked).toBe(false);
     });
+  });
+
+  it("should forward delayed stream-open before a faster chunk and complete", async () => {
+    let releaseResponseDecode!: () => void;
+    const holdResponseDecode = new Promise<void>((resolve) => {
+      releaseResponseDecode = resolve;
+    });
+    const decodeOrder: string[] = [];
+    const delayedDecode: typeof decodePayloadFrameAsync = async (raw) => {
+      const result = await decodePayloadFrameAsync(raw);
+      if (!result.ok) {
+        return result;
+      }
+      const data = result.value.data;
+      if (
+        isRecord(data) &&
+        data.jsonrpc === "2.0" &&
+        isRecord(data.result) &&
+        typeof data.result.stream_id === "string"
+      ) {
+        decodeOrder.push("response");
+        await holdResponseDecode;
+      } else if (isRecord(data) && data.chunk_index === 0) {
+        decodeOrder.push("chunk");
+        releaseResponseDecode();
+      } else if (isRecord(data) && data.terminal_status === "aborted") {
+        decodeOrder.push("complete");
+      }
+      return result;
+    };
+
+    const commitOrder: string[] = [];
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: vi.fn(),
+      decodePayloadFrameAsync: delayedDecode,
+    });
+
+    registerRestPendingRequest({
+      primaryRequestId: "req-race-stream",
+      correlationIds: ["req-race-stream"],
+      socketId: "socket-test",
+      agentId: "agent-1",
+      createdAtMs: Date.now(),
+      resolve: () => {
+        commitOrder.push("response");
+      },
+      reject: vi.fn(),
+      timeoutHandle: createTimeoutHandle(),
+      acked: false,
+      streamHandlers: {
+        consumerSocketId: "consumer-1",
+        onChunk: () => {
+          commitOrder.push("chunk");
+        },
+        onComplete: () => {
+          commitOrder.push("complete");
+        },
+      },
+    });
+
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id: "req-race-stream",
+          result: { stream_id: "stream-race-1" },
+        },
+        { requestId: "req-race-stream" },
+      ),
+    );
+    h.handleAgentRpcChunk(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          request_id: "req-race-stream",
+          stream_id: "stream-race-1",
+          chunk_index: 0,
+          rows: [{ id: 1 }],
+        },
+        { requestId: "req-race-stream" },
+      ),
+    );
+    h.handleAgentRpcComplete(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          request_id: "req-race-stream",
+          stream_id: "stream-race-1",
+          terminal_status: "aborted",
+          total_rows: 1,
+        },
+        { requestId: "req-race-stream" },
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(commitOrder).toEqual(["response", "chunk", "complete"]);
+    });
+    expect(decodeOrder).toContain("chunk");
+    expect(getActiveStreamRouteByRequestId("req-race-stream")).toBeUndefined();
+  });
+
+  it("should ack a valid rpc:response once even when the frame is retried", async () => {
+    const ack = vi.fn();
+    const emitToConsumer = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer,
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+    registerRelayRequestRoute({
+      requestId: "req-ack-once",
+      conversationId: "conv-1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+    });
+
+    const frame = encodePayloadFrame(
+      { jsonrpc: "2.0", id: "req-ack-once", result: { ok: true } },
+      { requestId: "req-ack-once" },
+    );
+    h.handleAgentRpcResponse("socket-test", frame, ack);
+    await vi.waitFor(() => {
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(emitToConsumer).toHaveBeenCalledTimes(1);
+    });
+
+    h.handleAgentRpcResponse("socket-test", frame, ack);
+    await vi.waitFor(() => expect(ack).toHaveBeenCalledTimes(2));
+    expect(emitToConsumer).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves chunk_index order for successive chunks", async () => {
+    const indexes: number[] = [];
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+    upsertActiveStreamRoute({
+      requestId: "req-indexes",
+      agentSocketId: "socket-test",
+      agentId: "agent-1",
+      streamHandlers: {
+        consumerSocketId: "consumer-1",
+        onChunk: (payload) => {
+          indexes.push(Number((payload as { chunk_index: number }).chunk_index));
+        },
+        onComplete: vi.fn(),
+      },
+      streamId: "stream-indexes",
+    });
+    for (const chunkIndex of [0, 1]) {
+      h.handleAgentRpcChunk(
+        "socket-test",
+        encodePayloadFrame(
+          {
+            request_id: "req-indexes",
+            stream_id: "stream-indexes",
+            chunk_index: chunkIndex,
+            rows: [{ n: chunkIndex }],
+          },
+          { requestId: "req-indexes" },
+        ),
+      );
+    }
+    await vi.waitFor(() => expect(indexes).toEqual([0, 1]));
+  });
+
+  it("does not leave a stream route when the socket disconnects before response commit", async () => {
+    let releaseResponseDecode!: () => void;
+    const holdResponseDecode = new Promise<void>((resolve) => {
+      releaseResponseDecode = resolve;
+    });
+    const onChunk = vi.fn();
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: vi.fn(),
+      decodePayloadFrameAsync: async (raw) => {
+        const result = await decodePayloadFrameAsync(raw);
+        if (result.ok && isRecord(result.value.data) && result.value.data.jsonrpc === "2.0") {
+          await holdResponseDecode;
+        }
+        return result;
+      },
+    });
+    registerRestPendingRequest({
+      primaryRequestId: "req-disconnect-race",
+      correlationIds: ["req-disconnect-race"],
+      socketId: "socket-test",
+      agentId: "agent-1",
+      createdAtMs: Date.now(),
+      resolve: vi.fn(),
+      reject: vi.fn(),
+      timeoutHandle: createTimeoutHandle(),
+      acked: false,
+      streamHandlers: {
+        consumerSocketId: "consumer-1",
+        onChunk,
+        onComplete: vi.fn(),
+      },
+    });
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id: "req-disconnect-race",
+          result: { stream_id: "stream-disconnect" },
+        },
+        { requestId: "req-disconnect-race" },
+      ),
+    );
+    h.cleanupSocketInboundState("socket-test");
+    releaseResponseDecode();
+    h.handleAgentRpcChunk(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          request_id: "req-disconnect-race",
+          stream_id: "stream-disconnect",
+          chunk_index: 0,
+          rows: [{ n: 1 }],
+        },
+        { requestId: "req-disconnect-race" },
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(onChunk).not.toHaveBeenCalled();
+    expect(getActiveStreamRouteByRequestId("req-disconnect-race")).toBeUndefined();
+  });
+
+  it("emits a legacy stream terminal when enforce sheds a later chunk", async () => {
+    const mode = vi.spyOn(env, "socketAgentInboundGuardMode", "get").mockReturnValue("enforce");
+    const frames = vi.spyOn(env, "socketAgentInboundMaxFramesPerWindow", "get").mockReturnValue(1);
+    const violations = vi
+      .spyOn(env, "socketAgentInboundViolationsBeforeDisconnect", "get")
+      .mockReturnValue(0);
+    try {
+      const onComplete = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer: vi.fn(),
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+      h.resetInboundState();
+      upsertActiveStreamRoute({
+        requestId: "req-enforce-chunk",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        streamHandlers: {
+          consumerSocketId: "consumer-1",
+          onChunk: vi.fn(),
+          onComplete,
+        },
+        streamId: "stream-enforce",
+      });
+      const chunk = (index: number): ReturnType<typeof encodePayloadFrame> =>
+        encodePayloadFrame(
+          {
+            request_id: "req-enforce-chunk",
+            stream_id: "stream-enforce",
+            chunk_index: index,
+            rows: [{ n: index }],
+          },
+          { requestId: "req-enforce-chunk" },
+        );
+      h.handleAgentRpcChunk("socket-test", chunk(0));
+      h.handleAgentRpcChunk("socket-test", chunk(1));
+      await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+      expect(onComplete.mock.calls[0]?.[0]).toMatchObject({ terminal_status: "error" });
+      expect(getActiveStreamRouteByRequestId("req-enforce-chunk")).toBeUndefined();
+    } finally {
+      mode.mockRestore();
+      frames.mockRestore();
+      violations.mockRestore();
+    }
+  });
+
+  it("sends a terminal error when the outbound byte cap sheds a unary response", async () => {
+    const cap = vi
+      .spyOn(env, "socketRelayOutboundMaxPendingBytesPerConsumer", "get")
+      .mockReturnValue(1);
+    try {
+      resetRelayOutboundQueueState();
+      const emitToConsumer = vi.fn();
+      const h = createRpcBridgeAgentInboundHandlers({
+        emitToConsumer,
+        emitRpcStreamPullForRoute: vi.fn(),
+      });
+      registerRelayRequestRoute({
+        requestId: "req-byte-shed",
+        conversationId: "conv-1",
+        consumerSocketId: "consumer-1",
+        agentSocketId: "socket-test",
+        agentId: "agent-1",
+        timeoutHandle: createTimeoutHandle(),
+        createdAtMs: Date.now(),
+      });
+      h.handleAgentRpcResponse(
+        "socket-test",
+        encodePayloadFrame(
+          { jsonrpc: "2.0", id: "req-byte-shed", result: { ok: true } },
+          { requestId: "req-byte-shed" },
+        ),
+      );
+      await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
+      const [, eventName, outboundFrame] = emitToConsumer.mock.calls[0] as [
+        string,
+        string,
+        unknown,
+      ];
+      expect(eventName).toBe(socketEvents.relayRpcResponse);
+      const decoded = decodePayloadFrame(outboundFrame);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        expect(decoded.value.data).toMatchObject({
+          error: { data: { code: "RELAY_OUTBOUND_BYTE_LIMIT" } },
+        });
+      }
+      expect(getRelayRequestRoute("req-byte-shed")).toBeUndefined();
+    } finally {
+      cap.mockRestore();
+    }
   });
 });

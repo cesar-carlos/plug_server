@@ -136,6 +136,8 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
   const clientSocketEventPublishRl = socket.clientSocketEventPublishSocketRateLimit;
   const consumerRuntime = socket.consumerRuntime;
   const agentRuntime = socket.agentRuntime;
+  const agentInboundSequencer = socket.agentInboundSequencer;
+  const agentInboundIngress = socket.agentInboundIngress;
   const hubErrors = socket.hubErrors;
 
   const lines: string[] = [];
@@ -339,6 +341,24 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
     );
     lines.push(
       metricLine(
+        "plug_agent_hub_presence_resolve_routes_ids_total",
+        agentHubPresenceRedis.resolveRoutesIdsTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_agent_hub_presence_resolve_routes_calls_total",
+        agentHubPresenceRedis.resolveRoutesCallsTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_agent_hub_presence_resolve_routes_fallback_total",
+        agentHubPresenceRedis.resolveRoutesFallbackTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
         "plug_bridge_forward_requests_total",
         agentHubPresenceRedis.bridgeForwardRequestsTotal,
       ),
@@ -368,6 +388,11 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       lines,
       "plug_agent_hub_presence_redis_command_duration_ms",
       agentHubPresenceRedis.commandLatency,
+    );
+    appendRedisLatencyHistogram(
+      lines,
+      "plug_agent_hub_presence_resolve_routes_duration_ms",
+      agentHubPresenceRedis.resolveRoutesLatency,
     );
 
     lines.push(
@@ -1183,6 +1208,85 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
         agentRuntime.inboundContractValidation.warnTotal,
       ),
     );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_sequencer_wait_ms_sum",
+        agentInboundSequencer.waitMsSum,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_sequencer_wait_ms_count",
+        agentInboundSequencer.waitMsCount,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_sequencer_wait_ms_max",
+        agentInboundSequencer.waitMsMax,
+      ),
+    );
+    lines.push(
+      metricLine("plug_socket_agent_inbound_sequencer_wait_ms", agentInboundSequencer.waitMsP95),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_out_of_order_prevented_total",
+        agentInboundSequencer.outOfOrderPreventedTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_stream_chunk_without_route_total",
+        agentInboundSequencer.chunkWithoutRouteTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_sequencer_pending_jobs",
+        agentInboundSequencer.pendingJobs,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_sequencer_oldest_pending_age_ms",
+        agentInboundSequencer.oldestPendingAgeMs,
+      ),
+    );
+    lines.push(
+      metricLine("plug_socket_agent_inbound_pending_work", agentInboundIngress.pendingWork),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_violation_disconnect_total",
+        agentInboundIngress.violationDisconnectTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_bytes_rejected_total",
+        agentInboundIngress.bytesRejectedCompressed,
+        { kind: "compressed" },
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_agent_inbound_bytes_rejected_total",
+        agentInboundIngress.bytesRejectedDecoded,
+        { kind: "decoded" },
+      ),
+    );
+    for (const [key, count] of Object.entries(agentInboundIngress.rejectedByEvent)) {
+      const sep = key.lastIndexOf(":");
+      const event = sep === -1 ? key : key.slice(0, sep);
+      const reason = sep === -1 ? "unknown" : key.slice(sep + 1);
+      lines.push(
+        metricLine("plug_socket_agent_inbound_rejected_total", count, {
+          event,
+          reason,
+        }),
+      );
+    }
     lines.push(
       metricLine(
         "plug_agent_auto_update_diagnostics_push_received_total",
@@ -2294,6 +2398,30 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
       metricLine(
         "plug_socket_relay_outbound_queue_overload_cache_p95_ms",
         relay.relayOutboundQueue.overloadCacheP95Ms,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_relay_outbound_queue_pending_bytes",
+        relay.relayOutboundQueue.pendingBytes,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_relay_outbound_queue_shed_rejected_total",
+        relay.relayOutboundQueue.shedRejectedTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_relay_outbound_queue_hard_rejected_total",
+        relay.relayOutboundQueue.hardRejectedTotal,
+      ),
+    );
+    lines.push(
+      metricLine(
+        "plug_socket_relay_outbound_queue_oldest_pending_age_ms",
+        relay.relayOutboundQueue.oldestPendingAgeMs,
       ),
     );
 

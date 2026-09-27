@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0",
+  "description": "Synthetic Socket.IO hub↔agent fixtures. No secrets, SQL, or user payloads.",
+  "hmacTestKey": "test-hmac-key-not-for-production",
+  "hmacKeyId": "fixture-key-1",
+  "frames": {
+    "agentRegister": {
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "timestamp": "2026-09-27T00:00:00.000Z",
+      "capabilities": {
+        "protocols": ["jsonrpc-v2"],
+        "encodings": ["json"],
+        "compressions": ["none", "gzip"],
+        "extensions": {},
+        "limits": {}
+      }
+    },
+    "agentCapabilities": {
+      "capabilities": {
+        "protocols": ["jsonrpc-v2"],
+        "encodings": ["json"],
+        "compressions": ["none", "gzip"],
+        "extensions": {},
+        "limits": {}
+      }
+    },
+    "agentReady": {
+      "agent_id": "00000000-0000-4000-8000-000000000001",
+      "timestamp": "2026-09-27T00:00:00.000Z",
+      "protocol": "jsonrpc-v2"
+    },
+    "unaryResponse": {
+      "jsonrpc": "2.0",
+      "id": "req-unary-1",
+      "result": { "ok": true }
+    },
+    "streamOpen": {
+      "jsonrpc": "2.0",
+      "id": "req-stream-1",
+      "result": { "stream_id": "stream-1" }
+    },
+    "streamChunk": {
+      "request_id": "req-stream-1",
+      "stream_id": "stream-1",
+      "chunk_index": 0,
+      "rows": [{ "n": 1 }]
+    },
+    "streamComplete": {
+      "request_id": "req-stream-1",
+      "stream_id": "stream-1",
+      "total_rows": 1
+    },
+    "requestAck": {
+      "request_id": "req-unary-1",
+      "received_at": "2026-09-27T00:00:00.000Z"
+    },
+    "batchAck": {
+      "request_ids": ["req-unary-1", "req-unary-2"],
+      "received_at": "2026-09-27T00:00:00.000Z"
+    },
+    "terminalError": {
+      "request_id": "req-stream-1",
+      "stream_id": "stream-1",
+      "terminal_status": "error",
+      "total_rows": 1
+    },
+    "retryResponse": {
+      "jsonrpc": "2.0",
+      "id": "req-unary-1",
+      "result": { "ok": true, "replay": true }
+    },
+    "takeoverRegister": {
+      "agentId": "00000000-0000-4000-8000-000000000001",
+      "capabilities": {
+        "protocols": ["jsonrpc-v2"],
+        "encodings": ["json"],
+        "compressions": ["none"],
+        "extensions": {},
+        "limits": {}
+      },
+      "timestamp": "2026-09-27T00:00:01.000Z"
+    },
+    "invalidFrameBody": {
+      "not": "a-payload-frame"
+    },
+    "oversizeHint": {
+      "declaredOriginalSize": 104857601
+    }
+  }
+}

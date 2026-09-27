@@ -24,6 +24,7 @@ type TailEntry = {
   pendingJobs: number;
   activeJobs: number;
   lastActivityAtMs: number;
+  backlogStartedAtMs: number;
 };
 
 const tailByRequestId = new Map<string, TailEntry>();
@@ -64,6 +65,14 @@ let overloadStateCache: OverloadStateCache = {
   computedAtMs: 0,
 };
 
+const byteMetrics = {
+  pendingBytes: 0,
+  shedRejectedTotal: 0,
+  hardRejectedTotal: 0,
+};
+const pendingBytesByConsumer = new Map<string, number>();
+const requestIdsByConsumer = new Map<string, Set<string>>();
+
 export type RelayOutboundQueueMetricsSnapshot = {
   readonly jobsEnqueuedTotal: number;
   readonly jobsFinishedTotal: number;
@@ -81,6 +90,10 @@ export type RelayOutboundQueueMetricsSnapshot = {
   readonly overloadStateRefreshTotal: number;
   readonly overloadCacheP95Ms: number;
   readonly overloadCacheComputedAtMs: number;
+  readonly pendingBytes: number;
+  readonly shedRejectedTotal: number;
+  readonly hardRejectedTotal: number;
+  readonly oldestPendingAgeMs: number;
 };
 
 const deriveBacklog = (): number =>
@@ -102,6 +115,22 @@ const countOrphanedRequestIds = (nowMs: number): number => {
     }
   }
   return total;
+};
+
+const oldestPendingAgeMs = (nowMs: number): number => {
+  let oldestStartedAtMs = Number.POSITIVE_INFINITY;
+  for (const entry of tailByRequestId.values()) {
+    if (entry.pendingJobs === 0 && entry.activeJobs === 0) {
+      continue;
+    }
+    if (entry.backlogStartedAtMs < oldestStartedAtMs) {
+      oldestStartedAtMs = entry.backlogStartedAtMs;
+    }
+  }
+  if (!Number.isFinite(oldestStartedAtMs)) {
+    return 0;
+  }
+  return Math.max(0, nowMs - oldestStartedAtMs);
 };
 
 const retryAfterFromSweep = (): number =>
@@ -219,6 +248,10 @@ export const getRelayOutboundQueueMetricsSnapshot = (): RelayOutboundQueueMetric
     overloadStateRefreshTotal: metrics.overloadStateRefreshTotal,
     overloadCacheP95Ms: overloadStateCache.p95Ms,
     overloadCacheComputedAtMs: overloadStateCache.computedAtMs,
+    pendingBytes: byteMetrics.pendingBytes,
+    shedRejectedTotal: byteMetrics.shedRejectedTotal,
+    hardRejectedTotal: byteMetrics.hardRejectedTotal,
+    oldestPendingAgeMs: oldestPendingAgeMs(nowMs),
   };
 };
 
@@ -241,6 +274,10 @@ const getFastMetricsSnapshot = (): RelayOutboundQueueMetricsSnapshot => {
     overloadStateRefreshTotal: metrics.overloadStateRefreshTotal,
     overloadCacheP95Ms: overloadStateCache.p95Ms,
     overloadCacheComputedAtMs: overloadStateCache.computedAtMs,
+    pendingBytes: byteMetrics.pendingBytes,
+    shedRejectedTotal: byteMetrics.shedRejectedTotal,
+    hardRejectedTotal: byteMetrics.hardRejectedTotal,
+    oldestPendingAgeMs: oldestPendingAgeMs(Date.now()),
   };
 };
 
@@ -315,6 +352,19 @@ export const noteRelayOutboundQueueOverloadRejected = (): void => {
   metrics.overloadRejectedTotal += 1;
 };
 
+export const admitRelayOutboundConsumerWork = (
+  consumerSocketId: string,
+): RelayOutboundByteBudgetDecision => {
+  const decision = evaluateRelayOutboundByteBudget(consumerSocketId, 0);
+  if (decision === "shed") {
+    byteMetrics.shedRejectedTotal += 1;
+    metrics.overloadRejectedTotal += 1;
+  } else if (decision === "hard") {
+    byteMetrics.hardRejectedTotal += 1;
+  }
+  return decision;
+};
+
 const resetRelayOutboundQueueMetrics = (): void => {
   metrics.jobsEnqueuedTotal = 0;
   metrics.jobsFinishedTotal = 0;
@@ -343,6 +393,11 @@ export const resetRelayOutboundQueueState = (): void => {
     backlog: 0,
     computedAtMs: 0,
   };
+  byteMetrics.pendingBytes = 0;
+  byteMetrics.shedRejectedTotal = 0;
+  byteMetrics.hardRejectedTotal = 0;
+  pendingBytesByConsumer.clear();
+  requestIdsByConsumer.clear();
   resetRelayOutboundQueueMetrics();
 };
 
@@ -351,16 +406,137 @@ export const resetRelayOutboundQueueTails = (): void => {
   resetRelayOutboundQueueState();
 };
 
-export const enqueueRelayOutbound = (requestId: string, work: () => void | Promise<void>): void => {
+export type RelayOutboundEnqueueOptions = {
+  readonly consumerSocketId?: string;
+  readonly pendingBytes?: number;
+  readonly priority?: "normal" | "control";
+  /**
+   * `reject` drops new work at the shed cap.
+   * `allow` keeps an in-flight stream moving until the hard cap.
+   */
+  readonly shedPolicy?: "reject" | "allow";
+};
+
+export type RelayOutboundByteBudgetDecision = "ok" | "shed" | "hard";
+
+const addPendingBytes = (consumerSocketId: string | undefined, bytes: number): void => {
+  if (bytes <= 0) {
+    return;
+  }
+  byteMetrics.pendingBytes += bytes;
+  if (!consumerSocketId) {
+    return;
+  }
+  pendingBytesByConsumer.set(
+    consumerSocketId,
+    (pendingBytesByConsumer.get(consumerSocketId) ?? 0) + bytes,
+  );
+};
+
+const subtractPendingBytes = (consumerSocketId: string | undefined, bytes: number): void => {
+  if (bytes <= 0) {
+    return;
+  }
+  byteMetrics.pendingBytes = Math.max(0, byteMetrics.pendingBytes - bytes);
+  if (!consumerSocketId) {
+    return;
+  }
+  const next = (pendingBytesByConsumer.get(consumerSocketId) ?? 0) - bytes;
+  if (next <= 0) {
+    pendingBytesByConsumer.delete(consumerSocketId);
+    return;
+  }
+  pendingBytesByConsumer.set(consumerSocketId, next);
+};
+
+const trackRequestId = (consumerSocketId: string | undefined, requestId: string): void => {
+  if (!consumerSocketId) {
+    return;
+  }
+  const ids = requestIdsByConsumer.get(consumerSocketId) ?? new Set<string>();
+  ids.add(requestId);
+  requestIdsByConsumer.set(consumerSocketId, ids);
+};
+
+const untrackRequestIdIfIdle = (
+  consumerSocketId: string | undefined,
+  requestId: string,
+  entry: TailEntry,
+): void => {
+  if (!consumerSocketId || entry.pendingJobs > 0 || entry.activeJobs > 0) {
+    return;
+  }
+  const ids = requestIdsByConsumer.get(consumerSocketId);
+  if (!ids) {
+    return;
+  }
+  ids.delete(requestId);
+  if (ids.size === 0) {
+    requestIdsByConsumer.delete(consumerSocketId);
+  }
+};
+
+export const evaluateRelayOutboundByteBudget = (
+  consumerSocketId: string,
+  extraBytes: number,
+): RelayOutboundByteBudgetDecision => {
+  const globalMax = env.socketRelayOutboundMaxPendingBytes;
+  const perConsumerMax = env.socketRelayOutboundMaxPendingBytesPerConsumer;
+  const maxRequestIds = env.socketRelayOutboundMaxPendingRequestIdsPerConsumer;
+  const nextGlobal = byteMetrics.pendingBytes + Math.max(0, extraBytes);
+  const nextConsumer =
+    (pendingBytesByConsumer.get(consumerSocketId) ?? 0) + Math.max(0, extraBytes);
+  const requestIdCount = requestIdsByConsumer.get(consumerSocketId)?.size ?? 0;
+  if (
+    (globalMax > 0 && nextGlobal > globalMax) ||
+    (perConsumerMax > 0 && nextConsumer > perConsumerMax)
+  ) {
+    const hardGlobal = globalMax > 0 && nextGlobal > globalMax * 2;
+    const hardConsumer = perConsumerMax > 0 && nextConsumer > perConsumerMax * 2;
+    return hardGlobal || hardConsumer ? "hard" : "shed";
+  }
+  if (maxRequestIds > 0 && requestIdCount >= maxRequestIds) {
+    return "shed";
+  }
+  return "ok";
+};
+
+export const enqueueRelayOutbound = (
+  requestId: string,
+  work: () => void | Promise<void>,
+  options?: RelayOutboundEnqueueOptions,
+): { readonly ok: true } | { readonly ok: false; readonly reason: "shed" | "hard" } => {
+  const pendingBytes = options?.pendingBytes ?? 0;
+  const consumerSocketId = options?.consumerSocketId;
+  const priority = options?.priority ?? "normal";
+  const shedPolicy = options?.shedPolicy ?? "reject";
+  if (consumerSocketId && pendingBytes > 0 && priority !== "control") {
+    const decision = evaluateRelayOutboundByteBudget(consumerSocketId, pendingBytes);
+    if (decision === "hard" || (decision === "shed" && shedPolicy === "reject")) {
+      if (decision === "shed") {
+        byteMetrics.shedRejectedTotal += 1;
+        metrics.overloadRejectedTotal += 1;
+      } else {
+        byteMetrics.hardRejectedTotal += 1;
+      }
+      return { ok: false, reason: decision };
+    }
+  }
   metrics.jobsEnqueuedTotal += 1;
   const nowMs = Date.now();
   updateBacklogOnlyOverloadStateCache(nowMs);
+  addPendingBytes(consumerSocketId, pendingBytes);
+  trackRequestId(consumerSocketId, requestId);
   const entry = tailByRequestId.get(requestId) ?? {
     tail: Promise.resolve(),
     pendingJobs: 0,
     activeJobs: 0,
     lastActivityAtMs: nowMs,
+    backlogStartedAtMs: nowMs,
   };
+  if (entry.pendingJobs === 0 && entry.activeJobs === 0) {
+    entry.backlogStartedAtMs = nowMs;
+  }
   entry.pendingJobs += 1;
   entry.lastActivityAtMs = nowMs;
   const prev = entry.tail;
@@ -387,6 +563,8 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
       entry.activeJobs = Math.max(0, entry.activeJobs - 1);
       entry.pendingJobs = Math.max(0, entry.pendingJobs - 1);
       entry.lastActivityAtMs = doneMs;
+      subtractPendingBytes(consumerSocketId, pendingBytes);
+      untrackRequestIdIfIdle(consumerSocketId, requestId, entry);
       if (entry.tail === next && entry.pendingJobs === 0) {
         tailByRequestId.delete(requestId);
       }
@@ -394,6 +572,7 @@ export const enqueueRelayOutbound = (requestId: string, work: () => void | Promi
   });
   entry.tail = next;
   tailByRequestId.set(requestId, entry);
+  return { ok: true };
 };
 
 export const markRelayOutboundForceGzip = <T extends Record<string, unknown>>(payload: T): T => {

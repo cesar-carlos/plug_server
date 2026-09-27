@@ -1,0 +1,35 @@
+{
+  "nodeVersion": "v24.18.0",
+  "platform": "win32",
+  "note": "Local Windows/Vitest conservative baseline with audit sampling disabled and three complete benchmark rounds. Gate: +5% p95 with a 0.03/0.08 ms noise floor on sub-millisecond paths, -15% unary/slow throughput, -30% normal-stream throughput, +10% median peak heap growth. CI compares with the base commit on the same runner. Recalibrate only with repeated isolated measurements.",
+  "config": {
+    "warmup": 256,
+    "iterations": 256,
+    "streamChunks": 8,
+    "repeats": 9
+  },
+  "heapUsedPeakBytes": 105000000,
+  "heapUsedGrowthPeakBytes": 50000000,
+  "scenarios": [
+    {
+      "name": "unary_small",
+      "p95Ms": 0.04,
+      "throughputPerSec": 30000
+    },
+    {
+      "name": "unary_gzip",
+      "p95Ms": 0.065,
+      "throughputPerSec": 25000
+    },
+    {
+      "name": "stream_normal",
+      "p95Ms": 0.17,
+      "throughputPerSec": 11000
+    },
+    {
+      "name": "stream_slow_consumer",
+      "p95Ms": 8.5,
+      "throughputPerSec": 120
+    }
+  ]
+}

@@ -20,4 +20,5 @@ export interface AgentHubPresencePort {
   /** Clears presence when it still names this hub but the socket is gone (stale route). */
   removeIfHubInstanceMatches(agentId: string, hubInstanceId: string): Promise<void>;
   resolveRoute(agentId: string): Promise<AgentHubPresenceRoute | null>;
+  resolveRoutes(agentIds: readonly string[]): Promise<ReadonlyMap<string, AgentHubPresenceRoute>>;
 }

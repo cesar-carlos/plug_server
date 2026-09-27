@@ -1,0 +1,6 @@
+# Dart fixtures are executed by `flutter test` from plug_agente, not as a
+# plug_server package. Exclude them so the analyzer does not report missing
+# package:plug_agente URIs in this Node repo.
+analyzer:
+  exclude:
+    - tests/fixtures/socket/*.dart

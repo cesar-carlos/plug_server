@@ -65,6 +65,10 @@ import {
   releaseSocketInflightSlot,
   tryAcquireSocketInflightSlot,
 } from "../../../../../src/presentation/socket/consumers/per_socket_inflight_gate";
+import {
+  getSocketConsumerMetricsSnapshot,
+  resetSocketConsumerMetrics,
+} from "../../../../../src/shared/metrics/socket_consumer.metrics";
 
 const mockedAssertAccess = vi.mocked(assertConsumerSocketAgentAccess);
 const mockedFindByAgentId = vi.mocked(agentRegistry.findByAgentId);
@@ -124,6 +128,7 @@ describe("extractRelayConversationStartRequestId", () => {
 
 describe("handleRelayConversationStart", () => {
   beforeEach(() => {
+    resetSocketConsumerMetrics();
     mockedAssertAccess.mockReset();
     mockedFindByAgentId.mockReset();
     mockedGetSocketIdByAgentId.mockReset();
@@ -304,6 +309,7 @@ describe("handleRelayConversationStart", () => {
         message: expect.stringContaining("another hub instance"),
       }),
     });
+    expect(getSocketConsumerMetricsSnapshot().relayOptIns.conversationStartRemoteHubTotal).toBe(1);
   });
 
   it("does not create a conversation if the consumer disconnects while access is being checked", async () => {

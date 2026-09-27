@@ -37,6 +37,15 @@ import {
   syncAgentHubPresenceOnRegister,
 } from "../../../../application/services/agent_hub_presence_sync";
 import {
+  completeAgentRegisterFailure,
+  completeAgentRegisterSuccess,
+  evaluateAgentRegisterHandshake,
+  agentRegisterCapabilitiesKey,
+  isAgentRegisterSocketDisconnected,
+  isAgentRegisterSocketRegistered,
+  resolveAgentRegisterInflight,
+} from "../handshake/agent_register_handshake_state";
+import {
   type AgentHubNamespace,
   type AgentHubSocket,
   getUserId,
@@ -91,117 +100,99 @@ export const handleAgentRegister = async (
   }
 
   const { agentId, capabilities } = parsed.data;
+  const frameRequestId =
+    typeof decoded.value.frame.requestId === "string" ? decoded.value.frame.requestId : null;
 
-  if (socket.data.agentId && socket.data.agentId !== agentId) {
-    emitAgentRegisterError(
-      socket,
-      "invalid_request",
-      "agent:register cannot change agentId for an already registered socket",
-      {
-        currentAgentId: socket.data.agentId,
-        requestedAgentId: agentId,
-      },
+  const emitHubCapabilities = (): void => {
+    socket.emit(
+      socketEvents.agentCapabilities,
+      encodePayloadFrameHotPath(
+        {
+          capabilities: buildHubServerCapabilities({
+            recommendedStreamPullWindowSize: env.socketRestStreamPullWindowSize,
+            maxStreamPullWindowSize: env.socketRestStreamPullMaxWindowSize,
+          }),
+        },
+        withOptionalRequestId(decoded.value.frame.requestId),
+      ),
     );
-    return;
-  }
+  };
 
-  const tokenAgentId = socket.data.user?.agent_id;
-  if (typeof tokenAgentId === "string" && tokenAgentId.trim() !== "" && tokenAgentId !== agentId) {
-    emitAgentRegisterError(
-      socket,
-      "authentication_failed",
-      "agent:register agentId does not match token claim",
-      { agentId, tokenAgentId },
-    );
-    return;
-  }
-
-  const userId = getUserId(socket);
-  if (!userId) {
-    emitAgentRegisterError(
-      socket,
-      "authentication_failed",
-      "agent:register requires authenticated user context",
-      { agentId },
-    );
-    return;
-  }
-
-  if (
-    agentRegistry.wouldRejectActiveSession({
-      agentId,
-      socketId: socket.id,
-      policy: env.socketAgentSessionPolicy,
-      isPeerConnected: (sid) => agentsNsp.sockets.has(sid),
-    })
-  ) {
-    noteAgentSessionRejectedActive();
-    emitAgentRegisterError(
-      socket,
-      "session_active",
-      AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
-      {
-        agentId,
-        userId,
-        policy: env.socketAgentSessionPolicy,
-      },
-      { code: "same_agent_session_active" },
-    );
-    return;
-  }
-
-  const rateLimitOk = await tryConsumeAgentRegisterRateLimitAsync(userId, agentId);
-  if (!rateLimitOk.ok) {
-    noteAgentRegisterRateLimited();
-    emitAgentRegisterError(socket, "rate_limited", AGENT_REGISTER_RATE_LIMIT_MESSAGE, {
-      agentId,
-      userId,
-      policy: env.socketAgentSessionPolicy,
-    });
-    return;
-  }
-
-  let bindResult: Awaited<ReturnType<typeof container.agentAccessService.bindOwnershipOnRegister>>;
-  try {
-    bindResult = await container.agentAccessService.bindOwnershipOnRegister(userId, agentId);
-  } catch (error: unknown) {
-    logger.warn("agent_register_ownership_bind_failed", {
-      socketId: socket.id,
-      agentId,
-      userId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    await refundAgentRegisterRateLimitAsync(userId, agentId);
-    emitAgentRegisterError(
-      socket,
-      "transient_failure",
-      "agent:register failed while validating agent ownership",
-      { agentId, userId },
-    );
-    return;
-  }
-  if (!bindResult.ok) {
-    emitAgentRegisterError(socket, "unauthorized", bindResult.error.message, {
-      agentId,
-      userId,
-    });
-    return;
-  }
-
-  const registration = agentRegistry.registerAgentSession({
+  const handshake = evaluateAgentRegisterHandshake({
+    socket,
     agentId,
-    socketId: socket.id,
-    userId,
-    capabilities,
-    policy: env.socketAgentSessionPolicy,
-    isPeerConnected: (sid) => agentsNsp.sockets.has(sid),
+    frameRequestId,
+    capabilitiesKey: agentRegisterCapabilitiesKey(capabilities),
   });
+  if (handshake.action === "reject") {
+    emitAgentRegisterError(socket, "invalid_request", handshake.message, {
+      currentAgentId: socket.data.agentId,
+      requestedAgentId: agentId,
+    });
+    return;
+  }
+  if (handshake.action === "coalesce") {
+    await handshake.inflight;
+    if (isAgentRegisterSocketRegistered(socket)) {
+      emitHubCapabilities();
+    }
+    return;
+  }
 
-  if (!registration.ok) {
-    if (registration.reason === "SESSION_ACTIVE") {
-      // Race: peer connected between the peek and register. Refund the
-      // attempt so reconnect races do not permanently burn quota.
-      await refundAgentRegisterRateLimitAsync(userId, agentId);
+  if (handshake.action === "idempotent_replay") {
+    emitHubCapabilities();
+    return;
+  }
+
+  let succeeded = false;
+  try {
+    if (socket.data.agentId && socket.data.agentId !== agentId) {
+      emitAgentRegisterError(
+        socket,
+        "invalid_request",
+        "agent:register cannot change agentId for an already registered socket",
+        {
+          currentAgentId: socket.data.agentId,
+          requestedAgentId: agentId,
+        },
+      );
+      return;
+    }
+
+    const tokenAgentId = socket.data.user?.agent_id;
+    if (
+      typeof tokenAgentId === "string" &&
+      tokenAgentId.trim() !== "" &&
+      tokenAgentId !== agentId
+    ) {
+      emitAgentRegisterError(
+        socket,
+        "authentication_failed",
+        "agent:register agentId does not match token claim",
+        { agentId, tokenAgentId },
+      );
+      return;
+    }
+
+    const userId = getUserId(socket);
+    if (!userId) {
+      emitAgentRegisterError(
+        socket,
+        "authentication_failed",
+        "agent:register requires authenticated user context",
+        { agentId },
+      );
+      return;
+    }
+
+    if (
+      agentRegistry.wouldRejectActiveSession({
+        agentId,
+        socketId: socket.id,
+        policy: env.socketAgentSessionPolicy,
+        isPeerConnected: (sid) => agentsNsp.sockets.has(sid),
+      })
+    ) {
       noteAgentSessionRejectedActive();
       emitAgentRegisterError(
         socket,
@@ -216,92 +207,168 @@ export const handleAgentRegister = async (
       );
       return;
     }
-    emitAgentRegisterError(
-      socket,
-      "unauthorized",
-      "agent:register denied because this agentId belongs to another user",
-      { agentId, userId },
-    );
-    return;
-  }
 
-  if (registration.replacedSocketId !== undefined) {
-    noteAgentSessionTakeoverDisconnect();
-    const previousSocket = agentsNsp.sockets.get(registration.replacedSocketId);
-    if (previousSocket) {
-      previousSocket.emit(socketEvents.agentSessionSuperseded, {
-        reason: "session_superseded",
-        message: AGENT_SESSION_SUPERSEDED_MESSAGE,
+    const rateLimitOk = await tryConsumeAgentRegisterRateLimitAsync(userId, agentId);
+    if (!rateLimitOk.ok) {
+      noteAgentRegisterRateLimited();
+      emitAgentRegisterError(socket, "rate_limited", AGENT_REGISTER_RATE_LIMIT_MESSAGE, {
+        agentId,
+        userId,
         policy: env.socketAgentSessionPolicy,
       });
-      previousSocket.disconnect(true);
+      return;
     }
-    logger.info("agent_session_takeover_disconnect", {
-      agentId,
-      userId,
-      policy: env.socketAgentSessionPolicy,
-      previousSocketId: registration.replacedSocketId,
-      newSocketId: socket.id,
-    });
-  }
 
-  socket.data.agentId = agentId;
-  socket.data.capabilities = capabilities;
-  const registerProfileSnapshot = resolveAgentRegisterProfileSnapshot({
-    profile: parsed.data.profile,
-    profile_version: parsed.data.profile_version,
-    profile_updated_at: parsed.data.profile_updated_at,
-  });
-  if (registerProfileSnapshot !== undefined) {
-    socket.data.agentRegisterProfileSnapshot = registerProfileSnapshot;
-  } else {
-    delete socket.data.agentRegisterProfileSnapshot;
-  }
-  noteAgentCapabilityProfile(capabilities);
-  if (isParallelBatchDispatchNegotiated(capabilities)) {
-    noteParallelBatchDispatchNegotiated();
-  }
-  const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
-
-  logger.info("Agent registered on hub", {
-    socketId: socket.id,
-    agentId,
-    userId,
-  });
-
-  const connectedAtMs = Date.parse(registration.agent.connectedAt);
-  runAgentHubPresenceSyncSafely({
-    operation: "register",
-    agentId,
-    socketId: socket.id,
-    sync: () =>
-      syncAgentHubPresenceOnRegister({
-        agentId,
+    let bindResult: Awaited<
+      ReturnType<typeof container.agentAccessService.bindOwnershipOnRegister>
+    >;
+    try {
+      bindResult = await container.agentAccessService.bindOwnershipOnRegister(userId, agentId);
+    } catch (error: unknown) {
+      logger.warn("agent_register_ownership_bind_failed", {
         socketId: socket.id,
-        connectedAtMs: Number.isFinite(connectedAtMs) ? connectedAtMs : Date.now(),
-      }),
-  });
+        agentId,
+        userId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      await refundAgentRegisterRateLimitAsync(userId, agentId);
+      emitAgentRegisterError(
+        socket,
+        "transient_failure",
+        "agent:register failed while validating agent ownership",
+        { agentId, userId },
+      );
+      return;
+    }
+    if (!bindResult.ok) {
+      emitAgentRegisterError(socket, "unauthorized", bindResult.error.message, {
+        agentId,
+        userId,
+      });
+      return;
+    }
 
-  socket.emit(
-    socketEvents.agentCapabilities,
-    encodePayloadFrameHotPath(
-      {
-        capabilities: buildHubServerCapabilities({
-          recommendedStreamPullWindowSize: env.socketRestStreamPullWindowSize,
-          maxStreamPullWindowSize: env.socketRestStreamPullMaxWindowSize,
-        }),
-      },
-      withOptionalRequestId(decoded.value.frame.requestId),
-    ),
-  );
+    if (isAgentRegisterSocketDisconnected(socket)) {
+      return;
+    }
 
-  if (!requiresExplicitReadyAck) {
-    scheduleAgentProfileSync({
+    const registration = agentRegistry.registerAgentSession({
+      agentId,
+      socketId: socket.id,
+      userId,
+      capabilities,
+      policy: env.socketAgentSessionPolicy,
+      isPeerConnected: (sid) => agentsNsp.sockets.has(sid),
+    });
+
+    if (!registration.ok) {
+      if (registration.reason === "SESSION_ACTIVE") {
+        // Race: peer connected between the peek and register. Refund the
+        // attempt so reconnect races do not permanently burn quota.
+        await refundAgentRegisterRateLimitAsync(userId, agentId);
+        noteAgentSessionRejectedActive();
+        emitAgentRegisterError(
+          socket,
+          "session_active",
+          AGENT_REGISTER_SESSION_ACTIVE_MESSAGE,
+          {
+            agentId,
+            userId,
+            policy: env.socketAgentSessionPolicy,
+          },
+          { code: "same_agent_session_active" },
+        );
+        return;
+      }
+      emitAgentRegisterError(
+        socket,
+        "unauthorized",
+        "agent:register denied because this agentId belongs to another user",
+        { agentId, userId },
+      );
+      return;
+    }
+
+    if (registration.replacedSocketId !== undefined) {
+      noteAgentSessionTakeoverDisconnect();
+      const previousSocket = agentsNsp.sockets.get(registration.replacedSocketId);
+      if (previousSocket) {
+        previousSocket.emit(socketEvents.agentSessionSuperseded, {
+          reason: "session_superseded",
+          message: AGENT_SESSION_SUPERSEDED_MESSAGE,
+          policy: env.socketAgentSessionPolicy,
+        });
+        previousSocket.disconnect(true);
+      }
+      logger.info("agent_session_takeover_disconnect", {
+        agentId,
+        userId,
+        policy: env.socketAgentSessionPolicy,
+        previousSocketId: registration.replacedSocketId,
+        newSocketId: socket.id,
+      });
+    }
+
+    socket.data.agentId = agentId;
+    socket.data.capabilities = capabilities;
+    const registerProfileSnapshot = resolveAgentRegisterProfileSnapshot({
+      profile: parsed.data.profile,
+      profile_version: parsed.data.profile_version,
+      profile_updated_at: parsed.data.profile_updated_at,
+    });
+    if (registerProfileSnapshot !== undefined) {
+      socket.data.agentRegisterProfileSnapshot = registerProfileSnapshot;
+    } else {
+      delete socket.data.agentRegisterProfileSnapshot;
+    }
+    noteAgentCapabilityProfile(capabilities);
+    if (isParallelBatchDispatchNegotiated(capabilities)) {
+      noteParallelBatchDispatchNegotiated();
+    }
+    const requiresExplicitReadyAck = resolveRequiresExplicitProtocolReadyAck(capabilities);
+
+    logger.info("Agent registered on hub", {
+      socketId: socket.id,
       agentId,
       userId,
-      ...(socket.data.agentRegisterProfileSnapshot !== undefined
-        ? { snapshot: socket.data.agentRegisterProfileSnapshot }
-        : {}),
     });
+
+    if (isAgentRegisterSocketDisconnected(socket)) {
+      agentRegistry.removeBySocketId(socket.id);
+      return;
+    }
+
+    completeAgentRegisterSuccess(socket, agentId);
+    succeeded = true;
+
+    const connectedAtMs = Date.parse(registration.agent.connectedAt);
+    runAgentHubPresenceSyncSafely({
+      operation: "register",
+      agentId,
+      socketId: socket.id,
+      sync: () =>
+        syncAgentHubPresenceOnRegister({
+          agentId,
+          socketId: socket.id,
+          connectedAtMs: Number.isFinite(connectedAtMs) ? connectedAtMs : Date.now(),
+        }),
+    });
+
+    emitHubCapabilities();
+
+    if (!requiresExplicitReadyAck) {
+      scheduleAgentProfileSync({
+        agentId,
+        userId,
+        ...(socket.data.agentRegisterProfileSnapshot !== undefined
+          ? { snapshot: socket.data.agentRegisterProfileSnapshot }
+          : {}),
+      });
+    }
+  } finally {
+    if (!succeeded) {
+      completeAgentRegisterFailure(socket);
+    }
+    resolveAgentRegisterInflight(socket);
   }
 };

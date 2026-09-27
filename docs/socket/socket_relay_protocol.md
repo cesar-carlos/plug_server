@@ -346,6 +346,19 @@ Regras atuais no servidor:
 - apos decodificar o `PayloadFrame`, o hub valida logicamente `rpc:response`,
   `rpc:chunk`, `rpc:complete`, `rpc:request_ack` e `rpc:batch_ack` conforme
   `SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION` (`strict`, `warn`, `off`).
+- o ACK Socket.IO de `rpc:response` (`emitWithAck`) ocorre **depois** da decisao
+  de decode, assinatura e validacao logica, e da admissao no sequenciador inbound.
+  Por compatibilidade, o hub tambem confirma o recebimento de frames que a
+  validacao rejeita; o ACK e de transporte, nao um sinal de sucesso da RPC nem
+  de entrega ao consumer. Um frame barrado pelo ingress guard antes do decode
+  nao recebe esse ACK.
+- `rpc:response`, `rpc:chunk` e `rpc:complete` do mesmo socket fazem commit de
+  estado na ordem de chegada: a rota de stream abre antes dos chunks posteriores,
+  mesmo se o gunzip da response terminar depois.
+- no limite duro de bytes outbound, `close_stream` envia
+  `relay:rpc.complete` com `stream_id` e `total_rows` ja encaminhados antes de
+  limpar a rota. Em `disconnect_consumer`, o encerramento do transporte e o
+  sinal terminal; o hub nao enfileira um complete que nao poderia entregar.
 - `rpc:response` batch inbound aceita no maximo 32 itens (`HUB_MAX_BATCH_SIZE`)
   e cada item com `error` deve conter `error.code` inteiro e `error.message`
   string, alinhado ao schema JSON-RPC publicado para o agente.

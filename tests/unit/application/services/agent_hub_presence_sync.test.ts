@@ -12,6 +12,7 @@ vi.mock("../../../../src/infrastructure/redis/presence/agent_hub_presence_redis"
     removeIfSocketMatches,
     removeIfHubInstanceMatches: vi.fn(async () => undefined),
     resolveRoute: vi.fn(async () => null),
+    resolveRoutes: vi.fn(async () => new Map()),
   }),
 }));
 

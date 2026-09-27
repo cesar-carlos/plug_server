@@ -21,7 +21,9 @@ import {
   drainRelayStreamBuffer,
   getRelayStreamFlowCredits,
   getRelayStreamBufferedChunkCount,
+  getRelayStreamBufferedBytes,
   getRelayStreamPendingComplete,
+  getRelayStreamForwardedRows,
   clearRelayStreamFlowState,
   clearRelayStreamBackpressureRetryTimer,
   setRelayStreamBackpressureRetryTimer,
@@ -220,63 +222,126 @@ export const scheduleRelayStreamDrain = (input: ScheduleRelayStreamDrainInput): 
     return;
   }
 
+  const abortForHardByteLimit = (): void => {
+    const activeRoute = getActiveStreamRouteByRequestId(route.requestId);
+    const forwardedRows = getRelayStreamForwardedRows(route.requestId);
+    clearRelayStreamBackpressureRetryTimer(route.requestId);
+    clearRelayStreamFlowState(route.requestId);
+    if (activeRoute) {
+      removeActiveStreamRoute(activeRoute);
+    }
+    removeRelayRequestRoute(route.requestId);
+    if (env.socketRelayOutboundHardLimitAction === "disconnect_consumer") {
+      // A terminal queued immediately before disconnect cannot be delivered
+      // reliably. The transport close is the terminal signal in this mode.
+      findConsumerBridgeSocketForRelay(route.consumerSocketId)?.disconnect(true);
+      return;
+    }
+    const terminalPayload = {
+      request_id: route.requestId,
+      total_rows: forwardedRows,
+      terminal_status: "error",
+      error_code: "RELAY_OUTBOUND_BYTE_LIMIT",
+      ...(activeRoute?.streamId ? { stream_id: activeRoute.streamId } : {}),
+    };
+    enqueueRelayOutbound(
+      route.requestId,
+      async () => {
+        const frame = await encodeRelayOutboundFrame(terminalPayload, route.requestId);
+        emitToConsumer(route.consumerSocketId, socketEvents.relayRpcComplete, frame);
+      },
+      { consumerSocketId: route.consumerSocketId, priority: "control" },
+    );
+  };
+
+  const enqueueDrain = (
+    work: () => Promise<void>,
+    options: { readonly priority: "normal" | "control" },
+  ): boolean => {
+    const pendingBytes = getRelayStreamBufferedBytes(route.requestId);
+    const queued = enqueueRelayOutbound(route.requestId, work, {
+      consumerSocketId: route.consumerSocketId,
+      pendingBytes,
+      priority: options.priority,
+      shedPolicy: options.priority === "control" ? "reject" : "allow",
+    });
+    if (!queued.ok) {
+      setDrainScheduled(false);
+      abortForHardByteLimit();
+      return false;
+    }
+    return true;
+  };
+
   const creditsSnapshot = getRelayStreamFlowCredits(route.requestId);
   const bufferedChunkCount = getRelayStreamBufferedChunkCount(route.requestId);
   if (creditsSnapshot <= 0 || bufferedChunkCount === 0) {
     const pendingComplete = getRelayStreamPendingComplete(route.requestId);
     if (bufferedChunkCount === 0 && pendingComplete) {
       setDrainScheduled(true);
-      enqueueRelayOutbound(route.requestId, async () => {
-        const tDrain = performance.now();
-        let pausedForBackpressure = false;
-        try {
-          const result = await drainRelayStreamBuffer(
-            buildDrainContext(route, emitToConsumer, isActive, onComplete),
-          );
-          pausedForBackpressure = result.pausedForBackpressure;
-          if (result.chunksDrained > 0) {
-            relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
-            observeRelayChunkForwardJob(performance.now() - tDrain);
+      const queued = enqueueDrain(
+        async () => {
+          const tDrain = performance.now();
+          let pausedForBackpressure = false;
+          try {
+            const result = await drainRelayStreamBuffer(
+              buildDrainContext(route, emitToConsumer, isActive, onComplete),
+            );
+            pausedForBackpressure = result.pausedForBackpressure;
+            if (result.chunksDrained > 0) {
+              relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
+              observeRelayChunkForwardJob(performance.now() - tDrain);
+            }
+          } finally {
+            observeRelayBufferDrain(performance.now() - tDrain);
+            setDrainScheduled(false);
+            afterDrainMaybeReschedule({
+              requestId: route.requestId,
+              isActive,
+              reschedule,
+              pausedForBackpressure,
+            });
           }
-        } finally {
-          observeRelayBufferDrain(performance.now() - tDrain);
-          setDrainScheduled(false);
-          afterDrainMaybeReschedule({
-            requestId: route.requestId,
-            isActive,
-            reschedule,
-            pausedForBackpressure,
-          });
-        }
-      });
+        },
+        { priority: "control" },
+      );
+      if (!queued) {
+        return;
+      }
     }
     return;
   }
 
   setDrainScheduled(true);
-  enqueueRelayOutbound(route.requestId, async () => {
-    const tDrain = performance.now();
-    let pausedForBackpressure = false;
-    try {
-      const result = await drainRelayStreamBuffer(
-        buildDrainContext(route, emitToConsumer, isActive, onComplete),
-      );
-      pausedForBackpressure = result.pausedForBackpressure;
-      if (result.chunksDrained > 0) {
-        relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
-        observeRelayChunkForwardJob(performance.now() - tDrain);
+  const queued = enqueueDrain(
+    async () => {
+      const tDrain = performance.now();
+      let pausedForBackpressure = false;
+      try {
+        const result = await drainRelayStreamBuffer(
+          buildDrainContext(route, emitToConsumer, isActive, onComplete),
+        );
+        pausedForBackpressure = result.pausedForBackpressure;
+        if (result.chunksDrained > 0) {
+          relayMetrics.chunksForwarded += sampledMetricDelta(result.chunksDrained);
+          observeRelayChunkForwardJob(performance.now() - tDrain);
+        }
+      } finally {
+        observeRelayBufferDrain(performance.now() - tDrain);
+        setDrainScheduled(false);
+        afterDrainMaybeReschedule({
+          requestId: route.requestId,
+          isActive,
+          reschedule,
+          pausedForBackpressure,
+        });
       }
-    } finally {
-      observeRelayBufferDrain(performance.now() - tDrain);
-      setDrainScheduled(false);
-      afterDrainMaybeReschedule({
-        requestId: route.requestId,
-        isActive,
-        reschedule,
-        pausedForBackpressure,
-      });
-    }
-  });
+    },
+    { priority: "normal" },
+  );
+  if (!queued) {
+    return;
+  }
 };
 
 export const buildRelayStreamPullDrainOnComplete = (

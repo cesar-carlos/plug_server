@@ -23,6 +23,10 @@ let bridgeForwardTimeoutTotal = 0;
 let bridgeForwardErrorTotal = 0;
 let bridgeCommandHandledTotal = 0;
 let lastFallbackAtMs = 0;
+let resolveRoutesIdsTotal = 0;
+let resolveRoutesCallsTotal = 0;
+let resolveRoutesFallbackTotal = 0;
+const resolveRoutesLatencyHistogram = createRedisCommandLatencyHistogram();
 
 export const noteAgentHubPresenceSkippedEmptyUrl = (): void => {
   presenceUrlConfigured = 0;
@@ -61,6 +65,16 @@ export const noteBridgeForwardError = (): void => {
   bridgeForwardErrorTotal += 1;
 };
 
+export const noteAgentHubPresenceResolveRoutes = (idCount: number, durationMs: number): void => {
+  resolveRoutesCallsTotal += 1;
+  resolveRoutesIdsTotal += idCount;
+  resolveRoutesLatencyHistogram.observe(durationMs);
+};
+
+export const noteAgentHubPresenceResolveRoutesFallback = (): void => {
+  resolveRoutesFallbackTotal += 1;
+};
+
 export const noteBridgeCommandHandled = (): void => {
   bridgeCommandHandledTotal += 1;
 };
@@ -75,7 +89,11 @@ export const getAgentHubPresenceRedisMetricsSnapshot = (): {
   readonly bridgeForwardErrorTotal: number;
   readonly bridgeCommandHandledTotal: number;
   readonly lastFallbackAtMs: number;
+  readonly resolveRoutesIdsTotal: number;
+  readonly resolveRoutesCallsTotal: number;
+  readonly resolveRoutesFallbackTotal: number;
   readonly commandLatency: RedisCommandLatencyHistogramSnapshot;
+  readonly resolveRoutesLatency: RedisCommandLatencyHistogramSnapshot;
 } => ({
   presenceUrlConfigured,
   presenceActive,
@@ -86,5 +104,9 @@ export const getAgentHubPresenceRedisMetricsSnapshot = (): {
   bridgeForwardErrorTotal,
   bridgeCommandHandledTotal,
   lastFallbackAtMs,
+  resolveRoutesIdsTotal,
+  resolveRoutesCallsTotal,
+  resolveRoutesFallbackTotal,
   commandLatency: latencyHistogram.snapshot(),
+  resolveRoutesLatency: resolveRoutesLatencyHistogram.snapshot(),
 });

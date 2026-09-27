@@ -8,6 +8,7 @@ export type SocketPerfBootstrapEnvSlice = {
   readonly payloadFrameGzipLevel: number | undefined;
   readonly socketAuthAccountSnapshotTtlMs: number;
   readonly socketConsumerAgentAccessSnapshotTtlMs: number;
+  readonly socketIoRedisAdapterUrl?: string;
 };
 
 /**
@@ -23,8 +24,16 @@ export const logSocketPerfBootstrapHints = (
     payloadFrameGzipLevel: env.payloadFrameGzipLevel,
     socketAuthAccountSnapshotTtlMs: env.socketAuthAccountSnapshotTtlMs,
     socketConsumerAgentAccessSnapshotTtlMs: env.socketConsumerAgentAccessSnapshotTtlMs,
+    socketIoRedisAdapterUrl: env.socketIoRedisAdapterUrl,
   },
 ): void => {
+  if (slice.socketIoRedisAdapterUrl?.trim()) {
+    logger.info("socket_relay_sticky_sessions_required", {
+      message:
+        "Relay conversations, pending requests, streams and idempotency remain process-local. Sticky sessions (or equivalent affinity) are required when SOCKET_IO_REDIS_ADAPTER_URL is set.",
+    });
+  }
+
   if (slice.nodeEnv !== "production") {
     return;
   }

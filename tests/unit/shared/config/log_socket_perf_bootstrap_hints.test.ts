@@ -109,4 +109,21 @@ describe("logSocketPerfBootstrapHints", () => {
       }),
     );
   });
+
+  it("logs that sticky sessions remain required when the Redis adapter URL is set", () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+
+    logSocketPerfBootstrapHints({
+      ...productionOk,
+      nodeEnv: "development",
+      socketIoRedisAdapterUrl: "redis://127.0.0.1:6379",
+    });
+
+    expect(info).toHaveBeenCalledWith(
+      "socket_relay_sticky_sessions_required",
+      expect.objectContaining({
+        message: expect.stringContaining("Sticky sessions"),
+      }),
+    );
+  });
 });

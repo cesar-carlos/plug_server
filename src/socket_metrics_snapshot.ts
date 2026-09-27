@@ -5,6 +5,8 @@ import { getClientSocketEventPublishSocketRateLimitMetricsSnapshot } from "./pre
 import { getSocketConsumerMetricsSnapshot } from "./shared/metrics/socket_consumer.metrics";
 import { getSocketHubErrorMetricsSnapshot } from "./shared/metrics/socket_hub_error.metrics";
 import { getSocketAgentMetricsSnapshot } from "./shared/metrics/socket_agent.metrics";
+import { getAgentInboundSequencerMetricsSnapshot } from "./presentation/socket/hub/relay/agent_inbound_sequencer";
+import { getAgentInboundIngressMetricsSnapshot } from "./presentation/socket/hub/relay/agent_inbound_ingress_guard";
 import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
 import { SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { resolveCurrentSocketServer } from "./socket_state";
@@ -25,6 +27,8 @@ export const getSocketMetricsSnapshot = (): {
   >;
   readonly consumerRuntime: ReturnType<typeof getSocketConsumerMetricsSnapshot>;
   readonly agentRuntime: ReturnType<typeof getSocketAgentMetricsSnapshot>;
+  readonly agentInboundSequencer: ReturnType<typeof getAgentInboundSequencerMetricsSnapshot>;
+  readonly agentInboundIngress: ReturnType<typeof getAgentInboundIngressMetricsSnapshot>;
   readonly hubErrors: ReturnType<typeof getSocketHubErrorMetricsSnapshot>;
 } => {
   const io = resolveCurrentSocketServer();
@@ -41,6 +45,8 @@ export const getSocketMetricsSnapshot = (): {
       getClientSocketEventPublishSocketRateLimitMetricsSnapshot(),
     consumerRuntime: getSocketConsumerMetricsSnapshot(),
     agentRuntime: getSocketAgentMetricsSnapshot(),
+    agentInboundSequencer: getAgentInboundSequencerMetricsSnapshot(),
+    agentInboundIngress: getAgentInboundIngressMetricsSnapshot(),
     hubErrors: getSocketHubErrorMetricsSnapshot(),
   };
 };

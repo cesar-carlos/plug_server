@@ -14,6 +14,8 @@ agente e forward de `POST /api/v1/agents/commands` podem atravessar replicas
 **Producao:** um unico processo (`deploy/pm2/ecosystem.config.cjs`, porta 4000).
 Conversas relay, pending requests REST e grande parte do relay seguem em memoria
 por processo. Defina `HUB_INSTANCE_ID` para observabilidade (`docs/configuration.md`).
+A decisao de 2026-09-27 mantem sticky sessions como requisito; o Redis adapter
+nao externaliza conversation/pending/stream/idempotencia relay.
 
 ## Multi-instancia HTTP / estado em memoria
 

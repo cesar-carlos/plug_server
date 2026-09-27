@@ -89,7 +89,48 @@ Copia as linhas para o teu `.env` e ajusta por carga. Valores aqui **substituem*
 
 ### Baseline produção (sem copiar nada)
 
-Com `NODE_ENV=production` e variáveis **omitidas**, o hub já aplica: `SOCKET_IO_TRANSPORTS=websocket`, `SOCKET_IO_HTTP_COMPRESSION=false`, `PAYLOAD_FRAME_GZIP_LEVEL=3`, amostragem de auditoria em chunks relay a **25%**. Confirma `SOCKET_IO_PER_MESSAGE_DEFLATE=false` (defeito). No boot, `logSocketPerfBootstrapHints` emite `WARN` se overrides de produção forem piores (deflate on, polling, gzip level > 3) e `INFO` se ambos os TTLs de snapshot de auth/acesso estiverem em `0`.
+Com `NODE_ENV=production` e variáveis **omitidas**, o hub já aplica: `SOCKET_IO_TRANSPORTS=websocket`, `SOCKET_IO_HTTP_COMPRESSION=false`, `PAYLOAD_FRAME_GZIP_LEVEL=3`, amostragem de auditoria em chunks relay a **25%**. Confirma `SOCKET_IO_PER_MESSAGE_DEFLATE=false` (defeito). No boot, `logSocketPerfBootstrapHints` emite `WARN` se overrides de produção forem piores (deflate on, polling, gzip level > 3) e `INFO` se ambos os TTLs de snapshot de auth/acesso estiverem em `0`. Com `SOCKET_IO_REDIS_ADAPTER_URL` definido, o boot também emite `INFO` `socket_relay_sticky_sessions_required`.
+
+### SLOs do bench inbound (Fase 0)
+
+O job `npm run test:perf:socket-bridge` mede os handlers inbound em processo,
+sem JWT, SQL ou rede. Cada amostra unary so termina quando o forward ao consumer
+foi chamado; streams aguardam todos os chunks e o complete. O teste desativa
+a auditoria de alto volume, aquece os cenarios e forca GC entre repeticoes.
+Executa tres rodadas completas: o gate usa a mediana das metricas entre rodadas
+para tolerar pausas ocasionais do host, mas exige ordem correta e zero chunks
+perdidos em todas elas. O heap de cada rodada e o **maior crescimento observado
+desde o inicio da rodada medida**; o gate usa a mediana dos tres crescimentos,
+sem incluir a memoria previamente ocupada pelo runner. Publica
+p50/p95/p99, throughput, bytes e ordem em
+`tmp/socket-bridge-bench.json`.
+
+O gate compara com a revisao-base **na mesma maquina de CI**, quando ela ja tem
+o harness; no primeiro merge que introduz o benchmark, faz apenas o gate
+funcional e emite um aviso de bootstrap. Localmente, a execucao padrao mede
+e verifica apenas corretude, pois carga concorrente no workstation altera
+fortemente latencia e throughput; para comparar deliberadamente com o fixture
+versionado na mesma plataforma/versao Node, use
+`SOCKET_BRIDGE_BENCH_COMPARE_LOCAL=1`. Os limites do gate comparativo sao:
+
+- p95 ate 5% acima do baseline, com piso absoluto de ruido de 0,03 ms nos
+  cenarios unary e 0,08 ms no stream normal; o stream lento nao tem esse piso;
+- throughput no minimo 85% para unary/stream lento e 70% para stream normal;
+- crescimento de heap amostrado ate 10% acima do baseline;
+- nenhum chunk valido perdido ou fora de ordem.
+
+Esses pisos foram necessarios porque operacoes submilissegundo oscilaram mais
+que 5% mesmo no mesmo host. Os SLOs produtivos de 5%/10% continuam sendo
+avaliados com carga representativa e janelas de observacao, nao inferidos deste
+microbenchmark. Atualizar o fixture requer revisao explicita via
+`npm run test:perf:socket-bridge` seguido de
+`node --import tsx scripts/socket-bridge-bench.mjs --update-baseline`, apos
+confirmar que o relatorio em `tmp/` e representativo (rodar isolado, sem outras
+cargas no host). O update le o relatorio do Vitest para manter comparavel o
+heap do fixture; o script standalone tem outro custo de memoria.
+O job anexa o JSON e fica separado de `release:check`. A matriz obrigatoria
+`socket-dart-contract` valida os schemas de origem, o codec Dart e um Socket.IO
+real com os handlers inbound Node nas versoes atual e `v1.8.5` do agente.
 
 ### Snapshots de auth / agent access (opt-in)
 

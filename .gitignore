@@ -1,5 +1,6 @@
 node_modules/
 dist/
+tmp/
 dist.bak.20260722T184420Z/
 .env
 coverage/
