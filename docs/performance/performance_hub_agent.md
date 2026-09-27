@@ -128,9 +128,12 @@ microbenchmark. Atualizar o fixture requer revisao explicita via
 confirmar que o relatorio em `tmp/` e representativo (rodar isolado, sem outras
 cargas no host). O update le o relatorio do Vitest para manter comparavel o
 heap do fixture; o script standalone tem outro custo de memoria.
-O job anexa o JSON e fica separado de `release:check`. A matriz obrigatoria
-`socket-dart-contract` valida os schemas de origem, o codec Dart e um Socket.IO
-real com os handlers inbound Node nas versoes atual e `v1.8.5` do agente.
+O job anexa o JSON e fica separado de `release:check`. Em pull requests so
+corre quando mudam caminhos de socket/perf, e o gate de SLO e informativo
+(comentario no PR) porque o runner do GitHub e ruidoso; em `main` o bench
+continua a falhar o workflow. A matriz `socket-dart-contract` valida schemas,
+codec Dart e um Socket.IO real: no PR usa `v1.8.5` quando os contratos/socket
+mudam; em `main` corre `main` e `v1.8.5`.
 
 ### Snapshots de auth / agent access (opt-in)
 

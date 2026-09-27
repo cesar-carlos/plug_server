@@ -13,7 +13,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      socket: ${{ steps.filter.outputs.socket }}
+      bench: ${{ steps.filter.outputs.bench }}
+    steps:
+      - name: Detect affected paths
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "socket=true" >> "$GITHUB_OUTPUT"
+            echo "bench=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename' | tee changed.txt
+
+          socket=false
+          bench=false
+          while IFS= read -r file; do
+            case "$file" in
+              .github/workflows/ci.yml|.github/actions/*|src/presentation/socket/*|src/shared/constants/socket_events*|src/shared/utils/payload_frame*|tests/fixtures/socket/*|tests/contract/socket*|tests/integration/agent_dart_socket_bridge*)
+                socket=true
+                ;;
+            esac
+            case "$file" in
+              .github/workflows/ci.yml|src/presentation/socket/*|tests/performance/*|tests/fixtures/performance/*|scripts/socket-bridge-bench*|vitest.perf.config.mjs)
+                bench=true
+                ;;
+            esac
+          done < changed.txt
+
+          echo "socket=$socket" >> "$GITHUB_OUTPUT"
+          echo "bench=$bench" >> "$GITHUB_OUTPUT"
+
+  static-checks:
+    name: Static
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up project
+        uses: ./.github/actions/setup-node-project
+
+      - name: Format, lint, types, and MCP contract
+        run: |
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm run contract:check
+
   test-and-build:
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -58,12 +126,21 @@ jobs:
       - name: Migrate test database
         run: npm run db:migrate:deploy
 
-      - name: Release gate
-        run: npm run release:check
+      - name: Tests with critical coverage
+        run: npm run test:coverage:critical
+
+      - name: Build
+        run: npm run build
 
   socket-bridge-bench:
+    name: Socket bench
+    needs: changes
+    if: needs.changes.outputs.bench == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
     env:
       NODE_ENV: test
       SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT: "0"
@@ -95,7 +172,22 @@ jobs:
           echo "SOCKET_BRIDGE_BENCH_BASELINE_PATH=$GITHUB_WORKSPACE/bench-base/tmp/socket-bridge-bench.json" >> "$GITHUB_ENV"
 
       - name: Socket bridge performance bench
+        id: bench
+        # GitHub-hosted runners are noisy; keep the PR mergeable and surface the delta in the comment.
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: npm run test:perf:socket-bridge
+
+      - name: Comment bench summary
+        if: github.event_name == 'pull_request' && hashFiles('tmp/socket-bridge-bench.json') != ''
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BENCH_HEAD_PATH: tmp/socket-bridge-bench.json
+          BENCH_BASE_PATH: ${{ env.SOCKET_BRIDGE_BENCH_BASELINE_PATH }}
+          BENCH_OUTCOME: ${{ steps.bench.outcome }}
+        run: python3 scripts/ci_post_socket_bridge_bench_comment.py
 
       - name: Upload bench report
         if: always()
@@ -106,12 +198,15 @@ jobs:
           if-no-files-found: warn
 
   socket-dart-contract:
+    name: Dart contract
+    needs: changes
+    if: needs.changes.outputs.socket == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        agent_ref: [main, v1.8.5]
+        agent_ref: ${{ github.event_name == 'push' && fromJSON('["main","v1.8.5"]') || fromJSON('["v1.8.5"]') }}
     env:
       PLUG_AGENTE_ROOT: ${{ github.workspace }}/plug_agente
       PLUG_SERVER_FIXTURE_DIR: ${{ github.workspace }}/tests/fixtures/socket
@@ -122,6 +217,8 @@ jobs:
           persist-credentials: false
 
       - name: Checkout supported plug_agente version
+        id: checkout_agente
+        continue-on-error: true
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: cesar-carlos/plug_agente
@@ -130,25 +227,78 @@ jobs:
           path: plug_agente
           persist-credentials: false
 
+      - name: Handle plug_agente checkout
+        if: steps.checkout_agente.outcome == 'failure'
+        env:
+          IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ "$IS_FORK" = "true" ]; then
+            echo "::warning::Skipping Dart contract: cannot checkout cesar-carlos/plug_agente@${{ matrix.agent_ref }} from a fork PR. Add PLUG_AGENTE_CHECKOUT_TOKEN (contents:read on plug_agente) on this repository, or open the PR from a branch in cesar-carlos/plug_server."
+            exit 0
+          fi
+          echo "::error::Failed to checkout cesar-carlos/plug_agente@${{ matrix.agent_ref }}. Set repository secret PLUG_AGENTE_CHECKOUT_TOKEN with contents:read on plug_agente if GITHUB_TOKEN cannot access that repository."
+          exit 1
+
       - name: Set up project
+        if: steps.checkout_agente.outcome == 'success'
         uses: ./.github/actions/setup-node-project
 
       - name: Validate shared fixtures against agent schemas
+        if: steps.checkout_agente.outcome == 'success'
         run: npx vitest run tests/contract/socket_agent_inbound_fixtures.contract.test.ts
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        if: steps.checkout_agente.outcome == 'success'
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
+          flutter-version: "3.47.5"
           cache: true
 
       - name: Dart codec catalog
+        if: steps.checkout_agente.outcome == 'success'
         working-directory: plug_agente
         run: |
           flutter pub get
           flutter test "$GITHUB_WORKSPACE/tests/fixtures/socket/plug_agente_hub_codec_test.dart"
 
       - name: Node hub bridge with real Dart Socket.IO client
+        if: steps.checkout_agente.outcome == 'success'
         env:
           RUN_DART_SOCKET_E2E: "true"
         run: npx vitest run tests/integration/agent_dart_socket_bridge.integration.test.ts
+
+  ci:
+    name: Required
+    if: always()
+    needs:
+      - changes
+      - static-checks
+      - test-and-build
+      - socket-bridge-bench
+      - socket-dart-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm required jobs
+        run: |
+          set -euo pipefail
+          changes="${{ needs.changes.result }}"
+          static="${{ needs.static-checks.result }}"
+          tests="${{ needs.test-and-build.result }}"
+          bench="${{ needs.socket-bridge-bench.result }}"
+          dart="${{ needs.socket-dart-contract.result }}"
+          echo "changes=$changes"
+          echo "static-checks=$static"
+          echo "test-and-build=$tests"
+          echo "socket-bridge-bench=$bench"
+          echo "socket-dart-contract=$dart"
+          if [ "$changes" != "success" ] || [ "$static" != "success" ] || [ "$tests" != "success" ]; then
+            exit 1
+          fi
+          if [ "$bench" != "success" ] && [ "$bench" != "skipped" ]; then
+            exit 1
+          fi
+          if [ "$dart" != "success" ] && [ "$dart" != "skipped" ]; then
+            exit 1
+          fi

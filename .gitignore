@@ -6,6 +6,8 @@ dist.bak.20260722T184420Z/
 coverage/
 *.log
 *.tsbuildinfo
+__pycache__/
+*.pyc
 backups/
 uploads/
 COMMIT_MSG.tmp

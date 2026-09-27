@@ -45,7 +45,7 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - `npm run release:check` - gate local: formato, lint, tipos, contrato, testes e build
 - `npm run test` - testes (unit/integration/contract; e2e excluídos)
 - `npm run test:access-flow` - regressão focada no fluxo cliente→agente (pedido, inbox owner, rotas `/client-access/*`, unitário do serviço); útil antes de deploy ou após alterações nessa área
-- `npm run test:e2e` - Vitest e2e (HTTP + Socket.IO). Com `E2E_TESTS_ENABLED=true` no `.env` e `DATABASE_URL` acessível (ver `.env.example`); se estiver desligado, termina com exit 0 sem correr a suíte. Pode ser invocado no CI após `npm run test` (idempotente quando desligado).
+- `npm run test:e2e` - Vitest e2e (HTTP + Socket.IO), só local. Com `E2E_TESTS_ENABLED=true` no `.env` e `DATABASE_URL` acessível (ver `.env.example`); se estiver desligado, termina com exit 0 sem correr a suíte. Não há workflow E2E no GitHub Actions.
 - `npm run build` - build de producao
 
 ## Client-access e base de dados (produção)
