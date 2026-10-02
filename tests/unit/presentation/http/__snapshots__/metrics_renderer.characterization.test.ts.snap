@@ -265,6 +265,12 @@ exports[`buildMetricsLines characterization > pins the emitted metric-name surfa
   "plug_socket_consumer_client_agent_room_reconcile_runs_total",
   "plug_socket_consumer_client_agent_room_reconcile_sockets_evaluated_total",
   "plug_socket_consumer_client_agent_room_reconcile_ticks_skipped_total",
+  "plug_socket_consumer_preparation_active",
+  "plug_socket_consumer_preparation_wait_count",
+  "plug_socket_consumer_preparation_wait_max_ms",
+  "plug_socket_consumer_preparation_wait_sum_ms",
+  "plug_socket_consumer_preparation_waiting",
+  "plug_socket_consumer_preparation_waiting_bytes",
   "plug_socket_consumer_room_disconnect_triggered_total",
   "plug_socket_consumers_active_connections",
   "plug_socket_consumers_auth_rejected_total",
@@ -476,6 +482,12 @@ exports[`buildMetricsLines characterization > pins the emitted metric-name surfa
 
 exports[`buildMetricsLines characterization > pins the full emission structure: names, labels and order (values normalized) 1`] = `
 [
+  "plug_socket_consumer_preparation_active <v>",
+  "plug_socket_consumer_preparation_waiting <v>",
+  "plug_socket_consumer_preparation_waiting_bytes <v>",
+  "plug_socket_consumer_preparation_wait_count <v>",
+  "plug_socket_consumer_preparation_wait_sum_ms <v>",
+  "plug_socket_consumer_preparation_wait_max_ms <v>",
   "plug_rest_bridge_requests_total <v>",
   "plug_rest_bridge_requests_success_total <v>",
   "plug_rest_bridge_requests_failed_total <v>",

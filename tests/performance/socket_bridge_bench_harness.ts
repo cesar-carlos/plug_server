@@ -1,4 +1,6 @@
-import { performance } from "node:perf_hooks";
+import { performance, monitorEventLoopDelay } from "node:perf_hooks";
+import { createHash } from "node:crypto";
+import { env } from "../../src/shared/config/env";
 
 import { percentile } from "../../src/shared/utils/percentile";
 import { encodePayloadFrame } from "../../src/shared/utils/payload_frame";
@@ -16,6 +18,7 @@ import { resetRelayOutboundQueueState } from "../../src/presentation/socket/hub/
 import { resetAgentInboundSequencerForTests } from "../../src/presentation/socket/hub/relay/agent_inbound_sequencer";
 import { resetAgentInboundIngressForTests } from "../../src/presentation/socket/hub/relay/agent_inbound_ingress_guard";
 import { socketEvents } from "../../src/shared/constants/socket_events";
+import { runLoopbackRelayBench } from "./socket_bridge_loopback_bench";
 
 export interface SocketBridgeBenchScenarioResult {
   readonly name: string;
@@ -25,11 +28,21 @@ export interface SocketBridgeBenchScenarioResult {
   readonly p99Ms: number;
   readonly throughputPerSec: number;
   readonly bytes: number;
+  readonly originalBytes: number;
+  readonly gzipFrames: number;
+  readonly duplicateChunks: number;
+  readonly heapUsedPeakBytes?: number;
+  readonly rssPeakBytes?: number;
+  readonly cpuUserMs?: number;
+  readonly cpuSystemMs?: number;
+  readonly eventLoopDelayP95Ms?: number;
   readonly chunksLost: number;
   readonly orderOk: boolean;
 }
 
 export interface SocketBridgeBenchReport {
+  readonly harnessVersion: number;
+  readonly configFingerprint: string;
   readonly nodeVersion: string;
   readonly platform: string;
   readonly config: {
@@ -80,6 +93,9 @@ const medianScenario = (
       p99Ms: 0,
       throughputPerSec: 0,
       bytes: 0,
+      originalBytes: 0,
+      gzipFrames: 0,
+      duplicateChunks: 0,
       chunksLost: 0,
       orderOk: true,
     };
@@ -92,6 +108,16 @@ const medianScenario = (
     p99Ms: median(runs.map((run) => run.p99Ms)),
     throughputPerSec: median(runs.map((run) => run.throughputPerSec)),
     bytes: median(runs.map((run) => run.bytes)),
+    originalBytes: median(runs.map((run) => run.originalBytes)),
+    gzipFrames: median(runs.map((run) => run.gzipFrames)),
+    duplicateChunks: runs.reduce((sum, run) => sum + run.duplicateChunks, 0),
+    ...(first.heapUsedPeakBytes !== undefined
+      ? { heapUsedPeakBytes: median(runs.map((run) => run.heapUsedPeakBytes ?? 0)) }
+      : {}),
+    rssPeakBytes: median(runs.map((run) => run.rssPeakBytes ?? 0)),
+    cpuUserMs: median(runs.map((run) => run.cpuUserMs ?? 0)),
+    cpuSystemMs: median(runs.map((run) => run.cpuSystemMs ?? 0)),
+    eventLoopDelayP95Ms: median(runs.map((run) => run.eventLoopDelayP95Ms ?? 0)),
     chunksLost: runs.reduce((sum, run) => sum + run.chunksLost, 0),
     orderOk: runs.every((run) => run.orderOk),
   };
@@ -104,20 +130,51 @@ const repeatMeasured = async (
   const runs: SocketBridgeBenchScenarioResult[] = [];
   for (let index = 0; index < repeats; index += 1) {
     global.gc?.();
-    const result = await run();
-    runs.push(result);
+    const delay = monitorEventLoopDelay({ resolution: 1 });
+    let rssPeakBytes = process.memoryUsage().rss;
+    observedScenarioHeapPeakBytes = process.memoryUsage().heapUsed;
+    const sampler = setInterval(() => {
+      sampleHeap();
+      rssPeakBytes = Math.max(rssPeakBytes, process.memoryUsage().rss);
+    }, 10);
+    delay.enable();
+    const cpuStart = process.cpuUsage();
+    try {
+      const result = await run();
+      const cpu = process.cpuUsage(cpuStart);
+      sampleHeap();
+      const heapUsedPeakBytes = Math.max(
+        observedScenarioHeapPeakBytes,
+        result.heapUsedPeakBytes ?? 0,
+      );
+      observedHeapPeakBytes = Math.max(observedHeapPeakBytes, heapUsedPeakBytes);
+      runs.push({
+        ...result,
+        heapUsedPeakBytes,
+        rssPeakBytes: Math.max(rssPeakBytes, process.memoryUsage().rss),
+        cpuUserMs: cpu.user / 1000,
+        cpuSystemMs: cpu.system / 1000,
+        eventLoopDelayP95Ms: delay.count > 0 ? delay.percentile(95) / 1_000_000 : 0,
+      });
+    } finally {
+      clearInterval(sampler);
+      delay.disable();
+    }
   }
   return medianScenario(runs);
 };
 
 let observedHeapPeakBytes = 0;
+let observedScenarioHeapPeakBytes = 0;
 let measuredHeapBaselineBytes = 0;
 let sampleHeapEnabled = false;
 const sampleHeap = (): void => {
   if (!sampleHeapEnabled) {
     return;
   }
-  observedHeapPeakBytes = Math.max(observedHeapPeakBytes, process.memoryUsage().heapUsed);
+  const heap = process.memoryUsage().heapUsed;
+  observedHeapPeakBytes = Math.max(observedHeapPeakBytes, heap);
+  observedScenarioHeapPeakBytes = Math.max(observedScenarioHeapPeakBytes, heap);
 };
 
 const wait = async (): Promise<void> => {
@@ -149,6 +206,20 @@ const measure = (
 
 const createTimeoutHandle = (): NodeJS.Timeout => setTimeout(() => undefined, 60_000);
 
+/** Seeded, moderately compressible data keeps the benchmark below the 10x inflation guard. */
+const makeGzipBenchText = (): string => {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  let seed = 0x12345678;
+  let text = "";
+  for (let index = 0; index < 8_192; index += 1) {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    text += alphabet[(seed >>> 0) % alphabet.length];
+  }
+  return text;
+};
+
 const resetBenchState = (): void => {
   resetRelayRequestRegistry();
   resetActiveStreamRegistry();
@@ -164,8 +235,10 @@ const runUnary = async (
 ): Promise<SocketBridgeBenchScenarioResult> => {
   const samples: number[] = [];
   let bytes = 0;
+  let originalBytes = 0;
+  let gzipFrames = 0;
   const body = gzip
-    ? { jsonrpc: "2.0", id: "req-unary", result: { blob: "x".repeat(8_192) } }
+    ? { jsonrpc: "2.0", id: "req-unary", result: { blob: makeGzipBenchText() } }
     : { jsonrpc: "2.0", id: "req-unary", result: { ok: true } };
   for (let index = 0; index < iterations; index += 1) {
     resetBenchState();
@@ -197,6 +270,11 @@ const runUnary = async (
       },
     );
     bytes += frame.compressedSize;
+    originalBytes += frame.originalSize;
+    if (gzip && frame.cmp !== "gzip") {
+      throw new Error("unary_gzip must exercise gzip, not its inflation-guard fallback");
+    }
+    gzipFrames += frame.cmp === "gzip" ? 1 : 0;
     const started = performance.now();
     h.handleAgentRpcResponse("socket-bench", frame);
     sampleHeap();
@@ -208,6 +286,9 @@ const runUnary = async (
     name: gzip ? "unary_gzip" : "unary_small",
     samples: samples.length,
     bytes,
+    originalBytes,
+    gzipFrames,
+    duplicateChunks: 0,
     chunksLost: 0,
     orderOk: true,
     ...measure(samples),
@@ -221,12 +302,15 @@ const runStream = async (
 ): Promise<SocketBridgeBenchScenarioResult> => {
   const samples: number[] = [];
   let bytes = 0;
+  let originalBytes = 0;
   let chunksLost = 0;
   let orderOk = true;
+  let duplicateChunks = 0;
   for (let index = 0; index < iterations; index += 1) {
     resetBenchState();
     const requestId = `req-stream-${index}`;
     const events: string[] = [];
+    const seen = new Set<number>();
     const h = createRpcBridgeAgentInboundHandlers({
       emitToConsumer: () => undefined,
       emitRpcStreamPullForRoute: () => undefined,
@@ -245,7 +329,11 @@ const runStream = async (
       acked: false,
       streamHandlers: {
         consumerSocketId: "consumer-bench",
-        onChunk: () => {
+        onChunk: (chunk) => {
+          const chunkIndex = Number(chunk.chunk_index);
+          if (seen.has(chunkIndex)) duplicateChunks += 1;
+          if (chunkIndex !== seen.size) orderOk = false;
+          seen.add(chunkIndex);
           if (slowConsumer) {
             const until = performance.now() + 1;
             while (performance.now() < until) {
@@ -265,6 +353,7 @@ const runStream = async (
       { requestId },
     );
     bytes += open.compressedSize;
+    originalBytes += open.originalSize;
     h.handleAgentRpcResponse("socket-bench", open);
     sampleHeap();
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
@@ -278,6 +367,7 @@ const runStream = async (
         { requestId },
       );
       bytes += chunk.compressedSize;
+      originalBytes += chunk.originalSize;
       h.handleAgentRpcChunk("socket-bench", chunk);
       sampleHeap();
     }
@@ -290,6 +380,7 @@ const runStream = async (
       { requestId },
     );
     bytes += complete.compressedSize;
+    originalBytes += complete.originalSize;
     h.handleAgentRpcComplete("socket-bench", complete);
     sampleHeap();
     await waitUntil(
@@ -318,9 +409,12 @@ const runStream = async (
     }
   }
   return {
-    name: slowConsumer ? "stream_slow_consumer" : "stream_normal",
+    name: slowConsumer ? "rest_handler_cpu_delay" : "rest_handler_stream",
     samples: samples.length,
     bytes,
+    originalBytes,
+    gzipFrames: 0,
+    duplicateChunks,
     chunksLost,
     orderOk,
     ...measure(samples),
@@ -342,6 +436,8 @@ export const runSocketBridgeBench = async (options?: {
   await runUnary(warmup, true);
   await runStream(warmup, streamChunks, false);
   await runStream(Math.max(2, Math.floor(warmup / 8)), streamChunks, true);
+  await runLoopbackRelayBench(2, streamChunks, false);
+  await runLoopbackRelayBench(2, streamChunks, true);
   global.gc?.();
   measuredHeapBaselineBytes = process.memoryUsage().heapUsed;
   observedHeapPeakBytes = measuredHeapBaselineBytes;
@@ -353,9 +449,31 @@ export const runSocketBridgeBench = async (options?: {
     await repeatMeasured(repeats, () =>
       runStream(Math.max(2, Math.floor(iterations / 8)), streamChunks, true),
     ),
+    await repeatMeasured(repeats, () =>
+      runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 32)), streamChunks, false),
+    ),
+    await repeatMeasured(repeats, () =>
+      runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 32)), streamChunks, true),
+    ),
   ];
   resetBenchState();
   return {
+    harnessVersion: 3,
+    // Hash only runtime numeric/boolean settings; never include URLs, signing keys or credentials.
+    configFingerprint: createHash("sha256")
+      .update(
+        JSON.stringify(
+          Object.entries(env)
+            .filter(
+              ([key, value]) =>
+                /^(socket|payloadFrame)/.test(key) &&
+                !key.startsWith("socketConsumerPreparation") &&
+                (typeof value === "number" || typeof value === "boolean"),
+            )
+            .sort(([left], [right]) => left.localeCompare(right)),
+        ),
+      )
+      .digest("hex"),
     nodeVersion: process.version,
     platform: process.platform,
     config: { warmup, iterations, streamChunks, repeats },

@@ -23,6 +23,8 @@ describe("agent_registry session policies", () => {
 
     expect(agentRegistry.isRegistered("ag-peek")).toBe(true);
     expect(agentRegistry.getSocketIdByAgentId("ag-peek")).toBe("sock-peek");
+    expect(agentRegistry.getAgentIdBySocketId("sock-peek")).toBe("ag-peek");
+    expect(agentRegistry.getAgentIdBySocketId("unknown")).toBeNull();
     expect(agentRegistry.getCapabilitiesByAgentId("ag-peek")).toEqual({ compressions: ["gzip"] });
     expect(agentRegistry.getHealthPiggybackFreshnessThresholdMs("ag-peek")).toBeNull();
     expect(agentRegistry.touchLiveness("ag-peek", { socketId: "sock-peek" })).toBe(true);
@@ -103,6 +105,10 @@ describe("agent_registry session policies", () => {
     });
     expect(second.ok).toBe(true);
     expect(agentRegistry.findByAgentId("ag-dead")?.socketId).toBe("sock-new");
+    expect(agentRegistry.getAgentIdBySocketId("sock-old")).toBeNull();
+    expect(agentRegistry.getAgentIdBySocketId("sock-new")).toBe("ag-dead");
+    agentRegistry.removeBySocketId("sock-new");
+    expect(agentRegistry.getAgentIdBySocketId("sock-new")).toBeNull();
   });
 
   it("takeover_disconnect_previous returns replacedSocketId when peer alive", () => {

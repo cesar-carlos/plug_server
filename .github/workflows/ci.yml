@@ -168,6 +168,9 @@ jobs:
           fi
           npm --prefix bench-base ci
           npm --prefix bench-base run db:generate
+          # Compare runtime changes using identical benchmark scenarios on both revisions.
+          cp tests/performance/*.ts bench-base/tests/performance/
+          cp vitest.perf.config.mjs bench-base/vitest.perf.config.mjs
           (cd bench-base && npm run test:perf:socket-bridge)
           echo "SOCKET_BRIDGE_BENCH_BASELINE_PATH=$GITHUB_WORKSPACE/bench-base/tmp/socket-bridge-bench.json" >> "$GITHUB_ENV"
 

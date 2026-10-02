@@ -23,6 +23,7 @@
  * `relay:rpc.accepted`.
  */
 
+import type { ConsumerPreparationCoordinator } from "../hub/scheduling/consumer_preparation_coordinator";
 import type { Socket } from "socket.io";
 import { z } from "zod";
 
@@ -264,6 +265,7 @@ const validateBatchItems = (
 export const handleRelayRpcRequestBatch = (
   socket: Socket & { data: { user?: JwtAccessPayload } },
   envelope: RelayRpcRequestBatchEnvelope,
+  preparation?: ConsumerPreparationCoordinator,
 ): Promise<void> => {
   const userSub = typeof socket.data.user?.sub === "string" ? socket.data.user.sub : undefined;
   noteRelayBatchEnvelopeReceived();
@@ -312,9 +314,27 @@ export const handleRelayRpcRequestBatch = (
       await assertConsumerSocketAgentAccess(socket.data.user, conversation.agentId, socket);
 
       // Decode the batch frame ONCE. Each item is dispatched via preDecodedData.
-      const batchDecodeStart = performance.now();
-      const decoded = await decodePayloadFrameAsync(envelope.frame);
-      observeRelayBatchEnvelopeDecodeMs(performance.now() - batchDecodeStart);
+      if (socket.connected === false) return;
+      const prepare = async (): Promise<{
+        decoded: Awaited<ReturnType<typeof decodePayloadFrameAsync>>;
+        validation: BatchValidationOk | BatchValidationError | null;
+      }> => {
+        const batchDecodeStart = performance.now();
+        const decoded = await decodePayloadFrameAsync(envelope.frame);
+        observeRelayBatchEnvelopeDecodeMs(performance.now() - batchDecodeStart);
+        return {
+          decoded,
+          validation:
+            decoded.ok && Array.isArray(decoded.value.data)
+              ? validateBatchItems(decoded.value.data)
+              : null,
+        };
+      };
+      const prepared = preparation
+        ? await preparation.run(socket.id, envelope.frame, prepare)
+        : { cancelled: false as const, value: await prepare() };
+      if (prepared.cancelled || (socket as Socket).connected === false) return;
+      const { decoded, validation } = prepared.value;
       if (!decoded.ok) {
         noteRelayBatchRejected("frame_decode_failed");
         emitBatchAccepted(socket, {
@@ -345,7 +365,7 @@ export const handleRelayRpcRequestBatch = (
         return;
       }
 
-      const validation = validateBatchItems(data);
+      if (validation === null) return;
       if (!validation.ok) {
         noteRelayBatchRejected("validation_failed");
         emitBatchAccepted(socket, {

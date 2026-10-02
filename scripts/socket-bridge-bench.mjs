@@ -35,17 +35,15 @@ if (updateBaseline) {
     "tests/fixtures/performance/socket_bridge_baseline.json",
   );
   const baseline = {
+    harnessVersion: report.harnessVersion,
+    configFingerprint: report.configFingerprint,
     nodeVersion: report.nodeVersion,
     platform: report.platform,
     note: "Local Windows/Vitest baseline with audit sampling disabled and three complete benchmark rounds. Gate: +5% p95 with a 0.03/0.08 ms noise floor on sub-millisecond paths, -15% unary/slow throughput, -30% normal-stream throughput, +10% median sampled peak heap. CI compares with the base commit on the same runner. Recalibrate only with repeated isolated measurements.",
     config: report.config,
     heapUsedPeakBytes: report.heapUsedPeakBytes,
     heapUsedGrowthPeakBytes: report.heapUsedGrowthPeakBytes,
-    scenarios: report.scenarios.map((scenario) => ({
-      name: scenario.name,
-      p95Ms: scenario.p95Ms,
-      throughputPerSec: scenario.throughputPerSec,
-    })),
+    scenarios: report.scenarios,
   };
   writeFileSync(fixturePath, `${JSON.stringify(baseline, null, 2)}\n`);
   process.stdout.write(`${JSON.stringify(baseline, null, 2)}\n`);

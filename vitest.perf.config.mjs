@@ -5,6 +5,7 @@ process.env.SOCKET_AUDIT_HIGH_VOLUME_SAMPLE_PERCENT = "0";
 
 export default defineConfig({
   test: {
+    setupFiles: ["tests/performance/setup.ts"],
     globals: true,
     environment: "node",
     root: ".",

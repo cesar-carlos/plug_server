@@ -29,6 +29,7 @@ import {
   type PayloadFrameEnvelope,
 } from "../../../../shared/utils/payload_frame";
 import { TtlCache } from "../../../../shared/utils/ttl_cache";
+import type { ConsumerClientSessionIndex } from "../registries/consumer_client_session_index";
 import { clearConsumerSocketAgentAccessSnapshot } from "../../consumers/consumer_socket_guard";
 import {
   buildConsumerAgentProfileRoom,
@@ -369,9 +370,13 @@ export const selectReconcileClientEntries = <T>(
 
   const size = Math.min(entries.length, Math.max(1, maxClientsPerTick));
   const normalizedCursor = ((cursor % entries.length) + entries.length) % entries.length;
-  const ordered = [...entries.slice(normalizedCursor), ...entries.slice(0, normalizedCursor)];
+  const start = Math.trunc(normalizedCursor) || 0;
+  const selected = Array.from(
+    { length: size },
+    (_, index) => entries[(start + index) % entries.length]!,
+  );
   return {
-    selected: ordered.slice(0, size),
+    selected,
     nextCursor: (normalizedCursor + size) % entries.length,
     deferredCount: entries.length - size,
   };
@@ -439,6 +444,7 @@ export const reconcileConsumerClientAgentRoomsForSocket = async (
 };
 
 export type ConsumerClientAgentRoomReconcileState = ConsumerClientAgentRoomBootstrapState & {
+  readonly clientSessions: ConsumerClientSessionIndex;
   consumerClientAgentRoomReconcileTimer: NodeJS.Timeout | null;
   consumerClientAgentRoomReconcileStartTimeout: NodeJS.Timeout | null;
   consumerClientAgentRoomReconcileInFlight: Promise<void> | null;
@@ -453,32 +459,11 @@ export const reconcileConsumerClientAgentRooms = async (
     return;
   }
 
-  const socketsByClientId = new Map<string, Socket[]>();
-  for (const socket of namespace.sockets.values()) {
-    const user = (socket.data as { user?: JwtAccessPayload }).user;
-    if (user?.principal_type !== "client") {
-      continue;
-    }
-    const clientId = user.sub?.trim();
-    if (!clientId) {
-      continue;
-    }
-    const existing = socketsByClientId.get(clientId);
-    if (existing !== undefined) {
-      existing.push(socket);
-      continue;
-    }
-    socketsByClientId.set(clientId, [socket]);
-  }
-
-  if (socketsByClientId.size === 0) {
-    return;
-  }
-
+  const sessions = state.clientSessions;
+  const clients = sessions.getSortedClientIds();
+  if (clients.length === 0) return;
   const selectedBatch = selectReconcileClientEntries(
-    [...socketsByClientId.entries()].sort(([leftClientId], [rightClientId]) =>
-      leftClientId.localeCompare(rightClientId),
-    ),
+    clients,
     state.consumerClientAgentRoomReconcileCursor,
     env.socketConsumerClientAgentRoomReconcileMaxClientsPerTick,
   );
@@ -487,12 +472,21 @@ export const reconcileConsumerClientAgentRooms = async (
     noteConsumerClientAgentRoomReconcileDeferred(selectedBatch.deferredCount);
   }
 
-  const socketCount = selectedBatch.selected.reduce((sum, [, sockets]) => sum + sockets.length, 0);
-  noteConsumerClientAgentRoomReconcileStarted(selectedBatch.selected.length, socketCount);
+  const selectedSessions = selectedBatch.selected.map((clientId): readonly [string, Socket[]] => {
+    const sockets: Socket[] = [];
+    for (const socketId of sessions.getSocketIds(clientId)) {
+      const socket = namespace.sockets.get(socketId);
+      if (socket && socket.connected !== false) sockets.push(socket);
+      else sessions.remove(socketId);
+    }
+    return [clientId, sockets];
+  });
+  const socketCount = selectedSessions.reduce((sum, [, sockets]) => sum + sockets.length, 0);
+  noteConsumerClientAgentRoomReconcileStarted(selectedSessions.length, socketCount);
 
   try {
     await forEachWithConcurrencyLimit(
-      selectedBatch.selected,
+      selectedSessions,
       env.socketConsumerClientAgentRoomReconcileConcurrency,
       async ([clientId, sockets]) => {
         try {

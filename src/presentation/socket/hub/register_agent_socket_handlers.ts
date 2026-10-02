@@ -4,11 +4,16 @@
  * Extracted from `src/socket.ts` to keep the orchestrator thin. The
  * `agent:register` handler lives in `handlers/agent_register.handler.ts`
  * (extracted because it is the largest and most distinct flow); the
- * remaining protocol handlers (heartbeat, ready, profile.update) and the
+ * heartbeat handler lives in `handlers/agent_heartbeat.handler.ts`. The
+ * remaining protocol handlers (ready, profile.update) and the
  * RPC listeners stay here because they share the profile-sync scheduler
  * and the canonical-registration helpers.
  */
 
+import {
+  handleAgentHeartbeat,
+  cleanupAgentHeartbeatState,
+} from "./handlers/agent_heartbeat.handler";
 import type { Namespace } from "socket.io";
 
 import {
@@ -60,10 +65,8 @@ import {
 import type { JwtAccessPayload } from "../../../shared/utils/jwt";
 import { logger } from "../../../shared/utils/logger";
 import {
-  decodePayloadFrame,
   decodePayloadFrameAsync,
   encodePayloadFrameBridge,
-  encodePayloadFrameHotPath,
 } from "../../../shared/utils/payload_frame";
 import { agentProfileReliabilityMetrics } from "../../../application/services/agent_profile_reliability_metrics.service";
 import type { AgentRegisterProfileSnapshot } from "../../../application/services/agent_profile_sync.service";
@@ -80,10 +83,7 @@ import {
 } from "./handlers/_shared";
 import { handleAgentRegister } from "./handlers/agent_register.handler";
 import { handleAgentAutoUpdateDiagnosticsRpcRequest } from "./handlers/agent_auto_update_diagnostics.handler";
-import {
-  allowAgentHeartbeatSocketEvent,
-  clearAgentHeartbeatSocketRateLimitStateForSocketId,
-} from "./rate_limits/agent_heartbeat_socket_rate_limiter";
+import { clearAgentHeartbeatSocketRateLimitStateForSocketId } from "./rate_limits/agent_heartbeat_socket_rate_limiter";
 
 export type { AgentHubSocket } from "./handlers/_shared";
 
@@ -194,9 +194,9 @@ const scheduleAgentProfileSync = (
 const runAgentSocketAsyncHandler = (
   socket: AgentHubSocket,
   eventName: string,
-  operation: () => Promise<void>,
+  operation: () => void | Promise<void>,
 ): void => {
-  void operation().catch((error: unknown) => {
+  const reportFailure = (error: unknown): void => {
     logger.warn("agent_socket_event_handler_failed", {
       socketId: socket.id,
       eventName,
@@ -209,7 +209,13 @@ const runAgentSocketAsyncHandler = (
     } catch {
       // The socket can disconnect while the failure is being reported.
     }
-  });
+  };
+  try {
+    const task = operation();
+    if (task !== undefined) void task.catch(reportFailure);
+  } catch (error: unknown) {
+    reportFailure(error);
+  }
 };
 
 // ─── Disconnect cleanup ───────────────────────────────────────────────────────
@@ -219,6 +225,7 @@ export const runAgentSocketDisconnectCleanup = (
   consumersNsp: Namespace,
 ): void => {
   markAgentRegisterSocketDisconnected(socket);
+  cleanupAgentHeartbeatState(socket);
   unregisterAgentBridgeSocket(socket.id);
   clearAgentHeartbeatSocketRateLimitStateForSocketId(socket.id);
   const cleanedPendingRequests = cleanupPendingRequestsForAgentSocket(socket.id);
@@ -423,73 +430,6 @@ const handleAgentProfileUpdate = async (
 // ─── agent:heartbeat / agent:ready handlers ───────────────────────────────────
 
 /**
- * Handles `agent:heartbeat`: validates the canonical registered agent, marks
- * the protocol ready / touches liveness, and emits `hub:heartbeat_ack`
- * (mirroring the `trace_id` so the agent can correlate without a synced clock).
- */
-const handleAgentHeartbeat = (socket: AgentHubSocket, rawPayload: unknown): void => {
-  if (!allowAgentHeartbeatSocketEvent(socket.id)) {
-    emitAppError(socket, "agent:heartbeat rate limit exceeded");
-    socket.disconnect(true);
-    return;
-  }
-  // Control-plane frames are tiny and almost always `cmp: none`; sync decode
-  // avoids async scheduling overhead on the highest-frequency agent event.
-  const decoded = decodePayloadFrame(rawPayload);
-  if (!decoded.ok) {
-    emitAppError(socket, decoded.error.message);
-    return;
-  }
-
-  const payloadData = isRecord(decoded.value.data) ? decoded.value.data : {};
-  const payloadAgentId = payloadData.agent_id;
-  // Mirror trace_id back so the agent can correlate emission with ack
-  // without requiring a synchronised clock (spec: socket_communication_standard.md § heartbeat).
-  const payloadTraceId =
-    typeof payloadData.trace_id === "string" && payloadData.trace_id.trim() !== ""
-      ? payloadData.trace_id
-      : undefined;
-
-  const currentAgentId = resolveCanonicalRegisteredAgentId(
-    socket,
-    socketEvents.agentHeartbeat,
-    payloadAgentId,
-  );
-  if (!currentAgentId) {
-    return;
-  }
-
-  const readiness = agentRegistry.getProtocolReadiness(currentAgentId);
-  const waitingExplicitAck =
-    !readiness.ready && agentRegistry.getProtocolReadyMode(currentAgentId) === "explicit_ack";
-
-  agentRegistry.touchLiveness(currentAgentId, {
-    // Under explicit protocolReadyAck, only agent:ready (not heartbeat) should clear the wait.
-    markProtocolReady: !waitingExplicitAck,
-    socketId: socket.id,
-  });
-  runAgentHubPresenceSyncSafely({
-    operation: "touch",
-    agentId: currentAgentId,
-    socketId: socket.id,
-    sync: () => syncAgentHubPresenceOnTouch(currentAgentId),
-  });
-
-  socket.emit(
-    socketEvents.hubHeartbeatAck,
-    encodePayloadFrameHotPath(
-      {
-        agent_id: currentAgentId,
-        timestamp: new Date().toISOString(),
-        status: "ok",
-        ...(payloadTraceId !== undefined ? { trace_id: payloadTraceId } : {}),
-      },
-      withOptionalRequestId(decoded.value.frame.requestId),
-    ),
-  );
-};
-
-/**
  * Handles `agent:ready`: parses the (possibly legacy) ready payload, validates
  * the canonical agent, marks protocol ready, and—when the agent opted into the
  * explicit `protocol_ready_ack` handshake—schedules the deferred profile sync.
@@ -615,7 +555,9 @@ export const registerAgentSocketConnectionHandlers = ({
     });
 
     socket.on(socketEvents.agentHeartbeat, (rawPayload: unknown) => {
-      void handleAgentHeartbeat(socket, rawPayload);
+      runAgentSocketAsyncHandler(socket, socketEvents.agentHeartbeat, () =>
+        handleAgentHeartbeat(socket, rawPayload),
+      );
     });
 
     socket.on(socketEvents.agentReady, (rawPayload: unknown) => {

@@ -1,5 +1,7 @@
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Server, Socket } from "socket.io";
+import type { ConsumerPreparationCoordinator } from "./scheduling/consumer_preparation_coordinator";
+import type { ConsumerClientSessionIndex } from "./registries/consumer_client_session_index";
 
 import {
   handleAgentsCommand,
@@ -224,7 +226,10 @@ export const runConsumerSocketDisconnectCleanup = (
 };
 
 export type RegisterConsumerSocketHandlersInput = {
-  readonly state: ConsumerClientAgentRoomBootstrapState;
+  readonly state: ConsumerClientAgentRoomBootstrapState & {
+    readonly consumerPreparation: ConsumerPreparationCoordinator;
+    readonly clientSessions: ConsumerClientSessionIndex;
+  };
   readonly consumersNsp: HubNamespace;
   readonly agentsNsp: HubNamespace;
   readonly getUserId: (socket: ConsumerHubSocket) => string | null;
@@ -247,7 +252,12 @@ export const registerConsumerSocketConnectionHandlers = ({
     // Register disconnect early so identity-room join failures still run full cleanup
     // exactly once (avoids double-counting connected/disconnected metrics).
     socket.on("disconnect", () => {
-      runConsumerSocketDisconnectCleanup(socket, agentsNsp, getUserId);
+      try {
+        runConsumerSocketDisconnectCleanup(socket, agentsNsp, getUserId);
+      } finally {
+        state.consumerPreparation.cancelSocket(socket.id);
+        state.clientSessions.remove(socket.id);
+      }
     });
 
     try {
@@ -269,6 +279,10 @@ export const registerConsumerSocketConnectionHandlers = ({
       return;
     }
 
+    if (!socket.connected || state.shuttingDown) return;
+    const clientId =
+      socket.data.user?.principal_type === "client" ? socket.data.user.sub.trim() : "";
+    if (clientId) state.clientSessions.register(socket.id, clientId);
     emitConnectionReady(
       socket,
       {
@@ -315,7 +329,7 @@ export const registerConsumerSocketConnectionHandlers = ({
           return;
         }
         // Idle touch runs inside the handler after structural validation succeeds.
-        await handleAgentsCommand(socket, rawPayload);
+        await handleAgentsCommand(socket, rawPayload, state.consumerPreparation);
       })().catch((error: unknown) => {
         logger.warn("agents_command_handler_failed", {
           socketId: socket.id,
@@ -518,7 +532,7 @@ export const registerConsumerSocketConnectionHandlers = ({
 
         // Rate limit (allowRelayRpcRequestAsync) is applied per item inside the
         // batch handler; the outer wire handler only pre-validates the envelope.
-        await handleRelayRpcRequestBatch(socket, envelope.data);
+        await handleRelayRpcRequestBatch(socket, envelope.data, state.consumerPreparation);
       })().catch((error: unknown) => {
         logger.warn("relay_rpc_request_batch_handler_failed", {
           socketId: socket.id,

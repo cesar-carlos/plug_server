@@ -57,9 +57,9 @@ const socketBudgetKey = (socketId: string): string => `socket:${socketId}`;
 const agentBudgetKey = (agentId: string): string => `agent:${agentId}`;
 
 const resolveBudgetKey = (socketId: string): string => {
-  const registered = agentRegistry.findBySocketId(socketId);
-  if (registered?.agentId) {
-    return agentBudgetKey(registered.agentId);
+  const agentId = agentRegistry.getAgentIdBySocketId(socketId);
+  if (agentId) {
+    return agentBudgetKey(agentId);
   }
   return socketBudgetKey(socketId);
 };

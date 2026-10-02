@@ -77,6 +77,8 @@ const awaitInFlightPromises = async (
 
 const stopSocketServerLifecycleTasks = async (state: SocketServerState): Promise<void> => {
   state.shuttingDown = true;
+  await state.consumerPreparation.close();
+  state.clientSessions.clear();
 
   if (state.conversationSweepTimer) {
     clearInterval(state.conversationSweepTimer);
@@ -126,10 +128,12 @@ const stopSocketServerLifecycleTasks = async (state: SocketServerState): Promise
 export const stopSocketServerLifecycleTasksForTests = stopSocketServerLifecycleTasks;
 
 export const closeSocketServer = async (io: Server, signal = "shutdown"): Promise<void> => {
+  const state = socketServerStates.get(io);
+  // Stop preparation admission immediately, including the shutdown notice grace period.
+  const preparationDrain = state?.consumerPreparation.close();
   emitServerShutdownNotice(io, signal);
   await new Promise((resolve) => setTimeout(resolve, 50));
-
-  const state = socketServerStates.get(io);
+  await preparationDrain;
   if (state) {
     await stopSocketServerLifecycleTasks(state);
   }

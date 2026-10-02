@@ -1,8 +1,11 @@
+import { ConsumerPreparationCoordinator } from "../../src/presentation/socket/hub/scheduling/consumer_preparation_coordinator";
+import { ConsumerClientSessionIndex } from "../../src/presentation/socket/hub/registries/consumer_client_session_index";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Namespace, Server } from "socket.io";
 
-import { stopSocketServerLifecycleTasksForTests } from "../../src/socket";
+import { stopSocketServerLifecycleTasksForTests, closeSocketServer } from "../../src/socket";
+import { socketServerStates } from "../../src/socket_state";
 import { TtlCache } from "../../src/shared/utils/ttl_cache";
 import { env } from "../../src/shared/config/env";
 
@@ -16,6 +19,8 @@ const createLifecycleState = (): SocketServerState => {
   } as unknown as Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, unknown>;
 
   return {
+    consumerPreparation: new ConsumerPreparationCoordinator({ perSocket: 4, perHub: 32 }),
+    clientSessions: new ConsumerClientSessionIndex(),
     io: {} as Server,
     agentsNamespace,
     consumersNamespace: agentsNamespace,
@@ -44,6 +49,34 @@ const createLifecycleState = (): SocketServerState => {
 };
 
 describe("socket shutdown lifecycle", () => {
+  it("should close preparation admission before the notice grace period and clear client membership", async () => {
+    const state = createLifecycleState();
+    Object.assign(state.io, {
+      of: () => state.consumersNamespace,
+      close: (done: () => void) => done(),
+    });
+    socketServerStates.set(state.io, state);
+    state.clientSessions.register("consumer", "client");
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const work = vi.fn(() => gate);
+    const pending = Array.from({ length: 5 }, () =>
+      state.consumerPreparation.run("consumer", null, work),
+    );
+    const closing = closeSocketServer(state.io);
+    expect(state.consumerPreparation.getMetrics()).toMatchObject({ active: 4, waiting: 0 });
+    await expect(state.consumerPreparation.run("new-consumer", null, work)).resolves.toEqual({
+      cancelled: true,
+    });
+    finish();
+    await Promise.all(pending);
+    await closing;
+    expect(work).toHaveBeenCalledTimes(4);
+    expect(state.clientSessions.getSortedClientIds()).toEqual([]);
+    expect(socketServerStates.has(state.io)).toBe(false);
+  });
   afterEach(() => {
     vi.useRealTimers();
   });

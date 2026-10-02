@@ -1,3 +1,4 @@
+import type { ConsumerPreparationCoordinator } from "../hub/scheduling/consumer_preparation_coordinator";
 /**
  * Socket handler for consumer commands to agents.
  * Reuses executeAgentCommand use case and shared validation (including auto JSON-RPC `id` when omitted).
@@ -104,17 +105,38 @@ const emitAppError = (socket: Socket, message: string, code = "SOCKET_PROTOCOL_E
   socket.emit(socketEvents.appError, buildLegacySocketAppErrorPayload(code, message));
 };
 
-export const handleAgentsCommand = (socket: Socket, rawPayload: unknown): Promise<void> =>
-  runAgentsCommand(socket, rawPayload);
+export const handleAgentsCommand = (
+  socket: Socket,
+  rawPayload: unknown,
+  preparation?: ConsumerPreparationCoordinator,
+): Promise<void> => runAgentsCommand(socket, rawPayload, preparation);
 
-const runAgentsCommand = async (socket: Socket, rawPayload: unknown): Promise<void> => {
-  const decodedInbound = await decodeAgentsCommandInboundPayload(rawPayload);
+const runAgentsCommand = async (
+  socket: Socket,
+  rawPayload: unknown,
+  preparation?: ConsumerPreparationCoordinator,
+): Promise<void> => {
+  const prepare = async (): Promise<{
+    decodedInbound: Awaited<ReturnType<typeof decodeAgentsCommandInboundPayload>>;
+    parsed: ReturnType<typeof agentCommandBodySchema.safeParse> | null;
+  }> => {
+    const decodedInbound = await decodeAgentsCommandInboundPayload(rawPayload);
+    return {
+      decodedInbound,
+      parsed: decodedInbound.ok ? agentCommandBodySchema.safeParse(decodedInbound.data) : null,
+    };
+  };
+  const prepared = preparation
+    ? await preparation.run(socket.id, rawPayload, prepare)
+    : { cancelled: false as const, value: await prepare() };
+  if (prepared.cancelled || socket.connected === false) return;
+  const { decodedInbound, parsed } = prepared.value;
   if (!decodedInbound.ok) {
     emitAppError(socket, decodedInbound.message);
     return;
   }
 
-  const parsed = agentCommandBodySchema.safeParse(decodedInbound.data);
+  if (parsed === null) return;
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
     const message = firstIssue

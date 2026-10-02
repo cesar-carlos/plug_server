@@ -18,7 +18,7 @@ type PendingAdmit = {
 };
 
 type SocketSequencerState = {
-  generation: number;
+  readonly generation: number;
   nextAdmitSeq: number;
   nextCommitSeq: number;
   readonly waiters: Map<number, Waiter>;
@@ -52,7 +52,8 @@ const metrics = {
 };
 
 const stateBySocketId = new Map<string, SocketSequencerState>();
-const generationBySocketId = new Map<string, number>();
+// Unique across idle pruning, disconnect and resets without retaining historical socket ids.
+let nextGeneration = 0;
 
 const getOrCreateState = (socketId: string): SocketSequencerState => {
   const existing = stateBySocketId.get(socketId);
@@ -60,7 +61,7 @@ const getOrCreateState = (socketId: string): SocketSequencerState => {
     return existing;
   }
   const created: SocketSequencerState = {
-    generation: generationBySocketId.get(socketId) ?? 0,
+    generation: ++nextGeneration,
     nextAdmitSeq: 0,
     nextCommitSeq: 0,
     waiters: new Map(),
@@ -150,12 +151,10 @@ export const noteAgentInboundChunkWithoutRoute = (): void => {
 
 export const cleanupAgentInboundSequencerSocket = (socketId: string): void => {
   const state = stateBySocketId.get(socketId);
-  const nextGeneration = (state?.generation ?? generationBySocketId.get(socketId) ?? 0) + 1;
-  generationBySocketId.set(socketId, nextGeneration);
   if (!state) {
     return;
   }
-  state.generation = nextGeneration;
+  stateBySocketId.delete(socketId);
   for (const waiter of state.waiters.values()) {
     waiter.resolve(false);
   }
@@ -163,7 +162,6 @@ export const cleanupAgentInboundSequencerSocket = (socketId: string): void => {
   state.pendingBySeq.clear();
   state.nextAdmitSeq = 0;
   state.nextCommitSeq = 0;
-  stateBySocketId.delete(socketId);
 };
 
 export const getAgentInboundSequencerMetricsSnapshot = (): AgentInboundSequencerMetricsSnapshot => {
@@ -195,8 +193,7 @@ export const getAgentInboundSequencerMetricsSnapshot = (): AgentInboundSequencer
 };
 
 export const resetAgentInboundSequencerForTests = (): void => {
-  stateBySocketId.clear();
-  generationBySocketId.clear();
+  for (const socketId of stateBySocketId.keys()) cleanupAgentInboundSequencerSocket(socketId);
   metrics.waitMsSum = 0;
   metrics.waitMsCount = 0;
   metrics.waitMsMax = 0;
@@ -204,3 +201,6 @@ export const resetAgentInboundSequencerForTests = (): void => {
   metrics.outOfOrderPreventedTotal = 0;
   metrics.chunkWithoutRouteTotal = 0;
 };
+
+/** Internal cardinality diagnostic, never included in socket event envelopes. */
+export const getAgentInboundSequencerTrackedSocketCount = (): number => stateBySocketId.size;

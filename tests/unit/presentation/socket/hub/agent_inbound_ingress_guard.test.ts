@@ -2,10 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { env } from "../../../../../src/shared/config/env";
 import { encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
-import {
-  agentRegistry,
-  type RegisteredAgent,
-} from "../../../../../src/presentation/socket/hub/registries/agent_registry";
+import { agentRegistry } from "../../../../../src/presentation/socket/hub/registries/agent_registry";
 import {
   admitAgentInboundFrame,
   cleanupAgentInboundIngressSocket,
@@ -135,21 +132,12 @@ describe("agent_inbound_ingress_guard", () => {
     expect(getAgentInboundIngressMetricsSnapshot().bytesRejectedDecoded).toBe(frame.originalSize);
   });
 
-  const registeredAgent = (socketId: string, agentId = "agent-shared"): RegisteredAgent => ({
-    agentId,
-    socketId,
-    userId: null,
-    capabilities: {},
-    connectedAt: "2020-01-01T00:00:00.000Z",
-    lastSeenAt: "2020-01-01T00:00:00.000Z",
-  });
-
   it("shares the enforce frame cap across sockets of the same registered agentId", () => {
     vi.spyOn(env, "socketAgentInboundGuardMode", "get").mockReturnValue("enforce");
     vi.spyOn(env, "socketAgentInboundMaxFramesPerWindow", "get").mockReturnValue(1);
-    vi.spyOn(agentRegistry, "findBySocketId").mockImplementation((socketId: string) => {
+    vi.spyOn(agentRegistry, "getAgentIdBySocketId").mockImplementation((socketId: string) => {
       if (socketId === "s1" || socketId === "s2") {
-        return registeredAgent(socketId);
+        return "agent-shared";
       }
       return null;
     });
@@ -173,8 +161,8 @@ describe("agent_inbound_ingress_guard", () => {
   it("does not consume a registered agent budget from an unregistered socket", () => {
     vi.spyOn(env, "socketAgentInboundGuardMode", "get").mockReturnValue("enforce");
     vi.spyOn(env, "socketAgentInboundMaxFramesPerWindow", "get").mockReturnValue(1);
-    vi.spyOn(agentRegistry, "findBySocketId").mockImplementation((socketId: string) => {
-      return socketId === "s1" ? registeredAgent("s1") : null;
+    vi.spyOn(agentRegistry, "getAgentIdBySocketId").mockImplementation((socketId: string) => {
+      return socketId === "s1" ? "agent-shared" : null;
     });
     const registered = admitAgentInboundFrame({
       socketId: "s1",
@@ -193,9 +181,9 @@ describe("agent_inbound_ingress_guard", () => {
   it("drops both socket and agent ingress keys when the last mapped socket disconnects", () => {
     vi.spyOn(env, "socketAgentInboundGuardMode", "get").mockReturnValue("enforce");
     vi.spyOn(env, "socketAgentInboundMaxFramesPerWindow", "get").mockReturnValue(1);
-    vi.spyOn(agentRegistry, "findBySocketId").mockImplementation((socketId: string) => {
+    vi.spyOn(agentRegistry, "getAgentIdBySocketId").mockImplementation((socketId: string) => {
       if (socketId === "s1" || socketId === "s2") {
-        return registeredAgent(socketId);
+        return "agent-shared";
       }
       return null;
     });
@@ -217,8 +205,8 @@ describe("agent_inbound_ingress_guard", () => {
   it("does not release another socket's pending budget after a disconnected job completes", () => {
     vi.spyOn(env, "socketAgentInboundGuardMode", "get").mockReturnValue("enforce");
     vi.spyOn(env, "socketAgentInboundMaxPendingWork", "get").mockReturnValue(1);
-    vi.spyOn(agentRegistry, "findBySocketId").mockImplementation((socketId: string) =>
-      socketId === "s1" || socketId === "s2" ? registeredAgent(socketId) : null,
+    vi.spyOn(agentRegistry, "getAgentIdBySocketId").mockImplementation((socketId: string) =>
+      socketId === "s1" || socketId === "s2" ? "agent-shared" : null,
     );
     const disconnected = admitAgentInboundFrame({
       socketId: "s1",

@@ -49,6 +49,7 @@ import {
   createBridgeLatencyTraceIfSampled,
 } from "../../../../../src/application/services/bridge_latency_trace_builder";
 import { handleAgentsCommand } from "../../../../../src/presentation/socket/consumers/agents_command.handler";
+import { ConsumerPreparationCoordinator } from "../../../../../src/presentation/socket/hub/scheduling/consumer_preparation_coordinator";
 import { allowAgentsCommandSocketAsync } from "../../../../../src/presentation/socket/hub/rate_limits/agents_command_socket_rate_limiter";
 import { assertConsumerSocketAgentAccess } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import {
@@ -109,6 +110,84 @@ const validPayload = {
 };
 
 describe("handleAgentsCommand", () => {
+  it("queues saturated malformed commands without early rejection or quota charge", async () => {
+    const preparation = new ConsumerPreparationCoordinator({ perSocket: 1, perHub: 1 });
+    let release!: () => void;
+    const blocker = preparation.run(
+      "other",
+      null,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await Promise.resolve();
+    const socket = buildSocket();
+    const queued = handleAgentsCommand(
+      socket as never,
+      { agentId: "agent-1", command: { id: "invalid" } },
+      preparation,
+    );
+    await Promise.resolve();
+    expect(socket.emit).not.toHaveBeenCalled();
+    expect(mockedAllowAgentsCommandSocket).not.toHaveBeenCalled();
+    release();
+    await blocker;
+    await queued;
+    expectAgentsCommandResponse(socket.emit, {
+      success: false,
+      requestId: "invalid",
+      error: { code: "VALIDATION_ERROR" },
+    });
+    expect(mockedAllowAgentsCommandSocket).not.toHaveBeenCalled();
+    expect(mockedTryAcquire).not.toHaveBeenCalled();
+  });
+
+  it("frees preparation while an agent response is still pending", async () => {
+    const preparation = new ConsumerPreparationCoordinator({ perSocket: 1, perHub: 1 });
+    let release!: () => void;
+    mockedExecuteAuthorizedAgentCommand.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              requestId: "req-1",
+              response: { type: "single", success: true, item: { id: "req-1", result: {} } },
+            });
+        }),
+    );
+    const socket = buildSocket();
+    const pending = handleAgentsCommand(socket as never, validPayload, preparation);
+    await vi.waitFor(() => expect(mockedExecuteAuthorizedAgentCommand).toHaveBeenCalled());
+    expect(preparation.getMetrics().active).toBe(0);
+    await preparation.close();
+    expect(socket.emit).not.toHaveBeenCalled();
+    release();
+    await pending;
+  });
+
+  it("does not dispatch queued preparation after consumer disconnect", async () => {
+    const preparation = new ConsumerPreparationCoordinator({ perSocket: 1, perHub: 1 });
+    let release!: () => void;
+    const blocker = preparation.run(
+      "other",
+      null,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await Promise.resolve();
+    const socket = buildSocket();
+    const pending = handleAgentsCommand(socket as never, validPayload, preparation);
+    preparation.cancelSocket(socket.id);
+    await pending;
+    expect(mockedTryAcquire).not.toHaveBeenCalled();
+    expect(mockedAllowAgentsCommandSocket).not.toHaveBeenCalled();
+    expect(socket.emit).not.toHaveBeenCalled();
+    release();
+    await blocker;
+  });
   beforeEach(() => {
     mockedExecuteAuthorizedAgentCommand.mockReset();
     mockedCreateBridgeLatencyTraceIfSampled.mockReset();

@@ -9,7 +9,8 @@ import { getAgentInboundSequencerMetricsSnapshot } from "./presentation/socket/h
 import { getAgentInboundIngressMetricsSnapshot } from "./presentation/socket/hub/relay/agent_inbound_ingress_guard";
 import { getSocketRateLimitRedisMetricsSnapshot } from "./application/services/socket_rate_limit_redis_metrics.service";
 import { SOCKET_NAMESPACES } from "./shared/constants/socket_events";
-import { resolveCurrentSocketServer } from "./socket_state";
+import { resolveCurrentSocketServer, socketServerStates } from "./socket_state";
+import type { ConsumerPreparationMetrics } from "./presentation/socket/hub/scheduling/consumer_preparation_coordinator";
 
 export const getSocketMetricsSnapshot = (): {
   readonly namespaces: {
@@ -26,12 +27,30 @@ export const getSocketMetricsSnapshot = (): {
     typeof getClientSocketEventPublishSocketRateLimitMetricsSnapshot
   >;
   readonly consumerRuntime: ReturnType<typeof getSocketConsumerMetricsSnapshot>;
+  readonly consumerPreparation?: ConsumerPreparationMetrics;
   readonly agentRuntime: ReturnType<typeof getSocketAgentMetricsSnapshot>;
   readonly agentInboundSequencer: ReturnType<typeof getAgentInboundSequencerMetricsSnapshot>;
   readonly agentInboundIngress: ReturnType<typeof getAgentInboundIngressMetricsSnapshot>;
   readonly hubErrors: ReturnType<typeof getSocketHubErrorMetricsSnapshot>;
 } => {
   const io = resolveCurrentSocketServer();
+  const consumerPreparation = {
+    active: 0,
+    waiting: 0,
+    waitingBytes: 0,
+    waitCount: 0,
+    waitSumMs: 0,
+    waitMaxMs: 0,
+  };
+  for (const state of socketServerStates.values()) {
+    const metrics = state.consumerPreparation.getMetrics();
+    consumerPreparation.active += metrics.active;
+    consumerPreparation.waiting += metrics.waiting;
+    consumerPreparation.waitingBytes += metrics.waitingBytes;
+    consumerPreparation.waitCount += metrics.waitCount;
+    consumerPreparation.waitSumMs += metrics.waitSumMs;
+    consumerPreparation.waitMaxMs = Math.max(consumerPreparation.waitMaxMs, metrics.waitMaxMs);
+  }
   return {
     namespaces: {
       agents: io?.of(SOCKET_NAMESPACES.agents).sockets.size ?? 0,
@@ -44,6 +63,7 @@ export const getSocketMetricsSnapshot = (): {
     clientSocketEventPublishSocketRateLimit:
       getClientSocketEventPublishSocketRateLimitMetricsSnapshot(),
     consumerRuntime: getSocketConsumerMetricsSnapshot(),
+    consumerPreparation,
     agentRuntime: getSocketAgentMetricsSnapshot(),
     agentInboundSequencer: getAgentInboundSequencerMetricsSnapshot(),
     agentInboundIngress: getAgentInboundIngressMetricsSnapshot(),

@@ -483,6 +483,12 @@ class InMemoryAgentRegistry {
     return internal ? this.toPublic(internal) : null;
   }
 
+  /** Resolve identity on ingress without allocating the catalog projection or ISO timestamps. */
+  getAgentIdBySocketId(socketId: string): string | null {
+    const agentId = this.agentIdBySocketId.get(socketId);
+    return agentId && this.agents.get(agentId)?.socketId === socketId ? agentId : null;
+  }
+
   /**
    * Idle agents for disconnect sweeps — returns ids + socketIds without ISO
    * formatting used by list APIs.

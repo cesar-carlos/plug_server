@@ -1009,6 +1009,9 @@ const envSchema = z.object({
    * Set `0` to disable the gate (legacy behaviour: unbounded inflight per socket).
    */
   SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET: z.coerce.number().int().min(0).max(10_000).default(32),
+  /** Preparation waits instead of rejecting before payload validation. 0 disables the respective limit. */
+  SOCKET_CONSUMER_PREPARATION_CONCURRENCY_PER_SOCKET: z.coerce.number().int().min(0).default(4),
+  SOCKET_CONSUMER_PREPARATION_CONCURRENCY_PER_HUB: z.coerce.number().int().min(0).default(32),
   /**
    * Dedicated async cap for `socket:event.publish` only. When `0` (default), publish shares
    * {@link SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET} with relay/command handlers. When > 0, publish
@@ -2031,6 +2034,10 @@ export const env = {
   socketAuthAccountSnapshotTtlMs: parsedEnv.SOCKET_AUTH_ACCOUNT_SNAPSHOT_TTL_MS,
   socketConsumerAgentAccessSnapshotTtlMs: parsedEnv.SOCKET_CONSUMER_AGENT_ACCESS_SNAPSHOT_TTL_MS,
   socketConsumerMaxInflightPerSocket: parsedEnv.SOCKET_CONSUMER_MAX_INFLIGHT_PER_SOCKET,
+  socketConsumerPreparationConcurrencyPerSocket:
+    parsedEnv.SOCKET_CONSUMER_PREPARATION_CONCURRENCY_PER_SOCKET,
+  socketConsumerPreparationConcurrencyPerHub:
+    parsedEnv.SOCKET_CONSUMER_PREPARATION_CONCURRENCY_PER_HUB,
   socketCustomEventPublishMaxInflightPerSocket:
     parsedEnv.SOCKET_CUSTOM_EVENT_PUBLISH_MAX_INFLIGHT_PER_SOCKET,
   socketCustomEventMaxSubscriptionsPerSocket:

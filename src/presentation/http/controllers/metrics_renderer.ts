@@ -135,12 +135,24 @@ export const buildMetricsLines = (snapshots: MetricsSnapshots): string[] => {
   const agentsCommandRl = socket.agentsCommandSocketRateLimit;
   const clientSocketEventPublishRl = socket.clientSocketEventPublishSocketRateLimit;
   const consumerRuntime = socket.consumerRuntime;
+
   const agentRuntime = socket.agentRuntime;
   const agentInboundSequencer = socket.agentInboundSequencer;
   const agentInboundIngress = socket.agentInboundIngress;
   const hubErrors = socket.hubErrors;
 
   const lines: string[] = [];
+  if (socket.consumerPreparation) {
+    const preparation = socket.consumerPreparation;
+    lines.push(metricLine("plug_socket_consumer_preparation_active", preparation.active));
+    lines.push(metricLine("plug_socket_consumer_preparation_waiting", preparation.waiting));
+    lines.push(
+      metricLine("plug_socket_consumer_preparation_waiting_bytes", preparation.waitingBytes),
+    );
+    lines.push(metricLine("plug_socket_consumer_preparation_wait_count", preparation.waitCount));
+    lines.push(metricLine("plug_socket_consumer_preparation_wait_sum_ms", preparation.waitSumMs));
+    lines.push(metricLine("plug_socket_consumer_preparation_wait_max_ms", preparation.waitMaxMs));
+  }
 
   /** REST bridge request counters/latency, JSON-RPC method stats and REST HTTP rate-limit rejections. */
   const emitRestBridgeAndHttpRateLimit = (): void => {

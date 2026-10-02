@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   SOCKET_BRIDGE_BENCH_CI_OPTIONS,
   runStableSocketBridgeBench,
+  type SocketBridgeBenchReport,
 } from "./socket_bridge_bench_harness";
 
 interface BaselineScenario {
@@ -15,6 +16,9 @@ interface BaselineScenario {
 }
 
 interface BaselineFile {
+  readonly harnessVersion?: number;
+  readonly configFingerprint?: string;
+  readonly env?: SocketBridgeBenchReport["env"];
   readonly nodeVersion: string;
   readonly platform: string;
   readonly config: {
@@ -47,32 +51,47 @@ describe("socket bridge performance bench", () => {
     // A committed fixture cannot account for competing processes on a developer
     // workstation. CI supplies a fresh base-commit report from the same runner.
     const comparable =
-      baselinePath !== undefined ||
-      (process.env.SOCKET_BRIDGE_BENCH_COMPARE_LOCAL === "1" &&
-        baseline.platform === report.platform &&
-        baseline.nodeVersion === report.nodeVersion);
+      baseline.harnessVersion === report.harnessVersion &&
+      (baselinePath !== undefined ||
+        (process.env.SOCKET_BRIDGE_BENCH_COMPARE_LOCAL === "1" &&
+          baseline.platform === report.platform &&
+          baseline.nodeVersion === report.nodeVersion));
+    if (baselinePath !== undefined) {
+      expect(baseline.harnessVersion, "base and head must use the same harness").toBe(
+        report.harnessVersion,
+      );
+    }
     if (comparable) {
       expect(report.platform).toBe(baseline.platform);
       expect(report.nodeVersion).toBe(baseline.nodeVersion);
       expect(report.config).toEqual(baseline.config);
+      expect(report.configFingerprint, "runtime settings must match").toBe(
+        baseline.configFingerprint,
+      );
+      expect(report.env).toEqual(baseline.env);
+      expect(report.scenarios.map((scenario) => scenario.name)).toEqual(
+        baseline.scenarios.map((scenario) => scenario.name),
+      );
     }
     for (const scenario of report.scenarios) {
       expect(scenario.chunksLost, scenario.name).toBe(0);
       expect(scenario.orderOk, scenario.name).toBe(true);
+      expect(scenario.duplicateChunks, scenario.name).toBe(0);
+      if (scenario.name === "unary_gzip") expect(scenario.gzipFrames).toBe(scenario.samples);
       const reference = baseline.scenarios.find((item) => item.name === scenario.name);
-      expect(reference, scenario.name).toBeDefined();
+      if (comparable) expect(reference, scenario.name).toBeDefined();
       if (!reference || !comparable) {
         continue;
       }
       // Sub-millisecond paths have measurable scheduler/JIT noise even after
       // warmup. The deliberately slow stream keeps a strict relative limit.
       const p95NoiseFloorMs =
-        scenario.name === "stream_slow_consumer"
+        scenario.name === "rest_handler_cpu_delay"
           ? 0
-          : scenario.name === "stream_normal"
+          : scenario.name === "rest_handler_stream"
             ? 0.08
             : 0.03;
-      const throughputFloor = scenario.name === "stream_normal" ? 0.7 : 0.85;
+      const throughputFloor = scenario.name === "rest_handler_stream" ? 0.7 : 0.85;
       expect(scenario.p95Ms, scenario.name).toBeLessThanOrEqual(
         Math.max(reference.p95Ms * 1.05, reference.p95Ms + p95NoiseFloorMs),
       );

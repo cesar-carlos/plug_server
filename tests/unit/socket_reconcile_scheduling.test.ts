@@ -29,4 +29,18 @@ describe("socket reconcile scheduling helpers", () => {
     expect(resolveConsumerClientAgentRoomReconcileStartDelayMs(1000, 0.5)).toBe(500);
     expect(resolveConsumerClientAgentRoomReconcileStartDelayMs(1000, 99)).toBe(1001);
   });
+
+  it("preserves cursor normalization and fractional slice semantics", () => {
+    expect(selectReconcileClientEntries(["a", "b", "c"], -1, 2)).toEqual({
+      selected: ["c", "a"],
+      nextCursor: 1,
+      deferredCount: 1,
+    });
+    expect(selectReconcileClientEntries(["a", "b", "c"], 4.5, 1.5)).toEqual({
+      selected: ["b"],
+      nextCursor: 0,
+      deferredCount: 1.5,
+    });
+    expect(selectReconcileClientEntries(["a", "b"], Number.NaN, 1).selected).toEqual(["a"]);
+  });
 });

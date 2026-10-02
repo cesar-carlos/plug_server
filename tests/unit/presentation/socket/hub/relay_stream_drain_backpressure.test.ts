@@ -15,6 +15,49 @@ afterEach(() => {
 });
 
 describe("drainRelayStreamBuffer backpressure", () => {
+  it("resumes after transport saturation without losing or duplicating chunks and emits complete last", async () => {
+    const requestId = "pause-resume";
+    setRelayStreamFlowCredits(requestId, 3);
+    for (let index = 0; index < 3; index += 1)
+      addRelayStreamBufferedChunk(requestId, { chunk_index: index }, 10);
+    setRelayStreamPendingComplete(requestId, { done: true });
+    const emitted: unknown[] = [];
+    let writable = false;
+    const input = {
+      requestId,
+      consumerSocketId: "c",
+      agentSocketId: "a",
+      conversationId: "conv",
+      agentId: "agent",
+      canEmitChunk: () => writable,
+      emitChunk: (value: unknown) => {
+        emitted.push(value);
+        writable = false;
+        return true;
+      },
+      emitComplete: (value: unknown) => {
+        emitted.push(value);
+        return true;
+      },
+      encodeFrame: async (value: unknown) => value,
+      recordAudit: () => undefined,
+    };
+    expect((await drainRelayStreamBuffer(input)).pausedForBackpressure).toBe(true);
+    expect(emitted).toEqual([]);
+    for (let index = 0; index < 3; index += 1) {
+      writable = true;
+      await drainRelayStreamBuffer(input);
+    }
+    expect(emitted).toEqual([
+      { chunk_index: 0 },
+      { chunk_index: 1 },
+      { chunk_index: 2 },
+      { done: true },
+    ]);
+    await drainRelayStreamBuffer(input);
+    expect(emitted).toHaveLength(4);
+    clearRelayStreamFlowState(requestId);
+  });
   it("pauses without popping when canEmitChunk is false and reports pausedForBackpressure", async () => {
     const requestId = "req-bp-1";
     setRelayStreamFlowCredits(requestId, 2);

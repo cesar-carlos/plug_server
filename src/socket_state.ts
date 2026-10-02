@@ -9,6 +9,8 @@ import type { PendingAgentProfilePush } from "./presentation/socket/hub/scheduli
 import { env } from "./shared/config/env";
 import type { JwtAccessPayload } from "./shared/utils/jwt";
 import { TtlCache } from "./shared/utils/ttl_cache";
+import { ConsumerPreparationCoordinator } from "./presentation/socket/hub/scheduling/consumer_preparation_coordinator";
+import { ConsumerClientSessionIndex } from "./presentation/socket/hub/registries/consumer_client_session_index";
 
 export type ConsumerSocketData = {
   user?: JwtAccessPayload;
@@ -53,6 +55,8 @@ export type CachedRoomRecipientCount = {
 export type SocketSinkDisposer = () => void;
 
 export type SocketServerState = {
+  readonly consumerPreparation: ConsumerPreparationCoordinator;
+  readonly clientSessions: ConsumerClientSessionIndex;
   readonly io: Server;
   readonly agentsNamespace: ReturnType<Server["of"]>;
   readonly consumersNamespace: ReturnType<Server["of"]>;
@@ -88,6 +92,11 @@ export const createSocketServerState = (
   agentsNsp: ReturnType<Server["of"]>,
   consumersNsp: ReturnType<Server["of"]>,
 ): SocketServerState => ({
+  consumerPreparation: new ConsumerPreparationCoordinator({
+    perSocket: env.socketConsumerPreparationConcurrencyPerSocket,
+    perHub: env.socketConsumerPreparationConcurrencyPerHub,
+  }),
+  clientSessions: new ConsumerClientSessionIndex(),
   io,
   agentsNamespace: agentsNsp,
   consumersNamespace: consumersNsp,

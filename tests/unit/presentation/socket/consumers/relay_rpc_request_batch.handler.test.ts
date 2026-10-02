@@ -104,6 +104,7 @@ import {
 } from "../../../../../src/presentation/socket/consumers/relay_rpc_request_batch.handler";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { encodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
+import { ConsumerPreparationCoordinator } from "../../../../../src/presentation/socket/hub/scheduling/consumer_preparation_coordinator";
 
 const mockedDispatch = vi.mocked(dispatchRelayRpcToAgent);
 const mockedFindConversation = vi.mocked(conversationRegistry.findInternalByConversationId);
@@ -206,6 +207,70 @@ describe("parseRelayRpcRequestBatchEnvelope", () => {
 });
 
 describe("handleRelayRpcRequestBatch", () => {
+  it("keeps validation ahead of quotas while preparation is saturated", async () => {
+    const preparation = new ConsumerPreparationCoordinator({ perSocket: 1, perHub: 1 });
+    let release!: () => void;
+    const blocker = preparation.run(
+      "other",
+      null,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await Promise.resolve();
+    const socket = buildSocket();
+    const pending = handleRelayRpcRequestBatch(
+      socket as never,
+      { conversationId: "conv-1", frame: encodePayloadFrame([{ id: "bad" }]) },
+      preparation,
+    );
+    await vi.waitFor(() => expect(preparation.getMetrics().waiting).toBe(1));
+    expect(socket.emit).not.toHaveBeenCalled();
+    expect(mockedAllowRelay).not.toHaveBeenCalled();
+    release();
+    await blocker;
+    await pending;
+    expect(socket.emit).toHaveBeenCalledWith(
+      socketEvents.relayRpcBatchAccepted,
+      expect.objectContaining({
+        success: false,
+        error: expect.objectContaining({ code: "BATCH_ITEM_INVALID" }),
+      }),
+    );
+    expect(mockedAllowRelay).not.toHaveBeenCalled();
+    expect(mockedDispatch).not.toHaveBeenCalled();
+    expect(socket.data.inflightCounter?.inflightCount ?? 0).toBe(0);
+  });
+
+  it("cancels waiting batches without retaining dispatch slots or charging quotas", async () => {
+    const preparation = new ConsumerPreparationCoordinator({ perSocket: 1, perHub: 1 });
+    let release!: () => void;
+    const blocker = preparation.run(
+      "other",
+      null,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await Promise.resolve();
+    const socket = buildSocket();
+    const pending = handleRelayRpcRequestBatch(
+      socket as never,
+      { conversationId: "conv-1", frame: buildBatchFrame(["a", "b"]) },
+      preparation,
+    );
+    await vi.waitFor(() => expect(preparation.getMetrics().waiting).toBe(1));
+    preparation.cancelSocket(socket.id);
+    await pending;
+    expect(socket.emit).not.toHaveBeenCalled();
+    expect(mockedAllowRelay).not.toHaveBeenCalled();
+    expect(mockedDispatch).not.toHaveBeenCalled();
+    expect(socket.data.inflightCounter?.inflightCount ?? 0).toBe(0);
+    release();
+    await blocker;
+  });
   beforeEach(() => {
     mockedDispatch.mockReset();
     mockedFindConversation.mockReset();

@@ -6,12 +6,40 @@ import {
   completeAgentInboundCommitTurn,
   getAgentInboundSequencerMetricsSnapshot,
   resetAgentInboundSequencerForTests,
+  getAgentInboundSequencerTrackedSocketCount,
   waitAgentInboundCommitTurn,
 } from "../../../../../src/presentation/socket/hub/relay/agent_inbound_sequencer";
 
 describe("agent_inbound_sequencer", () => {
   afterEach(() => {
     resetAgentInboundSequencerForTests();
+  });
+
+  it("does not retain disconnected identities across 20000 session cycles", async () => {
+    for (let index = 0; index < 20_000; index += 1) {
+      const socketId = `socket-${index}`;
+      const ticket = admitAgentInboundFrameSeq(socketId);
+      cleanupAgentInboundSequencerSocket(socketId);
+      await expect(waitAgentInboundCommitTurn(ticket)).resolves.toBe("stale");
+    }
+    expect(getAgentInboundSequencerTrackedSocketCount()).toBe(0);
+    expect(getAgentInboundSequencerMetricsSnapshot().pendingJobs).toBe(0);
+  });
+
+  it("rejects old tickets after socket-id reuse, idle pruning and resets", async () => {
+    const old = admitAgentInboundFrameSeq("reused");
+    completeAgentInboundCommitTurn(old);
+    const live = admitAgentInboundFrameSeq("reused");
+    await expect(waitAgentInboundCommitTurn(old)).resolves.toBe("stale");
+    completeAgentInboundCommitTurn(old);
+    await expect(waitAgentInboundCommitTurn(live)).resolves.toBe("live");
+    const waiter = admitAgentInboundFrameSeq("reused");
+    const waiting = waitAgentInboundCommitTurn(waiter);
+    resetAgentInboundSequencerForTests();
+    await expect(waiting).resolves.toBe("stale");
+    const afterReset = admitAgentInboundFrameSeq("reused");
+    await expect(waitAgentInboundCommitTurn(live)).resolves.toBe("stale");
+    await expect(waitAgentInboundCommitTurn(afterReset)).resolves.toBe("live");
   });
 
   it("grants commit turns in admit order even when later work finishes first", async () => {
