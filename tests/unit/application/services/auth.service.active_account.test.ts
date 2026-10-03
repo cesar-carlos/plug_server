@@ -183,6 +183,21 @@ describe("AuthService getActiveAccountUserSnapshot", () => {
       originalSnapshotTtl;
   });
 
+  it("uses a fresh REST snapshot even when the socket cache has an active result", async () => {
+    const user = makeUser({ credentialsUpdatedAt: new Date(1000) });
+    findActiveSnapshotById.mockResolvedValue(toSnapshot(user));
+    const service = makeService({ findById, findActiveSnapshotById });
+    expect((await service.getActiveAccountUserSnapshot(user.id, 1000)).ok).toBe(true);
+    findActiveSnapshotById.mockResolvedValue(toSnapshot(makeUser({ status: "blocked" })));
+    expect(await service.getFreshActiveAccountUserSnapshot(user.id, 1000)).toMatchObject({
+      ok: false,
+      error: { code: "FORBIDDEN" },
+    });
+    expect(await service.getActiveAccountUserSnapshot(user.id, 1000)).toMatchObject({ ok: true });
+    expect(findById).not.toHaveBeenCalled();
+    expect(findActiveSnapshotById).toHaveBeenCalledTimes(2);
+  });
+
   it("caches snapshots keyed by user id and credentials version", async () => {
     const user = makeUser({ credentialsUpdatedAt: new Date(1_700_000_000_100) });
     findActiveSnapshotById.mockResolvedValue(toSnapshot(user));

@@ -21,7 +21,7 @@ import {
   clientMeAgentsPostRateLimit,
   credentialAuthRateLimit,
 } from "../middlewares/rate_limit.middleware";
-import { requireClientAuthAndActiveAccount } from "../middlewares/auth.middleware";
+import { requireClientAuthAndFreshActiveAccount } from "../middlewares/auth.middleware";
 import { validateRequest } from "../middlewares/validate.middleware";
 import {
   clientAccessApproveBodySchema,
@@ -102,7 +102,7 @@ export const clientAccessReviewRouter = Router();
  */
 clientAgentsRouter.get(
   "/client/me/agents",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   validateRequest({ query: clientListAgentsQuerySchema }),
   asyncHandler(listMyClientAgents),
 );
@@ -141,7 +141,7 @@ clientAgentsRouter.get(
  */
 clientAgentsRouter.get(
   "/client/me/agents/:agentId",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   validateRequest({ params: clientAgentIdParamSchema }),
   asyncHandler(getMyClientAgent),
 );
@@ -167,7 +167,7 @@ clientAgentsRouter.get(
  */
 clientAgentsRouter.delete(
   "/client/me/agents/:agentId",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   validateRequest({ params: clientAgentIdParamSchema }),
   asyncHandler(removeMyClientAgentByParam),
 );
@@ -244,7 +244,7 @@ clientAgentsRouter.delete(
  */
 clientAgentsRouter.post(
   "/client/me/agents",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   clientMeAgentsPostRateLimit,
   validateRequest({ body: clientAgentIdsBodySchema }),
   asyncHandler(requestMyClientAgents),
@@ -277,7 +277,7 @@ clientAgentsRouter.post(
  */
 clientAgentsRouter.delete(
   "/client/me/agents",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   validateRequest({ body: clientAgentIdsBodySchema }),
   asyncHandler(removeMyClientAgents),
 );
@@ -339,7 +339,7 @@ clientAgentsRouter.delete(
  */
 clientAgentsRouter.get(
   "/client/me/agent-access-requests",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   validateRequest({ query: clientListAgentAccessRequestsQuerySchema }),
   asyncHandler(listMyClientAgentAccessRequests),
 );
@@ -397,7 +397,7 @@ clientAgentsRouter.get(
  */
 clientAgentsRouter.post(
   "/client/me/agent-access-requests/:requestId/retry",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   clientMeAgentsPostRateLimit,
   validateRequest({ params: clientAgentAccessRequestIdParamSchema }),
   asyncHandler(retryMyClientAgentAccessRequest),
@@ -447,7 +447,7 @@ clientAgentsRouter.post(
  */
 clientAgentsRouter.get(
   "/client/me/agents/:agentId/client-token",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   validateRequest({ params: clientAgentIdParamSchema }),
   asyncHandler(getMyClientAgentToken),
 );
@@ -500,7 +500,7 @@ clientAgentsRouter.get(
  */
 clientAgentsRouter.put(
   "/client/me/agents/:agentId/client-token",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   clientMeAgentTokenPutRateLimit,
   validateRequest({
     params: clientAgentIdParamSchema,

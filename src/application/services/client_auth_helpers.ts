@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { ManagedClientSnapshot } from "../../domain/ports/managed_client_query.port";
 import type { Client } from "../../domain/entities/client.entity";
 import type { User } from "../../domain/entities/user.entity";
 import type { IClientPasswordRecoveryTokenRepository } from "../../domain/repositories/client_password_recovery_token.repository.interface";
@@ -24,7 +25,7 @@ import { ClientRefreshToken } from "../../domain/entities/client_refresh_token.e
  * mapping or registration-token generation.
  */
 
-export const toClientAuthUserDto = (client: Client): ClientAuthUserDto => ({
+export const toClientAuthUserDto = (client: ManagedClientSnapshot): ClientAuthUserDto => ({
   id: client.id,
   userId: client.userId,
   email: client.email,

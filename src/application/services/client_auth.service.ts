@@ -170,6 +170,20 @@ export class ClientAuthService {
       }
     }
 
+    const result = await this.getFreshActiveClientSnapshot(clientId, accessTokenCredentialsVersion);
+    if (!result.ok) return result;
+    const snapshot = result.value;
+    if (env.principalSnapshotCacheTtlMs > 0 && typeof accessTokenCredentialsVersion === "number") {
+      this.snapshotCache.set(`${clientId}:${accessTokenCredentialsVersion}`, snapshot);
+    }
+    return ok(snapshot);
+  }
+
+  /** Fresh REST guard: intentionally bypasses the socket snapshot TTL cache. */
+  async getFreshActiveClientSnapshot(
+    clientId: string,
+    accessTokenCredentialsVersion?: number,
+  ): Promise<Result<ClientActiveSnapshot>> {
     const snapshot = await this.clientRepository.findActiveSnapshotById(clientId);
     if (!snapshot) {
       return err(notFound("Client"));
@@ -185,9 +199,6 @@ export class ClientAuthService {
       return err(invalidToken("Access token is no longer valid"));
     }
 
-    if (env.principalSnapshotCacheTtlMs > 0 && typeof accessTokenCredentialsVersion === "number") {
-      this.snapshotCache.set(`${clientId}:${accessTokenCredentialsVersion}`, snapshot);
-    }
     return ok(snapshot);
   }
 

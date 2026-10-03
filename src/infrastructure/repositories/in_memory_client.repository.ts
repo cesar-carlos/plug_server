@@ -1,3 +1,9 @@
+import type {
+  IManagedClientQueryPort,
+  ManagedClientSnapshot,
+  ManagedClientSnapshotPage,
+} from "../../domain/ports/managed_client_query.port";
+import { toManagedClientSnapshot } from "./managed_client_projection";
 import type { Client } from "../../domain/entities/client.entity";
 import type {
   ClientActiveSnapshot,
@@ -6,7 +12,7 @@ import type {
   ManagedClientListPage,
 } from "../../domain/repositories/client.repository.interface";
 
-export class InMemoryClientRepository implements IClientRepository {
+export class InMemoryClientRepository implements IClientRepository, IManagedClientQueryPort {
   private readonly store = new Map<string, Client>();
 
   async findById(id: string): Promise<Client | null> {
@@ -81,6 +87,19 @@ export class InMemoryClientRepository implements IClientRepository {
       page,
       pageSize,
     };
+  }
+
+  async findManagedClient(id: string): Promise<ManagedClientSnapshot | null> {
+    const client = this.store.get(id);
+    return client === undefined ? null : toManagedClientSnapshot(client);
+  }
+
+  async listManagedClients(
+    userId: string,
+    filter?: ManagedClientListFilter,
+  ): Promise<ManagedClientSnapshotPage> {
+    const page = await this.listByUserIdPage(userId, filter);
+    return { ...page, items: page.items.map(toManagedClientSnapshot) };
   }
 
   async findActiveIdsByIds(ids: readonly string[]): Promise<string[]> {

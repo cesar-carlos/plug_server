@@ -1,3 +1,4 @@
+import type { IManagedClientQueryPort } from "../../domain/ports/managed_client_query.port";
 import type { ClientStatus } from "../../domain/entities/client.entity";
 import type { IClientRefreshTokenRepository } from "../../domain/repositories/client_refresh_token.repository.interface";
 import type { IClientRepository } from "../../domain/repositories/client.repository.interface";
@@ -38,6 +39,7 @@ export class ClientManagementService {
     private readonly userRepository: IUserRepository,
     private readonly clientRepository: IClientRepository,
     private readonly clientRefreshTokenRepository: IClientRefreshTokenRepository,
+    private readonly clientQuery: IManagedClientQueryPort,
     private readonly authService: Pick<ClientAuthService, "invalidateSnapshotCache">,
   ) {}
 
@@ -45,7 +47,7 @@ export class ClientManagementService {
     ownerUserId: string,
     filter?: ListManagedClientsFilter,
   ): Promise<Result<ManagedClientsPage>> {
-    const owner = await this.userRepository.findById(ownerUserId);
+    const owner = await this.userRepository.findActiveSnapshotById(ownerUserId);
     if (!owner) {
       return err(notFound("Owner user"));
     }
@@ -56,7 +58,7 @@ export class ClientManagementService {
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, Math.min(100, filter?.pageSize ?? 20));
 
-    const pageResult = await this.clientRepository.listByUserIdPage(ownerUserId, {
+    const pageResult = await this.clientQuery.listManagedClients(ownerUserId, {
       ...(filter?.status !== undefined ? { status: filter.status } : {}),
       ...(filter?.search !== undefined ? { search: filter.search } : {}),
       page,
@@ -75,7 +77,7 @@ export class ClientManagementService {
     ownerUserId: string,
     clientId: string,
   ): Promise<Result<ClientAuthUserDto>> {
-    const owner = await this.userRepository.findById(ownerUserId);
+    const owner = await this.userRepository.findActiveSnapshotById(ownerUserId);
     if (!owner) {
       return err(notFound("Owner user"));
     }
@@ -83,7 +85,7 @@ export class ClientManagementService {
       return err(forbidden("Owner user is not active"));
     }
 
-    const client = await this.clientRepository.findById(clientId);
+    const client = await this.clientQuery.findManagedClient(clientId);
     if (!client || client.userId !== ownerUserId) {
       return err(notFound("Client"));
     }
@@ -95,7 +97,7 @@ export class ClientManagementService {
     clientId: string,
     status: ClientStatus,
   ): Promise<Result<ClientAuthUserDto>> {
-    const owner = await this.userRepository.findById(ownerUserId);
+    const owner = await this.userRepository.findActiveSnapshotById(ownerUserId);
     if (!owner) {
       return err(notFound("Owner user"));
     }

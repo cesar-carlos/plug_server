@@ -9,7 +9,7 @@ import { asyncHandler } from "../middlewares/async_handler";
 import {
   requireAuthAndActiveAccount,
   requireAuthAndActiveAccountSnapshot,
-  requirePrincipalAuthAndActiveAccount,
+  requirePrincipalAuthAndFreshActiveAccount,
 } from "../middlewares/auth.middleware";
 import {
   agentsCommandsIpRateLimit,
@@ -420,7 +420,7 @@ agentsRouter.patch(
  */
 agentsRouter.post(
   "/commands",
-  ...requirePrincipalAuthAndActiveAccount,
+  ...requirePrincipalAuthAndFreshActiveAccount,
   agentsCommandsIpRateLimit,
   agentsCommandsUserRateLimit,
   validateRequest({ body: agentCommandBodySchema }),

@@ -240,6 +240,7 @@ describe("ClientAuthService account and approval paths", () => {
       userRepository,
       clientRepository,
       refreshTokenRepository,
+      clientRepository,
       authService,
     );
     passwordRecoveryService = new ClientPasswordRecoveryService(
@@ -693,6 +694,19 @@ describe("ClientAuthService account and approval paths", () => {
     expect(rejectedActive.ok).toBe(false);
     expect(staleToken.ok).toBe(false);
     expect(usingPreloaded).toMatchObject({ ok: true });
+  });
+
+  it("uses a fresh client projection after blocking without reusing the socket TTL", async () => {
+    const client = createClient({ id: "fresh-client", credentialsUpdatedAt: new Date(1000) });
+    await clientRepository.save(client);
+    await authService.getActiveClientSnapshot(client.id, 1000);
+    await clientRepository.save(client.withStatus("blocked"));
+    expect(await authService.getFreshActiveClientSnapshot(client.id, 1000)).toMatchObject({
+      ok: false,
+      error: { code: "FORBIDDEN" },
+    });
+    expect(await authService.getActiveClientSnapshot(client.id, 1000)).toMatchObject({ ok: true });
+    expect(clientRepository.snapshotLookups).toBe(2);
   });
 
   it("uses cached active client snapshots and rejects stale snapshot credentials", async () => {

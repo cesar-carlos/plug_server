@@ -1,3 +1,9 @@
+import type {
+  IManagedClientQueryPort,
+  ManagedClientSnapshot,
+  ManagedClientSnapshotPage,
+} from "../../domain/ports/managed_client_query.port";
+import { managedClientSelect, toManagedClientSnapshot } from "./managed_client_projection";
 import {
   Prisma,
   type Client as PrismaClientModel,
@@ -14,7 +20,7 @@ import type {
 import { conflict } from "../../shared/errors/http_errors";
 import { prismaClient } from "../database/prisma/client";
 
-export class PrismaClientRepository implements IClientRepository {
+export class PrismaClientRepository implements IClientRepository, IManagedClientQueryPort {
   async findById(id: string): Promise<Client | null> {
     const client = await prismaClient.client.findUnique({ where: { id } });
     return client ? this.toDomain(client) : null;
@@ -79,6 +85,55 @@ export class PrismaClientRepository implements IClientRepository {
     userId: string,
     filter?: ManagedClientListFilter,
   ): Promise<ManagedClientListPage> {
+    const { page, pageSize, where } = this.pageQuery(userId, filter);
+    const [clients, total] = await Promise.all([
+      prismaClient.client.findMany({
+        where,
+        orderBy: { createdAt: "asc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prismaClient.client.count({ where }),
+    ]);
+
+    return {
+      items: clients.map((item) => this.toDomain(item)),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async findManagedClient(id: string): Promise<ManagedClientSnapshot | null> {
+    const row = await prismaClient.client.findUnique({
+      where: { id },
+      select: managedClientSelect,
+    });
+    return row === null ? null : toManagedClientSnapshot(row);
+  }
+
+  async listManagedClients(
+    userId: string,
+    filter?: ManagedClientListFilter,
+  ): Promise<ManagedClientSnapshotPage> {
+    const { page, pageSize, where } = this.pageQuery(userId, filter);
+    const [rows, total] = await Promise.all([
+      prismaClient.client.findMany({
+        where,
+        orderBy: { createdAt: "asc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: managedClientSelect,
+      }),
+      prismaClient.client.count({ where }),
+    ]);
+    return { items: rows.map(toManagedClientSnapshot), total, page, pageSize };
+  }
+
+  private pageQuery(
+    userId: string,
+    filter?: ManagedClientListFilter,
+  ): { page: number; pageSize: number; where: Prisma.ClientWhereInput } {
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, Math.min(100, filter?.pageSize ?? 20));
     const trimmedSearch = filter?.search?.trim();
@@ -96,22 +151,7 @@ export class PrismaClientRepository implements IClientRepository {
         : {}),
     };
 
-    const [clients, total] = await Promise.all([
-      prismaClient.client.findMany({
-        where,
-        orderBy: { createdAt: "asc" },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      prismaClient.client.count({ where }),
-    ]);
-
-    return {
-      items: clients.map((item) => this.toDomain(item)),
-      total,
-      page,
-      pageSize,
-    };
+    return { page, pageSize, where };
   }
 
   async findActiveIdsByIds(ids: readonly string[]): Promise<string[]> {

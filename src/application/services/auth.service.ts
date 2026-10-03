@@ -134,6 +134,23 @@ export class AuthService {
       }
     }
 
+    const result = await this.getFreshActiveAccountUserSnapshot(
+      userId,
+      accessTokenCredentialsVersion,
+    );
+    if (!result.ok) return result;
+    const snapshot = result.value;
+    if (env.principalSnapshotCacheTtlMs > 0 && typeof accessTokenCredentialsVersion === "number") {
+      this.snapshotCache.set(`${userId}:${accessTokenCredentialsVersion}`, snapshot);
+    }
+    return ok(snapshot);
+  }
+
+  /** Fresh REST guard: intentionally bypasses the socket snapshot TTL cache. */
+  async getFreshActiveAccountUserSnapshot(
+    userId: string,
+    accessTokenCredentialsVersion?: number,
+  ): Promise<Result<UserActiveSnapshot>> {
     const snapshot = await this.userRepository.findActiveSnapshotById(userId);
     if (!snapshot) {
       return err(notFound("User"));
@@ -148,9 +165,6 @@ export class AuthService {
       return err(invalidToken("Invalid or expired access token"));
     }
 
-    if (env.principalSnapshotCacheTtlMs > 0 && typeof accessTokenCredentialsVersion === "number") {
-      this.snapshotCache.set(`${userId}:${accessTokenCredentialsVersion}`, snapshot);
-    }
     return ok(snapshot);
   }
 

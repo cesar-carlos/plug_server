@@ -261,3 +261,65 @@ export const requireClientAuthAndActiveAccount: RequestHandler[] = [
   requireClientAuth,
   asyncHandler(requireClientActiveAccount),
 ];
+
+/** Fresh projections preserve immediate REST revocation without loading full entities. */
+const requireClientFreshActiveAccount = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const principal = response.locals.authClient as JwtAccessPayload | undefined;
+  if (!principal?.sub) {
+    next(unauthorized("Client authentication required"));
+    return;
+  }
+  const result = await container.clientAuthService.getFreshActiveClientSnapshot(
+    principal.sub,
+    principal.credentials_version,
+  );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  response.locals.activeAccountClientSnapshot = result.value;
+  next();
+};
+
+const requirePrincipalFreshActiveAccount = async (
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const principal = response.locals.authUser as JwtAccessPayload | undefined;
+  if (!principal?.sub) {
+    next(unauthorized("Authentication required"));
+    return;
+  }
+  const result =
+    principal.principal_type === "client"
+      ? await container.clientAuthService.getFreshActiveClientSnapshot(
+          principal.sub,
+          principal.credentials_version,
+        )
+      : await container.authService.getFreshActiveAccountUserSnapshot(
+          principal.sub,
+          principal.credentials_version,
+        );
+  if (!result.ok) {
+    next(result.error);
+    return;
+  }
+  if (principal.principal_type === "client")
+    response.locals.activeAccountClientSnapshot = result.value;
+  else response.locals.activeAccountUserSnapshot = result.value;
+  next();
+};
+
+export const requireClientAuthAndFreshActiveAccount: RequestHandler[] = [
+  requireClientAuth,
+  asyncHandler(requireClientFreshActiveAccount),
+];
+export const requirePrincipalAuthAndFreshActiveAccount: RequestHandler[] = [
+  requireAuth,
+  asyncHandler(requirePrincipalFreshActiveAccount),
+];

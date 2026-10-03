@@ -1,3 +1,6 @@
+import type { IAgentCatalogQueryPort } from "../../domain/ports/agent_catalog_query.port";
+import type { JwtAccessPayload } from "../../shared/utils/jwt";
+import { isJwtAdmin } from "../policies/agent_visibility.policy";
 import type { Agent } from "../../domain/entities/agent.entity";
 import type {
   AgentListFilter,
@@ -15,6 +18,7 @@ export interface AgentCatalogDeps {
 export class AgentCatalogService {
   constructor(
     private readonly agentRepository: IAgentRepository,
+    private readonly catalogQuery: IAgentCatalogQueryPort,
     private readonly deps?: AgentCatalogDeps,
   ) {}
 
@@ -36,6 +40,16 @@ export class AgentCatalogService {
       return err(notFound(`Agent ${agentId}`));
     }
     return ok(agent);
+  }
+
+  async listVisiblePage(
+    principal: JwtAccessPayload,
+    filter?: AgentListFilter,
+  ): Promise<PaginatedAgentList> {
+    return this.catalogQuery.findCatalogPage(
+      isJwtAdmin(principal) ? { kind: "all" } : { kind: "user", userId: principal.sub },
+      filter,
+    );
   }
 
   async listAll(filter?: AgentListFilter): Promise<PaginatedAgentList> {

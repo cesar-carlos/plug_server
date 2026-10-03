@@ -1,3 +1,5 @@
+import { InMemoryAgentCatalogQuery } from "../../infrastructure/repositories/in_memory_agent_catalog_query";
+import type { IManagedClientQueryPort } from "../../domain/ports/managed_client_query.port";
 import { AuthService } from "../../application/services/auth.service";
 import { UserRegistrationService } from "../../application/services/user_registration.service";
 import { UserAccountService } from "../../application/services/user_account.service";
@@ -133,7 +135,7 @@ const agentAutoUpdateDiagnosticsRepository = shouldUseInMemoryPersistence
 const registrationApprovalTokenRepository = shouldUseInMemoryPersistence
   ? new InMemoryRegistrationApprovalTokenRepository()
   : new PrismaRegistrationApprovalTokenRepository();
-const clientRepository: IClientRepository = shouldUseInMemoryPersistence
+const clientRepository: IClientRepository & IManagedClientQueryPort = shouldUseInMemoryPersistence
   ? new InMemoryClientRepository()
   : new PrismaClientRepository();
 const clientRefreshTokenRepository: IClientRefreshTokenRepository = shouldUseInMemoryPersistence
@@ -251,12 +253,18 @@ const agentAccessService = new AgentAccessService(
   agentIdentityRepository,
   clientAgentAccessRepository,
 );
-const agentCatalogService = new AgentCatalogService(agentRepository, {
-  onAgentDeactivated: (agentId) => {
-    agentAccessService.invalidateAccessCacheForAgent(agentId);
-    void invalidateConsumerAgentAccessSnapshotsByAgentId({ agentId });
+const agentCatalogService = new AgentCatalogService(
+  agentRepository,
+  shouldUseInMemoryPersistence
+    ? new InMemoryAgentCatalogQuery(agentRepository, agentIdentityRepository)
+    : new PrismaAgentRepository(),
+  {
+    onAgentDeactivated: (agentId) => {
+      agentAccessService.invalidateAccessCacheForAgent(agentId);
+      void invalidateConsumerAgentAccessSnapshotsByAgentId({ agentId });
+    },
   },
-});
+);
 const agentSelfProfileService = new AgentSelfProfileService(agentRepository);
 const agentProfileSyncService = new AgentProfileSyncService(agentSelfProfileService);
 const agentAutoUpdateDiagnosticsService = new AgentAutoUpdateDiagnosticsService(
@@ -288,6 +296,7 @@ const clientManagementService = new ClientManagementService(
   userRepository,
   clientRepository,
   clientRefreshTokenRepository,
+  clientRepository,
   clientAuthService,
 );
 const clientPasswordRecoveryService = new ClientPasswordRecoveryService(
@@ -321,8 +330,15 @@ const clientAgentLiveProfileDeps: ClientAgentLiveProfileDeps = {
   },
 };
 
-const profileRefreshCoordinator = new AgentProfileRefreshCoordinator(env.restAgentProfileRefreshConcurrency, resolveClusterHubConnectedAgentIdsStrict);
-const agentSnapshotRefresher = new AgentSnapshotRefresher(agentRepository, profileRefreshCoordinator, clientAgentLiveProfileDeps);
+const profileRefreshCoordinator = new AgentProfileRefreshCoordinator(
+  env.restAgentProfileRefreshConcurrency,
+  resolveClusterHubConnectedAgentIdsStrict,
+);
+const agentSnapshotRefresher = new AgentSnapshotRefresher(
+  agentRepository,
+  profileRefreshCoordinator,
+  clientAgentLiveProfileDeps,
+);
 
 const clientAgentAccessQueryService = new ClientAgentAccessQueryService(
   agentRepository,

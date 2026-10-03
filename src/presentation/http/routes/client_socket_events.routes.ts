@@ -7,7 +7,7 @@ import {
   wrapClientSocketEventMulterErrors,
 } from "../controllers/client_socket_events.controller";
 import { asyncHandler } from "../middlewares/async_handler";
-import { requireClientAuthAndActiveAccount } from "../middlewares/auth.middleware";
+import { requireClientAuthAndFreshActiveAccount } from "../middlewares/auth.middleware";
 import { clientSocketEventPublishRateLimit } from "../middlewares/rate_limit.middleware";
 
 export const clientSocketEventsRouter = Router();
@@ -99,7 +99,7 @@ export const clientSocketEventsRouter = Router();
  */
 clientSocketEventsRouter.post(
   "/client/me/socket-events",
-  ...requireClientAuthAndActiveAccount,
+  ...requireClientAuthAndFreshActiveAccount,
   clientSocketEventPublishRateLimit,
   wrapClientSocketEventMulterErrors(clientSocketEventUpload.array("files")),
   validateClientSocketEventPublishRequest,

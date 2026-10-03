@@ -1,3 +1,7 @@
+import type {
+  AgentCatalogScope,
+  IAgentCatalogQueryPort,
+} from "../../domain/ports/agent_catalog_query.port";
 import { randomUUID } from "node:crypto";
 
 import { Prisma } from "@prisma/client";
@@ -28,7 +32,7 @@ function isPrismaUniqueConstraintOnAgentDocument(error: unknown): boolean {
   return fields.includes("document") || joined.includes("document");
 }
 
-export class PrismaAgentRepository implements IAgentRepository {
+export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQueryPort {
   async findById(agentId: string): Promise<Agent | null> {
     const record = await prismaClient.agent.findUnique({ where: { agentId } });
     return record ? this.toEntity(record) : null;
@@ -126,7 +130,21 @@ export class PrismaAgentRepository implements IAgentRepository {
     return records.map((record) => this.toEntity(record));
   }
 
+  async findCatalogPage(
+    scope: AgentCatalogScope,
+    filter?: AgentListFilter,
+  ): Promise<PaginatedAgentList> {
+    return this.findPage(filter, scope);
+  }
+
   async findAll(filter?: AgentListFilter): Promise<PaginatedAgentList> {
+    return this.findPage(filter);
+  }
+
+  private async findPage(
+    filter?: AgentListFilter,
+    scope?: AgentCatalogScope,
+  ): Promise<PaginatedAgentList> {
     const page = Math.max(1, filter?.page ?? 1);
     const pageSize = Math.max(1, filter?.pageSize ?? 20);
 
@@ -140,6 +158,7 @@ export class PrismaAgentRepository implements IAgentRepository {
     }
 
     const where = {
+      ...(scope?.kind === "user" ? { agentIdentities: { some: { userId: scope.userId } } } : {}),
       ...(filter?.agentIds !== undefined && filter.agentIds.length > 0
         ? { agentId: { in: [...new Set(filter.agentIds)] } }
         : {}),

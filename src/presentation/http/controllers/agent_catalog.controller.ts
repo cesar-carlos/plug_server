@@ -1,7 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import {
   canReadAgentByLink,
-  resolveVisibleAgentIds,
 } from "../../../application/policies/agent_visibility.policy";
 import { container } from "../../../shared/di/container";
 import { forbidden } from "../../../shared/errors/http_errors";
@@ -23,18 +22,7 @@ export const listAgents = async (request: Request, response: Response): Promise<
     ...(query?.page !== undefined ? { page: query.page } : {}),
     ...(query?.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
   };
-  const visibleAgentIds = await resolveVisibleAgentIds(authUser, (userId) =>
-    container.userAgentService.listAgentIdsByUserId(userId),
-  );
-
-  const pageResult = await container.agentCatalogService.listAll(
-    visibleAgentIds === undefined
-      ? baseFilter
-      : {
-          ...baseFilter,
-          agentIds: visibleAgentIds,
-        },
-  );
+  const pageResult = await container.agentCatalogService.listVisiblePage(authUser, baseFilter);
   const payload = {
     agents: pageResult.items.map(toAgentCatalogDto),
     count: pageResult.items.length,
