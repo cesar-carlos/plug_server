@@ -44,6 +44,7 @@
     "perf:baseline": "node scripts/capture-perf-baseline.mjs",
     "perf:audit-env": "node scripts/audit-perf-env.mjs",
     "test:perf:socket-bridge": "node --expose-gc ./node_modules/vitest/vitest.mjs run --config vitest.perf.config.mjs",
+    "test:perf:rest-api": "node --expose-gc ./node_modules/vitest/vitest.mjs run --config vitest.rest-perf.config.mjs",
     "check:openrpc": "vitest run tests/integration/agent_rpc_contract.integration.test.ts tests/contract/plug_agente_optional.contract.test.ts",
     "sync:swagger-static": "bash scripts/sync-swagger-ui-static.sh",
     "check:swagger-edge": "bash scripts/check_swagger_edge.sh",

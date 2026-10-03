@@ -10,7 +10,7 @@ export default defineConfig({
     environment: "node",
     root: ".",
     include: ["tests/performance/**/*.test.ts"],
-    exclude: ["node_modules", "dist"],
+    exclude: ["node_modules", "dist", "tests/performance/rest_api_bench.test.ts"],
     testTimeout: 60_000,
     hookTimeout: 60_000,
   },
