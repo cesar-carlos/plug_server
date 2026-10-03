@@ -4,6 +4,33 @@ import { agentRegistry } from "../../../../../src/presentation/socket/hub/regist
 import { env } from "../../../../../src/shared/config/env";
 
 describe("agent_registry session policies", () => {
+  it("projects only twenty snapshots from ten thousand connected agents", () => {
+    for (let index = 0; index < 10_000; index++)
+      agentRegistry.upsert({
+        agentId: `page-${index}`,
+        socketId: `socket-${index}`,
+        userId: null,
+        capabilities: {},
+      });
+    const iso = vi.spyOn(Date.prototype, "toISOString");
+    const page = agentRegistry.listPage({ page: 2, pageSize: 20 });
+    expect(page.total).toBe(10_000);
+    expect(page.items).toHaveLength(20);
+    expect(page.items[0]?.agentId).toBe("page-20");
+    expect(iso).toHaveBeenCalledTimes(20);
+    iso.mockClear();
+    expect(agentRegistry.listIds()).toHaveLength(10_000);
+    expect(iso).not.toHaveBeenCalled();
+    const subset = agentRegistry.listPage({
+      allowedIds: new Set(["page-100", "missing", "page-3", "page-7"]),
+      page: 2,
+      pageSize: 1,
+    });
+    expect(subset.total).toBe(3);
+    expect(subset.items.map((item) => item.agentId)).toEqual(["page-3"]);
+    expect(agentRegistry.listPage({ page: 9999, pageSize: 20 }).items).toEqual([]);
+    iso.mockRestore();
+  });
   afterEach(() => {
     vi.useRealTimers();
     agentRegistry.clear();

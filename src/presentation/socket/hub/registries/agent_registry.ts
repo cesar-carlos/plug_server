@@ -426,6 +426,37 @@ class InMemoryAgentRegistry {
     return this.toPublic(agent);
   }
 
+  listIds(): readonly string[] {
+    return [...this.agents.keys()];
+  }
+
+  listPage(options: {
+    readonly allowedIds?: ReadonlySet<string>;
+    readonly page: number;
+    readonly pageSize: number;
+  }): { readonly items: readonly RegisteredAgent[]; readonly total: number } {
+    const pageSize = Math.max(1, Math.min(100, options.pageSize));
+    const start = (Math.max(1, options.page) - 1) * pageSize;
+    const items: RegisteredAgent[] = [];
+    if (options.allowedIds !== undefined) {
+      let total = 0;
+      for (const id of options.allowedIds) {
+        const internal = this.agents.get(id);
+        if (internal === undefined) continue;
+        if (total >= start && total < start + pageSize) items.push(this.toPublic(internal));
+        total++;
+      }
+      return { items, total };
+    }
+    let index = 0;
+    for (const internal of this.agents.values()) {
+      if (index >= start + pageSize) break;
+      if (index >= start) items.push(this.toPublic(internal));
+      index++;
+    }
+    return { items, total: this.agents.size };
+  }
+
   listAll(): readonly RegisteredAgent[] {
     return Array.from(this.agents.values()).map((internal) => this.toPublic(internal));
   }

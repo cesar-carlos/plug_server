@@ -21,6 +21,9 @@ describe("RestAgentBridgeService", () => {
     ];
     const registry: IConnectedAgentsRegistryPort = {
       listAll: vi.fn(() => agents),
+      listIds: vi.fn(() => agents.map((agent) => agent.agentId)),
+      listPage: vi.fn(() => ({ items: agents, total: agents.length })),
+      findById: vi.fn((id) => agents.find((agent) => agent.agentId === id) ?? null),
       isConnected: vi.fn((agentId: string) => agentId === "agent-1"),
     };
     const diagnostics: IAgentsHubDiagnosticsPort = {

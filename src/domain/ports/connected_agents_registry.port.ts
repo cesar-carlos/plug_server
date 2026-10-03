@@ -7,6 +7,12 @@ export interface ConnectedAgentSnapshot {
 }
 
 export interface IConnectedAgentsRegistryPort {
+  listIds(): readonly string[];
+  listPage(options: {
+    readonly allowedIds?: ReadonlySet<string>;
+    readonly page: number;
+    readonly pageSize: number;
+  }): { readonly items: readonly ConnectedAgentSnapshot[]; readonly total: number };
   listAll(): readonly ConnectedAgentSnapshot[];
   isConnected(agentId: string): boolean;
   /**

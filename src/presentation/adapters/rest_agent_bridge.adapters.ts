@@ -21,6 +21,13 @@ const toSnapshot = ({
 }): ConnectedAgentSnapshot => ({ agentId, userId, capabilities, connectedAt, lastSeenAt });
 
 export const connectedAgentsRegistryAdapter: IConnectedAgentsRegistryPort = {
+  listIds(): readonly string[] {
+    return agentRegistry.listIds();
+  },
+  listPage(options) {
+    const page = agentRegistry.listPage(options);
+    return { ...page, items: page.items.map(toSnapshot) };
+  },
   listAll(): readonly ConnectedAgentSnapshot[] {
     return agentRegistry.listAll().map(toSnapshot);
   },
