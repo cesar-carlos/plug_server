@@ -10,6 +10,11 @@
 
 ## Sumario
 
+O resumo preserva o roadmap histórico. Correções e validações atuais de
+comunicação constam em [sincronização](communication_sync_plug_agente.md);
+“único aberto” refere-se aos itens numerados deste arquivo, sem incluir
+pendências de benchmark, ODBC ou rollout.
+
 | # | Item | Status |
 | - | ---- | ------ |
 | 1 | `enableSocketDeliveryGuarantees=true` | shipped 2026-05-28 [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |

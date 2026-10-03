@@ -1,4 +1,5 @@
 import { env } from "../../../../shared/config/env";
+import { inspectSqlStreamChunk } from "../../../../infrastructure/codecs/sql_stream_chunk_inspection";
 import { HUB_MAX_BATCH_SIZE } from "../../../../shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { noteAgentInboundContractValidationFailed } from "../../../../shared/metrics/socket_agent.metrics";
@@ -72,6 +73,7 @@ const RPC_CHUNK_ALLOWED_KEYS = new Set([
   "rows",
   "total_chunks",
   "column_metadata",
+  "columnar",
 ]);
 
 const RPC_COMPLETE_ALLOWED_KEYS = new Set([
@@ -274,6 +276,10 @@ const validateRpcChunk = (payload: unknown): ContractValidationFailure | null =>
   const rowsValidation = validateRecordArray(payload.rows, "rpc:chunk rows");
   if (rowsValidation !== null) {
     return rowsValidation;
+  }
+  if (payload.columnar !== undefined) {
+    const inspected = inspectSqlStreamChunk(payload);
+    if (!inspected.ok) return reject(inspected.message);
   }
   if (payload.total_chunks !== undefined && !isPositiveInteger(payload.total_chunks)) {
     return reject("rpc:chunk total_chunks must be a positive integer");

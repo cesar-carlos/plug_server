@@ -2,6 +2,23 @@
 
 ## Fonte de verdade para defaults
 
+### Coordenação de preparação e refresh
+
+| Configuração | Default | Semântica |
+| --- | --- | --- |
+| `SOCKET_CONSUMER_PREPARATION_CONCURRENCY_PER_SOCKET` | `4` | Decode/validação de `agents:command` e batch relay; FIFO por socket |
+| `SOCKET_CONSUMER_PREPARATION_CONCURRENCY_PER_HUB` | `32` | Capacidade compartilhada por hub, distribuição circular entre sockets |
+| `REST_AGENT_PROFILE_REFRESH_CONCURRENCY` | `4` | Refresh RPC de listas e detalhes, FIFO e presença revalidada antes do dispatch |
+
+São inteiros não negativos; `0` desliga o limite daquela dimensão. A espera
+é interna, sem rejeição antecipada nem timeout novo de fila. Esses limites
+operacionais não alteram limites negociados ou slots de dispatch. Não há teto
+rígido adicional para as filas recebidas. Disconnect cancela esperas sem
+interessados; shutdown fecha admissão e drena somente trabalhos ativos.
+Snapshots REST de perfil preservam TTL de 30s e removem expirados por índice,
+sem expulsar entradas válidas por um novo teto. O cache local de idempotência
+mantém TTL e expulsão por inserção; o índice evita varrer todo o mapa.
+
 - **Variaveis**: valores por defeito e parsing em [src/shared/config/env.ts](../src/shared/config/env.ts) (Zod `.default()` / `preprocess`).
 - **Exemplo local**: [.env.example](../.env.example) (copiar para `.env`).
 - **Documentacao narrativa**: [REST bridge](api/api_rest_bridge.md), [relay](socket/socket_relay_protocol.md), [performance](performance/performance_hub_agent.md) e [estados de utilizador](api/user_status.md).

@@ -6,6 +6,8 @@ export interface StreamEventHandlers {
   readonly consumerSocketId: string;
   readonly conversationId?: string;
   readonly mode?: "legacy" | "relay";
+  /** Checks expanded budgets before allocating columnar row maps. */
+  readonly admitNormalizedChunk?: (rowCount: number, expandedBytes: number) => boolean;
   /**
    * `rawForward` carries the agent's original decoded frame bytes so the relay
    * drain can forward them unchanged (skipping a re-`JSON.stringify` + gzip).

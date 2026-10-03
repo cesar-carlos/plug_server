@@ -4,6 +4,7 @@
  */
 
 import { env } from "../../../../shared/config/env";
+import { countSqlChunkRows } from "../../../../infrastructure/codecs/sql_stream_chunk_inspection";
 
 /**
  * Original agent frame bytes captured for the byte-forward fast path: when a
@@ -169,7 +170,7 @@ export const addRelayStreamBufferedChunk = (
 ): void => {
   const entry = ensureRelayStreamFlowEntry(requestId);
   const normalizedByteLength = normalizeBufferedByteLength(byteLength);
-  const rowCount = Array.isArray(chunk.rows) ? chunk.rows.length : 0;
+  const rowCount = countSqlChunkRows(chunk);
   const streamId = typeof chunk.stream_id === "string" ? chunk.stream_id : null;
   // When byte-forward is available, drop the parsed record from the buffer to
   // avoid retaining large row arrays under backpressure (meta keeps abort/audit stats).
@@ -414,7 +415,7 @@ export interface DrainRelayStreamBufferContext {
 }
 
 const countChunkRows = (payload: Record<string, unknown>): number => {
-  return Array.isArray(payload.rows) ? payload.rows.length : 0;
+  return countSqlChunkRows(payload);
 };
 
 export const countRelayStreamBufferedRows = (requestId: string): number => {

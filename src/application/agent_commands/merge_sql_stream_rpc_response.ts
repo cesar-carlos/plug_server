@@ -18,6 +18,7 @@ export const appendSqlStreamChunkRows = (
   target: unknown[],
   chunk: Record<string, unknown>,
 ): number => {
+  // Transport codecs expand optional columnar chunks before this boundary.
   const chunkRows = chunk.rows;
   if (!Array.isArray(chunkRows)) {
     return 0;

@@ -1,0 +1,69 @@
+{
+  "chunk": {
+    "stream_id": "fixture-columnar",
+    "request_id": "fixture-request",
+    "chunk_index": 0,
+    "rows": [],
+    "columnar": {
+      "row_count": 2,
+      "columns": [
+        {
+          "name": "id",
+          "type": "int32",
+          "values": [
+            1,
+            2
+          ]
+        },
+        {
+          "name": "large",
+          "type": "int64",
+          "values": [
+            1234567890123,
+            1234567890124
+          ]
+        },
+        {
+          "name": "amount",
+          "type": "float64",
+          "values": [
+            1.25,
+            2.5
+          ]
+        },
+        {
+          "name": "name",
+          "type": "object",
+          "values": [
+            "ação 🎉",
+            "漢字"
+          ]
+        },
+        {
+          "name": "optional",
+          "type": "object",
+          "values": [
+            null,
+            "present"
+          ]
+        }
+      ]
+    }
+  },
+  "expected_rows": [
+    {
+      "id": 1,
+      "large": 1234567890123,
+      "amount": 1.25,
+      "name": "ação 🎉",
+      "optional": null
+    },
+    {
+      "id": 2,
+      "large": 1234567890124,
+      "amount": 2.5,
+      "name": "漢字",
+      "optional": "present"
+    }
+  ]
+}

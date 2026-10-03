@@ -27,6 +27,7 @@ import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 
 import { buildProfileRefreshMetricsLines } from "../helpers/profile_refresh_metrics";
+import { buildSqlChunkNormalizationMetricsLines } from "../../../shared/metrics/sql_chunk_normalization.metrics";
 import { buildMetricsLines } from "./metrics_renderer";
 
 /**
@@ -77,6 +78,7 @@ export const getMetrics = (_request: Request, response: Response): void => {
 
   lines.push(
     ...buildProfileRefreshMetricsLines(container.clientAgentAccessQueryService.getRefreshMetrics()),
+    ...buildSqlChunkNormalizationMetricsLines(),
   );
   const body = Buffer.from(`${lines.join("\n")}\n`);
   metricsResponseCache = {

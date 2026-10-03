@@ -1,5 +1,21 @@
 ﻿# Observabilidade
 
+## Normalização e lifecycle da comunicação
+
+`plug_sql_chunk_normalization_{frames,received_bytes,normalized_bytes,failures}_total`
+mede chunks transformados, bytes de payload recebidos (comprimidos quando
+aplicável), bytes JSON normalizados e falhas de expansão. Não usa IDs como
+labels nem registra conteúdo. Compare os bytes normalizados com os limites
+REST/relay; `rows: []` no fio não significa ausência de linhas colunares.
+
+Preparação consumer e refresh REST expõem agregados de ativos, aguardando e
+espera nas estruturas existentes. No agente, diagnósticos internos incluem
+workers/portas, jobs ativos/aguardando/falhos/cancelados, espera acumulada,
+expirações/timers, pico da fila e preparação de heartbeat. Não são campos
+novos em eventos ou snapshots públicos. Após shutdown/disconnect/TTL, exija
+cardinalidade zero dos recursos encerrados; respostas antigas não restauram
+crédito, presença ou liveness de outra sessão.
+
 Este documento concentra metricas, traces, alertas e sinais operacionais do
 hub. Para **limites de acesso, quotas e respostas 429/503**, ver
 [`docs/limits/limites_acesso_e_quotas.md`](../limits/limites_acesso_e_quotas.md).

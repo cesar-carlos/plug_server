@@ -14,6 +14,11 @@
 
 ## Quatro itens Colmeia
 
+O status histórico abaixo não cobre toda a validação de comunicação atual.
+As correções de lifecycle e normalização colunar preservam o profile 2.11.2;
+consulte a matriz de [sincronização](communication_sync_plug_agente.md) para
+cobertura, revisions e pendências de ODBC/homologação. Brotli continua proposta.
+
 | # | Item | Estado no hub | Acao no `plug_agente` |
 | - | ---- | ------------- | --------------------- |
 | 1 | Relay JSON-RPC batch (`relay:rpc.request.batch`) | ✅ Pronto, gated por `SOCKET_RELAY_BATCH_ENABLED` | **Nada** — ver [`02`](02_no_change_items.md) |

@@ -1,5 +1,22 @@
 ﻿# REST Bridge - POST /api/v1/agents/commands
 
+## Chunks colunares do agente (profile 2.11.2)
+
+O hub aceita o `columnar` opcional já emitido pelo agente, inclusive com
+`rows: []`, e reconstrói row maps antes de contar, armazenar ou materializar
+o resultado. `rows` não vazio prevalece, sem concatenar a cópia colunar.
+Tipos aceitos: `int32`, `int64`, `float64`, `object`; nomes, nulos, valores e
+ordem seguem o codec do agente. Contagem, vetores e os limites existentes de
+linhas/bytes são verificados antes da expansão. Conteúdo inválido usa o
+encerramento de stream e os erros existentes.
+
+Consumidores REST continuam recebendo os mesmos envelopes e `rows`, sem
+`columnar`. O terminal status e os limites agregados de materialização não
+mudam. Bytes recebidos e bytes normalizados são contabilizados separadamente;
+o buffer/materialização usam o tamanho da representação expandida. Assinatura
+é verificada antes da transformação. Socket relay e `agents:command` seguem
+a mesma normalização, com reencode e assinatura pelo pipeline existente.
+
 ## Endpoint relacionado: GET /api/v1/agents
 
 Lista os agentes **registrados** no namespace `/agents` (nao apenas conectados).

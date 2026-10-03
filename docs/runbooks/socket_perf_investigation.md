@@ -16,6 +16,17 @@ the questions perf investigations typically need to answer.
 
 ## Step 0 — Choose the channel and reproduction case
 
+Use identical base/candidate harnesses, datasets and configuration, warm up and
+run nine repetitions without concurrent test suites. Keep codec microbenchmarks,
+real loopback relay, production Dart transport and real ODBC results separate.
+The columnar scenarios in `tmp/socket-columnar-bench.json` were previously
+rejected; evaluate equivalence, order, capacity, memory and cleanup rather than
+claiming a percentage improvement. Inspect normalization byte counters and
+internal worker/emitter/heartbeat diagnostics when heap remains after drainage.
+Retain failed performance comparisons; do not loosen gates or call an unmeasured
+change faster. Cross-project revisions and pending staging/ODBC checks belong
+in the existing communication synchronization record.
+
 | Channel | Repro source |
 | ------- | ------------ |
 | Relay (`relay:rpc.request`) | Colmeia E2E `agent_query_across_agents_repositories_e2e_test.dart`, or load test with N concurrent consumers |

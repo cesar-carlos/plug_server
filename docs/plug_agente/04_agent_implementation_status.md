@@ -12,6 +12,12 @@
 
 ## TL;DR
 
+Este ledger conserva commits históricos. A revisão de 2026-10-03 adiciona
+correções em código nas branches atuais, sem publicar commits nesta tarefa.
+Lifecycle do pool/emissor, fila, heartbeat, controles e normalização colunar
+têm cobertura descrita em [sincronização](communication_sync_plug_agente.md).
+Itens implementados não significam homologação completa.
+
 **9 de 10** itens entregues (6 em 2026-05-28 + 3 em 2026-06-24). Resta
 **item 10** (brotli). Hub: [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f).
 

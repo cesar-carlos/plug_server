@@ -65,6 +65,9 @@ export const resolvePlugAgenteRoot = (): string | null => {
       return root;
     }
   }
+  if (process.env.REQUIRE_PLUG_AGENTE_CONTRACT === "true") {
+    throw new Error("Required plug_agente contract is unavailable; configure PLUG_AGENTE_ROOT");
+  }
   return null;
 };
 

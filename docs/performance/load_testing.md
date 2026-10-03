@@ -11,6 +11,14 @@ no hub antes de comparar o runtime ODBC do agente.
 
 ```bash
 # P0 — snapshot Prometheus (hub a correr)
+
+Para a revisão de comunicação, execute também `npm run test:perf:socket-bridge`
+e `npm run test:perf:rest-api`. O primeiro separa handlers de relay Socket.IO
+real e consumidor lento; o segundo requer Prisma, PostgreSQL e Redis isolados.
+Casos colunares novos têm relatório separado e checam row maps, ordem, perdas,
+duplicações e cleanup. Transporte Dart e ODBC real usam o gate cruzado descrito
+em [E2E hub/agente](e2e_benchmark_hub_agent.md). Não execute benchmarks junto
+com suítes de teste e não compare cenários antes rejeitados com latências antigas.
 HUB_URL=http://localhost:3000 npm run perf:baseline
 HUB_URL=http://localhost:3000 npm run perf:baseline -- --out baseline-snapshot.txt
 

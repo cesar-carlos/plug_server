@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { Server } from "socket.io";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +19,7 @@ import { resetRelayRequestRegistry } from "../../src/presentation/socket/hub/reg
 import { resetRelayOutboundQueueState } from "../../src/presentation/socket/hub/relay/relay_outbound_queue";
 import { env } from "../../src/shared/config/env";
 import { socketEvents } from "../../src/shared/constants/socket_events";
+import { buildHubServerCapabilities } from "../../src/shared/constants/agent_transport_contract";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 
 const agentContract = getPlugAgenteContractPaths();
@@ -35,9 +37,12 @@ afterEach(() => {
 });
 
 describe("Dart agent ↔ Node Socket.IO bridge", () => {
-  socketTest(
-    "preserves a signed gzip stream response, chunks and completion",
-    async () => {
+  const variants: (boolean | "odbc")[] =
+    process.env.RUN_DART_PRODUCTION_TRANSPORT === "true" ? [false, true] : [false];
+  if (process.env.RUN_DART_ODBC_TRANSPORT === "true") variants.push("odbc");
+  socketTest.each(variants)(
+    "preserves signed streams and row maps (production transport: %s)",
+    async (production) => {
       expect(agentContract, "plug_agente checkout is required").not.toBeNull();
       if (agentContract === null) {
         return;
@@ -62,6 +67,8 @@ describe("Dart agent ↔ Node Socket.IO bridge", () => {
         );
       });
       const events: string[] = [];
+      let rowCount = 0;
+      let gzipChunks = 0;
       let completeStream!: () => void;
       let failStream!: (error: Error) => void;
       const streamDone = new Promise<void>((resolve, reject) => {
@@ -96,8 +103,20 @@ describe("Dart agent ↔ Node Socket.IO bridge", () => {
             streamHandlers: {
               consumerSocketId: "consumer-dart-bridge-test",
               onChunk: (payload) => {
-                const chunk = payload as { chunk_index: number };
+                const chunk = payload as { chunk_index: number; rows: unknown[] };
+                expect(chunk).not.toHaveProperty("columnar");
+                rowCount += chunk.rows.length;
                 events.push(`chunk-${chunk.chunk_index}`);
+                if (production) {
+                  socket.emit(
+                    socketEvents.rpcStreamPull,
+                    encodePayloadFrame({
+                      request_id: requestId,
+                      stream_id: "production-stream",
+                      window_size: 1,
+                    }),
+                  );
+                }
               },
               onComplete: () => {
                 events.push("complete");
@@ -105,19 +124,37 @@ describe("Dart agent ↔ Node Socket.IO bridge", () => {
               },
             },
           });
-          socket.emit(socketEvents.agentCapabilities, encodePayloadFrame({ capabilities: {} }));
           socket.emit(
-            socketEvents.rpcRequest,
-            encodePayloadFrame(
-              { jsonrpc: "2.0", id: requestId, method: "sql.execute", params: { sql: "SELECT 1" } },
-              { requestId },
-            ),
+            socketEvents.agentCapabilities,
+            encodePayloadFrame({
+              capabilities: buildHubServerCapabilities({
+                recommendedStreamPullWindowSize: 12,
+                maxStreamPullWindowSize: 32,
+              }),
+            }),
           );
+          const dispatch = (): void => {
+            socket.emit(
+              socketEvents.rpcRequest,
+              encodePayloadFrame(
+                {
+                  jsonrpc: "2.0",
+                  id: requestId,
+                  method: "sql.execute",
+                  params: { sql: "SELECT 1" },
+                },
+                { requestId },
+              ),
+            );
+          };
+          if (production) socket.once(socketEvents.agentReady, dispatch);
+          else dispatch();
         });
         socket.on(socketEvents.rpcResponse, (raw: unknown, ack?: () => void) => {
           handlers.handleAgentRpcResponse(socket.id, raw, ack);
         });
         socket.on(socketEvents.rpcChunk, (raw: unknown) => {
+          if (decodePayloadFrame(raw).ok && (raw as { cmp?: string }).cmp === "gzip") gzipChunks++;
           handlers.handleAgentRpcChunk(socket.id, raw);
         });
         socket.on(socketEvents.rpcComplete, (raw: unknown) => {
@@ -134,7 +171,11 @@ describe("Dart agent ↔ Node Socket.IO bridge", () => {
       }
       const testPath = path.join(
         process.cwd(),
-        "tests/fixtures/socket/plug_agente_live_bridge_test.dart",
+        production === "odbc"
+          ? "tests/fixtures/socket/plug_agente_odbc_transport_test.dart"
+          : production
+            ? "tests/fixtures/socket/plug_agente_production_transport_test.dart"
+            : "tests/fixtures/socket/plug_agente_live_bridge_test.dart",
       );
       const args = ["test", testPath, "--reporter", "compact"];
       const flutterCommand = process.platform === "win32" ? "cmd.exe" : "flutter";
@@ -148,6 +189,10 @@ describe("Dart agent ↔ Node Socket.IO bridge", () => {
           PLUG_BRIDGE_E2E_REQUEST_ID: requestId,
           PLUG_BRIDGE_E2E_KEY: signingKey,
           PLUG_BRIDGE_E2E_KEY_ID: keyId,
+          RPC_CHUNK_COLUMNAR_GZIP_ENABLED: "true",
+          ODBC_STREAM_COLUMNAR_WIRE: "true",
+          ODBC_STREAM_WIRE_ONLY: "true",
+          PLUG_BRIDGE_E2E_ODBC: String(production === "odbc"),
         },
       });
       let dartOutput = "";
@@ -175,13 +220,36 @@ describe("Dart agent ↔ Node Socket.IO bridge", () => {
             );
           }),
         ]);
-        expect(events).toEqual(["register", "response", "chunk-0", "chunk-1", "complete"]);
+        const chunks = production === "odbc" ? 1 : production ? 24 : 2;
+        expect(events).toEqual([
+          "register",
+          "response",
+          ...Array.from({ length: chunks }, (_, i) => `chunk-${i}`),
+          "complete",
+        ]);
+        expect(rowCount).toBe(production === "odbc" ? 1 : production ? 1536 : 2);
+        if (production === true) expect(gzipChunks).toBeGreaterThan(0);
         expect(await dartExit, dartOutput).toBe(0);
       } finally {
         if (timeoutHandle !== undefined) {
           clearTimeout(timeoutHandle);
         }
-        child.kill();
+        // Let Flutter release its native DLL before terminating its shell tree.
+        const exited = await Promise.race([
+          dartExit.then(() => true),
+          delay(2000, false, { ref: false }),
+        ]);
+        if (!exited) {
+          if (process.platform === "win32" && child.pid !== undefined) {
+            const cleanup = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+              windowsHide: true,
+            });
+            await new Promise<void>((resolve) => {
+              cleanup.on("error", () => resolve());
+              cleanup.on("exit", () => resolve());
+            });
+          } else child.kill();
+        }
         await new Promise<void>((resolve) => io.close(() => resolve()));
         await new Promise<void>((resolve) => httpServer.close(() => resolve()));
       }

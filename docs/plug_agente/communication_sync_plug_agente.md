@@ -50,9 +50,47 @@ Historico detalhado de mudancas: `CHANGELOG.md`.
 O hub anuncia `extensions.plugProfile = "plug-jsonrpc-profile/2.11.2"` em
 `agent:capabilities` (`HUB_TRANSPORT_EXTENSIONS` em
 `src/shared/constants/agent_transport_contract.ts`). A versao acompanha o
-OpenRPC `info.version` do `plug_agente` quando o suporte e completo no hub.
+OpenRPC `info.version` do `plug_agente`. A versão anunciada não comprova,
+isoladamente, cobertura completa de integração ou homologação.
 
 ## Alinhamento atual
+
+Revisão de comunicação de 2026-10-03: profile **2.11.2** preservado.
+As correções abaixo são de implementação, sem métodos novos no discover ou
+endurecimento incidental dos schemas públicos.
+
+| Caminho | Representação e garantia | Validação / pendência |
+| --- | --- | --- |
+| Agente → hub, chunks colunares | JSON UTF-8 em `PayloadFrame`; `rows: []` pode coexistir com `columnar` desde `ODBC_STREAM_COLUMNAR_WIRE`, mesmo sem wire-only | Fixture produzida pelo codec Dart; vetores e orçamentos verificados antes de expandir |
+| Hub → REST / `agents:command` / relay | Row maps atuais; `rows` não vazio prevalece; `columnar` removido; transformação exige reencode e nova assinatura | Testes de codec, sequenciamento, materialização e transporte; não anunciar capability colunar ao cliente |
+| Pool Dart / emissores | Encerramento imediato, conclusão única, TTL invalida produtor, callback vinculado à instância e fila FIFO limitada | Testes determinísticos de startup, falha, envio lento, substituição e 20 mil ciclos |
+| Heartbeat / controle | Preparação única; pulls e ACKs em sequências independentes por sessão; resultados antigos descartados | Gates de encode/decode, relógio controlado e codecs assinados/gzip |
+| CI cruzada | Checkouts dos dois projetos, revisions registradas, contrato irmão obrigatório no gate | Acesso ao checkout privado necessário; indisponibilidade deve falhar |
+| ODBC / homologação | Gateway determinístico valida transporte; smoke separado usa ODBC real e `SELECT 1 AS n` | SQL Anywhere selecionou row-major; não comprova todos os tipos colunares nativos. Janelas de 15 minutos ainda pendentes |
+
+Promover primeiro o hub normalizador com emissão colunar desligada. Habilitar
+a configuração existente do agente após validar as revisions dos dois lados.
+ADRs e estudos permanecem registros históricos; este documento e os contratos
+Socket/REST descrevem a implementação atual.
+
+### Estado da validação da candidata
+
+Revisions de referência: hub `f39752f` e agente `55da4490`, acrescidas das
+alterações locais de comunicação ainda não publicadas. Os relatórios locais
+separam microbenchmarks, relay real, Dart e ODBC. A aprovação de rollout
+permanece bloqueada pelos gates de desempenho; seus limites não foram alterados.
+
+| Verificação | Evidência / limite |
+| --- | --- |
+| Hub funcional e contratos | Suíte completa, formatação, lint, tipos, contratos, OpenRPC e build; verificações Prisma, auditoria persistida e duas réplicas executadas com PostgreSQL/Redis isolados |
+| Dart ↔ hub | Três variantes passaram: codecs/socket, transporte de produção com gateway determinístico e smoke ODBC real; fixtures e regressões de lifecycle/controle passaram |
+| Agente completo | A última execução offline teve 4.723 testes aprovados, 14 falhas em ODBC/Agent Actions e 5 skips; análise e formatação globais também encontraram problemas fora dos arquivos de comunicação em alteração concorrente. Análise dos arquivos de comunicação passou; isso não substitui os gates globais |
+| Performance | REST/Prisma e correção dos cenários colunares passaram; comparações relativas Socket e Dart falharam em p95. Heap Dart, carga conjunta com ODBC, erros/timeouts sob carga representativa e homologação de 15 minutos permanecem pendentes |
+| CI remota | Workflows atualizados e YAML validado localmente; não executados remotamente nesta entrega sem push |
+
+Os testes live/perf opt-in e as leituras Prisma que a suíte em memória ignora
+foram exercitados separadamente onde indicado. Não interpretar skips restantes
+ou um benchmark sem baseline compatível como aprovação integral.
 
 | Area | Estado no hub | Fonte principal |
 | ---- | ------------- | --------------- |

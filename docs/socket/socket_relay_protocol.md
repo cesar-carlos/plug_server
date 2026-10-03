@@ -4,6 +4,22 @@ Data: 2026-05-11
 
 ## Objetivo
 
+### Normalização colunar e ordem de stream
+
+No profile **2.11.2**, o `columnar` opcional emitido pelo agente é normalizado
+pelo hub após decode e verificação de assinatura. `rows` não vazio prevalece;
+caso contrário, vetores `int32`/`int64`/`float64`/`object` válidos geram row
+maps. O hub remove `columnar` antes da entrega ao consumer, verifica os
+orçamentos existentes antes da expansão e usa bytes normalizados nos buffers.
+Frames transformados passam novamente pelo encoder e signer; os bytes
+originais não são reutilizados. Chunks convencionais conservam seu caminho.
+Não há capability nova nem transporte colunar direto para consumers.
+
+O commit de `response`, `chunk` e `complete` conserva a ordem de chegada,
+mesmo com gunzip fora de ordem. A normalização não concede créditos nem muda
+correlações, ACKs ou códigos de erro. Os controles do agente têm sequências
+independentes por sessão para pull e heartbeat ACK, sem bloquear RPCs.
+
 Canal Socket em modo relay/chat-like para permitir varias conversas simultaneas
 entre consumers e o mesmo agente, sem alterar o canal REST.
 
@@ -85,7 +101,7 @@ socket.on("connection:ready", (rawPayload: unknown) => {
 });
 ```
 
-**Compatibilidade**: existe um shim transitório controlado por `SOCKET_CONNECTION_READY_COMPAT_MODE`, mas o contrato padrão e suportado é `PayloadFrame`. O modo legado `raw_json` tem remoção planejada após `2026-09-30`.
+**Compatibilidade**: existe um shim transitório controlado por `SOCKET_CONNECTION_READY_COMPAT_MODE`, mas o contrato padrão e suportado é `PayloadFrame`. `2026-09-30` foi o prazo previsto de migração, não uma remoção automática: os shims continuam no código, com aviso após o prazo, e `raw_json` é rejeitado na configuração de produção.
 
 ## Eventos relay no /consumers
 

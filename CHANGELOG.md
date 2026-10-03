@@ -6,6 +6,23 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — comunicação Socket.IO com o agente
+
+- O hub aceita os chunks colunares do contrato 2.11.2 e reconstrói os row maps antes da materialização REST e da entrega Socket. `rows` não vazio prevalece sem duplicação; tipos, nulos, Unicode e ordem são preservados conforme as fixtures do codec Dart.
+- Validação de vetores e limites de linhas/bytes antes de expandir os chunks. A representação transformada deixa de reutilizar os bytes assinados originais pelo fast-path e passa pelo reencode e assinatura existentes.
+- Contagem de linhas e orçamento da materialização usam a representação normalizada; bytes recebidos e normalizados são contabilizados separadamente. Os eventos, envelopes, erros e profile público permanecem iguais.
+
+### Added — verificação cruzada e diagnósticos de comunicação
+
+- Métricas agregadas `plug_sql_chunk_normalization_*`, fixture colunar compartilhada e testes de gzip/assinatura, materialização e relay real com consumidor lento e fast-path.
+- Integração com o transporte Dart de produção em processo separado, gateway determinístico e smoke ODBC real opcional, somente leitura. Limpeza dos processos Flutter lançados pelo harness no Windows.
+- CI cruzada registra revisions dos dois projetos e exige o contrato irmão, sem aceitar sua ausência como skip. Os cenários novos colunares são separados das comparações com versões que rejeitavam esses frames.
+
+### Changed — documentação e aceitação da comunicação
+
+- Contratos Socket, guia de clientes, REST/Swagger, configurações, observabilidade, performance e matriz de sincronização revisados. Documentados crédito recomendado de 12, normalização colunar, reencode e situação dos shims legados após os prazos históricos.
+- Homologação e aprovação de desempenho permanecem pendentes: as comparações relativas locais falharam em p95, sem alteração dos limites. O estado da cobertura e as limitações estão em `docs/plug_agente/communication_sync_plug_agente.md`.
+
 ### Changed — docs de coordenacao com o plug_agente
 
 - `docs/plug_agente/03_performance_roadmap.md` voltou a ser arquivo curto. O passo a passo dos itens 1–9 saiu: duplicava o ledger e citava codigo e changelog defasados.

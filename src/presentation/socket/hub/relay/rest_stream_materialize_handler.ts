@@ -109,60 +109,44 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
     agentId: pendingRequest.agentId,
   };
 
+  const admitNormalizedChunk = (chunkRows: number, chunkBytes: number): boolean => {
+    const limit =
+      materializeMaxChunks > 0 && chunkFramesSeen + 1 > materializeMaxChunks
+        ? "chunk"
+        : materializeMaxRows > 0 && aggregatedRowCount + chunkRows > materializeMaxRows
+          ? "row"
+          : materializeMaxBytes > 0 && aggregatedByteCount + chunkBytes > materializeMaxBytes
+            ? "byte"
+            : null;
+    if (limit === null) return true;
+    const counters = {
+      chunk: "restMaterializeChunkLimitExceeded",
+      row: "restMaterializeRowLimitExceeded",
+      byte: "restMaterializeByteLimitExceeded",
+    } as const;
+    relayMetrics[counters[limit]] += 1;
+    registerAgentFailure(pendingRequest.agentId, "rest");
+    const route = getActiveStreamRouteByRequestId(primaryRequestId);
+    if (route) removeActiveStreamRoute(route, { restMaterialize: "detach" });
+    rejectOnce(
+      serviceUnavailable(
+        `REST SQL stream materialization exceeded configured ${limit} limit (use Socket bridge for large streams)`,
+      ),
+    );
+    return false;
+  };
+
   const streamHandlers: StreamEventHandlers = {
     consumerSocketId: REST_STREAM_AGGREGATE_CONSUMER_ID,
     mode: "legacy",
+    admitNormalizedChunk,
     onChunk: (payload, metadata?: StreamChunkMetadata) => {
-      chunkFramesSeen += 1;
-      if (materializeMaxChunks > 0 && chunkFramesSeen > materializeMaxChunks) {
-        relayMetrics.restMaterializeChunkLimitExceeded += 1;
-        registerAgentFailure(pendingRequest.agentId, "rest");
-        const route = getActiveStreamRouteByRequestId(primaryRequestId);
-        if (route) {
-          removeActiveStreamRoute(route, { restMaterialize: "detach" });
-        }
-        rejectOnce(
-          serviceUnavailable(
-            "REST SQL stream materialization exceeded configured chunk limit (use Socket bridge for large streams)",
-          ),
-        );
-        return;
-      }
-
       const chunkRows = countSqlStreamChunkRows(payload);
-      if (materializeMaxRows > 0 && aggregatedRowCount + chunkRows > materializeMaxRows) {
-        relayMetrics.restMaterializeRowLimitExceeded += 1;
-        registerAgentFailure(pendingRequest.agentId, "rest");
-        const route = getActiveStreamRouteByRequestId(primaryRequestId);
-        if (route) {
-          removeActiveStreamRoute(route, { restMaterialize: "detach" });
-        }
-        rejectOnce(
-          serviceUnavailable(
-            "REST SQL stream materialization exceeded configured row limit (use Socket bridge for large streams)",
-          ),
-        );
-        return;
-      }
-
-      if (materializeMaxBytes > 0) {
-        const chunkBytes = resolveStreamChunkOriginalSizeBytes(payload, metadata, 0);
-        if (aggregatedByteCount + chunkBytes > materializeMaxBytes) {
-          relayMetrics.restMaterializeByteLimitExceeded += 1;
-          registerAgentFailure(pendingRequest.agentId, "rest");
-          const route = getActiveStreamRouteByRequestId(primaryRequestId);
-          if (route) {
-            removeActiveStreamRoute(route, { restMaterialize: "detach" });
-          }
-          rejectOnce(
-            serviceUnavailable(
-              "REST SQL stream materialization exceeded configured byte limit (use Socket bridge for large streams)",
-            ),
-          );
-          return;
-        }
-        aggregatedByteCount += chunkBytes;
-      }
+      const chunkBytes =
+        materializeMaxBytes > 0 ? resolveStreamChunkOriginalSizeBytes(payload, metadata, 0) : 0;
+      if (!admitNormalizedChunk(chunkRows, chunkBytes)) return;
+      chunkFramesSeen += 1;
+      if (materializeMaxBytes > 0) aggregatedByteCount += chunkBytes;
 
       aggregatedRowCount += chunkRows;
       appendSqlStreamChunkRows(streamedRows, payload);

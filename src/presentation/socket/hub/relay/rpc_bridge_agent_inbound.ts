@@ -1,4 +1,12 @@
-import { HUB_MAX_BATCH_SIZE } from "../../../../shared/constants/agent_transport_contract";
+import {
+  HUB_MAX_BATCH_SIZE,
+  HUB_MAX_DECODED_PAYLOAD_BYTES,
+} from "../../../../shared/constants/agent_transport_contract";
+import { normalizeColumnarSqlChunk } from "../../../../infrastructure/codecs/sql_stream_chunk_codec";
+import {
+  noteSqlChunkNormalization,
+  noteSqlChunkNormalizationFailure,
+} from "../../../../shared/metrics/sql_chunk_normalization.metrics";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { serviceUnavailable } from "../../../../shared/errors/http_errors";
 import { logger } from "../../../../shared/utils/logger";
@@ -461,17 +469,54 @@ export const createRpcBridgeAgentInboundHandlers = (
         if (!route) {
           return;
         }
+        let normalized: ReturnType<typeof normalizeColumnarSqlChunk>;
         try {
-          route.onChunk(decoded.data, streamChunkMetadataFromPayloadFrame(decoded.frame), {
-            bytes: decoded.decodedBytes,
-            cmp: decoded.frame.cmp,
-            ...(decoded.frame.cmp === "gzip" && Buffer.isBuffer(decoded.frame.payload)
-              ? {
-                  wireBytes: decoded.frame.payload,
-                  originalSize: decoded.frame.originalSize,
-                }
-              : {}),
-          });
+          normalized =
+            decoded.data.columnar === undefined
+              ? null
+              : normalizeColumnarSqlChunk(
+                  decoded.data,
+                  {
+                    maxRows: agentRegistry.resolveEffectiveDispatchPolicy(route.agentId).maxRows,
+                    maxBytes: HUB_MAX_DECODED_PAYLOAD_BYTES,
+                  },
+                  route.admitNormalizedChunk,
+                );
+        } catch (error: unknown) {
+          noteSqlChunkNormalizationFailure();
+          failFastInvalidAgentStreamFrame(
+            socketEvents.rpcChunk,
+            socketId,
+            rawPayload,
+            error instanceof Error ? error.message : "Invalid columnar chunk",
+          );
+          return;
+        }
+        if (normalized === undefined) return;
+        if (normalized !== null) {
+          noteSqlChunkNormalization(decoded.frame.compressedSize, normalized.originalSizeBytes);
+          if (decoded.frame.cmp === "gzip") markRelayOutboundForceGzip(normalized.payload);
+        }
+        try {
+          const metadata = streamChunkMetadataFromPayloadFrame(decoded.frame);
+          route.onChunk(
+            normalized?.payload ?? decoded.data,
+            normalized === null
+              ? metadata
+              : { ...metadata, originalSizeBytes: normalized.originalSizeBytes },
+            normalized !== null
+              ? undefined
+              : {
+                  bytes: decoded.decodedBytes,
+                  cmp: decoded.frame.cmp,
+                  ...(decoded.frame.cmp === "gzip" && Buffer.isBuffer(decoded.frame.payload)
+                    ? {
+                        wireBytes: decoded.frame.payload,
+                        originalSize: decoded.frame.originalSize,
+                      }
+                    : {}),
+                },
+          );
         } catch {
           logger.warn("rpc_stream_chunk_forward_failed", {
             requestId: route.requestId,

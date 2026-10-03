@@ -30,6 +30,7 @@ export interface ActiveStreamRoute {
   readonly conversationId?: string;
   readonly mode: "legacy" | "relay";
   readonly onChunk: StreamEventHandlers["onChunk"];
+  readonly admitNormalizedChunk?: StreamEventHandlers["admitNormalizedChunk"];
   readonly onComplete: StreamEventHandlers["onComplete"];
   streamId?: string;
   restMaterializeState?: RestMaterializeStreamState;
@@ -242,6 +243,9 @@ export const upsertActiveStreamRoute = (input: {
   }
 
   const route: ActiveStreamRoute = {
+    ...(input.streamHandlers.admitNormalizedChunk
+      ? { admitNormalizedChunk: input.streamHandlers.admitNormalizedChunk }
+      : {}),
     consumerSocketId: input.streamHandlers.consumerSocketId,
     agentSocketId: input.agentSocketId,
     agentId: input.agentId,

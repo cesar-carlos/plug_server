@@ -10,6 +10,22 @@ Guia de otimização e variáveis relevantes. Complementa `docs/api/api_rest_bri
 
 ## Transporte Socket.IO
 
+As correções de comunicação de 2026-10-03 mantêm o profile 2.11.2. Normalizar
+chunks colunares exige expansão no hub e reencode/assinatura; o fast-path de
+bytes continua apenas para chunks convencionais. Observe bytes recebidos e
+normalizados, espera de preparação/refresh e cardinalidade após drenagem.
+Controles grandes no agente usam decode assíncrono ordenado por sessão; o
+pool compartilha capacidade de JSON/GZIP/HMAC e cancela ativos no shutdown.
+
+Compare base e candidata com o mesmo harness, dataset, configuração e nove
+repetições, sem cargas concorrentes de teste. Preserve os gates existentes;
+cenários novos comparáveis exigem p95 ≤ 105%, throughput ≥ 85% e crescimento
+de heap ≤ 110% da base. Frames antes rejeitados são avaliados por correção,
+capacidade e memória. Nenhum ganho percentual deve ser declarado sem medição.
+Promova primeiro o hub com emissão colunar desligada; homologação requer
+janelas iguais de 15 minutos e interrupção por perda, duplicação, falhas,
+timeouts, regressão de contrato ou retenção de estado.
+
 - **PayloadFrame** já aplica gzip no nível da aplicação (modo **auto** por defeito: só gzip se menor que JSON UTF-8). Depois de uma tentativa `auto` que não reduz bytes, o hub não volta a tentar gzip para o mesmo evento e a mesma faixa de tamanho (potência de 2) durante 30s. A chave não inclui o conteúdo. `always_gzip` nunca usa essa cache. O Engine.IO, por defeito, pode aplicar **permessage-deflate** no WebSocket — compressão duplicada e CPU extra.
 - **Teto interno de gzip** (`payload_frame.ts` + `PAYLOAD_FRAME_MAX_GZIP_INPUT_BYTES`, defeito **524288**): JSON UTF-8 acima desse tamanho não passa por tentativa de gzip na codificação do hub (`cmp: none`); subir o valor (até **10 MiB**) se precisares de gzip em cargas grandes; payloads seguem dentro do limite de **10 MB** do contrato.
 - **`PAYLOAD_FRAME_GZIP_LEVEL`** (opcional, `1`–`9`): nível zlib para `gzipSync` do hub. Omitir mantém o default do Node (~6). Valores **1–3** reduzem CPU em hubs com muito tráfego comprimido, à custa de frames ligeiramente maiores.

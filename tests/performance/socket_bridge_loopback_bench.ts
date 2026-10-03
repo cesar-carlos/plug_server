@@ -47,6 +47,8 @@ export const runLoopbackRelayBench = async (
   iterations: number,
   chunkCount: number,
   slowConsumer: boolean,
+  columnar = false,
+  fastPath = false,
 ): Promise<SocketBridgeBenchScenarioResult> => {
   resetSocketBridgeState();
   const http = createServer();
@@ -76,6 +78,7 @@ export const runLoopbackRelayBench = async (
         conversationId: "bench-conversation",
         consumerSocketId: socket.id,
         rawFramePayload: frame,
+        fastPath,
       }).catch((error: unknown) => {
         failure = error;
       });
@@ -141,7 +144,20 @@ export const runLoopbackRelayBench = async (
       send(
         agentClient,
         socketEvents.rpcChunk,
-        { request_id: requestId, stream_id: requestId, chunk_index: index, rows: [{ n: index }] },
+        {
+          request_id: requestId,
+          stream_id: requestId,
+          chunk_index: index,
+          rows: columnar ? [] : [{ n: index }],
+          ...(columnar
+            ? {
+                columnar: {
+                  row_count: 1,
+                  columns: [{ name: "n", type: "int32", values: [index] }],
+                },
+              }
+            : {}),
+        },
         requestId,
       );
       nextChunkByRequest.set(requestId, index + 1);
@@ -186,7 +202,15 @@ export const runLoopbackRelayBench = async (
           void pull().catch(reject);
         };
         const chunk = (raw: unknown): void => {
-          const index = Number(decodedRecord(raw).chunk_index);
+          const body = decodedRecord(raw);
+          const index = Number(body.chunk_index);
+          if (
+            columnar &&
+            ("columnar" in body || JSON.stringify(body.rows) !== JSON.stringify([{ n: index }]))
+          ) {
+            reject(new Error("Consumer did not receive equivalent row maps"));
+            return;
+          }
           if (seen.has(index)) duplicateChunks += 1;
           if (index !== seen.size) orderOk = false;
           seen.add(index);
@@ -222,7 +246,11 @@ export const runLoopbackRelayBench = async (
       throw new Error("Loopback relay retained completed routes");
     const total = samples.reduce((sum, value) => sum + value, 0);
     return {
-      name: slowConsumer ? "relay_loopback_slow_consumer" : "relay_loopback_stream",
+      name: columnar
+        ? `relay_columnar_${slowConsumer ? "slow" : "stream"}_${fastPath ? "fast" : "standard"}`
+        : slowConsumer
+          ? "relay_loopback_slow_consumer"
+          : "relay_loopback_stream",
       samples: samples.length,
       p50Ms: percentile(samples, 50),
       p95Ms: percentile(samples, 95),

@@ -6,6 +6,12 @@
 
 ## Objetivo
 
+Chunks colunares do agente são normalizados pelo hub para os clientes atuais.
+Essa transformação requer reencode/assinatura; a recomendação de evitar
+trabalho redundante refere-se a chunks convencionais. Consulte a
+[matriz atual](communication_sync_plug_agente.md) antes de habilitar emissão
+colunar, preservando rollout do hub primeiro.
+
 Reduzir latência e RAM ao evitar REST materializado e re-encode desnecessário no relay.
 
 ## 1. REST streams grandes → relay

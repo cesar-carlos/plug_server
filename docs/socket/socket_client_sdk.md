@@ -1,6 +1,6 @@
 ﻿# Socket Client SDK Minimo (Relay)
 
-> **Action required by 2026-09-30:** Este repositorio nao publica pacote npm/SDK cliente separado. Aplicacoes que consomem Socket devem decodificar `PayloadFrame` em todos os eventos outbound listados abaixo (incluindo `connection:ready`) antes da remocao dos shims `raw_json`. Ver secao _Shims de compatibilidade_ e `docs/configuration.md`.
+> **Prazo previsto de migração: 2026-09-30.** Este repositorio nao publica pacote npm/SDK cliente separado. Os shims `raw_json` ainda existem; a data não os remove automaticamente. Produção rejeita esses modos. Aplicacoes devem decodificar `PayloadFrame` em todos os eventos outbound listados abaixo, incluindo `connection:ready`. Ver _Shims de compatibilidade_ e `docs/configuration.md`.
 
 Data: 2026-05-11
 
@@ -158,6 +158,13 @@ Multipart tambem e aceito: envie o campo `event` com o JSON acima e campos
 `files` repetidos. Os anexos sao pequenos e inline, entregues como
 `attachments[]` com `originalName`, `mimeType`, `sizeBytes` e `base64`.
 Campos de arquivo diferentes de `files` sao rejeitados.
+
+## Representação de chunks do agente
+
+O hub normaliza o `columnar` opcional para `rows` antes de entregar REST,
+relay ou `agents:command`. Clientes atuais continuam usando row maps. `rows`
+não vazio prevalece sem duplicar a cópia colunar. A transformação exige
+reencode e nova assinatura no hub; eventos, correlações e créditos não mudam.
 
 ## Limites e comportamento do hub (resumo)
 
@@ -539,7 +546,9 @@ No servidor, helpers espelhados em `agents_command_wire.ts` e `agents_stream_pul
 Os shims controlam **apenas outbound**; inbound continua dual-format durante a transicao.
 `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE` e **independente** de `SOCKET_AGENTS_COMMAND_COMPAT_MODE`
 para migrar command e stream*pull em calendarios diferentes. Apos `2026-09-30`, o arranque
-regista `WARN` se `raw_json` ainda estiver activo (`warnIf*LegacyCompatExpired`). Detalhes
+regista `WARN` se `raw_json` ainda estiver activo (`warnIf*LegacyCompatExpired`).
+Os três modos `raw_json` são rejeitados em `NODE_ENV=production`; o prazo não
+removeu o código de compatibilidade em ambientes que ainda o permitem. Detalhes
 operacionais: `docs/configuration.md`(secções *PayloadFrame*,`SOCKET_AGENTS_COMMAND_COMPAT_MODE`,
 `SOCKET_AGENTS_STREAM_PULL_COMPAT_MODE`). Para observar disconnects por idle e rate limits durante
 rollout: `docs/observability/observability.md` (`plug_consumer_idle_timeout_disconnect_total`,

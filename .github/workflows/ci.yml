@@ -180,7 +180,8 @@ jobs:
           # Compare runtime changes using identical benchmark scenarios on both revisions.
           cp tests/performance/*.ts bench-base/tests/performance/
           cp vitest.perf.config.mjs bench-base/vitest.perf.config.mjs
-          (cd bench-base && npm run test:perf:socket-bridge)
+          # New columnar cases were rejected by old runtimes; compare only established scenarios.
+          (cd bench-base && SOCKET_COLUMNAR_BENCH_DISABLED=true npm run test:perf:socket-bridge)
           echo "SOCKET_BRIDGE_BENCH_BASELINE_PATH=$GITHUB_WORKSPACE/bench-base/tmp/socket-bridge-bench.json" >> "$GITHUB_ENV"
 
       - name: Socket bridge performance bench
@@ -206,7 +207,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: socket-bridge-bench
-          path: tmp/socket-bridge-bench.json
+          path: |
+            tmp/socket-bridge-bench.json
+            tmp/socket-columnar-bench.json
           if-no-files-found: warn
 
   rest-api-bench:
@@ -295,10 +298,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        agent_ref: ${{ github.event_name == 'push' && fromJSON('["main","v1.8.5"]') || fromJSON('["v1.8.5"]') }}
+        agent_ref: [main, v1.8.5]
     env:
       PLUG_AGENTE_ROOT: ${{ github.workspace }}/plug_agente
       PLUG_SERVER_FIXTURE_DIR: ${{ github.workspace }}/tests/fixtures/socket
+      REQUIRE_PLUG_AGENTE_CONTRACT: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -307,7 +311,6 @@ jobs:
 
       - name: Checkout supported plug_agente version
         id: checkout_agente
-        continue-on-error: true
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: cesar-carlos/plug_agente
@@ -318,13 +321,7 @@ jobs:
 
       - name: Handle plug_agente checkout
         if: steps.checkout_agente.outcome == 'failure'
-        env:
-          IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
-          if [ "$IS_FORK" = "true" ]; then
-            echo "::warning::Skipping Dart contract: cannot checkout cesar-carlos/plug_agente@${{ matrix.agent_ref }} from a fork PR. Add PLUG_AGENTE_CHECKOUT_TOKEN (contents:read on plug_agente) on this repository, or open the PR from a branch in cesar-carlos/plug_server."
-            exit 0
-          fi
           echo "::error::Failed to checkout cesar-carlos/plug_agente@${{ matrix.agent_ref }}. Set repository secret PLUG_AGENTE_CHECKOUT_TOKEN with contents:read on plug_agente if GITHUB_TOKEN cannot access that repository."
           exit 1
 
@@ -334,7 +331,10 @@ jobs:
 
       - name: Validate shared fixtures against agent schemas
         if: steps.checkout_agente.outcome == 'success'
-        run: npx vitest run tests/contract/socket_agent_inbound_fixtures.contract.test.ts
+        run: |
+          mkdir -p tmp
+          printf 'hub=%s\nagent=%s\n' "$(git rev-parse HEAD)" "$(git -C plug_agente rev-parse HEAD)" | tee tmp/communication-revisions.txt
+          npx vitest run tests/contract/socket_agent_inbound_fixtures.contract.test.ts tests/contract/columnar_agent.contract.test.ts
 
       - name: Set up Flutter
         if: steps.checkout_agente.outcome == 'success'
@@ -355,7 +355,16 @@ jobs:
         if: steps.checkout_agente.outcome == 'success'
         env:
           RUN_DART_SOCKET_E2E: "true"
+          RUN_DART_PRODUCTION_TRANSPORT: ${{ matrix.agent_ref == 'main' && 'true' || 'false' }}
         run: npx vitest run tests/integration/agent_dart_socket_bridge.integration.test.ts
+
+      - name: Upload cross-project revisions
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: communication-revisions-${{ matrix.agent_ref }}
+          path: tmp/communication-revisions.txt
+          if-no-files-found: warn
 
   ci:
     name: Required

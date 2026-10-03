@@ -198,6 +198,9 @@ agentsRouter.patch(
  *       object or a JSON-RPC batch array (max 32 items). The API forwards the payload to the connected
  *       agent over Socket.IO (/agents), waits for response when at least one command has non-null `id`,
  *       and returns a normalized response.
+ *       Columnar agent stream chunks are reconstructed into the existing row-map representation before
+ *       REST materialization. Nonempty rows take precedence, without duplication; public envelopes,
+ *       terminal status and row/byte limits remain unchanged.
  *       The authenticated user (`sub` in the JWT) must be linked to `agentId` via the user→agent list (admin-managed);
  *       otherwise the call fails with `403`. The agent must exist in the catalog and be `active`.
  *       If `id` is omitted, the server assigns a UUID before forwarding so the agent can correlate

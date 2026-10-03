@@ -32,7 +32,7 @@ Cenários úteis para **multi-consulta / multi_result**:
 - `rpc_sql_execute_multi_result`
 - `rpc_sql_execute_multi_result_parallel`
 
-Variáveis e modo de correr (incl. `ODBC_E2E_BENCHMARK`, `ODBC_E2E_REQUIRE_MULTI_RESULT`): ver **`plug_agente`** — `tool/check_e2e_env.dart` e `test/helpers/e2e_env.dart`.  
+Variáveis e modo de correr (incl. `ODBC_E2E_BENCHMARK`, `ODBC_E2E_REQUIRE_MULTI_RESULT`): ver **`plug_agente`** — `tool/e2e/check_e2e_env.dart` e `test/helpers/e2e_env.dart`.
 Isto **não passa pelo `plug_server`**.
 
 ### Testes e2e no `plug_server` (comunicação com o agente)
@@ -61,9 +61,30 @@ Ferramentas: `autocannon` / `k6` — `docs/performance/load_testing.md`.
 
 ---
 
-## O que o `plug_server` ainda não inclui
+## Harnesses atuais e limites de cobertura
 
-- Runner de benchmark integrado hub+agente+BD neste repositório (`tests/e2e/` = smoke de arranque).
+- `npm run test:perf:socket-bridge`: microbenchmarks de handlers e relay
+  Socket.IO real em loopback, incluindo crédito atrasado e consumidor lento.
+  Gzip deve ser confirmado por `cmp`, com bytes originais/transmitidos e
+  contagem de frames comprimidos. Resultados novos colunares ficam separados
+  em `tmp/socket-columnar-bench.json`: versões antigas rejeitavam esses frames.
+- `npm run test:perf:rest-api`: HTTP real, Prisma/PostgreSQL e Redis isolados,
+  agentes Socket.IO simulados, planos SQL e nove repetições. Não mede Dart/ODBC.
+- `RUN_DART_SOCKET_E2E=true RUN_DART_PRODUCTION_TRANSPORT=true npx vitest run
+  tests/integration/agent_dart_socket_bridge.integration.test.ts`: processos
+  Node/Dart separados, codecs e transporte de produção com gateway determinístico.
+  `RUN_DART_ODBC_TRANSPORT=true` acrescenta o smoke ODBC real, somente com DSN
+  de teste configurado no agente; ausência/falha não equivale a cobertura simulada.
+  O smoke executa somente `SELECT 1 AS n` e encaminha ambos os callbacks do
+  gateway: alguns drivers selecionam row-major mesmo com emissão colunar habilitada.
+  Essa execução comprova o caminho ODBC real usado pelo driver, não todos os
+  tipos e modos colunares nativos de outros drivers.
+- O agente mede codecs em nove repetições via
+  `test/infrastructure/codecs/transport_repeated_benchmark_test.dart`.
+  Pool saturado, envio lento, expiração e reconexão também têm testes com gates.
+- Ainda não há benchmark de carga representativa hub+Dart+ODBC com todas as
+  métricas e janelas de homologação de 15 minutos executado automaticamente.
+  Registre isso como pendência, sem declarar ganho percentual ou validação integral.
 - Persistência partilhada de pedidos REST entre réplicas — `docs/api/api_rest_bridge.md` (gaps / réplicas).
 
 ---
