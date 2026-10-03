@@ -58,3 +58,33 @@ export const resolveClusterHubConnectedAgentIds = async (
   }
   return connected;
 };
+
+/** Fresh admission check: unlike response enrichment, Redis failures remain visible. */
+export const resolveClusterHubConnectedAgentIdsStrict = async (
+  agentIds: readonly string[],
+): Promise<ReadonlySet<string>> => {
+  const connected = new Set<string>();
+  const remote: string[] = [];
+  const presence = getAgentHubPresencePort();
+  for (const id of new Set(agentIds)) {
+    if (agentRegistry.isRegistered(id)) connected.add(id);
+    else if (presence.isEnabled) remote.push(id);
+  }
+  if (remote.length === 0) return connected;
+  if (presence.resolveRoutesStrict !== undefined) {
+    const routes = await presence.resolveRoutesStrict(remote);
+    for (const id of remote) if (routes.has(id)) connected.add(id);
+  } else {
+    // Older presence ports expose only GET; bound this narrow adapter's concurrency.
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, remote.length) }, async () => {
+        while (next < remote.length) {
+          const id = remote[next++]!;
+          if (await presence.resolveRoute(id)) connected.add(id);
+        }
+      }),
+    );
+  }
+  return connected;
+};

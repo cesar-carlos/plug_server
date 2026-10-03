@@ -299,6 +299,7 @@ const shutdown = async (signal: string): Promise<void> => {
     return;
   }
   shutdownInProgress = true;
+  container.clientAgentAccessQueryService.beginShutdown();
   logger.info("Shutdown signal received", { signal });
 
   try {
@@ -340,6 +341,7 @@ const shutdown = async (signal: string): Promise<void> => {
       await closeSocketServer(io, signal);
     }
     await closeHttpServer();
+    await container.clientAgentAccessQueryService.close();
     /**
      * Close every Redis-backed module concurrently. `Promise.allSettled`
      * ensures one slow `quit()` (e.g. a hung TCP socket) cannot block the

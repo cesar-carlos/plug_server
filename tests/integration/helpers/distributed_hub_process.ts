@@ -13,6 +13,8 @@ export interface DistributedHubProcess {
 }
 
 interface SpawnDistributedHubProcessOptions {
+  readonly agentHubPresenceRedisUrl?: string;
+  readonly hubInstanceId?: string;
   readonly restSocketEventBestEffortLocalMaxRecipients?: number;
   readonly restSocketEventDistributedCountFailureOpenMs?: number;
   readonly restSocketEventDistributedCountFailureThreshold?: number;
@@ -87,6 +89,14 @@ export const spawnDistributedHubProcess = async (
     ...process.env,
     NODE_ENV: "test",
     CONTAINER_PERSISTENCE_MODE: "prisma",
+    ...(options?.agentHubPresenceRedisUrl !== undefined
+      ? {
+          AGENT_HUB_PRESENCE_REDIS_URL: options.agentHubPresenceRedisUrl,
+          AGENT_HUB_PRESENCE_ENABLED: "true",
+          DISTRIBUTED_TEST_PRESENCE: "true",
+          HUB_INSTANCE_ID: options.hubInstanceId ?? "distributed-test-hub",
+        }
+      : {}),
     ...(options?.socketIoRedisAdapterUrl !== undefined
       ? { SOCKET_IO_REDIS_ADAPTER_URL: options.socketIoRedisAdapterUrl }
       : {}),

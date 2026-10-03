@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Response } from "express";
@@ -78,14 +79,14 @@ describe("client_agents.controller", () => {
       mockIsAgentConnected.mockReturnValue(true);
       mockGetConnectedAgentIdSet.mockReturnValue(new Set(["agent-a"]));
 
-      const response = {
+      const response = Object.assign(new EventEmitter(), {
         locals: {
           authClient: { sub: "client-1" },
           validated: { query: {} },
         },
         status: vi.fn().mockReturnThis(),
         json: vi.fn(),
-      } as unknown as Response;
+      }) as unknown as Response;
 
       await listMyClientAgents({} as never, response);
 
@@ -104,14 +105,14 @@ describe("client_agents.controller", () => {
       mockIsAgentConnected.mockReturnValue(false);
       mockHasClientTokenForAgent.mockResolvedValue(false);
 
-      const response = {
+      const response = Object.assign(new EventEmitter(), {
         locals: {
           authClient: { sub: "client-1" },
           validated: { params: { agentId: "agent-a" } },
         },
         status: vi.fn().mockReturnThis(),
         json: vi.fn(),
-      } as unknown as Response;
+      }) as unknown as Response;
       const next = vi.fn();
 
       await getMyClientAgent({} as never, response, next);

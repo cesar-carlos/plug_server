@@ -8,6 +8,17 @@ const mockGetSnapshot = vi.fn();
 
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
+    clientAgentAccessQueryService: {
+      getRefreshMetrics: () => ({
+        active: 0,
+        waiting: 0,
+        waitCount: 0,
+        waitSumMs: 0,
+        waitMaxMs: 0,
+        cancellations: 0,
+        cacheEntries: 0,
+      }),
+    },
     socketMetricsSnapshotProvider: {
       getSnapshot: (...args: unknown[]) => mockGetSnapshot(...args),
     },

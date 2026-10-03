@@ -8,10 +8,7 @@ import type { IClientRepository } from "../../domain/repositories/client.reposit
 import type { IClientAgentAccessRequestRepository } from "../../domain/repositories/client_agent_access_request.repository.interface";
 import { agentAccessDenied, notFound } from "../../shared/errors/http_errors";
 import { type Result, err, ok } from "../../shared/errors/result";
-import {
-  AgentSnapshotRefresher,
-  type ClientAgentLiveProfileDeps,
-} from "./agent_snapshot_refresher";
+import type { AgentSnapshotRefresher } from "./agent_snapshot_refresher";
 import { loadAgentsById, toRequestRecord } from "./client_agent_access_request_records";
 import type {
   ApprovedClientAgentListPage,
@@ -25,16 +22,22 @@ import type {
  * the rest of the access subsystem (request/decision/token) does not.
  */
 export class ClientAgentAccessQueryService {
-  private readonly snapshotRefresher: AgentSnapshotRefresher;
-
   constructor(
     private readonly agentRepository: IAgentRepository,
     private readonly clientRepository: IClientRepository,
     private readonly clientAgentAccessRepository: IClientAgentAccessRepository,
     private readonly clientAgentAccessRequestRepository: IClientAgentAccessRequestRepository,
-    liveProfileDeps?: ClientAgentLiveProfileDeps,
-  ) {
-    this.snapshotRefresher = new AgentSnapshotRefresher(agentRepository, liveProfileDeps);
+    private readonly snapshotRefresher: AgentSnapshotRefresher,
+  ) {}
+
+  getRefreshMetrics(): ReturnType<AgentSnapshotRefresher["getMetrics"]> {
+    return this.snapshotRefresher.getMetrics();
+  }
+  beginShutdown(): void {
+    this.snapshotRefresher.beginShutdown();
+  }
+  close(): Promise<void> {
+    return this.snapshotRefresher.close();
   }
 
   async listApprovedAgentIds(clientId: string): Promise<string[]> {
@@ -68,7 +71,7 @@ export class ClientAgentAccessQueryService {
   async listApprovedAgentsPage(
     clientId: string,
     filter?: AgentListFilter,
-    options?: { readonly refreshOnline?: boolean },
+    options?: { readonly refreshOnline?: boolean; readonly signal?: AbortSignal },
   ): Promise<ApprovedClientAgentListPage> {
     if (this.clientAgentAccessRepository.listApprovedAgentsPageByClient !== undefined) {
       const pageResult = await this.clientAgentAccessRepository.listApprovedAgentsPageByClient(
@@ -80,7 +83,11 @@ export class ClientAgentAccessQueryService {
       }
       return {
         ...pageResult,
-        items: await this.snapshotRefresher.refreshListItems(clientId, pageResult.items),
+        items: await this.snapshotRefresher.refreshListItems(
+          clientId,
+          pageResult.items,
+          options?.signal,
+        ),
       };
     }
 
@@ -96,6 +103,7 @@ export class ClientAgentAccessQueryService {
             await this.snapshotRefresher.refreshListItems(
               clientId,
               pageResult.items.map((agent) => ({ agent, hasClientToken: false })),
+              options?.signal,
             )
           ).map((item) => item.agent);
     const tokenPresenceByAgent =
@@ -112,7 +120,11 @@ export class ClientAgentAccessQueryService {
     };
   }
 
-  async findApprovedAgent(clientId: string, agentId: string): Promise<Result<Agent>> {
+  async findApprovedAgent(
+    clientId: string,
+    agentId: string,
+    signal?: AbortSignal,
+  ): Promise<Result<Agent>> {
     const hasAccess = await this.clientAgentAccessRepository.hasAccess(clientId, agentId);
     if (!hasAccess) {
       return err(agentAccessDenied(agentId));
@@ -124,7 +136,12 @@ export class ClientAgentAccessQueryService {
     }
 
     return ok(
-      await this.snapshotRefresher.resolvePreferredSnapshot(clientId, agentId, persistedAgent),
+      await this.snapshotRefresher.resolvePreferredSnapshot(
+        clientId,
+        agentId,
+        persistedAgent,
+        signal,
+      ),
     );
   }
 

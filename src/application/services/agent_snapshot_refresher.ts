@@ -2,151 +2,189 @@ import type { Agent } from "../../domain/entities/agent.entity";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
 import { IndexedTtlStore } from "../../shared/utils/indexed_ttl_store";
 import { logger } from "../../shared/utils/logger";
+import type {
+  AgentProfileRefreshCoordinator,
+  ProfileRefreshWork,
+  RefreshOutcome,
+} from "./agent_profile_refresh_coordinator";
 
-/**
- * Optional live-profile hooks used to refresh an agent snapshot from the
- * connected hub before returning it to a client. Kept here (next to its only
- * consumer) so the dedup/refresh concern owns its own contract.
- */
 export interface ClientAgentLiveProfileDeps {
   readonly isAgentOnline?: (agentId: string) => boolean | Promise<boolean>;
+  readonly resolveOnlineAgentIds?: (agentIds: readonly string[]) => Promise<ReadonlySet<string>>;
   readonly refreshAgentProfile?: (agentId: string) => Promise<Agent>;
-  /** Called after a client→agent access grant is removed (client-initiated or owner-initiated). */
   readonly onAccessRevoked?: (clientId: string, agentId: string) => void;
 }
 
-/**
- * Refreshes agent profile snapshots from the live hub with two guards that keep
- * a UI polling burst cheap:
- *
- * - **In-flight dedup**: concurrent refreshes for the same `agentId` share one
- *   promise instead of issuing N hub round-trips.
- * - **Recent-result TTL**: a snapshot refreshed within
- *   {@link AgentSnapshotRefresher.RECENT_TTL_MS} is reused without a new call.
- *
- * Extracted from `ClientAgentAccessService` (which had grown into a god class)
- * so the caching/dedup behavior is cohesive and unit-testable in isolation.
- */
+interface RefreshFlight {
+  readonly work: ProfileRefreshWork;
+  readonly completion: Promise<Agent>;
+}
+
+/** List snapshots share completed results and in-flight work; detail always stays fresh. */
 export class AgentSnapshotRefresher {
-  /** Max parallel live-profile refreshes when reconciling a page of agents. */
   private static readonly REFRESH_CONCURRENCY = 4;
-  /** Window during which a freshly refreshed snapshot is reused as-is. */
   private static readonly RECENT_TTL_MS = 30_000;
-
-  private readonly refreshInFlight = new Map<string, Promise<Agent>>();
-  private readonly recentlyRefreshed = new IndexedTtlStore<string, Agent>(AgentSnapshotRefresher.RECENT_TTL_MS);
-
-  getCacheCardinality(): ReturnType<IndexedTtlStore<string, Agent>["getCardinality"]> { return this.recentlyRefreshed.getCardinality(); }
-  closeCache(): void { this.recentlyRefreshed.close(); this.refreshInFlight.clear(); }
+  private readonly refreshInFlight = new Map<string, RefreshFlight>();
+  private readonly completions = new Set<Promise<Agent>>();
+  private readonly recentlyRefreshed = new IndexedTtlStore<string, Agent>(
+    AgentSnapshotRefresher.RECENT_TTL_MS,
+  );
+  private closing = false;
 
   constructor(
     private readonly agentRepository: Pick<IAgentRepository, "findById">,
+    private readonly coordinator: AgentProfileRefreshCoordinator,
     private readonly liveProfileDeps?: ClientAgentLiveProfileDeps,
   ) {}
 
-  /**
-   * Refreshes the online agents in `items` (concurrency-limited) and returns a
-   * new array with the refreshed snapshots substituted in. Offline agents and
-   * agents whose refresh failed keep their persisted snapshot. Generic over the
-   * item shape so callers can carry extra fields (e.g. `hasClientToken`).
-   */
+  getMetrics(): ReturnType<AgentProfileRefreshCoordinator["getMetrics"]> & {
+    readonly cacheEntries: number;
+    readonly cacheExpirations: number;
+  } {
+    const cache = this.recentlyRefreshed.getCardinality();
+    return {
+      ...this.coordinator.getMetrics(),
+      cacheEntries: cache.entries,
+      cacheExpirations: cache.expirations,
+    };
+  }
+
+  beginShutdown(): void {
+    this.closing = true;
+    this.coordinator.beginShutdown();
+    this.recentlyRefreshed.close();
+  }
+
+  async close(): Promise<void> {
+    this.beginShutdown();
+    await this.coordinator.drain();
+    await Promise.allSettled(this.completions);
+    this.refreshInFlight.clear();
+  }
+
   async refreshListItems<T extends { readonly agent: Agent }>(
     clientId: string,
     items: readonly T[],
+    signal?: AbortSignal,
   ): Promise<T[]> {
-    if (items.length === 0) {
-      return [];
-    }
-
+    if (items.length === 0 || signal?.aborted) return [...items];
+    const ids = [...new Set(items.map((item) => item.agent.agentId))];
+    const online = await this.resolveInitialOnline(ids);
+    const candidates = items.filter((item) => online.has(item.agent.agentId));
     const refreshedByAgentId = new Map<string, Agent>();
-    const onlineChecks = await Promise.all(
-      items.map(async (item) => ({
-        item,
-        online: (await this.liveProfileDeps?.isAgentOnline?.(item.agent.agentId)) === true,
-      })),
-    );
-    const candidates = onlineChecks.filter((entry) => entry.online).map((entry) => entry.item);
-
     let nextIndex = 0;
-    const concurrency = Math.max(
-      1,
-      Math.min(AgentSnapshotRefresher.REFRESH_CONCURRENCY, candidates.length),
-    );
     await Promise.all(
-      Array.from({ length: concurrency }, async () => {
-        while (nextIndex < candidates.length) {
-          const item = candidates[nextIndex];
-          nextIndex += 1;
-          if (!item) {
-            continue;
+      Array.from(
+        { length: Math.min(AgentSnapshotRefresher.REFRESH_CONCURRENCY, candidates.length) },
+        async () => {
+          while (nextIndex < candidates.length && !signal?.aborted) {
+            const item = candidates[nextIndex++]!;
+            const refreshed = await this.resolveListSnapshot(clientId, item.agent, signal);
+            refreshedByAgentId.set(item.agent.agentId, refreshed);
           }
-          const refreshed = await this.resolvePreferredSnapshotWithDedup(
-            clientId,
-            item.agent.agentId,
-            item.agent,
-          );
-          refreshedByAgentId.set(item.agent.agentId, refreshed);
-        }
-      }),
+        },
+      ),
     );
-
     return items.map((item) => ({
       ...item,
       agent: refreshedByAgentId.get(item.agent.agentId) ?? item.agent,
     }));
   }
 
-  /**
-   * Returns the preferred snapshot for a single agent: the live hub profile when
-   * the agent is online (falling back to persisted data on failure), otherwise
-   * the persisted snapshot. No dedup/TTL caching — use for single-agent reads.
-   */
   async resolvePreferredSnapshot(
     clientId: string,
     agentId: string,
     persistedAgent: Agent,
+    signal?: AbortSignal,
   ): Promise<Agent> {
-    if (this.liveProfileDeps?.refreshAgentProfile === undefined) {
+    if (this.liveProfileDeps?.refreshAgentProfile === undefined || signal?.aborted)
       return persistedAgent;
-    }
-    if ((await this.liveProfileDeps.isAgentOnline?.(agentId)) !== true) {
-      return persistedAgent;
-    }
-
-    try {
-      return await this.liveProfileDeps.refreshAgentProfile(agentId);
-    } catch (error) {
-      logger.warn("client_agent_live_profile_refresh_failed", {
-        clientId,
-        agentId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return (await this.agentRepository.findById(agentId)) ?? persistedAgent;
-    }
+    const flight = this.createFlight(clientId, agentId, persistedAgent, false);
+    return flight.work.wait(flight.completion, signal, () => persistedAgent);
   }
 
-  private async resolvePreferredSnapshotWithDedup(
+  private async resolveListSnapshot(
+    clientId: string,
+    persistedAgent: Agent,
+    signal?: AbortSignal,
+  ): Promise<Agent> {
+    const agentId = persistedAgent.agentId;
+    const recent = this.recentlyRefreshed.get(agentId);
+    if (recent !== undefined) return recent;
+    let flight = this.refreshInFlight.get(agentId);
+    if (flight === undefined) {
+      flight = this.createFlight(clientId, agentId, persistedAgent, true);
+      this.refreshInFlight.set(agentId, flight);
+    }
+    return flight.work.wait(flight.completion, signal, () => persistedAgent);
+  }
+
+  private createFlight(
+    clientId: string,
+    agentId: string,
+    persistedAgent: Agent,
+    cache: boolean,
+  ): RefreshFlight {
+    const work = this.coordinator.submit(agentId, () =>
+      this.liveProfileDeps!.refreshAgentProfile!(agentId),
+    );
+    const completion = work.result.then(async (outcome) => {
+      const agent = await this.resolveOutcome(outcome, clientId, agentId, persistedAgent);
+      // The TTL begins after refresh/fallback completes, exactly as before.
+      if (cache && !this.closing && outcome.kind !== "cancelled")
+        this.recentlyRefreshed.set(agentId, agent);
+      return agent;
+    });
+    this.completions.add(completion);
+    // Observe rejection even if every HTTP waiter disconnects.
+    void completion.then(
+      () => this.forget(completion, agentId, cache),
+      () => this.forget(completion, agentId, cache),
+    );
+    return { work, completion };
+  }
+
+  private forget(completion: Promise<Agent>, agentId: string, cache: boolean): void {
+    this.completions.delete(completion);
+    if (cache && this.refreshInFlight.get(agentId)?.completion === completion)
+      this.refreshInFlight.delete(agentId);
+  }
+
+  private async resolveOutcome(
+    outcome: RefreshOutcome,
     clientId: string,
     agentId: string,
     persistedAgent: Agent,
   ): Promise<Agent> {
-    const recent = this.recentlyRefreshed.get(agentId);
-    if (recent !== undefined) return recent;
-
-    const inFlight = this.refreshInFlight.get(agentId);
-    if (inFlight !== undefined) {
-      return inFlight;
-    }
-
-    const refreshPromise = this.resolvePreferredSnapshot(clientId, agentId, persistedAgent)
-      .then((agent) => {
-        this.recentlyRefreshed.set(agentId, agent);
-        return agent;
-      })
-      .finally(() => {
-        this.refreshInFlight.delete(agentId);
+    if (outcome.kind === "success") return outcome.agent;
+    if (outcome.kind === "presence_error") throw outcome.error;
+    if (outcome.kind === "offline") return persistedAgent;
+    if (outcome.kind === "refresh_error")
+      logger.warn("client_agent_live_profile_refresh_failed", {
+        clientId,
+        agentId,
+        message: outcome.error instanceof Error ? outcome.error.message : String(outcome.error),
       });
-    this.refreshInFlight.set(agentId, refreshPromise);
-    return refreshPromise;
+    return (await this.agentRepository.findById(agentId)) ?? persistedAgent;
+  }
+
+  private async resolveInitialOnline(ids: readonly string[]): Promise<ReadonlySet<string>> {
+    if (this.liveProfileDeps?.refreshAgentProfile === undefined || this.closing) return new Set();
+    if (this.liveProfileDeps.resolveOnlineAgentIds !== undefined)
+      return this.liveProfileDeps.resolveOnlineAgentIds(ids);
+    const online = new Set<string>();
+    let next = 0;
+    await Promise.all(
+      Array.from(
+        { length: Math.min(AgentSnapshotRefresher.REFRESH_CONCURRENCY, ids.length) },
+        async () => {
+          while (next < ids.length) {
+            const id = ids[next++]!;
+            if (await this.liveProfileDeps?.isAgentOnline?.(id)) online.add(id);
+          }
+        },
+      ),
+    );
+    return online;
   }
 }

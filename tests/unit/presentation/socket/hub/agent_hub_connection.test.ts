@@ -4,6 +4,7 @@ import { agentRegistry } from "../../../../../src/presentation/socket/hub/regist
 import {
   isAgentConnectedToHub,
   resolveClusterHubConnectedAgentIds,
+  resolveClusterHubConnectedAgentIdsStrict,
 } from "../../../../../src/presentation/socket/hub/agent_hub_connection";
 
 const presenceMock = {
@@ -13,6 +14,7 @@ const presenceMock = {
   removeIfSocketMatches: vi.fn(),
   removeIfHubInstanceMatches: vi.fn(),
   resolveRoute: vi.fn(),
+  resolveRoutesStrict: vi.fn(),
   resolveRoutes: vi.fn(async () => new Map()),
 };
 
@@ -84,5 +86,42 @@ describe("resolveClusterHubConnectedAgentIds", () => {
     await resolveClusterHubConnectedAgentIds(ids);
     expect(presenceMock.resolveRoutes).toHaveBeenCalledTimes(1);
     expect(presenceMock.resolveRoute).not.toHaveBeenCalled();
+  });
+});
+
+describe("strict refresh presence", () => {
+  beforeEach(() => {
+    agentRegistry.clear();
+    presenceMock.resolveRoutesStrict.mockReset();
+    presenceMock.resolveRoutes.mockReset();
+    presenceMock.isEnabled = true;
+  });
+  afterEach(() => agentRegistry.clear());
+  it("deduplicates remote IDs, resolves locals first and avoids empty reads", async () => {
+    agentRegistry.upsert({
+      agentId: "local",
+      socketId: "local-socket",
+      userId: null,
+      capabilities: {},
+    });
+    presenceMock.resolveRoutesStrict.mockResolvedValue(
+      new Map([["remote", { hubInstanceId: "other" }]]),
+    );
+    expect(
+      await resolveClusterHubConnectedAgentIdsStrict(["local", "remote", "remote", "missing"]),
+    ).toEqual(new Set(["local", "remote"]));
+    expect(presenceMock.resolveRoutesStrict).toHaveBeenCalledWith(["remote", "missing"]);
+    presenceMock.resolveRoutesStrict.mockClear();
+    expect(await resolveClusterHubConnectedAgentIdsStrict([])).toEqual(new Set());
+    expect(await resolveClusterHubConnectedAgentIdsStrict(["local"])).toEqual(new Set(["local"]));
+    expect(presenceMock.resolveRoutesStrict).not.toHaveBeenCalled();
+  });
+  it("propagates strict failures while retaining tolerant response enrichment", async () => {
+    presenceMock.resolveRoutesStrict.mockRejectedValue(new Error("redis failed"));
+    presenceMock.resolveRoutes.mockResolvedValue(new Map());
+    await expect(resolveClusterHubConnectedAgentIdsStrict(["remote"])).rejects.toThrow(
+      "redis failed",
+    );
+    expect(await resolveClusterHubConnectedAgentIds(["remote"])).toEqual(new Set());
   });
 });

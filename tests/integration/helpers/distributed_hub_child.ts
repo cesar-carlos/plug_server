@@ -11,7 +11,14 @@ import {
   closeSocketIoRedisAdapter,
   initSocketIoRedisAdapter,
 } from "../../../src/infrastructure/redis/adapter/socket_io_redis_adapter";
-import { closeSocketServer, createSocketServer } from "../../../src/socket";
+import {
+  initAgentHubPresenceRedis,
+  closeAgentHubPresenceRedis,
+} from "../../../src/infrastructure/redis/presence/agent_hub_presence_redis";
+
+import type * as SocketRuntime from "../../../src/socket";
+
+let socketRuntime: typeof SocketRuntime | undefined;
 
 let httpServer: HttpServer | undefined;
 let io: SocketIoServer | undefined;
@@ -100,11 +107,15 @@ const shutdown = async (): Promise<void> => {
   shuttingDown = true;
 
   try {
+    const { container } = await import("../../../src/shared/di/container");
+    container.clientAgentAccessQueryService.beginShutdown();
     if (io !== undefined) {
-      await closeSocketServer(io, "distributed_test_child_shutdown");
+      await socketRuntime?.closeSocketServer(io, "distributed_test_child_shutdown");
       io = undefined;
     }
     await closeHttpServer();
+    await container.clientAgentAccessQueryService.close();
+    await closeAgentHubPresenceRedis();
     await closeSocketIoRedisAdapter();
     await closeClientSocketEventPublishIdempotencyRedis();
     await prismaClient.$disconnect();
@@ -118,6 +129,8 @@ const shutdown = async (): Promise<void> => {
 
 const bootstrap = async (): Promise<void> => {
   await initClientSocketEventPublishIdempotencyRedis();
+  if (process.env.DISTRIBUTED_TEST_PRESENCE === "true") await initAgentHubPresenceRedis();
+  socketRuntime = await import("../../../src/socket");
 
   const { registerHttpRateLimits } =
     await import("../../../src/presentation/http/middlewares/rate_limit.middleware");
@@ -126,7 +139,7 @@ const bootstrap = async (): Promise<void> => {
   const { createApp } = await import("../../../src/app");
   const app = createApp();
   httpServer = createServer(app);
-  io = createSocketServer(httpServer);
+  io = socketRuntime.createSocketServer(httpServer);
   bindTestNamespace(io);
   await initSocketIoRedisAdapter(io);
   patchConsumersFetchSockets(io);

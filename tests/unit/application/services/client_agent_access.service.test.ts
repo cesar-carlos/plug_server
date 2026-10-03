@@ -10,6 +10,8 @@ import type {
   ClientAgentAccessRejectTxnInput,
   IClientAgentAccessApprovalTxn,
 } from "../../../../src/domain/ports/client_agent_access_approval_txn.port";
+import { AgentSnapshotRefresher } from "../../../../src/application/services/agent_snapshot_refresher";
+import { AgentProfileRefreshCoordinator } from "../../../../src/application/services/agent_profile_refresh_coordinator";
 import { ClientAgentAccessQueryService } from "../../../../src/application/services/client_agent_access_query.service";
 import { ClientAgentAccessRequestService } from "../../../../src/application/services/client_agent_access_request.service";
 import { ClientAgentAccessDecisionService } from "../../../../src/application/services/client_agent_access_decision.service";
@@ -130,6 +132,10 @@ describe("Client agent access services", () => {
       clientRepository,
       accessRepository,
       requestRepository,
+      new AgentSnapshotRefresher(
+        agentRepository,
+        new AgentProfileRefreshCoordinator(4, async () => new Set()),
+      ),
     );
     requestService = new ClientAgentAccessRequestService(
       agentRepository,
@@ -550,10 +556,17 @@ describe("Client agent access services", () => {
       clientRepository,
       accessRepository,
       requestRepository,
-      {
-        isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
-        refreshAgentProfile,
-      },
+      new AgentSnapshotRefresher(
+        agentRepository,
+        new AgentProfileRefreshCoordinator(
+          4,
+          async (ids) => new Set(ids.filter((id) => id === agentId)),
+        ),
+        {
+          isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
+          refreshAgentProfile,
+        },
+      ),
     );
 
     const result = await queryService.findApprovedAgent(clientId, agentId);
@@ -577,10 +590,17 @@ describe("Client agent access services", () => {
       clientRepository,
       accessRepository,
       requestRepository,
-      {
-        isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
-        refreshAgentProfile,
-      },
+      new AgentSnapshotRefresher(
+        agentRepository,
+        new AgentProfileRefreshCoordinator(
+          4,
+          async (ids) => new Set(ids.filter((id) => id === agentId)),
+        ),
+        {
+          isAgentOnline: (requestedAgentId) => requestedAgentId === agentId,
+          refreshAgentProfile,
+        },
+      ),
     );
 
     const result = await queryService.findApprovedAgent(clientId, agentId);

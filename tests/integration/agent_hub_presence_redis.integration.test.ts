@@ -74,6 +74,8 @@ describe("agent hub presence redis (integration)", () => {
       });
     }
     const routes = await presence.resolveRoutes(ids);
+    expect(await presence.resolveRoutesStrict?.([...ids, ids[0]!])).toEqual(routes);
+    expect(await presence.resolveRoutesStrict?.([])).toEqual(new Map());
     expect(routes.size).toBe(2);
     for (const agentId of ids) {
       expect(routes.get(agentId)).toEqual({ hubInstanceId: "hub-presence-itest" });

@@ -191,6 +191,16 @@ class AgentHubPresenceRedis implements AgentHubPresencePort {
     return { hubInstanceId: record.hubInstanceId };
   }
 
+  async resolveRoutesStrict(
+    agentIds: readonly string[],
+  ): Promise<ReadonlyMap<string, { readonly hubInstanceId: string }>> {
+    const client = getDataClient();
+    if (!this.isEnabled || client === undefined || agentIds.length === 0) return new Map();
+    return resolvePresenceRoutesWithMget([...new Set(agentIds)], (keys) =>
+      recordCommandLatency(() => client.mGet([...keys])),
+    );
+  }
+
   async resolveRoutes(
     agentIds: readonly string[],
   ): Promise<ReadonlyMap<string, { readonly hubInstanceId: string }>> {

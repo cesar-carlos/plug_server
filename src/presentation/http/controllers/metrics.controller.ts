@@ -26,6 +26,7 @@ import type { SocketHubMetricsSnapshot } from "../../adapters/socket_metrics_sna
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 
+import { buildProfileRefreshMetricsLines } from "../helpers/profile_refresh_metrics";
 import { buildMetricsLines } from "./metrics_renderer";
 
 /**
@@ -74,6 +75,9 @@ export const getMetrics = (_request: Request, response: Response): void => {
     httpRed: getHttpRedMetricsSnapshot(),
   });
 
+  lines.push(
+    ...buildProfileRefreshMetricsLines(container.clientAgentAccessQueryService.getRefreshMetrics()),
+  );
   const body = Buffer.from(`${lines.join("\n")}\n`);
   metricsResponseCache = {
     body,

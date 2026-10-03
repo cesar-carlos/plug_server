@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { AgentSnapshotRefresher } from "../../../../src/application/services/agent_snapshot_refresher";
+import { AgentProfileRefreshCoordinator } from "../../../../src/application/services/agent_profile_refresh_coordinator";
 import { ClientAgentAccessQueryService } from "../../../../src/application/services/client_agent_access_query.service";
 import { Agent } from "../../../../src/domain/entities/agent.entity";
 import { ClientAgentAccessRequest } from "../../../../src/domain/entities/client_agent_access_request.entity";
@@ -57,6 +59,10 @@ const makeService = (deps: {
       listByClientId: vi.fn().mockResolvedValue([]),
       ...deps.requestRepository,
     } as never,
+    new AgentSnapshotRefresher(
+      { findById: vi.fn() },
+      new AgentProfileRefreshCoordinator(4, async () => new Set()),
+    ),
   );
 
 describe("ClientAgentAccessQueryService", () => {

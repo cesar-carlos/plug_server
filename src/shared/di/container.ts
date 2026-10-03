@@ -10,6 +10,8 @@ import { ClientAgentAccessQueryService } from "../../application/services/client
 import { ClientAgentAccessRequestService } from "../../application/services/client_agent_access_request.service";
 import { ClientAgentAccessDecisionService } from "../../application/services/client_agent_access_decision.service";
 import { ClientAgentTokenService } from "../../application/services/client_agent_token.service";
+import { AgentSnapshotRefresher } from "../../application/services/agent_snapshot_refresher";
+import { AgentProfileRefreshCoordinator } from "../../application/services/agent_profile_refresh_coordinator";
 import type { ClientAgentLiveProfileDeps } from "../../application/services/agent_snapshot_refresher";
 import {
   invalidateConsumerAgentAccessSnapshotsByAgentId,
@@ -104,6 +106,7 @@ import { createSocketMetricsSnapshotProvider } from "../../presentation/adapters
 import {
   isAgentConnectedToHub,
   resolveClusterHubConnectedAgentIds,
+  resolveClusterHubConnectedAgentIdsStrict,
 } from "../../presentation/socket/hub/agent_hub_connection";
 import { dispatchRpcCommandToAgent } from "../../presentation/socket/hub/relay/rpc_bridge";
 import { env } from "../config/env";
@@ -305,6 +308,7 @@ const socketMetricsSnapshotProvider = createSocketMetricsSnapshotProvider();
 
 const clientAgentLiveProfileDeps: ClientAgentLiveProfileDeps = {
   isAgentOnline: isAgentConnectedToHub,
+  resolveOnlineAgentIds: resolveClusterHubConnectedAgentIdsStrict,
   refreshAgentProfile: (agentId) =>
     agentProfileSyncService.syncFromConnectedAgent({
       agentId,
@@ -317,12 +321,15 @@ const clientAgentLiveProfileDeps: ClientAgentLiveProfileDeps = {
   },
 };
 
+const profileRefreshCoordinator = new AgentProfileRefreshCoordinator(env.restAgentProfileRefreshConcurrency, resolveClusterHubConnectedAgentIdsStrict);
+const agentSnapshotRefresher = new AgentSnapshotRefresher(agentRepository, profileRefreshCoordinator, clientAgentLiveProfileDeps);
+
 const clientAgentAccessQueryService = new ClientAgentAccessQueryService(
   agentRepository,
   clientRepository,
   clientAgentAccessRepository,
   clientAgentAccessRequestRepository,
-  clientAgentLiveProfileDeps,
+  agentSnapshotRefresher,
 );
 
 const clientAgentAccessRequestService = new ClientAgentAccessRequestService(

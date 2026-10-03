@@ -143,6 +143,8 @@ const envSchema = z.object({
   /** `0` = unlimited (middleware skips counting). */
   REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(20),
   /** Global rate-limit applied to every `/api/v1` request (per IP). */
+  /** Shared live-profile refresh slots across REST lists and details; zero disables admission limiting. */
+  REST_AGENT_PROFILE_REFRESH_CONCURRENCY: z.coerce.number().int().nonnegative().default(4),
   REST_GLOBAL_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
   /** `0` = unlimited. */
   REST_GLOBAL_RATE_LIMIT_MAX: z.coerce.number().int().min(0).max(10_000_000).default(300),
@@ -1876,6 +1878,7 @@ export const env = {
   clientThumbnailWebpQuality: parsedEnv.CLIENT_THUMBNAIL_WEBP_QUALITY,
   restClientThumbnailRateLimitWindowMs: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_WINDOW_MS,
   restClientThumbnailRateLimitMax: parsedEnv.REST_CLIENT_THUMBNAIL_RATE_LIMIT_MAX,
+  restAgentProfileRefreshConcurrency: parsedEnv.REST_AGENT_PROFILE_REFRESH_CONCURRENCY,
   restGlobalRateLimitWindowMs: parsedEnv.REST_GLOBAL_RATE_LIMIT_WINDOW_MS,
   restGlobalRateLimitMax: parsedEnv.REST_GLOBAL_RATE_LIMIT_MAX,
   restLoginRateLimitWindowMs: parsedEnv.REST_LOGIN_RATE_LIMIT_WINDOW_MS,

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 
+import { withRequestCancellation } from "../helpers/request_cancellation";
 import { container } from "../../../shared/di/container";
 import { env } from "../../../shared/config/env";
 import { getAuthClient } from "../middlewares/auth.middleware";
@@ -28,21 +29,25 @@ import {
 } from "../../../shared/metrics/client_me_agents.metrics";
 import { toClientAgentDto } from "../mappers/client_agent.mapper";
 
-export const listMyClientAgents = async (_request: Request, response: Response): Promise<void> => {
+export const listMyClientAgents = async (request: Request, response: Response): Promise<void> => {
   const authClient = getAuthClient(response);
   const query = getValidated<ClientListAgentsQuery>(response, "query");
-  const pageResult = await container.clientAgentAccessQueryService.listApprovedAgentsPage(
-    authClient.sub,
-    {
-      ...(query.status !== undefined ? { status: query.status } : {}),
-      ...(query.search !== undefined ? { search: query.search } : {}),
-      ...(query.page !== undefined ? { page: query.page } : {}),
-      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-    },
-    {
-      refreshOnline: query.refresh === true,
-    },
+  const pageResult = await withRequestCancellation(request, response, (signal) =>
+    container.clientAgentAccessQueryService.listApprovedAgentsPage(
+      authClient.sub,
+      {
+        ...(query.status !== undefined ? { status: query.status } : {}),
+        ...(query.search !== undefined ? { search: query.search } : {}),
+        ...(query.page !== undefined ? { page: query.page } : {}),
+        ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+      },
+      {
+        refreshOnline: query.refresh === true,
+        signal,
+      },
+    ),
   );
+  if (response.destroyed) return;
   const agentIdsOnPage = pageResult.items.map((item) => item.agent.agentId);
   const connectedAgentIds =
     (await container.restAgentBridgeService.resolveClusterConnectedAgentIds?.(agentIdsOnPage)) ??
@@ -62,17 +67,17 @@ export const listMyClientAgents = async (_request: Request, response: Response):
 };
 
 export const getMyClientAgent = async (
-  _request: Request,
+  request: Request,
   response: Response,
   next: NextFunction,
 ): Promise<void> => {
   const authClient = getAuthClient(response);
   const { agentId } = getValidated<ClientAgentIdParam>(response, "params");
   // Authorize first; skip token/presence reads when access is denied.
-  const result = await container.clientAgentAccessQueryService.findApprovedAgent(
-    authClient.sub,
-    agentId,
+  const result = await withRequestCancellation(request, response, (signal) =>
+    container.clientAgentAccessQueryService.findApprovedAgent(authClient.sub, agentId, signal),
   );
+  if (response.destroyed) return;
   if (!result.ok) {
     next(result.error);
     return;
