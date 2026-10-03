@@ -23,6 +23,7 @@ jobs:
     outputs:
       socket: ${{ steps.filter.outputs.socket }}
       bench: ${{ steps.filter.outputs.bench }}
+      rest_bench: ${{ steps.filter.outputs.rest_bench }}
     steps:
       - name: Detect affected paths
         id: filter
@@ -37,6 +38,7 @@ jobs:
           if [ "$EVENT_NAME" != "pull_request" ]; then
             echo "socket=true" >> "$GITHUB_OUTPUT"
             echo "bench=true" >> "$GITHUB_OUTPUT"
+            echo "rest_bench=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -44,6 +46,7 @@ jobs:
 
           socket=false
           bench=false
+          rest_bench=false
           while IFS= read -r file; do
             case "$file" in
               .github/workflows/ci.yml|.github/actions/*|src/presentation/socket/*|src/shared/constants/socket_events*|src/shared/utils/payload_frame*|tests/fixtures/socket/*|tests/contract/socket*|tests/integration/agent_dart_socket_bridge*)
@@ -55,10 +58,16 @@ jobs:
                 bench=true
                 ;;
             esac
+            case "$file" in
+              .github/workflows/ci.yml|src/presentation/http/*|src/application/*|src/infrastructure/repositories/*|src/infrastructure/redis/*|src/shared/*|src/app.ts|src/server.ts|tests/performance/rest_api*|vitest.rest-perf.config.mjs|package.json|package-lock.json)
+                rest_bench=true
+                ;;
+            esac
           done < changed.txt
 
           echo "socket=$socket" >> "$GITHUB_OUTPUT"
           echo "bench=$bench" >> "$GITHUB_OUTPUT"
+          echo "rest_bench=$rest_bench" >> "$GITHUB_OUTPUT"
 
   static-checks:
     name: Static
@@ -200,6 +209,83 @@ jobs:
           path: tmp/socket-bridge-bench.json
           if-no-files-found: warn
 
+  rest-api-bench:
+    name: REST bench
+    needs: changes
+    if: needs.changes.outputs.rest_bench == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: plug_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d plug_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      CONTAINER_PERSISTENCE_MODE: prisma
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/plug_test
+      AGENT_HUB_PRESENCE_ENABLED: "true"
+      AGENT_HUB_PRESENCE_REDIS_URL: redis://127.0.0.1:6379
+      REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL: redis://127.0.0.1:6379
+      HUB_INSTANCE_ID: rest-bench
+      REST_AGENT_PROFILE_REFRESH_CONCURRENCY: "4"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up project
+        uses: ./.github/actions/setup-node-project
+      - name: Migrate isolated database and verify Prisma reads
+        run: |
+          npm run db:migrate:deploy
+          npx vitest run tests/integration/infrastructure/repositories/rest_read_projections.integration.test.ts
+      - name: Checkout comparison commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          path: rest-bench-base
+          persist-credentials: false
+      - name: Measure base with the identical REST harness
+        run: |
+          npm --prefix rest-bench-base ci
+          npm --prefix rest-bench-base run db:generate
+          mkdir -p rest-bench-base/tests/performance
+          cp tests/performance/rest_api_bench*.ts rest-bench-base/tests/performance/
+          cp vitest.rest-perf.config.mjs rest-bench-base/
+          (cd rest-bench-base && node --expose-gc node_modules/vitest/vitest.mjs run --config vitest.rest-perf.config.mjs)
+          echo "REST_API_BENCH_BASELINE_PATH=$GITHUB_WORKSPACE/rest-bench-base/tmp/rest-api-bench.json" >> "$GITHUB_ENV"
+      - name: Compare candidate without relaxing regression limits
+        run: npm run test:perf:rest-api
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rest-api-bench
+          path: |
+            tmp/rest-api-bench.json
+            tmp/rest-query-plans.json
+            rest-bench-base/tmp/rest-api-bench.json
+          if-no-files-found: warn
+
   socket-dart-contract:
     name: Dart contract
     needs: changes
@@ -279,6 +365,7 @@ jobs:
       - static-checks
       - test-and-build
       - socket-bridge-bench
+      - rest-api-bench
       - socket-dart-contract
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -290,16 +377,21 @@ jobs:
           static="${{ needs.static-checks.result }}"
           tests="${{ needs.test-and-build.result }}"
           bench="${{ needs.socket-bridge-bench.result }}"
+          rest_bench="${{ needs.rest-api-bench.result }}"
           dart="${{ needs.socket-dart-contract.result }}"
           echo "changes=$changes"
           echo "static-checks=$static"
           echo "test-and-build=$tests"
           echo "socket-bridge-bench=$bench"
           echo "socket-dart-contract=$dart"
+          echo "rest-api-bench=$rest_bench"
           if [ "$changes" != "success" ] || [ "$static" != "success" ] || [ "$tests" != "success" ]; then
             exit 1
           fi
           if [ "$bench" != "success" ] && [ "$bench" != "skipped" ]; then
+            exit 1
+          fi
+          if [ "$rest_bench" != "success" ] && [ "$rest_bench" != "skipped" ]; then
             exit 1
           fi
           if [ "$dart" != "success" ] && [ "$dart" != "skipped" ]; then
