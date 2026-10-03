@@ -71,6 +71,10 @@ describe("agents.controller", () => {
           authUser: { sub: "user-1", role: "user" },
           validated: { query: {} },
         },
+        app: { get: vi.fn() },
+        getHeader: vi.fn(),
+        type: vi.fn().mockReturnThis(),
+        send: vi.fn(),
         setHeader: vi.fn(),
         status: vi.fn().mockReturnThis(),
         json: vi.fn(),
@@ -81,7 +85,7 @@ describe("agents.controller", () => {
       expect(mockListConnectedAgents).toHaveBeenCalledOnce();
       expect(mockListAgentIdsByUserId).toHaveBeenCalledWith("user-1");
       expect(response.status).toHaveBeenCalledWith(200);
-      expect(response.json).toHaveBeenCalledWith({
+      expect(JSON.parse(vi.mocked(response.send).mock.calls[0]![0] as string)).toEqual({
         agents: [
           {
             agentId: "agent-a",
@@ -108,6 +112,10 @@ describe("agents.controller", () => {
           authUser: { sub: "admin-1", role: "admin" },
           validated: { query: {} },
         },
+        app: { get: vi.fn() },
+        getHeader: vi.fn(),
+        type: vi.fn().mockReturnThis(),
+        send: vi.fn(),
         setHeader: vi.fn(),
         status: vi.fn().mockReturnThis(),
         json: vi.fn(),
@@ -116,7 +124,7 @@ describe("agents.controller", () => {
       await listConnectedAgents(request, response);
 
       expect(mockGetAgentsNamespaceConnectionCount).toHaveBeenCalledOnce();
-      expect(response.json).toHaveBeenCalledWith({
+      expect(JSON.parse(vi.mocked(response.send).mock.calls[0]![0] as string)).toEqual({
         agents: [],
         count: 0,
         _diagnostic: { socketConnectionsInAgentsNamespace: 3 },

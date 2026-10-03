@@ -20,7 +20,7 @@ import {
   toPublicConnectedAgents,
   type PublicConnectedAgent,
 } from "../serializers/agent_registry.serializer";
-import { buildWeakETag, sendIfNoneMatch } from "../helpers/weak_etag";
+import { sendJsonWithWeakETag } from "../helpers/weak_etag";
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
 import { toCorrelationIds } from "../../../shared/utils/bridge_command_correlation";
@@ -108,11 +108,7 @@ export const listConnectedAgents = async (request: Request, response: Response):
    * during a polling burst (UI auto-refresh) consecutive payloads are usually
    * identical, so the 304 short-circuit still pays off.
    */
-  const etag = buildWeakETag(payload);
-  if (sendIfNoneMatch(request, response, etag)) {
-    return;
-  }
-  response.status(200).json(payload);
+  sendJsonWithWeakETag(request, response, payload);
 };
 
 export const patchMyAgentProfile = async (

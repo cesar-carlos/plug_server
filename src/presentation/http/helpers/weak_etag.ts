@@ -35,3 +35,25 @@ export const sendIfNoneMatch = (request: Request, response: Response, etag: stri
   response.setHeader("ETag", etag);
   return false;
 };
+
+/** Default Express JSON settings allow hashing and sending the exact same serialization. */
+export const sendJsonWithWeakETag = (
+  request: Request,
+  response: Response,
+  payload: unknown,
+): void => {
+  if (
+    response.app.get("json replacer") !== undefined ||
+    response.app.get("json spaces") !== undefined ||
+    response.app.get("json escape") !== undefined
+  ) {
+    if (!sendIfNoneMatch(request, response, buildWeakETag(payload)))
+      response.status(200).json(payload);
+    return;
+  }
+  const json = JSON.stringify(payload);
+  const etag = `W/"${createHash("sha1").update(json).digest("base64")}"`;
+  if (sendIfNoneMatch(request, response, etag)) return;
+  if (!response.getHeader("Content-Type")) response.type("application/json");
+  response.status(200).send(json);
+};

@@ -1,10 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
-import {
-  canReadAgentByLink,
-} from "../../../application/policies/agent_visibility.policy";
+import { canReadAgentByLink } from "../../../application/policies/agent_visibility.policy";
 import { container } from "../../../shared/di/container";
 import { forbidden } from "../../../shared/errors/http_errors";
-import { buildWeakETag, sendIfNoneMatch } from "../helpers/weak_etag";
+import { sendJsonWithWeakETag } from "../helpers/weak_etag";
 import { getValidated } from "../middlewares/validate.middleware";
 import { getAuthUser } from "../middlewares/auth.middleware";
 import type { AgentIdParam, ListAgentsQuery } from "../validators/agent_catalog.validator";
@@ -34,11 +32,7 @@ export const listAgents = async (request: Request, response: Response): Promise<
    * Catalog reads change rarely; a weak ETag lets pollers short-circuit with
    * 304 when nothing moved. Headers preserved on both 200 and 304 paths.
    */
-  const etag = buildWeakETag(payload);
-  if (sendIfNoneMatch(request, response, etag)) {
-    return;
-  }
-  response.status(200).json(payload);
+  sendJsonWithWeakETag(request, response, payload);
 };
 
 export const getAgent = async (
@@ -63,11 +57,7 @@ export const getAgent = async (
     return;
   }
   const payload = { agent: toAgentCatalogDto(result.value) };
-  const etag = buildWeakETag(payload);
-  if (sendIfNoneMatch(request, response, etag)) {
-    return;
-  }
-  response.status(200).json(payload);
+  sendJsonWithWeakETag(request, response, payload);
 };
 
 export const deactivateAgent = async (
