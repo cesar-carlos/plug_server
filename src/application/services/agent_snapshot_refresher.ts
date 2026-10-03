@@ -1,5 +1,6 @@
 import type { Agent } from "../../domain/entities/agent.entity";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
+import { IndexedTtlStore } from "../../shared/utils/indexed_ttl_store";
 import { logger } from "../../shared/utils/logger";
 
 /**
@@ -33,10 +34,10 @@ export class AgentSnapshotRefresher {
   private static readonly RECENT_TTL_MS = 30_000;
 
   private readonly refreshInFlight = new Map<string, Promise<Agent>>();
-  private readonly recentlyRefreshed = new Map<
-    string,
-    { readonly agent: Agent; readonly refreshedAtMs: number }
-  >();
+  private readonly recentlyRefreshed = new IndexedTtlStore<string, Agent>(AgentSnapshotRefresher.RECENT_TTL_MS);
+
+  getCacheCardinality(): ReturnType<IndexedTtlStore<string, Agent>["getCardinality"]> { return this.recentlyRefreshed.getCardinality(); }
+  closeCache(): void { this.recentlyRefreshed.close(); this.refreshInFlight.clear(); }
 
   constructor(
     private readonly agentRepository: Pick<IAgentRepository, "findById">,
@@ -129,14 +130,8 @@ export class AgentSnapshotRefresher {
     agentId: string,
     persistedAgent: Agent,
   ): Promise<Agent> {
-    const nowMs = Date.now();
     const recent = this.recentlyRefreshed.get(agentId);
-    if (
-      recent !== undefined &&
-      nowMs - recent.refreshedAtMs < AgentSnapshotRefresher.RECENT_TTL_MS
-    ) {
-      return recent.agent;
-    }
+    if (recent !== undefined) return recent;
 
     const inFlight = this.refreshInFlight.get(agentId);
     if (inFlight !== undefined) {
@@ -145,7 +140,7 @@ export class AgentSnapshotRefresher {
 
     const refreshPromise = this.resolvePreferredSnapshot(clientId, agentId, persistedAgent)
       .then((agent) => {
-        this.recentlyRefreshed.set(agentId, { agent, refreshedAtMs: Date.now() });
+        this.recentlyRefreshed.set(agentId, agent);
         return agent;
       })
       .finally(() => {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { IndexedExpirationHeap } from "../../shared/utils/indexed_expiration_heap";
 import { env } from "../../shared/config/env";
 import { AppError } from "../../shared/errors/app_error";
 import type { ClientSocketEventPublishInput } from "../../shared/validators/custom_socket_event";
@@ -18,6 +19,13 @@ export interface ClientSocketEventPublishIdempotencyEntry {
 }
 
 const entriesByKey = new Map<string, ClientSocketEventPublishIdempotencyEntry>();
+
+const expirations = new IndexedExpirationHeap<string>();
+
+export const getClientSocketEventIdempotencyCardinality = (): {
+  entries: number;
+  expirations: number;
+} => ({ entries: entriesByKey.size, expirations: expirations.size });
 
 const buildStoreKey = (clientId: string, idempotencyKey: string): string =>
   `${clientId}:${idempotencyKey}`;
@@ -57,6 +65,7 @@ export const getClientSocketEventPublishIdempotencyEntry = (
   }
   if (entry.expiresAtMs <= nowMs) {
     entriesByKey.delete(storeKey);
+    expirations.delete(storeKey);
     return undefined;
   }
   return entry;
@@ -79,9 +88,12 @@ export const setClientSocketEventPublishIdempotencyEntry = (
       break;
     }
     entriesByKey.delete(oldestKey);
+    expirations.delete(oldestKey);
   }
 
-  entriesByKey.set(buildStoreKey(clientId, idempotencyKey), {
+  const key = buildStoreKey(clientId, idempotencyKey);
+  expirations.set(key, nowMs + env.restSocketEventIdempotencyTtlMs);
+  entriesByKey.set(key, {
     ...entry,
     expiresAtMs: nowMs + env.restSocketEventIdempotencyTtlMs,
   });
@@ -89,15 +101,16 @@ export const setClientSocketEventPublishIdempotencyEntry = (
 
 export const pruneClientSocketEventPublishIdempotencyEntries = (nowMs = Date.now()): number => {
   let removed = 0;
-  for (const [key, entry] of entriesByKey.entries()) {
-    if (entry.expiresAtMs <= nowMs) {
-      entriesByKey.delete(key);
-      removed += 1;
-    }
+  for (;;) {
+    const key = expirations.takeExpired(nowMs);
+    if (key === undefined) break;
+    entriesByKey.delete(key);
+    removed += 1;
   }
   return removed;
 };
 
 export const resetClientSocketEventPublishIdempotencyStore = (): void => {
   entriesByKey.clear();
+  expirations.clear();
 };
