@@ -14,8 +14,9 @@ permissions:
   security-events: write
 
 concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep schedule out of the push group. A commit to main must not cancel the weekly scan.
+  group: codeql-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   analyze:

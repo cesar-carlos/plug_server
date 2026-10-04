@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # Digest matches .github/workflows/ci.yml. scripts/check_ci_image_pins.py enforces that.
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -45,7 +46,8 @@ services:
       start_period: 5s
 
   redis:
-    image: redis:7-alpine
+    # Digest matches .github/workflows/ci.yml. scripts/check_ci_image_pins.py enforces that.
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
     # Required for multi-replica: Socket.IO adapter pub/sub, shared rate-limit
     # counters and distributed client:custom.* idempotency.

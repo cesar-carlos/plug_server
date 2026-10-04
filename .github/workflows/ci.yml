@@ -53,6 +53,12 @@ jobs:
                 socket=true
                 ;;
             esac
+            # Columnar codec, transport constants, and application modules the socket handlers call.
+            case "$file" in
+              tests/contract/columnar_agent.contract.test.ts|tests/helpers/plug_agente_contract*|src/infrastructure/codecs/*|src/shared/constants/agent_transport_contract*|src/application/agent_commands/*|src/application/services/agent_access.service*|src/application/services/agent_health_piggyback.service*|src/application/services/agent_hub_bridge_forward*|src/application/services/agent_hub_presence_sync*|src/application/services/agent_profile_broadcast_sink*|src/application/services/agent_profile_reliability_metrics.service*|src/application/services/agent_profile_sync.service*|src/application/services/bridge_latency_trace_builder*|src/application/services/bridge_rpc_method_metrics.service*|src/application/services/client_socket_event_publish.service*|src/application/services/consumer_socket_control_sink*|src/application/services/consumer_socket_event_sink*|src/application/services/server_timings_envelope*|src/application/services/socket_audit.service*)
+                socket=true
+                ;;
+            esac
             case "$file" in
               .github/workflows/ci.yml|src/presentation/socket/*|tests/performance/*|tests/fixtures/performance/*|scripts/socket-bridge-bench*|vitest.perf.config.mjs)
                 bench=true
@@ -82,11 +88,12 @@ jobs:
       - name: Set up project
         uses: ./.github/actions/setup-node-project
 
-      - name: Format, lint, types, and MCP contract
+      - name: Format, lint, types, image pins, and MCP contract
         run: |
           npm run format:check
           npm run lint
           npm run typecheck
+          npm run check:image-pins
           npm run contract:check
 
   test-and-build:
@@ -162,14 +169,38 @@ jobs:
       - name: Set up project
         uses: ./.github/actions/setup-node-project
 
+      - name: Resolve comparison commit
+        id: base_ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            ref="$PR_BASE_SHA"
+          else
+            ref="$PUSH_BEFORE_SHA"
+          fi
+          zero="0000000000000000000000000000000000000000"
+          if [ -z "$ref" ] || [ "$ref" = "$zero" ]; then
+            echo "::warning::Comparison commit is unavailable; benchmark will measure the candidate only."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
       - name: Checkout comparison commit
+        if: steps.base_ref.outputs.available == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          ref: ${{ steps.base_ref.outputs.ref }}
           path: bench-base
           persist-credentials: false
 
       - name: Measure comparison commit when benchmark is available
+        if: steps.base_ref.outputs.available == 'true'
         run: |
           if [ ! -f bench-base/vitest.perf.config.mjs ]; then
             echo "::warning::Comparison commit predates the socket bridge benchmark; this bootstrap run checks correctness only."
@@ -261,14 +292,41 @@ jobs:
         run: |
           npm run db:migrate:deploy
           npx vitest run tests/integration/infrastructure/repositories/rest_read_projections.integration.test.ts
+      - name: Resolve comparison commit
+        id: base_ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            ref="$PR_BASE_SHA"
+          else
+            ref="$PUSH_BEFORE_SHA"
+          fi
+          zero="0000000000000000000000000000000000000000"
+          if [ -z "$ref" ] || [ "$ref" = "$zero" ]; then
+            echo "::warning::Comparison commit is unavailable; benchmark will measure the candidate only."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
       - name: Checkout comparison commit
+        if: steps.base_ref.outputs.available == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          ref: ${{ steps.base_ref.outputs.ref }}
           path: rest-bench-base
           persist-credentials: false
       - name: Measure base with the identical REST harness
+        if: steps.base_ref.outputs.available == 'true'
         run: |
+          if [ ! -f rest-bench-base/vitest.rest-perf.config.mjs ]; then
+            echo "::warning::Comparison commit predates the REST API benchmark; this run checks the candidate only."
+            exit 0
+          fi
           npm --prefix rest-bench-base ci
           npm --prefix rest-bench-base run db:generate
           mkdir -p rest-bench-base/tests/performance
@@ -320,7 +378,7 @@ jobs:
           persist-credentials: false
 
       - name: Handle plug_agente checkout
-        if: steps.checkout_agente.outcome == 'failure'
+        if: failure() && steps.checkout_agente.outcome == 'failure'
         run: |
           echo "::error::Failed to checkout cesar-carlos/plug_agente@${{ matrix.agent_ref }}. Set repository secret PLUG_AGENTE_CHECKOUT_TOKEN with contents:read on plug_agente if GITHUB_TOKEN cannot access that repository."
           exit 1
