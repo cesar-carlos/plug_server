@@ -13,6 +13,7 @@ import { resetActiveStreamRegistry } from "../../../../../src/presentation/socke
 import { resetRelayHubHealthAndMetrics } from "../../../../../src/presentation/socket/hub/relay/bridge_relay_health_metrics";
 import { AgentDisconnectedBeforeDispatchError } from "../../../../../src/shared/errors/agent_disconnected_before_dispatch.error";
 import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { decodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
@@ -24,9 +25,9 @@ const originalAckRetryConfig = {
 };
 
 const enableFastAckRetry = (): void => {
-  env.socketAgentAckRetryEnabled = true;
-  env.socketAgentAckTimeoutMs = 10;
-  env.socketAgentAckMaxRetries = 1;
+  overrideEnv("socketAgentAckRetryEnabled", true);
+  overrideEnv("socketAgentAckTimeoutMs", 10);
+  overrideEnv("socketAgentAckMaxRetries", 1);
 };
 
 const waitForInitialEmit = async (emit: ReturnType<typeof vi.fn>): Promise<void> => {
@@ -60,9 +61,9 @@ describe("rpc_bridge_dispatch_command", () => {
     resetRelayRequestRegistry();
     resetActiveStreamRegistry();
     resetRelayHubHealthAndMetrics();
-    env.socketAgentAckRetryEnabled = originalAckRetryConfig.enabled;
-    env.socketAgentAckTimeoutMs = originalAckRetryConfig.timeoutMs;
-    env.socketAgentAckMaxRetries = originalAckRetryConfig.maxRetries;
+    overrideEnv("socketAgentAckRetryEnabled", originalAckRetryConfig.enabled);
+    overrideEnv("socketAgentAckTimeoutMs", originalAckRetryConfig.timeoutMs);
+    overrideEnv("socketAgentAckMaxRetries", originalAckRetryConfig.maxRetries);
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.clearAllMocks();
@@ -128,7 +129,7 @@ describe("rpc_bridge_dispatch_command", () => {
 
     const command = {
       jsonrpc: "2.0" as const,
-      method: "agent.getHealth",
+      method: "agent.getHealth" as const,
       id: "dup-id",
       params: {},
     };
@@ -172,7 +173,7 @@ describe("rpc_bridge_dispatch_command", () => {
 
     const result = await dispatch({
       agentId,
-      command: { jsonrpc: "2.0", method: "agent.ping", params: {} },
+      command: { jsonrpc: "2.0", method: "agent.getHealth", params: {} },
     });
 
     expect(result).toMatchObject({ notification: true, acceptedCommands: 1 });
@@ -182,7 +183,7 @@ describe("rpc_bridge_dispatch_command", () => {
     const decoded = decodePayloadFrame(emit.mock.calls[0]?.[1]);
     expect(decoded.ok).toBe(true);
     if (decoded.ok) {
-      expect((decoded.value.data as { method?: string }).method).toBe("agent.ping");
+      expect((decoded.value.data as { method?: string }).method).toBe("agent.getHealth");
     }
   });
 
@@ -409,7 +410,7 @@ describe("rpc_bridge_dispatch_command", () => {
   it("does not retry after the request timeout removes the pending request", async () => {
     vi.useFakeTimers();
     enableFastAckRetry();
-    env.socketAgentAckTimeoutMs = 20;
+    overrideEnv("socketAgentAckTimeoutMs", 20);
     const agentId = "agent-timeout";
     const socketId = "socket-timeout";
     const emit = vi.fn();

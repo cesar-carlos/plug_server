@@ -6,6 +6,14 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Changed — TypeScript 7
+
+- `build` e `typecheck` usam o compilador nativo TypeScript 7.0.2 (`@typescript/native`). O comando do dia a dia é `npm run tsc`.
+- O pacote `typescript` continua na API 6 (`@typescript/typescript6`) porque o `typescript-eslint` ainda não carrega a API do 7. O lint type-aware não mudou. Os dois aliases voltam a um único `"typescript": "^7"` quando essa API estiver estável.
+- `tsconfig` liga `noUncheckedSideEffectImports` e `stableTypeOrdering`, para o ESLint (6) e o `tsc` (7) aplicarem as mesmas regras. O emit e a linguagem permanecem os do 6.0.
+- `npm run typecheck` passa a checar `src` e `tests`. Ajustes de tipo ficaram nos testes: `overrideEnv` para campos readonly de `env`, mocks completos e remoção de `agentId` duplicado no mesmo objeto.
+- `ts-node` saiu. `dev` e os scripts de contrato seguem com `tsx`. O Dependabot ignora major de `@typescript/native` para não reescrever o alias.
+
 ### Fixed — comunicação Socket.IO com o agente
 
 - O hub aceita os chunks colunares do contrato 2.11.2 e reconstrói os row maps antes da materialização REST e da entrega Socket. `rows` não vazio prevalece sem duplicação; tipos, nulos, Unicode e ordem são preservados conforme as fixtures do codec Dart.

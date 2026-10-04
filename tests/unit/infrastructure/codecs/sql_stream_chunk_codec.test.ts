@@ -83,9 +83,15 @@ describe("columnar SQL chunk normalization", () => {
       },
       limits,
     )!;
-    expect(JSON.parse(JSON.stringify(normalized.payload.rows))).toEqual([
-      { __proto__: null, id: 2, ["__proto__"]: { safe: true } },
-    ]);
+    const expectedRow: Record<string, unknown> = Object.create(null);
+    expectedRow.id = 2;
+    Object.defineProperty(expectedRow, "__proto__", {
+      value: { safe: true },
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    expect(JSON.parse(JSON.stringify(normalized.payload.rows))).toEqual([expectedRow]);
     expect(normalized.originalSizeBytes).toBe(
       Buffer.byteLength(JSON.stringify(normalized.payload)),
     );

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { env } from "../../../../../src/shared/config/env";
 import { resetActiveStreamRegistry } from "../../../../../src/presentation/socket/hub/registries/active_stream_registry";
@@ -49,6 +49,9 @@ const flushRelayOutbound = async (): Promise<void> => {
   await new Promise<void>((resolve) => setImmediate(resolve));
 };
 
+const createEmit = (): Mock<(...args: [string, string, unknown]) => boolean> =>
+  vi.fn<(...args: [string, string, unknown]) => boolean>(() => true);
+
 const makeRoute = (overrides?: Partial<RelayRequestRoute>): RelayRequestRoute => ({
   requestId: "r1",
   conversationId: "conv1",
@@ -62,7 +65,7 @@ const makeRoute = (overrides?: Partial<RelayRequestRoute>): RelayRequestRoute =>
 
 describe("rpc_bridge_relay_stream", () => {
   it("createRelayStreamHandlers forwards chunk when credits > 0", async () => {
-    const emit = vi.fn(() => true);
+    const emit = createEmit();
     const route = makeRoute();
     registerRelayRequestRoute(route);
     setRelayStreamFlowCredits("r1", 1);
@@ -77,7 +80,7 @@ describe("rpc_bridge_relay_stream", () => {
   });
 
   it("emitRelayTimeoutResponse emits after the production path settles the route", async () => {
-    const emit = vi.fn(() => true);
+    const emit = createEmit();
     const route = makeRoute({ clientRequestId: "cid-settled", requestId: "r-settled" });
     route.settled = true;
     emitRelayTimeoutResponse(route, emit);
@@ -86,7 +89,7 @@ describe("rpc_bridge_relay_stream", () => {
   });
 
   it("emitRelayTimeoutResponse emits error frame and stores idempotency response", async () => {
-    const emit = vi.fn(() => true);
+    const emit = createEmit();
     const route = makeRoute({ clientRequestId: "cid1", requestId: "r99" });
     const map = getOrCreateRelayIdempotencyMap("conv1");
     map.set("cid1", { requestId: "r99", expiresAtMs: Date.now() + 60_000 });
@@ -116,7 +119,7 @@ describe("rpc_bridge_relay_stream", () => {
   });
 
   it("createRelayStreamHandlers emits terminal complete on backpressure overflow", async () => {
-    const emit = vi.fn(() => true);
+    const emit = createEmit();
     const route = makeRoute({ requestId: "r-overflow" });
     registerRelayRequestRoute(route);
     for (let i = 0; i < env.socketRelayMaxBufferedChunksPerRequest; i++) {
@@ -144,7 +147,7 @@ describe("rpc_bridge_relay_stream", () => {
   });
 
   it("createRelayStreamHandlers emits terminal complete on byte backpressure overflow", async () => {
-    const emit = vi.fn(() => true);
+    const emit = createEmit();
     const route = makeRoute({ requestId: "r-byte-overflow" });
     registerRelayRequestRoute(route);
     addRelayStreamBufferedChunk(
@@ -166,7 +169,7 @@ describe("rpc_bridge_relay_stream", () => {
   });
 
   it("createRelayStreamHandlers uses metadata byte size when buffering chunks", async () => {
-    const emit = vi.fn(() => true);
+    const emit = createEmit();
     const route = makeRoute({ requestId: "r-byte-metadata" });
     registerRelayRequestRoute(route);
     setRelayStreamFlowCredits("r-byte-metadata", 0);
@@ -193,7 +196,7 @@ describe("rpc_bridge_relay_stream", () => {
   });
 
   it("createRelayStreamHandlers emits only one terminal complete after overflow", async () => {
-    const emit = vi.fn(() => true);
+    const emit = createEmit();
     const route = makeRoute({ requestId: "r-overflow-once" });
     registerRelayRequestRoute(route);
     for (let i = 0; i < env.socketRelayMaxBufferedChunksPerRequest; i++) {

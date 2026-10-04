@@ -7,10 +7,10 @@ import {
 
 describe("bridge_command_correlation", () => {
   it("isBatchCommand and toCorrelationIds", () => {
-    const single = { jsonrpc: "2.0" as const, method: "ping", id: "s1" };
+    const single = { jsonrpc: "2.0" as const, method: "agent.getHealth" as const, id: "s1" };
     const batch = [
-      { jsonrpc: "2.0" as const, method: "ping", id: "b1" },
-      { jsonrpc: "2.0" as const, method: "ping", id: "b2" },
+      { jsonrpc: "2.0" as const, method: "agent.getHealth" as const, id: "b1" },
+      { jsonrpc: "2.0" as const, method: "agent.getHealth" as const, id: "b2" },
     ];
 
     expect(isBatchCommand(single)).toBe(false);

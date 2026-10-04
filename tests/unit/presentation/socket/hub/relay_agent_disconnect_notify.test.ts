@@ -46,7 +46,9 @@ describe("cleanupAgentStreamSubscriptions agent disconnect notify", () => {
   };
 
   it("emits AGENT_DISCONNECTED relay:rpc.response for pending unary relay routes", async () => {
-    const emitToConsumer = vi.fn(() => true);
+    const emitToConsumer = vi.fn<
+      (consumerSocketId: string, eventName: string, payload: unknown) => boolean
+    >(() => true);
     wireRelayConsumerEmit(emitToConsumer);
 
     registerRelayRequestRoute({
@@ -54,7 +56,6 @@ describe("cleanupAgentStreamSubscriptions agent disconnect notify", () => {
       conversationId: "conv-1",
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
-      agentId: "agent-1",
       agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
@@ -69,7 +70,9 @@ describe("cleanupAgentStreamSubscriptions agent disconnect notify", () => {
   });
 
   it("emits relay:rpc.complete terminal error for active relay streams", async () => {
-    const emitToConsumer = vi.fn(() => true);
+    const emitToConsumer = vi.fn<
+      (consumerSocketId: string, eventName: string, payload: unknown) => boolean
+    >(() => true);
     wireRelayConsumerEmit(emitToConsumer);
 
     const streamHandlers = {
@@ -85,7 +88,6 @@ describe("cleanupAgentStreamSubscriptions agent disconnect notify", () => {
       conversationId: "conv-1",
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
-      agentId: "agent-1",
       agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),

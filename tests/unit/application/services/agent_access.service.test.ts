@@ -1,7 +1,8 @@
-import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach, type MockInstance } from "vitest";
 
 import { Agent } from "../../../../src/domain/entities/agent.entity";
 import { AgentAccessService } from "../../../../src/application/services/agent_access.service";
+import type { IAgentRepository } from "../../../../src/domain/repositories/agent.repository.interface";
 import { InMemoryAgentIdentityRepository } from "../../../../src/infrastructure/repositories/in_memory_agent_identity.repository";
 import { InMemoryAgentRepository } from "../../../../src/infrastructure/repositories/in_memory_agent.repository";
 import { InMemoryClientAgentAccessRepository } from "../../../../src/infrastructure/repositories/in_memory_client_agent_access.repository";
@@ -67,8 +68,8 @@ describe("AgentAccessService.assertPrincipalAccess — access cache", () => {
 
   const buildService = async (): Promise<{
     service: AgentAccessService;
-    snapshotSpy: ReturnType<typeof vi.spyOn<InMemoryAgentRepository, "findAccessSnapshotById">>;
-    accessSpy: ReturnType<typeof vi.spyOn<InMemoryClientAgentAccessRepository, "hasAccess">>;
+    snapshotSpy: MockInstance;
+    accessSpy: MockInstance;
     clientAgentAccessRepository: InMemoryClientAgentAccessRepository;
   }> => {
     const agentRepository = new InMemoryAgentRepository();
@@ -208,14 +209,17 @@ describe("AgentAccessService.assertPrincipalAccess — access cache", () => {
   it("uses a single combined repository call on cache miss when findPrincipalAccessCheck is available", async () => {
     const agentRepository = new InMemoryAgentRepository();
     await agentRepository.save(Agent.create({ agentId, name: "Test Agent" }));
-    const combinedSpy = vi.fn().mockResolvedValue({
-      outcome: "granted",
-      snapshot: { agentId, status: "active" as const },
-    });
-    agentRepository.findPrincipalAccessCheck = combinedSpy;
+    const combinedSpy = vi
+      .fn<NonNullable<IAgentRepository["findPrincipalAccessCheck"]>>()
+      .mockResolvedValue({
+        outcome: "granted",
+        snapshot: { agentId, status: "active" as const },
+      });
+    const repository: IAgentRepository = agentRepository;
+    repository.findPrincipalAccessCheck = combinedSpy;
 
     const service = new AgentAccessService(
-      agentRepository,
+      repository,
       new InMemoryAgentIdentityRepository(),
       new InMemoryClientAgentAccessRepository(),
     );

@@ -1,6 +1,6 @@
 import { createServer, type Server as HttpServer } from "node:http";
 
-import type { Namespace, Server as SocketIoServer, Socket } from "socket.io";
+import type { DefaultEventsMap, Namespace, Server as SocketIoServer, Socket } from "socket.io";
 
 import { prismaClient } from "../../../src/infrastructure/database/prisma/client";
 import {
@@ -35,8 +35,7 @@ const writeStderrLine = (line: string): void => {
 
 const getTestNamespace = (
   socketServer: SocketIoServer,
-): Namespace<Record<string, never>, Record<string, never>, Record<string, never>, never> =>
-  socketServer.of("/__test");
+): Namespace<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap> => socketServer.of("/__test");
 
 const patchConsumersFetchSockets = (socketServer: SocketIoServer): void => {
   const adapter = socketServer.of("/consumers").adapter as object;

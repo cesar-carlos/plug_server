@@ -6,6 +6,7 @@ import { createTestServer } from "../helpers/test_server";
 import { approveRegistrationByToken } from "./helpers/approve_registration";
 import { seedAgent, seedAgentBinding } from "./helpers/seed_agent";
 import { env } from "../../src/shared/config/env";
+import { overrideEnv } from "../helpers/override_env";
 import { container, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { encodePayloadFrame } from "../../src/shared/utils/payload_frame";
@@ -70,9 +71,9 @@ describe("agent auto-update diagnostics socket ingress", () => {
     originalEnabled = env.agentAutoUpdateDiagnosticsEnabled;
     originalWindowMs = env.agentAutoUpdateDiagnosticsRateLimitWindowMs;
     originalRateLimitMax = env.agentAutoUpdateDiagnosticsRateLimitMax;
-    env.agentAutoUpdateDiagnosticsEnabled = true;
-    env.agentAutoUpdateDiagnosticsRateLimitWindowMs = 60_000;
-    env.agentAutoUpdateDiagnosticsRateLimitMax = 1;
+    overrideEnv("agentAutoUpdateDiagnosticsEnabled", true);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitWindowMs", 60_000);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitMax", 1);
 
     server = await createTestServer();
     baseUrl = server.getUrl();
@@ -127,9 +128,9 @@ describe("agent auto-update diagnostics socket ingress", () => {
   afterAll(async () => {
     agentSocket?.disconnect();
     await server.close();
-    env.agentAutoUpdateDiagnosticsEnabled = originalEnabled;
-    env.agentAutoUpdateDiagnosticsRateLimitWindowMs = originalWindowMs;
-    env.agentAutoUpdateDiagnosticsRateLimitMax = originalRateLimitMax;
+    overrideEnv("agentAutoUpdateDiagnosticsEnabled", originalEnabled);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitWindowMs", originalWindowMs);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitMax", originalRateLimitMax);
   });
 
   it("persists a valid rpc:request notification and does not emit rpc:response", async () => {

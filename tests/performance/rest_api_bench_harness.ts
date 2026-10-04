@@ -184,7 +184,11 @@ export const runRestApiBench = async (): Promise<{
     >`SHOW server_version`;
     versions.postgres = rows[0]!.server_version;
     const { createClient } = await import("redis");
-    const versionClient = createClient({ url: process.env.AGENT_HUB_PRESENCE_REDIS_URL });
+    const redisUrl = process.env.AGENT_HUB_PRESENCE_REDIS_URL;
+    if (redisUrl === undefined) {
+      throw new Error("AGENT_HUB_PRESENCE_REDIS_URL is required");
+    }
+    const versionClient = createClient({ url: redisUrl });
     await versionClient.connect();
     try {
       versions.redis =

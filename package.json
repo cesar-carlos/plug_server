@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "tsc": "node ./node_modules/@typescript/native/bin/tsc",
+    "build": "npm run tsc -- -p tsconfig.json",
     "postinstall": "bash scripts/postinstall-swagger-static.sh",
     "start": "node dist/server.js",
     "db:generate": "prisma generate",
@@ -27,7 +28,7 @@
     "db:container:down": "docker compose down",
     "db:container:logs": "docker compose logs -f postgres",
     "db:container:ps": "docker compose ps",
-    "typecheck": "npm run db:generate && tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run db:generate && npm run tsc -- --noEmit -p tsconfig.test.json",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" --ignore-unknown",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" --ignore-unknown",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
@@ -124,6 +125,7 @@
     "@types/swagger-ui-express": "^4.1.8",
     "@typescript-eslint/eslint-plugin": "^8.70.1",
     "@typescript-eslint/parser": "^8.70.1",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "@vitest/coverage-v8": "^5.0.2",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
@@ -132,10 +134,9 @@
     "prettier": "^3.9.9",
     "socket.io-client": "^4.8.4",
     "supertest": "^7.3.0",
-    "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.23.15",
-    "typescript": "^6.0.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.70.1",
     "vitest": "^5.0.0"
   }

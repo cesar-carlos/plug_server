@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import {
   AgentProfileSyncScheduler,
@@ -31,7 +31,7 @@ describe("AgentProfileSyncScheduler", () => {
   let metrics: AgentProfileSyncSchedulerMetrics;
   let logger: AgentProfileSyncSchedulerLogger;
   let nowMs: number;
-  let releaseSlot: ReturnType<typeof vi.fn>;
+  let releaseSlot: Mock<() => void>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -46,7 +46,7 @@ describe("AgentProfileSyncScheduler", () => {
       warn: vi.fn(),
     };
     nowMs = Date.parse("2026-05-12T10:00:00.000Z");
-    releaseSlot = vi.fn();
+    releaseSlot = vi.fn<() => void>();
   });
 
   afterEach(() => {

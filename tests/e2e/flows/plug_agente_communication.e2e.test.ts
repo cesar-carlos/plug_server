@@ -23,6 +23,7 @@ import {
 import { decodePayloadFrame, encodePayloadFrame } from "../../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../../src/shared/utils/rpc_types";
 import { env } from "../../../src/shared/config/env";
+import { overrideEnv } from "../../helpers/override_env";
 import { container, getTestRepositoryAccess } from "../../../src/shared/di/container";
 import {
   HUB_TRANSPORT_EXTENSIONS,
@@ -37,8 +38,8 @@ describe("E2E plug_agente communication (hub ↔ agent)", () => {
   const originalDiagnosticsRateLimitWindowMs = env.agentAutoUpdateDiagnosticsRateLimitWindowMs;
 
   beforeAll(async () => {
-    env.agentAutoUpdateDiagnosticsEnabled = true;
-    env.agentAutoUpdateDiagnosticsRateLimitWindowMs = 60_000;
+    overrideEnv("agentAutoUpdateDiagnosticsEnabled", true);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitWindowMs", 60_000);
     ctx = await startE2EHubFixture();
   });
 
@@ -48,8 +49,8 @@ describe("E2E plug_agente communication (hub ↔ agent)", () => {
 
   afterAll(async () => {
     await ctx.close();
-    env.agentAutoUpdateDiagnosticsEnabled = originalDiagnosticsEnabled;
-    env.agentAutoUpdateDiagnosticsRateLimitWindowMs = originalDiagnosticsRateLimitWindowMs;
+    overrideEnv("agentAutoUpdateDiagnosticsEnabled", originalDiagnosticsEnabled);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitWindowMs", originalDiagnosticsRateLimitWindowMs);
   });
 
   const diagnosticsParams = (agentId: string, checkId: string): Record<string, unknown> => ({

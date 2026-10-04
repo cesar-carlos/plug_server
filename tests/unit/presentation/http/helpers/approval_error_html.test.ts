@@ -15,12 +15,30 @@ import {
   registrationTokenExpired,
 } from "../../../../../src/shared/errors/http_errors";
 
+interface RequestHeaderGetter {
+  (name: "set-cookie"): string[] | undefined;
+  (name: string): string | undefined;
+}
+
+const headerGetter = (read: (name: string) => string | undefined): RequestHeaderGetter => {
+  function get(name: "set-cookie"): string[] | undefined;
+  function get(name: string): string | undefined;
+  function get(name: string): string | string[] | undefined {
+    const value = read(name);
+    if (name.toLowerCase() === "set-cookie") {
+      return value === undefined ? undefined : [value];
+    }
+    return value;
+  }
+  return get;
+};
+
 const mockRequest = (overrides: Partial<Request> & { originalUrl?: string }): Request => {
   const headers = new Map<string, string | undefined>();
   return {
     path: "/api/v1/client-access/approve",
     originalUrl: "/api/v1/client-access/approve",
-    get: (name: string) => headers.get(name.toLowerCase()) ?? undefined,
+    get: headerGetter((name) => headers.get(name.toLowerCase())),
     ...overrides,
   } as Request;
 };
@@ -28,12 +46,16 @@ const mockRequest = (overrides: Partial<Request> & { originalUrl?: string }): Re
 describe("approval_error_html", () => {
   it("detects browser-like approval error requests (form, not json)", () => {
     const form = mockRequest({
-      get: (n) => (n === "Content-Type" ? "application/x-www-form-urlencoded" : undefined),
+      get: headerGetter((name) =>
+        name === "Content-Type" ? "application/x-www-form-urlencoded" : undefined,
+      ),
     });
     const json = mockRequest({
-      get: (n) => (n === "Content-Type" ? "application/json" : undefined),
+      get: headerGetter((name) => (name === "Content-Type" ? "application/json" : undefined)),
     });
-    const html = mockRequest({ get: (n) => (n === "Accept" ? "text/html" : undefined) });
+    const html = mockRequest({
+      get: headerGetter((name) => (name === "Accept" ? "text/html" : undefined)),
+    });
     expect(isBrowserLikeApprovalErrorRequest(form)).toBe(true);
     expect(isBrowserLikeApprovalErrorRequest(json)).toBe(false);
     expect(isBrowserLikeApprovalErrorRequest(html)).toBe(true);
@@ -42,13 +64,13 @@ describe("approval_error_html", () => {
   it("returns HTML for client-registration app errors in Portuguese when Accept-Language prefers pt", () => {
     const req = mockRequest({
       originalUrl: "/api/v1/client-auth/registration/reject",
-      get: (name: string) => {
+      get: headerGetter((name) => {
         const l = name.toLowerCase();
         if (l === "accept-language") {
           return "pt-BR";
         }
         return undefined;
-      },
+      }),
     });
     const err = registrationTokenExpired("This rejection link has expired");
     const built = buildApprovalErrorHtml(req, err, "req-client-reg-1");
@@ -60,13 +82,13 @@ describe("approval_error_html", () => {
   it("returns HTML for client-access app errors in Portuguese when Accept-Language prefers pt", () => {
     const req = mockRequest({
       originalUrl: "/api/v1/client-access/reject",
-      get: (name: string) => {
+      get: headerGetter((name) => {
         const l = name.toLowerCase();
         if (l === "accept-language") {
           return "pt-BR";
         }
         return undefined;
-      },
+      }),
     });
     const err = registrationTokenExpired("This approval link has expired");
     const built = buildApprovalErrorHtml(req, err, "req-approval-1");
@@ -92,13 +114,13 @@ describe("approval_error_html", () => {
   it("returns HTML for password recovery reset errors", () => {
     const req = mockRequest({
       originalUrl: "/api/v1/client-auth/password-recovery/reset",
-      get: (name: string) => {
+      get: headerGetter((name) => {
         const l = name.toLowerCase();
         if (l === "accept-language") {
           return "en";
         }
         return undefined;
-      },
+      }),
     });
     const err = passwordRecoveryTokenExpired("This password recovery link has expired");
     const built = buildApprovalErrorHtml(req, err);
@@ -109,13 +131,13 @@ describe("approval_error_html", () => {
   it("returns HTML for password recovery forbidden and bad request errors", () => {
     const req = mockRequest({
       originalUrl: "/api/v1/client-auth/password-recovery/reset",
-      get: (name: string) => {
+      get: headerGetter((name) => {
         const l = name.toLowerCase();
         if (l === "accept-language") {
           return "en";
         }
         return undefined;
-      },
+      }),
     });
     const forbiddenBuilt = buildApprovalErrorHtml(req, forbidden("Client account is not active"));
     const badRequestBuilt = buildApprovalErrorHtml(
@@ -131,12 +153,16 @@ describe("approval_error_html", () => {
   it("isHtml: requires approval path and browser-like request", () => {
     const good = mockRequest({
       originalUrl: "/api/v1/client-access/approve",
-      get: (n) => (n === "Content-Type" ? "application/x-www-form-urlencoded" : undefined),
+      get: headerGetter((name) =>
+        name === "Content-Type" ? "application/x-www-form-urlencoded" : undefined,
+      ),
     });
     const badPath = mockRequest({
       path: "/api/v1/ping",
       originalUrl: "/api/v1/ping",
-      get: (n) => (n === "Content-Type" ? "application/x-www-form-urlencoded" : undefined),
+      get: headerGetter((name) =>
+        name === "Content-Type" ? "application/x-www-form-urlencoded" : undefined,
+      ),
     });
     expect(shouldReturnHtmlForApprovalError(good)).toBe(true);
     expect(shouldReturnHtmlForApprovalError(badPath)).toBe(false);

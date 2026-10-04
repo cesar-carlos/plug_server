@@ -6,6 +6,7 @@ import {
   type StoredAgentAutoUpdateDiagnostics,
 } from "../../../../src/application/services/agent_auto_update_diagnostics.service";
 import { env } from "../../../../src/shared/config/env";
+import { overrideEnv } from "../../../helpers/override_env";
 import {
   getSocketAgentMetricsSnapshot,
   resetSocketAgentMetrics,
@@ -16,6 +17,17 @@ class MemoryDiagnosticsRepository implements AgentAutoUpdateDiagnosticsRepositor
 
   async create(record: StoredAgentAutoUpdateDiagnostics): Promise<void> {
     this.rows.push(record);
+  }
+
+  async findRecentByAgentId(
+    agentId: string,
+    limit: number,
+  ): Promise<readonly StoredAgentAutoUpdateDiagnostics[]> {
+    const safeLimit = Math.max(1, Math.floor(limit));
+    return this.rows
+      .filter((row) => row.agentId === agentId)
+      .sort((a, b) => b.checkedAt.getTime() - a.checkedAt.getTime())
+      .slice(0, safeLimit);
   }
 
   async pruneBefore(): Promise<number> {
@@ -57,11 +69,11 @@ describe("AgentAutoUpdateDiagnosticsService", () => {
   beforeEach(() => {
     repository = new MemoryDiagnosticsRepository();
     nowMs = Date.parse("2026-05-31T12:00:10.000Z");
-    env.agentAutoUpdateDiagnosticsEnabled = true;
-    env.agentAutoUpdateDiagnosticsRateLimitWindowMs = 60_000;
-    env.agentAutoUpdateDiagnosticsRateLimitMax = 1;
-    env.agentAutoUpdateDiagnosticsMaxPayloadBytes = 16 * 1024;
-    env.agentAutoUpdateDiagnosticsMaxMessageBytes = 64 * 1024;
+    overrideEnv("agentAutoUpdateDiagnosticsEnabled", true);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitWindowMs", 60_000);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitMax", 1);
+    overrideEnv("agentAutoUpdateDiagnosticsMaxPayloadBytes", 16 * 1024);
+    overrideEnv("agentAutoUpdateDiagnosticsMaxMessageBytes", 64 * 1024);
     resetSocketAgentMetrics();
     service = new AgentAutoUpdateDiagnosticsService(repository, {
       now: () => nowMs,
@@ -69,11 +81,11 @@ describe("AgentAutoUpdateDiagnosticsService", () => {
   });
 
   afterEach(() => {
-    env.agentAutoUpdateDiagnosticsEnabled = originalEnabled;
-    env.agentAutoUpdateDiagnosticsRateLimitWindowMs = originalWindowMs;
-    env.agentAutoUpdateDiagnosticsRateLimitMax = originalRateLimitMax;
-    env.agentAutoUpdateDiagnosticsMaxPayloadBytes = originalMaxPayloadBytes;
-    env.agentAutoUpdateDiagnosticsMaxMessageBytes = originalMaxMessageBytes;
+    overrideEnv("agentAutoUpdateDiagnosticsEnabled", originalEnabled);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitWindowMs", originalWindowMs);
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitMax", originalRateLimitMax);
+    overrideEnv("agentAutoUpdateDiagnosticsMaxPayloadBytes", originalMaxPayloadBytes);
+    overrideEnv("agentAutoUpdateDiagnosticsMaxMessageBytes", originalMaxMessageBytes);
     resetSocketAgentMetrics();
   });
 
@@ -202,7 +214,7 @@ describe("AgentAutoUpdateDiagnosticsService", () => {
   });
 
   it("honors a configurable max accepted pushes per rate-limit window", async () => {
-    env.agentAutoUpdateDiagnosticsRateLimitMax = 2;
+    overrideEnv("agentAutoUpdateDiagnosticsRateLimitMax", 2);
 
     const first = await service.ingestNotification({
       authenticatedAgentId: validParams.agentId,

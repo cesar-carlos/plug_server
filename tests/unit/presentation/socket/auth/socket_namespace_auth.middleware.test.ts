@@ -4,7 +4,7 @@ import {
   authenticateAgentSocket,
   authenticateConsumerSocket,
 } from "../../../../../src/presentation/socket/auth/socket_namespace_auth.middleware";
-import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { forbidden } from "../../../../../src/shared/errors/http_errors";
 import { err, ok } from "../../../../../src/shared/errors/result";
@@ -36,6 +36,12 @@ vi.mock("../../../../../src/shared/di/container", () => ({
 import { container } from "../../../../../src/shared/di/container";
 
 const mockedVerifyAccessToken = vi.mocked(verifyAccessToken);
+
+type AuthenticatedSocketData = {
+  user?: { sub: string; role: string };
+};
+
+const authenticatedSocketData = (): AuthenticatedSocketData => ({});
 const mockedGetActiveAccountUserSnapshot = vi.mocked(
   container.authService.getActiveAccountUserSnapshot,
 );
@@ -61,7 +67,7 @@ describe("authenticateAgentSocket", () => {
   it("rejects connection without token", async () => {
     const socket = {
       handshake: { headers: {}, auth: {} },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -75,17 +81,17 @@ describe("authenticateAgentSocket", () => {
   });
 
   it("allows /agents without token only when test-only auth bypass is enabled", async () => {
-    env.socketAgentAuthBypassAllowed = true;
+    overrideEnv("socketAgentAuthBypassAllowed", true);
     const socket = {
       handshake: { headers: {}, auth: {} },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
     try {
       await authenticateAgentSocket(socket as never, next);
     } finally {
-      env.socketAgentAuthBypassAllowed = false;
+      overrideEnv("socketAgentAuthBypassAllowed", false);
     }
 
     expect(next).toHaveBeenCalledWith();
@@ -93,10 +99,10 @@ describe("authenticateAgentSocket", () => {
   });
 
   it("rejects /agents without token when auth bypass flag is disabled outside test", async () => {
-    env.socketAgentAuthBypassAllowed = false;
+    overrideEnv("socketAgentAuthBypassAllowed", false);
     const socket = {
       handshake: { headers: {}, auth: {} },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -120,7 +126,7 @@ describe("authenticateAgentSocket", () => {
 
     const socket = {
       handshake: { headers: {}, auth: { token: "valid" } },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -145,7 +151,7 @@ describe("authenticateAgentSocket", () => {
 
     const socket = {
       handshake: { headers: {}, auth: { token: "valid" } },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -179,7 +185,7 @@ describe("authenticateAgentSocket", () => {
         headers: { authorization: "Bearer header-token" },
         auth: { token: "handshake-token" },
       },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -203,7 +209,7 @@ describe("authenticateAgentSocket", () => {
 
     const socket = {
       handshake: { headers: {}, auth: { token: "valid" } },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -233,7 +239,7 @@ describe("authenticateConsumerSocket", () => {
   it("rejects connection without token", async () => {
     const socket = {
       handshake: { headers: {}, auth: {} },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -246,17 +252,17 @@ describe("authenticateConsumerSocket", () => {
   });
 
   it("still rejects /consumers without token when auth fallback is disabled", async () => {
-    env.socketAuthRequired = false;
+    overrideEnv("socketAuthRequired", false);
     const socket = {
       handshake: { headers: {}, auth: {} },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
     try {
       await authenticateConsumerSocket(socket as never, next);
     } finally {
-      env.socketAuthRequired = true;
+      overrideEnv("socketAuthRequired", true);
     }
 
     expect(next).toHaveBeenCalledOnce();
@@ -277,7 +283,7 @@ describe("authenticateConsumerSocket", () => {
 
     const socket = {
       handshake: { headers: {}, auth: { token: "valid" } },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -302,7 +308,7 @@ describe("authenticateConsumerSocket", () => {
 
     const socket = {
       handshake: { headers: {}, auth: { token: "valid" } },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 
@@ -326,7 +332,7 @@ describe("authenticateConsumerSocket", () => {
 
     const socket = {
       handshake: { headers: {}, auth: { token: "valid" } },
-      data: {},
+      data: authenticatedSocketData(),
     };
     const next = vi.fn();
 

@@ -45,18 +45,13 @@ const setupFactory = async (
 };
 
 const buildCallbacks = (): {
-  readonly callbacks: {
-    onConnected: ReturnType<typeof vi.fn>;
-    onError: ReturnType<typeof vi.fn>;
-    onEnd: ReturnType<typeof vi.fn>;
-    onFallback: ReturnType<typeof vi.fn>;
-  };
+  readonly callbacks: InstrumentedRedisClientModuleNs.InstrumentedRedisClientCallbacks;
 } => ({
   callbacks: {
-    onConnected: vi.fn(),
-    onError: vi.fn(),
-    onEnd: vi.fn(),
-    onFallback: vi.fn(),
+    onConnected: vi.fn<() => void>(),
+    onError: vi.fn<(err: Error) => void>(),
+    onEnd: vi.fn<() => void>(),
+    onFallback: vi.fn<(error: unknown) => void>(),
   },
 });
 

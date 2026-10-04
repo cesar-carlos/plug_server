@@ -13,6 +13,8 @@ const setupSocketRedisModule = async (): Promise<{
     readonly decrBy: ReturnType<typeof vi.fn>;
     readonly del: ReturnType<typeof vi.fn>;
     readonly eval: ReturnType<typeof vi.fn>;
+    readonly evalSha: ReturnType<typeof vi.fn>;
+    readonly scriptLoad: ReturnType<typeof vi.fn>;
   };
   readonly envMock: {
     socketRateLimitRedisUrl: string;

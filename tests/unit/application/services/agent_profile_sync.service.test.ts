@@ -138,6 +138,8 @@ describe("AgentProfileSyncService", () => {
         dispatch,
       }),
     ).rejects.toMatchObject<AppError>({
+      name: "AppError",
+      message: "agent.getProfile agent_id does not match authenticated agent",
       code: "FORBIDDEN",
       statusCode: 403,
     });
@@ -174,6 +176,7 @@ describe("AgentProfileSyncService", () => {
         dispatch,
       }),
     ).rejects.toMatchObject<AgentProfileSyncRpcError>({
+      name: "AppError",
       code: "AGENT_PROFILE_SYNC_RPC_ERROR",
       statusCode: 502,
       message: "Authentication failed",

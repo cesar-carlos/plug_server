@@ -19,9 +19,9 @@ describe("requireAuth middleware", () => {
   it("returns unauthorized when authorization header is missing", () => {
     const request = { headers: {} } as Request;
     const response = { locals: {} } as Response;
-    const next = vi.fn() as NextFunction;
+    const next = vi.fn();
 
-    requireAuth(request, response, next);
+    requireAuth(request, response, next as NextFunction);
 
     expect(next).toHaveBeenCalledOnce();
     const error = next.mock.calls[0]?.[0] as AppError;
@@ -37,9 +37,9 @@ describe("requireAuth middleware", () => {
 
     const request = { headers: { authorization: "Bearer invalid" } } as unknown as Request;
     const response = { locals: {} } as Response;
-    const next = vi.fn() as NextFunction;
+    const next = vi.fn();
 
-    requireAuth(request, response, next);
+    requireAuth(request, response, next as NextFunction);
 
     expect(next).toHaveBeenCalledOnce();
     const error = next.mock.calls[0]?.[0] as AppError;
@@ -59,9 +59,9 @@ describe("requireAuth middleware", () => {
 
     const request = { headers: { authorization: "Bearer valid" } } as unknown as Request;
     const response = { locals: {} } as Response;
-    const next = vi.fn() as NextFunction;
+    const next = vi.fn();
 
-    requireAuth(request, response, next);
+    requireAuth(request, response, next as NextFunction);
 
     expect(next).toHaveBeenCalledWith();
     expect(response.locals.authUser).toMatchObject({

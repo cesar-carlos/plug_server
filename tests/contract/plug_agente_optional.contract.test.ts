@@ -12,6 +12,7 @@ import { validateAgentInboundContract } from "../../src/presentation/socket/hub/
 import { withBridgeMeta } from "../../src/presentation/socket/hub/relay/rpc_bridge_command_helpers";
 import { HUB_TRANSPORT_EXTENSIONS } from "../../src/shared/constants/agent_transport_contract";
 import { env } from "../../src/shared/config/env";
+import { overrideEnv } from "../helpers/override_env";
 import { socketEvents } from "../../src/shared/constants/socket_events";
 import { resetSocketAgentMetrics } from "../../src/shared/metrics/socket_agent.metrics";
 import {
@@ -148,7 +149,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
       finished_at: "2026-05-23T12:00:01.000Z",
     };
 
-    env.socketAgentInboundContractValidation = "strict";
+    overrideEnv("socketAgentInboundContractValidation", "strict");
     try {
       expect(validateRpcResponse!(validResponse)).toBe(true);
       expect(
@@ -236,7 +237,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
         }).ok,
       ).toBe(false);
     } finally {
-      env.socketAgentInboundContractValidation = originalInboundValidationMode;
+      overrideEnv("socketAgentInboundContractValidation", originalInboundValidationMode);
       resetSocketAgentMetrics();
     }
   });

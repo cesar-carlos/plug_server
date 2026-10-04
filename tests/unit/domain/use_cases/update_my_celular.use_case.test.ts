@@ -10,6 +10,7 @@ const makeUser = (overrides?: Partial<{ id: string; celular?: string }>): User =
     passwordHash: "h",
     role: "user",
     status: "active",
+    credentialsUpdatedAt: new Date(),
     createdAt: new Date(),
     ...(overrides?.celular !== undefined ? { celular: overrides.celular } : {}),
   });

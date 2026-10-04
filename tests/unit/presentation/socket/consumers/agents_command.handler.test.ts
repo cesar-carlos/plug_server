@@ -436,7 +436,12 @@ describe("handleAgentsCommand", () => {
   it("emits normalized agent_offline when execution throws AgentDisconnectedBeforeDispatchError", async () => {
     const socket = buildSocket();
     mockedExecuteAuthorizedAgentCommand.mockRejectedValue(
-      new AgentDisconnectedBeforeDispatchError("agent-1", validPayload.command),
+      new AgentDisconnectedBeforeDispatchError("agent-1", {
+        jsonrpc: "2.0",
+        id: validPayload.command.id,
+        method: "sql.execute",
+        params: validPayload.command.params,
+      }),
     );
 
     await handleAgentsCommand(socket as never, validPayload);

@@ -21,8 +21,9 @@ describe("client_agent_access_request.policy", () => {
     });
     const rejectedClient = client.withStatus("rejected");
     const activeAgent = Agent.create({
+      agentId: "agent-policy-active",
       name: "Active Agent",
-      cnpjCpf: "client-agent-policy-active",
+      document: "client-agent-policy-active",
       email: "agent@test.com",
       status: "active",
     });

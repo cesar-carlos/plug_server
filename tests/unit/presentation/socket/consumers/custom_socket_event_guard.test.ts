@@ -25,7 +25,12 @@ describe("custom_socket_event_guard", () => {
   });
 
   it("returns the client sub when the principal is an active client", async () => {
-    mockedAssertJwtUserAccountActive.mockResolvedValue(undefined);
+    mockedAssertJwtUserAccountActive.mockImplementation(async (user) => {
+      if (user === undefined) {
+        throw new Error("expected jwt user");
+      }
+      return user;
+    });
     const socket = {
       data: {
         user: { sub: " client-1 ", principal_type: "client" },
@@ -36,7 +41,12 @@ describe("custom_socket_event_guard", () => {
   });
 
   it("rejects non-client principals with FORBIDDEN", async () => {
-    mockedAssertJwtUserAccountActive.mockResolvedValue(undefined);
+    mockedAssertJwtUserAccountActive.mockImplementation(async (user) => {
+      if (user === undefined) {
+        throw new Error("expected jwt user");
+      }
+      return user;
+    });
     const socket = {
       data: {
         user: { sub: "user-1", principal_type: "user", role: "admin" },

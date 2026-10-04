@@ -65,7 +65,6 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
-      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
@@ -102,7 +101,6 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
-      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
@@ -131,7 +129,6 @@ describe("rpc_bridge_lifecycle", () => {
       conversationId,
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
-      agentId: "agent-1",
       agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
@@ -172,7 +169,6 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
-      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
@@ -184,21 +180,16 @@ describe("rpc_bridge_lifecycle", () => {
       streamId: "stream-1",
     });
     const notifyAgent = vi.fn();
+    const endedConversation = {
+      conversationId,
+      consumerSocketId: "consumer-1",
+      agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
+      createdAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+    };
 
-    finalizeConversationsClosedByConsumerDisconnect(
-      [
-        {
-          conversationId,
-          consumerSocketId: "consumer-1",
-          agentSocketId: "agent-socket-1",
-          agentId: "agent-1",
-          agentId: "agent-1",
-          createdAt: new Date().toISOString(),
-          lastSeenAt: new Date().toISOString(),
-        },
-      ],
-      notifyAgent,
-    );
+    finalizeConversationsClosedByConsumerDisconnect([endedConversation], notifyAgent);
 
     expect(notifyAgent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -219,7 +210,6 @@ describe("rpc_bridge_lifecycle", () => {
       consumerSocketId: "consumer-1",
       agentSocketId: "agent-socket-1",
       agentId: "agent-1",
-      agentId: "agent-1",
       timeoutHandle: createTimeoutHandle(),
       createdAtMs: Date.now(),
     });
@@ -236,22 +226,16 @@ describe("rpc_bridge_lifecycle", () => {
     });
     const notifyConsumer = vi.fn();
     const notifyAgent = vi.fn();
+    const expiredConversation = {
+      conversationId,
+      consumerSocketId: "consumer-1",
+      agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
+      createdAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+    };
 
-    finalizeExpiredConversations(
-      [
-        {
-          conversationId,
-          consumerSocketId: "consumer-1",
-          agentSocketId: "agent-socket-1",
-          agentId: "agent-1",
-          agentId: "agent-1",
-          createdAt: new Date().toISOString(),
-          lastSeenAt: new Date().toISOString(),
-        },
-      ],
-      notifyConsumer,
-      notifyAgent,
-    );
+    finalizeExpiredConversations([expiredConversation], notifyConsumer, notifyAgent);
 
     expect(notifyConsumer).toHaveBeenCalledWith(
       expect.objectContaining({

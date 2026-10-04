@@ -432,6 +432,7 @@ describe("Auth API", () => {
           passwordHash: user!.passwordHash,
           role: user!.role,
           status: "blocked",
+          credentialsUpdatedAt: user!.credentialsUpdatedAt,
           createdAt: user!.createdAt,
           ...(user!.celular !== undefined ? { celular: user!.celular } : {}),
         }),

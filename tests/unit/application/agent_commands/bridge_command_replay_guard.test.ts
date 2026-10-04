@@ -104,7 +104,7 @@ describe("bridge command replay guard", () => {
     });
     rememberCompletedBridgeCommand({
       agentId: "agent-1",
-      command: batch,
+      command: [...batch],
       nowMs: 1_000,
     });
 
@@ -118,7 +118,7 @@ describe("bridge command replay guard", () => {
     expect(
       getCompletedBridgeCommandReplay({
         agentId: "agent-1",
-        command: batch,
+        command: [...batch],
         nowMs: 1_500,
       }),
     ).toBeNull();

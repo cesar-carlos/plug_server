@@ -7,6 +7,28 @@ import {
   extractSqlStatementTimeoutMs,
   normalizeCommandForAgent,
 } from "../../../../src/application/agent_commands/command_transformers";
+import type {
+  AgentCommandBody,
+  BridgeSingleCommand,
+} from "../../../../src/shared/validators/agent_command";
+
+type AgentCommand = AgentCommandBody["command"];
+type SqlExecuteCommand = Extract<Exclude<AgentCommand, unknown[]>, { method: "sql.execute" }>;
+
+const isSqlExecuteCommand = (command: AgentCommand): command is SqlExecuteCommand =>
+  !Array.isArray(command) && command.method === "sql.execute";
+
+const requireSqlExecute = (command: AgentCommand): SqlExecuteCommand => {
+  if (!isSqlExecuteCommand(command)) {
+    throw new Error("expected single sql.execute command");
+  }
+  return command;
+};
+
+const isSingleSqlExecute = (
+  command: BridgeSingleCommand,
+): command is Extract<BridgeSingleCommand, { method: "sql.execute" }> =>
+  command.method === "sql.execute";
 
 describe("command_transformers", () => {
   describe("ensureJsonRpcIdsForBridge", () => {
@@ -65,10 +87,15 @@ describe("command_transformers", () => {
       ];
 
       const result = ensureJsonRpcIdsForBridge(command) as typeof command;
+      const first = result[0];
+      const second = result[1];
+      if (first === undefined || second === undefined) {
+        throw new Error("expected two batch commands");
+      }
 
-      expect(result[0].id).toBe("q1");
-      expect(typeof result[1].id).toBe("string");
-      expect(result[1].id).toMatch(
+      expect(first.id).toBe("q1");
+      expect(typeof second.id).toBe("string");
+      expect(second.id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       );
     });
@@ -105,10 +132,10 @@ describe("command_transformers", () => {
         },
       };
 
-      const result = normalizeCommandForAgent(command);
+      const result = requireSqlExecute(normalizeCommandForAgent(command));
 
       expect(result.params.options).toEqual({ execution_mode: "preserve" });
-      expect((result.params.options as Record<string, unknown>).preserve_sql).toBeUndefined();
+      expect(result.params.options?.preserve_sql).toBeUndefined();
     });
 
     it("should leave execution_mode preserve unchanged", () => {
@@ -118,11 +145,11 @@ describe("command_transformers", () => {
         id: "req-2",
         params: {
           sql: "SELECT 1",
-          options: { execution_mode: "preserve" },
+          options: { execution_mode: "preserve" as const },
         },
       };
 
-      const result = normalizeCommandForAgent(command);
+      const result = requireSqlExecute(normalizeCommandForAgent(command));
 
       expect(result.params.options).toEqual({ execution_mode: "preserve" });
     });
@@ -156,7 +183,14 @@ describe("command_transformers", () => {
       const result = normalizeCommandForAgent(command);
 
       expect(Array.isArray(result)).toBe(true);
-      expect((result as typeof command)[0].params.options).toEqual({
+      if (!Array.isArray(result)) {
+        throw new Error("expected batch command");
+      }
+      const first = result[0];
+      if (first === undefined || !isSingleSqlExecute(first)) {
+        throw new Error("expected sql.execute command");
+      }
+      expect(first.params.options).toEqual({
         execution_mode: "preserve",
       });
     });
@@ -174,10 +208,12 @@ describe("command_transformers", () => {
         },
       };
 
-      const result = applyPaginationToCommand(command, {
-        page: 2,
-        pageSize: 50,
-      });
+      const result = requireSqlExecute(
+        applyPaginationToCommand(command, {
+          page: 2,
+          pageSize: 50,
+        }),
+      );
 
       expect(result.params.options).toEqual({
         page: 2,
@@ -196,9 +232,11 @@ describe("command_transformers", () => {
         },
       };
 
-      const result = applyPaginationToCommand(command, {
-        cursor: "eyJ2IjoyfQ",
-      });
+      const result = requireSqlExecute(
+        applyPaginationToCommand(command, {
+          cursor: "eyJ2IjoyfQ",
+        }),
+      );
 
       expect(result.params.options).toEqual({
         cursor: "eyJ2IjoyfQ",
@@ -216,10 +254,12 @@ describe("command_transformers", () => {
         },
       };
 
-      const result = applyPaginationToCommand(command, {
-        page: 3,
-        pageSize: 25,
-      });
+      const result = requireSqlExecute(
+        applyPaginationToCommand(command, {
+          page: 3,
+          pageSize: 25,
+        }),
+      );
 
       expect(result.params.options).toEqual({
         page: 3,

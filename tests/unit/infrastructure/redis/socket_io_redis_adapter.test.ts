@@ -42,6 +42,7 @@ const setupAdapterModule = async (options?: {
   readonly createAdapterMock: ReturnType<typeof vi.fn>;
   readonly io: Server;
   readonly module: typeof SocketIoRedisAdapterModule;
+  readonly metrics: typeof SocketIoRedisAdapterMetricsModule;
 }> => {
   vi.resetModules();
 

@@ -26,6 +26,7 @@ vi.mock("../../../../../src/shared/config/env", async (importOriginal) => {
 });
 
 import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 import {
   allowRelayRpcRequestAsync,
   getRelayRateLimitMetricsSnapshot,
@@ -36,9 +37,9 @@ describe("consumer_relay_rate_limiter allowRelayRpcRequestAsync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetRelayRateLimiterState();
-    env.socketRateLimitRedisUrl = "redis://127.0.0.1:6379";
-    env.socketRateLimitRedisLocalFirst = false;
-    env.socketRelayRateLimitMaxRequests = 4;
+    overrideEnv("socketRateLimitRedisUrl", "redis://127.0.0.1:6379");
+    overrideEnv("socketRateLimitRedisLocalFirst", false);
+    overrideEnv("socketRelayRateLimitMaxRequests", 4);
   });
 
   afterEach(() => {
@@ -62,7 +63,7 @@ describe("consumer_relay_rate_limiter allowRelayRpcRequestAsync", () => {
   });
 
   it("should skip Redis RTT on local deny when local-first is enabled", async () => {
-    env.socketRateLimitRedisLocalFirst = true;
+    overrideEnv("socketRateLimitRedisLocalFirst", true);
 
     for (let index = 0; index < env.socketRelayRateLimitMaxRequests; index += 1) {
       const allowed = await allowRelayRpcRequestAsync("user-local-first", "sock-2");
@@ -77,7 +78,7 @@ describe("consumer_relay_rate_limiter allowRelayRpcRequestAsync", () => {
 
   it("should reconcile local allow with Redis asynchronously when local-first is enabled", async () => {
     vi.useFakeTimers();
-    env.socketRateLimitRedisLocalFirst = true;
+    overrideEnv("socketRateLimitRedisLocalFirst", true);
 
     let resolveRedis!: (value: {
       allowed: boolean;

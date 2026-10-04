@@ -15,6 +15,7 @@ import {
 } from "../../../../../src/presentation/socket/hub/registries/relay_idempotency_store";
 import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { forwardRelayRouteResponse } from "../../../../../src/presentation/socket/hub/relay/relay_route_response_forwarder";
@@ -30,9 +31,9 @@ const originalAckRetryConfig = {
 };
 
 const enableFastAckRetry = (): void => {
-  env.socketAgentAckRetryEnabled = true;
-  env.socketAgentAckTimeoutMs = 10;
-  env.socketAgentAckMaxRetries = 1;
+  overrideEnv("socketAgentAckRetryEnabled", true);
+  overrideEnv("socketAgentAckTimeoutMs", 10);
+  overrideEnv("socketAgentAckMaxRetries", 1);
 };
 
 afterEach(() => {
@@ -41,9 +42,9 @@ afterEach(() => {
   resetRelayRequestRegistry();
   resetRelayIdempotencyStore();
   resetRelayStreamFlowState();
-  env.socketAgentAckRetryEnabled = originalAckRetryConfig.enabled;
-  env.socketAgentAckTimeoutMs = originalAckRetryConfig.timeoutMs;
-  env.socketAgentAckMaxRetries = originalAckRetryConfig.maxRetries;
+  overrideEnv("socketAgentAckRetryEnabled", originalAckRetryConfig.enabled);
+  overrideEnv("socketAgentAckTimeoutMs", originalAckRetryConfig.timeoutMs);
+  overrideEnv("socketAgentAckMaxRetries", originalAckRetryConfig.maxRetries);
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.clearAllMocks();
@@ -96,6 +97,7 @@ describe("rpc_bridge_dispatch_relay", () => {
       findAgentSocketById: () => null,
       emitToConsumer: () => {
         /* not reached in this test */
+        return false;
       },
       prepareAgentStreamPull: () => ({
         requestId: "req-1",
@@ -541,7 +543,7 @@ describe("rpc_bridge_dispatch_relay", () => {
 
   it("honors per-request timeoutMs shorter than SOCKET_RELAY_REQUEST_TIMEOUT_MS", async () => {
     vi.useFakeTimers();
-    env.socketAgentAckRetryEnabled = false;
+    overrideEnv("socketAgentAckRetryEnabled", false);
 
     const agentId = "agent-timeout-ms";
     const agentSocketId = "agent-socket-timeout-ms";
@@ -615,7 +617,7 @@ describe("rpc_bridge_dispatch_relay", () => {
 
   it("bumps effective wait toward sql.execute options.timeout_ms without envelope timeoutMs", async () => {
     vi.useFakeTimers();
-    env.socketAgentAckRetryEnabled = false;
+    overrideEnv("socketAgentAckRetryEnabled", false);
 
     const agentId = "agent-sql-timeout-ms";
     const agentSocketId = "agent-socket-sql-timeout-ms";
@@ -690,7 +692,7 @@ describe("rpc_bridge_dispatch_relay", () => {
 
   it("clears the relay wait timer when the agent response is forwarded", async () => {
     vi.useFakeTimers();
-    env.socketAgentAckRetryEnabled = false;
+    overrideEnv("socketAgentAckRetryEnabled", false);
 
     const agentId = "agent-timer-cleanup";
     const agentSocketId = "agent-socket-timer-cleanup";

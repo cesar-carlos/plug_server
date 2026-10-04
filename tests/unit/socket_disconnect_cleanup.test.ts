@@ -4,6 +4,7 @@ import type { DefaultEventsMap } from "@socket.io/component-emitter";
 import type { Namespace } from "socket.io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentHubSocket } from "../../src/presentation/socket/hub/handlers/_shared";
 import * as consumerSocketGuard from "../../src/presentation/socket/consumers/consumer_socket_guard";
 import * as rpcBridge from "../../src/presentation/socket/hub/relay/rpc_bridge";
 import { agentRegistry } from "../../src/presentation/socket/hub/registries/agent_registry";
@@ -16,6 +17,7 @@ import {
   runExpiredConversationCleanup,
 } from "../../src/socket";
 import { socketEvents } from "../../src/shared/constants/socket_events";
+import type { HubSocket as ConsumerHubSocket } from "../../src/socket_state";
 
 type HubSocket = {
   readonly id: string;
@@ -64,7 +66,7 @@ describe("socket disconnect cleanup wiring", () => {
     });
 
     const socket = createHubSocket("agent-disconnect-1");
-    runAgentSocketDisconnectCleanup(socket, createMockNamespace());
+    runAgentSocketDisconnectCleanup(socket as unknown as AgentHubSocket, createMockNamespace());
 
     expect(callOrder).toEqual([
       "unregisterAgentBridgeSocket",
@@ -97,7 +99,10 @@ describe("socket disconnect cleanup wiring", () => {
     );
 
     const socket = createHubSocket("consumer-disconnect-1");
-    runConsumerSocketDisconnectCleanup(socket, createMockNamespace());
+    runConsumerSocketDisconnectCleanup(
+      socket as unknown as ConsumerHubSocket,
+      createMockNamespace(),
+    );
 
     expect(callOrder).toEqual([
       "unregisterConsumerBridgeSocket",
@@ -120,7 +125,7 @@ describe("socket disconnect cleanup wiring", () => {
       agentId: "agent-1",
     });
 
-    runConsumerSocketDisconnectCleanup(consumerSocket, agentsNsp);
+    runConsumerSocketDisconnectCleanup(consumerSocket as unknown as ConsumerHubSocket, agentsNsp);
 
     expect(agentSocket.emit).toHaveBeenCalledWith(socketEvents.relayConversationEnded, {
       success: true,

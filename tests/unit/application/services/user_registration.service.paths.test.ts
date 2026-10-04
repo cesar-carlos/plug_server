@@ -115,7 +115,7 @@ describe("UserRegistrationService remaining paths", () => {
     const result = await buildService().register({
       email: pendingUser.email,
       password: "Password1",
-      celular: pendingUser.celular,
+      ...(pendingUser.celular !== undefined ? { celular: pendingUser.celular } : {}),
     });
     expect(result.ok).toBe(true);
     if (!result.ok) {

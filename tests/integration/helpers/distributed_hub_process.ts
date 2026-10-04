@@ -1,5 +1,6 @@
 import path from "node:path";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable } from "node:stream";
 
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 
@@ -36,7 +37,7 @@ const childScriptPath = path.join(
 );
 
 const waitForProcessExit = (
-  child: ChildProcessWithoutNullStreams,
+  child: ChildProcessByStdio<null, Readable, Readable>,
   timeoutMs: number,
 ): Promise<void> =>
   new Promise<void>((resolve, reject) => {

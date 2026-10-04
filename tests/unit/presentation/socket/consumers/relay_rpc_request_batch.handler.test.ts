@@ -52,7 +52,7 @@ type BatchEnvOverrides = {
 };
 
 declare global {
-  let __batchEnvOverrides: BatchEnvOverrides | undefined;
+  var __batchEnvOverrides: BatchEnvOverrides | undefined;
 }
 
 globalThis.__batchEnvOverrides = {
@@ -128,10 +128,9 @@ const buildSocket = (): MockedBatchSocket =>
     connected: true,
     data: {
       user: { sub: "user-1", principal_type: "user", role: "user" },
-      inflightCounter: undefined,
     },
     emit: vi.fn(),
-  }) as MockedBatchSocket;
+  }) as unknown as MockedBatchSocket;
 
 const validCommand = (
   id: string,
@@ -687,7 +686,7 @@ describe("handleRelayRpcRequestBatch", () => {
   });
 
   it("rejects when conversation is not found", async () => {
-    mockedFindConversation.mockReturnValue(undefined);
+    mockedFindConversation.mockReturnValue(null);
     const socket = buildSocket();
 
     handleRelayRpcRequestBatch(socket as never, {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { conversationRegistry } from "../../../../../src/presentation/socket/hub/registries/conversation_registry";
 import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 
 afterEach(() => {
   conversationRegistry.clear();
@@ -81,7 +82,7 @@ describe("conversation_registry", () => {
 
   it("debounces touchInternalDebounced within the configured window", () => {
     const originalDebounceMs = env.socketRelayConversationTouchDebounceMs;
-    env.socketRelayConversationTouchDebounceMs = 5_000;
+    overrideEnv("socketRelayConversationTouchDebounceMs", 5_000);
 
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
@@ -109,12 +110,12 @@ describe("conversation_registry", () => {
       Date.parse("2026-01-01T00:00:06.000Z"),
     );
 
-    env.socketRelayConversationTouchDebounceMs = originalDebounceMs;
+    overrideEnv("socketRelayConversationTouchDebounceMs", originalDebounceMs);
   });
 
   it("touchInternalDebounced with debounce 0 preserves every-touch behavior", () => {
     const originalDebounceMs = env.socketRelayConversationTouchDebounceMs;
-    env.socketRelayConversationTouchDebounceMs = 0;
+    overrideEnv("socketRelayConversationTouchDebounceMs", 0);
 
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
@@ -132,6 +133,6 @@ describe("conversation_registry", () => {
       conversationRegistry.findInternalByConversationId("conv-every-touch")?.lastSeenAtMs,
     ).toBe(Date.parse("2026-01-01T00:00:01.000Z"));
 
-    env.socketRelayConversationTouchDebounceMs = originalDebounceMs;
+    overrideEnv("socketRelayConversationTouchDebounceMs", originalDebounceMs);
   });
 });

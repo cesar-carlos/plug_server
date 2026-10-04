@@ -177,8 +177,9 @@ describe("relay_stream_flow_state", () => {
       agentId: "agent-123",
       emitChunk: (frame: unknown) => {
         chunks.push(frame);
+        return false;
       },
-      emitComplete: () => {},
+      emitComplete: () => false,
       encodeFrame: async () => {
         encodeStarted = true;
         return encodePromise;

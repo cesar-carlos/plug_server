@@ -59,6 +59,7 @@ describe("AdminSetUserStatusUseCase", () => {
       passwordHash: "h",
       role: "user",
       status: "blocked",
+      credentialsUpdatedAt: new Date(),
       createdAt: new Date(),
     });
     vi.mocked(userRepository.findById).mockResolvedValue(blocked);

@@ -1,6 +1,16 @@
+import type { CorsOptions } from "cors";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildCorsOptions } from "../../../../src/shared/config/cors";
+
+type CorsOriginCallback = Extract<NonNullable<CorsOptions["origin"]>, (...args: never[]) => void>;
+
+const requireCorsOriginCallback = (origin: CorsOptions["origin"]): CorsOriginCallback => {
+  if (typeof origin !== "function") {
+    throw new Error("expected CORS origin callback");
+  }
+  return origin;
+};
 
 describe("buildCorsOptions", () => {
   it("returns wildcard policy without credentials when CORS is open", () => {
@@ -14,7 +24,7 @@ describe("buildCorsOptions", () => {
     const options = buildCorsOptions(["https://app.example.com", "https://admin.example.com"]);
     expect(typeof options.origin).toBe("function");
 
-    const originHandler = options.origin as NonNullable<typeof options.origin>;
+    const originHandler = requireCorsOriginCallback(options.origin);
     const allowCallback = vi.fn();
     originHandler("https://admin.example.com", allowCallback);
     expect(allowCallback).toHaveBeenCalledWith(null, true);
@@ -28,7 +38,7 @@ describe("buildCorsOptions", () => {
 
   it("always allows a missing Origin (non-browser / same-origin clients)", () => {
     const options = buildCorsOptions(["https://app.example.com"]);
-    const originHandler = options.origin as NonNullable<typeof options.origin>;
+    const originHandler = requireCorsOriginCallback(options.origin);
 
     const allowCallback = vi.fn();
     originHandler(undefined, allowCallback);
@@ -37,7 +47,7 @@ describe("buildCorsOptions", () => {
 
   it('allows the literal string "null" outside production (opaque origin / email webviews)', () => {
     const options = buildCorsOptions(["https://app.example.com"]);
-    const originHandler = options.origin as NonNullable<typeof options.origin>;
+    const originHandler = requireCorsOriginCallback(options.origin);
 
     const allowCallback = vi.fn();
     originHandler("null", allowCallback);
@@ -84,7 +94,7 @@ describe("buildCorsOptions", () => {
 
       const { buildCorsOptions: buildProd } = await import("../../../../src/shared/config/cors");
       const options = buildProd(["https://app.example.com"]);
-      const originHandler = options.origin as NonNullable<typeof options.origin>;
+      const originHandler = requireCorsOriginCallback(options.origin);
 
       const callback = vi.fn();
       originHandler("null", callback);

@@ -313,8 +313,9 @@ describe("consumer client-agent room reconciliation", () => {
     });
     createdAccessPairs.push({ clientId: session.client.clientId, agentId });
 
+    const hub = server;
     await expect
-      .poll(() => server.getConsumerRoomCount(room), {
+      .poll(() => hub.getConsumerRoomCount(room), {
         timeout: 5_000,
         interval: 100,
       })
@@ -329,7 +330,7 @@ describe("consumer client-agent room reconciliation", () => {
     createdAccessPairs.length = 0;
 
     await expect
-      .poll(() => server.getConsumerRoomCount(room), {
+      .poll(() => hub.getConsumerRoomCount(room), {
         timeout: 5_000,
         interval: 100,
       })
@@ -469,8 +470,9 @@ describe("consumer client-agent room reconciliation across Redis replicas", () =
     expect(approve.status).toBe(200);
     expect(approve.body.approved).toBe(true);
 
+    const remoteHub = serverB;
     await expect
-      .poll(() => serverB.getConsumerRoomCount(room), {
+      .poll(() => remoteHub.getConsumerRoomCount(room), {
         timeout: 5_000,
         interval: 100,
       })

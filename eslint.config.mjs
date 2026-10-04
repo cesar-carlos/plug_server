@@ -8,6 +8,9 @@ export default tseslint.config({
   files: ["src/**/*.ts", "tests/**/*.ts"],
   languageOptions: {
     parserOptions: {
+      // Type-aware lint stays on the TypeScript 6 API (`typescript` -> @typescript/typescript6).
+      // TypeScript 7 (`@typescript/native`) has no compiler API yet, so `tsc` and ESLint cannot share one package.
+      // Remove this split when typescript-eslint supports the stable TypeScript 7 API: one `"typescript": "^7"`.
       project: ["./tsconfig.json", "./tsconfig.test.json"],
       tsconfigRootDir: import.meta.dirname,
     },

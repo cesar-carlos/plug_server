@@ -26,7 +26,7 @@ vi.mock("../../../../../src/shared/di/container", () => ({
   },
 }));
 
-import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 import { container } from "../../../../../src/shared/di/container";
 
 const mockedGetActiveUser = vi.mocked(container.authService.getActiveAccountUserSnapshot);
@@ -44,7 +44,7 @@ const userPayload = { sub: "u1", role: "user", tokenType: "access" as const };
 
 describe("ensureJwtUserAccountActive", () => {
   beforeEach(() => {
-    env.socketAuthAccountSnapshotTtlMs = 0;
+    overrideEnv("socketAuthAccountSnapshotTtlMs", 0);
     mockedGetActiveUser.mockReset();
     mockedGetActiveClient.mockReset();
     authAccountMetrics.resetAuthAccountMetrics();
@@ -109,7 +109,7 @@ describe("ensureJwtUserAccountActive", () => {
 
 describe("assertJwtUserAccountActive", () => {
   beforeEach(() => {
-    env.socketAuthAccountSnapshotTtlMs = 0;
+    overrideEnv("socketAuthAccountSnapshotTtlMs", 0);
     mockedGetActiveUser.mockReset();
     mockedGetActiveClient.mockReset();
     authAccountMetrics.resetAuthAccountMetrics();
@@ -136,7 +136,7 @@ describe("assertJwtUserAccountActive", () => {
   });
 
   it("skips DB validation when auth snapshot is still within TTL", async () => {
-    env.socketAuthAccountSnapshotTtlMs = 60_000;
+    overrideEnv("socketAuthAccountSnapshotTtlMs", 60_000);
     const socket = {
       data: {
         authSnapshot: {
@@ -157,7 +157,7 @@ describe("assertJwtUserAccountActive", () => {
   });
 
   it("revalidates against DB when credentials_version no longer matches snapshot", async () => {
-    env.socketAuthAccountSnapshotTtlMs = 60_000;
+    overrideEnv("socketAuthAccountSnapshotTtlMs", 60_000);
     mockedGetActiveUser.mockResolvedValue(ok(activeUserSnapshot("u1")));
     const socket = {
       data: {

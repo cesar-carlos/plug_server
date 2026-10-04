@@ -161,6 +161,9 @@ describe("AgentSelfProfileService", () => {
         source: "http",
       }),
     ).rejects.toMatchObject<AppError>({
+      name: "AppError",
+      message: "Agent profile name is required when creating a new catalog record",
+      statusCode: 400,
       code: "BAD_REQUEST",
     });
   });
@@ -175,6 +178,9 @@ describe("AgentSelfProfileService", () => {
         expectedProfileVersion: 99,
       }),
     ).rejects.toMatchObject<AppError>({
+      name: "AppError",
+      message: "expectedProfileVersion does not match current agent profile version",
+      statusCode: 409,
       code: "CONFLICT",
     });
   });
@@ -223,6 +229,9 @@ describe("AgentSelfProfileService", () => {
         profileUpdatedAt: new Date("2026-04-08T10:11:00.000Z"),
       }),
     ).rejects.toMatchObject<AppError>({
+      name: "AppError",
+      message: "This tax document is already registered to another agent",
+      statusCode: 409,
       code: "AGENT_DOCUMENT_CONFLICT",
     });
   });
@@ -239,6 +248,9 @@ describe("AgentSelfProfileService", () => {
         profileUpdatedAt: new Date("2026-04-08T10:12:30.000Z"),
       }),
     ).rejects.toMatchObject<AppError>({
+      name: "AppError",
+      message: "Invalid CNPJ",
+      statusCode: 400,
       code: "BAD_REQUEST",
     });
   });
@@ -275,6 +287,9 @@ describe("AgentSelfProfileService", () => {
         dedupeKey: "req-idem-2",
       }),
     ).rejects.toMatchObject<AppError>({
+      name: "AppError",
+      message: "Idempotency key reused with a different profile payload",
+      statusCode: 409,
       code: "CONFLICT",
     });
   });
@@ -328,7 +343,13 @@ describe("AgentSelfProfileService", () => {
         remoteProfileVersion: 3,
         profileUpdatedAt: new Date("2026-04-08T12:30:00.000Z"),
       }),
-    ).rejects.toMatchObject<AppError>({ code: "CONFLICT" });
+    ).rejects.toMatchObject<AppError>({
+      name: "AppError",
+      message:
+        "pull_sync profile_version matches server but profile content differs; resolve split-brain before retrying",
+      statusCode: 409,
+      code: "CONFLICT",
+    });
 
     const newer = await service.persistProfilePatch({
       agentId,

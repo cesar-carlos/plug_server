@@ -312,7 +312,7 @@ const runStream = async (
     const events: string[] = [];
     const seen = new Set<number>();
     const h = createRpcBridgeAgentInboundHandlers({
-      emitToConsumer: () => undefined,
+      emitToConsumer: () => true,
       emitRpcStreamPullForRoute: () => undefined,
     });
     registerRestPendingRequest({

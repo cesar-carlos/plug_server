@@ -81,7 +81,11 @@ describe("bridge_latency_trace_builder", () => {
       s.markEmitComplete(0.1, performance.now());
       expect(s.finalizeOnce({ outcome: "success", httpStatus: 200 })).toBe(true);
       expect(enqueueBridgeLatencyTrace).toHaveBeenCalledTimes(1);
-      const row = enqueueBridgeLatencyTrace.mock.calls[0][0] as {
+      const enqueued = enqueueBridgeLatencyTrace.mock.calls[0];
+      if (enqueued === undefined) {
+        throw new Error("expected bridge latency trace enqueue");
+      }
+      const row = enqueued[0] as {
         phasesMs: Record<string, number>;
         phasesSumMs: number;
         phasesSchemaVersion: number;
@@ -122,7 +126,11 @@ describe("bridge_latency_trace_builder", () => {
       s.markEmitComplete(0.05, emitEnd);
       s.markInboundArrival(emitEnd + 12);
       s.finalizeOnce({ outcome: "success", httpStatus: 200 });
-      const row = enqueueBridgeLatencyTrace.mock.calls[0][0] as {
+      const enqueued = enqueueBridgeLatencyTrace.mock.calls[0];
+      if (enqueued === undefined) {
+        throw new Error("expected bridge latency trace enqueue");
+      }
+      const row = enqueued[0] as {
         phasesMs: Record<string, number>;
       };
       expect(row.phasesMs.agent_to_hub_ms).toBeGreaterThanOrEqual(11);

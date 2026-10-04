@@ -59,7 +59,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
 
     await dispatch({
       agentId: "agent-1",
-      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
     });
 
     expect(localDispatch).toHaveBeenCalledOnce();
@@ -71,7 +71,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
 
     const result = await dispatch({
       agentId: "agent-1",
-      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
     });
 
     expect(deps.publishCommand).toHaveBeenCalledWith("hub-remote", expect.any(String));
@@ -85,7 +85,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
     await expect(
       dispatch({
         agentId: "agent-1",
-        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
         streamHandlers: { onChunk: () => undefined, onComplete: () => undefined },
       }),
     ).rejects.toMatchObject({
@@ -106,7 +106,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
 
     await dispatch({
       agentId: "agent-1",
-      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
       streamHandlers: { onChunk: () => undefined, onComplete: () => undefined },
     });
 
@@ -132,7 +132,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
     await expect(
       dispatch({
         agentId: "agent-1",
-        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
       }),
     ).rejects.toBeInstanceOf(AgentDisconnectedBeforeDispatchError);
   });
@@ -158,7 +158,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
 
     await dispatch({
       agentId: "agent-1",
-      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
     });
 
     expect(deps.presence.removeIfHubInstanceMatches).toHaveBeenCalledWith("agent-1", "hub-local");
@@ -189,7 +189,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
     await expect(
       dispatch({
         agentId: "agent-1",
-        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
       }),
     ).rejects.toBeInstanceOf(AgentDisconnectedBeforeDispatchError);
   });
@@ -211,7 +211,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
 
     const result = await dispatch({
       agentId: "agent-1",
-      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+      command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
     });
 
     expect(deps.publishCommand).toHaveBeenCalledWith("hub-peer", expect.any(String));
@@ -238,7 +238,7 @@ describe("createDispatchOrForwardRpcCommand", () => {
     await expect(
       dispatch({
         agentId: "agent-unknown",
-        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: {} },
+        command: { jsonrpc: "2.0", method: "sql.execute", id: "1", params: { sql: "SELECT 1" } },
       }),
     ).rejects.toMatchObject(notFound("Agent agent-unknown"));
   });

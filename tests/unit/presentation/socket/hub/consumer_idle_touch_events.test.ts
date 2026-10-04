@@ -9,6 +9,7 @@ import {
   touchConsumerRegistryOnSocketActivity,
 } from "../../../../../src/presentation/socket/hub/scheduling/consumer_idle_touch_events";
 import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 
 describe("consumer_idle_touch_events", () => {
@@ -18,14 +19,14 @@ describe("consumer_idle_touch_events", () => {
     vi.useFakeTimers();
     consumerRegistry.clear();
     resetConsumerIdleTouchDebounceState();
-    env.socketConsumerIdleTouchDebounceMs = originalDebounceMs;
+    overrideEnv("socketConsumerIdleTouchDebounceMs", originalDebounceMs);
   });
 
   afterEach(() => {
     vi.useRealTimers();
     consumerRegistry.clear();
     resetConsumerIdleTouchDebounceState();
-    env.socketConsumerIdleTouchDebounceMs = originalDebounceMs;
+    overrideEnv("socketConsumerIdleTouchDebounceMs", originalDebounceMs);
   });
 
   it("documents the allowlist of meaningful idle-touch events", () => {
@@ -104,7 +105,7 @@ describe("consumer_idle_touch_events", () => {
   });
 
   it("debounces registry touches within the configured window", () => {
-    env.socketConsumerIdleTouchDebounceMs = 5_000;
+    overrideEnv("socketConsumerIdleTouchDebounceMs", 5_000);
     vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
     consumerRegistry.registerSession({
       socketId: "sock-debounce",
@@ -127,7 +128,7 @@ describe("consumer_idle_touch_events", () => {
   });
 
   it("debounce 0 preserves every-touch behavior", () => {
-    env.socketConsumerIdleTouchDebounceMs = 0;
+    overrideEnv("socketConsumerIdleTouchDebounceMs", 0);
     vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
     consumerRegistry.registerSession({
       socketId: "sock-every",

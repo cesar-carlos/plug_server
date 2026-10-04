@@ -307,7 +307,7 @@ describe("handleRelayRpcRequest", () => {
 
   it("does not refund quota when the conversation is not found", async () => {
     const socket = buildSocket();
-    mockedFindConversation.mockReturnValue(undefined);
+    mockedFindConversation.mockReturnValue(null);
 
     handleRelayRpcRequest(socket as never, {
       conversationId: "conv-1",

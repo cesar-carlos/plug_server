@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 vi.mock("../../../../src/application/services/registration_email_outbox.service", () => ({
   enqueueClientRegistrationApprovalEmail: vi.fn(),
@@ -143,22 +143,35 @@ class TestFileStorage implements IFileStorage {
 }
 
 type MockEmailSender = {
-  [K in keyof IEmailSender]: ReturnType<typeof vi.fn>;
+  [K in keyof IEmailSender]: Mock<IEmailSender[K]>;
+};
+
+const resolved = async (): Promise<void> => {
+  return;
 };
 
 const createEmailSender = (): MockEmailSender => {
   const sender = {
-    sendAdminApprovalRequest: vi.fn().mockResolvedValue(undefined),
-    sendUserPendingRegistration: vi.fn().mockResolvedValue(undefined),
-    sendUserApproved: vi.fn().mockResolvedValue(undefined),
-    sendUserRejected: vi.fn().mockResolvedValue(undefined),
-    sendClientAccessRequestToOwner: vi.fn().mockResolvedValue(undefined),
-    sendClientAccessApproved: vi.fn().mockResolvedValue(undefined),
-    sendClientAccessRejected: vi.fn().mockResolvedValue(undefined),
-    sendClientRegistrationRequestToOwner: vi.fn().mockResolvedValue(undefined),
-    sendClientRegistrationApproved: vi.fn().mockResolvedValue(undefined),
-    sendClientRegistrationRejected: vi.fn().mockResolvedValue(undefined),
-    sendClientPasswordRecovery: vi.fn().mockResolvedValue(undefined),
+    sendAdminApprovalRequest:
+      vi.fn<IEmailSender["sendAdminApprovalRequest"]>().mockImplementation(resolved),
+    sendUserPendingRegistration:
+      vi.fn<IEmailSender["sendUserPendingRegistration"]>().mockImplementation(resolved),
+    sendUserApproved: vi.fn<IEmailSender["sendUserApproved"]>().mockImplementation(resolved),
+    sendUserRejected: vi.fn<IEmailSender["sendUserRejected"]>().mockImplementation(resolved),
+    sendClientAccessRequestToOwner:
+      vi.fn<IEmailSender["sendClientAccessRequestToOwner"]>().mockImplementation(resolved),
+    sendClientAccessApproved:
+      vi.fn<IEmailSender["sendClientAccessApproved"]>().mockImplementation(resolved),
+    sendClientAccessRejected:
+      vi.fn<IEmailSender["sendClientAccessRejected"]>().mockImplementation(resolved),
+    sendClientRegistrationRequestToOwner:
+      vi.fn<IEmailSender["sendClientRegistrationRequestToOwner"]>().mockImplementation(resolved),
+    sendClientRegistrationApproved:
+      vi.fn<IEmailSender["sendClientRegistrationApproved"]>().mockImplementation(resolved),
+    sendClientRegistrationRejected:
+      vi.fn<IEmailSender["sendClientRegistrationRejected"]>().mockImplementation(resolved),
+    sendClientPasswordRecovery:
+      vi.fn<IEmailSender["sendClientPasswordRecovery"]>().mockImplementation(resolved),
   } satisfies MockEmailSender;
 
   return sender;

@@ -38,7 +38,7 @@ describe("isPayloadFrameEnvelope (plug_agente payload-frame.schema.json alignmen
   });
 
   it("rejects missing contentType", () => {
-    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as Record<string, unknown>;
+    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as unknown as Record<string, unknown>;
     const { contentType: _c, ...rest } = base;
     expect(isPayloadFrameEnvelope(rest)).toBe(false);
   });
@@ -50,7 +50,7 @@ describe("isPayloadFrameEnvelope (plug_agente payload-frame.schema.json alignmen
   });
 
   it("rejects unknown root property", () => {
-    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as Record<string, unknown>;
+    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as unknown as Record<string, unknown>;
     const frame = { ...base, extraField: 1 };
     expect(isPayloadFrameEnvelope(frame)).toBe(false);
   });
@@ -80,7 +80,7 @@ describe("isPayloadFrameEnvelope (plug_agente payload-frame.schema.json alignmen
   });
 
   it("rejects signature with unknown property", () => {
-    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as Record<string, unknown>;
+    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as unknown as Record<string, unknown>;
     const frame = {
       ...base,
       signature: { alg: "hmac-sha256", value: "abc", key_id: "k1", extra: true },
@@ -89,7 +89,7 @@ describe("isPayloadFrameEnvelope (plug_agente payload-frame.schema.json alignmen
   });
 
   it("rejects signature with wrong alg", () => {
-    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as Record<string, unknown>;
+    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as unknown as Record<string, unknown>;
     const frame = {
       ...base,
       signature: { alg: "md5", value: "abc" },
@@ -98,7 +98,7 @@ describe("isPayloadFrameEnvelope (plug_agente payload-frame.schema.json alignmen
   });
 
   it("accepts signature with alg and value only (hub may omit key_id)", () => {
-    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as Record<string, unknown>;
+    const base = encodePayloadFrame({ a: 1 }, { omitTraceId: true }) as unknown as Record<string, unknown>;
     const frame = {
       ...base,
       signature: { alg: "hmac-sha256", value: "dGVzdA==" },

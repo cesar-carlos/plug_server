@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { MeUserResponseDto } from "../../../../src/application/dtos/auth.dto";
+import type { AuthService } from "../../../../src/application/services/auth.service";
 import { UserAccountService } from "../../../../src/application/services/user_account.service";
 import { registerAgentSocketControlHandler } from "../../../../src/application/services/agent_socket_control_sink";
 import { registerConsumerSocketControlHandler } from "../../../../src/application/services/consumer_socket_control_sink";
 import { User } from "../../../../src/domain/entities/user.entity";
 import { unauthorized } from "../../../../src/shared/errors/http_errors";
-import { err, ok } from "../../../../src/shared/errors/result";
+import { err, ok, type Result } from "../../../../src/shared/errors/result";
 import type { JwtAccessPayload } from "../../../../src/shared/utils/jwt";
 
 const makeUser = (status: "active" | "blocked" = "active"): User =>
@@ -16,6 +18,15 @@ const makeUser = (status: "active" | "blocked" = "active"): User =>
     role: "user",
     status,
   });
+
+type AccountAuthService = Pick<AuthService, "getMeProfile" | "invalidateSnapshotCache">;
+
+const createAccountAuthService = (): AccountAuthService => ({
+  invalidateSnapshotCache: vi.fn<(userId: string) => void>(),
+  getMeProfile: vi.fn<
+    (jwtUser: JwtAccessPayload, preloadedUser?: User) => Promise<Result<MeUserResponseDto>>
+  >(),
+});
 
 const makeAccessPayload = (user: User): JwtAccessPayload => ({
   sub: user.id,
@@ -31,13 +42,7 @@ const makeService = (
   agentAccessService: { invalidateAccessCacheForUser: ReturnType<typeof vi.fn> } = {
     invalidateAccessCacheForUser: vi.fn(),
   },
-  authService: {
-    invalidateSnapshotCache: ReturnType<typeof vi.fn>;
-    getMeProfile: ReturnType<typeof vi.fn>;
-  } = {
-    invalidateSnapshotCache: vi.fn(),
-    getMeProfile: vi.fn(),
-  },
+  authService: AccountAuthService = createAccountAuthService(),
   updateMyCelularResult: unknown = ok(makeUser()),
 ): UserAccountService =>
   new UserAccountService(
@@ -62,10 +67,7 @@ describe("UserAccountService", () => {
     const disconnectConsumer = vi.fn().mockResolvedValue(undefined);
     const invalidateUserSnapshots = vi.fn().mockResolvedValue(undefined);
     const agentAccessService = { invalidateAccessCacheForUser: vi.fn() };
-    const authService = {
-      invalidateSnapshotCache: vi.fn(),
-      getMeProfile: vi.fn(),
-    };
+    const authService = createAccountAuthService();
     disposers.push(registerAgentSocketControlHandler({ disconnectPrincipal: disconnectAgent }));
     disposers.push(
       registerConsumerSocketControlHandler({
@@ -78,7 +80,6 @@ describe("UserAccountService", () => {
 
     const service = makeService(ok(blockedUser), agentAccessService, authService);
     const result = await service.adminSetUserStatus({
-      adminUserId: "admin-1",
       targetUserId: blockedUser.id,
       status: "blocked",
     });
@@ -103,10 +104,7 @@ describe("UserAccountService", () => {
     const disconnectAgent = vi.fn();
     const disconnectConsumer = vi.fn();
     const agentAccessService = { invalidateAccessCacheForUser: vi.fn() };
-    const authService = {
-      invalidateSnapshotCache: vi.fn(),
-      getMeProfile: vi.fn(),
-    };
+    const authService = createAccountAuthService();
     disposers.push(registerAgentSocketControlHandler({ disconnectPrincipal: disconnectAgent }));
     disposers.push(
       registerConsumerSocketControlHandler({
@@ -119,7 +117,6 @@ describe("UserAccountService", () => {
 
     const service = makeService(ok(activeUser), agentAccessService, authService);
     const result = await service.adminSetUserStatus({
-      adminUserId: "admin-1",
       targetUserId: activeUser.id,
       status: "active",
     });
@@ -141,18 +138,16 @@ describe("UserAccountService", () => {
       status: user.status,
       celular: "+5511987654321",
     });
-    const profile = {
+    const profile: MeUserResponseDto = {
       id: updated.id,
       sub: updated.id,
       email: updated.email,
       role: updated.role,
       status: updated.status,
-      celular: updated.celular,
+      ...(updated.celular !== undefined ? { celular: updated.celular } : {}),
     };
-    const authService = {
-      invalidateSnapshotCache: vi.fn(),
-      getMeProfile: vi.fn().mockResolvedValue(ok(profile)),
-    };
+    const authService = createAccountAuthService();
+    vi.mocked(authService.getMeProfile).mockResolvedValue(ok(profile));
     const service = makeService(ok(user), undefined, authService, ok(updated));
     const jwtUser = makeAccessPayload(user);
 
@@ -167,10 +162,7 @@ describe("UserAccountService", () => {
 
   it("propagates celular update failures without calling getMeProfile", async () => {
     const user = makeUser("active");
-    const authService = {
-      invalidateSnapshotCache: vi.fn(),
-      getMeProfile: vi.fn(),
-    };
+    const authService = createAccountAuthService();
     const service = makeService(
       ok(user),
       undefined,

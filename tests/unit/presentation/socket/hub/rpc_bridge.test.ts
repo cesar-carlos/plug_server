@@ -126,7 +126,7 @@ describe("rpc_bridge orchestrator", () => {
 
     const result = await dispatchRpcCommandToAgent({
       agentId,
-      command: { jsonrpc: "2.0", method: "agent.ping", params: {} },
+      command: { jsonrpc: "2.0", method: "agent.getHealth", params: {} },
     });
 
     expect(result).toMatchObject({ notification: true, acceptedCommands: 1 });

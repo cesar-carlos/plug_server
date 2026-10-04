@@ -94,12 +94,18 @@ describe("relay stream hard byte limit", () => {
   it("emits a correlated terminal with the already forwarded row count", async () => {
     arrangeOverLimitStream();
     vi.spyOn(env, "socketRelayOutboundHardLimitAction", "get").mockReturnValue("close_stream");
-    const emitToConsumer = vi.fn(() => true);
+    const emitToConsumer = vi.fn<
+      (consumerSocketId: string, eventName: string, payload: unknown) => boolean
+    >(() => true);
 
     schedule(emitToConsumer);
 
     await vi.waitFor(() => expect(emitToConsumer).toHaveBeenCalledTimes(1));
-    const [, eventName, wire] = emitToConsumer.mock.calls[0] as [string, string, unknown];
+    const emitCall = emitToConsumer.mock.calls[0];
+    if (emitCall === undefined) {
+      throw new Error("expected consumer emit");
+    }
+    const [, eventName, wire] = emitCall;
     expect(eventName).toBe(socketEvents.relayRpcComplete);
     const decoded = decodePayloadFrame(wire);
     expect(decoded.ok).toBe(true);

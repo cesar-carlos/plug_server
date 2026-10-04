@@ -9,6 +9,7 @@ import {
 } from "../helpers/plug_agente_socket";
 import { startE2EHubFixture, type E2EHubFixture } from "../helpers/e2e_hub_fixture";
 import { env } from "../../../src/shared/config/env";
+import { overrideEnv } from "../../helpers/override_env";
 import {
   resetSocketAgentMetrics,
   getSocketAgentMetricsSnapshot,
@@ -131,10 +132,10 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   afterEach(() => {
-    env.socketAgentInboundContractValidation = originalInboundValidationMode;
-    env.socketAgentAckRetryEnabled = originalAckRetryEnabled;
-    env.socketAgentAckTimeoutMs = originalAckRetryTimeoutMs;
-    env.socketAgentAckMaxRetries = originalAckMaxRetries;
+    overrideEnv("socketAgentInboundContractValidation", originalInboundValidationMode);
+    overrideEnv("socketAgentAckRetryEnabled", originalAckRetryEnabled);
+    overrideEnv("socketAgentAckTimeoutMs", originalAckRetryTimeoutMs);
+    overrideEnv("socketAgentAckMaxRetries", originalAckMaxRetries);
     resetSocketAgentMetrics();
   });
 
@@ -144,8 +145,8 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   it("rejects invalid inbound rpc:response in strict mode", async () => {
-    env.socketAgentInboundContractValidation = "strict";
-    env.socketAgentAckRetryEnabled = false;
+    overrideEnv("socketAgentInboundContractValidation", "strict");
+    overrideEnv("socketAgentAckRetryEnabled", false);
     resetSocketAgentMetrics();
 
     const requestId = "e2e-strict-invalid-response";
@@ -180,8 +181,8 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   it("processes invalid inbound rpc:response in warn mode and records a warning metric", async () => {
-    env.socketAgentInboundContractValidation = "warn";
-    env.socketAgentAckRetryEnabled = false;
+    overrideEnv("socketAgentInboundContractValidation", "warn");
+    overrideEnv("socketAgentAckRetryEnabled", false);
     resetSocketAgentMetrics();
 
     const requestId = "e2e-warn-invalid-response";
@@ -217,8 +218,8 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   it("records strict validation failure for invalid batch response", async () => {
-    env.socketAgentInboundContractValidation = "strict";
-    env.socketAgentAckRetryEnabled = false;
+    overrideEnv("socketAgentInboundContractValidation", "strict");
+    overrideEnv("socketAgentAckRetryEnabled", false);
     resetSocketAgentMetrics();
 
     const targetId = "e2e-invalid-batch-a";
@@ -266,8 +267,8 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   it("rejects invalid rpc:chunk on a real REST stream", async () => {
-    env.socketAgentInboundContractValidation = "strict";
-    env.socketAgentAckRetryEnabled = false;
+    overrideEnv("socketAgentInboundContractValidation", "strict");
+    overrideEnv("socketAgentAckRetryEnabled", false);
     resetSocketAgentMetrics();
 
     const requestId = "e2e-invalid-chunk";
@@ -316,8 +317,8 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   it("rejects invalid rpc:complete on a real REST stream", async () => {
-    env.socketAgentInboundContractValidation = "strict";
-    env.socketAgentAckRetryEnabled = false;
+    overrideEnv("socketAgentInboundContractValidation", "strict");
+    overrideEnv("socketAgentAckRetryEnabled", false);
     resetSocketAgentMetrics();
 
     const requestId = "e2e-invalid-complete";
@@ -364,10 +365,10 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   it("retries an ACK-eligible REST request once and reuses the same frame", async () => {
-    env.socketAgentInboundContractValidation = "strict";
-    env.socketAgentAckRetryEnabled = true;
-    env.socketAgentAckTimeoutMs = 30;
-    env.socketAgentAckMaxRetries = 1;
+    overrideEnv("socketAgentInboundContractValidation", "strict");
+    overrideEnv("socketAgentAckRetryEnabled", true);
+    overrideEnv("socketAgentAckTimeoutMs", 30);
+    overrideEnv("socketAgentAckMaxRetries", 1);
 
     const requestId = "e2e-ack-retry-read";
     let deliveries = 0;
@@ -420,10 +421,10 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   it("preserves idempotency key and request id across ACK retry", async () => {
-    env.socketAgentInboundContractValidation = "strict";
-    env.socketAgentAckRetryEnabled = true;
-    env.socketAgentAckTimeoutMs = 30;
-    env.socketAgentAckMaxRetries = 1;
+    overrideEnv("socketAgentInboundContractValidation", "strict");
+    overrideEnv("socketAgentAckRetryEnabled", true);
+    overrideEnv("socketAgentAckTimeoutMs", 30);
+    overrideEnv("socketAgentAckMaxRetries", 1);
 
     const requestId = "e2e-ack-retry-idempotent-write";
     const idempotencyKey = "idem-e2e-ack-retry";
@@ -496,10 +497,10 @@ describe("E2E plug_agente contract hardening", () => {
   });
 
   it("does not retry a non-idempotent REST command when ACK is missing", async () => {
-    env.socketAgentInboundContractValidation = "strict";
-    env.socketAgentAckRetryEnabled = true;
-    env.socketAgentAckTimeoutMs = 30;
-    env.socketAgentAckMaxRetries = 1;
+    overrideEnv("socketAgentInboundContractValidation", "strict");
+    overrideEnv("socketAgentAckRetryEnabled", true);
+    overrideEnv("socketAgentAckTimeoutMs", 30);
+    overrideEnv("socketAgentAckMaxRetries", 1);
 
     const requestId = "e2e-no-ack-retry-non-idempotent";
     let deliveries = 0;

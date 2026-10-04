@@ -19,7 +19,7 @@ vi.mock("../../../../../../src/shared/config/env", async (importOriginal) => {
   };
 });
 
-import { env } from "../../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../../helpers/override_env";
 import { consumeSocketRateLimitLocalFirstAsync } from "../../../../../../src/presentation/socket/hub/rate_limits/socket_rate_limit_redis_local_first";
 
 const baseInput = {
@@ -33,8 +33,8 @@ const baseInput = {
 describe("socket_rate_limit_redis_local_first", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    env.socketRateLimitRedisUrl = "redis://127.0.0.1:6379";
-    env.socketRateLimitRedisLocalFirst = false;
+    overrideEnv("socketRateLimitRedisUrl", "redis://127.0.0.1:6379");
+    overrideEnv("socketRateLimitRedisLocalFirst", false);
   });
 
   afterEach(() => {
@@ -78,7 +78,7 @@ describe("socket_rate_limit_redis_local_first", () => {
   });
 
   it("should skip Redis on local deny when local-first is enabled", async () => {
-    env.socketRateLimitRedisLocalFirst = true;
+    overrideEnv("socketRateLimitRedisLocalFirst", true);
     const allowLocal = vi.fn(() => false);
 
     const allowed = await consumeSocketRateLimitLocalFirstAsync(baseInput, {
@@ -94,7 +94,7 @@ describe("socket_rate_limit_redis_local_first", () => {
 
   it("should return immediately on local allow and reconcile with Redis in the background", async () => {
     vi.useFakeTimers();
-    env.socketRateLimitRedisLocalFirst = true;
+    overrideEnv("socketRateLimitRedisLocalFirst", true);
 
     let resolveRedis!: (value: {
       allowed: boolean;
@@ -127,7 +127,7 @@ describe("socket_rate_limit_redis_local_first", () => {
 
   it("should keep local consume on async Redis failure (fail-open)", async () => {
     vi.useFakeTimers();
-    env.socketRateLimitRedisLocalFirst = true;
+    overrideEnv("socketRateLimitRedisLocalFirst", true);
     consumeSocketRateLimitRedisMock.mockResolvedValue(null);
     const refundLocal = vi.fn();
 
@@ -144,7 +144,7 @@ describe("socket_rate_limit_redis_local_first", () => {
 
   it("should not refund local when async Redis also allows", async () => {
     vi.useFakeTimers();
-    env.socketRateLimitRedisLocalFirst = true;
+    overrideEnv("socketRateLimitRedisLocalFirst", true);
     consumeSocketRateLimitRedisMock.mockResolvedValue({
       allowed: true,
       remaining: 2,
@@ -165,8 +165,8 @@ describe("socket_rate_limit_redis_local_first", () => {
   });
 
   it("should use legacy await-Redis path when Redis URL is empty even if local-first is enabled", async () => {
-    env.socketRateLimitRedisLocalFirst = true;
-    env.socketRateLimitRedisUrl = "";
+    overrideEnv("socketRateLimitRedisLocalFirst", true);
+    overrideEnv("socketRateLimitRedisUrl", "");
     consumeSocketRateLimitRedisMock.mockResolvedValue({
       allowed: false,
       remaining: 0,

@@ -134,6 +134,12 @@ export const probeDistributedRedisInfrastructure =
       };
     }
 
+    if (socketIoRedisAdapterUrl === undefined || restSocketEventIdempotencyRedisUrl === undefined) {
+      throw new Error(
+        "Required integration Redis URLs are missing: SOCKET_IO_REDIS_ADAPTER_URL and REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL",
+      );
+    }
+
     const [databaseAvailable, socketIoRedisAvailable, idempotencyRedisAvailable] =
       await Promise.all([
         canReachDatabase(),

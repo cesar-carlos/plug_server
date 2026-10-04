@@ -329,6 +329,9 @@ describe("Client auth registration approval flow", () => {
       emailPrefix: "client-owner",
     });
     const [local, domain] = owner.email.split("@");
+    if (local === undefined || domain === undefined) {
+      throw new Error("owner email must include a domain");
+    }
     const ownerEmailMixedCase = `${local.toUpperCase()}@${domain}`;
     const email = `client-owner-case-${Date.now()}@test.com`;
 

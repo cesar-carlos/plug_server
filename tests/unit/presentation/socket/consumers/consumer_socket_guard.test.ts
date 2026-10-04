@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentAccessSnapshot } from "../../../../../src/domain/repositories/agent.repository.interface";
 import { AppError } from "../../../../../src/shared/errors/app_error";
 import { err, ok } from "../../../../../src/shared/errors/result";
 
@@ -31,22 +32,36 @@ import {
   invalidateLocalUserAccessSnapshots,
   resolveConsumerAgentAccessPrincipal,
   resolveSocketActorRole,
+  type SocketAgentAccessSnapshot,
 } from "../../../../../src/presentation/socket/consumers/consumer_socket_guard";
 import { assertJwtUserAccountActive } from "../../../../../src/presentation/socket/auth/ensure_socket_active_account";
 import { joinConsumerClientAgentRoom } from "../../../../../src/presentation/socket/hub/consumer_identity_rooms";
 import { container } from "../../../../../src/shared/di/container";
-import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 
 const mockedAssertJwtUserAccountActive = vi.mocked(assertJwtUserAccountActive);
 const mockedAssertPrincipalAccess = vi.mocked(container.agentAccessService.assertPrincipalAccess);
 const mockedJoinConsumerClientAgentRoom = vi.mocked(joinConsumerClientAgentRoom);
+
+const grantedAccessSnapshot: AgentAccessSnapshot = {
+  agentId: "agent-1",
+  status: "active",
+};
+
+type GuardTestSocket = {
+  readonly id: string;
+  data: {
+    user?: unknown;
+    agentAccessSnapshots?: Map<string, SocketAgentAccessSnapshot>;
+  };
+};
 
 describe("consumer_socket_guard", () => {
   beforeEach(() => {
     mockedAssertJwtUserAccountActive.mockReset();
     mockedAssertPrincipalAccess.mockReset();
     mockedJoinConsumerClientAgentRoom.mockReset();
-    env.socketConsumerAgentAccessSnapshotTtlMs = 0;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 0);
   });
 
   it("resolves actor role only for non-empty role strings", () => {
@@ -89,7 +104,7 @@ describe("consumer_socket_guard", () => {
       principal_type: "user",
       role: "user",
     } as never);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
 
     await expect(
       assertConsumerSocketAgentAccess(
@@ -145,7 +160,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("reuses per-socket agent access snapshot within TTL without hitting assertPrincipalAccess", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const user = {
       sub: "client-1",
       principal_type: "client",
@@ -153,7 +168,7 @@ describe("consumer_socket_guard", () => {
     } as never;
 
     mockedAssertJwtUserAccountActive.mockResolvedValue(user);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
     mockedJoinConsumerClientAgentRoom.mockResolvedValue(undefined);
 
     const socket = {
@@ -175,7 +190,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("revalidates agent access after per-socket snapshot TTL expires", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 1_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 1_000);
     vi.useFakeTimers();
     const user = {
       sub: "user-1",
@@ -185,7 +200,7 @@ describe("consumer_socket_guard", () => {
     } as never;
 
     mockedAssertJwtUserAccountActive.mockResolvedValue(user);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
 
     const socket = {
       id: "socket-2",
@@ -203,7 +218,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("clearConsumerSocketAgentAccessSnapshot removes cached entry so guard revalidates", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const user = {
       sub: "client-1",
       principal_type: "client",
@@ -211,7 +226,7 @@ describe("consumer_socket_guard", () => {
     } as never;
 
     mockedAssertJwtUserAccountActive.mockResolvedValue(user);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
     mockedJoinConsumerClientAgentRoom.mockResolvedValue(undefined);
 
     const socket = {
@@ -228,7 +243,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("clearAllConsumerSocketAgentAccessSnapshots removes all cached entries", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const user = {
       sub: "user-1",
       principal_type: "user",
@@ -236,7 +251,7 @@ describe("consumer_socket_guard", () => {
     } as never;
 
     mockedAssertJwtUserAccountActive.mockResolvedValue(user);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
 
     const socket = {
       id: "socket-4",
@@ -254,7 +269,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("clearAllConsumerSocketAgentAccessSnapshots removes socket from reverse index", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const user = {
       sub: "user-1",
       principal_type: "user",
@@ -262,7 +277,7 @@ describe("consumer_socket_guard", () => {
     } as never;
 
     mockedAssertJwtUserAccountActive.mockResolvedValue(user);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
 
     const socket = {
       id: "socket-reverse-index",
@@ -277,7 +292,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("clearInflightAgentAccessForSocket prevents snapshot when validation completes after disconnect", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const user = {
       sub: "user-1",
       principal_type: "user",
@@ -292,15 +307,15 @@ describe("consumer_socket_guard", () => {
     });
     mockedAssertPrincipalAccess.mockImplementation(async () => {
       await accessGate;
-      return ok(undefined);
+      return ok(grantedAccessSnapshot);
     });
 
-    const socket = {
+    const socket: GuardTestSocket = {
       id: "socket-inflight-disconnect",
       data: {},
-    } as never;
+    };
 
-    const validation = assertConsumerSocketAgentAccess(user, "agent-1", socket);
+    const validation = assertConsumerSocketAgentAccess(user, "agent-1", socket as never);
     await Promise.resolve();
     clearInflightAgentAccessForSocket("socket-inflight-disconnect");
     releaseAccessCheck();
@@ -313,7 +328,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("clearInflightAgentAccessForSocket clears multiple concurrent agent validations for one socket", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const user = {
       sub: "user-1",
       principal_type: "user",
@@ -328,16 +343,16 @@ describe("consumer_socket_guard", () => {
     });
     mockedAssertPrincipalAccess.mockImplementation(async () => {
       await accessGate;
-      return ok(undefined);
+      return ok(grantedAccessSnapshot);
     });
 
-    const socket = {
+    const socket: GuardTestSocket = {
       id: "socket-inflight-multi-agent",
       data: {},
-    } as never;
+    };
 
-    const validation1 = assertConsumerSocketAgentAccess(user, "agent-1", socket);
-    const validation2 = assertConsumerSocketAgentAccess(user, "agent-2", socket);
+    const validation1 = assertConsumerSocketAgentAccess(user, "agent-1", socket as never);
+    const validation2 = assertConsumerSocketAgentAccess(user, "agent-2", socket as never);
     await Promise.resolve();
     clearInflightAgentAccessForSocket("socket-inflight-multi-agent");
     releaseAccessCheck();
@@ -354,7 +369,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("invalidateLocalAgentAccessSnapshotsByAgentId clears local sockets and prunes stale index entries", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const user = {
       sub: "user-1",
       principal_type: "user",
@@ -362,12 +377,12 @@ describe("consumer_socket_guard", () => {
     } as never;
 
     mockedAssertJwtUserAccountActive.mockResolvedValue(user);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
 
-    const localSocket = {
+    const localSocket: GuardTestSocket = {
       id: "socket-local",
       data: { user },
-    } as never;
+    };
     const staleSocket = {
       id: "socket-stale",
       data: { user },
@@ -379,7 +394,7 @@ describe("consumer_socket_guard", () => {
     };
 
     await assertConsumerSocketAgentAccess(user, "agent-1", staleSocket);
-    await assertConsumerSocketAgentAccess(user, "agent-1", localSocket);
+    await assertConsumerSocketAgentAccess(user, "agent-1", localSocket as never);
     expect(getSocketIdsWithAgentAccessSnapshot("agent-1").has("socket-stale")).toBe(true);
     expect(getSocketIdsWithAgentAccessSnapshot("agent-1").has("socket-local")).toBe(true);
 
@@ -390,7 +405,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("invalidateLocalClientAgentAccessSnapshot clears only matching client sockets", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const clientUser = {
       sub: "client-1",
       principal_type: "client",
@@ -403,11 +418,17 @@ describe("consumer_socket_guard", () => {
     } as never;
 
     mockedAssertJwtUserAccountActive.mockImplementation(async (user) => user as never);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
     mockedJoinConsumerClientAgentRoom.mockResolvedValue(undefined);
 
-    const clientSocket = { id: "socket-client-1", data: { user: clientUser } } as never;
-    const otherSocket = { id: "socket-client-2", data: { user: otherClientUser } } as never;
+    const clientSocket: GuardTestSocket = {
+      id: "socket-client-1",
+      data: { user: clientUser },
+    };
+    const otherSocket: GuardTestSocket = {
+      id: "socket-client-2",
+      data: { user: otherClientUser },
+    };
     const namespace = {
       sockets: {
         get: (socketId: string) => {
@@ -418,8 +439,8 @@ describe("consumer_socket_guard", () => {
       },
     };
 
-    await assertConsumerSocketAgentAccess(clientUser, "agent-1", clientSocket);
-    await assertConsumerSocketAgentAccess(otherClientUser, "agent-1", otherSocket);
+    await assertConsumerSocketAgentAccess(clientUser, "agent-1", clientSocket as never);
+    await assertConsumerSocketAgentAccess(otherClientUser, "agent-1", otherSocket as never);
 
     const cleared = invalidateLocalClientAgentAccessSnapshot(namespace, "client-1", "agent-1");
     expect(cleared).toBe(1);
@@ -428,7 +449,7 @@ describe("consumer_socket_guard", () => {
   });
 
   it("invalidateLocalUserAccessSnapshots clears all snapshots for a user principal", async () => {
-    env.socketConsumerAgentAccessSnapshotTtlMs = 60_000;
+    overrideEnv("socketConsumerAgentAccessSnapshotTtlMs", 60_000);
     const user = {
       sub: "user-9",
       principal_type: "user",
@@ -436,17 +457,17 @@ describe("consumer_socket_guard", () => {
     } as never;
 
     mockedAssertJwtUserAccountActive.mockResolvedValue(user);
-    mockedAssertPrincipalAccess.mockResolvedValue(ok(undefined));
+    mockedAssertPrincipalAccess.mockResolvedValue(ok(grantedAccessSnapshot));
 
-    const socket = { id: "socket-user-9", data: { user } } as never;
+    const socket: GuardTestSocket = { id: "socket-user-9", data: { user } };
     const namespace = {
       sockets: {
         get: (socketId: string) => (socketId === "socket-user-9" ? socket : undefined),
       },
     };
 
-    await assertConsumerSocketAgentAccess(user, "agent-1", socket);
-    await assertConsumerSocketAgentAccess(user, "agent-2", socket);
+    await assertConsumerSocketAgentAccess(user, "agent-1", socket as never);
+    await assertConsumerSocketAgentAccess(user, "agent-2", socket as never);
     expect(getSocketIdsWithPrincipalKey("user:user-9").has("socket-user-9")).toBe(true);
 
     const cleared = invalidateLocalUserAccessSnapshots(namespace, "user-9");

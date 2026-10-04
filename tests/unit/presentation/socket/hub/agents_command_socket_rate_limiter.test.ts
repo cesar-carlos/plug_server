@@ -52,13 +52,13 @@ describe("agents_command_socket_rate_limiter", () => {
 
   it("supports weighted command costs without changing the default one-event budget", () => {
     const batchCommand = {
-      jsonrpc: "2.0",
+      jsonrpc: "2.0" as const,
       id: "batch-1",
-      method: "sql.executeBatch",
+      method: "sql.executeBatch" as const,
       params: {
         commands: [{ sql: "SELECT 1" }, { sql: "SELECT 2" }, { sql: "SELECT 3" }],
       },
-    } as const;
+    };
 
     expect(estimateAgentsCommandRateLimitCost(batchCommand)).toBe(1);
     expect(estimateAgentsCommandRateLimitCost(batchCommand, true)).toBe(3);

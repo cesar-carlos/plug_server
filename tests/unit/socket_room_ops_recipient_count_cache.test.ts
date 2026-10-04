@@ -9,6 +9,7 @@ import { isSocketIoRedisAdapterActive } from "../../src/infrastructure/redis/ada
 import { countSocketsInRoom } from "../../src/socket_room_ops";
 import { createSocketServerState } from "../../src/socket_state";
 import { env } from "../../src/shared/config/env";
+import { overrideEnv } from "../helpers/override_env";
 
 describe("countSocketsInRoom recipient count cache", () => {
   const previousTtl = env.socketCustomEventRecipientCountCacheTtlMs;
@@ -16,18 +17,20 @@ describe("countSocketsInRoom recipient count cache", () => {
 
   beforeEach(() => {
     vi.mocked(isSocketIoRedisAdapterActive).mockReturnValue(true);
-    env.socketCustomEventRecipientCountCacheTtlMs = 1_000;
-    env.restSocketEventMaxRecipients = 100;
+    overrideEnv("socketCustomEventRecipientCountCacheTtlMs", 1_000);
+    overrideEnv("restSocketEventMaxRecipients", 100);
   });
 
   afterEach(() => {
-    env.socketCustomEventRecipientCountCacheTtlMs = previousTtl;
-    env.restSocketEventMaxRecipients = previousMaxRecipients;
+    overrideEnv("socketCustomEventRecipientCountCacheTtlMs", previousTtl);
+    overrideEnv("restSocketEventMaxRecipients", previousMaxRecipients);
     vi.clearAllMocks();
   });
 
   const createNamespace = (roomSize: number, fetchSockets: ReturnType<typeof vi.fn>): Namespace => {
-    const rooms = new Map<string, Set<string>>([["room-a", new Set(Array(roomSize).keys())]]);
+    const rooms = new Map<string, Set<string>>([
+      ["room-a", new Set(Array.from({ length: roomSize }, (_, index) => `socket-${index}`))],
+    ]);
     return {
       name: "/consumers",
       adapter: { rooms },
@@ -60,7 +63,7 @@ describe("countSocketsInRoom recipient count cache", () => {
   });
 
   it("does not cache when TTL is 0", async () => {
-    env.socketCustomEventRecipientCountCacheTtlMs = 0;
+    overrideEnv("socketCustomEventRecipientCountCacheTtlMs", 0);
     const fetchSockets = vi.fn().mockResolvedValue([{ id: "s1" }]);
     const namespace = createNamespace(1, fetchSockets);
     const state = createSocketServerState({} as Server, namespace, namespace);

@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { validateAgentInboundContract } from "../../../../../src/presentation/socket/hub/handshake/agent_inbound_contract_validation";
+import {
+  validateAgentInboundContract,
+  type AgentInboundContractValidationResult,
+} from "../../../../../src/presentation/socket/hub/handshake/agent_inbound_contract_validation";
 import { env } from "../../../../../src/shared/config/env";
+import { overrideEnv } from "../../../../helpers/override_env";
 import { HUB_MAX_BATCH_SIZE } from "../../../../../src/shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../../../src/shared/constants/socket_events";
 import {
@@ -12,12 +16,23 @@ import {
 const originalMode = env.socketAgentInboundContractValidation;
 
 const setMode = (mode: "strict" | "warn" | "off"): void => {
-  env.socketAgentInboundContractValidation = mode;
+  overrideEnv("socketAgentInboundContractValidation", mode);
+};
+
+const expectFailureMessage = (
+  result: AgentInboundContractValidationResult,
+  message: string,
+): void => {
+  expect(result.ok).toBe(false);
+  if (result.ok) {
+    return;
+  }
+  expect(result.message).toBe(message);
 };
 
 describe("agent inbound contract validation", () => {
   afterEach(() => {
-    env.socketAgentInboundContractValidation = originalMode;
+    overrideEnv("socketAgentInboundContractValidation", originalMode);
     resetSocketAgentMetrics();
   });
 
@@ -134,8 +149,7 @@ describe("agent inbound contract validation", () => {
         meta: { health_snapshot: "not-an-object" },
       },
     });
-    expect(badSnapshot.ok).toBe(false);
-    expect(badSnapshot.message).toBe("meta.health_snapshot must be an object");
+    expectFailureMessage(badSnapshot, "meta.health_snapshot must be an object");
 
     const badCapturedAt = validateAgentInboundContract({
       eventName: socketEvents.rpcResponse,
@@ -147,8 +161,8 @@ describe("agent inbound contract validation", () => {
         meta: { health_snapshot: { captured_at_ms: -1 } },
       },
     });
-    expect(badCapturedAt.ok).toBe(false);
-    expect(badCapturedAt.message).toBe(
+    expectFailureMessage(
+      badCapturedAt,
       "meta.health_snapshot.captured_at_ms must be a positive finite number",
     );
 
@@ -162,8 +176,8 @@ describe("agent inbound contract validation", () => {
         meta: { agent_phases: { sql_execute_ms: -3 } },
       },
     });
-    expect(badPhase.ok).toBe(false);
-    expect(badPhase.message).toBe(
+    expectFailureMessage(
+      badPhase,
       "meta.agent_phases.sql_execute_ms must be a non-negative finite number",
     );
   });
@@ -202,8 +216,7 @@ describe("agent inbound contract validation", () => {
         error: { message: "failed" },
       },
     });
-    expect(missingCode.ok).toBe(false);
-    expect(missingCode.message).toBe("rpc:response error.code must be an integer");
+    expectFailureMessage(missingCode, "rpc:response error.code must be an integer");
 
     const missingMessage = validateAgentInboundContract({
       eventName: socketEvents.rpcResponse,
@@ -214,8 +227,7 @@ describe("agent inbound contract validation", () => {
         error: { code: -32000 },
       },
     });
-    expect(missingMessage.ok).toBe(false);
-    expect(missingMessage.message).toBe("rpc:response error.message must be a string");
+    expectFailureMessage(missingMessage, "rpc:response error.message must be a string");
 
     const invalidData = validateAgentInboundContract({
       eventName: socketEvents.rpcResponse,
@@ -226,8 +238,7 @@ describe("agent inbound contract validation", () => {
         error: { code: -32000, message: "failed", data: "not-object" },
       },
     });
-    expect(invalidData.ok).toBe(false);
-    expect(invalidData.message).toBe("rpc:response error.data must be an object");
+    expectFailureMessage(invalidData, "rpc:response error.data must be an object");
   });
 
   it("rejects oversized rpc:response batches in strict mode", () => {
@@ -243,8 +254,7 @@ describe("agent inbound contract validation", () => {
       })),
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.message).toBe(`rpc:response batch cannot exceed ${HUB_MAX_BATCH_SIZE}`);
+    expectFailureMessage(result, `rpc:response batch cannot exceed ${HUB_MAX_BATCH_SIZE}`);
   });
 
   it("warn mode records the failure but allows processing", () => {
@@ -313,7 +323,9 @@ describe("agent inbound contract validation", () => {
     });
     expect(invalid.ok).toBe(false);
     expect(invalid.shouldProcess).toBe(false);
-    expect(invalid.message).toBe("unexpected property extra");
+    if (!invalid.ok) {
+      expect(invalid.message).toBe("unexpected property extra");
+    }
   });
 
   it("validates rpc:complete required fields and types", () => {
@@ -344,8 +356,7 @@ describe("agent inbound contract validation", () => {
         total_rows: -1,
       },
     });
-    expect(invalid.ok).toBe(false);
-    expect(invalid.message).toBe("rpc:complete total_rows must be a non-negative integer");
+    expectFailureMessage(invalid, "rpc:complete total_rows must be a non-negative integer");
   });
 
   it("validates request and batch ACK payloads", () => {

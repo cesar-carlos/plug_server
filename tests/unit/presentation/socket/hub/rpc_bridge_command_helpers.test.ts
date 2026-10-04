@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { BridgeCommand } from "../../../../../src/shared/validators/agent_command";
+import type {
+  BridgeCommand,
+  BridgeSingleCommand,
+} from "../../../../../src/shared/validators/agent_command";
 import {
   applyRelayOutboundCommandFields,
   clampCommandMaxRows,
@@ -15,6 +18,11 @@ import {
   toCorrelationIds,
   withBridgeMeta,
 } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_command_helpers";
+
+type SqlExecuteCommand = Extract<BridgeSingleCommand, { method: "sql.execute" }>;
+
+const isSqlExecuteCommand = (command: BridgeSingleCommand): command is SqlExecuteCommand =>
+  command.method === "sql.execute";
 
 describe("rpc_bridge_command_helpers", () => {
   it("pickResponseIds collects ids from batch and single responses", () => {
@@ -149,15 +157,20 @@ describe("rpc_bridge_command_helpers", () => {
     if (!Array.isArray(out)) {
       return;
     }
-    expect(out[0].api_version).toBe("3");
-    expect(out[0].meta).toMatchObject({
+    const first = out[0];
+    const second = out[1];
+    if (first === undefined || second === undefined) {
+      throw new Error("expected two batch commands");
+    }
+    expect(first.api_version).toBe("3");
+    expect(first.meta).toMatchObject({
       request_id: "i1",
       agent_id: "agent-1",
       trace_id: "trace-1",
       timestamp: "t0",
     });
-    expect(out[1].api_version).toBe("2.11.2");
-    expect(out[1].meta?.request_id).toBe("i2");
+    expect(second.api_version).toBe("2.11.2");
+    expect(second.meta?.request_id).toBe("i2");
   });
 
   it("withBridgeMeta keeps only published meta fields on single command", () => {
@@ -206,9 +219,10 @@ describe("rpc_bridge_command_helpers", () => {
     const singleOut = clampCommandMaxRows(single, 1000);
     expect(singleOut.adjusted).toBe(true);
     expect(Array.isArray(singleOut.command)).toBe(false);
-    if (!Array.isArray(singleOut.command)) {
-      expect(singleOut.command.params.options?.max_rows).toBe(1000);
+    if (Array.isArray(singleOut.command) || !isSqlExecuteCommand(singleOut.command)) {
+      throw new Error("expected sql.execute command");
     }
+    expect(singleOut.command.params.options?.max_rows).toBe(1000);
 
     const batch: BridgeCommand = [
       {
@@ -226,12 +240,15 @@ describe("rpc_bridge_command_helpers", () => {
     const batchOut = clampCommandMaxRows(batch, 100);
     expect(batchOut.adjusted).toBe(true);
     expect(Array.isArray(batchOut.command)).toBe(true);
-    if (Array.isArray(batchOut.command)) {
-      expect(batchOut.command[0].method).toBe("sql.execute");
-      if (batchOut.command[0].method === "sql.execute") {
-        expect(batchOut.command[0].params.options?.max_rows).toBe(100);
-      }
+    if (!Array.isArray(batchOut.command)) {
+      throw new Error("expected batch command");
     }
+    const firstBatchCommand = batchOut.command[0];
+    if (firstBatchCommand === undefined || !isSqlExecuteCommand(firstBatchCommand)) {
+      throw new Error("expected sql.execute command");
+    }
+    expect(firstBatchCommand.method).toBe("sql.execute");
+    expect(firstBatchCommand.params.options?.max_rows).toBe(100);
   });
 
   it("countBatchItems and hasNotificationCommand work for single and batch", () => {

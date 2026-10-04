@@ -55,8 +55,12 @@ describe("REST Redis rate-limit integration", () => {
       return;
     }
 
-    storeA.init(rateLimitStoreInitOptions as Options);
-    storeB.init(rateLimitStoreInitOptions as Options);
+    if (storeA.init === undefined || storeB.init === undefined) {
+      throw new Error("Redis rate-limit store is missing init");
+    }
+
+    await storeA.init(rateLimitStoreInitOptions as Options);
+    await storeB.init(rateLimitStoreInitOptions as Options);
 
     const first = await storeA.increment(key);
     expect(first.totalHits).toBe(1);

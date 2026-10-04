@@ -249,7 +249,7 @@ describe("handleRelayConversationStart", () => {
 
   it("refunds quota on 503 when the agent bridge socket is unavailable", async () => {
     const socket = buildSocket();
-    mockedFindAgentBridgeSocketById.mockReturnValue(undefined);
+    mockedFindAgentBridgeSocketById.mockReturnValue(null);
 
     await handleRelayConversationStart(socket as never, {
       agentId: "agent-1",
@@ -269,7 +269,7 @@ describe("handleRelayConversationStart", () => {
 
   it("does not refund quota when the agent is not registered", async () => {
     const socket = buildSocket();
-    mockedFindByAgentId.mockReturnValue(undefined);
+    mockedFindByAgentId.mockReturnValue(null);
     mockedGetSocketIdByAgentId.mockReturnValue(null);
 
     await handleRelayConversationStart(socket as never, {
@@ -290,7 +290,7 @@ describe("handleRelayConversationStart", () => {
 
   it("returns 503 when the agent is only present on another hub instance", async () => {
     const socket = buildSocket();
-    mockedFindByAgentId.mockReturnValue(undefined);
+    mockedFindByAgentId.mockReturnValue(null);
     mockedGetSocketIdByAgentId.mockReturnValue(null);
     mockedResolvePresenceRoute.mockResolvedValue({ hubInstanceId: "other-hub" });
 
