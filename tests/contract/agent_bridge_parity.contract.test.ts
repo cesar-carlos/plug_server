@@ -15,7 +15,56 @@ import {
   supportedAgentRpcMethods,
 } from "../../src/shared/validators/agent_command";
 
+const operationReference = {
+  contractVersion: 1,
+  operationId: "11111111-1111-4111-8111-111111111111",
+  fingerprint: "a".repeat(64),
+  sourcePhysicalId: "b".repeat(64),
+  database: "fixture",
+  client_token: "token",
+};
 const sampleCommandByMethod = {
+  "sql.describeSchema": {
+    id: "schema",
+    method: "sql.describeSchema",
+    params: {
+      contractVersion: 1,
+      database: "fixture",
+      client_token: "technical",
+      expectedSource: { version: 1, dialect: "postgres", identityHash: "a".repeat(64) },
+      resources: [{ schema: "public", name: "fixture", type: "table" }],
+    },
+  },
+  "sql.describeSource": {
+    id: "discovery",
+    method: "sql.describeSource",
+    params: { contractVersion: 1, database: "fixture", client_token: "technical" },
+  },
+  "sql.operation.execute": {
+    id: "operation",
+    method: "sql.operation.execute",
+    params: {
+      ...operationReference,
+      timeoutMs: 1000,
+      maxAffectedRows: 1,
+      steps: [
+        {
+          id: "write",
+          effect: "update",
+          sql: "UPDATE fixture SET value=:value WHERE id=:id",
+          params: {},
+          outputs: {},
+          affectedRows: { min: 1, max: 1 },
+        },
+      ],
+    },
+  },
+  "sql.operation.get": { id: "get", method: "sql.operation.get", params: operationReference },
+  "sql.operation.cancel": {
+    id: "cancel",
+    method: "sql.operation.cancel",
+    params: operationReference,
+  },
   "agent.getHealth": {
     jsonrpc: "2.0",
     id: "health-1",

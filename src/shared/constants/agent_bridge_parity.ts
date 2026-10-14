@@ -7,10 +7,15 @@ export const bridgeParityMethods = [
   "agent.action.getExecution",
   "client_token.getPolicy",
   "rpc.discover",
+  "sql.describeSource",
+  "sql.describeSchema",
   "sql.bulkInsert",
   "sql.cancel",
   "sql.execute",
   "sql.executeBatch",
+  "sql.operation.execute",
+  "sql.operation.get",
+  "sql.operation.cancel",
 ] as const;
 
 export type BridgeParityMethod = (typeof bridgeParityMethods)[number];

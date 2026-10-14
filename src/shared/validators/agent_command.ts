@@ -4,6 +4,12 @@
  */
 
 import { z } from "zod";
+import { sourceSchemaParamsSchema, expectedStructureSchema } from "./source_schema";
+import { sourceDiscoveryParamsSchema, expectedSourceSchema } from "./source_discovery";
+import {
+  sqlOperationExecuteParamsSchema,
+  sqlOperationReferenceParamsSchema,
+} from "./sql_operation";
 
 import { env } from "../config/env";
 import { HUB_MAX_BATCH_SIZE, HUB_MAX_ROWS } from "../constants/agent_transport_contract";
@@ -179,6 +185,8 @@ export const sqlExecuteOptionsSchema = z
 const sqlExecuteParamsSchema = z
   .object({
     sql: nonEmptyStringSchema,
+    expectedSource: expectedSourceSchema.optional(),
+    expectedStructure: expectedStructureSchema.optional(),
     params: z.record(z.string(), z.unknown()).optional(),
     options: sqlExecuteOptionsSchema.optional(),
     idempotency_key: nonEmptyStringSchema.optional(),
@@ -187,6 +195,12 @@ const sqlExecuteParamsSchema = z
   .merge(tokenCarrierSchema)
   .superRefine((value, ctx) => {
     refineSqlTextAndNamedParams(value.sql, value.params, ctx, []);
+    if (value.expectedStructure && !value.expectedSource)
+      ctx.addIssue({
+        code: "custom",
+        path: ["expectedStructure"],
+        message: "Structure verification requires expectedSource.",
+      });
     if (value.options?.multi_result === true && value.params !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -534,6 +548,34 @@ const agentActionGetExecutionCommandSchema = z
   .merge(rpcEnvelopeExtensionsSchema)
   .passthrough();
 
+const operationEnvelope = z
+  .object({
+    jsonrpc: z.literal("2.0").default("2.0"),
+    id: z.union([nonEmptyStringSchema, z.number().finite()]).optional(),
+  })
+  .merge(rpcEnvelopeExtensionsSchema)
+  .passthrough();
+const sourceSchemaCommandSchema = operationEnvelope.extend({
+  method: z.literal("sql.describeSchema"),
+  params: sourceSchemaParamsSchema,
+});
+const sourceDiscoveryCommandSchema = operationEnvelope.extend({
+  method: z.literal("sql.describeSource"),
+  params: sourceDiscoveryParamsSchema,
+});
+const sqlOperationExecuteCommandSchema = operationEnvelope.extend({
+  method: z.literal("sql.operation.execute"),
+  params: sqlOperationExecuteParamsSchema,
+});
+const sqlOperationGetCommandSchema = operationEnvelope.extend({
+  method: z.literal("sql.operation.get"),
+  params: sqlOperationReferenceParamsSchema,
+});
+const sqlOperationCancelCommandSchema = operationEnvelope.extend({
+  method: z.literal("sql.operation.cancel"),
+  params: sqlOperationReferenceParamsSchema,
+});
+
 export const supportedAgentRpcMethods = [
   "agent.getHealth",
   "agent.getProfile",
@@ -543,10 +585,15 @@ export const supportedAgentRpcMethods = [
   "agent.action.getExecution",
   "client_token.getPolicy",
   "rpc.discover",
+  "sql.describeSchema",
+  "sql.describeSource",
   "sql.bulkInsert",
   "sql.cancel",
   "sql.execute",
   "sql.executeBatch",
+  "sql.operation.execute",
+  "sql.operation.get",
+  "sql.operation.cancel",
 ] as const;
 
 export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
@@ -557,6 +604,11 @@ export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
   agentActionCancelCommandSchema,
   agentActionGetExecutionCommandSchema,
   clientTokenGetPolicyCommandSchema,
+  sourceSchemaCommandSchema,
+  sourceDiscoveryCommandSchema,
+  sqlOperationExecuteCommandSchema,
+  sqlOperationGetCommandSchema,
+  sqlOperationCancelCommandSchema,
   sqlExecuteCommandSchema,
   sqlExecuteBatchCommandSchema,
   sqlBulkInsertCommandSchema,

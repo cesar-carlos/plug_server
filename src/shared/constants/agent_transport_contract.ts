@@ -4,6 +4,7 @@
  */
 
 import { env } from "../config/env";
+import { SQL_OPERATION_TRANSPORT } from "./sql_operation_transport";
 
 export const HUB_TRANSPORT_PROTOCOLS = ["jsonrpc-v2"] as const;
 export const HUB_TRANSPORT_ENCODINGS = ["json"] as const;
@@ -38,6 +39,11 @@ export const HUB_STREAMING_CHUNK_SIZE = 500;
 export const HUB_STREAMING_ROW_THRESHOLD = 500;
 
 export const HUB_TRANSPORT_EXTENSIONS = {
+  sourceDiscovery: 1,
+  sourceIdentity: 1,
+  sourceSchema: 1,
+  sourceConstraints: 1,
+  sqlOperations: SQL_OPERATION_TRANSPORT,
   batchSupport: true,
   binaryPayload: true,
   compressionThreshold: HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES,
