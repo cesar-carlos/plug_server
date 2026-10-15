@@ -12,6 +12,7 @@ import { agentRegistry } from "../../src/presentation/socket/hub/registries/agen
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { percentile } from "../../src/shared/utils/percentile";
 import { isRecord } from "../../src/shared/utils/rpc_types";
+import { createRestBenchTurnWaiter, readRestBenchCpuAffinity } from "./rest_api_bench_coordination";
 import { getAgentHubPresenceRedisMetricsSnapshot } from "../../src/application/services/agent_hub_presence_redis_metrics.service";
 import { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../src/application/services/client_socket_event_idempotency_redis_metrics.service";
 import {
@@ -78,6 +79,9 @@ export const runRestApiBench = async (): Promise<{
     registry: number;
     refreshConcurrency: string;
     scenarioFilter: string;
+    measurementOrder: "paired-repetitions-v1" | "standalone";
+    cpuAffinity: string;
+    gcPolicy: "predictable";
   };
   configFingerprint: string;
   nodeVersion: string;
@@ -87,6 +91,9 @@ export const runRestApiBench = async (): Promise<{
 }> => {
   if (typeof globalThis.gc !== "function")
     throw new Error("REST benchmark requires explicit GC in the test worker");
+  if (!process.execArgv.includes("--predictable-gc-schedule"))
+    throw new Error("REST benchmark requires predictable GC in the test worker");
+  const waitForTurn = createRestBenchTurnWaiter();
   const config = {
     warmup: Number(process.env.REST_BENCH_WARMUP ?? 16),
     iterations: Number(process.env.REST_BENCH_ITERATIONS ?? 64),
@@ -95,6 +102,11 @@ export const runRestApiBench = async (): Promise<{
     registry: 10000,
     refreshConcurrency: process.env.REST_AGENT_PROFILE_REFRESH_CONCURRENCY ?? "4",
     scenarioFilter: process.env.REST_BENCH_SCENARIOS ?? "all",
+    measurementOrder: process.env.REST_BENCH_COORDINATOR_URL
+      ? ("paired-repetitions-v1" as const)
+      : ("standalone" as const),
+    cpuAffinity: readRestBenchCpuAffinity(),
+    gcPolicy: "predictable" as const,
   };
   const requireModule = createRequire(__filename);
   const pg = requireModule("pg") as {
@@ -421,9 +433,11 @@ export const runRestApiBench = async (): Promise<{
       (scenario) =>
         config.scenarioFilter === "all" || config.scenarioFilter.split(",").includes(scenario.name),
     )) {
+      await waitForTurn(`${scenario.name}:warmup`);
       for (let index = 0; index < config.warmup; index++) await scenario.run();
       const repetitions: ScenarioResult[] = [];
       for (let repeat = 0; repeat < config.repeats; repeat++) {
+        await waitForTurn(`${scenario.name}:${repeat}`);
         globalThis.gc?.();
         const heapStart = process.memoryUsage().heapUsed;
         let heapPeak = heapStart,
@@ -518,8 +532,10 @@ export const runRestApiBench = async (): Promise<{
         peakActiveRpcs: Math.max(...repetitions.map((r) => r.peakActiveRpcs)),
       });
     }
+    // Neither worker may disconnect shared services while its peer is still timed.
+    await waitForTurn("complete");
     return {
-      harnessVersion: 4,
+      harnessVersion: 5,
       versions,
       config,
       configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),

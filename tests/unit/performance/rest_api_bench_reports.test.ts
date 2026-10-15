@@ -18,6 +18,9 @@ const report = (): RestApiBenchReport => {
     registry: 10000,
     refreshConcurrency: "4",
     scenarioFilter: "all",
+    measurementOrder: "standalone" as const,
+    cpuAffinity: "unavailable",
+    gcPolicy: "predictable" as const,
   };
   return {
     harnessVersion: 4,
@@ -125,5 +128,23 @@ describe("REST benchmark comparison", () => {
     );
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("explicit isolated database opt-in");
+  });
+
+  it("should refuse paired workers without a dedicated Redis service", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "scripts/run-rest-bench-comparison.mjs", "--base", "."],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NODE_ENV: "test",
+          REST_BENCH_ISOLATED_DATABASE: "true",
+          REST_BENCH_ISOLATED_REDIS: "false",
+        },
+      },
+    );
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("explicit isolated Redis opt-in");
   });
 });

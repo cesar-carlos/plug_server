@@ -12,7 +12,8 @@ export default defineConfig({
     include: ["tests/performance/rest_api_bench.test.ts"],
     environment: "node",
     pool: "forks",
-    execArgv: ["--expose-gc"],
+    // Keep idle heap shrinking and nursery growth identical across the paired workers.
+    execArgv: ["--expose-gc", "--predictable-gc-schedule"],
     testTimeout: 180_000,
     hookTimeout: 60_000,
     fileParallelism: false,

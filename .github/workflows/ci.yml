@@ -343,8 +343,10 @@ jobs:
       - name: Compare candidate without relaxing regression limits
         env:
           REST_BENCH_ISOLATED_DATABASE: "true"
+          REST_BENCH_ISOLATED_REDIS: "true"
         run: |
           if [ -f rest-bench-base/vitest.rest-perf.config.mjs ]; then
+            taskset -p $$
             node --import tsx scripts/run-rest-bench-comparison.mjs --base rest-bench-base
           else
             npm run test:perf:rest-api
