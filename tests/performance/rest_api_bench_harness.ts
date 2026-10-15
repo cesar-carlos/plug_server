@@ -41,6 +41,7 @@ export interface ScenarioResult {
   readonly p50Ms: number;
   readonly p95Ms: number;
   readonly p99Ms: number;
+  readonly latencySamplesMs: readonly number[];
   readonly throughputPerSec: number;
   readonly heapGrowthBytes: number;
   readonly retainedHeapGrowthBytes: number;
@@ -82,6 +83,10 @@ export const runRestApiBench = async (): Promise<{
     measurementOrder: "paired-repetitions-v1" | "standalone";
     cpuAffinity: string;
     gcPolicy: "predictable";
+    scenarioProfiles: Readonly<
+      Record<string, { readonly warmup: number; readonly iterations: number }>
+    >;
+    comparisonTrials?: number;
   };
   configFingerprint: string;
   nodeVersion: string;
@@ -94,6 +99,14 @@ export const runRestApiBench = async (): Promise<{
   if (!process.execArgv.includes("--predictable-gc-schedule"))
     throw new Error("REST benchmark requires predictable GC in the test worker");
   const waitForTurn = createRestBenchTurnWaiter();
+  // A 64-request nearest-rank p95 used only the fourth-largest observation.
+  // This fast scenario needs a fixed larger sample and steady-state warmup;
+  // retain the existing quantile aggregation, SLOs and execution deadlines.
+  const scenarioProfiles: Readonly<
+    Record<string, { readonly warmup: number; readonly iterations: number }>
+  > = {
+    registry_page: { warmup: 256, iterations: 1024 },
+  };
   const config = {
     warmup: Number(process.env.REST_BENCH_WARMUP ?? 16),
     iterations: Number(process.env.REST_BENCH_ITERATIONS ?? 64),
@@ -107,6 +120,7 @@ export const runRestApiBench = async (): Promise<{
       : ("standalone" as const),
     cpuAffinity: readRestBenchCpuAffinity(),
     gcPolicy: "predictable" as const,
+    scenarioProfiles,
   };
   const requireModule = createRequire(__filename);
   const pg = requireModule("pg") as {
@@ -433,8 +447,9 @@ export const runRestApiBench = async (): Promise<{
       (scenario) =>
         config.scenarioFilter === "all" || config.scenarioFilter.split(",").includes(scenario.name),
     )) {
+      const profile = config.scenarioProfiles[scenario.name] ?? config;
       await waitForTurn(`${scenario.name}:warmup`);
-      for (let index = 0; index < config.warmup; index++) await scenario.run();
+      for (let index = 0; index < profile.warmup; index++) await scenario.run();
       const repetitions: ScenarioResult[] = [];
       for (let repeat = 0; repeat < config.repeats; repeat++) {
         await waitForTurn(`${scenario.name}:${repeat}`);
@@ -458,7 +473,7 @@ export const runRestApiBench = async (): Promise<{
         const samples: number[] = [];
         let responseShape: unknown;
         const started = performance.now();
-        for (let iteration = 0; iteration < config.iterations; iteration++) {
+        for (let iteration = 0; iteration < profile.iterations; iteration++) {
           const t0 = performance.now(),
             response = await scenario.run();
           samples.push(performance.now() - t0);
@@ -490,7 +505,8 @@ export const runRestApiBench = async (): Promise<{
           p50Ms: percentile(samples, 50),
           p95Ms: percentile(samples, 95),
           p99Ms: percentile(samples, 99),
-          throughputPerSec: (config.iterations * 1000) / elapsed,
+          latencySamplesMs: samples,
+          throughputPerSec: (profile.iterations * 1000) / elapsed,
           heapGrowthBytes: heapPeak - heapStart,
           retainedHeapGrowthBytes: Math.max(0, heapAfterGc - heapStart),
           heapStartBytes: heapStart,
@@ -513,6 +529,7 @@ export const runRestApiBench = async (): Promise<{
       results.push({
         ...first,
         repetitions,
+        latencySamplesMs: repetitions.flatMap((repetition) => repetition.latencySamplesMs),
         retainedHeapGrowthBytes: median(repetitions.map((r) => r.retainedHeapGrowthBytes)),
         p50Ms: median(repetitions.map((r) => r.p50Ms)),
         p95Ms: median(repetitions.map((r) => r.p95Ms)),
@@ -535,7 +552,7 @@ export const runRestApiBench = async (): Promise<{
     // Neither worker may disconnect shared services while its peer is still timed.
     await waitForTurn("complete");
     return {
-      harnessVersion: 5,
+      harnessVersion: 6,
       versions,
       config,
       configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),

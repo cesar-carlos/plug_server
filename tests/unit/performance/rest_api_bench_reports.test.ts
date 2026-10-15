@@ -21,9 +21,10 @@ const report = (): RestApiBenchReport => {
     measurementOrder: "standalone" as const,
     cpuAffinity: "unavailable",
     gcPolicy: "predictable" as const,
+    scenarioProfiles: { registry_page: { warmup: 256, iterations: 1024 } },
   };
-  return {
-    harnessVersion: 4,
+  const result: RestApiBenchReport = {
+    harnessVersion: 6,
     config,
     configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),
     nodeVersion: "v24.21.0",
@@ -35,6 +36,7 @@ const report = (): RestApiBenchReport => {
         p50Ms: 5,
         p95Ms: 10,
         p99Ms: 15,
+        latencySamplesMs: Array.from({ length: config.iterations * config.repeats }, () => 10),
         throughputPerSec: 100,
         heapGrowthBytes: 1000,
         retainedHeapGrowthBytes: 100,
@@ -55,6 +57,18 @@ const report = (): RestApiBenchReport => {
       },
     ],
   };
+  const scenario = result.scenarios[0]!;
+  result.scenarios[0] = {
+    ...scenario,
+    repetitions: Array.from({ length: config.repeats }, (_, index) => ({
+      ...scenario,
+      latencySamplesMs: scenario.latencySamplesMs.slice(
+        index * config.iterations,
+        (index + 1) * config.iterations,
+      ),
+    })),
+  };
+  return result;
 };
 
 describe("REST benchmark comparison", () => {
@@ -77,6 +91,7 @@ describe("REST benchmark comparison", () => {
     const result = aggregateRestApiBenchReports(trials);
     expect(result.scenarios[0]!.p95Ms).toBe(13);
     expect(result.scenarios[0]!.repetitions).toEqual(trials.map((trial) => trial.scenarios[0]));
+    expect(result.scenarios[0]!.latencySamplesMs).toHaveLength(4 * 9 * 64);
     expect(restApiBenchComparisonErrors(result)).toEqual([]);
     expect(() => aggregateRestApiBenchReports(trials.slice(0, 3))).toThrow("exactly four");
   });
@@ -107,6 +122,63 @@ describe("REST benchmark comparison", () => {
       "catalog_many: response errors",
       "catalog_many: timeouts",
     ]);
+  });
+
+  it("should reject lost, negative and non-finite latency samples", () => {
+    for (const samples of [[], [-1], [Number.NaN], [Number.POSITIVE_INFINITY]]) {
+      const trial = report();
+      trial.scenarios[0] = {
+        ...trial.scenarios[0]!,
+        latencySamplesMs: samples.length
+          ? [...trial.scenarios[0]!.latencySamplesMs.slice(1), samples[0]!]
+          : [],
+      };
+      expect(restApiBenchComparisonErrors(trial)).toContain(
+        "catalog_many: missing or invalid latency samples",
+      );
+      expect(() => aggregateRestApiBenchReports([trial, report(), report(), report()])).toThrow(
+        "retain every latency sample",
+      );
+    }
+  });
+
+  it("should require all 1024 observations in each registry repetition", () => {
+    const trial = report();
+    trial.scenarios[0] = { ...trial.scenarios[0]!, name: "registry_page" };
+    expect(restApiBenchComparisonErrors(trial)).toContain(
+      "registry_page: missing or invalid latency samples",
+    );
+    trial.scenarios[0] = {
+      ...trial.scenarios[0]!,
+      latencySamplesMs: Array.from({ length: 9 * 1024 }, () => 10),
+      repetitions: trial.scenarios[0]!.repetitions!.map((repetition) => ({
+        ...repetition,
+        latencySamplesMs: Array.from({ length: 1024 }, () => 10),
+      })),
+    };
+    expect(restApiBenchComparisonErrors(trial)).toEqual([]);
+  });
+
+  it("should reject a missing repetition even when the flattened sample count is correct", () => {
+    const trial = report();
+    trial.scenarios[0] = {
+      ...trial.scenarios[0]!,
+      repetitions: trial.scenarios[0]!.repetitions!.slice(1),
+    };
+    expect(restApiBenchComparisonErrors(trial)).toContain(
+      "catalog_many: missing or invalid latency samples",
+    );
+  });
+
+  it("should reject a summary that differs from the original repetition samples", () => {
+    const trial = report();
+    trial.scenarios[0] = {
+      ...trial.scenarios[0]!,
+      latencySamplesMs: [11, ...trial.scenarios[0]!.latencySamplesMs.slice(1)],
+    };
+    expect(restApiBenchComparisonErrors(trial)).toContain(
+      "catalog_many: missing or invalid latency samples",
+    );
   });
 
   it("should reject changed response contents and mismatched trial configurations", () => {
