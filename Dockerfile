@@ -1,17 +1,17 @@
 # Node version matches .nvmrc. scripts/check_ci_image_pins.py rejects a different pin.
-FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS deps
+FROM node:26.11.1-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --ignore-scripts
 
-FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
+FROM node:26.11.1-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS build
 WORKDIR /app
 ENV DATABASE_URL="postgresql://postgres:postgres@postgres:5432/plug_server?schema=public"
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN node scripts/check-persona-release.mjs && npx prisma generate && npm run build
 
-FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime
+FROM node:26.11.1-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS runtime
 WORKDIR /app
 RUN apk add --no-cache openssl
 ENV NODE_ENV=production
