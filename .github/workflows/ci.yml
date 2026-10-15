@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Prisma generation needs a URL but does not connect. Database jobs override this.
+  DATABASE_URL: postgresql://ci:ci@127.0.0.1:1/unused_codegen
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
