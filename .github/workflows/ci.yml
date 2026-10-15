@@ -69,7 +69,7 @@ jobs:
                 ;;
             esac
             case "$file" in
-              .github/workflows/ci.yml|src/presentation/http/*|src/application/*|src/infrastructure/repositories/*|src/infrastructure/redis/*|src/shared/*|src/app.ts|src/server.ts|tests/performance/rest_api*|vitest.rest-perf.config.mjs|package.json|package-lock.json)
+              .github/workflows/ci.yml|src/presentation/http/*|src/application/*|src/infrastructure/repositories/*|src/infrastructure/redis/*|src/shared/*|src/app.ts|src/server.ts|tests/performance/rest_api*|scripts/run-rest-bench-comparison.mjs|vitest.rest-perf.config.mjs|package.json|package-lock.json)
                 rest_bench=true
                 ;;
             esac
@@ -215,15 +215,18 @@ jobs:
           # Compare runtime changes using identical benchmark scenarios on both revisions.
           cp tests/performance/*.ts bench-base/tests/performance/
           cp vitest.perf.config.mjs bench-base/vitest.perf.config.mjs
-          # New columnar cases were rejected by old runtimes; compare only established scenarios.
-          (cd bench-base && SOCKET_COLUMNAR_BENCH_DISABLED=true npm run test:perf:socket-bridge)
+          # Both revisions measure the bridge alone in a fresh worker with explicit GC.
+          (cd bench-base && npm run test:perf:socket-bridge -- tests/performance/socket_bridge_bench.test.ts)
           echo "SOCKET_BRIDGE_BENCH_BASELINE_PATH=$GITHUB_WORKSPACE/bench-base/tmp/socket-bridge-bench.json" >> "$GITHUB_ENV"
 
       - name: Socket bridge performance bench
         id: bench
         # GitHub-hosted runners are noisy; keep the PR mergeable and surface the delta in the comment.
         continue-on-error: ${{ github.event_name == 'pull_request' }}
-        run: npm run test:perf:socket-bridge
+        run: npm run test:perf:socket-bridge -- tests/performance/socket_bridge_bench.test.ts
+
+      - name: Columnar and materialization correctness and performance
+        run: npm run test:perf:socket-bridge -- tests/performance/socket_columnar_bench.test.ts tests/performance/sql_materialization_bench.test.ts
 
       - name: Comment bench summary
         if: github.event_name == 'pull_request' && hashFiles('tmp/socket-bridge-bench.json') != ''
@@ -245,6 +248,7 @@ jobs:
           path: |
             tmp/socket-bridge-bench.json
             tmp/socket-columnar-bench.json
+            bench-base/tmp/socket-bridge-bench.json
           if-no-files-found: warn
 
   rest-api-bench:
@@ -324,7 +328,7 @@ jobs:
           ref: ${{ steps.base_ref.outputs.ref }}
           path: rest-bench-base
           persist-credentials: false
-      - name: Measure base with the identical REST harness
+      - name: Prepare comparison checkout with the identical REST harness
         if: steps.base_ref.outputs.available == 'true'
         run: |
           if [ ! -f rest-bench-base/vitest.rest-perf.config.mjs ]; then
@@ -336,10 +340,15 @@ jobs:
           mkdir -p rest-bench-base/tests/performance
           cp tests/performance/rest_api_bench*.ts rest-bench-base/tests/performance/
           cp vitest.rest-perf.config.mjs rest-bench-base/
-          (cd rest-bench-base && node --expose-gc node_modules/vitest/vitest.mjs run --config vitest.rest-perf.config.mjs)
-          echo "REST_API_BENCH_BASELINE_PATH=$GITHUB_WORKSPACE/rest-bench-base/tmp/rest-api-bench.json" >> "$GITHUB_ENV"
       - name: Compare candidate without relaxing regression limits
-        run: npm run test:perf:rest-api
+        env:
+          REST_BENCH_ISOLATED_DATABASE: "true"
+        run: |
+          if [ -f rest-bench-base/vitest.rest-perf.config.mjs ]; then
+            node --import tsx scripts/run-rest-bench-comparison.mjs --base rest-bench-base
+          else
+            npm run test:perf:rest-api
+          fi
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -349,6 +358,7 @@ jobs:
             tmp/rest-api-bench.json
             tmp/rest-query-plans.json
             rest-bench-base/tmp/rest-api-bench.json
+            tmp/rest-bench-comparison/
           if-no-files-found: warn
 
   socket-dart-contract:

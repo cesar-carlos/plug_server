@@ -35,7 +35,7 @@ import {
   stopRelayMetricsLogger,
 } from "../../src/presentation/socket/hub/relay/rpc_bridge";
 
-interface ScenarioResult {
+export interface ScenarioResult {
   readonly name: string;
   readonly p50Ms: number;
   readonly p95Ms: number;
@@ -240,6 +240,9 @@ export const runRestApiBench = async (): Promise<{
         ...agentIds.slice(4, 24).map((agentId) => ({ clientId: remoteClientId, agentId })),
       ],
     });
+    // Seed data must have planner statistics before either revision is timed.
+    // Otherwise autoanalyze can change plans partway through the comparison.
+    await prismaClient.$executeRaw`ANALYZE users, agents, agent_identities, clients, client_agent_accesses`;
     await initAgentHubPresenceRedis();
     if (!getAgentHubPresencePort().isEnabled)
       throw new Error("REST benchmark requires isolated Redis presence");
@@ -516,7 +519,7 @@ export const runRestApiBench = async (): Promise<{
       });
     }
     return {
-      harnessVersion: 3,
+      harnessVersion: 4,
       versions,
       config,
       configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),
@@ -546,3 +549,5 @@ export const runRestApiBench = async (): Promise<{
     await prismaClient.$disconnect();
   }
 };
+
+export type RestApiBenchReport = Awaited<ReturnType<typeof runRestApiBench>>;

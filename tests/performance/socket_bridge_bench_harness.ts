@@ -427,6 +427,9 @@ export const runSocketBridgeBench = async (options?: {
   readonly streamChunks?: number;
   readonly repeats?: number;
 }): Promise<SocketBridgeBenchReport> => {
+  if (typeof global.gc !== "function") {
+    throw new Error("Socket benchmark requires explicit GC in the test worker");
+  }
   const warmup = options?.warmup ?? 2;
   const iterations = options?.iterations ?? 8;
   const streamChunks = options?.streamChunks ?? 8;
@@ -436,8 +439,8 @@ export const runSocketBridgeBench = async (options?: {
   await runUnary(warmup, true);
   await runStream(warmup, streamChunks, false);
   await runStream(Math.max(2, Math.floor(warmup / 8)), streamChunks, true);
-  await runLoopbackRelayBench(2, streamChunks, false);
-  await runLoopbackRelayBench(2, streamChunks, true);
+  await runLoopbackRelayBench(Math.max(2, Math.floor(warmup / 8)), streamChunks, false);
+  await runLoopbackRelayBench(Math.max(2, Math.floor(warmup / 8)), streamChunks, true);
   global.gc?.();
   measuredHeapBaselineBytes = process.memoryUsage().heapUsed;
   observedHeapPeakBytes = measuredHeapBaselineBytes;
@@ -450,15 +453,16 @@ export const runSocketBridgeBench = async (options?: {
       runStream(Math.max(2, Math.floor(iterations / 8)), streamChunks, true),
     ),
     await repeatMeasured(repeats, () =>
-      runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 32)), streamChunks, false),
+      // Eight observations made p95 the maximum, amplifying one scheduler delay.
+      runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 8)), streamChunks, false),
     ),
     await repeatMeasured(repeats, () =>
-      runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 32)), streamChunks, true),
+      runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 8)), streamChunks, true),
     ),
   ];
   resetBenchState();
   return {
-    harnessVersion: 3,
+    harnessVersion: 4,
     // Hash only runtime numeric/boolean settings; never include URLs, signing keys or credentials.
     configFingerprint: createHash("sha256")
       .update(

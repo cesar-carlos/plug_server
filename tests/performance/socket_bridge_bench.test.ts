@@ -74,6 +74,8 @@ describe("socket bridge performance bench", () => {
       );
     }
     for (const scenario of report.scenarios) {
+      // A nearest-rank p95 needs at least 20 observations to differ from the maximum.
+      expect(scenario.samples, scenario.name).toBeGreaterThanOrEqual(20);
       expect(scenario.chunksLost, scenario.name).toBe(0);
       expect(scenario.orderOk, scenario.name).toBe(true);
       expect(scenario.duplicateChunks, scenario.name).toBe(0);
