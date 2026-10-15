@@ -17,7 +17,9 @@ describe("NodemailerEmailSender", () => {
       smtpFrom: "Plug <noreply@example.com>",
     });
 
-    (sender as unknown as { transporter: { sendMail: typeof sendMail } }).transporter = { sendMail };
+    (sender as unknown as { transporter: { sendMail: typeof sendMail } }).transporter = {
+      sendMail,
+    };
     return sender;
   };
 

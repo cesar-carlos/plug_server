@@ -1,3 +1,4 @@
+import { SQL_OPERATION_METHODS } from "../../src/shared/validators/sql_operation";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -123,6 +124,7 @@ describe("RPC contract alignment", () => {
     const swaggerMethods = await readSwaggerMethods();
 
     expect(validatorMethods).toEqual(openRpcMethods);
-    expect(swaggerMethods).toEqual(openRpcMethods);
+    expect(swaggerMethods).toEqual(toSortedUnique([...openRpcMethods, ...SQL_OPERATION_METHODS]));
+    expect(SQL_OPERATION_METHODS.every((method) => validatorMethods.includes(method))).toBe(true);
   });
 });

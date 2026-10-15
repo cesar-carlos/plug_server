@@ -1,0 +1,20 @@
+{
+  "generation": "persona-v2",
+  "ready": false,
+  "requiredGates": [
+    "shared-knowledge-and-compatibility",
+    "identity-and-authorization",
+    "training-and-local-query",
+    "federation",
+    "agent-operation-journal",
+    "hub-operation-contract",
+    "operation-approval-and-reconciliation",
+    "external-rest-and-mcp",
+    "oauth-and-console",
+    "postgres-real",
+    "mssql-real",
+    "sybase-real",
+    "coordinated-cutover"
+  ],
+  "completedGates": []
+}

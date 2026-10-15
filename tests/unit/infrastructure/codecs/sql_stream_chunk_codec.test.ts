@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { normalizeColumnarSqlChunk } from "../../../../src/infrastructure/codecs/sql_stream_chunk_codec";
-import { countSqlChunkRows } from "../../../../src/infrastructure/codecs/sql_stream_chunk_inspection";
+import {
+  countSqlChunkRows,
+  inspectSqlStreamChunk,
+} from "../../../../src/infrastructure/codecs/sql_stream_chunk_inspection";
 
 const chunk = {
   stream_id: "s",
@@ -20,6 +23,78 @@ const chunk = {
 const limits = { maxRows: 50000, maxBytes: 10 * 1024 * 1024 };
 
 describe("columnar SQL chunk normalization", () => {
+  it("preserves exact JSON bytes for primitive edge cases, escaping and nested objects", () => {
+    const values = [
+      null,
+      true,
+      false,
+      -0,
+      NaN,
+      Infinity,
+      -Infinity,
+      1e21,
+      1e-7,
+      Number.MAX_SAFE_INTEGER,
+      '\u0000\n\t"\\',
+      "ação 🎉",
+      "\ud800",
+      "\udc00",
+      { nested: [null, "🎉", false] },
+    ];
+    const input = {
+      ...chunk,
+      columnar: {
+        row_count: values.length,
+        columns: [
+          { name: "0", type: "object", values },
+          { name: "constructor", type: "object", values },
+          { name: "__proto__", type: "object", values },
+          { name: "toString", type: "object", values },
+          { name: "escaped\n🎉", type: "object", values },
+        ],
+      },
+    };
+    const inspection = inspectSqlStreamChunk(input);
+    if (!inspection.ok) throw new Error(inspection.message);
+    const result = normalizeColumnarSqlChunk(input, limits, undefined, inspection)!;
+    const serialized = JSON.stringify(result.payload);
+    expect(result.originalSizeBytes).toBe(Buffer.byteLength(serialized));
+    expect(
+      normalizeColumnarSqlChunk(
+        input,
+        { ...limits, maxBytes: result.originalSizeBytes },
+        undefined,
+        inspection,
+      ),
+    ).toEqual(result);
+    expect(() =>
+      normalizeColumnarSqlChunk(
+        input,
+        { ...limits, maxBytes: result.originalSizeBytes - 1 },
+        undefined,
+        inspection,
+      ),
+    ).toThrow("byte limit");
+    const rows = result.payload.rows as Record<string, unknown>[];
+    for (let i = 0; i < values.length; i++) {
+      expect(Object.getPrototypeOf(rows[i])).toBe(Object.prototype);
+      for (const column of input.columnar.columns) {
+        expect(Object.getOwnPropertyDescriptor(rows[i], column.name)).toEqual({
+          value: values[i],
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      }
+    }
+  });
+
+  it("does not cache an inspection across different calls or mutable chunks", () => {
+    const input = structuredClone(chunk);
+    normalizeColumnarSqlChunk(input, limits);
+    input.columnar.columns[0]!.values.pop();
+    expect(() => normalizeColumnarSqlChunk(input, limits)).toThrow("vector");
+  });
   it("preserves values and measures the exact expanded UTF-8 representation", () => {
     const normalized = normalizeColumnarSqlChunk(chunk, limits)!;
     expect(normalized.payload.rows).toEqual([

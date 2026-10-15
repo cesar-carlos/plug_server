@@ -3,6 +3,7 @@ import {
   HUB_MAX_DECODED_PAYLOAD_BYTES,
 } from "../../../../shared/constants/agent_transport_contract";
 import { normalizeColumnarSqlChunk } from "../../../../infrastructure/codecs/sql_stream_chunk_codec";
+import type { ValidSqlChunkInspection } from "../../../../infrastructure/codecs/sql_stream_chunk_inspection";
 import {
   noteSqlChunkNormalization,
   noteSqlChunkNormalizationFailure,
@@ -392,6 +393,7 @@ export const createRpcBridgeAgentInboundHandlers = (
         readonly data: Record<string, unknown>;
         readonly frame: DecodedPayloadFrame["frame"];
         readonly decodedBytes: Buffer;
+        readonly inspection: ValidSqlChunkInspection | undefined;
       }
     | { readonly ok: false; readonly reason: string }
     | null
@@ -404,10 +406,14 @@ export const createRpcBridgeAgentInboundHandlers = (
       return { ok: false, reason: result.error.message };
     }
 
+    let inspection: ValidSqlChunkInspection | undefined;
     const contractValidation = validateAgentInboundContract({
       eventName,
       payload: result.value.data,
       socketId,
+      onSqlChunkInspected: (value) => {
+        inspection = value;
+      },
     });
     if (!contractValidation.shouldProcess) {
       const reason = `Inbound contract invalid: ${contractValidation.message}`;
@@ -423,7 +429,13 @@ export const createRpcBridgeAgentInboundHandlers = (
       markRelayOutboundForceGzip(data);
     }
 
-    return { ok: true, data, frame: result.value.frame, decodedBytes: result.value.decodedBytes };
+    return {
+      ok: true,
+      data,
+      frame: result.value.frame,
+      decodedBytes: result.value.decodedBytes,
+      inspection,
+    };
   };
 
   const resolveLiveStreamRoute = (
@@ -481,6 +493,7 @@ export const createRpcBridgeAgentInboundHandlers = (
                     maxBytes: HUB_MAX_DECODED_PAYLOAD_BYTES,
                   },
                   route.admitNormalizedChunk,
+                  decoded.inspection,
                 );
         } catch (error: unknown) {
           noteSqlChunkNormalizationFailure();

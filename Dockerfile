@@ -9,7 +9,7 @@ WORKDIR /app
 ENV DATABASE_URL="postgresql://postgres:postgres@postgres:5432/plug_server?schema=public"
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npx prisma generate && npm run build
+RUN node scripts/check-persona-release.mjs && npx prisma generate && npm run build
 
 FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime
 WORKDIR /app

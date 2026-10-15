@@ -15,6 +15,8 @@ const mockFindApprovedAgent = vi.fn();
 const mockHasClientTokenForAgent = vi.fn();
 const mockIsAgentConnected = vi.fn();
 const mockGetConnectedAgentIdSet = vi.fn();
+const mockSourceSchemaCapability = vi.fn((..._args: unknown[]) => 1);
+const mockSourceConstraintsCapability = vi.fn((..._args: unknown[]) => 1);
 
 vi.mock("../../../../../src/shared/di/container", () => ({
   container: {
@@ -24,6 +26,8 @@ vi.mock("../../../../../src/shared/di/container", () => ({
       hasClientTokenForAgent: (...args: unknown[]) => mockHasClientTokenForAgent(...args),
     },
     restAgentBridgeService: {
+      sourceSchemaCapability: (...args: unknown[]) => mockSourceSchemaCapability(...args),
+      sourceConstraintsCapability: (...args: unknown[]) => mockSourceConstraintsCapability(...args),
       isAgentConnected: (...args: unknown[]) => mockIsAgentConnected(...args),
       getConnectedAgentIdSet: (...args: unknown[]) => mockGetConnectedAgentIdSet(...args),
     },
@@ -119,7 +123,12 @@ describe("client_agents.controller", () => {
 
       expect(mockIsAgentConnected).toHaveBeenCalledWith("agent-a");
       expect(response.json).toHaveBeenCalledWith({
-        agent: expect.objectContaining({ agentId: "agent-a", isHubConnected: false }),
+        agent: expect.objectContaining({
+          agentId: "agent-a",
+          isHubConnected: false,
+          sourceSchema: 1,
+          sourceConstraints: 1,
+        }),
       });
     });
   });

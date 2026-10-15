@@ -31,7 +31,7 @@ const CONTRACT_MAJOR = Number.parseInt(majorArg ?? process.env.PLUG_MCP_CONTRACT
 if (!Number.isInteger(CONTRACT_MAJOR) || CONTRACT_MAJOR < 1)
   throw new Error("--major must be a positive integer");
 const CONTRACT_VERSION =
-  process.env.PLUG_MCP_CONTRACT_VERSION ?? `${CONTRACT_MAJOR}.${CONTRACT_MAJOR === 1 ? 1 : 0}.0`;
+  process.env.PLUG_MCP_CONTRACT_VERSION ?? `${CONTRACT_MAJOR}.${CONTRACT_MAJOR === 1 ? 15 : 0}.0`;
 const target = resolve(process.cwd(), "contracts", `plug-mcp-rest-v${CONTRACT_MAJOR}.json`);
 const baselineTarget = resolve(
   process.cwd(),
@@ -41,6 +41,10 @@ const baselineTarget = resolve(
 const paths = [
   "/client-auth/login",
   "/client-auth/refresh",
+  "/client-auth/me",
+  "/client-auth/persona-delegations",
+  "/client-auth/persona-delegations/verify",
+  "/client-auth/persona-delegations/{id}",
   "/client/me/agents",
   "/client/me/agents/{agentId}",
   "/client/me/agents/{agentId}/client-token",
@@ -185,7 +189,15 @@ const requestFields = (spec: OpenApi): Record<string, Record<string, FieldShape>
 };
 
 const buildContract = (): Record<string, unknown> => {
-  const spec = buildSwaggerSpec().spec as OpenApi;
+  const generated = buildSwaggerSpec().spec as OpenApi;
+  const spec: OpenApi = {
+    ...generated,
+    paths: {
+      ...generated.paths,
+      // The MCP consumes identity only, not profile mutations.
+      "/client-auth/me": { get: asRecord(generated.paths?.["/client-auth/me"]).get },
+    },
+  };
   return {
     contractVersion: CONTRACT_VERSION,
     openapi: spec.openapi,
@@ -200,7 +212,64 @@ const buildContract = (): Record<string, unknown> => {
       requestFields: requestFields(spec),
     },
     guarantees: {
-      agentCommands: ["client_token.getPolicy", "sql.execute"],
+      agentCommands: [
+        "client_token.getPolicy",
+        "sql.execute",
+        "sql.describeSource",
+        "sql.describeSchema",
+      ],
+      sourceSchema: {
+        version: 1,
+        agentCapabilityRequired: true,
+        metadataOnly: true,
+        executingConnectionColumns: true,
+        constraintStatusVerified: "per-resource",
+        constraintsCapability: "sourceConstraints:1",
+        automaticRetry: false,
+      },
+      ownerDelegation: {
+        administrativeCeiling: [
+          "treinar",
+          "publicar",
+          "gerenciar_fontes",
+          "gerenciar_tokens",
+          "gerenciar_integracoes",
+        ],
+        existingDelegations: ["gerenciar_fontes"],
+        version: 1,
+        binding: ["clientId", "audience", "personaId", "credentialsUpdatedAt"],
+        lifetimeDays: 30,
+        storedCredential: "sha256",
+        authority: "active Client identity only; no JWT, agent access or operation approval",
+        automaticRetry: false,
+      },
+      sourceIdentity: {
+        version: 1,
+        agentCapabilityRequired: true,
+        executingConnection: true,
+        automaticRetry: false,
+      },
+      sourceDiscovery: {
+        contractVersion: 1,
+        agentCapabilityRequired: true,
+        identityKinds: ["native", "provisioned", "locator"],
+        automaticRetry: false,
+      },
+      sqlOperations: {
+        contractVersion: 1,
+        structureGuard: {
+          version: 1,
+          capability: "sqlOperations.structureGuard:1",
+          expectedSourceRequired: true,
+          executingConnectionBeforeBegin: true,
+          includesMetadataInStatementBudget: true,
+        },
+        agentCapabilityRequired: true,
+        available: true,
+        methods: ["sql.operation.execute", "sql.operation.get", "sql.operation.cancel"],
+        availability: "requires exact advertised agent capability; never legacy batch fallback",
+        automaticRetry: false,
+      },
       requestServerTimings: true,
       sqlExecutionMetadata: ["sql_handling_mode", "max_rows_handling", "effective_max_rows"],
       errorEnvelope: "success/error with optional serverTimings",

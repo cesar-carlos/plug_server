@@ -78,10 +78,11 @@ export const mergeSqlStreamRpcResponse = (
   };
 };
 
-export const mergeSqlStreamRpcResponseWithAppendedRows = (
+const mergeSqlStreamRpcResponseRows = (
   initialRpc: unknown,
   appendedRows: readonly unknown[],
   complete: Record<string, unknown>,
+  takeOwnership: boolean,
 ): unknown => {
   const envelope = isRecord(initialRpc) ? initialRpc : null;
   if (!envelope) {
@@ -100,13 +101,15 @@ export const mergeSqlStreamRpcResponseWithAppendedRows = (
 
   const initialRows = Array.isArray(result.rows) ? result.rows : [];
   const rows =
-    appendedRows.length === 0
-      ? initialRows.slice()
-      : (() => {
-          const mergedRows = initialRows.slice();
-          appendArrayElements(mergedRows, appendedRows);
-          return mergedRows;
-        })();
+    takeOwnership && initialRows.length === 0
+      ? appendedRows
+      : appendedRows.length === 0
+        ? initialRows.slice()
+        : (() => {
+            const mergedRows = initialRows.slice();
+            appendArrayElements(mergedRows, appendedRows);
+            return mergedRows;
+          })();
 
   const totalFromComplete =
     typeof complete.total_rows === "number" && Number.isFinite(complete.total_rows)
@@ -125,6 +128,19 @@ export const mergeSqlStreamRpcResponseWithAppendedRows = (
     result: mergedResult,
   };
 };
+
+export const mergeSqlStreamRpcResponseWithAppendedRows = (
+  initialRpc: unknown,
+  appendedRows: readonly unknown[],
+  complete: Record<string, unknown>,
+): unknown => mergeSqlStreamRpcResponseRows(initialRpc, appendedRows, complete, false);
+
+/** Consumes the private accumulator; the caller must detach it before this call. */
+export const mergeSqlStreamRpcResponseWithOwnedRows = (
+  initialRpc: unknown,
+  appendedRows: unknown[],
+  complete: Record<string, unknown>,
+): unknown => mergeSqlStreamRpcResponseRows(initialRpc, appendedRows, complete, true);
 
 /** Row count from `result.rows` in the initial `rpc:response` envelope (REST materialization budgeting). */
 export const countSqlExecuteResultRowsInEnvelope = (envelope: unknown): number => {

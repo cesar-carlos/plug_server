@@ -26,3 +26,14 @@ alwaysApply: true
 - Log only safe metadata. Never log passwords, tokens, cookies, `set-cookie`, raw event payloads, or sensitive personal data.
 - Keep a centralized redaction policy in the logger for auth headers, cookies, API keys, refresh tokens, and other known secret-bearing fields.
 - Use parameterized queries or safe ORM/query-builder APIs and keep database permissions minimal.
+
+## Persona Client delegation
+
+Dedicated persona-delegations routes issue a 256-bit opaque credential for active
+Client identity only, bound to audience/persona/credential epoch for 30 days.
+Store SHA-256 only; never accept it as JWT, agent authorization or operation
+approval. Persist and return the explicit administrative ceiling; existing
+delegations default to gerenciar_fontes only. Verification cannot enlarge it.
+MCP grants/consent remain independent. Verify active Client and revocation on each proof. Create/revoke audit
+metadata atomically; Client IDs are not User IDs. Documented contract and limits:
+`docs/api/client_agent_business_rules.md`. No distributed commit guarantee with MCP.

@@ -1,3 +1,5 @@
+import { sqlOperationBridgeSchemas } from "./sql_operation_schemas";
+import { sourceDiscoveryBridgeSchemas } from "./source_discovery_schemas";
 import {
   HUB_PAYLOAD_FRAME_COMPRESSION_THRESHOLD_BYTES,
   HUB_PAYLOAD_FRAME_MAX_INFLATION_RATIO,
@@ -14,6 +16,8 @@ import {
 } from "../../../shared/validators/agent_command";
 
 export const bridgeSchemas = {
+  ...sqlOperationBridgeSchemas,
+  ...sourceDiscoveryBridgeSchemas,
   SocketBridgeSecurityNotes: {
     type: "object",
     description: "Security and transport hardening notes applied to HTTP-to-Socket bridge flow.",
@@ -128,6 +132,8 @@ export const bridgeSchemas = {
       auth: { type: "string", minLength: 1 },
       idempotency_key: { type: "string", minLength: 1 },
       database: { type: "string", minLength: 1 },
+      expectedSource: { $ref: "#/components/schemas/ExpectedSource" },
+      expectedStructure: { $ref: "#/components/schemas/ExpectedStructure" },
       options: { $ref: "#/components/schemas/SqlExecuteOptions" },
     },
     additionalProperties: false,
@@ -512,6 +518,11 @@ export const bridgeSchemas = {
       { $ref: "#/components/schemas/RpcAgentActionCancelCommand" },
       { $ref: "#/components/schemas/RpcAgentActionGetExecutionCommand" },
       { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
+      { $ref: "#/components/schemas/RpcSourceDiscoveryCommand" },
+      { $ref: "#/components/schemas/RpcSourceSchemaCommand" },
+      { $ref: "#/components/schemas/RpcSqlOperationExecuteCommand" },
+      { $ref: "#/components/schemas/RpcSqlOperationGetCommand" },
+      { $ref: "#/components/schemas/RpcSqlOperationCancelCommand" },
       { $ref: "#/components/schemas/RpcSqlExecuteCommand" },
       { $ref: "#/components/schemas/RpcSqlExecuteBatchCommand" },
       { $ref: "#/components/schemas/RpcSqlBulkInsertCommand" },

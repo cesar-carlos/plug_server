@@ -1,4 +1,4 @@
-﻿# REST Bridge - POST /api/v1/agents/commands
+# REST Bridge - POST /api/v1/agents/commands
 
 ## Chunks colunares do agente (profile 2.11.2)
 
@@ -394,16 +394,16 @@ O limite HTTP total continua a ser `REQUEST_BODY_LIMIT`; estes tetos evitam carg
 
 #### `command.params.options`
 
-| Campo                 | Tipo    | Obrigatorio | Restricoes                         | Descricao                                                                                                                                                                                                               |
-| --------------------- | ------- | ----------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `timeout_ms`          | integer | nao         | 1..300000 (5 min)                  | Timeout de execucao SQL no agente (ms)                                                                                                                                                                                  |
-| `max_rows`            | integer | nao         | 1..1000000                         | Maximo de linhas retornadas; o limite efetivo pode ser reduzido pelo acordo hub/agente nas capabilities                                                                                                                 |
-| `page`                | integer | nao         | >= 1, requer `page_size`           | Numero da pagina (1-based)                                                                                                                                                                                              |
-| `page_size`           | integer | nao         | 1..50000, requer `page`            | Linhas por pagina                                                                                                                                                                                                       |
-| `cursor`              | string  | nao         | exclusivo com `page`/`page_size`   | Token opaco de continuacao (keyset)                                                                                                                                                                                     |
-| `execution_mode`      | string  | nao         | `managed` \| `preserve`            | Modo de tratamento da SQL. `managed` (default) permite reescrita gerenciada para paginacao. `preserve` executa a SQL exatamente como enviada, sem reescrita. Nao pode ser combinado com `page`, `page_size` ou `cursor` |
-| `preserve_sql`        | boolean | nao         | exclusivo com paginacao            | Alias legado para `execution_mode: "preserve"`. Nao pode ser combinado com `page`, `page_size` ou `cursor`                                                                                                              |
-| `multi_result`        | boolean | nao         | exclusivo com paginacao e `params` | Habilita retorno de multiplos result sets                                                                                                                                                                               |
+| Campo                 | Tipo    | Obrigatorio | Restricoes                         | Descricao                                                                                                                                                                                                                                                                                                                                            |
+| --------------------- | ------- | ----------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `timeout_ms`          | integer | nao         | 1..300000 (5 min)                  | Timeout de execucao SQL no agente (ms)                                                                                                                                                                                                                                                                                                               |
+| `max_rows`            | integer | nao         | 1..1000000                         | Maximo de linhas retornadas; o limite efetivo pode ser reduzido pelo acordo hub/agente nas capabilities                                                                                                                                                                                                                                              |
+| `page`                | integer | nao         | >= 1, requer `page_size`           | Numero da pagina (1-based)                                                                                                                                                                                                                                                                                                                           |
+| `page_size`           | integer | nao         | 1..50000, requer `page`            | Linhas por pagina                                                                                                                                                                                                                                                                                                                                    |
+| `cursor`              | string  | nao         | exclusivo com `page`/`page_size`   | Token opaco de continuacao (keyset)                                                                                                                                                                                                                                                                                                                  |
+| `execution_mode`      | string  | nao         | `managed` \| `preserve`            | Modo de tratamento da SQL. `managed` (default) permite reescrita gerenciada para paginacao. `preserve` executa a SQL exatamente como enviada, sem reescrita. Nao pode ser combinado com `page`, `page_size` ou `cursor`                                                                                                                              |
+| `preserve_sql`        | boolean | nao         | exclusivo com paginacao            | Alias legado para `execution_mode: "preserve"`. Nao pode ser combinado com `page`, `page_size` ou `cursor`                                                                                                                                                                                                                                           |
+| `multi_result`        | boolean | nao         | exclusivo com paginacao e `params` | Habilita retorno de multiplos result sets                                                                                                                                                                                                                                                                                                            |
 | `prefer_db_streaming` | boolean | nao         | preferencia apenas                 | Preferencia para streaming direto do banco em `SELECT` elegivel; o hub valida e repassa, e a decisao final fica no runtime do agente. Sem este flag, um `SELECT` sem paginacao, cursor nem `multi_result` ainda pode ser promovido a chunks quando as linhas materializadas passam do menor entre 512 KiB e um quarto de `max_decoded_payload_bytes` |
 
 Regras de combinacao:
@@ -487,13 +487,13 @@ esta ativo no agente. IDs desconhecidos continuam `-32109` /
 
 #### `command.params`
 
-| Campo          | Tipo   | Obrigatorio | Descricao                                                                                          |
-| -------------- | ------ | ----------- | -------------------------------------------------------------------------------------------------- |
-| `execution_id` | string | condicional | ID da execucao a cancelar (pelo menos um de `execution_id` ou `request_id`)                        |
-| `request_id`   | string | condicional | ID do request a cancelar (pelo menos um de `execution_id` ou `request_id`)                         |
+| Campo          | Tipo   | Obrigatorio | Descricao                                                                                           |
+| -------------- | ------ | ----------- | --------------------------------------------------------------------------------------------------- |
+| `execution_id` | string | condicional | ID da execucao a cancelar (pelo menos um de `execution_id` ou `request_id`)                         |
+| `request_id`   | string | condicional | ID do request a cancelar (pelo menos um de `execution_id` ou `request_id`)                          |
 | `client_token` | string | condicional | Mesma credencial que iniciou a request quando `enableClientTokenAuthorization` esta ativo no agente |
-| `clientToken`  | string | condicional | Alias de `client_token`                                                                            |
-| `auth`         | string | condicional | Alias de `client_token`                                                                            |
+| `clientToken`  | string | condicional | Alias de `client_token`                                                                             |
+| `auth`         | string | condicional | Alias de `client_token`                                                                             |
 
 O hub valida e encaminha o token. O agente associa a execucao ao hash SHA-256
 da credencial e nao guarda o segredo. Token divergente volta `-32002` /
@@ -522,12 +522,12 @@ pode variar por instalacao. `commandLine` e somente local/manual e nao e
 anunciado como tipo remoto. `agent.action.validateRun` e a fonte de verdade
 para saber se uma acao concreta pode ser iniciada.
 
-| Metodo                      | Side effect | Params obrigatorios                         | Notas                                                                                                                                                                                                 |
-| --------------------------- | ----------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent.action.run`          | sim         | `action_id`, `idempotency_key`              | `trigger_id` opcional. Gatilho `remote` ausente ou ambiguo falha antes de consumir cota de rate limit                                                                                                 |
-| `agent.action.validateRun`  | nao         | `action_id`, `idempotency_key`              | Preflight sem persistir execucao nem iniciar processo. Mesmo gate de gatilho `remote`                                                                                                                 |
-| `agent.action.cancel`       | sim         | `execution_id`                              | No Windows, processo associado a Job Object e encerrado como arvore. Rate limit e auditoria usam `action_id` da execucao, nao `execution_id`                                                          |
-| `agent.action.getExecution` | nao         | `execution_id`                              | Leitura redigida. Paginacao UTF-8 de stdout/stderr via `stdout_offset`, `stderr_offset` e `max_output_bytes` (defeito 65536, teto 524288 por stream). Prefetch nao hidrata o output capturado          |
+| Metodo                      | Side effect | Params obrigatorios            | Notas                                                                                                                                                                                         |
+| --------------------------- | ----------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent.action.run`          | sim         | `action_id`, `idempotency_key` | `trigger_id` opcional. Gatilho `remote` ausente ou ambiguo falha antes de consumir cota de rate limit                                                                                         |
+| `agent.action.validateRun`  | nao         | `action_id`, `idempotency_key` | Preflight sem persistir execucao nem iniciar processo. Mesmo gate de gatilho `remote`                                                                                                         |
+| `agent.action.cancel`       | sim         | `execution_id`                 | No Windows, processo associado a Job Object e encerrado como arvore. Rate limit e auditoria usam `action_id` da execucao, nao `execution_id`                                                  |
+| `agent.action.getExecution` | nao         | `execution_id`                 | Leitura redigida. Paginacao UTF-8 de stdout/stderr via `stdout_offset`, `stderr_offset` e `max_output_bytes` (defeito 65536, teto 524288 por stream). Prefetch nao hidrata o output capturado |
 
 Aliases `client_token` / `clientToken` / `auth` seguem a mesma regra dos
 metodos SQL quando `enableClientTokenAuthorization` esta ativo. Ausencia do
@@ -698,9 +698,7 @@ no REST):
 {
   "success": true,
   "requestId": "...",
-  "response": {
-    /* corpo JSON-RPC normalizado */
-  },
+  "response": {/* corpo JSON-RPC normalizado */},
   "serverTimings": {
     "schemaVersion": 1,
     "phasesMs": {
@@ -1532,17 +1530,17 @@ Quando o agente retorna erro, `response.item.error` segue:
 
 ### Transporte
 
-| Codigo   | Descricao          | `reason`                                         | `retryable` |
-| -------- | ------------------ | ------------------------------------------------ | ----------- |
-| `-32001` | Authentication     | `authentication_failed` / `missing_client_token` | false       |
+| Codigo   | Descricao          | `reason`                                                                                                                                                                 | `retryable` |
+| -------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| `-32001` | Authentication     | `authentication_failed` / `missing_client_token`                                                                                                                         | false       |
 | `-32002` | Unauthorized       | `unauthorized` / `token_revoked` / `agent_actions_remote_disabled`; `sql.cancel` com credencial divergente usa `unauthorized` e `data.subreason` `cancel_token_mismatch` | false       |
-| `-32008` | Timeout            | `timeout`                                        | true        |
-| `-32009` | Invalid payload    | `invalid_payload`                                | false       |
-| `-32010` | Decoding failed    | `decoding_failed`                                | false       |
-| `-32011` | Compression failed | `compression_failed`                             | false       |
-| `-32012` | Network error      | `network_error`                                  | true        |
-| `-32013` | Rate limit         | `rate_limited` / `client_token_get_policy_rate_limited` / `agent_action_remote_rate_limited` / `outbound_response_capacity_exceeded` | false       |
-| `-32014` | Replay detected    | `replay_detected`                                | false       |
+| `-32008` | Timeout            | `timeout`                                                                                                                                                                | true        |
+| `-32009` | Invalid payload    | `invalid_payload`                                                                                                                                                        | false       |
+| `-32010` | Decoding failed    | `decoding_failed`                                                                                                                                                        | false       |
+| `-32011` | Compression failed | `compression_failed`                                                                                                                                                     | false       |
+| `-32012` | Network error      | `network_error`                                                                                                                                                          | true        |
+| `-32013` | Rate limit         | `rate_limited` / `client_token_get_policy_rate_limited` / `agent_action_remote_rate_limited` / `outbound_response_capacity_exceeded`                                     | false       |
+| `-32014` | Replay detected    | `replay_detected`                                                                                                                                                        | false       |
 
 ### Dominio SQL
 
@@ -1580,44 +1578,44 @@ deste arquivo e em `docs/socket/socket_relay_protocol.md`.
 
 ### Recursos disponiveis no agente vs cobertura REST
 
-| Recurso do agente                                                      | Socket status              | REST status       | Gap                                                                                                                                                                                                                                                                                                                     |
-| ---------------------------------------------------------------------- | -------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sql.execute`                                                          | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
-| `sql.executeBatch`                                                     | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
-| `sql.bulkInsert`                                                       | implementado               | exposto           | chunked `executeDirect` no agente e atomico; falha parallel/BCP pode deixar escrita parcial — nao retentar sem inspecionar a tabela                                                                                                                                                                                     |
-| `sql.cancel`                                                           | implementado               | exposto           | hub aceita `client_token` / `clientToken` / `auth` e encaminha; ownership e `-32002` / `cancel_token_mismatch` sao do agente                                                                                                                                                                                            |
-| `rpc.discover`                                                         | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
-| `client_token.getPolicy`                                               | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
-| PayloadFrame encode/decode                                             | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                                       |
-| Compressao GZIP (modo **auto** por defeito; `payloadFrameCompression`) | implementado               | transparente      | cliente escolhe `default` / `none` / `always` no body REST ou envelope relay                                                                                                                                                                                                                                            |
-| Assinatura de payload (HMAC-SHA256)                                    | implementado               | opcional saida    | verificacao de frames **do** agente quando assinados; assinatura **de saida** do hub com `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY`. `PAYLOAD_SIGNING_KEY_ID` define a chave ativa; `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON` aceita chaves antigas apenas inbound. Com keyring, `signature.key_id` e obrigatorio. |
-| Token carrier (client_token/clientToken/auth)                          | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                       |
-| Paginacao (page/page_size)                                             | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
-| Paginacao (cursor keyset)                                              | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                       |
-| `multi_result` (multiplos result sets)                                 | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                       |
-| `idempotency_key`                                                      | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                       |
-| `database` (override DSN)                                              | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                       |
-| `options.timeout_ms` / `options.max_rows`                              | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                       |
-| `options.execution_mode` (managed/preserve)                            | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                       |
-| `options.preserve_sql` (alias legado)                                  | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                       |
-| `options.prefer_db_streaming` (`sql.execute`)                          | implementado               | validado          | pass-through; elegibilidade, feature flag e roteamento final sao do agente                                                                                                                                                                                                                                              |
-| `options.transaction` (batch)                                          | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                       |
-| `options.max_parallel_read_only_batch_items` (batch)                   | implementado               | validado          | pass-through; o agente aplica safety cap conforme pool/limites internos                                                                                                                                                                                                                                                 |
-| `api_version` no request                                               | implementado               | exposto           | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.11.2"` como fallback, alinhado ao profile anunciado em `agent:capabilities` (`plug-jsonrpc-profile/2.11.2`)                                                                                                                                    |
-| `meta` no request (trace_id, traceparent)                              | implementado               | exposto           | hub preserva apenas os campos publicados pelo schema do `plug_agente` (`trace_id`, `traceparent`, `tracestate`, `request_id`, `agent_id`, `timestamp`); campos extras aceitos na entrada sao **stripados** antes do envio ao agente; o hub injeta/reescreve `request_id`, `agent_id`, `timestamp`, `trace_id`           |
-| `meta.outbound_compression` (`none` / `gzip` / `auto`)                 | **no-op** no runtime atual | aceito + OpenAPI  | aceito por compatibilidade na entrada, mas **nao e encaminhado** ao agente; o `socket_communication_standard.md` (v2.8, _Nota operacional_) declara explicitamente que o agente **nao** suporta override de compressao por request                                                                                      |
-| `api_version` na response                                              | implementado               | exposto           | serializer preserva `api_version` e `meta` do agente                                                                                                                                                                                                                                                                    |
-| `meta` na response (agent_id, timestamp)                               | implementado               | exposto           | serializer preserva `meta` do agente                                                                                                                                                                                                                                                                                    |
-| Batch max 32 itens                                                     | implementado               | validado          | servidor rejeita batches > 32 com 400                                                                                                                                                                                                                                                                                   |
-| Capacidade de pendencias REST                                          | implementado               | validado          | limite global (`SOCKET_REST_MAX_PENDING_REQUESTS`) + limite/fila por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `SOCKET_REST_AGENT_MAX_QUEUE`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`) com `Retry-After` em overload                                                                                                          |
+| Recurso do agente                                                      | Socket status              | REST status       | Gap                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------- | -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sql.execute`                                                          | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                                                         |
+| `sql.executeBatch`                                                     | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                                                         |
+| `sql.bulkInsert`                                                       | implementado               | exposto           | chunked `executeDirect` no agente e atomico; falha parallel/BCP pode deixar escrita parcial — nao retentar sem inspecionar a tabela                                                                                                                                                                                                                       |
+| `sql.cancel`                                                           | implementado               | exposto           | hub aceita `client_token` / `clientToken` / `auth` e encaminha; ownership e `-32002` / `cancel_token_mismatch` sao do agente                                                                                                                                                                                                                              |
+| `rpc.discover`                                                         | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                                                         |
+| `client_token.getPolicy`                                               | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                                                         |
+| PayloadFrame encode/decode                                             | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                                                                         |
+| Compressao GZIP (modo **auto** por defeito; `payloadFrameCompression`) | implementado               | transparente      | cliente escolhe `default` / `none` / `always` no body REST ou envelope relay                                                                                                                                                                                                                                                                              |
+| Assinatura de payload (HMAC-SHA256)                                    | implementado               | opcional saida    | verificacao de frames **do** agente quando assinados; assinatura **de saida** do hub com `PAYLOAD_SIGN_OUTBOUND=true` e `PAYLOAD_SIGNING_KEY`. `PAYLOAD_SIGNING_KEY_ID` define a chave ativa; `PAYLOAD_SIGNING_PREVIOUS_KEYS_JSON` aceita chaves antigas apenas inbound. Com keyring, `signature.key_id` e obrigatorio.                                   |
+| Token carrier (client_token/clientToken/auth)                          | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                                                         |
+| Paginacao (page/page_size)                                             | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                                                         |
+| Paginacao (cursor keyset)                                              | implementado               | exposto           | -                                                                                                                                                                                                                                                                                                                                                         |
+| `multi_result` (multiplos result sets)                                 | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                                                         |
+| `idempotency_key`                                                      | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                                                         |
+| `database` (override DSN)                                              | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                                                         |
+| `options.timeout_ms` / `options.max_rows`                              | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                                                         |
+| `options.execution_mode` (managed/preserve)                            | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                                                         |
+| `options.preserve_sql` (alias legado)                                  | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                                                         |
+| `options.prefer_db_streaming` (`sql.execute`)                          | implementado               | validado          | pass-through; elegibilidade, feature flag e roteamento final sao do agente                                                                                                                                                                                                                                                                                |
+| `options.transaction` (batch)                                          | implementado               | validado          | -                                                                                                                                                                                                                                                                                                                                                         |
+| `options.max_parallel_read_only_batch_items` (batch)                   | implementado               | validado          | pass-through; o agente aplica safety cap conforme pool/limites internos                                                                                                                                                                                                                                                                                   |
+| `api_version` no request                                               | implementado               | exposto           | hub **preserva** `api_version` enviado pelo cliente; se ausente, usa `"2.11.2"` como fallback, alinhado ao profile anunciado em `agent:capabilities` (`plug-jsonrpc-profile/2.11.2`)                                                                                                                                                                      |
+| `meta` no request (trace_id, traceparent)                              | implementado               | exposto           | hub preserva apenas os campos publicados pelo schema do `plug_agente` (`trace_id`, `traceparent`, `tracestate`, `request_id`, `agent_id`, `timestamp`); campos extras aceitos na entrada sao **stripados** antes do envio ao agente; o hub injeta/reescreve `request_id`, `agent_id`, `timestamp`, `trace_id`                                             |
+| `meta.outbound_compression` (`none` / `gzip` / `auto`)                 | **no-op** no runtime atual | aceito + OpenAPI  | aceito por compatibilidade na entrada, mas **nao e encaminhado** ao agente; o `socket_communication_standard.md` (v2.8, _Nota operacional_) declara explicitamente que o agente **nao** suporta override de compressao por request                                                                                                                        |
+| `api_version` na response                                              | implementado               | exposto           | serializer preserva `api_version` e `meta` do agente                                                                                                                                                                                                                                                                                                      |
+| `meta` na response (agent_id, timestamp)                               | implementado               | exposto           | serializer preserva `meta` do agente                                                                                                                                                                                                                                                                                                                      |
+| Batch max 32 itens                                                     | implementado               | validado          | servidor rejeita batches > 32 com 400                                                                                                                                                                                                                                                                                                                     |
+| Capacidade de pendencias REST                                          | implementado               | validado          | limite global (`SOCKET_REST_MAX_PENDING_REQUESTS`) + limite/fila por agente (`SOCKET_REST_AGENT_MAX_INFLIGHT`, `SOCKET_REST_AGENT_MAX_QUEUE`, `SOCKET_REST_AGENT_QUEUE_WAIT_MS`) com `Retry-After` em overload                                                                                                                                            |
 | Streaming chunked (`rpc:chunk`/`rpc:complete`)                         | implementado               | **materializado** | REST (`sql.execute` unico): hub faz pull interno, agrega linhas e devolve **uma** resposta HTTP (sem streaming progressivo). Um `SELECT` sem paginacao, cursor nem `multi_result` pode ser promovido a chunks no agente ao passar do menor entre 512 KiB e um quarto de `max_decoded_payload_bytes`. Socket /consumers continua com eventos em tempo real |
-| Backpressure (`rpc:stream.pull`)                                       | implementado               | **interno**       | REST nao expoe pull ao cliente; o hub emite `rpc:stream.pull` com janela base em `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, sempre limitada por `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` e pelo menor teto anunciado pelo agente. Controle fino permanece no Socket (`agents:stream_pull` / relay)                         |
-| Delivery guarantee (`rpc:request_ack`)                                 | implementado               | exposto           | hub registra ack e marca `acked`; se o ACK nao chega, reemite o mesmo frame apenas para requests elegiveis e idempotentes/seguras, limitado por `SOCKET_AGENT_ACK_*`                                                                                                                                                    |
-| Batch ack (`rpc:batch_ack`)                                            | implementado               | exposto           | hub registra acks para cada `request_id`; retry automatico de batch so ocorre quando todos os itens sao elegiveis, tem `id` e usam leitura segura ou `params.idempotency_key`                                                                                                                                           |
-| Notification JSON-RPC (`id: null`)                                     | implementado               | exposto           | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202                                                                                                                                                                                                                             |
-| Falha rapida em disconnect do agente                                   | implementado               | exposto           | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout; **novo** pedido REST com `id` correlacionavel contra agente catalogado sem socket devolve **200** + envelope normalizado `agent_offline` (`-32000`)                                                                           |
-| Heartbeat (`agent:heartbeat`)                                          | implementado               | transparente      | o hub espelha `trace_id` em `hub:heartbeat_ack`. O agente so reinicia liveness quando o `trace_id` e a epoca da sessao ativa coincidem; ACK atrasado, duplicado ou de sessao anterior e descartado                                                                                                                      |
-| Capabilities negotiation                                               | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                                       |
+| Backpressure (`rpc:stream.pull`)                                       | implementado               | **interno**       | REST nao expoe pull ao cliente; o hub emite `rpc:stream.pull` com janela base em `SOCKET_REST_STREAM_PULL_WINDOW_SIZE`, sempre limitada por `SOCKET_REST_STREAM_PULL_MAX_WINDOW_SIZE` e pelo menor teto anunciado pelo agente. Controle fino permanece no Socket (`agents:stream_pull` / relay)                                                           |
+| Delivery guarantee (`rpc:request_ack`)                                 | implementado               | exposto           | hub registra ack e marca `acked`; se o ACK nao chega, reemite o mesmo frame apenas para requests elegiveis e idempotentes/seguras, limitado por `SOCKET_AGENT_ACK_*`                                                                                                                                                                                      |
+| Batch ack (`rpc:batch_ack`)                                            | implementado               | exposto           | hub registra acks para cada `request_id`; retry automatico de batch so ocorre quando todos os itens sao elegiveis, tem `id` e usam leitura segura ou `params.idempotency_key`                                                                                                                                                                             |
+| Notification JSON-RPC (`id: null`)                                     | implementado               | exposto           | `id` omitido recebe UUID automatico (200); somente `id: null` em todos os itens retorna 202                                                                                                                                                                                                                                                               |
+| Falha rapida em disconnect do agente                                   | implementado               | exposto           | pending requests REST do socket desconectado sao encerradas com 503 sem aguardar timeout; **novo** pedido REST com `id` correlacionavel contra agente catalogado sem socket devolve **200** + envelope normalizado `agent_offline` (`-32000`)                                                                                                             |
+| Heartbeat (`agent:heartbeat`)                                          | implementado               | transparente      | o hub espelha `trace_id` em `hub:heartbeat_ack`. O agente so reinicia liveness quando o `trace_id` e a epoca da sessao ativa coincidem; ACK atrasado, duplicado ou de sessao anterior e descartado                                                                                                                                                        |
+| Capabilities negotiation                                               | implementado               | transparente      | -                                                                                                                                                                                                                                                                                                                                                         |
 
 ### Limitacoes intencionais do canal REST
 
@@ -1801,3 +1799,271 @@ seguir o mesmo padrao. Acompanhamento:
 | `src/socket_room_ops.ts`                                                 | Helpers de sala: contagem, desconexao, cleanup de conversas expiradas                                                      |
 | `src/socket_lifecycle.ts`                                                | `closeSocketServer`: drains, unregister bridge, reset de estado global                                                     |
 | `src/socket_metrics_snapshot.ts`                                         | `getSocketMetricsSnapshot()` para o controller `/metrics`                                                                  |
+
+## Persona-v2 SQL operation contract (in progress)
+
+REST contract 1.2.0 adds sql.operation.execute, sql.operation.get and
+sql.operation.cancel to the existing HTTP/Socket command validator and OpenAPI.
+Existing command contracts remain valid. All three methods are in the transport
+allow-list and parity matrix. Forwarding requires the live authenticated agent
+registration advertising extensions.sqlOperations version 1 and protocol readiness.
+REST/agents:command (including batches) and relay enforce this before dispatch and
+again after queues/encoding, refusing socket replacement or capability downgrade.
+CAPABILITY_UNAVAILABLE is fail-closed for old/missing/incompatible agents.
+
+The negotiated descriptor requires enabled:true, durableJournal:true,
+singleSourceTransaction:true, automaticReplay:false and positive integer maxSteps,
+maxAffectedRows, timeoutMs. Effective ceilings are the minima of agent and hub
+(32 steps, 100000 directly affected rows, 300000 ms); exceeding a limit is refused,
+never silently clamped. The optional extension owns version 1 independently from
+the existing profile 2.11.2. Agent ENABLE_SQL_OPERATIONS homologation opt-in is
+disabled by default and does not certify an engine or unlock deployment.
+
+All requests use contractVersion: 1, stable operationId (UUID), fingerprint
+(SHA-256), sourcePhysicalId (SHA-256 physical identity), database and the usual
+technical client_token/clientToken/auth string. Null JSON-RPC IDs are refused.
+Execution additionally declares maxAffectedRows (1..100000), timeoutMs
+(1..300000) and 1..32 ordered steps. Transport timeout includes timeoutMs + 5000
+within the existing bridge ceiling. The hub preserves SQL and never interprets it.
+
+Each step declares id, effect (select/insert/update/delete), sql, params, outputs
+and write affectedRows min/max. Optional expectedRows describes read conditions.
+Params contain typed value scalars or step_output references to earlier declared
+outputs; integers and decimals use strings to preserve precision. No scripts,
+DDL effect, approval boolean or content edits in get/cancel envelopes.
+Whole envelope is limited to 2 MiB UTF-8; SQL per step to 1 MiB.
+SQL/physical-resource validation and authorization belong to MCP and agent.
+
+Expected status metadata includes operationId, fingerprint, executionId,
+state, directlyAffectedRows, updatedAt and optional completedAt. States distinguish
+executando, cancelamento_solicitado, concluida, rollback_confirmado,
+resultado_desconhecido and cancelada. Accepting cancellation does not confirm
+rollback. Uncertain dispatch/commit must be queried/reconciled, never retried
+automatically. SQL operations never enter ACK retry in either dispatch path.
+After execute emission, timeout/disconnect returns SQL_OPERATION_OUTCOME_UNKNOWN
+with retryable:false and outcome_unknown:true. directlyAffectedRows:null remains
+explicit for indeterminate counts, including through agent replay serialization.
+A separate agent journal cannot guarantee exactly-once commit.
+
+Generated source: shared/validators/sql_operation.ts and
+presentation/docs/swagger/sql_operation_schemas.ts. Compatibility baseline
+was extended additively with an explicit minor version; no legacy removals.
+
+Production Docker builds and npm run release:check require the coordinated
+contracts/persona-v2-release.json acceptance. It remains ready:false with no
+completed gates. Unit tests prove that removing/renaming gates cannot unlock
+a partial release. Local TypeScript builds remain available for development.
+The MCP development pin is now a base commit plus a reviewed SHA-256-pinned source snapshot, reproduced in CI before contract checking. It is explicitly not a claim that uncommitted changes exist in that base commit. Coordinated release remains blocked.
+
+Isolated interoperability harness: RUN_DART_SQL_OPERATION_TRANSPORT=true,
+FLUTTER_BIN=<Flutter executable>, then run vitest
+tests/integration/sql_operation_dart_transport.integration.test.ts. It uses the
+production Dart Socket.IO transport, hub dispatch/relay, real temporary SQLite
+journal and simulated SQL transaction/policy; no configured user database is touched.
+Eight calls preserve the same uncertain receipt without reopening/recommitting.
+Four real-engine homologation gates remain separate and required.
+
+### Capability de SQL consultável pelo Client
+
+O detalhe autenticado `GET /api/v1/client/me/agents/{agentId}` inclui opcionalmente
+`agent.sqlOperations`: `null` sem registro local compatível, ou
+`{version:1,maxSteps,maxAffectedRows,timeoutMs}` com os tetos negociados.
+A leitura acontece somente depois de autorizar o ClientAgentAccess e não expõe
+credenciais ou o bloco bruto de capabilities. Trata-se de snapshot desta instância:
+sticky routing continua relevante e o dispatch revalida o registro antes do envio.
+Esse campo permite ao MCP fazer preflight antes de reivindicar uma preparação;
+não publica skills, concede permissão ou certifica os motores. O MCP de
+desenvolvimento usa REST v1 com publicação somente_parametros, aprovação quando
+exigida e consulta de journal sem reexecução. Produção segue bloqueada.
+
+### MCP REST contract 1.3.0
+
+The generated subset now includes authenticated GET /client-auth/me for the
+Client owner identity. Profile mutations are excluded from this consumer
+contract. SQL operation transport is available only with exact compatible
+agent capabilities; guarantees retain agentCapabilityRequired:true and
+automaticRetry:false. No agent capability grants training or token authority.
+The additive compatibility baseline tracks the new profile response fields.
+Generation, baseline checks and MCP source snapshot reproduction must agree;
+none enables the persona-v2 release manifest or deploy.
+
+## Descoberta física da fonte — contrato 1.4.0 em desenvolvimento
+
+`sql.describeSource` v1 é encaminhado por `POST /api/v1/agents/commands`,
+`agents:command` e relay somente com `sourceDiscovery: 1` negociado pelo agente
+pronto autenticado, inclusive revalidação da sessão viva antes do envio.
+JWT Client, conta ativa e ClientAgentAccess continuam obrigatórios. Capability
+é suporte técnico; não substitui policy nem treinamento publicado.
+
+Params estritos: `contractVersion: 1`, `database` obrigatório e `client_token`.
+Resposta: `contractVersion`, `database`, `dialect`, `identityHash`,
+`identityKind` (`native`, `provisioned` ou `locator`), `engineVersion`, `verifiedAt`.
+Schemas gerados no OpenAPI e no contrato consumido pelo MCP. O hub não descobre
+motor por heurística, abre banco, interpreta SQL nem reescreve dialeto.
+O agente usa apenas metadados fixos na própria conexão e revalida sua policy.
+Agentes antigos falham com CAPABILITY_UNAVAILABLE, sem fallback silencioso.
+Não há SQL livre ou linhas de negócio neste método; ACK retry não é utilizado.
+
+O MCP exige prova nativa para cadastro/execução, com exceção aprovada DV2-007:
+SQL Anywhere usa UUID provisionado manualmente pelo DBA, identificado como
+`provisioned` no contrato aditivo 1.6.0. Locator continua insuficiente e recusado.
+O hub/agent runtime nunca cria ou repara o marcador. Principal técnico tem SELECT
+mínimo sobre ele; cópias distintas exigem novo UUID offline antes de cadastrar.
+Uma cópia preservando todos os metadados observáveis permanece indistinguível. Esta evolução ainda
+não foi publicada. A descoberta tem conexão própria; o contrato 1.5.0 abaixo
+vincula também a prova à conexão executora. Testes isolados e descoberta não
+constituem aceite completo. Deploy permanece bloqueado.
+
+## Identidade na conexão executora — contrato 1.5.0
+
+Campo opcional aditivo `expectedSource: {version:1,dialect,identityHash}` em
+`sql.execute` e referências de `sql.operation.*`. Quando presente, exige
+`sourceIdentity:1` negociado na sessão autenticada e pronta, também em batches
+e após esperas assíncronas antes do envio. O detalhe Client do agente projeta
+`sourceIdentity:1|null`. O MCP v2 exige esse campo, sem fallback legado.
+
+O hub valida transporte e preserva a prova; não abre banco nem interpreta SQL.
+O agente confirma a identidade admitida na conexão que executa: antes/depois de
+SELECT, antes de iniciar a transação DML. Não há retry/replay automático.
+`SOURCE_IDENTITY_MISMATCH` mantém sua origem e impede SQL de negócio; não é
+erro para reescrever a consulta. get/cancel usam o journal sem abrir conexão
+de negócio. O contrato gerado e o baseline aditivo incluem esse controle.
+
+## Persistent persona chain fixture
+
+The MCP isolated chain runner now defaults to PostgreSQL/Prisma for the hub,
+using a dedicated loopback database separate from MCP control and business data.
+Fixture ClientAgentAccess uses HTTP request and authenticated owner approval,
+not direct repository grants. MCP and hub run as independent HTTP processes;
+the runner restarts MCP, hub and the agent companion and verifies prior sources,
+publications, grants and stable agent config/token IDs. The fixture persists agent
+configuration in Drift and secrets through FlutterSecure with real Windows DPAPI,
+redirecting only its support directory. Restart removes ODBC/JWT bootstrap. A
+second agent restart checks unknown journals through hub RPC and durable duplicate
+refusal, without relying on cached MCP receipts.
+Explicit memory mode remains available, without persistent restart evidence.
+The companion runs in the private temporary session, never loading checkout .env.
+Desktop bootstrap/installer and multi-process vault concurrency remain untested;
+Redis/TLS, process crashes during commit and full platform
+acceptance are not certified by this slice. Release stays blocked.
+
+## Structural capability discovery
+
+Contract 1.13.0 adds optional nullable sourceSchema and sourceConstraints version 1 to the authorized Client agent detail. Values come only from live local registration; absent, disconnected or unsupported versions return null. Discovery grants no execution authority. Dispatch revalidates JWT, ClientAgentAccess, technical policy and negotiated capabilities. List/catalog endpoints are unchanged. Production remains blocked.
+
+## Structural SQL operation transport — contract 1.14.0
+
+sql.operation.execute optionally carries expectedStructure with expectedSource.
+It requires exact sqlOperations.structureGuard:1 plus sourceSchema/sourceIdentity
+v1 on the authenticated ready agent; constraint expectations also require
+sourceConstraints v1. The hub advertises support but exposes the guard in Client
+detail only when actually negotiated. Old peers still serve supported ordinary
+operations; they cannot receive a structural operation through fallback.
+
+REST, agents:command, mixed batches and relay revalidate the capability before
+emission, including after asynchronous waits. Unknown nullability or non-enabled
+constraint expectations are refused by operation validation. SQL, metadata nulls
+and the expectation are forwarded unchanged; the hub neither interprets SQL nor
+opens a database. Verification runs on the agent's executing connection before
+transaction begin and counts toward 32 native statements. No automatic retry.
+
+MCP adapter support and the pinned contract are coordinated; this transport does
+not publish a shared DML skill or grant execution. Durable safe refusal reasons,
+qualified DML resources and MCP shared publication/preparation remain pending.
+Production release stays blocked by all persona-v2 gates.
+
+## Durable SQL operation failure code — contract 1.15.0
+
+SqlOperationStatus accepts optional enumerated failureCode on cancelled, rolled-back or unknown outcomes. Preserve agent metadata; do not infer causes for older receipts, expose native diagnostic text, interpret SQL or repeat effects. The code is not a commit/rollback proof. Agent journal migration is additive; hub data is preserved. Production remains blocked.
+
+## Direct agent recovery with real ODBC (2026-10-15)
+
+The opt-in `vitest.sql-recovery.config.mjs` runs the direct Socket.IO recovery
+harness without global HTTP/Prisma setup or checkout dotenv loading. Set
+`RUN_DART_SQL_OPERATION_TRANSPORT=true`, `FLUTTER_BIN` and
+`PLUG_SQL_OPERATION_NATIVE_MANIFEST` to an isolated three-engine fixture manifest;
+include the private PostgreSQL driver and SQL Anywhere Bin64 in PATH.
+Without the native manifest it runs the synthetic regression instead.
+
+Six real-ODBC cases passed: PostgreSQL, SQL Server and SQL Anywhere, each with
+abrupt agent-process exit before commit and after native commit but before
+journal completion. The hub returns non-retryable unknown outcome. Restarted
+get/duplicate execute/cancel preserve the same unknown receipt and null count;
+the agent verifies zero physical rows before commit, one after commit, and zero
+reopened transactions. The fixture uses fixed test authority, not Client approval
+or least-privilege acceptance. Native in-flight commit interruption, power loss,
+production bootstrap and remaining coordinated gates are still pending.
+Production release remains blocked. No MCP implementation is involved in this test.
+
+## Native commit in flight, restricted login and desktop bootstrap (2026-10-15)
+
+The direct recovery matrix now passes nine real-ODBC cases (three engines times
+before/after/in-flight commit). In-flight testing uses a private loopback TCP
+proxy: after the pre-commit barrier, native request bytes reach the database and
+server bytes are withheld. The controller proves no native-call return, then
+kills only its owned agent tree. Recovery returns the same unknown receipt and
+null count with no reopened transaction; independent physical verification sees
+zero rows before commit and one after commit/withheld confirmation. This covers
+an ODBC call awaiting confirmation, not server power loss or all storage windows.
+
+Each native case uses SELECT/INSERT on one exact fixture table plus required
+identity metadata access. UPDATE/DELETE, DDL, unrelated data and insertion after
+REVOKE are refused by the actual engines. Provisioning/observation use only the
+private DBA fixture. Client/transport authorization remains separate chain evidence.
+
+The explicit vitest.desktop-bootstrap.config.mjs, with
+RUN_NATIVE_DESKTOP_BOOTSTRAP=true, launches the agent debug target
+ tool/homologation/desktop_bootstrap_fixture.dart from its staged complete bundle
+at build/homologation/desktop-bootstrap. Both cold startup and restart passed:
+real AppInitializer/DI, native window/tray and AppRoot first frame, DPAPI roundtrip,
+SQLite integrity/journal, default-disabled SQL operations, ready negotiation,
+rpc.discover and clean shutdown. Installation identity persists; boot identity
+changes. Ready-file publication is atomic and RPC waits for agent:ready.
+
+Paths point exclusively to temporary data/support/documents; the default production
+storage resolver remains unchanged unless explicitly injected by the fixture.
+The existing --installation-check native mode allows coexistence with the running
+installed app. Machine auto-start repair, notifications and updater registrations
+are locally excluded because they share that app's OS identity. Installer startup
+with configured credentials, system integrations, power loss and coordinated
+release gates remain pending. Production installer/appcast remain blocked.
+
+Validation: nine native cases, 61 agent bootstrap/journal tests, native desktop
+cold/restart integration, synthetic recovery, Dart analysis, server lint and type
+checks. The private database fixture and temporary app profiles were removed.
+
+## Configured native desktop acceptance (2026-10-15)
+
+The opt-in desktop runner now also includes
+`configured_desktop_bootstrap.integration.test.ts`. It uses the production test
+server with real registration approval, owner binding, agent login, refresh and
+Socket.IO ready negotiation. The Windows debug target runs AppInitializer/AppRoot,
+real repositories and DPAPI in an exclusive temporary profile. Cold boot and restart
+both restore/rotate the Hub session automatically; restart receives no bootstrap
+credential seed or credential environment. Stable config/installation identity and
+new boot identity are checked; SQL operations remain disabled and SQLite metadata
+contains no raw credentials. The configured ODBC target is deliberately offline;
+Hub auto-connect succeeds after native pool warm-up fails. This does not replace
+the three-engine native ODBC matrix or durable hub restart acceptance.
+
+Both native desktop cases passed, alongside 29 agent bootstrap/session regressions,
+four real temporary HKCU adapter tests, 31 installer/repair tests and the approved
+real-host optional repair. The repair corrected inheritance of updater authorization
+when /AUTOUPDATE=0; the accepted run preserved updater policy/binaries, profile,
+vault, app EXEs, startup/protocol registrations and authorization. Non-elevated data
+access passed. Server source/test lint and TypeScript test checks passed. Temporary
+profiles/Run entries were removed; real-host backups remain private and local.
+Full installer lifecycle, shell activation, notifications, updater migration/recovery,
+signing and remaining coordinated gates are still pending. Production stays blocked.
+
+## Native Windows integrations follow-up — 2026-10-15
+
+The native desktop test now accepts RUN_NATIVE_WINDOWS_NOTIFICATIONS=true to
+exercise production NotificationService with an exclusive AppUserModelId/GUID.
+Cold/restart passed registration, show/cancel calls, activator registry binding,
+normal RPC readiness/discovery and cleanup of temporary notification keys.
+Production identity defaults are unchanged. This is API/registry acceptance, not
+visual delivery, notification-click, Windows logon or protocol-shell acceptance.
+The agent's isolated installer/service lifecycle and recovery-contract-2 IPC
+correction are documented in its updater plan; no REST or business RPC changed.
+All production and coordinated release gates stay blocked.

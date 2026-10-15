@@ -50,7 +50,10 @@ describe("E2E plug_agente communication (hub ↔ agent)", () => {
   afterAll(async () => {
     await ctx.close();
     overrideEnv("agentAutoUpdateDiagnosticsEnabled", originalDiagnosticsEnabled);
-    overrideEnv("agentAutoUpdateDiagnosticsRateLimitWindowMs", originalDiagnosticsRateLimitWindowMs);
+    overrideEnv(
+      "agentAutoUpdateDiagnosticsRateLimitWindowMs",
+      originalDiagnosticsRateLimitWindowMs,
+    );
   });
 
   const diagnosticsParams = (agentId: string, checkId: string): Record<string, unknown> => ({

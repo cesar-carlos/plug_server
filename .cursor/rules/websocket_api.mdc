@@ -1,6 +1,13 @@
 ---
 description: "Socket.IO and WebSocket-specific conventions for real-time communication"
-globs: ["src/socket.ts", "src/**/*.gateway.ts", "src/**/*.handler.ts", "src/**/*.events.ts", "src/presentation/**/*.ts"]
+globs:
+  [
+    "src/socket.ts",
+    "src/**/*.gateway.ts",
+    "src/**/*.handler.ts",
+    "src/**/*.events.ts",
+    "src/presentation/**/*.ts",
+  ]
 alwaysApply: true
 ---
 
@@ -28,3 +35,52 @@ alwaysApply: true
 - Keep socket server setup composable so connection and event tests can run without full production bootstrap.
 - Add event-level tests for connection auth, message validation, room or channel behavior, and server-to-client emissions.
 - Add contract tests for acknowledgements, correlation ids, streaming event sequences, and any event family that uses `PayloadFrame`.
+
+## Persona-v2 SQL operation transport
+
+sql.operation.execute/get/cancel require authenticated agent sqlOperations v1
+negotiation in REST, agents:command and relay, including mixed batches and the
+live ready socket immediately before dispatch after asynchronous waits.
+Capabilities are technical support, never SQL/Client authorization or engine
+certification. Preserve SQL and typed inputs; refuse exceeding negotiated ceilings.
+Never ACK-resend these methods. Timeout/disconnect after execute dispatch is
+SQL_OPERATION_OUTCOME_UNKNOWN with retryable:false; use status/reconciliation.
+The agent opt-in defaults off and production release remains blocked by full
+persona-v2 acceptance. Contract and harness: docs/api/api_rest_bridge.md.
+
+## Persona-v2 source discovery
+
+sql.describeSource v1 requires sourceDiscovery:1 negotiated by the authenticated
+ready agent in REST, agents:command and relay. Recheck the live socket immediately
+before dispatch after asynchronous waits. Strict input/result schemas are in
+source_discovery.ts and generated OpenAPI/plug-mcp contract 1.6.0. No caller SQL,
+engine inference or database connection belongs in the hub. Preserve database,
+dialect, identityKind and identity hash; locator is not durable identity.
+SQL Anywhere may return provisioned UUID (approved MCP DV2-007); only the DBA
+provisions the reserved marker, never the hub/agent runtime. Other engines
+require native evidence. Copy/restore limits are documented by the MCP.
+Old agents fail closed. Capabilities never grant policy/Client authorization.
+expectedSource v1 on sql.execute/sql.operation.* requires sourceIdentity:1 on
+the current authenticated ready socket, including batches and async dispatch.
+No automatic retries or legacy fallback for verified requests. Preserve the hash
+and SOURCE_IDENTITY_MISMATCH; only the agent opens/verifies the executing DB
+connection. See docs/api/api_rest_bridge.md. Deployment remains blocked by full acceptance.
+
+`sourceSchema` v1/`sql.describeSchema` and `sql.execute.expectedStructure` require
+the authenticated agent's exact negotiated capabilities at dispatch, without
+legacy fallback or automatic replay. Preserve metadata nulls and `metadataPage`;
+the hub validates transport, never inspects or rewrites SQL. Development scope:
+[agent contract](../../docs/plug_agente/README.md#inspeção-estrutural-persona-v2).
+Constraint expectations also require sourceConstraints:1 on the live authenticated
+socket. Preserve enabled/disabled/unvalidated/unknown; metadata never grants SQL.
+This extension does not release the persona-v2 deploy guard.
+
+Authorized REST agent detail projects sourceSchema/sourceConstraints v1 only from live local negotiation. Missing/unsupported versions remain null; a connectivity flag or old registration is not capability proof. Discovery does not authorize SQL or replace dispatch revalidation.
+
+Structural SQL operations require exact sqlOperations.structureGuard:1 plus
+sourceSchema/sourceIdentity and sourceConstraints when keys are supplied.
+Revalidate on the live ready socket after async waits; old peers fail closed.
+Forward expectedStructure unchanged and never parse/rewrite SQL. Client detail
+projects only actual local negotiation. Contract: docs/api/api_rest_bridge.md.
+
+SQL operation result failureCode is optional enumerated journal metadata. Preserve it without native text or outcome inference; absent older values do not authorize replay. Contract: docs/api/api_rest_bridge.md.

@@ -34,3 +34,8 @@ AGENTS.md
 CLAUDE.md
 README.md
 CHANGELOG.md
+
+# Required before building an incomplete persona-v2 production image
+!scripts/
+scripts/*
+!scripts/check-persona-release.mjs

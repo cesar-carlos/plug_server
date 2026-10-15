@@ -29,9 +29,11 @@ afterEach(() => {
 });
 
 describe("columnar chunks through the inbound bridge", () => {
-  it.each([false, true])(
-    "normalizes signed frames before route delivery (gzip: %s)",
-    async (gzip) => {
+  it.each(["strict", "warn", "off"] as const)(
+    "normalizes signed frames before route delivery in %s validation mode",
+    async (mode) => {
+      const gzip = mode !== "warn";
+      vi.spyOn(env, "socketAgentInboundContractValidation", "get").mockReturnValue(mode);
       vi.spyOn(env, "payloadSigningKey", "get").mockReturnValue("columnar-test-key");
       vi.spyOn(env, "payloadSigningKeyId", "get").mockReturnValue("columnar-test-id");
       vi.spyOn(env, "payloadSignOutbound", "get").mockReturnValue(true);

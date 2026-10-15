@@ -3,6 +3,7 @@ import { isRecord } from "../utils/rpc_types";
 export const SQL_OPERATION_TRANSPORT = {
   enabled: true,
   version: 1,
+  structureGuard: 1,
   durableJournal: true,
   singleSourceTransaction: true,
   automaticReplay: false,
@@ -14,6 +15,7 @@ export const SQL_OPERATION_TRANSPORT = {
 export const negotiateSqlOperations = (
   raw: unknown,
 ): {
+  readonly structureGuard?: 1;
   readonly maxSteps: number;
   readonly maxAffectedRows: number;
   readonly timeoutMs: number;
@@ -38,6 +40,11 @@ export const negotiateSqlOperations = (
   const maxAffectedRows = limit("maxAffectedRows");
   const timeoutMs = limit("timeoutMs");
   return maxSteps !== null && maxAffectedRows !== null && timeoutMs !== null
-    ? { maxSteps, maxAffectedRows, timeoutMs }
+    ? {
+        maxSteps,
+        maxAffectedRows,
+        timeoutMs,
+        ...(raw.structureGuard === 1 ? { structureGuard: 1 as const } : {}),
+      }
     : null;
 };

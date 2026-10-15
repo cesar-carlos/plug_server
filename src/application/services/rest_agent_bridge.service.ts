@@ -1,3 +1,5 @@
+import { negotiateSqlOperations } from "../../shared/constants/sql_operation_transport";
+import { isRecord } from "../../shared/utils/rpc_types";
 import type { AgentCommandDispatcher } from "../agent_commands/execute_agent_command";
 import type { IAgentsHubDiagnosticsPort } from "../../domain/ports/agents_hub_diagnostics.port";
 import type {
@@ -13,6 +15,41 @@ export class RestAgentBridgeService {
     private readonly hubDiagnostics: IAgentsHubDiagnosticsPort,
     private readonly dispatchCommand: AgentCommandDispatcher,
   ) {}
+
+  /** Local live registration only. Dispatch repeats negotiation immediately before emit. */
+  sqlOperationCapabilities(agentId: string): {
+    version: 1;
+    structureGuard?: 1;
+    maxSteps: number;
+    maxAffectedRows: number;
+    timeoutMs: number;
+  } | null {
+    const capabilities = this.connectedAgentsRegistry.findById(agentId)?.capabilities;
+    const extensions =
+      capabilities && isRecord(capabilities.extensions) ? capabilities.extensions : null;
+    const limits = negotiateSqlOperations(extensions?.sqlOperations);
+    return limits ? { version: 1 as const, ...limits } : null;
+  }
+
+  sourceIdentityCapability(agentId: string): 1 | null {
+    return this.sourceCapability(agentId, "sourceIdentity");
+  }
+
+  sourceSchemaCapability(agentId: string): 1 | null {
+    return this.sourceCapability(agentId, "sourceSchema");
+  }
+
+  sourceConstraintsCapability(agentId: string): 1 | null {
+    return this.sourceCapability(agentId, "sourceConstraints");
+  }
+
+  private sourceCapability(
+    agentId: string,
+    name: "sourceIdentity" | "sourceSchema" | "sourceConstraints",
+  ): 1 | null {
+    const caps = this.connectedAgentsRegistry.findById(agentId)?.capabilities;
+    return caps && isRecord(caps.extensions) && caps.extensions[name] === 1 ? 1 : null;
+  }
 
   listConnectedAgents(): readonly ConnectedAgentSnapshot[] {
     return this.connectedAgentsRegistry.listAll();

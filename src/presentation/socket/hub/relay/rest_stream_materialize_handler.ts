@@ -3,7 +3,7 @@ import {
   countSqlExecuteResultRowsInEnvelope,
   countSqlStreamChunkRows,
   mergeSqlStreamRpcResponse,
-  mergeSqlStreamRpcResponseWithAppendedRows,
+  mergeSqlStreamRpcResponseWithOwnedRows,
 } from "../../../../application/agent_commands/merge_sql_stream_rpc_response";
 import { env } from "../../../../shared/config/env";
 import { serviceUnavailable } from "../../../../shared/errors/http_errors";
@@ -61,7 +61,7 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
   const resolveOnce = pendingRequest.resolve;
   const rejectOnce = pendingRequest.reject;
   const primaryRequestId = pendingRequest.primaryRequestId;
-  const streamedRows: unknown[] = [];
+  let streamedRows: unknown[] = [];
   const pullWindow = agentRegistry.resolveStreamPullWindow(
     pendingRequest.agentId,
     env.socketRestStreamPullWindowSize,
@@ -166,9 +166,11 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
         clearTimeout(timeoutHandle);
       }
       try {
+        const completedRows = streamedRows;
+        streamedRows = [];
         const merged =
-          streamedRows.length > 0
-            ? mergeSqlStreamRpcResponseWithAppendedRows(initialJson, streamedRows, payload)
+          completedRows.length > 0
+            ? mergeSqlStreamRpcResponseWithOwnedRows(initialJson, completedRows, payload)
             : mergeSqlStreamRpcResponse(initialJson, [], payload);
         relayMetrics.restSqlStreamMaterializeCompleted += 1;
         relayMetrics.restSqlStreamMaterializeRowsMerged +=

@@ -6,6 +6,36 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+- SQL operation contract 1.15.0 documents optional enumerated failureCode from the durable agent journal. Preserve it without native diagnostic text, outcome inference or automatic replay; production remains blocked.
+
+- Contract 1.14.0 adds structural SQL operation transport with exact negotiated structureGuard v1, live async dispatch revalidation and optional Client detail projection. Require executing identity and proven metadata; preserve SQL and no-retry semantics. Shared DML publication in MCP remains pending and production blocked.
+
+- Contract 1.13.0 exposes nullable negotiated sourceSchema/sourceConstraints in authorized Client agent detail. Live local registration is required; no SQL authority is inherited. Existing access gates and the production release block remain unchanged.
+
+- Persona delegation contract 1.8.0: explicit persisted administrative ceilings,
+  additive migration and conservative source-only defaults for existing credentials.
+  Verification never expands scopes or authorizes agents/human operation approval.
+  Production release remains blocked.
+
+### Fixed — aceite coordenado persona-v2
+
+- Guard e manifesto passam a exigir também shared-knowledge-and-compatibility, alinhados aos 14 gates do MCP. Nenhum gate foi concluído; deploy permanece bloqueado.
+
+### Added — delegação Client persona-v2
+
+- Contrato REST 1.7.0 com emissão/verificação/revogação de credencial opaca de
+  identidade Client, vinculada a persona, origem e época das credenciais, por
+  30 dias. Hash no hub, auditoria transacional de metadados e migration aditiva.
+  Não emite JWT nem concede acesso ao agente ou aprovação humana. MCP usa a
+  prova para setups de fonte; aceite integral e deploy continuam bloqueados.
+
+### Added — homologação persona-v2 isolada
+
+- Companion explícito `tool/homologation/persona_chain_hub.cts` para o runner MCP
+  dos quatro motores. Usa rotas HTTP/JWT/Socket.IO reais e repositórios privados
+  em memória; não abre banco operacional, não envia e-mail e não libera deploy.
+  Bootstrap Prisma, Redis distribuído e demais gates exigem evidência própria.
+
 ### Changed — TypeScript 7
 
 - `build` e `typecheck` usam o compilador nativo TypeScript 7.0.2 (`@typescript/native`). O comando do dia a dia é `npm run tsc`.

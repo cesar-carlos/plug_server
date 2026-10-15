@@ -5,6 +5,7 @@ export const SQL_OPERATION_METHODS = [
 ] as const;
 import { z } from "zod";
 import { expectedSourceSchema } from "./source_discovery";
+import { expectedStructureSchema } from "./source_schema";
 
 const name = z
   .string()
@@ -74,11 +75,39 @@ export const sqlOperationReferenceParamsSchema = z.strictObject({
 /** Transport validation only; no SQL parsing, rewriting or business authorization in the hub. */
 export const sqlOperationExecuteParamsSchema = sqlOperationReferenceParamsSchema
   .extend({
+    expectedStructure: expectedStructureSchema.optional(),
     steps: z.array(step).min(1).max(32),
     maxAffectedRows: z.number().int().positive().max(100000),
     timeoutMs: z.number().int().positive().max(300000),
   })
   .superRefine((command, ctx) => {
+    if (command.expectedStructure) {
+      if (!command.expectedSource)
+        ctx.addIssue({
+          code: "custom",
+          path: ["expectedSource"],
+          message: "Structure requires executing-source identity",
+        });
+      for (const [index, resource] of command.expectedStructure.resources.entries()) {
+        if (resource.columns.some((column) => column.nullable === null))
+          ctx.addIssue({
+            code: "custom",
+            path: ["expectedStructure", "resources", index, "columns"],
+            message: "Unknown nullability cannot be an execution expectation",
+          });
+        if (
+          resource.constraints &&
+          Object.values(resource.constraints).some((keys) =>
+            keys.some((key) => key.status !== "enabled"),
+          )
+        )
+          ctx.addIssue({
+            code: "custom",
+            path: ["expectedStructure", "resources", index, "constraints"],
+            message: "Only proven enabled constraints may be expected",
+          });
+      }
+    }
     const previous = new Map<string, z.infer<typeof step>>();
     let writes = 0;
     for (const [index, item] of command.steps.entries()) {

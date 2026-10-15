@@ -1,0 +1,143 @@
+{
+  "node": "v24.18.0",
+  "platform": "win32",
+  "method": "Same machine and Node; 2 warmup rounds, 9 measured rounds, 12 iterations per round. Median of per-round times; loopback median of per-round p95. Synthetic fixtures only, no real database. Heap deltas are GC-sensitive and do not measure peak retained memory.",
+  "microbenchmarks": [
+    {
+      "name": "numeric",
+      "rows": 2000,
+      "columns": 16,
+      "beforeMedianMs": 7.8072083333333255,
+      "afterMedianMs": 1.6875666666666642,
+      "reductionPercent": 78.38450577190952,
+      "identicalOutputHash": true
+    },
+    {
+      "name": "wide",
+      "rows": 1000,
+      "columns": 64,
+      "beforeMedianMs": 16.17759166666667,
+      "afterMedianMs": 4.5435583333333325,
+      "reductionPercent": 71.91449489545984,
+      "identicalOutputHash": true
+    },
+    {
+      "name": "unicode",
+      "rows": 2000,
+      "columns": 16,
+      "beforeMedianMs": 8.881616666666673,
+      "afterMedianMs": 3.732183333333334,
+      "reductionPercent": 57.978558708343286,
+      "identicalOutputHash": true
+    },
+    {
+      "name": "rest-completion",
+      "rows": 100000,
+      "columns": 1,
+      "beforeMedianMs": 0.7502250000000004,
+      "afterMedianMs": 0.001033333333320267,
+      "reductionPercent": 99.862263543161,
+      "identicalOutputHash": true
+    }
+  ],
+  "loopback": [
+    {
+      "fastPath": false,
+      "slowConsumer": false,
+      "beforeMedianP95Ms": 9.70109999999977,
+      "afterMedianP95Ms": 5.557999999999993,
+      "beforeMedianThroughput": 140.99715538239028,
+      "afterMedianThroughput": 222.80605661130627,
+      "noLossDuplicatesOrReordering": true
+    },
+    {
+      "fastPath": false,
+      "slowConsumer": true,
+      "beforeMedianP95Ms": 125.878999999999,
+      "afterMedianP95Ms": 125.01119999999901,
+      "beforeMedianThroughput": 8.248195346409437,
+      "afterMedianThroughput": 8.27686785111406,
+      "noLossDuplicatesOrReordering": true
+    },
+    {
+      "fastPath": true,
+      "slowConsumer": false,
+      "beforeMedianP95Ms": 7.3320999999996275,
+      "afterMedianP95Ms": 6.9821999999985565,
+      "beforeMedianThroughput": 190.82573475859687,
+      "afterMedianThroughput": 196.25608802739853,
+      "noLossDuplicatesOrReordering": true
+    },
+    {
+      "fastPath": true,
+      "slowConsumer": true,
+      "beforeMedianP95Ms": 126.2497000000003,
+      "afterMedianP95Ms": 125.49499999999898,
+      "beforeMedianThroughput": 8.269431302939909,
+      "afterMedianThroughput": 8.23873774848202,
+      "noLossDuplicatesOrReordering": true
+    }
+  ],
+  "runtimeFiles": [
+    {
+      "path": "src/infrastructure/codecs/sql_stream_chunk_inspection.ts",
+      "sha256": "f918713895bc536a3e21e227fee5c325d6703177caed6081dc63f3818fa3ace7"
+    },
+    {
+      "path": "src/infrastructure/codecs/sql_stream_chunk_codec.ts",
+      "sha256": "a8e94cb75d5e351f1620a30ef6c8c0734097851c84ea9092ca09f0eafbada039"
+    },
+    {
+      "path": "src/application/agent_commands/merge_sql_stream_rpc_response.ts",
+      "sha256": "4106297ef3b50db857599b35909f20ba9ada75dd6aadc6f82f95ad6c46ecff92"
+    },
+    {
+      "path": "src/presentation/socket/hub/handshake/agent_inbound_contract_validation.ts",
+      "sha256": "fa110ca4f1fb35eae0bc70b8f6ab7682e58c24504ba85707d7f54600c808ce23"
+    },
+    {
+      "path": "src/presentation/socket/hub/relay/rpc_bridge_agent_inbound.ts",
+      "sha256": "8f421f0b7cfcc328f7a911993e146c9681a10c1c51fe9c345941389d62814504"
+    },
+    {
+      "path": "src/presentation/socket/hub/relay/rest_stream_materialize_handler.ts",
+      "sha256": "24c94b147fde3d50b6ff8f06dff16ec1d6ef276144fb0421b0c6b34a2a390467"
+    }
+  ],
+  "validation": {
+    "focusedTestsPassed": 40,
+    "lint": "passed",
+    "typecheck": "passed",
+    "formatChangedFiles": "passed",
+    "contractCheck": "passed",
+    "fullSuite": {
+      "passed": 2181,
+      "skipped": 23,
+      "filesPassed": 307,
+      "filesSkipped": 6,
+      "persistence": "memory; external database/Redis acceptance not performed"
+    },
+    "releaseGuard": "blocked as required",
+    "contractFilesUnchanged": true
+  },
+  "release": {
+    "generation": "persona-v2",
+    "ready": false,
+    "requiredGates": [
+      "shared-knowledge-and-compatibility",
+      "identity-and-authorization",
+      "training-and-local-query",
+      "federation",
+      "agent-operation-journal",
+      "hub-operation-contract",
+      "operation-approval-and-reconciliation",
+      "external-rest-and-mcp",
+      "oauth-and-console",
+      "postgres-real",
+      "mssql-real",
+      "sybase-real",
+      "coordinated-cutover"
+    ],
+    "completedGates": []
+  }
+}

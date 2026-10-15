@@ -90,7 +90,14 @@ export const getMyClientAgent = async (
   ]);
   recordClientMeAgentsDetailResponse(isHubConnected);
   response.status(200).json({
-    agent: toClientAgentDto(result.value, isHubConnected, hasClientToken),
+    agent: {
+      ...toClientAgentDto(result.value, isHubConnected, hasClientToken),
+      sqlOperations: container.restAgentBridgeService.sqlOperationCapabilities?.(agentId) ?? null,
+      sourceIdentity: container.restAgentBridgeService.sourceIdentityCapability?.(agentId) ?? null,
+      sourceSchema: container.restAgentBridgeService.sourceSchemaCapability?.(agentId) ?? null,
+      sourceConstraints:
+        container.restAgentBridgeService.sourceConstraintsCapability?.(agentId) ?? null,
+    },
   });
 };
 

@@ -1,0 +1,343 @@
+{
+  "node": "v24.18.0",
+  "platform": "win32",
+  "phase": "after",
+  "repetitions": 9,
+  "iterations": 12,
+  "files": [
+    {
+      "path": "src/infrastructure/codecs/sql_stream_chunk_inspection.ts",
+      "sha256": "f918713895bc536a3e21e227fee5c325d6703177caed6081dc63f3818fa3ace7"
+    },
+    {
+      "path": "src/infrastructure/codecs/sql_stream_chunk_codec.ts",
+      "sha256": "a8e94cb75d5e351f1620a30ef6c8c0734097851c84ea9092ca09f0eafbada039"
+    },
+    {
+      "path": "src/application/agent_commands/merge_sql_stream_rpc_response.ts",
+      "sha256": "4106297ef3b50db857599b35909f20ba9ada75dd6aadc6f82f95ad6c46ecff92"
+    }
+  ],
+  "reports": [
+    {
+      "name": "numeric",
+      "rowCount": 2000,
+      "width": 16,
+      "samples": [
+        {
+          "ms": 2.0539500000000004,
+          "cpu": {
+            "user": 31000,
+            "system": 0
+          },
+          "heapGrowthBytes": -6178848
+        },
+        {
+          "ms": 1.6864083333333326,
+          "cpu": {
+            "user": 0,
+            "system": 16000
+          },
+          "heapGrowthBytes": 2170904
+        },
+        {
+          "ms": 1.5210333333333352,
+          "cpu": {
+            "user": 16000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5697392
+        },
+        {
+          "ms": 1.6332500000000014,
+          "cpu": {
+            "user": 31000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5705696
+        },
+        {
+          "ms": 1.7841833333333312,
+          "cpu": {
+            "user": 15000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5653864
+        },
+        {
+          "ms": 1.6875666666666642,
+          "cpu": {
+            "user": 16000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5717240
+        },
+        {
+          "ms": 1.7430833333333358,
+          "cpu": {
+            "user": 31000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5653648
+        },
+        {
+          "ms": 1.6439749999999975,
+          "cpu": {
+            "user": 16000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5659536
+        },
+        {
+          "ms": 1.762241666666668,
+          "cpu": {
+            "user": 16000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5676472
+        }
+      ],
+      "outputHash": "82efc394737cf9fb3e3b201b7e7bb7e1d36648f8aa07667b0bf5d6cfc4c52722"
+    },
+    {
+      "name": "wide",
+      "rowCount": 1000,
+      "width": 64,
+      "samples": [
+        {
+          "ms": 4.386566666666667,
+          "cpu": {
+            "user": 46000,
+            "system": 0
+          },
+          "heapGrowthBytes": -8545464
+        },
+        {
+          "ms": 4.370383333333336,
+          "cpu": {
+            "user": 32000,
+            "system": 16000
+          },
+          "heapGrowthBytes": 22274368
+        },
+        {
+          "ms": 4.5435583333333325,
+          "cpu": {
+            "user": 78000,
+            "system": 46000
+          },
+          "heapGrowthBytes": -8268640
+        },
+        {
+          "ms": 4.5602916666666715,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": 22357664
+        },
+        {
+          "ms": 5.015591666666675,
+          "cpu": {
+            "user": 62000,
+            "system": 0
+          },
+          "heapGrowthBytes": 17593776
+        },
+        {
+          "ms": 4.8418583333333345,
+          "cpu": {
+            "user": 63000,
+            "system": 0
+          },
+          "heapGrowthBytes": -44414872
+        },
+        {
+          "ms": 4.579108333333333,
+          "cpu": {
+            "user": 62000,
+            "system": 0
+          },
+          "heapGrowthBytes": 22972608
+        },
+        {
+          "ms": 4.289441666666666,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": -43436256
+        },
+        {
+          "ms": 4.21845,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": 16830048
+        }
+      ],
+      "outputHash": "f415303fe2e65283387a907e82f9a046ce34713c7896bcaadd13fd22c2f5bdec"
+    },
+    {
+      "name": "unicode",
+      "rowCount": 2000,
+      "width": 16,
+      "samples": [
+        {
+          "ms": 3.6720083333333187,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": 24548584
+        },
+        {
+          "ms": 3.767208333333334,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": 24548592
+        },
+        {
+          "ms": 3.7093083333333348,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": -40757688
+        },
+        {
+          "ms": 3.920966666666667,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": 24548784
+        },
+        {
+          "ms": 3.7454999999999927,
+          "cpu": {
+            "user": 31000,
+            "system": 16000
+          },
+          "heapGrowthBytes": 24561736
+        },
+        {
+          "ms": 3.732183333333334,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": -42562000
+        },
+        {
+          "ms": 3.825575000000015,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": 24548784
+        },
+        {
+          "ms": 3.652750000000007,
+          "cpu": {
+            "user": 31000,
+            "system": 0
+          },
+          "heapGrowthBytes": -42540840
+        },
+        {
+          "ms": 3.5215166666666655,
+          "cpu": {
+            "user": 47000,
+            "system": 0
+          },
+          "heapGrowthBytes": 24562416
+        }
+      ],
+      "outputHash": "d2c2a9dab84536629f6df63c3b27dab59cffc5b5eef3d8ea1b98cf5aa7f5f335"
+    },
+    {
+      "name": "rest-completion",
+      "rowCount": 100000,
+      "width": 1,
+      "samples": [
+        {
+          "ms": 0.0015583333333400635,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9096
+        },
+        {
+          "ms": 0.0013333333333396997,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9208
+        },
+        {
+          "ms": 0.0006083333333322116,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9048
+        },
+        {
+          "ms": 0.001033333333320267,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9048
+        },
+        {
+          "ms": 0.0018833333333342732,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9048
+        },
+        {
+          "ms": 0.0015750000000025466,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9048
+        },
+        {
+          "ms": 0.0010250000000079733,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9048
+        },
+        {
+          "ms": 0.0009000000000014552,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9048
+        },
+        {
+          "ms": 0.0008250000000013339,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 9048
+        }
+      ],
+      "outputHash": "318034c4ce40c3749a825785a4c72c144de16b254ac4a886affdff1707e5b0da"
+    }
+  ]
+}

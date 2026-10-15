@@ -38,5 +38,36 @@ describe("RestAgentBridgeService", () => {
     expect(service.isAgentConnected("agent-2")).toBe(false);
     expect(service.getAgentsNamespaceConnectionCount()).toBe(4);
     expect(service.getDispatchCommand()).toBe(dispatch);
+    expect(service.sqlOperationCapabilities("agent-1")).toBeNull();
+    expect(service.sqlOperationCapabilities("absent")).toBeNull();
+    agents[0]!.capabilities.extensions = {
+      sqlOperations: {
+        enabled: true,
+        version: 1,
+        durableJournal: true,
+        singleSourceTransaction: true,
+        automaticReplay: false,
+        maxSteps: 100,
+        maxAffectedRows: 12,
+        timeoutMs: 9000,
+      },
+    };
+    expect(service.sqlOperationCapabilities("agent-1")).toEqual({
+      version: 1,
+      maxSteps: 32,
+      maxAffectedRows: 12,
+      timeoutMs: 9000,
+    });
+    agents[0]!.capabilities.extensions = { sqlOperations: { enabled: false, version: 1 } };
+    expect(service.sqlOperationCapabilities("agent-1")).toBeNull();
+    for (const version of [1, 2, null]) {
+      agents[0]!.capabilities.extensions = { sourceSchema: version, sourceConstraints: version };
+      expect(service.sourceSchemaCapability("agent-1")).toBe(version === 1 ? 1 : null);
+      expect(service.sourceConstraintsCapability("agent-1")).toBe(version === 1 ? 1 : null);
+    }
+    agents[0]!.capabilities.extensions = { sourceSchema: 1, sourceConstraints: 1 };
+    agents.length = 0;
+    expect(service.sourceSchemaCapability("agent-1")).toBeNull();
+    expect(service.sourceConstraintsCapability("agent-1")).toBeNull();
   });
 });

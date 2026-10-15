@@ -126,6 +126,10 @@ export const extractSqlStatementTimeoutMs = (
   if (Array.isArray(command)) {
     let max: number | undefined;
     for (const item of command) {
+      if (item.method === "sql.operation.execute") {
+        const t = item.params.timeoutMs;
+        if (typeof t === "number") max = max === undefined ? t : Math.max(max, t);
+      }
       if (
         item.method === "sql.execute" ||
         item.method === "sql.executeBatch" ||
@@ -149,6 +153,7 @@ export const extractSqlStatementTimeoutMs = (
     return typeof t === "number" && Number.isFinite(t) ? t : undefined;
   }
 
+  if (command.method === "sql.operation.execute") return command.params.timeoutMs;
   return undefined;
 };
 

@@ -40,3 +40,12 @@ Then apply the relevant rules from these groups:
 - When rules overlap or appear to conflict, follow the precedence defined in `./.cursor/rules/governance.mdc`.
 - Prefer referencing the existing rule files over duplicating instructions in new files.
 - Do not rewrite the rule set into this file unless the project intentionally migrates away from `./.cursor/rules`.
+
+## Persona-v2 SQL operations
+
+REST contract 1.2.0 adds versioned sql.operation.execute/get/cancel transport.
+See docs/api/api_rest_bridge.md and the websocket rule. Forward only through
+authenticated ready-agent sqlOperations v1 negotiation; the agent opt-in defaults
+off. Preserve unrelated contracts, SQL and journal metadata, including null counts.
+Never resend operations through ACK retry or recommend retry after possible effects.
+The persona-v2 acceptance manifest remains ready:false; Docker/release remain blocked.

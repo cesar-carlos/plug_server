@@ -1,4 +1,4 @@
-﻿# Regras de Negocio - User, Agent e Client
+# Regras de Negocio - User, Agent e Client
 
 Data: 2026-04-02
 
@@ -129,8 +129,8 @@ Importante:
 
 ### Perfil no catalogo: versao, pull sync e tempo real
 
-- O RPC `agent.getProfile` deve preferencialmente devolver `profile_version` (inteiro monotonico alinhado ao servidor). Agentes legados podem omitir o campo; o hub aplica regras de *fallback* ao sincronizar.
-- O *pull sync* no registo compara a versao remota com a do catalogo: versao remota **menor** que a do servidor é ignorada (servidor mais novo); versao **igual** com **conteudo** de perfil diferente falha o sync (divergencia operacional a resolver antes de novo registo/sync).
+- O RPC `agent.getProfile` deve preferencialmente devolver `profile_version` (inteiro monotonico alinhado ao servidor). Agentes legados podem omitir o campo; o hub aplica regras de _fallback_ ao sincronizar.
+- O _pull sync_ no registo compara a versao remota com a do catalogo: versao remota **menor** que a do servidor é ignorada (servidor mais novo); versao **igual** com **conteudo** de perfil diferente falha o sync (divergencia operacional a resolver antes de novo registo/sync).
 - O proprio agente (JWT de `agent-login`) pode atualizar o perfil por HTTP em `PATCH /api/v1/agents/{agentId}/profile` com patch parcial; o OpenAPI em `/docs` descreve `expectedProfileVersion` (CAS), `Idempotency-Key` / `idempotencyKey` e respostas `409` quando aplicavel.
 - Quando ligado ao namespace `/agents`, o proprio agente tambem pode enviar `agent:profile.update` em `PayloadFrame`; o payload usa `snake_case` (`trade_name`, `postal_code`, `profile_version`, `expected_profile_version`, `idempotency_key`) e o hub responde em `agent:profile.updated` com `success=true|false`, `agent_id`, `profileVersion`, `profileUpdatedAt` e o snapshot atualizado quando a escrita e aceite.
 - Respostas HTTP e listagens de catalogo expoem `profileVersion` (e `profileUpdatedAt` quando existir) para clientes e administracao acompanharem revisoes.
@@ -380,3 +380,41 @@ Governanca do user sobre clients:
 - `POST /api/v1/me/client-access-requests/{requestId}/reject`
 - `GET /api/v1/me/agents/{agentId}/clients`
 - `DELETE /api/v1/me/agents/{agentId}/clients/{clientId}`
+
+## Delegação de identidade Client para persona-v2
+
+Contrato aditivo 1.8.0. POST `/api/v1/client-auth/persona-delegations` exige JWT
+Client e conta ativa; recebe audience HTTPS canônica (origem sem path/query) e
+personaId UUID. Retorna id, clientId, audience, personaId, expiresAt e credencial
+opaca uma única vez. Prazo de 30 dias; banco guarda somente SHA-256 da credencial.
+POST `/api/v1/client-auth/persona-delegations/verify` usa essa credencial em Bearer
+próprio, nunca cookie/JWT, e confere vínculo, expiração, revogação, Client ativo e
+época de suas credenciais. Retorna prova de identidade, sem JWT ou senha.
+DELETE `/api/v1/client-auth/persona-delegations/:id` exige JWT Client e revoga
+somente registro daquele Client; repetição não restaura autoridade.
+
+A credencial prova apenas identidade Client ativa. Não é aceita por `/client-auth/me`,
+rotas de agentes ou aprovações. Não concede ClientAgentAccess, policy, treinamento,
+capacidade SQL nem aprovação humana. Persona/origem são vínculos opacos do MCP;
+o hub não interpreta treinamento. Mudança de senha/época invalida registros antigos.
+Credencial/hash não entram na auditoria: criação/revogação persistem metadados na
+mesma transação, com papel Client distinto de User. Migration aditiva preserva dados.
+
+O MCP mantém a credencial cifrada e verifica fora de suas transações. Não há
+atomicidade distribuída entre essa prova e o commit MCP. Setups exigem também
+permissão explícita, CSRF, prazo e nova autenticação humana. Homologação integral,
+instalação ChatGPT e demais permissões administrativas continuam pendentes.
+Deploy e publicação de imagens permanecem bloqueados.
+
+### Explicit administrative delegation ceilings (contract 1.8.0)
+
+Issuance accepts an explicit `administrative` array: treinar, publicar,
+gerenciar_fontes, gerenciar_tokens and gerenciar_integracoes. At least one,
+no duplicates or unknown values. Omission and previously persisted delegations
+retain only gerenciar_fontes; renew explicitly to expand the ceiling. The proof
+returns exactly the persisted selection; verification accepts bindings only.
+This is an upper bound for MCP administration, not agent policy, JWT authority,
+execution permission or human approval. MCP must intersect its token and OAuth
+consent and verify active identity/revocation outside its own local transaction.
+The additive Prisma migration preserves existing data; metadata audit records
+the selected ceiling without credential content. No automatic deployment.

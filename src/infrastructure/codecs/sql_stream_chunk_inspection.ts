@@ -8,6 +8,8 @@ export type SqlChunkInspection =
   | { readonly ok: true; readonly rowCount: number; readonly columns?: readonly SqlColumn[] }
   | { readonly ok: false; readonly message: string };
 
+export type ValidSqlChunkInspection = Extract<SqlChunkInspection, { readonly ok: true }>;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -56,16 +58,31 @@ export const readSqlChunkRows = (chunk: Record<string, unknown>): readonly unkno
   const result = inspectSqlStreamChunk(chunk);
   if (!result.ok) throw new Error(result.message);
   if (result.columns === undefined) return chunk.rows as readonly unknown[];
+  return expandInspectedSqlChunkRows(result);
+};
+
+/** The caller owns this inspection for the same unmodified, decoded chunk. */
+export const expandInspectedSqlChunkRows = (
+  result: ValidSqlChunkInspection,
+): readonly Record<string, unknown>[] => {
+  const columns = result.columns ?? [];
+  const defineOwn = columns.map((column) => column.name in Object.prototype);
   const rows: Record<string, unknown>[] = new Array(result.rowCount);
   for (let index = 0; index < rows.length; index++) {
     const row: Record<string, unknown> = {};
-    for (const column of result.columns) {
-      Object.defineProperty(row, column.name, {
-        value: column.values[index],
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      });
+    for (let c = 0; c < columns.length; c++) {
+      const column = columns[c]!;
+      if (defineOwn[c]) {
+        // Preserve own data properties even for __proto__ and inherited names.
+        Object.defineProperty(row, column.name, {
+          value: column.values[index],
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      } else {
+        row[column.name] = column.values[index];
+      }
     }
     rows[index] = row;
   }

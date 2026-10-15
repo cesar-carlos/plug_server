@@ -112,6 +112,46 @@ export const agentCatalogSchemas = {
       "hasClientToken",
     ],
     properties: {
+      sourceSchema: {
+        type: "integer",
+        enum: [1],
+        nullable: true,
+        description:
+          "Authorized detail-only local sourceSchema v1 snapshot; null without live negotiated support. It grants no SQL authority; dispatch revalidates registration.",
+      },
+      sourceConstraints: {
+        type: "integer",
+        enum: [1],
+        nullable: true,
+        description:
+          "Authorized detail-only local sourceConstraints v1 snapshot. Technical support does not prove every constraint status or grant SQL authority.",
+      },
+      sourceIdentity: {
+        type: "integer",
+        enum: [1],
+        nullable: true,
+        description:
+          "Executing-connection native source identity v1; detail only, dispatch revalidates live registration.",
+      },
+      sqlOperations: {
+        type: "object",
+        nullable: true,
+        description:
+          "Optional detail-only snapshot of SQL operation v1 limits on this hub instance. Null when unavailable. Dispatch revalidates live registration; technical support grants no authority.",
+        required: ["version", "maxSteps", "maxAffectedRows", "timeoutMs"],
+        properties: {
+          version: { type: "integer", enum: [1] },
+          structureGuard: {
+            type: "integer",
+            enum: [1],
+            description:
+              "Optional exact negotiation for expectedStructure before SQL operation begin; absence means unavailable.",
+          },
+          maxSteps: { type: "integer", minimum: 1, maximum: 32 },
+          maxAffectedRows: { type: "integer", minimum: 1, maximum: 100000 },
+          timeoutMs: { type: "integer", minimum: 1, maximum: 300000 },
+        },
+      },
       agentId: { type: "string", format: "uuid" },
       name: { type: "string" },
       tradeName: { type: "string", nullable: true },

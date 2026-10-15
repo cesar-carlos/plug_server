@@ -1,3 +1,4 @@
+import { clientDelegationRouter } from "./client_delegation.routes";
 import { Router } from "express";
 
 import { getHealth, getHealthLive, getHealthReady } from "../controllers/health.controller";
@@ -21,6 +22,7 @@ import { userClientsRouter } from "./user_clients.routes";
 export const httpRouter = Router();
 
 httpRouter.use("/auth", authRouter);
+httpRouter.use("/client-auth/persona-delegations", clientDelegationRouter);
 httpRouter.use("/client-auth", clientAuthRouter);
 httpRouter.use("/", clientAgentsRouter);
 httpRouter.use("/", clientSocketEventsRouter);

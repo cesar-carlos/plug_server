@@ -23,9 +23,10 @@ type AccountAuthService = Pick<AuthService, "getMeProfile" | "invalidateSnapshot
 
 const createAccountAuthService = (): AccountAuthService => ({
   invalidateSnapshotCache: vi.fn<(userId: string) => void>(),
-  getMeProfile: vi.fn<
-    (jwtUser: JwtAccessPayload, preloadedUser?: User) => Promise<Result<MeUserResponseDto>>
-  >(),
+  getMeProfile:
+    vi.fn<
+      (jwtUser: JwtAccessPayload, preloadedUser?: User) => Promise<Result<MeUserResponseDto>>
+    >(),
 });
 
 const makeAccessPayload = (user: User): JwtAccessPayload => ({

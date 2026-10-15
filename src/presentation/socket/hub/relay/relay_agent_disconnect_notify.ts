@@ -86,7 +86,14 @@ export const emitRelayAgentDisconnectedUnary = (
       code: -32000,
       message: "Agent disconnected while waiting for response",
       data: {
-        code: "AGENT_DISCONNECTED",
+        code:
+          route.jsonRpcMethod === "sql.operation.execute"
+            ? "SQL_OPERATION_OUTCOME_UNKNOWN"
+            : "AGENT_DISCONNECTED",
+        ...(route.jsonRpcMethod?.startsWith("sql.operation.") ? { retryable: false } : {}),
+        ...(route.jsonRpcMethod === "sql.operation.execute"
+          ? { outcome_unknown: true, hint: "Query sql.operation.get; never resend automatically." }
+          : {}),
         conversation_id: route.conversationId,
       },
     },

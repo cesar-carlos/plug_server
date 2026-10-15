@@ -1,5 +1,8 @@
 import { env } from "../../../../shared/config/env";
-import { inspectSqlStreamChunk } from "../../../../infrastructure/codecs/sql_stream_chunk_inspection";
+import {
+  inspectSqlStreamChunk,
+  type ValidSqlChunkInspection,
+} from "../../../../infrastructure/codecs/sql_stream_chunk_inspection";
 import { HUB_MAX_BATCH_SIZE } from "../../../../shared/constants/agent_transport_contract";
 import { socketEvents } from "../../../../shared/constants/socket_events";
 import { noteAgentInboundContractValidationFailed } from "../../../../shared/metrics/socket_agent.metrics";
@@ -23,6 +26,7 @@ interface AgentInboundContractValidationInput {
   readonly eventName: AgentInboundContractEvent;
   readonly payload: unknown;
   readonly socketId: string;
+  readonly onSqlChunkInspected?: (inspection: ValidSqlChunkInspection) => void;
 }
 
 export type AgentInboundContractValidationResult =
@@ -256,7 +260,10 @@ const validateRecordArray = (
   return null;
 };
 
-const validateRpcChunk = (payload: unknown): ContractValidationFailure | null => {
+const validateRpcChunk = (
+  payload: unknown,
+  onInspected?: (inspection: ValidSqlChunkInspection) => void,
+): ContractValidationFailure | null => {
   if (!isRecord(payload)) {
     return reject("rpc:chunk payload must be an object");
   }
@@ -280,6 +287,7 @@ const validateRpcChunk = (payload: unknown): ContractValidationFailure | null =>
   if (payload.columnar !== undefined) {
     const inspected = inspectSqlStreamChunk(payload);
     if (!inspected.ok) return reject(inspected.message);
+    onInspected?.(inspected);
   }
   if (payload.total_chunks !== undefined && !isPositiveInteger(payload.total_chunks)) {
     return reject("rpc:chunk total_chunks must be a positive integer");
@@ -375,12 +383,13 @@ const validateRpcBatchAck = (payload: unknown): ContractValidationFailure | null
 const validatePayloadForEvent = (
   eventName: AgentInboundContractEvent,
   payload: unknown,
+  onSqlChunkInspected?: (inspection: ValidSqlChunkInspection) => void,
 ): ContractValidationFailure | null => {
   if (eventName === socketEvents.rpcResponse) {
     return validateRpcResponse(payload);
   }
   if (eventName === socketEvents.rpcChunk) {
-    return validateRpcChunk(payload);
+    return validateRpcChunk(payload, onSqlChunkInspected);
   }
   if (eventName === socketEvents.rpcComplete) {
     return validateRpcComplete(payload);
@@ -399,7 +408,11 @@ export const validateAgentInboundContract = (
     return { ok: true, shouldProcess: true };
   }
 
-  const validation = validatePayloadForEvent(input.eventName, input.payload);
+  const validation = validatePayloadForEvent(
+    input.eventName,
+    input.payload,
+    input.onSqlChunkInspected,
+  );
   if (validation === null) {
     return { ok: true, shouldProcess: true };
   }

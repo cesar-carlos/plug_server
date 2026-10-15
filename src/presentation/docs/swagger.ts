@@ -1,3 +1,6 @@
+import { agentCatalogSchemas } from "./swagger/agent_catalog_schemas";
+import { sqlOperationBridgeSchemas } from "./swagger/sql_operation_schemas";
+import { sourceDiscoveryBridgeSchemas } from "./swagger/source_discovery_schemas";
 import type { Express, Request, Response, NextFunction } from "express";
 import type SwaggerJSDoc from "swagger-jsdoc";
 import type * as SwaggerUi from "swagger-ui-express";
@@ -74,6 +77,8 @@ const swaggerDefinition = {
       },
     },
     schemas: {
+      ...sqlOperationBridgeSchemas,
+      ...sourceDiscoveryBridgeSchemas,
       ErrorResponse: {
         type: "object",
         required: ["success", "message", "code", "error"],
@@ -342,6 +347,8 @@ const swaggerDefinition = {
           auth: { type: "string", minLength: 1 },
           idempotency_key: { type: "string", minLength: 1 },
           database: { type: "string", minLength: 1 },
+          expectedSource: { $ref: "#/components/schemas/ExpectedSource" },
+          expectedStructure: { $ref: "#/components/schemas/ExpectedStructure" },
           options: { $ref: "#/components/schemas/SqlExecuteOptions" },
         },
         additionalProperties: false,
@@ -726,6 +733,11 @@ const swaggerDefinition = {
           { $ref: "#/components/schemas/RpcAgentActionCancelCommand" },
           { $ref: "#/components/schemas/RpcAgentActionGetExecutionCommand" },
           { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
+          { $ref: "#/components/schemas/RpcSourceDiscoveryCommand" },
+          { $ref: "#/components/schemas/RpcSourceSchemaCommand" },
+          { $ref: "#/components/schemas/RpcSqlOperationExecuteCommand" },
+          { $ref: "#/components/schemas/RpcSqlOperationGetCommand" },
+          { $ref: "#/components/schemas/RpcSqlOperationCancelCommand" },
           { $ref: "#/components/schemas/RpcSqlExecuteCommand" },
           { $ref: "#/components/schemas/RpcSqlExecuteBatchCommand" },
           { $ref: "#/components/schemas/RpcSqlBulkInsertCommand" },
@@ -966,52 +978,7 @@ const swaggerDefinition = {
           status: { type: "string", enum: ["active", "inactive"] },
         },
       },
-      ClientAccessibleAgent: {
-        type: "object",
-        required: [
-          "agentId",
-          "name",
-          "status",
-          "profileVersion",
-          "createdAt",
-          "updatedAt",
-          "isHubConnected",
-          "hasClientToken",
-        ],
-        properties: {
-          agentId: { type: "string", format: "uuid" },
-          name: { type: "string" },
-          tradeName: { type: "string", nullable: true },
-          document: { type: "string", nullable: true },
-          cnpjCpf: { type: "string", nullable: true },
-          documentType: { type: "string", enum: ["cpf", "cnpj"], nullable: true },
-          phone: { type: "string", nullable: true },
-          mobile: { type: "string", nullable: true },
-          email: { type: "string", nullable: true, format: "email" },
-          address: { $ref: "#/components/schemas/AgentAddress" },
-          notes: { type: "string", nullable: true },
-          observation: { type: "string", nullable: true },
-          profileUpdatedAt: { type: "string", format: "date-time", nullable: true },
-          profileVersion: {
-            type: "integer",
-            minimum: 0,
-            description: "Monotonic profile revision counter on the server.",
-          },
-          status: { type: "string", enum: ["active", "inactive"] },
-          createdAt: { type: "string", format: "date-time" },
-          updatedAt: { type: "string", format: "date-time" },
-          isHubConnected: {
-            type: "boolean",
-            description:
-              "Snapshot at response time: whether this hub process currently has this agent registered on the /agents Socket.IO namespace after agent:register. May change between polls; with refresh=true the value reflects the registry after any live profile work for that request. Per-process: false if the agent is connected only to another replica or not registered on this instance. Not the same as catalog status (active/inactive). When `HUB_INSTANCE_ID` is set, every Express response (REST, Swagger, /metrics, 404) carries header `X-Hub-Instance-Id` for sticky-session validation and replica correlation.",
-          },
-          hasClientToken: {
-            type: "boolean",
-            description:
-              "Whether the authenticated client has stored a per-(client, agent) bearer token (used as `sql.execute params.client_token`). The actual value is **not** returned by listing/detail endpoints — fetch it via `GET /client/me/agents/{agentId}/client-token`.",
-          },
-        },
-      },
+      ClientAccessibleAgent: agentCatalogSchemas.ClientAccessibleAgent,
       ClientAgentTokenRequest: {
         type: "object",
         required: ["clientToken"],

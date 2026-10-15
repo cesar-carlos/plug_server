@@ -1,0 +1,343 @@
+{
+  "node": "v24.18.0",
+  "platform": "win32",
+  "phase": "before",
+  "repetitions": 9,
+  "iterations": 12,
+  "files": [
+    {
+      "path": "src/infrastructure/codecs/sql_stream_chunk_inspection.ts",
+      "sha256": "e737c5196c5222eb7a1ca943958a28262408fb0890d9105898fdc1336f797ed0"
+    },
+    {
+      "path": "src/infrastructure/codecs/sql_stream_chunk_codec.ts",
+      "sha256": "ff30dd4ce7c099a4335c0ce83c95c74fbb7c4c0b83a253eb50bf832870e0f610"
+    },
+    {
+      "path": "src/application/agent_commands/merge_sql_stream_rpc_response.ts",
+      "sha256": "f9d27e9b65bf0ee503f8f43e39cb260e6e943cef029336be6feb16c2b302810a"
+    }
+  ],
+  "reports": [
+    {
+      "name": "numeric",
+      "rowCount": 2000,
+      "width": 16,
+      "samples": [
+        {
+          "ms": 7.517041666666667,
+          "cpu": {
+            "user": 94000,
+            "system": 0
+          },
+          "heapGrowthBytes": -1957072
+        },
+        {
+          "ms": 7.659074999999997,
+          "cpu": {
+            "user": 78000,
+            "system": 0
+          },
+          "heapGrowthBytes": 6191040
+        },
+        {
+          "ms": 7.936824999999999,
+          "cpu": {
+            "user": 109000,
+            "system": 0
+          },
+          "heapGrowthBytes": -1892912
+        },
+        {
+          "ms": 8.565225000000007,
+          "cpu": {
+            "user": 109000,
+            "system": 31000
+          },
+          "heapGrowthBytes": -768328
+        },
+        {
+          "ms": 7.780183333333336,
+          "cpu": {
+            "user": 94000,
+            "system": 0
+          },
+          "heapGrowthBytes": -1933936
+        },
+        {
+          "ms": 7.8072083333333255,
+          "cpu": {
+            "user": 94000,
+            "system": 0
+          },
+          "heapGrowthBytes": 14868448
+        },
+        {
+          "ms": 7.753608333333337,
+          "cpu": {
+            "user": 94000,
+            "system": 0
+          },
+          "heapGrowthBytes": -2842832
+        },
+        {
+          "ms": 9.128850000000009,
+          "cpu": {
+            "user": 109000,
+            "system": 0
+          },
+          "heapGrowthBytes": -2067256
+        },
+        {
+          "ms": 7.881541666666654,
+          "cpu": {
+            "user": 78000,
+            "system": 16000
+          },
+          "heapGrowthBytes": -2502344
+        }
+      ],
+      "outputHash": "82efc394737cf9fb3e3b201b7e7bb7e1d36648f8aa07667b0bf5d6cfc4c52722"
+    },
+    {
+      "name": "wide",
+      "rowCount": 1000,
+      "width": 64,
+      "samples": [
+        {
+          "ms": 16.925258333333336,
+          "cpu": {
+            "user": 203000,
+            "system": 0
+          },
+          "heapGrowthBytes": -7001392
+        },
+        {
+          "ms": 16.900791666666674,
+          "cpu": {
+            "user": 203000,
+            "system": 0
+          },
+          "heapGrowthBytes": -5789456
+        },
+        {
+          "ms": 16.10605,
+          "cpu": {
+            "user": 188000,
+            "system": 0
+          },
+          "heapGrowthBytes": 10732760
+        },
+        {
+          "ms": 16.796258333333338,
+          "cpu": {
+            "user": 187000,
+            "system": 15000
+          },
+          "heapGrowthBytes": 9417504
+        },
+        {
+          "ms": 16.07472500000002,
+          "cpu": {
+            "user": 203000,
+            "system": 0
+          },
+          "heapGrowthBytes": 9904456
+        },
+        {
+          "ms": 16.18187500000003,
+          "cpu": {
+            "user": 172000,
+            "system": 16000
+          },
+          "heapGrowthBytes": -24314904
+        },
+        {
+          "ms": 16.078100000000024,
+          "cpu": {
+            "user": 125000,
+            "system": 47000
+          },
+          "heapGrowthBytes": 9845600
+        },
+        {
+          "ms": 16.17759166666667,
+          "cpu": {
+            "user": 188000,
+            "system": 15000
+          },
+          "heapGrowthBytes": 9125560
+        },
+        {
+          "ms": 15.909016666666654,
+          "cpu": {
+            "user": 171000,
+            "system": 16000
+          },
+          "heapGrowthBytes": -23714728
+        }
+      ],
+      "outputHash": "f415303fe2e65283387a907e82f9a046ce34713c7896bcaadd13fd22c2f5bdec"
+    },
+    {
+      "name": "unicode",
+      "rowCount": 2000,
+      "width": 16,
+      "samples": [
+        {
+          "ms": 8.774416666666639,
+          "cpu": {
+            "user": 109000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5077240
+        },
+        {
+          "ms": 8.804175000000024,
+          "cpu": {
+            "user": 110000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5189960
+        },
+        {
+          "ms": 8.52865833333332,
+          "cpu": {
+            "user": 93000,
+            "system": 0
+          },
+          "heapGrowthBytes": -28576528
+        },
+        {
+          "ms": 8.808083333333343,
+          "cpu": {
+            "user": 110000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5134920
+        },
+        {
+          "ms": 8.881616666666673,
+          "cpu": {
+            "user": 109000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5261824
+        },
+        {
+          "ms": 10.392925000000028,
+          "cpu": {
+            "user": 94000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5003920
+        },
+        {
+          "ms": 9.508450000000039,
+          "cpu": {
+            "user": 109000,
+            "system": 0
+          },
+          "heapGrowthBytes": 5133784
+        },
+        {
+          "ms": 8.88817499999997,
+          "cpu": {
+            "user": 110000,
+            "system": 0
+          },
+          "heapGrowthBytes": 4909448
+        },
+        {
+          "ms": 8.896166666666659,
+          "cpu": {
+            "user": 109000,
+            "system": 0
+          },
+          "heapGrowthBytes": -28458248
+        }
+      ],
+      "outputHash": "d2c2a9dab84536629f6df63c3b27dab59cffc5b5eef3d8ea1b98cf5aa7f5f335"
+    },
+    {
+      "name": "rest-completion",
+      "rowCount": 100000,
+      "width": 1,
+      "samples": [
+        {
+          "ms": 1.1719416666667257,
+          "cpu": {
+            "user": 15000,
+            "system": 0
+          },
+          "heapGrowthBytes": -30733880
+        },
+        {
+          "ms": 0.71245833333334,
+          "cpu": {
+            "user": 16000,
+            "system": 0
+          },
+          "heapGrowthBytes": 33335696
+        },
+        {
+          "ms": 1.1403000000000247,
+          "cpu": {
+            "user": 0,
+            "system": 16000
+          },
+          "heapGrowthBytes": -31644832
+        },
+        {
+          "ms": 0.7430583333333894,
+          "cpu": {
+            "user": 0,
+            "system": 16000
+          },
+          "heapGrowthBytes": 33335672
+        },
+        {
+          "ms": 0.7334166666666988,
+          "cpu": {
+            "user": 0,
+            "system": 15000
+          },
+          "heapGrowthBytes": 33327792
+        },
+        {
+          "ms": 1.1513583333333675,
+          "cpu": {
+            "user": 0,
+            "system": 16000
+          },
+          "heapGrowthBytes": -32896656
+        },
+        {
+          "ms": 0.7502250000000004,
+          "cpu": {
+            "user": 0,
+            "system": 15000
+          },
+          "heapGrowthBytes": 33389024
+        },
+        {
+          "ms": 1.0951500000000276,
+          "cpu": {
+            "user": 0,
+            "system": 16000
+          },
+          "heapGrowthBytes": -31778160
+        },
+        {
+          "ms": 0.7449333333333167,
+          "cpu": {
+            "user": 0,
+            "system": 0
+          },
+          "heapGrowthBytes": 33335672
+        }
+      ],
+      "outputHash": "318034c4ce40c3749a825785a4c72c144de16b254ac4a886affdff1707e5b0da"
+    }
+  ]
+}

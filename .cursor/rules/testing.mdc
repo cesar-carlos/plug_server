@@ -17,3 +17,20 @@ alwaysApply: true
 - Update or add tests whenever behavior, contracts, or compatibility shims change.
 - Use AAA naming and structure: `should return 404 when user does not exist`.
 - Reset data and mocks between tests; no test may depend on execution order.
+
+
+## Explicit persona chain companion
+
+`tool/homologation/persona_chain_hub.cts` is invoked only by the MCP isolated
+four-engine runner with NODE_ENV=test, explicit `prisma` or `memory` persistence
+and a private temporary session as cwd, so checkout .env is never loaded.
+Prisma requires a separate loopback `persona_chain_hub_test` database on the
+manifest's PostgreSQL fixture port; migrations are run by the controller only
+against that target. Real registration, owner approval, JWT, ClientAgentAccess
+request/approval and Socket.IO routes are used in both modes. No direct grants.
+Resume in Prisma mode reopens the same endpoint and persisted identities; memory
+mode never claims restart durability. Initialize HTTP limiters before importing
+captured middleware. Agent JWTs are distinct; never inherit operational mail,
+credentials, Redis or persistence. Desktop bootstrap/installer, concurrent vault writers, distributed
+Redis, TLS public deployment and commit-time crash recovery remain separate
+acceptance evidence. All production release gates stay blocked.

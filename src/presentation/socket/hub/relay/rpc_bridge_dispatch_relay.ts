@@ -1,3 +1,7 @@
+import {
+  assertSqlOperationTransport,
+  requiresLiveSqlCapability,
+} from "../../../../application/agent_commands/sql_operation_transport_guard";
 import { randomUUID } from "node:crypto";
 
 import type { BridgeLatencyTraceSession } from "../../../../application/services/bridge_latency_trace_builder";
@@ -231,6 +235,10 @@ export const createRpcBridgeRelayDispatch = (
       if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
         throw notFound("Conversation");
       }
+      assertSqlOperationTransport(
+        command,
+        agentRegistry.getCapabilitiesByAgentId(conversation.agentId),
+      );
       const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(conversation.agentId);
       const clamped = clampCommandMaxRows(normalizedCommand, effectivePolicy.maxRows);
       const normalizedAndClamped = clamped.command as typeof normalizedCommand;
@@ -465,6 +473,7 @@ export const createRpcBridgeRelayDispatch = (
         };
 
         const scheduleAckRetry = (wireFrame: PayloadFrameEnvelope): void => {
+          if (requiresLiveSqlCapability(command)) return;
           if (
             !env.socketAgentAckRetryEnabled ||
             env.socketAgentAckMaxRetries <= 0 ||
@@ -531,6 +540,23 @@ export const createRpcBridgeRelayDispatch = (
           trace?.addPhaseMs("encode_ms", encodeElapsed);
           observeRelayBridgeEncode(encodeElapsed);
           const tEmit = performance.now();
+          if (requiresLiveSqlCapability(command)) {
+            if (
+              agentRegistry.getSocketIdByAgentId(conversation.agentId) !==
+                conversation.agentSocketId ||
+              !agentRegistry.getProtocolReadiness(conversation.agentId).ready
+            ) {
+              throw new AppError("Agent session changed before SQL operation dispatch.", {
+                statusCode: 409,
+                code: "CAPABILITY_UNAVAILABLE",
+                details: { retryable: false },
+              });
+            }
+            assertSqlOperationTransport(
+              command,
+              agentRegistry.getCapabilitiesByAgentId(conversation.agentId),
+            );
+          }
           agentSocket.emit(socketEvents.rpcRequest, wireFrame);
           const emitEnd = performance.now();
           trace?.markEmitComplete(emitEnd - tEmit, emitEnd);

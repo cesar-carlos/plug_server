@@ -276,7 +276,14 @@ export const emitRelayTimeoutResponse = (
       code: -32000,
       message: "Timed out waiting for agent response",
       data: {
-        code: "RELAY_REQUEST_TIMEOUT",
+        code:
+          route.jsonRpcMethod === "sql.operation.execute"
+            ? "SQL_OPERATION_OUTCOME_UNKNOWN"
+            : "RELAY_REQUEST_TIMEOUT",
+        ...(route.jsonRpcMethod?.startsWith("sql.operation.") ? { retryable: false } : {}),
+        ...(route.jsonRpcMethod === "sql.operation.execute"
+          ? { outcome_unknown: true, hint: "Query sql.operation.get; never resend automatically." }
+          : {}),
         conversation_id: route.conversationId,
         ...(route.clientRequestId !== undefined
           ? { client_request_id: route.clientRequestId }

@@ -20,3 +20,4 @@ alwaysApply: true
 - Before concluding a long, multi-file, or refactoring task, run `npm run lint` plus the relevant automated tests, resolve errors and warnings caused by the current work, and escalate to `npm run test` when shared contracts, core infrastructure, or cross-cutting behavior changed.
 - Run `npm run typecheck` when shared types, transport contracts, tsconfig-sensitive behavior, or broad refactors change TypeScript assumptions across files.
 - If lint or tests cannot be run, or if failures remain outside the current scope, say so explicitly in the final handoff.
+- Persona-v2 release requires all coordinated gates, including shared-knowledge-and-compatibility; a manifest edit alone is not acceptance evidence. Keep production blocked until the MCP, hub and agent acceptance is complete.

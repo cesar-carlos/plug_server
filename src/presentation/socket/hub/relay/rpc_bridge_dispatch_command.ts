@@ -1,3 +1,7 @@
+import {
+  assertSqlOperationTransport,
+  requiresLiveSqlCapability,
+} from "../../../../application/agent_commands/sql_operation_transport_guard";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -116,6 +120,7 @@ export const createDispatchRpcCommandToAgent = (
     const method = inferBridgeCommandMethod(input.command);
     const channel = input.latencyTrace?.channel ?? "unknown";
     let metricOutcome: BridgeRpcMethodMetricOutcome = "error";
+    let operationEmitted = false;
 
     try {
       if (input.signal?.aborted) {
@@ -164,6 +169,10 @@ export const createDispatchRpcCommandToAgent = (
         throw badRequest("Command must be a JSON object or JSON-RPC batch array");
       }
 
+      assertSqlOperationTransport(
+        input.command,
+        agentRegistry.getCapabilitiesByAgentId(input.agentId),
+      );
       const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(input.agentId);
       const effectiveCompressionPreference = resolveAgentCompressionPreference({
         preference: input.payloadFrameCompression,
@@ -573,6 +582,25 @@ export const createDispatchRpcCommandToAgent = (
 
         try {
           const tEmitPending = performance.now();
+          if (requiresLiveSqlCapability(command)) {
+            if (
+              agentRegistry.getSocketIdByAgentId(input.agentId) !== registeredAgentSocketId ||
+              !agentRegistry.getProtocolReadiness(input.agentId).ready
+            ) {
+              throw new AppError("Agent session changed before SQL operation dispatch.", {
+                statusCode: 409,
+                code: "CAPABILITY_UNAVAILABLE",
+                details: { retryable: false },
+              });
+            }
+            assertSqlOperationTransport(
+              command,
+              agentRegistry.getCapabilitiesByAgentId(input.agentId),
+            );
+          }
+          operationEmitted = (Array.isArray(command) ? command : [command]).some(
+            (c) => c.method === "sql.operation.execute",
+          );
           agentSocket.emit(socketEvents.rpcRequest, wireFrame);
           const emitEndedPending = performance.now();
           input.latencyTrace?.markEmitComplete(emitEndedPending - tEmitPending, emitEndedPending);
@@ -618,6 +646,16 @@ export const createDispatchRpcCommandToAgent = (
         } else if (message.includes("Timed out") || message.includes("timed out")) {
           metricOutcome = "timeout";
         }
+      }
+      if (operationEmitted) {
+        throw new AppError(
+          "SQL operation delivery is uncertain; query sql.operation.get before reconciliation.",
+          {
+            statusCode: 503,
+            code: "SQL_OPERATION_OUTCOME_UNKNOWN",
+            details: { retryable: false, outcome_unknown: true },
+          },
+        );
       }
       throw error;
     } finally {

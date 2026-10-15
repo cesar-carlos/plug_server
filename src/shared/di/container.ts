@@ -1,3 +1,6 @@
+import { ClientDelegationService } from "../../application/services/client_delegation.service";
+import { InMemoryClientDelegationRepository } from "../../infrastructure/repositories/in_memory_client_delegation.repository";
+import { PrismaClientDelegationRepository } from "../../infrastructure/repositories/prisma_client_delegation.repository";
 import { InMemoryAgentCatalogQuery } from "../../infrastructure/repositories/in_memory_agent_catalog_query";
 import type { IManagedClientQueryPort } from "../../domain/ports/managed_client_query.port";
 import { AuthService } from "../../application/services/auth.service";
@@ -271,6 +274,12 @@ const agentAutoUpdateDiagnosticsService = new AgentAutoUpdateDiagnosticsService(
   agentAutoUpdateDiagnosticsRepository,
 );
 const userAgentService = new UserAgentService(agentRepository, agentIdentityRepository);
+const clientDelegationService = new ClientDelegationService(
+  shouldUseInMemoryPersistence
+    ? new InMemoryClientDelegationRepository()
+    : new PrismaClientDelegationRepository(),
+  clientRepository,
+);
 const clientAuthService = new ClientAuthService(
   clientRepository,
   clientRefreshTokenRepository,
@@ -413,6 +422,7 @@ export const container = {
   agentAutoUpdateDiagnosticsService,
   userAgentService,
   clientAuthService,
+  clientDelegationService,
   clientRegistrationService,
   clientProfileService,
   clientManagementService,

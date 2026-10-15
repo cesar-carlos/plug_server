@@ -1,0 +1,829 @@
+{
+  "harnessVersion": 1,
+  "nodeVersion": "v24.18.0",
+  "platform": "win32",
+  "config": {
+    "iterations": 12,
+    "chunks": 8,
+    "repeats": 9
+  },
+  "comparableWithOldRejectedFrames": false,
+  "results": [
+    {
+      "fastPath": false,
+      "slow": false,
+      "repetitions": [
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 7.193199999999933,
+          "p95Ms": 10.622600000000148,
+          "p99Ms": 10.622600000000148,
+          "throughputPerSec": 134.77088948787,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 73149552,
+          "cpu": {
+            "user": 62000,
+            "system": 78000
+          },
+          "rssBytes": 146624512,
+          "heapGrowthBytes": -8006368,
+          "eventLoopDelayP95Ms": 1.281023
+        },
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 5.535400000000209,
+          "p95Ms": 6.267399999999952,
+          "p99Ms": 6.267399999999952,
+          "throughputPerSec": 176.92956434043384,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 73791824,
+          "cpu": {
+            "user": 79000,
+            "system": 31000
+          },
+          "rssBytes": 164704256,
+          "heapGrowthBytes": -8965224,
+          "eventLoopDelayP95Ms": 1.170431
+        },
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 4.897099999999909,
+          "p95Ms": 8.033400000000029,
+          "p99Ms": 8.033400000000029,
+          "throughputPerSec": 192.34776475868387,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 64506072,
+          "cpu": {
+            "user": 62000,
+            "system": 32000
+          },
+          "rssBytes": 164990976,
+          "heapGrowthBytes": 11902584,
+          "eventLoopDelayP95Ms": 1.123327
+        },
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 4.233099999999922,
+          "p95Ms": 5.353200000000015,
+          "p99Ms": 5.353200000000015,
+          "throughputPerSec": 222.80605661130627,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 76409648,
+          "cpu": {
+            "user": 94000,
+            "system": 46000
+          },
+          "rssBytes": 167297024,
+          "heapGrowthBytes": 11909792,
+          "eventLoopDelayP95Ms": 1.104895
+        },
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 4.59739999999988,
+          "p95Ms": 5.557999999999993,
+          "p99Ms": 5.557999999999993,
+          "throughputPerSec": 213.51059457362777,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 80224776,
+          "cpu": {
+            "user": 109000,
+            "system": 16000
+          },
+          "rssBytes": 166174720,
+          "heapGrowthBytes": -14701608,
+          "eventLoopDelayP95Ms": 1.161215
+        },
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 4.008199999999988,
+          "p95Ms": 6.6404,
+          "p99Ms": 6.6404,
+          "throughputPerSec": 224.9917034309352,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 72966040,
+          "cpu": {
+            "user": 63000,
+            "system": 31000
+          },
+          "rssBytes": 167297024,
+          "heapGrowthBytes": 11212696,
+          "eventLoopDelayP95Ms": 1.160191
+        },
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 3.592600000000175,
+          "p95Ms": 4.742799999999988,
+          "p99Ms": 4.742799999999988,
+          "throughputPerSec": 264.75104576663006,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 81015592,
+          "cpu": {
+            "user": 47000,
+            "system": 16000
+          },
+          "rssBytes": 166797312,
+          "heapGrowthBytes": -15482240,
+          "eventLoopDelayP95Ms": 1.149951
+        },
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 3.9553000000000793,
+          "p95Ms": 5.427699999999959,
+          "p99Ms": 5.427699999999959,
+          "throughputPerSec": 249.29677534621146,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 68737080,
+          "cpu": {
+            "user": 15000,
+            "system": 31000
+          },
+          "rssBytes": 168513536,
+          "heapGrowthBytes": 11279216,
+          "eventLoopDelayP95Ms": 1.101823
+        },
+        {
+          "name": "relay_columnar_stream_standard",
+          "samples": 12,
+          "p50Ms": 3.7901999999999134,
+          "p95Ms": 4.519600000000082,
+          "p99Ms": 4.519600000000082,
+          "throughputPerSec": 256.8196312926158,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 79526288,
+          "cpu": {
+            "user": 31000,
+            "system": 16000
+          },
+          "rssBytes": 169103360,
+          "heapGrowthBytes": 10753752,
+          "eventLoopDelayP95Ms": 1.116159
+        }
+      ]
+    },
+    {
+      "fastPath": false,
+      "slow": true,
+      "repetitions": [
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 123.16540000000032,
+          "p95Ms": 125.44639999999981,
+          "p99Ms": 125.44639999999981,
+          "throughputPerSec": 8.480356208882197,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 82088376,
+          "cpu": {
+            "user": 219000,
+            "system": 15000
+          },
+          "rssBytes": 169259008,
+          "heapGrowthBytes": -15661760,
+          "eventLoopDelayP95Ms": 15.220735
+        },
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 122.76379999999972,
+          "p95Ms": 124.88200000000052,
+          "p99Ms": 124.88200000000052,
+          "throughputPerSec": 8.230249458861087,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 76616432,
+          "cpu": {
+            "user": 78000,
+            "system": 94000
+          },
+          "rssBytes": 169795584,
+          "heapGrowthBytes": 10710928,
+          "eventLoopDelayP95Ms": 15.171583
+        },
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 121.85240000000067,
+          "p95Ms": 125.88050000000021,
+          "p99Ms": 125.88050000000021,
+          "throughputPerSec": 8.78840487155929,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 82622560,
+          "cpu": {
+            "user": 141000,
+            "system": 63000
+          },
+          "rssBytes": 167600128,
+          "heapGrowthBytes": -20284160,
+          "eventLoopDelayP95Ms": 15.073279
+        },
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 121.86079999999947,
+          "p95Ms": 124.38100000000031,
+          "p99Ms": 124.38100000000031,
+          "throughputPerSec": 8.327675140723835,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 66973200,
+          "cpu": {
+            "user": 156000,
+            "system": 78000
+          },
+          "rssBytes": 168267776,
+          "heapGrowthBytes": 10622984,
+          "eventLoopDelayP95Ms": 15.196159
+        },
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 123.36859999999979,
+          "p95Ms": 125.72859999999946,
+          "p99Ms": 125.72859999999946,
+          "throughputPerSec": 8.27686785111406,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 77598232,
+          "cpu": {
+            "user": 156000,
+            "system": 15000
+          },
+          "rssBytes": 168857600,
+          "heapGrowthBytes": 10620080,
+          "eventLoopDelayP95Ms": 15.335423
+        },
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 122.04260000000068,
+          "p95Ms": 124.70470000000023,
+          "p99Ms": 124.70470000000023,
+          "throughputPerSec": 8.157165189324736,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 79628040,
+          "cpu": {
+            "user": 31000,
+            "system": 16000
+          },
+          "rssBytes": 168267776,
+          "heapGrowthBytes": -16002720,
+          "eventLoopDelayP95Ms": 15.171583
+        },
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 121.95689999999922,
+          "p95Ms": 125.01119999999901,
+          "p99Ms": 125.01119999999901,
+          "throughputPerSec": 8.247770163787674,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 72144408,
+          "cpu": {
+            "user": 219000,
+            "system": 188000
+          },
+          "rssBytes": 168603648,
+          "heapGrowthBytes": 10542312,
+          "eventLoopDelayP95Ms": 15.081471
+        },
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 123.32270000000062,
+          "p95Ms": 125.90560000000005,
+          "p99Ms": 125.90560000000005,
+          "throughputPerSec": 8.172665539383669,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 79984128,
+          "cpu": {
+            "user": 47000,
+            "system": 46000
+          },
+          "rssBytes": 168587264,
+          "heapGrowthBytes": -15943160,
+          "eventLoopDelayP95Ms": 15.491071
+        },
+        {
+          "name": "relay_columnar_slow_standard",
+          "samples": 12,
+          "p50Ms": 117.1247999999996,
+          "p95Ms": 124.75200000000041,
+          "p99Ms": 124.75200000000041,
+          "throughputPerSec": 9.316028809819102,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 58705440,
+          "cpu": {
+            "user": 187000,
+            "system": 63000
+          },
+          "rssBytes": 111677440,
+          "heapGrowthBytes": -3122528,
+          "eventLoopDelayP95Ms": 15.171583
+        }
+      ]
+    },
+    {
+      "fastPath": true,
+      "slow": false,
+      "repetitions": [
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 4.318499999999403,
+          "p95Ms": 5.5429000000003725,
+          "p99Ms": 5.5429000000003725,
+          "throughputPerSec": 225.0604850053396,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 53765568,
+          "cpu": {
+            "user": 31000,
+            "system": 31000
+          },
+          "rssBytes": 112484352,
+          "heapGrowthBytes": 793384,
+          "eventLoopDelayP95Ms": 1.218559
+        },
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 5.906499999999141,
+          "p95Ms": 8.295199999998658,
+          "p99Ms": 8.295199999998658,
+          "throughputPerSec": 163.52739492685535,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 54795968,
+          "cpu": {
+            "user": 63000,
+            "system": 16000
+          },
+          "rssBytes": 114675712,
+          "heapGrowthBytes": -60864,
+          "eventLoopDelayP95Ms": 1.131519
+        },
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 7.273199999999633,
+          "p95Ms": 11.099299999999857,
+          "p99Ms": 11.099299999999857,
+          "throughputPerSec": 122.77621579147791,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 55013808,
+          "cpu": {
+            "user": 109000,
+            "system": 15000
+          },
+          "rssBytes": 115781632,
+          "heapGrowthBytes": 739192,
+          "eventLoopDelayP95Ms": 1.257471
+        },
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 5.4452000000001135,
+          "p95Ms": 10.10740000000078,
+          "p99Ms": 10.10740000000078,
+          "throughputPerSec": 176.06072921418036,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 55226112,
+          "cpu": {
+            "user": 31000,
+            "system": 47000
+          },
+          "rssBytes": 116609024,
+          "heapGrowthBytes": 651304,
+          "eventLoopDelayP95Ms": 1.210367
+        },
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 5.094499999999243,
+          "p95Ms": 9.154599999999846,
+          "p99Ms": 9.154599999999846,
+          "throughputPerSec": 172.47053987590638,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 55604384,
+          "cpu": {
+            "user": 94000,
+            "system": 0
+          },
+          "rssBytes": 117936128,
+          "heapGrowthBytes": -760936,
+          "eventLoopDelayP95Ms": 1.186815
+        },
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 4.393500000000131,
+          "p95Ms": 6.721400000000358,
+          "p99Ms": 6.721400000000358,
+          "throughputPerSec": 198.70773734810737,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 55820336,
+          "cpu": {
+            "user": 94000,
+            "system": 16000
+          },
+          "rssBytes": 119058432,
+          "heapGrowthBytes": 796592,
+          "eventLoopDelayP95Ms": 1.134591
+        },
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 4.28440000000046,
+          "p95Ms": 6.048600000000079,
+          "p99Ms": 6.048600000000079,
+          "throughputPerSec": 213.26016140240597,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 56140008,
+          "cpu": {
+            "user": 47000,
+            "system": 31000
+          },
+          "rssBytes": 119611392,
+          "heapGrowthBytes": 644352,
+          "eventLoopDelayP95Ms": 1.161215
+        },
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 4.353299999998853,
+          "p95Ms": 6.619899999999689,
+          "p99Ms": 6.619899999999689,
+          "throughputPerSec": 216.00254883007938,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 56369592,
+          "cpu": {
+            "user": 31000,
+            "system": 31000
+          },
+          "rssBytes": 120041472,
+          "heapGrowthBytes": 521352,
+          "eventLoopDelayP95Ms": 1.169407
+        },
+        {
+          "name": "relay_columnar_stream_fast",
+          "samples": 12,
+          "p50Ms": 4.551199999999881,
+          "p95Ms": 6.9821999999985565,
+          "p99Ms": 6.9821999999985565,
+          "throughputPerSec": 196.25608802739853,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 56574472,
+          "cpu": {
+            "user": 63000,
+            "system": 32000
+          },
+          "rssBytes": 120659968,
+          "heapGrowthBytes": -1058472,
+          "eventLoopDelayP95Ms": 1.225727
+        }
+      ]
+    },
+    {
+      "fastPath": true,
+      "slow": true,
+      "repetitions": [
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 123.94440000000031,
+          "p95Ms": 125.25060000000121,
+          "p99Ms": 125.25060000000121,
+          "throughputPerSec": 8.105462879344126,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 56839792,
+          "cpu": {
+            "user": 62000,
+            "system": 31000
+          },
+          "rssBytes": 121450496,
+          "heapGrowthBytes": 738464,
+          "eventLoopDelayP95Ms": 15.196159
+        },
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 123.23529999999664,
+          "p95Ms": 125.49499999999898,
+          "p99Ms": 125.49499999999898,
+          "throughputPerSec": 8.107781605551578,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 57359432,
+          "cpu": {
+            "user": 94000,
+            "system": 31000
+          },
+          "rssBytes": 122454016,
+          "heapGrowthBytes": -819168,
+          "eventLoopDelayP95Ms": 15.065087
+        },
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 121.92519999999786,
+          "p95Ms": 125.77049999999872,
+          "p99Ms": 125.77049999999872,
+          "throughputPerSec": 9.00839762826904,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 57249376,
+          "cpu": {
+            "user": 140000,
+            "system": 47000
+          },
+          "rssBytes": 117325824,
+          "heapGrowthBytes": -414104,
+          "eventLoopDelayP95Ms": 14.999551
+        },
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 122.14350000000195,
+          "p95Ms": 124.8784999999989,
+          "p99Ms": 124.8784999999989,
+          "throughputPerSec": 8.173579585122761,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 55394320,
+          "cpu": {
+            "user": 32000,
+            "system": 15000
+          },
+          "rssBytes": 119468032,
+          "heapGrowthBytes": -2428704,
+          "eventLoopDelayP95Ms": 15.138815
+        },
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 122.59669999999824,
+          "p95Ms": 124.45710000000327,
+          "p99Ms": 124.45710000000327,
+          "throughputPerSec": 8.32088494275542,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 55641240,
+          "cpu": {
+            "user": 125000,
+            "system": 32000
+          },
+          "rssBytes": 120119296,
+          "heapGrowthBytes": 761560,
+          "eventLoopDelayP95Ms": 15.007743
+        },
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 122.91300000000047,
+          "p95Ms": 124.58940000000075,
+          "p99Ms": 124.58940000000075,
+          "throughputPerSec": 8.301780226833676,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 55877496,
+          "cpu": {
+            "user": 187000,
+            "system": 93000
+          },
+          "rssBytes": 121090048,
+          "heapGrowthBytes": 725520,
+          "eventLoopDelayP95Ms": 15.261695
+        },
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 121.74369999999908,
+          "p95Ms": 125.54880000000048,
+          "p99Ms": 125.54880000000048,
+          "throughputPerSec": 8.23873774848202,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 56084272,
+          "cpu": {
+            "user": 63000,
+            "system": 0
+          },
+          "rssBytes": 121597952,
+          "heapGrowthBytes": 712920,
+          "eventLoopDelayP95Ms": 15.114239
+        },
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 122.19129999999859,
+          "p95Ms": 126.60109999999986,
+          "p99Ms": 126.60109999999986,
+          "throughputPerSec": 8.284465915325441,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 56278784,
+          "cpu": {
+            "user": 93000,
+            "system": 47000
+          },
+          "rssBytes": 122142720,
+          "heapGrowthBytes": 740480,
+          "eventLoopDelayP95Ms": 15.179775
+        },
+        {
+          "name": "relay_columnar_slow_fast",
+          "samples": 12,
+          "p50Ms": 123.61900000000242,
+          "p95Ms": 125.60809999999765,
+          "p99Ms": 125.60809999999765,
+          "throughputPerSec": 8.193304076865148,
+          "bytes": 35426,
+          "originalBytes": 35426,
+          "gzipFrames": 0,
+          "chunksLost": 0,
+          "duplicateChunks": 0,
+          "orderOk": true,
+          "heapUsedPeakBytes": 56527384,
+          "cpu": {
+            "user": 141000,
+            "system": 47000
+          },
+          "rssBytes": 122785792,
+          "heapGrowthBytes": 616016,
+          "eventLoopDelayP95Ms": 15.196159
+        }
+      ]
+    }
+  ]
+}
