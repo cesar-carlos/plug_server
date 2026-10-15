@@ -21,7 +21,10 @@ const report = (): RestApiBenchReport => {
     measurementOrder: "standalone" as const,
     cpuAffinity: "unavailable",
     gcPolicy: "predictable" as const,
-    scenarioProfiles: { registry_page: { warmup: 256, iterations: 1024 } },
+    scenarioProfiles: {
+      registry_page: { warmup: 256, iterations: 1024 },
+      refresh_mixed: { warmup: 128, iterations: 256 },
+    },
   };
   const result: RestApiBenchReport = {
     harnessVersion: 6,
@@ -142,22 +145,28 @@ describe("REST benchmark comparison", () => {
     }
   });
 
-  it("should require all 1024 observations in each registry repetition", () => {
-    const trial = report();
-    trial.scenarios[0] = { ...trial.scenarios[0]!, name: "registry_page" };
-    expect(restApiBenchComparisonErrors(trial)).toContain(
-      "registry_page: missing or invalid latency samples",
-    );
-    trial.scenarios[0] = {
-      ...trial.scenarios[0]!,
-      latencySamplesMs: Array.from({ length: 9 * 1024 }, () => 10),
-      repetitions: trial.scenarios[0]!.repetitions!.map((repetition) => ({
-        ...repetition,
-        latencySamplesMs: Array.from({ length: 1024 }, () => 10),
-      })),
-    };
-    expect(restApiBenchComparisonErrors(trial)).toEqual([]);
-  });
+  it.each([
+    ["registry_page", 1024],
+    ["refresh_mixed", 256],
+  ] as const)(
+    "should require all %s observations in each %i-sample repetition",
+    (name, iterations) => {
+      const trial = report();
+      trial.scenarios[0] = { ...trial.scenarios[0]!, name };
+      expect(restApiBenchComparisonErrors(trial)).toContain(
+        `${name}: missing or invalid latency samples`,
+      );
+      trial.scenarios[0] = {
+        ...trial.scenarios[0]!,
+        latencySamplesMs: Array.from({ length: 9 * iterations }, () => 10),
+        repetitions: trial.scenarios[0]!.repetitions!.map((repetition) => ({
+          ...repetition,
+          latencySamplesMs: Array.from({ length: iterations }, () => 10),
+        })),
+      };
+      expect(restApiBenchComparisonErrors(trial)).toEqual([]);
+    },
+  );
 
   it("should reject a missing repetition even when the flattened sample count is correct", () => {
     const trial = report();

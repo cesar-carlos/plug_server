@@ -100,12 +100,13 @@ export const runRestApiBench = async (): Promise<{
     throw new Error("REST benchmark requires predictable GC in the test worker");
   const waitForTurn = createRestBenchTurnWaiter();
   // A 64-request nearest-rank p95 used only the fourth-largest observation.
-  // This fast scenario needs a fixed larger sample and steady-state warmup;
+  // These variable-tail scenarios need fixed larger samples and steady-state warmup;
   // retain the existing quantile aggregation, SLOs and execution deadlines.
   const scenarioProfiles: Readonly<
     Record<string, { readonly warmup: number; readonly iterations: number }>
   > = {
     registry_page: { warmup: 256, iterations: 1024 },
+    refresh_mixed: { warmup: 128, iterations: 256 },
   };
   const config = {
     warmup: Number(process.env.REST_BENCH_WARMUP ?? 16),
