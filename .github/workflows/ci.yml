@@ -370,7 +370,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        agent_ref: [main, v1.8.5]
+        # Keep installed public agents covered so hub updates need no coordinated client upgrade.
+        agent_ref: [main, v1.8.5, v1.8.6]
     env:
       PLUG_AGENTE_ROOT: ${{ github.workspace }}/plug_agente
       PLUG_SERVER_FIXTURE_DIR: ${{ github.workspace }}/tests/fixtures/socket

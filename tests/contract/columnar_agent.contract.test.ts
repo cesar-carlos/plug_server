@@ -42,15 +42,17 @@ const readSchema = (): StreamChunkSchema =>
     ).toBeNull();
   });
 
-  it("requires columnar support for encoder fixtures and rejects it on legacy contracts", () => {
+  it("accepts columnar only when declared by the checked-out agent contract", () => {
     const schema = readSchema();
     const ajv = createPlugAgenteAjv(agent!.schemasDir);
     const encoderFixture = join(agent!.root, "test/fixtures/rpc/columnar_codec_fixture.json");
-    // v1.8.5 predates the typed encoder fixture and emits only row maps.
-    // Keep this branch while that immutable tag remains in the supported matrix.
+    // v1.8.6 declares columnar but predates the checked-in encoder fixture.
+    // Fixture availability cannot determine an installed agent's wire capabilities.
     if (existsSync(encoderFixture)) {
       expect(JSON.parse(readFileSync(encoderFixture, "utf8"))).toEqual(fixture);
       expect(schema.properties).toHaveProperty("columnar");
+    }
+    if (Object.hasOwn(schema.properties, "columnar")) {
       expect(ajv.validate(schema.$id, fixture.chunk)).toBe(true);
     } else {
       expect(schema.properties).not.toHaveProperty("columnar");
