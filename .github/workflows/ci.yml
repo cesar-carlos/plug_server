@@ -293,6 +293,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Retain enough ancestry to validate an explicit base for a benchmark-only follow-up.
+          fetch-depth: 32
           persist-credentials: false
       - name: Set up project
         uses: ./.github/actions/setup-node-project
@@ -319,6 +321,21 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if [ "$EVENT_NAME" = "push" ]; then
+            override="$(git log -1 --format='%(trailers:key=Rest-Bench-Base,valueonly)')"
+            if [ -n "$override" ]; then
+              [[ "$override" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::Invalid Rest-Bench-Base SHA"; exit 1; }
+              git merge-base --is-ancestor "$override" "$PUSH_BEFORE_SHA"
+              # A sampling fix must still compare the original runtime update, not identical sources.
+              if ! git diff --quiet "$PUSH_BEFORE_SHA" HEAD -- src package.json package-lock.json prisma prisma.config.ts .nvmrc Dockerfile contracts; then
+                echo "::error::Rest-Bench-Base requires a benchmark-only change"
+                exit 1
+              fi
+              ref="$override"
+            fi
+          fi
+          mkdir -p tmp
+          printf 'head=%s\npush_before=%s\ncomparison_base=%s\n' "$(git rev-parse HEAD)" "$PUSH_BEFORE_SHA" "$ref" | tee tmp/rest-bench-revisions.txt
           echo "available=true" >> "$GITHUB_OUTPUT"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
       - name: Checkout comparison commit
@@ -359,6 +376,7 @@ jobs:
           path: |
             tmp/rest-api-bench.json
             tmp/rest-query-plans.json
+            tmp/rest-bench-revisions.txt
             rest-bench-base/tmp/rest-api-bench.json
             tmp/rest-bench-comparison/
           if-no-files-found: warn

@@ -107,6 +107,7 @@ export const runRestApiBench = async (): Promise<{
   > = {
     registry_page: { warmup: 256, iterations: 1024 },
     refresh_mixed: { warmup: 128, iterations: 256 },
+    etag_poll: { warmup: 128, iterations: 256 },
   };
   const config = {
     warmup: Number(process.env.REST_BENCH_WARMUP ?? 16),

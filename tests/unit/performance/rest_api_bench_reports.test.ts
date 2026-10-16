@@ -24,6 +24,7 @@ const report = (): RestApiBenchReport => {
     scenarioProfiles: {
       registry_page: { warmup: 256, iterations: 1024 },
       refresh_mixed: { warmup: 128, iterations: 256 },
+      etag_poll: { warmup: 128, iterations: 256 },
     },
   };
   const result: RestApiBenchReport = {
@@ -148,6 +149,7 @@ describe("REST benchmark comparison", () => {
   it.each([
     ["registry_page", 1024],
     ["refresh_mixed", 256],
+    ["etag_poll", 256],
   ] as const)(
     "should require all %s observations in each %i-sample repetition",
     (name, iterations) => {
