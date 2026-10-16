@@ -1,3 +1,4 @@
+import { legacyArray } from "../../../shared/validators/legacy_array";
 import { z } from "zod";
 import { CLIENT_ADMINISTRATIVE_PERMISSIONS } from "../../../domain/ports/client_delegation.port";
 export const clientDelegationBinding = z.strictObject({
@@ -19,8 +20,7 @@ export const clientDelegationBinding = z.strictObject({
   personaId: z.uuid(),
 });
 export const clientDelegationBody = clientDelegationBinding.extend({
-  administrative: z
-    .array(z.enum(CLIENT_ADMINISTRATIVE_PERMISSIONS))
+  administrative: legacyArray(z.enum(CLIENT_ADMINISTRATIVE_PERMISSIONS))
     .min(1)
     .max(5)
     .refine((v) => new Set(v).size === v.length)

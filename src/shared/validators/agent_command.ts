@@ -1,3 +1,4 @@
+import { legacyArray } from "./legacy_array";
 /**
  * Transport-agnostic schemas for agent RPC commands.
  * Used by HTTP validators and Socket consumer handlers.
@@ -233,7 +234,7 @@ const sqlExecuteBatchOptionsSchema = z
 
 const sqlExecuteBatchParamsSchema = z
   .object({
-    commands: z.array(sqlExecuteBatchCommandItemSchema).min(1).max(AGENT_MAX_BATCH_SIZE_LIMIT),
+    commands: legacyArray(sqlExecuteBatchCommandItemSchema).min(1).max(AGENT_MAX_BATCH_SIZE_LIMIT),
     options: sqlExecuteBatchOptionsSchema.optional(),
     idempotency_key: nonEmptyStringSchema.optional(),
     database: nonEmptyStringSchema.optional(),
@@ -260,7 +261,7 @@ const sqlBulkInsertParamsSchema = z
   .object({
     table: nonEmptyStringSchema,
     columns: z.array(sqlBulkInsertColumnSchema).min(1),
-    rows: z.array(z.array(z.unknown())).min(1).max(AGENT_SQL_BULK_INSERT_MAX_ROWS),
+    rows: legacyArray(z.array(z.unknown())).min(1).max(AGENT_SQL_BULK_INSERT_MAX_ROWS),
     idempotency_key: nonEmptyStringSchema.optional(),
     options: sqlBulkInsertOptionsSchema.optional(),
     database: nonEmptyStringSchema.optional(),
@@ -616,8 +617,7 @@ export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
   rpcDiscoverCommandSchema,
 ]);
 
-const bridgeBatchCommandSchema = z
-  .array(bridgeSingleCommandSchema)
+const bridgeBatchCommandSchema = legacyArray(bridgeSingleCommandSchema)
   .min(1, { message: "Batch must include at least one command" })
   .max(AGENT_MAX_BATCH_SIZE_LIMIT, {
     message: `Batch cannot exceed ${AGENT_MAX_BATCH_SIZE_LIMIT} commands`,

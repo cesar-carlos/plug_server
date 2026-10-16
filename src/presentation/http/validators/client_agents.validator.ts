@@ -1,3 +1,4 @@
+import { legacyArray } from "../../../shared/validators/legacy_array";
 import { z } from "zod";
 import { registrationOpaqueTokenSchema, uuidSchema } from "../../../shared/validators/schemas";
 
@@ -7,7 +8,7 @@ const booleanQuerySchema = z
   .or(z.boolean());
 
 export const clientAgentIdsBodySchema = z.object({
-  agentIds: z.array(uuidSchema).min(1).max(100),
+  agentIds: legacyArray(uuidSchema).min(1).max(100),
 });
 
 export type ClientAgentIdsBody = z.infer<typeof clientAgentIdsBodySchema>;

@@ -3,7 +3,7 @@ import { compare, hash } from "@node-rs/bcrypt";
 const passwordSaltRounds = 10;
 
 export const hashPassword = async (value: string): Promise<string> => {
-  return hash(value, passwordSaltRounds);
+  return hash(value, { cost: passwordSaltRounds });
 };
 
 export const comparePassword = async (value: string, hashedValue: string): Promise<boolean> => {

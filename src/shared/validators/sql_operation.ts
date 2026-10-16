@@ -1,3 +1,4 @@
+import { legacyArray } from "./legacy_array";
 export const SQL_OPERATION_METHODS = [
   "sql.operation.execute",
   "sql.operation.get",
@@ -76,7 +77,7 @@ export const sqlOperationReferenceParamsSchema = z.strictObject({
 export const sqlOperationExecuteParamsSchema = sqlOperationReferenceParamsSchema
   .extend({
     expectedStructure: expectedStructureSchema.optional(),
-    steps: z.array(step).min(1).max(32),
+    steps: legacyArray(step).min(1).max(32),
     maxAffectedRows: z.number().int().positive().max(100000),
     timeoutMs: z.number().int().positive().max(300000),
   })
