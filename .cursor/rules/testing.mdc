@@ -14,6 +14,7 @@ alwaysApply: true
 - Add contract tests for critical public interfaces and compatibility shims.
 - Mock infrastructure boundaries in unit tests, but prefer real entities and value objects.
 - Every intentional compatibility alias or migration shim must have a regression test so the exception stays localized.
+- Whenever a bug is found, add a regression test that reproduces the failure before treating the fix as complete. The test must fail on the defective behavior and pass after the fix, so the same defect cannot return unnoticed. Name it after the observed failure and place it at the lowest layer that can reproduce the bug.
 - Update or add tests whenever behavior, contracts, or compatibility shims change.
 - Use AAA naming and structure: `should return 404 when user does not exist`.
 - Reset data and mocks between tests; no test may depend on execution order.

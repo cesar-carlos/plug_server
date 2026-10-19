@@ -10,7 +10,7 @@
     "dev": "tsx watch src/server.ts",
     "tsc": "node ./node_modules/@typescript/native/bin/tsc",
     "build": "npm run tsc -- -p tsconfig.json",
-    "postinstall": "bash scripts/sync-swagger-ui-static.sh",
+    "postinstall": "node scripts/sync-swagger-ui-static.cjs",
     "start": "node dist/server.js",
     "db:generate": "prisma generate",
     "db:migrate:dev": "prisma migrate dev",

@@ -3,6 +3,10 @@
     "dart.lineLength": 80,
     "dart.flutterSdkPath": null,
     "dart.enableSdkFormatter": true,
+    "dart.analysisExcludedFolders": [
+      "tmp",
+      "tests/fixtures/socket"
+    ],
   
     // Editor settings
     "editor.rulers": [80],
