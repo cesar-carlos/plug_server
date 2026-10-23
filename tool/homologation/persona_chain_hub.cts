@@ -38,6 +38,23 @@ async function main() {
     )
       throw new Error("Separate explicit fixture hub database required.");
   }
+  let manualDeadline: number | undefined;
+  if (manifest.manualTraining !== undefined) {
+    const manual = manifest.manualTraining;
+    const deadline = Date.parse(manual?.expiresAt);
+    if (
+      manual?.format !== "persona-manual-training-v1" ||
+      Object.keys(manual).length !== 2 ||
+      typeof manual.expiresAt !== "string" ||
+      !manual.expiresAt.endsWith("Z") ||
+      !Number.isFinite(deadline) ||
+      deadline <= Date.now() ||
+      deadline > Date.now() + 120 * 60_000
+    ) {
+      throw new Error("Invalid bounded manual fixture lifetime.");
+    }
+    manualDeadline = deadline;
+  }
   const {
     registerHttpRateLimits,
   } = require("../../src/presentation/http/middlewares/rate_limit.middleware");
@@ -140,9 +157,12 @@ async function main() {
         client: { email: session.client.email, password: session.client.password },
       }),
     );
-    const deadline = Date.now() + 15 * 60_000;
+    const deadline = manualDeadline ?? Date.now() + 15 * 60_000;
     while (!existsSync(join(sessionRoot, "hub-stop"))) {
-      if (Date.now() > deadline) throw new Error("Fixture controller did not stop hub.");
+      if (Date.now() > deadline) {
+        if (manualDeadline !== undefined) break;
+        throw new Error("Fixture controller did not stop hub.");
+      }
       await delay(200);
     }
   } finally {

@@ -6,6 +6,10 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+- Isolated persona-v2 manual fixtures accept an explicit UTC lifetime up to two
+  hours and stop cooperatively. Automated watchdog, authentication, SQL and
+  approval limits remain unchanged; production deployment stays blocked.
+
 - SQL operation contract 1.15.0 documents optional enumerated failureCode from the durable agent journal. Preserve it without native diagnostic text, outcome inference or automatic replay; production remains blocked.
 
 - Contract 1.14.0 adds structural SQL operation transport with exact negotiated structureGuard v1, live async dispatch revalidation and optional Client detail projection. Require executing identity and proven metadata; preserve SQL and no-retry semantics. Shared DML publication in MCP remains pending and production blocked.
