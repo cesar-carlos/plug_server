@@ -59,7 +59,7 @@ jobs:
             esac
             # Columnar codec, transport constants, and application modules the socket handlers call.
             case "$file" in
-              tests/contract/columnar_agent.contract.test.ts|tests/helpers/plug_agente_contract*|src/infrastructure/codecs/*|src/shared/constants/agent_transport_contract*|src/application/agent_commands/*|src/application/services/agent_access.service*|src/application/services/agent_health_piggyback.service*|src/application/services/agent_hub_bridge_forward*|src/application/services/agent_hub_presence_sync*|src/application/services/agent_profile_broadcast_sink*|src/application/services/agent_profile_reliability_metrics.service*|src/application/services/agent_profile_sync.service*|src/application/services/bridge_latency_trace_builder*|src/application/services/bridge_rpc_method_metrics.service*|src/application/services/client_socket_event_publish.service*|src/application/services/consumer_socket_control_sink*|src/application/services/consumer_socket_event_sink*|src/application/services/server_timings_envelope*|src/application/services/socket_audit.service*)
+              tests/contract/columnar_agent.contract.test.ts|tests/contract/plug_agente_optional.contract.test.ts|tests/helpers/plug_agente_contract*|src/infrastructure/codecs/*|src/shared/constants/agent_transport_contract*|src/application/agent_commands/*|src/application/services/agent_access.service*|src/application/services/agent_health_piggyback.service*|src/application/services/agent_hub_bridge_forward*|src/application/services/agent_hub_presence_sync*|src/application/services/agent_profile_broadcast_sink*|src/application/services/agent_profile_reliability_metrics.service*|src/application/services/agent_profile_sync.service*|src/application/services/bridge_latency_trace_builder*|src/application/services/bridge_rpc_method_metrics.service*|src/application/services/client_socket_event_publish.service*|src/application/services/consumer_socket_control_sink*|src/application/services/consumer_socket_event_sink*|src/application/services/server_timings_envelope*|src/application/services/socket_audit.service*)
                 socket=true
                 ;;
             esac
@@ -427,7 +427,7 @@ jobs:
         run: |
           mkdir -p tmp
           printf 'hub=%s\nagent=%s\n' "$(git rev-parse HEAD)" "$(git -C plug_agente rev-parse HEAD)" | tee tmp/communication-revisions.txt
-          npx vitest run tests/contract/socket_agent_inbound_fixtures.contract.test.ts tests/contract/columnar_agent.contract.test.ts
+          npx vitest run tests/contract/plug_agente_optional.contract.test.ts tests/contract/socket_agent_inbound_fixtures.contract.test.ts tests/contract/columnar_agent.contract.test.ts
 
       - name: Set up Flutter
         if: steps.checkout_agente.outcome == 'success'
