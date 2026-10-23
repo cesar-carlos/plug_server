@@ -138,15 +138,16 @@ export const restApiBenchComparisonErrors = (
     errors.push("Invalid configuration fingerprint");
   }
   if (!baseline) return errors;
-  for (const key of [
-    "harnessVersion",
-    "configFingerprint",
-    "versions",
-    "nodeVersion",
-    "platform",
-  ] as const) {
+  for (const key of ["harnessVersion", "configFingerprint", "nodeVersion", "platform"] as const) {
     if (JSON.stringify(report[key]) !== JSON.stringify(baseline[key]))
       errors.push(`Mismatched ${key}`);
+  }
+  // Prisma is part of the candidate being measured, so dependency upgrades may
+  // differ across revisions. Retain its reported version and require it to stay
+  // identical within each revision's four trials (aggregateRestApiBenchReports).
+  // External services must remain identical across both revisions.
+  for (const key of ["postgres", "redis"] as const) {
+    if (report.versions[key] !== baseline.versions[key]) errors.push(`Mismatched versions.${key}`);
   }
   if (
     JSON.stringify(report.scenarios.map((scenario) => scenario.name)) !==

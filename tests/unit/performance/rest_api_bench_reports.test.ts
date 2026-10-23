@@ -76,6 +76,40 @@ const report = (): RestApiBenchReport => {
 };
 
 describe("REST benchmark comparison", () => {
+  it("should compare a Prisma dependency update while preserving each revision's version evidence", () => {
+    const base = report();
+    const head = report();
+    base.versions.prisma = "7.10.0";
+    head.versions.prisma = "7.10.1";
+    expect(restApiBenchComparisonErrors(head, base)).toEqual([]);
+    expect(base.versions.prisma).toBe("7.10.0");
+    expect(head.versions.prisma).toBe("7.10.1");
+    expect(() => aggregateRestApiBenchReports([base, base, head, base])).toThrow("same harness");
+  });
+
+  it.each(["postgres", "redis"] as const)(
+    "should reject changes to external %s infrastructure between revisions",
+    (key) => {
+      const base = report();
+      const head = report();
+      head.versions[key] = "different-server-version";
+      expect(restApiBenchComparisonErrors(head, base)).toContain(`Mismatched versions.${key}`);
+    },
+  );
+
+  it.each([
+    ["p95Ms", 10.6, "p95"],
+    ["throughputPerSec", 84, "throughput"],
+    ["heapGrowthBytes", 1101, "heap"],
+  ] as const)("should still reject %s regression when Prisma changes", (key, value, message) => {
+    const base = report();
+    const head = report();
+    base.versions.prisma = "7.10.0";
+    head.versions.prisma = "7.10.1";
+    head.scenarios[0] = { ...head.scenarios[0]!, [key]: value };
+    expect(restApiBenchComparisonErrors(head, base).join("\n")).toContain(message);
+  });
+
   it("should balance trial count and position without result-dependent retries", () => {
     const positions = (label: string): number[] =>
       REST_BENCH_COMPARISON_SCHEDULE.flatMap((value, index) => (value === label ? [index] : []));
