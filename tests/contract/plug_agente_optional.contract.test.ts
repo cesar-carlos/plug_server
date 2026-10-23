@@ -65,6 +65,57 @@ function readHubPlugProfileMajorMinor(profile: string): string {
  */
 const PENDING_HUB_WIRING_MARKER = "pending hub-side wiring";
 
+// Frozen public v1.8.6 catalog. Keep this baseline while installed v1.8.6 peers
+// are supported; newer capability-gated methods must not become mandatory here.
+const PUBLIC_V186_METHODS = [
+  "agent.getHealth",
+  "agent.getProfile",
+  "agent.action.run",
+  "agent.action.validateRun",
+  "agent.action.cancel",
+  "agent.action.getExecution",
+  "client_token.getPolicy",
+  "rpc.discover",
+  "sql.bulkInsert",
+  "sql.cancel",
+  "sql.execute",
+  "sql.executeBatch",
+] as const;
+const NEGOTIATED_METHODS = [
+  "sql.describeSchema",
+  "sql.describeSource",
+  "sql.operation.execute",
+  "sql.operation.get",
+  "sql.operation.cancel",
+] as const;
+
+function assertCompatibleCatalog(names: readonly string[]): void {
+  const optional = new Set<string>(NEGOTIATED_METHODS);
+  expect(names.filter((name) => !optional.has(name)).sort()).toEqual(
+    [...PUBLIC_V186_METHODS].sort(),
+  );
+  expect([...supportedAgentRpcMethods].sort()).toEqual(
+    [...PUBLIC_V186_METHODS, ...NEGOTIATED_METHODS].sort(),
+  );
+}
+
+describe("public v1.8.6 catalog compatibility regression", () => {
+  it("accepts the frozen legacy catalog without requiring negotiated extensions", () => {
+    assertCompatibleCatalog(PUBLIC_V186_METHODS);
+  });
+  it("accepts the current catalog with all explicitly negotiated extensions", () => {
+    assertCompatibleCatalog([...PUBLIC_V186_METHODS, ...NEGOTIATED_METHODS]);
+  });
+  it.each(PUBLIC_V186_METHODS)("rejects removal of public method %s", (method) => {
+    expect(() =>
+      assertCompatibleCatalog(PUBLIC_V186_METHODS.filter((name) => name !== method)),
+    ).toThrow();
+  });
+  it("rejects unknown methods rather than accepting arbitrary catalog drift", () => {
+    expect(() => assertCompatibleCatalog([...PUBLIC_V186_METHODS, "sql.unknown"])).toThrow();
+  });
+});
+
 const isHubToAgentOpenRpcMethod = (method: { summary?: string; "x-direction"?: string }): boolean =>
   method["x-direction"] !== "agent_to_hub" &&
   !(typeof method.summary === "string" && method.summary.includes(PENDING_HUB_WIRING_MARKER));
@@ -81,7 +132,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
         (doc.methods ?? []).filter((m) => isHubToAgentOpenRpcMethod(m)).map((m) => m.name),
       ),
     ].sort();
-    expect(names).toEqual([...supportedAgentRpcMethods].sort());
+    assertCompatibleCatalog(names);
 
     const version = doc.info?.version;
     expect(version).toBe("2.11.2");
