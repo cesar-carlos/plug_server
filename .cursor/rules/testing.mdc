@@ -22,8 +22,14 @@ alwaysApply: true
 
 ## Explicit persona chain companion
 
+Manual fixture sessions may select persona-manual-training-v1 with a fixed UTC
+deadline no more than two hours ahead. Only the companion lifetime changes;
+authentication, SQL and approvals retain their limits. Deadline or hub-stop exits
+cooperatively. The default fifteen-minute automated watchdog is unchanged.
+
+
 `tool/homologation/persona_chain_hub.cts` is invoked only by the MCP isolated
-four-engine runner with NODE_ENV=test, explicit `prisma` or `memory` persistence
+three-engine runner with NODE_ENV=test, explicit `prisma` or `memory` persistence
 and a private temporary session as cwd, so checkout .env is never loaded.
 Prisma requires a separate loopback `persona_chain_hub_test` database on the
 manifest's PostgreSQL fixture port; migrations are run by the controller only
