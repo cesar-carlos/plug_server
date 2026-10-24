@@ -1,15 +1,17 @@
 /**
- * Production PM2 profile: single hub process on port 4000.
+ * Emergency rollback only. Production is the `hub` container in
+ * docker-compose.yml (host network, port 4000). Stop that container before
+ * starting PM2, or both processes bind port 4000.
  *
  * `dotenv` does not override variables already present in the environment, so
  * the PORT below takes precedence over PORT in .env.
  *
  * Usage:
+ *   docker compose stop hub
  *   npm install
  *   npm run build
  *   pm2 start deploy/pm2/ecosystem.config.cjs
  *   pm2 save && pm2 startup
- *   pm2 reload plug_server
  *
  * `postinstall` runs `sync:swagger-static` when /var/lib/plug_server exists.
  */

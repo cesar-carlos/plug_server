@@ -11,7 +11,7 @@ de `client:custom.*` (`REST_SOCKET_EVENT_IDEMPOTENCY_REDIS_URL`). Com
 `SOCKET_IO_REDIS_ADAPTER_URL` (ou `AGENT_HUB_PRESENCE_REDIS_URL`), presenca de
 agente e forward de `POST /api/v1/agents/commands` podem atravessar replicas
 (ADR-0010) — codigo de suporte, nao o perfil de deploy deste repositorio.
-**Producao:** um unico processo (`deploy/pm2/ecosystem.config.cjs`, porta 4000).
+**Producao:** um unico processo no container `hub` (`docker-compose.yml`, profile `hub`, rede do host, porta 4000). O Nginx continua em `127.0.0.1:4000`. `deploy/pm2/ecosystem.config.cjs` fica só como retorno de emergência, com o container parado.
 Conversas relay, pending requests REST e grande parte do relay seguem em memoria
 por processo. Defina `HUB_INSTANCE_ID` para observabilidade (`docs/configuration.md`).
 A decisao de 2026-09-27 mantem sticky sessions como requisito; o Redis adapter

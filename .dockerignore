@@ -35,7 +35,7 @@ CLAUDE.md
 README.md
 CHANGELOG.md
 
-# Required before building an incomplete persona-v2 production image
+# The release script stays in the build context. The image does not run it.
 !scripts/
 scripts/*
 !scripts/check-persona-release.mjs

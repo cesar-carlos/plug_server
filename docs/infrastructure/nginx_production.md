@@ -277,8 +277,8 @@ Tambem e recomendado:
 1. Aplicar migrations de banco referentes a `thumbnail_url` e `client_password_recovery_tokens`.
 2. Atualizar `.env` com `UPLOADS_DIR`, `UPLOADS_PUBLIC_BASE_URL` e `CLIENT_THUMBNAIL_MAX_BYTES`.
 3. Criar diretorio persistente de upload e validar permissoes.
-4. `npm install` (dispara `postinstall` → `sync:swagger-static` quando `/var/lib/plug_server` existe) ou manualmente `npm run sync:swagger-static` apos cada deploy que altere `swagger-ui-express`.
-5. Instalar a configuracao (ex.: copiar de `deploy/nginx/plug_server.conf.example`), validar com `nginx -t` e recarregar (`systemctl reload nginx`).
+4. Quando `swagger-ui-express` mudar, correr `npm run sync:swagger-static` no host. O Nginx serve esses assets de `/var/lib/plug_server/swagger-ui-dist/`; o container não os publica.
+5. Instalar a configuracao (ex.: copiar de `deploy/nginx/plug_server.conf.example`), validar com `nginx -t` e recarregar (`systemctl reload nginx`). Reiniciar o processo com `npm run hub:container:up` (`docker compose --profile hub up -d hub`).
 6. Testar:
    - `POST /api/v1/client-auth/thumbnail`
    - acesso direto a URL publica da thumbnail
@@ -390,8 +390,8 @@ Snippet em `deploy/nginx/plug_server.conf.example` (`03-plug-gzip.conf`).
 
 ## 13) Upstream e `X-Hub-Instance-Id`
 
-O deploy suportado e **um unico processo** em `127.0.0.1:4000` (ver
-`deploy/pm2/ecosystem.config.cjs` e `deploy/nginx/plug_server.conf.example`).
+O deploy suportado e **um unico processo** no container `hub`, em `127.0.0.1:4000`
+(ver o servico `hub` em `docker-compose.yml` e `deploy/nginx/plug_server.conf.example`).
 Nao e necessario `ip_hash` nem cookie de afinidade no Nginx.
 
 Defina `HUB_INSTANCE_ID` (ex.: `plug-4000`) para observabilidade. **Toda resposta

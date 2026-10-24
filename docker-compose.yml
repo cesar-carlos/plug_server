@@ -1,4 +1,35 @@
 services:
+  # Production process. Host network keeps localhost Postgres, host Redis and
+  # port 4000. Do not depend on the postgres/redis services below: on this
+  # host those ports already belong to the host processes.
+  hub:
+    profiles: ["hub"]
+    build: .
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=1536
+      UV_THREADPOOL_SIZE: "8"
+    volumes:
+      - /var/lib/plug_server/uploads:/var/lib/plug_server/uploads
+    restart: unless-stopped
+    mem_limit: 2g
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/api/v1/health/live').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
   postgres:
     # Digest matches .github/workflows/ci.yml. scripts/check_ci_image_pins.py enforces that.
     image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416

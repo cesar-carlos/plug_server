@@ -494,7 +494,7 @@ Ver [`docs/observability/observability.md`](../observability/observability.md).
 
 1. Editar `.env` (app) e/ou ficheiros Nginx em `deploy/nginx/`.
 2. `nginx -t && systemctl reload nginx` (borda).
-3. Reiniciar o processo Node (`pm2 reload plug_server` ou equivalente).
+3. Reiniciar o processo Node (`npm run hub:container:up`, que executa `docker compose --profile hub up -d hub`).
 4. Confirmar valores activos: variáveis no boot, métricas de rejeição, teste controlado com `RateLimit-Remaining`.
 
 Para defaults e notas de tuning: [`docs/configuration.md`](../configuration.md).
