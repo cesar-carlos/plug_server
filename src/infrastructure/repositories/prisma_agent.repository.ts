@@ -253,33 +253,103 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
   ): Promise<AgentProfileCommitResult> {
     const result = await prismaClient.$transaction(
       async (tx): Promise<AgentProfileCommitResult> => {
-      const agentId = input.nextAgent.agentId;
+        const agentId = input.nextAgent.agentId;
 
-      if (input.dedupeKey) {
-        const idem = await tx.agentProfileWriteIdempotency.findUnique({
-          where: {
-            agentId_dedupeKey: {
-              agentId,
-              dedupeKey: input.dedupeKey,
+        if (input.dedupeKey) {
+          const idem = await tx.agentProfileWriteIdempotency.findUnique({
+            where: {
+              agentId_dedupeKey: {
+                agentId,
+                dedupeKey: input.dedupeKey,
+              },
             },
-          },
-        });
-        if (idem) {
-          if (idem.patchFingerprint !== input.patchFingerprint) {
+          });
+          if (idem) {
+            if (idem.patchFingerprint !== input.patchFingerprint) {
+              return {
+                status: "conflict",
+                message: "Idempotency key reused with a different profile payload",
+              };
+            }
+            const row = await tx.agent.findUnique({ where: { agentId } });
+            if (!row) {
+              return { status: "conflict", message: "Agent not found after idempotent lookup" };
+            }
+            return { status: "idempotent", agent: this.toEntity(row) };
+          }
+        }
+
+        if (input.mode === "create") {
+          if (
+            await PrismaAgentRepository.anotherAgentOwnsDocument(
+              tx,
+              agentId,
+              input.nextAgent.document,
+            )
+          ) {
             return {
               status: "conflict",
-              message: "Idempotency key reused with a different profile payload",
+              message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+              reason: "document_not_unique",
             };
           }
-          const row = await tx.agent.findUnique({ where: { agentId } });
-          if (!row) {
-            return { status: "conflict", message: "Agent not found after idempotent lookup" };
+          let createdRow: Awaited<ReturnType<typeof tx.agent.create>>;
+          try {
+            createdRow = await tx.agent.create({
+              data: PrismaAgentRepository.agentToPrismaCreate(input.nextAgent),
+            });
+          } catch (error) {
+            if (isPrismaUniqueConstraintOnAgentDocument(error)) {
+              return {
+                status: "conflict",
+                message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
+                reason: "document_not_unique",
+              };
+            }
+            throw error;
           }
-          return { status: "idempotent", agent: this.toEntity(row) };
+          await tx.agentProfileRevision.create({
+            data: {
+              id: randomUUID(),
+              agentId,
+              profileVersion: input.nextAgent.profileVersion,
+              source: input.source,
+              actorUserId: input.actorUserId ?? null,
+              requestId: input.requestId ?? null,
+              idempotencyKey: input.idempotencyKey ?? null,
+              changedFields: [...input.changedFields],
+              snapshotJson: input.snapshotJson as Prisma.InputJsonValue,
+            },
+          });
+          if (input.dedupeKey) {
+            await tx.agentProfileWriteIdempotency.create({
+              data: {
+                id: randomUUID(),
+                agentId,
+                dedupeKey: input.dedupeKey,
+                patchFingerprint: input.patchFingerprint,
+                resultingProfileVersion: input.nextAgent.profileVersion,
+              },
+            });
+          }
+          await tx.auditEvent.create({
+            data: {
+              id: randomUUID(),
+              eventType: "agent.profile.updated",
+              actorUserId: input.actorUserId ?? null,
+              agentId,
+              requestId: input.requestId ?? null,
+              payloadJson: {
+                source: input.source,
+                profileVersion: input.nextAgent.profileVersion,
+                changedFields: input.changedFields,
+                mode: "created",
+              },
+            },
+          });
+          return { status: "committed", agent: this.toEntity(createdRow) };
         }
-      }
 
-      if (input.mode === "create") {
         if (
           await PrismaAgentRepository.anotherAgentOwnsDocument(
             tx,
@@ -293,10 +363,12 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
             reason: "document_not_unique",
           };
         }
-        let createdRow: Awaited<ReturnType<typeof tx.agent.create>>;
+
+        let updated;
         try {
-          createdRow = await tx.agent.create({
-            data: PrismaAgentRepository.agentToPrismaCreate(input.nextAgent),
+          updated = await tx.agent.updateMany({
+            where: { agentId, profileVersion: input.previousProfileVersion },
+            data: PrismaAgentRepository.agentToPrismaUpdate(input.nextAgent),
           });
         } catch (error) {
           if (isPrismaUniqueConstraintOnAgentDocument(error)) {
@@ -308,6 +380,14 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
           }
           throw error;
         }
+
+        if (updated.count === 0) {
+          return {
+            status: "conflict",
+            message: "Agent profile version changed concurrently or expected version mismatch",
+          };
+        }
+
         await tx.agentProfileRevision.create({
           data: {
             id: randomUUID(),
@@ -321,6 +401,7 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
             snapshotJson: input.snapshotJson as Prisma.InputJsonValue,
           },
         });
+
         if (input.dedupeKey) {
           await tx.agentProfileWriteIdempotency.create({
             data: {
@@ -332,6 +413,7 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
             },
           });
         }
+
         await tx.auditEvent.create({
           data: {
             id: randomUUID(),
@@ -343,92 +425,15 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
               source: input.source,
               profileVersion: input.nextAgent.profileVersion,
               changedFields: input.changedFields,
-              mode: "created",
+              mode: "updated",
             },
           },
         });
-        return { status: "committed", agent: this.toEntity(createdRow) };
-      }
 
-      if (
-        await PrismaAgentRepository.anotherAgentOwnsDocument(tx, agentId, input.nextAgent.document)
-      ) {
-        return {
-          status: "conflict",
-          message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
-          reason: "document_not_unique",
-        };
-      }
-
-      let updated;
-      try {
-        updated = await tx.agent.updateMany({
-          where: { agentId, profileVersion: input.previousProfileVersion },
-          data: PrismaAgentRepository.agentToPrismaUpdate(input.nextAgent),
-        });
-      } catch (error) {
-        if (isPrismaUniqueConstraintOnAgentDocument(error)) {
-          return {
-            status: "conflict",
-            message: AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE,
-            reason: "document_not_unique",
-          };
-        }
-        throw error;
-      }
-
-      if (updated.count === 0) {
-        return {
-          status: "conflict",
-          message: "Agent profile version changed concurrently or expected version mismatch",
-        };
-      }
-
-      await tx.agentProfileRevision.create({
-        data: {
-          id: randomUUID(),
-          agentId,
-          profileVersion: input.nextAgent.profileVersion,
-          source: input.source,
-          actorUserId: input.actorUserId ?? null,
-          requestId: input.requestId ?? null,
-          idempotencyKey: input.idempotencyKey ?? null,
-          changedFields: [...input.changedFields],
-          snapshotJson: input.snapshotJson as Prisma.InputJsonValue,
-        },
-      });
-
-      if (input.dedupeKey) {
-        await tx.agentProfileWriteIdempotency.create({
-          data: {
-            id: randomUUID(),
-            agentId,
-            dedupeKey: input.dedupeKey,
-            patchFingerprint: input.patchFingerprint,
-            resultingProfileVersion: input.nextAgent.profileVersion,
-          },
-        });
-      }
-
-      await tx.auditEvent.create({
-        data: {
-          id: randomUUID(),
-          eventType: "agent.profile.updated",
-          actorUserId: input.actorUserId ?? null,
-          agentId,
-          requestId: input.requestId ?? null,
-          payloadJson: {
-            source: input.source,
-            profileVersion: input.nextAgent.profileVersion,
-            changedFields: input.changedFields,
-            mode: "updated",
-          },
-        },
-      });
-
-      const row = await tx.agent.findUnique({ where: { agentId } });
-      return { status: "committed", agent: this.toEntity(row!) };
-    });
+        const row = await tx.agent.findUnique({ where: { agentId } });
+        return { status: "committed", agent: this.toEntity(row!) };
+      },
+    );
     if (result.status === "committed") this.onCatalogChanged?.();
     return result;
   }
