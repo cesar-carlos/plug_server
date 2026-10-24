@@ -21,3 +21,9 @@ alwaysApply: true
 - Run `npm run typecheck` when shared types, transport contracts, tsconfig-sensitive behavior, or broad refactors change TypeScript assumptions across files.
 - If lint or tests cannot be run, or if failures remain outside the current scope, say so explicitly in the final handoff.
 - Persona-v2 release requires all coordinated gates, including shared-knowledge-and-compatibility; a manifest edit alone is not acceptance evidence. Keep production blocked until the MCP, hub and agent acceptance is complete.
+
+## Authorized manual acceptance exception (2026-10-24)
+
+- The project owner explicitly waived mandatory manual HTTPS/ChatGPT validation and separate human functional acceptance for this release. Record these activities as waived, never as executed or passed. See `docs/decisions/2026-10-24-manual-release-validation-waiver.md`.
+- This exception does not waive technical gate coverage, automated HTTPS/OAuth/security checks, public contract compatibility with plug_agente 1.8.6, Node 24, exact candidate/artifact provenance, or recovery validation. It does not authorize changing runtime consent or operation approval behavior.
+- Remove this release-specific exception when this release is closed or the owner reinstates manual acceptance. Production remains blocked until the remaining coordinated technical criteria pass.
