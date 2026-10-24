@@ -25,5 +25,6 @@ alwaysApply: true
 ## Authorized manual acceptance exception (2026-10-24)
 
 - The project owner explicitly waived mandatory manual HTTPS/ChatGPT validation and separate human functional acceptance for this release. Record these activities as waived, never as executed or passed. See `docs/decisions/2026-10-24-manual-release-validation-waiver.md`.
-- This exception does not waive technical gate coverage, automated HTTPS/OAuth/security checks, public contract compatibility with plug_agente 1.8.6, Node 24, exact candidate/artifact provenance, or recovery validation. It does not authorize changing runtime consent or operation approval behavior.
+- The owner subsequently waived the documented requirement for specific plug_agente 1.8.6 compatibility validation, including installed-binary/VM testing. Do not treat waived validation as passed. Existing automated CI coverage remains unchanged.
+- These exceptions do not authorize public contract or runtime behavior changes. Other technical gate coverage, automated HTTPS/OAuth/security checks, Node 24, exact candidate/artifact provenance, and recovery validation remain required. Runtime consent and operation approval behavior are unchanged.
 - Remove this release-specific exception when this release is closed or the owner reinstates manual acceptance. Production remains blocked until the remaining coordinated technical criteria pass.
