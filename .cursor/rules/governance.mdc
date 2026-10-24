@@ -28,3 +28,9 @@ alwaysApply: true
 - The owner subsequently waived the documented requirement for specific plug_agente 1.8.6 compatibility validation, including installed-binary/VM testing. Do not treat waived validation as passed. Existing automated CI coverage remains unchanged.
 - These exceptions do not authorize public contract or runtime behavior changes. Other technical gate coverage, automated HTTPS/OAuth/security checks, Node 24, exact candidate/artifact provenance, and recovery validation remain required. Runtime consent and operation approval behavior are unchanged.
 - Remove this release-specific exception when this release is closed or the owner reinstates manual acceptance. Production remains blocked until the remaining coordinated technical criteria pass.
+
+## Authorized server-only dependency update (2026-10-24)
+
+- The owner explicitly authorized a one-time exception only for the server: "Autorizar exceção apenas para o servidor". This permits deploying the tested hub candidate `da457e05e3fd4ee407d7aefb2c58d82c7e6d92f5` with Node 24, independently of unfinished persona-v2 coordinated acceptance. See `docs/decisions/2026-10-24-server-only-dependency-release.md` for scope, evidence and recovery.
+- This exception does not publish MCP or the agent, approve missing gates, change public contracts, run database migrations, or change runtime consent/configuration. The persona-v2 manifest stays `ready:false` and its release guard remains unchanged.
+- The exception expires after this single update or rollback. Any different runtime candidate requires its own validation and authorization; retain this record as history.
