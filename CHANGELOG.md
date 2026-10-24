@@ -190,7 +190,7 @@ responseId` o bypass `encodeRelayOutboundFrameFromBytes` e sacrificado
 
 **Documentacao:**
 
-- [`docs/socket_relay_protocol.md`](docs/socket_relay_protocol.md) — secao
+- [`docs/socket_relay_protocol.md`](docs/socket/socket_relay_protocol.md) — secao
   "Correlacao de IDs no relay" atualizada para descrever a reescrita;
   secao "Relay unary fast-path" deixa explicito que `body.id` da resposta
   carrega o `client_request_id`.
@@ -203,7 +203,7 @@ responseId` o bypass `encodeRelayOutboundFrameFromBytes` e sacrificado
   `03_performance_roadmap.md` (oportunidades cross-repo priorizadas por
   impacto/esforco com coluna **Status** rastreavel, incluindo dois bugs
   de defaults divergentes hub × agente).
-- Cross-link em [`docs/communication_sync_plug_agente.md`](docs/communication_sync_plug_agente.md)
+- Cross-link em [`docs/communication_sync_plug_agente.md`](docs/plug_agente/communication_sync_plug_agente.md)
   apontando para a nova pasta como porta de entrada quando uma mudanca
   no contrato afetar o `plug_agente`.
 
@@ -237,10 +237,10 @@ Complementos ao fix do fast-path:
   roadmap. Define gates de reabertura, mudancas requeridas em ambos os
   repos, alternativas consideradas (rejeitadas) e criterios de
   aceitacao para o v1.
-- [`docs/relay_fastpath_study.md`](docs/relay_fastpath_study.md) atualizado
+- [`docs/relay_fastpath_study.md`](docs/studies/relay_fastpath_study.md) atualizado
   com status `SHIPPED` e secao "Resultado" linkando para o cliente
   Colmeia + metricas pos-fix.
-- [`docs/socket_relay_protocol.md`](docs/socket_relay_protocol.md) ganhou
+- [`docs/socket_relay_protocol.md`](docs/socket/socket_relay_protocol.md) ganhou
   secao "Caso degenerate: consumer sem `id` JSON-RPC" com tabela
   documentando o comportamento esperado em todos os edge cases
   (`id` omitido, `id: null`, numero, string, metodo invalido).

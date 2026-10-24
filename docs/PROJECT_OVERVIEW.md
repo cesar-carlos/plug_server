@@ -88,7 +88,7 @@ Existem dois modos:
 - `agents:*`: bridge legado em JSON logico
 - `relay:*`: modo isolado por conversa, com `PayloadFrame` tambem no consumer
 
-Para **novas integracoes**, prefere `relay:`_ quando precisares de streaming em tempo real, carga continua elevada ou idempotencia por conversa (`client_request_id`); o canal `agents:`_ continua suportado como legado sem data de remocao anunciada neste documento.
+Para **novas integracoes**, prefere `relay:*` quando precisares de streaming em tempo real, carga continua elevada ou idempotencia por conversa (`client_request_id`); o canal `agents:*` continua suportado como legado sem data de remocao anunciada neste documento.
 
 Quando precisas de chunks em tempo real e `stream_pull`, prefere Socket.
 
@@ -198,23 +198,4 @@ Implicacoes multi-instancia: [studies/scaling_and_roadmap.md](studies/scaling_an
 
 ## Leitura recomendada
 
-Mapa rapido da documentacao: `docs/README.md`.
-
-| Tema                                        | Documento                                                                         |
-| ------------------------------------------- | --------------------------------------------------------------------------------- |
-| Contrato REST e `agents:*`                  | `docs/api/api_rest_bridge.md`                                                     |
-| Relay Socket e quotas                       | `docs/socket/socket_relay_protocol.md`                                            |
-| Guia minimo para cliente Socket             | `docs/socket/socket_client_sdk.md`                                                |
-| Defaults e variaveis de ambiente            | `docs/configuration.md`                                                           |
-| Tuning hub ↔ agente                         | `docs/performance/performance_hub_agent.md`                                       |
-| Metricas, tracing e alertas                 | `docs/observability/observability.md`                                             |
-| Fast-path relay (shipped; estudo historico) | `docs/studies/relay_fastpath_study.md` + contrato em `docs/socket/socket_relay_protocol.md` |
-| E2E, benchmark e carga                      | `docs/performance/e2e_benchmark_hub_agent.md`, `docs/performance/load_testing.md` |
-| Escala horizontal e backlog                 | `docs/studies/scaling_and_roadmap.md`                                             |
-| Alinhamento com o `plug_agente`             | `docs/plug_agente/communication_sync_plug_agente.md`                              |
-
-## Resumo
-
-O `plug_server` nao e apenas uma API REST. Ele e o ponto de orquestracao entre
-`consumers` e `plug_agente`, mantendo autenticacao, comunicacao em tempo real,
-contratos de transporte e controles operacionais num unico lugar.
+Consulte o [índice da documentação](README.md) para contratos, operação e integração.

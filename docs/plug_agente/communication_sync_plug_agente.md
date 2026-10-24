@@ -14,6 +14,10 @@ Ele nao substitui os contratos normativos do hub. Use este ficheiro para:
 
 Mapa geral da documentacao: `docs/README.md`.
 
+> As referências a `plug_agente/docs/plug_server/` são históricas e pertencem
+> ao outro repositório; esse diretório não está disponível no checkout local
+> revisado em 24/10/2026. Não são evidência de validação atual.
+
 ## Fontes de referencia no `plug_agente`
 
 Quando houver um checkout local do repositório irmao, estas sao as referencias
@@ -127,7 +131,7 @@ ou um benchmark sem baseline compatível como aprovação integral.
 | `agent:profile.update` para self-service do cadastro | canal pronto no hub; o runtime desktop do agente ainda sincroniza perfil por REST `PATCH /api/v1/agents/{agentId}/profile` | `docs/api/client_agent_business_rules.md`; patch parcial por socket em `/agents`, com `snake_case` e ack `agent:profile.updated` |
 | `agent.autoUpdate.diagnostics.push` | ingestao no hub, flag desligada por defeito; fora de `rpc.discover` e do bridge do consumer | notificacao sem `id` em `rpc:request` no `/agents`; `AGENT_AUTO_UPDATE_DIAGNOSTICS_*` em `docs/configuration.md`. O OpenRPC do agente ainda nao publica o metodo |
 | `observer.*` | fora do contrato atual | reservado para profile futuro; o hub rejeita estes metodos ate o `plug_agente` publicar implementacao, OpenRPC e schemas |
-| Transport extensions ADR 0009 / 0011 / 0012 (0010 e presenca Redis, nao phase timings) | alinhado (2026-06-24) | hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f), agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677); ver [`plug_agente/docs/plug_server/readme.md`](../../../plug_agente/docs/plug_server/readme.md) |
+| Transport extensions ADR 0009 / 0011 / 0012 (0010 e presenca Redis, nao phase timings) | alinhado (2026-06-24) | hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f), agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677); ver `plug_agente/docs/plug_server/readme.md` |
 | `parallelBatchDispatch` em `agent:capabilities` | alinhado (hub anuncia; agente negocia paralelismo em batches REST/`sql.executeBatch`) | `src/shared/constants/agent_transport_contract.ts`, `plug_agente` `ProtocolNegotiator` |
 | Gate defensivo `meta.agent_phases` no relay (hub strip quando `agentPhaseTimings` nao negociado) | alinhado hub-only (2026-07-07) | [ADR 0012](../adrs/0012-agent-phase-timings.md), `relay_route_response_forwarder.ts` — **sem mudanca no agente** |
 | Erro sintetico `BRIDGE_OUTBOUND_PROCESSING_FAILED` em falha do job outbound relay | alinhado hub-only (2026-07-07) | `docs/socket/socket_relay_protocol.md` — consumer recebe `relay:rpc.response` com `error.data.code` |
@@ -138,8 +142,8 @@ ou um benchmark sem baseline compatível como aprovação integral.
 Quando o agente passa a depender de comportamento novo no hub, o time do
 agente mantem orientacoes em `../plug_agente/docs/plug_server/`:
 
-- [`readme.md`](../../../plug_agente/docs/plug_server/readme.md) — resumo das extensoes
-- [`01_transport_extensions.md`](../../../plug_agente/docs/plug_server/01_transport_extensions.md) — contrato tecnico
+- `plug_agente/docs/plug_server/readme.md` — resumo das extensoes
+- `plug_agente/docs/plug_server/01_transport_extensions.md` — contrato tecnico
 
 O checklist de homologacao passou a ser mantido junto aos contract tests do
 `plug_agente`; consulte o repositorio irmao antes de uma mudanca de protocolo.

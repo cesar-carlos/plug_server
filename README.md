@@ -12,7 +12,7 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 
 ## Stack
 
-- Node.js + TypeScript
+- Node.js 24 + TypeScript
 - Express (REST)
 - Socket.IO (tempo real)
 - Zod (validacao)
@@ -21,20 +21,10 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 
 ## Documentacao e historico
 
-- [docs/README.md](./docs/README.md) — índice e ordem de leitura
-- [docs/PROJECT_OVERVIEW.md](./docs/PROJECT_OVERVIEW.md) — visão geral, papéis, canais e arquitetura
-- [docs/configuration.md](./docs/configuration.md) — onde estão os defaults (`env.ts`, `.env.example`)
-- [docs/infrastructure/nginx_production.md](./docs/infrastructure/nginx_production.md) — ajustes de Nginx para produção (API, Socket.IO e uploads)
-- [CHANGELOG.md](./CHANGELOG.md) — mudancas, migracao e roadmap tecnico
-- [docs/api/api_rest_bridge.md](./docs/api/api_rest_bridge.md) — `POST /api/v1/agents/commands` e canal legado `agents:*`
-- [docs/socket/socket_client_sdk.md](./docs/socket/socket_client_sdk.md) — relay `PayloadFrame`, `agents:command`, exemplos
-- [docs/socket/socket_relay_protocol.md](./docs/socket/socket_relay_protocol.md) — contrato relay (`relay:*`), quotas e metricas
-- [docs/performance/performance_hub_agent.md](./docs/performance/performance_hub_agent.md) — tuning hub ↔ agente (presets `.env` + checklist)
-- [docs/observability/observability.md](./docs/observability/observability.md) — métricas, `test:contract`, tracing, exemplos de alertas (incl. `plug_auth_*`, `plug_admin_user_status_set_total`)
-- [docs/api/user_status.md](./docs/api/user_status.md) — estados da conta (`pending`, `active`, `rejected`, `blocked`), API admin e métricas Prometheus
-- [docs/performance/load_testing.md](./docs/performance/load_testing.md) — notas para carga HTTP/Socket
-- [docs/studies/scaling_and_roadmap.md](./docs/studies/scaling_and_roadmap.md) — multi-instância, SSE, OpenTelemetry, SDK
-- [docs/api/client_agent_business_rules.md](./docs/api/client_agent_business_rules.md) — regras User / Agent / Client; `GET /api/v1/client/me/agents` e `GET /api/v1/client/me/agents/{agentId}` expõem `isHubConnected` (ligado a **este** processo do hub após `agent:register` no Socket `/agents`; contrato em `GET /docs.json`, componente `ClientAccessibleAgent`). Opcional: `HUB_INSTANCE_ID` no `.env` envia o header `X-Hub-Instance-Id`; métricas `plug_client_me_agents_*` em `GET /metrics` (ver `docs/observability/observability.md`)
+- [Índice da documentação](docs/README.md) — contratos, configuração, operação e integração com o agente.
+- [Visão geral](docs/PROJECT_OVERVIEW.md) — papéis, canais e arquitetura.
+- [Histórico de alterações](CHANGELOG.md).
+- [Regras do projeto](AGENTS.md) — entrada para as regras em `.cursor/rules`.
 
 ## Scripts
 

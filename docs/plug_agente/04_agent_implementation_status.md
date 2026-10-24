@@ -1,6 +1,6 @@
 # Agent implementation status — ledger de commits
 
-> **Status vivo:** [`README.md`](README.md). Esta pagina e o **ledger**
+> **Alinhamento:** [matriz de sincronização](communication_sync_plug_agente.md). Esta pagina e o **ledger**
 > (commits, arquivos, testes) das ondas de entrega cross-repo — nao
 > duplicar tabelas de status no README.
 >
@@ -8,7 +8,7 @@
 > Roadmap historico: [`03_performance_roadmap.md`](03_performance_roadmap.md).
 >
 > Construido a partir do working tree do `plug_agente` (audit 2026-05-28).
-> A cada nova onda: atualizar a tabela TL;DR abaixo + o README.
+> A cada nova onda: atualizar este registro e a matriz de sincronização.
 
 ## TL;DR
 
@@ -28,6 +28,10 @@ Itens implementados não significam homologação completa.
 | proposed | 10 | brotli — ver [study](../studies/brotli_payload_frame_study.md) |
 
 Orientacao inversa (o que o hub deve fazer): `plug_agente/docs/plug_server/`.
+
+> As referências a `plug_agente/docs/plug_server/` são históricas e pertencem
+> ao outro repositório; esse diretório não está disponível no checkout local
+> revisado em 24/10/2026. Não são evidência de validação atual.
 
 ## Itens entregues
 
@@ -213,7 +217,7 @@ forwarder sem rewrite quando agente ja ecoou. Opcao B para legados.
 
 Validacao das extensoes ja entregues:
 [`05_channel_migration_performance.md`](05_channel_migration_performance.md)
-e [`plug_agente/docs/plug_server/01_transport_extensions.md`](../../../plug_agente/docs/plug_server/01_transport_extensions.md).
+e `plug_agente/docs/plug_server/01_transport_extensions.md`.
 
 ## Historico de atualizacoes
 

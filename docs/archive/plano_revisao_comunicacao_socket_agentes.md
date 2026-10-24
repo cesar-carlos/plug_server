@@ -1,4 +1,9 @@
-# Plano de implementacao — comunicacao Socket.IO hub ↔ agente
+# Plano histórico — comunicação Socket.IO hub ↔ agente
+
+> Arquivo da revisão de 27/09/2026. As fases e lacunas abaixo descrevem aquela
+> revisão, não o estado atual do código ou a autorização de deploy. Consulte
+> a [sincronização](../plug_agente/communication_sync_plug_agente.md), a CI
+> versionada e as [decisões de publicação](../README.md#decisões-de-publicação-e-segurança).
 
 **Estado:** implementado no hub e em testes locais; matriz Node ↔ Dart obrigatoria em CI (`main` e `v1.8.5`); bridge distribuido permanece fora de escopo  
 **Data da revisao:** 2026-09-27  
@@ -44,9 +49,6 @@ Os documentos de referencia do agente foram lidos em:
 - `D:\Developer\plug_database\plug_agente\docs\communication\socket_communication_standard.md`
 - `D:\Developer\plug_database\plug_agente\docs\communication\socketio_client_binary_transport.md`
 - `D:\Developer\plug_database\plug_agente\docs\plug_server\01_transport_extensions.md`
-
-> O caminho `D:\Developer\plug\_database\...` informado originalmente nao
-> existe neste ambiente. O checkout disponivel usa `plug_database`.
 
 ## 2. Achados, prioridade e decisao
 

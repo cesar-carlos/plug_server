@@ -26,21 +26,6 @@ na CI para detectar drift, remoções, estreitamentos e campos ainda não rastre
 mudança incompatível exige também major novo, `--accept-breaking` e um
 artefato paralelo `plug-mcp-rest-vN.json`; não reescreva o major usado pelo MCP.
 
-## Inicio rapido
-
-| Doc                                                                        | Para que                |
-| -------------------------------------------------------------------------- | ----------------------- |
-| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)                               | Mapa do produto         |
-| [api/client_agent_business_rules.md](api/client_agent_business_rules.md) | User / Agent / Client   |
-| [api/api_rest_bridge.md](api/api_rest_bridge.md)                         | `POST /agents/commands` |
-| [socket/socket_relay_protocol.md](socket/socket_relay_protocol.md)       | Contrato relay          |
-| [socket/socket_client_sdk.md](socket/socket_client_sdk.md)               | Guia pratico Socket     |
-| [configuration.md](configuration.md)                                     | Env / defaults          |
-| [CHANGELOG.md](../CHANGELOG.md)                                          | Historico de contrato   |
-
-HTTP vs Socket (resumo): REST cobre API de produto; Socket cobre tempo real
-`/consumers` + `/agents`. Detalhe e diagrama: overview.
-
 ## Por assunto
 
 ### Produto e regras
@@ -54,8 +39,6 @@ HTTP vs Socket (resumo): REST cobre API de produto; Socket cobre tempo real
 - [api/api_rest_bridge.md](api/api_rest_bridge.md)
 - [socket/socket_relay_protocol.md](socket/socket_relay_protocol.md)
 - [socket/socket_client_sdk.md](socket/socket_client_sdk.md)
-- [plug_agente/migracao_plug_agente_namespaces.md](plug_agente/migracao_plug_agente_namespaces.md)
-- [plug_agente/communication_sync_plug_agente.md](plug_agente/communication_sync_plug_agente.md)
 
 ### Operacao
 
@@ -78,7 +61,6 @@ HTTP vs Socket (resumo): REST cobre API de produto; Socket cobre tempo real
   [bridge_latency_trace_minimal.json](grafana/bridge_latency_trace_minimal.json)
 - Alertas: [redis.yml](observability/alerts/redis.yml),
   [rate_limits.yml](observability/alerts/rate_limits.yml)
-- [runbooks/redis_cluster_migration.md](runbooks/redis_cluster_migration.md)
 - [spikes/_README.md](spikes/_README.md)
 - ADRs Redis: `0001`–`0007`; presenca [0010-agent-hub-presence-redis.md](adrs/0010-agent-hub-presence-redis.md)
 
@@ -98,14 +80,7 @@ HTTP vs Socket (resumo): REST cobre API de produto; Socket cobre tempo real
 
 ### plug_agente (coordenacao cross-repo)
 
-- [plug_agente/README.md](plug_agente/README.md) — **status vivo**
-- [plug_agente/communication_sync_plug_agente.md](plug_agente/communication_sync_plug_agente.md)
-- [plug_agente/migracao_plug_agente_namespaces.md](plug_agente/migracao_plug_agente_namespaces.md)
-- [plug_agente/01_relay_body_id_echo.md](plug_agente/01_relay_body_id_echo.md) — historico Opcao B/A
-- [plug_agente/02_no_change_items.md](plug_agente/02_no_change_items.md)
-- [plug_agente/03_performance_roadmap.md](plug_agente/03_performance_roadmap.md) — arquivo
-- [plug_agente/04_agent_implementation_status.md](plug_agente/04_agent_implementation_status.md) — ledger
-- [plug_agente/05_channel_migration_performance.md](plug_agente/05_channel_migration_performance.md)
+- [plug_agente/README.md](plug_agente/README.md) — integração, sincronização e histórico de entregas.
 
 ### Runbooks
 
@@ -113,8 +88,20 @@ HTTP vs Socket (resumo): REST cobre API de produto; Socket cobre tempo real
 - [runbooks/socket_perf_investigation.md](runbooks/socket_perf_investigation.md)
 - [runbooks/payload_signing_key_rotation_runbook.md](runbooks/payload_signing_key_rotation_runbook.md)
 
+### Decisões de publicação e segurança
+
+- [Dispensas autorizadas de validação](decisions/2026-10-24-manual-release-validation-waiver.md).
+- [Correção de dependências e evidências de segurança](decisions/2026-10-24-production-dependency-security.md).
+- [Publicação restrita do servidor em 24/10/2026](decisions/2026-10-24-server-only-dependency-release.md) — autorização, execução e recuperação; não libera persona-v2.
+- [CHANGELOG.md](../CHANGELOG.md) — histórico de alterações.
+
+### Planos históricos
+
+- [Revisão da comunicação Socket.IO de 27/09/2026](archive/plano_revisao_comunicacao_socket_agentes.md) — achados e desenho originais; não é uma lista atual de pendências.
+
 ## Manutencao
 
+- As regras autoritativas estão em [`.cursor/rules`](../.cursor/rules/governance.mdc), com entrada por [AGENTS.md](../AGENTS.md).
 - Mantenha este indice apenas como navegacao: o contrato detalhado pertence
   aos documentos canonicos indicados em cada secao.
 - `src/shared/config/env.ts` e o `.env` ativo prevalecem sobre valores de

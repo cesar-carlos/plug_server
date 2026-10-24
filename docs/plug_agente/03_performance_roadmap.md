@@ -1,6 +1,6 @@
 ﻿# Performance roadmap — arquivo
 
-> **Arquivo.** Status vivo: [`README.md`](README.md).
+> **Arquivo.** Alinhamento: [sincronização](communication_sync_plug_agente.md).
 > Ledger de commits e arquivos: [`04_agent_implementation_status.md`](04_agent_implementation_status.md).
 > Itens **1–9** e hub **H1–H12** shipped. Unico aberto: **item 10 (brotli)**.
 >
@@ -15,18 +15,9 @@ comunicação constam em [sincronização](communication_sync_plug_agente.md);
 “único aberto” refere-se aos itens numerados deste arquivo, sem incluir
 pendências de benchmark, ODBC ou rollout.
 
-| # | Item | Status |
-| - | ---- | ------ |
-| 1 | `enableSocketDeliveryGuarantees=true` | shipped 2026-05-28 [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |
-| 2 | `enableSocketStreamingChunks=true` | shipped 2026-05-28 [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |
-| 3 | Coalescing `rpc:request_ack` → `rpc:batch_ack` | shipped 2026-05-28 [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |
-| 4 | `meta.agent_phases` | shipped 2026-06-24 — [ADR 0012](../adrs/0012-agent-phase-timings.md) |
-| 5 | Health piggyback | shipped 2026-06-24 — [ADR 0011](../adrs/0011-health-piggyback.md) |
-| 6 | `recommendedStreamPullWindowSize` default 8 | shipped 2026-05-28 [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |
-| 7 | `clientRequestIdEcho: "v1"` | shipped 2026-06-24 — [ADR 0009](../adrs/0009-client-request-id-echo.md) |
-| 8 | `prepareForSend` preserva `meta.request_id` | shipped 2026-05-28 [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |
-| 9 | Pre-warm de schema validators | shipped 2026-05-28 [`7923e38c`](https://github.com/cesar-carlos/plug_agente/commit/7923e38c) |
-| 10 | Compressao brotli | proposed — [study](../studies/brotli_payload_frame_study.md), gates em [P5](../performance/P5_future_gates.md) |
+Os itens 1–9 e os respectivos commits estão no
+[registro de implementação](04_agent_implementation_status.md). O item 10
+(brotli) permanece como proposta descrita abaixo.
 
 Extensoes de transporte: ADR **0009**, **0011** e **0012**. ADR **0010** e
 presenca Redis no hub, nao `agentPhaseTimings`.
