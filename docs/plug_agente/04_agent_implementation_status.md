@@ -228,3 +228,4 @@ e `plug_agente/docs/plug_server/01_transport_extensions.md`.
 | 2026-06-24 | hub audit | itens 4, 5, 7 shipped (ADR 0009/0011/0012); hub [`560ef2f`](https://github.com/cesar-carlos/plug_server/commit/560ef2f), agente [`741b5677`](https://github.com/cesar-carlos/plug_agente/commit/741b5677) |
 | 2026-07-07 | hub audit | pós-auditoria de comunicação: frame de erro sintético no relay outbound, métricas late-response/outbound-failure, gate defensivo `agentPhaseTimings`, contador `parallelBatchDispatch` |
 | 2026-09-27 | docs | roadmap 03 reduzido a arquivo; numeracao ADR 0010 corrigida (presenca Redis, nao phase timings) |
+| 2026-10-24 | docs | paridade do contrato do agente alinhada no validador; perfil 2.11.2 sem método novo; contrato MCP 2.0.0 publicado em paralelo ao 1.15.0 |

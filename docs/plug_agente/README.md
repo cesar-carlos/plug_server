@@ -27,7 +27,13 @@ Contrato REST aditivo 1.12.0 e extensão sourceSchema v1, em desenvolvimento.
 sql.describeSchema exige sourceSchema/sourceIdentity v1 na inscrição autenticada;
 o hub revalida no dispatch, sem fallback/retry. Encaminha escopo limitado e valida
 metadados; não interpreta SQL nem acessa bancos. PKs, índices únicos e FKs incluem
-estado por recurso. SQL Anywhere mantém enforcement desconhecido.
+estado por recurso. SQL Anywhere 16 pode provar estado de constraint pelo catálogo
+público no escopo; evidência incompleta permanece `unknown`.
+
+A revisão de comunicação do agente em 24/10/2026 mantém o perfil 2.11.2. O
+validador do hub acompanha o schema publicado: dialetos `postgres`, `mssql` e
+`sybase`; `offset` e `pageSize` explícitos; `schema` obrigatório no pedido.
+Detalhe e limites: [`api_rest_bridge.md`](../api/api_rest_bridge.md).
 
 sql.execute.expectedStructure preserva colunas e constraints utilizadas. Constraints
 exigem sourceConstraints v1 negociada; agentes antigos são recusados. O agente

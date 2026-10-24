@@ -55,9 +55,9 @@
     "sync:swagger-static": "bash scripts/sync-swagger-ui-static.sh",
     "check:swagger-edge": "bash scripts/check_swagger_edge.sh",
     "check:swagger-flaky": "LOOPS=30 BURST=10 bash scripts/check_swagger_edge.sh",
-    "contract:generate": "tsx scripts/generate-plug-mcp-contract.ts",
-    "contract:check": "tsx scripts/generate-plug-mcp-contract.ts --check",
-    "contract:baseline": "tsx scripts/generate-plug-mcp-contract.ts --update-baseline"
+    "contract:generate": "tsx scripts/generate-plug-mcp-contract.ts --major=2",
+    "contract:check": "tsx scripts/generate-plug-mcp-contract.ts --check --major=2",
+    "contract:baseline": "tsx scripts/generate-plug-mcp-contract.ts --update-baseline --major=2 --accept-breaking"
   },
   "repository": {
     "type": "git",

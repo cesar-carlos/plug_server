@@ -14,13 +14,18 @@ export const schemaResourceSchema = z.strictObject({
   name: identifier,
   type: z.enum(["table", "view"]),
 });
+const requestedSchemaResourceSchema = z.strictObject({
+  schema: identifier,
+  name: identifier,
+  type: z.enum(["table", "view"]),
+});
 export const schemaInspectionSchema = z.strictObject({
-  resources: legacyArray(schemaResourceSchema)
+  resources: legacyArray(requestedSchemaResourceSchema)
     .min(1)
     .max(16)
     .refine((r) => new Set(r.map((v) => JSON.stringify(v))).size === r.length),
-  offset: z.number().int().min(0).max(15).default(0),
-  pageSize: z.number().int().min(1).max(4).default(4),
+  offset: z.number().int().min(0).max(15),
+  pageSize: z.number().int().min(1).max(4),
 });
 const columnSchema = z.strictObject({
   name: z.string().min(1).max(128),

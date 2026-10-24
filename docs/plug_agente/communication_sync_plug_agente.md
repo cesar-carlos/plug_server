@@ -24,6 +24,10 @@ Quando houver um checkout local do repositório irmao, estas sao as referencias
 principais:
 
 - `../plug_agente/docs/communication/socket_communication_standard.md`
+- `../plug_agente/docs/communication/socket_communication_roadmap.md`
+- `../plug_agente/docs/communication/socket_communication_backlog.md`
+- `../plug_agente/docs/communication/source_discovery.md`
+- `../plug_agente/docs/communication/sql_operations.md`
 - `../plug_agente/docs/communication/socketio_client_binary_transport.md`
 - `../plug_agente/docs/communication/openrpc.json`
 - `../plug_agente/docs/communication/schemas/`
@@ -62,6 +66,16 @@ isoladamente, cobertura completa de integração ou homologação.
 Revisão de comunicação de 2026-10-03: profile **2.11.2** preservado.
 As correções abaixo são de implementação, sem métodos novos no discover ou
 endurecimento incidental dos schemas públicos.
+
+Revisão de paridade de 2026-10-24, ainda no perfil **2.11.2** e sem método novo
+em `rpc.discover`. O hub valida dialetos `postgres`, `mssql` e `sybase`,
+`offset`/`pageSize` obrigatórios em `sql.describeSchema` e `schema` não nulo no
+pedido. `SCHEMA_UNAVAILABLE` (`-32603`) é falha interna do agente; o hub
+preserva o `id`. `failureCode` e os tetos UTF-8 de 1 MiB por SQL e 2 MiB no
+plano coincidem. O contrato MCP 2.0.0 registra o estreitamento; o artefato
+1.15.0 permanece. A revisão não conclui a homologação coordenada nem libera
+persona-v2. O backlog do agente mantém `execution_mode` fora de
+`sql.executeBatch` e `agent.autoUpdate.diagnostics.push` fora do discover.
 
 | Caminho | Representação e garantia | Validação / pendência |
 | --- | --- | --- |
@@ -128,6 +142,10 @@ ou um benchmark sem baseline compatível como aprovação integral.
 | `meta.outbound_compression` aceito no schema (no-op no runtime atual, alinhado a v2.8) | tolerancia | `src/shared/validators/agent_command.ts` |
 | Teste de contrato contra OpenRPC/schemas do agente | alinhado | `docs/observability/observability.md` |
 | `profile_version` no resultado de `agent.getProfile` | hub usa para *pull sync* / consistencia | `docs/api/client_agent_business_rules.md`, `docs/configuration.md`; o JSON Schema publicado em `plug_agente` inclui o campo como opcional e o hub continua tolerando agentes legados que o omitem |
+| Dialetos de fonte e operação (`postgres`, `mssql`, `sybase`) | alinhado (2026-10-24) | `src/shared/validators/source_discovery.ts` recusa `firebird` em `expectedSource` e no resultado de `sql.describeSource` |
+| `sql.describeSchema` `offset` / `pageSize` explícitos | alinhado (2026-10-24) | `src/shared/validators/source_schema.ts` exige os inteiros, sem default |
+| `resources[].schema` no pedido de `sql.describeSchema` | alinhado (2026-10-24) | o pedido exige string; no resultado, `null` continua válido |
+| `SCHEMA_UNAVAILABLE` / `-32603` | pass-through | falha interna do agente quando o schema JSON obrigatório falta ou é inválido; o hub preserva o `id` |
 | `agent:profile.update` para self-service do cadastro | canal pronto no hub; o runtime desktop do agente ainda sincroniza perfil por REST `PATCH /api/v1/agents/{agentId}/profile` | `docs/api/client_agent_business_rules.md`; patch parcial por socket em `/agents`, com `snake_case` e ack `agent:profile.updated` |
 | `agent.autoUpdate.diagnostics.push` | ingestao no hub, flag desligada por defeito; fora de `rpc.discover` e do bridge do consumer | notificacao sem `id` em `rpc:request` no `/agents`; `AGENT_AUTO_UPDATE_DIAGNOSTICS_*` em `docs/configuration.md`. O OpenRPC do agente ainda nao publica o metodo |
 | `observer.*` | fora do contrato atual | reservado para profile futuro; o hub rejeita estes metodos ate o `plug_agente` publicar implementacao, OpenRPC e schemas |

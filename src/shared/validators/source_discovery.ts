@@ -1,7 +1,7 @@
 import { z } from "zod";
 export const expectedSourceSchema = z.strictObject({
   version: z.literal(1),
-  dialect: z.enum(["postgres", "mssql", "sybase", "firebird"]),
+  dialect: z.enum(["postgres", "mssql", "sybase"]),
   identityHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export const sourceDiscoveryParamsSchema = z.strictObject({
@@ -16,7 +16,7 @@ export const sourceDiscoveryParamsSchema = z.strictObject({
 export const sourceDiscoveryResultSchema = z.strictObject({
   contractVersion: z.literal(1),
   database: z.string().min(1).max(500),
-  dialect: z.enum(["postgres", "mssql", "sybase", "firebird"]),
+  dialect: z.enum(["postgres", "mssql", "sybase"]),
   identityHash: z.string().regex(/^[a-f0-9]{64}$/),
   identityKind: z.enum(["native", "provisioned", "locator"]),
   engineVersion: z.string().max(200),

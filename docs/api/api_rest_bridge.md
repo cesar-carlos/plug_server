@@ -52,16 +52,17 @@ consulte tambem o OpenAPI em `GET /docs` e `GET /docs.json`.
 
 ### Contrato versionado do plug_mcp
 
-O artefato `contracts/plug-mcp-rest-v1.json` é gerado diretamente por
+O artefato `contracts/plug-mcp-rest-v2.json` é gerado diretamente por
 `scripts/generate-plug-mcp-contract.ts` a partir do OpenAPI; não duplique schemas
 manualmente. `npm run contract:generate` atualiza o arquivo e
 `npm run contract:check` falha se ele estiver desatualizado ou se uma resposta
 pública perder campo coberto pelo baseline
-`contracts/plug-mcp-rest-v1.compatibility.json`. Campos aditivos permanecem
+`contracts/plug-mcp-rest-v2.compatibility.json`. O artefato 1.15.0 permanece em
+`contracts/plug-mcp-rest-v1.json`. Campos aditivos permanecem
 compatíveis, mas também precisam ser registrados no baseline para não sumirem
 em release posterior; após mudança pública aditiva, rode `npm run contract:baseline`.
 Defina antes uma `PLUG_MCP_CONTRACT_VERSION` com minor maior no mesmo major (por
-exemplo, `1.2.0`); o gerador recusa registrar a adição sem esse incremento.
+exemplo, `2.1.0`); o gerador recusa registrar a adição sem esse incremento.
 Uma remoção só pode atualizar esse baseline com `--accept-breaking` e aumento
 do major de `contractVersion`. O contrato inclui login/refresh, cadastro e
 `client_token`, pedidos de acesso, esta rota, `client_token.getPolicy`,
@@ -1898,6 +1899,10 @@ JWT Client, conta ativa e ClientAgentAccess continuam obrigatórios. Capability
 Params estritos: `contractVersion: 1`, `database` obrigatório e `client_token`.
 Resposta: `contractVersion`, `database`, `dialect`, `identityHash`,
 `identityKind` (`native`, `provisioned` ou `locator`), `engineVersion`, `verifiedAt`.
+O schema publicado pelo agente em 24/10/2026 admite `dialect` somente como
+`postgres`, `mssql` ou `sybase`. O validador do hub usa o mesmo conjunto em
+`expectedSource` e no resultado de `sql.describeSource`
+(`src/shared/validators/source_discovery.ts`).
 Schemas gerados no OpenAPI e no contrato consumido pelo MCP. O hub não descobre
 motor por heurística, abre banco, interpreta SQL nem reescreve dialeto.
 O agente usa apenas metadados fixos na própria conexão e revalida sua policy.
@@ -1913,6 +1918,44 @@ Uma cópia preservando todos os metadados observáveis permanece indistinguível
 não foi publicada. A descoberta tem conexão própria; o contrato 1.5.0 abaixo
 vincula também a prova à conexão executora. Testes isolados e descoberta não
 constituem aceite completo. Deploy permanece bloqueado.
+
+## Paridade do contrato do agente — revisão 2026-10-24
+
+A documentação de comunicação do `plug_agente` foi revista em 24/10/2026
+contra handlers, negociação, OpenRPC e schemas locais. O perfil permanece
+**2.11.2**. Não há método novo em `rpc.discover`. A revisão aperta o contrato
+já encaminhado de descoberta e de operação SQL; não libera persona-v2.
+
+Fontes no checkout irmão: `docs/communication/socket_communication_standard.md`,
+`socket_communication_roadmap.md`, `socket_communication_backlog.md`,
+`source_discovery.md`, `sql_operations.md` e `docs/communication/schemas/`.
+
+O schema publicado passa a exigir, em `sql.describeSchema`, `offset` inteiro
+(0..15) e `pageSize` inteiro (1..4), sem default. O escopo traz 1..16 recursos
+únicos com `schema`, `name` e `type`; `schema` no pedido é string e nome nulo
+é recusado. No resultado, `schema` pode continuar nulo. `offset` tem de caber
+no escopo; essa conferência é do leitor do agente. A paginação de metadados é
+independente da paginação de linhas SQL.
+
+Dialetos ativos nos schemas de fonte e de operação: `postgres`, `mssql` e
+`sybase`. `firebird` fica como evidência histórica e o agente atual o recusa.
+SQL Anywhere 16 pode reportar estado de constraint por prova do catálogo
+público no escopo; evidência incompleta ou não suportada permanece `unknown`.
+O runtime do hub e do agente não cria nem repara o marcador reservado.
+
+`SCHEMA_UNAVAILABLE` com JSON-RPC `-32603` é falha interna do agente quando um
+schema obrigatório está ausente, ilegível ou inválido, inclusive acima do limiar
+que pula a validação completa do payload. O hub preserva o `id` do pedido no
+pass-through. `failureCode` e os tetos de 1 MiB UTF-8 por SQL e 2 MiB UTF-8 no
+plano coincidem com o OpenAPI do hub. `maxLength` do JSON Schema conta
+caracteres e não substitui o teto em bytes.
+
+O validador do hub acompanha esse schema. `dialect` é `postgres`, `mssql` ou
+`sybase`. `offset` e `pageSize` são obrigatórios. `resources[].schema` no pedido
+é string; no resultado, `null` continua válido. O estreitamento entra no
+contrato MCP **2.0.0** (`contracts/plug-mcp-rest-v2.json`). O artefato 1.15.0
+permanece intacto. A adoção pelo MCP fica coordenada à parte. Produção
+permanece bloqueada.
 
 ## Identidade na conexão executora — contrato 1.5.0
 

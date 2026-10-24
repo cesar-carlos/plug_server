@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { bridgeSingleCommandSchema } from "../../../../src/shared/validators/agent_command";
+import { sourceSchemaResultSchema } from "../../../../src/shared/validators/source_schema";
 import {
   assertSqlOperationTransport,
   requiresLiveSqlCapability,
@@ -16,6 +17,8 @@ it("schema inspection requires exact negotiated schema and identity capabilities
       client_token: "fixture-technical",
       expectedSource,
       resources: [resource],
+      offset: 0,
+      pageSize: 4,
     },
   };
   const command = bridgeSingleCommandSchema.parse(raw);
@@ -106,4 +109,80 @@ it("constraint expectation refuses old agents even when columns are supported", 
       extensions: { sourceIdentity: 1, sourceSchema: 1, sourceConstraints: 1 },
     }),
   ).not.toThrow();
+});
+
+it("should reject sql.describeSchema when offset or pageSize is omitted", () => {
+  const params = {
+    contractVersion: 1,
+    database: "fixture",
+    client_token: "fixture-technical",
+    expectedSource,
+    resources: [resource],
+    offset: 0,
+    pageSize: 4,
+  };
+  expect(
+    bridgeSingleCommandSchema.safeParse({
+      method: "sql.describeSchema",
+      id: "metadata",
+      params: { ...params, offset: undefined },
+    }).success,
+  ).toBe(false);
+  expect(
+    bridgeSingleCommandSchema.safeParse({
+      method: "sql.describeSchema",
+      id: "metadata",
+      params: { ...params, pageSize: undefined },
+    }).success,
+  ).toBe(false);
+});
+
+it("should reject a null schema name on sql.describeSchema resources", () => {
+  expect(
+    bridgeSingleCommandSchema.safeParse({
+      method: "sql.describeSchema",
+      id: "metadata",
+      params: {
+        contractVersion: 1,
+        database: "fixture",
+        client_token: "fixture-technical",
+        expectedSource,
+        resources: [{ schema: null, name: "fixture", type: "table" }],
+        offset: 0,
+        pageSize: 4,
+      },
+    }).success,
+  ).toBe(false);
+  expect(
+    sourceSchemaResultSchema.safeParse({
+      contractVersion: 1,
+      identity: {
+        contractVersion: 1,
+        database: "fixture",
+        dialect: "postgres",
+        identityHash: "a".repeat(64),
+        identityKind: "native",
+        engineVersion: "fixture",
+        verifiedAt: "2026-10-11T00:00:00.000Z",
+      },
+      observedAt: "2026-10-11T00:00:00.000Z",
+      resources: [
+        {
+          resource: { schema: null, name: "fixture", type: "table" },
+          status: "unavailable",
+          columns: [],
+          primaryKeys: [],
+          foreignKeys: [],
+          coverage: {
+            columns: false,
+            primaryKeys: false,
+            foreignKeys: false,
+            constraintStatus: false,
+          },
+          limitations: ["metadata_unavailable"],
+        },
+      ],
+      metadataPage: { offset: 0, pageSize: 1, nextOffset: null },
+    }).success,
+  ).toBe(true);
 });

@@ -62,8 +62,11 @@ export const startRestStreamMaterialization = (params: RestStreamMaterializePara
   const rejectOnce = pendingRequest.reject;
   const primaryRequestId = pendingRequest.primaryRequestId;
   let streamedRows: unknown[] = [];
+  // The requested window is the configured REST size. The resolver still clamps
+  // it to the agent and hub maxima.
   const pullWindow = agentRegistry.resolveStreamPullWindow(
     pendingRequest.agentId,
+    env.socketRestStreamPullWindowSize,
     env.socketRestStreamPullWindowSize,
   );
   const materializeMaxRows = env.socketRestSqlStreamMaterializeMaxRows;

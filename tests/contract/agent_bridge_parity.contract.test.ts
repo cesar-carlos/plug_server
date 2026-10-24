@@ -33,6 +33,8 @@ const sampleCommandByMethod = {
       client_token: "technical",
       expectedSource: { version: 1, dialect: "postgres", identityHash: "a".repeat(64) },
       resources: [{ schema: "public", name: "fixture", type: "table" }],
+      offset: 0,
+      pageSize: 4,
     },
   },
   "sql.describeSource": {

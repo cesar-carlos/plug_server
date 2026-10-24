@@ -56,6 +56,31 @@ it("discovery contracts exclude caller SQL, connection strings and incomplete id
   );
 });
 
+it("should reject firebird on expectedSource and sql.describeSource results", () => {
+  const proof = {
+    contractVersion: 1,
+    database: "fixture",
+    dialect: "firebird",
+    identityHash: "a".repeat(64),
+    identityKind: "native",
+    engineVersion: "fixture",
+    verifiedAt: "2026-10-11T00:00:00Z",
+  };
+  expect(sourceDiscoveryResultSchema.safeParse(proof).success).toBe(false);
+  expect(
+    bridgeSingleCommandSchema.safeParse({
+      method: "sql.execute",
+      id: "read",
+      params: {
+        sql: "SELECT id FROM fixture",
+        database: "fixture",
+        client_token: "technical",
+        expectedSource: { version: 1, dialect: "firebird", identityHash: "a".repeat(64) },
+      },
+    }).success,
+  ).toBe(false);
+});
+
 it("verified SELECT preserves expected native identity and requires live capability in mixed batches", () => {
   const expectedSource = { version: 1, dialect: "postgres", identityHash: "a".repeat(64) };
   const command = bridgeSingleCommandSchema.parse({
