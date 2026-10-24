@@ -279,4 +279,40 @@ describe("Agent catalog API", () => {
       pageThree.body.agents[0]?.agentId,
     ]).toEqual(expectedOrder);
   });
+
+  it("GET /api/v1/agents/catalog — returns 304 for the same weak etag until deactivation", async () => {
+    const agent = await seedAgent({
+      name: `Etag Agent ${Date.now()}`,
+      cnpjCpf: `etag-unique-${Date.now()}`,
+    });
+    const first = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ search: agent.name, pageSize: 20 })
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(first.status).toBe(200);
+    const etag = first.headers.etag;
+    expect(etag).toMatch(/^W\/"/);
+
+    const cached = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ search: agent.name, pageSize: 20 })
+      .set("Authorization", `Bearer ${adminToken}`)
+      .set("If-None-Match", String(etag));
+    expect(cached.status).toBe(304);
+    if (cached.headers.etag !== undefined) expect(cached.headers.etag).toBe(etag);
+
+    const removed = await request(app)
+      .delete(`/api/v1/agents/catalog/${agent.agentId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(removed.status).toBe(200);
+
+    const changed = await request(app)
+      .get("/api/v1/agents/catalog")
+      .query({ search: agent.name, pageSize: 20 })
+      .set("Authorization", `Bearer ${adminToken}`)
+      .set("If-None-Match", String(etag));
+    expect(changed.status).toBe(200);
+    expect(changed.headers.etag).toMatch(/^W\/"/);
+    expect(changed.headers.etag).not.toBe(etag);
+  });
 });

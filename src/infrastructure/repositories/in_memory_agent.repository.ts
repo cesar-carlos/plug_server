@@ -12,6 +12,8 @@ import type {
 import { AGENT_DOCUMENT_CONFLICT_DEFAULT_MESSAGE } from "../../shared/messages/agent_profile";
 
 export class InMemoryAgentRepository implements IAgentRepository {
+  constructor(private readonly onCatalogChanged?: () => void) {}
+
   private readonly agentsById = new Map<string, Agent>();
   private readonly profileIdempotency = new Map<
     string,
@@ -83,10 +85,12 @@ export class InMemoryAgentRepository implements IAgentRepository {
 
   async save(agent: Agent): Promise<void> {
     this.agentsById.set(agent.agentId, agent);
+    this.onCatalogChanged?.();
   }
 
   async update(agent: Agent): Promise<void> {
     this.agentsById.set(agent.agentId, agent);
+    this.onCatalogChanged?.();
   }
 
   async commitAgentProfileChange(
@@ -133,6 +137,7 @@ export class InMemoryAgentRepository implements IAgentRepository {
           resultingVersion: input.nextAgent.profileVersion,
         });
       }
+      this.onCatalogChanged?.();
       return { status: "committed", agent: input.nextAgent };
     }
 
@@ -165,6 +170,7 @@ export class InMemoryAgentRepository implements IAgentRepository {
         resultingVersion: input.nextAgent.profileVersion,
       });
     }
+    this.onCatalogChanged?.();
     return { status: "committed", agent: input.nextAgent };
   }
 

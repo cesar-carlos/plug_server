@@ -8,6 +8,9 @@ import { UserRegistrationService } from "../../application/services/user_registr
 import { UserAccountService } from "../../application/services/user_account.service";
 import { AgentAccessService } from "../../application/services/agent_access.service";
 import { AgentCatalogService } from "../../application/services/agent_catalog.service";
+import { AgentCatalogPageCache } from "../../application/services/agent_catalog_page_cache";
+import { MemoryAgentCatalogGeneration } from "../../application/services/memory_agent_catalog_generation";
+import { RedisAgentCatalogGeneration } from "../../infrastructure/cache/redis_agent_catalog_generation";
 import { AgentProfileSyncService } from "../../application/services/agent_profile_sync.service";
 import { AgentSelfProfileService } from "../../application/services/agent_self_profile.service";
 import { AgentAutoUpdateDiagnosticsService } from "../../application/services/agent_auto_update_diagnostics.service";
@@ -126,12 +129,16 @@ const userRepository: IUserRepository = shouldUseInMemoryPersistence
 const refreshTokenRepository: IRefreshTokenRepository = shouldUseInMemoryPersistence
   ? new InMemoryRefreshTokenRepository()
   : new PrismaRefreshTokenRepository();
+let publishAgentCatalogChange = (): void => undefined;
+const onAgentCatalogChanged = (): void => {
+  publishAgentCatalogChange();
+};
 const agentIdentityRepository: IAgentIdentityRepository = shouldUseInMemoryPersistence
-  ? new InMemoryAgentIdentityRepository()
-  : new PrismaAgentIdentityRepository();
+  ? new InMemoryAgentIdentityRepository(onAgentCatalogChanged)
+  : new PrismaAgentIdentityRepository(onAgentCatalogChanged);
 const agentRepository: IAgentRepository = shouldUseInMemoryPersistence
-  ? new InMemoryAgentRepository()
-  : new PrismaAgentRepository();
+  ? new InMemoryAgentRepository(onAgentCatalogChanged)
+  : new PrismaAgentRepository(onAgentCatalogChanged);
 const agentAutoUpdateDiagnosticsRepository = shouldUseInMemoryPersistence
   ? new InMemoryAgentAutoUpdateDiagnosticsRepository()
   : new PrismaAgentAutoUpdateDiagnosticsRepository();
@@ -256,12 +263,21 @@ const agentAccessService = new AgentAccessService(
   agentIdentityRepository,
   clientAgentAccessRepository,
 );
+const agentCatalogGeneration =
+  env.socketIoRedisAdapterUrl.trim() === ""
+    ? new MemoryAgentCatalogGeneration()
+    : new RedisAgentCatalogGeneration(env.socketIoRedisAdapterUrl);
+const agentCatalogPages = new AgentCatalogPageCache(agentCatalogGeneration);
+publishAgentCatalogChange = (): void => {
+  void agentCatalogPages.bump();
+};
 const agentCatalogService = new AgentCatalogService(
   agentRepository,
   shouldUseInMemoryPersistence
     ? new InMemoryAgentCatalogQuery(agentRepository, agentIdentityRepository)
     : new PrismaAgentRepository(),
   {
+    pages: agentCatalogPages,
     onAgentDeactivated: (agentId) => {
       agentAccessService.invalidateAccessCacheForAgent(agentId);
       void invalidateConsumerAgentAccessSnapshotsByAgentId({ agentId });
@@ -347,6 +363,7 @@ const agentSnapshotRefresher = new AgentSnapshotRefresher(
   agentRepository,
   profileRefreshCoordinator,
   clientAgentLiveProfileDeps,
+  env.restAgentProfileRefreshConcurrency,
 );
 
 const clientAgentAccessQueryService = new ClientAgentAccessQueryService(

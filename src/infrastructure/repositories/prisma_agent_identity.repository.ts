@@ -7,6 +7,8 @@ import type {
 import { prismaClient } from "../database/prisma/client";
 
 export class PrismaAgentIdentityRepository implements IAgentIdentityRepository {
+  constructor(private readonly onCatalogChanged?: () => void) {}
+
   async findOwnerUserId(agentId: string): Promise<string | null> {
     const identity = await prismaClient.agentIdentity.findUnique({
       where: { agentId },
@@ -35,6 +37,7 @@ export class PrismaAgentIdentityRepository implements IAgentIdentityRepository {
     });
 
     if (createResult.count === 1) {
+      this.onCatalogChanged?.();
       return "bound";
     }
 

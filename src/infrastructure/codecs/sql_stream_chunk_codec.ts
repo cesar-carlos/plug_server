@@ -9,11 +9,32 @@ export interface NormalizedSqlChunk {
   readonly originalSizeBytes: number;
 }
 
+/** Lone surrogates and JSON escapes do not match a raw UTF-8 length. */
+const jsonStringBytes = (value: string): number => {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code < 0x20 || code === 0x22 || code === 0x5c || code === 0x2028 || code === 0x2029) {
+      return Buffer.byteLength(JSON.stringify(value));
+    }
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        index += 1;
+        continue;
+      }
+      return Buffer.byteLength(JSON.stringify(value));
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) return Buffer.byteLength(JSON.stringify(value));
+  }
+  return Buffer.byteLength(value) + 2;
+};
+
 /** Exact JSON lengths for decoded primitives; strings/objects retain JSON escaping. */
 const jsonValueBytes = (value: unknown): number => {
   if (value === null) return 4;
   if (typeof value === "boolean") return value ? 4 : 5;
   if (typeof value === "number") return Number.isFinite(value) ? String(value).length : 4;
+  if (typeof value === "string") return jsonStringBytes(value);
   return Buffer.byteLength(JSON.stringify(value));
 };
 

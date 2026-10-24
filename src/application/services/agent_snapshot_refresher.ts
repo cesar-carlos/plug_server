@@ -17,12 +17,13 @@ export interface ClientAgentLiveProfileDeps {
 
 interface RefreshFlight {
   readonly work: ProfileRefreshWork;
-  readonly completion: Promise<Agent>;
+  completion: Promise<Agent>;
+  /** List callers set this; a detail-only flight stays false until a list joins. */
+  cache: boolean;
 }
 
-/** List snapshots share completed results and in-flight work; detail always stays fresh. */
+/** List snapshots share completed results and in-flight work. Detail joins an in-flight refresh but never reads the completed TTL cache. */
 export class AgentSnapshotRefresher {
-  private static readonly REFRESH_CONCURRENCY = 4;
   private static readonly RECENT_TTL_MS = 30_000;
   private readonly refreshInFlight = new Map<string, RefreshFlight>();
   private readonly completions = new Set<Promise<Agent>>();
@@ -35,6 +36,8 @@ export class AgentSnapshotRefresher {
     private readonly agentRepository: Pick<IAgentRepository, "findById">,
     private readonly coordinator: AgentProfileRefreshCoordinator,
     private readonly liveProfileDeps?: ClientAgentLiveProfileDeps,
+    /** Matches {@link AgentProfileRefreshCoordinator}: zero means one worker per item. */
+    private readonly concurrency: number = 4,
   ) {}
 
   getMetrics(): ReturnType<AgentProfileRefreshCoordinator["getMetrics"]> & {
@@ -74,16 +77,13 @@ export class AgentSnapshotRefresher {
     const refreshedByAgentId = new Map<string, Agent>();
     let nextIndex = 0;
     await Promise.all(
-      Array.from(
-        { length: Math.min(AgentSnapshotRefresher.REFRESH_CONCURRENCY, candidates.length) },
-        async () => {
-          while (nextIndex < candidates.length && !signal?.aborted) {
-            const item = candidates[nextIndex++]!;
-            const refreshed = await this.resolveListSnapshot(clientId, item.agent, signal);
-            refreshedByAgentId.set(item.agent.agentId, refreshed);
-          }
-        },
-      ),
+      Array.from({ length: this.workerCount(candidates.length) }, async () => {
+        while (nextIndex < candidates.length && !signal?.aborted) {
+          const item = candidates[nextIndex++]!;
+          const refreshed = await this.resolveListSnapshot(clientId, item.agent, signal);
+          refreshedByAgentId.set(item.agent.agentId, refreshed);
+        }
+      }),
     );
     return items.map((item) => ({
       ...item,
@@ -99,7 +99,7 @@ export class AgentSnapshotRefresher {
   ): Promise<Agent> {
     if (this.liveProfileDeps?.refreshAgentProfile === undefined || signal?.aborted)
       return persistedAgent;
-    const flight = this.createFlight(clientId, agentId, persistedAgent, false);
+    const flight = this.joinFlight(clientId, agentId, persistedAgent, false);
     return flight.work.wait(flight.completion, signal, () => persistedAgent);
   }
 
@@ -111,12 +111,24 @@ export class AgentSnapshotRefresher {
     const agentId = persistedAgent.agentId;
     const recent = this.recentlyRefreshed.get(agentId);
     if (recent !== undefined) return recent;
+    const flight = this.joinFlight(clientId, agentId, persistedAgent, true);
+    return flight.work.wait(flight.completion, signal, () => persistedAgent);
+  }
+
+  private joinFlight(
+    clientId: string,
+    agentId: string,
+    persistedAgent: Agent,
+    cache: boolean,
+  ): RefreshFlight {
     let flight = this.refreshInFlight.get(agentId);
     if (flight === undefined) {
-      flight = this.createFlight(clientId, agentId, persistedAgent, true);
+      flight = this.createFlight(clientId, agentId, persistedAgent, cache);
       this.refreshInFlight.set(agentId, flight);
+    } else if (cache) {
+      flight.cache = true;
     }
-    return flight.work.wait(flight.completion, signal, () => persistedAgent);
+    return flight;
   }
 
   private createFlight(
@@ -128,26 +140,36 @@ export class AgentSnapshotRefresher {
     const work = this.coordinator.submit(agentId, () =>
       this.liveProfileDeps!.refreshAgentProfile!(agentId),
     );
+    const flight: RefreshFlight = { work, cache, completion: Promise.resolve(persistedAgent) };
     const completion = work.result.then(async (outcome) => {
       const agent = await this.resolveOutcome(outcome, clientId, agentId, persistedAgent);
       // The TTL begins after refresh/fallback completes, exactly as before.
-      if (cache && !this.closing && outcome.kind !== "cancelled")
+      // A list may join after this flight was opened by a detail.
+      if (flight.cache && !this.closing && outcome.kind !== "cancelled")
         this.recentlyRefreshed.set(agentId, agent);
       return agent;
     });
+    flight.completion = completion;
     this.completions.add(completion);
     // Observe rejection even if every HTTP waiter disconnects.
     void completion.then(
-      () => this.forget(completion, agentId, cache),
-      () => this.forget(completion, agentId, cache),
+      () => this.forget(completion, agentId),
+      () => this.forget(completion, agentId),
     );
-    return { work, completion };
+    return flight;
   }
 
-  private forget(completion: Promise<Agent>, agentId: string, cache: boolean): void {
+  private forget(completion: Promise<Agent>, agentId: string): void {
     this.completions.delete(completion);
-    if (cache && this.refreshInFlight.get(agentId)?.completion === completion)
+    if (this.refreshInFlight.get(agentId)?.completion === completion)
       this.refreshInFlight.delete(agentId);
+  }
+
+  /** Zero follows the coordinator and means one worker per item, never an empty pool. */
+  private workerCount(itemCount: number): number {
+    if (itemCount === 0) return 0;
+    if (this.concurrency === 0) return itemCount;
+    return Math.min(this.concurrency, itemCount);
   }
 
   private async resolveOutcome(
@@ -175,15 +197,12 @@ export class AgentSnapshotRefresher {
     const online = new Set<string>();
     let next = 0;
     await Promise.all(
-      Array.from(
-        { length: Math.min(AgentSnapshotRefresher.REFRESH_CONCURRENCY, ids.length) },
-        async () => {
-          while (next < ids.length) {
-            const id = ids[next++]!;
-            if (await this.liveProfileDeps?.isAgentOnline?.(id)) online.add(id);
-          }
-        },
-      ),
+      Array.from({ length: this.workerCount(ids.length) }, async () => {
+        while (next < ids.length) {
+          const id = ids[next++]!;
+          if (await this.liveProfileDeps?.isAgentOnline?.(id)) online.add(id);
+        }
+      }),
     );
     return online;
   }

@@ -201,4 +201,102 @@ describe("shared profile refresh admission", () => {
     await refresher.close();
     expect(refresher.getMetrics().cacheEntries).toBe(0);
   });
+
+  it("shares one in-flight refresh across concurrent details of the same agent", async () => {
+    const coordinator = new AgentProfileRefreshCoordinator(1, online);
+    const pending = deferred<Agent>();
+    const run = vi.fn(() => pending.promise);
+    const refresher = new AgentSnapshotRefresher({ findById: vi.fn() }, coordinator, {
+      refreshAgentProfile: run,
+    });
+    const first = refresher.resolvePreferredSnapshot("c", "a", agent("a"));
+    const second = refresher.resolvePreferredSnapshot("d", "a", agent("a"));
+    await turn();
+    expect(run).toHaveBeenCalledTimes(1);
+    const refreshed = agent("a-fresh");
+    pending.resolve(refreshed);
+    const [left, right] = await Promise.all([first, second]);
+    expect(left).toBe(refreshed);
+    expect(right).toBe(refreshed);
+    await refresher.close();
+  });
+
+  it("joins a detail onto the list flight and refreshes that detail again after the flight ends", async () => {
+    const coordinator = new AgentProfileRefreshCoordinator(1, online);
+    const pending = deferred<Agent>();
+    const run = vi.fn(() => pending.promise);
+    const refresher = new AgentSnapshotRefresher({ findById: vi.fn() }, coordinator, {
+      resolveOnlineAgentIds: online,
+      refreshAgentProfile: run,
+    });
+    const list = refresher.refreshListItems("c", [{ agent: agent("a") }]);
+    await turn();
+    const detail = refresher.resolvePreferredSnapshot("c", "a", agent("a"));
+    await turn();
+    expect(run).toHaveBeenCalledTimes(1);
+    pending.resolve(agent("a-fresh"));
+    await Promise.all([list, detail]);
+    await refresher.resolvePreferredSnapshot("c", "a", agent("a"));
+    expect(run).toHaveBeenCalledTimes(2);
+    await refresher.close();
+  });
+
+  it("caches a detail-opened flight once a list joins it", async () => {
+    const coordinator = new AgentProfileRefreshCoordinator(1, online);
+    const pending = deferred<Agent>();
+    const run = vi.fn(() => pending.promise);
+    const refresher = new AgentSnapshotRefresher({ findById: vi.fn() }, coordinator, {
+      resolveOnlineAgentIds: online,
+      refreshAgentProfile: run,
+    });
+    const detail = refresher.resolvePreferredSnapshot("c", "a", agent("a"));
+    const list = refresher.refreshListItems("c", [{ agent: agent("a") }]);
+    await turn();
+    expect(run).toHaveBeenCalledTimes(1);
+    pending.resolve(agent("fresh"));
+    await Promise.all([detail, list]);
+    await refresher.refreshListItems("c", [{ agent: agent("a") }]);
+    expect(run).toHaveBeenCalledTimes(1);
+    await refresher.resolvePreferredSnapshot("c", "a", agent("a"));
+    expect(run).toHaveBeenCalledTimes(2);
+    await refresher.close();
+  });
+
+  it("admits every listed agent in the first turn when concurrency is above four", async () => {
+    const coordinator = new AgentProfileRefreshCoordinator(8, online);
+    const pending = deferred<Agent>();
+    const run = vi.fn(() => pending.promise);
+    const refresher = new AgentSnapshotRefresher(
+      { findById: vi.fn() },
+      coordinator,
+      { resolveOnlineAgentIds: online, refreshAgentProfile: run },
+      8,
+    );
+    const items = Array.from({ length: 8 }, (_, index) => ({ agent: agent(`agent-${index}`) }));
+    const list = refresher.refreshListItems("c", items);
+    await turn();
+    expect(run).toHaveBeenCalledTimes(8);
+    pending.resolve(agent("done"));
+    await list;
+    await refresher.close();
+  });
+
+  it("treats zero concurrency as unlimited for the list pool", async () => {
+    const coordinator = new AgentProfileRefreshCoordinator(0, online);
+    const pending = deferred<Agent>();
+    const run = vi.fn(() => pending.promise);
+    const refresher = new AgentSnapshotRefresher(
+      { findById: vi.fn() },
+      coordinator,
+      { resolveOnlineAgentIds: online, refreshAgentProfile: run },
+      0,
+    );
+    const items = Array.from({ length: 6 }, (_, index) => ({ agent: agent(`open-${index}`) }));
+    const list = refresher.refreshListItems("c", items);
+    await turn();
+    expect(run).toHaveBeenCalledTimes(6);
+    pending.resolve(agent("done"));
+    await list;
+    await refresher.close();
+  });
 });

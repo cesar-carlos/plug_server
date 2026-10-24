@@ -33,6 +33,8 @@ function isPrismaUniqueConstraintOnAgentDocument(error: unknown): boolean {
 }
 
 export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQueryPort {
+  constructor(private readonly onCatalogChanged?: () => void) {}
+
   async findById(agentId: string): Promise<Agent | null> {
     const record = await prismaClient.agent.findUnique({ where: { agentId } });
     return record ? this.toEntity(record) : null;
@@ -216,6 +218,7 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
         status: agent.status,
       },
     });
+    this.onCatalogChanged?.();
   }
 
   async update(agent: Agent): Promise<void> {
@@ -242,12 +245,14 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
         status: agent.status,
       },
     });
+    this.onCatalogChanged?.();
   }
 
   async commitAgentProfileChange(
     input: AgentProfileCommitInput,
   ): Promise<AgentProfileCommitResult> {
-    return prismaClient.$transaction(async (tx) => {
+    const result = await prismaClient.$transaction(
+      async (tx): Promise<AgentProfileCommitResult> => {
       const agentId = input.nextAgent.agentId;
 
       if (input.dedupeKey) {
@@ -424,6 +429,8 @@ export class PrismaAgentRepository implements IAgentRepository, IAgentCatalogQue
       const row = await tx.agent.findUnique({ where: { agentId } });
       return { status: "committed", agent: this.toEntity(row!) };
     });
+    if (result.status === "committed") this.onCatalogChanged?.();
+    return result;
   }
 
   private static async anotherAgentOwnsDocument(

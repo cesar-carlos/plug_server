@@ -37,6 +37,7 @@ describe("columnar SQL chunk normalization", () => {
       Number.MAX_SAFE_INTEGER,
       '\u0000\n\t"\\',
       "ação 🎉",
+      "\u2028",
       "\ud800",
       "\udc00",
       { nested: [null, "🎉", false] },

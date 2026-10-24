@@ -11,6 +11,8 @@ interface IdentityRecord {
 }
 
 export class InMemoryAgentIdentityRepository implements IAgentIdentityRepository {
+  constructor(private readonly onCatalogChanged?: () => void) {}
+
   private readonly ownerByAgentId = new Map<string, IdentityRecord>();
 
   async findOwnerUserId(agentId: string): Promise<string | null> {
@@ -32,6 +34,7 @@ export class InMemoryAgentIdentityRepository implements IAgentIdentityRepository
     const existing = this.ownerByAgentId.get(agentId);
     if (!existing) {
       this.ownerByAgentId.set(agentId, { userId, createdAt: new Date() });
+      this.onCatalogChanged?.();
       return "bound";
     }
 
