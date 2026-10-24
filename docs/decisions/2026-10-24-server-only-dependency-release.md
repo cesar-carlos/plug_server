@@ -55,3 +55,35 @@ continuam pendências da plataforma. O verificador de release permanece intacto.
 Esta exceção explícita de operação não libera Docker, MCP ou distribuição do
 agente e expira após este corte ou seu rollback. O resultado operacional deve
 ser registrado separadamente, sem transformar o plano em execução comprovada.
+
+## Resultado operacional — 2026-10-24, 08:59 America/Cuiaba
+
+A atualização foi executada somente no plug_server. O checkout operacional
+avançou para `8ae8336798889f08e04ddaf19254ab49880809f4`, que acrescenta apenas
+esta decisão e sua regra ao runtime testado `da457e0`. Os arquivos de runtime
+foram promovidos do build isolado já validado, sem executar instalação no
+diretório ativo. O processo anterior foi parado e reiniciado; o novo PID
+`2589567` usou Node 24.21.0, ficou online e não apresentou reinícios inesperados
+nas verificações iniciais. A configuração do PM2 foi salva com esse interpretador.
+
+Resultados observados:
+
+- Saúde e prontidão locais: HTTP 200.
+- HTTPS público: saúde, prontidão e Swagger HTTP 200, certificado validado.
+- Handshake público WebSocket/Engine.IO: aprovado, sem autenticar cliente ou
+  executar operação de negócio. A sondagem inicial por polling retornou
+  `Transport unknown`, coerente com a configuração existente de produção
+  somente WebSocket; nenhuma configuração foi alterada para aceitar a sondagem.
+- `.env` preservado por comparação de hash antes/depois; nenhum comando de
+  migração, atualização de agente ou publicação do MCP foi executado.
+- Dependências carregáveis conferidas: body-parser 2.4.0, multer 2.5.0,
+  nodemailer 10.2.1 e qs 6.16.1.
+- Checkout limpo, manifesto persona-v2 ainda `ready:false`.
+- Cópia de recuperação e diretórios do runtime anterior mantidos no servidor.
+  Não houve necessidade de rollback. A verificação não simula todos os fluxos
+  dos clientes nem constitui aceite integral da persona-v2.
+
+Antes do corte, uma inspeção detectou que o checkout já havia avançado por
+`git pull` para `da457e0` às 12:45:40 UTC, enquanto o processo antigo continuava
+ativo. A preparação foi interrompida para conferir essa mudança; não havia
+instalação concorrente ativa, e a troca do runtime ocorreu somente depois.
