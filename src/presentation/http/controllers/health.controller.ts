@@ -96,7 +96,8 @@ export const getHealthReady = async (_request: Request, response: Response): Pro
     ...buildBaseHealthPayload(response, ready ? "ok" : "degraded"),
     mode: "ready",
     checks: {
-      ...readiness.checks,
+      envLoaded: readiness.checks.envLoaded,
+      database: readiness.checks.database,
       /** Mirrors `SWAGGER_ENABLED`; if true but `/docs/*` 503s publicly, the edge proxy is misconfigured, not the app. */
       swaggerEnabled: env.swaggerEnabled,
     },

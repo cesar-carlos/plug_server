@@ -20,19 +20,16 @@ export const buildWeakETag = (payload: unknown): string => {
 };
 
 /**
- * Short-circuits the response with `304 Not Modified` when the client sent
- * `If-None-Match: <etag>`. Returns `true` when the response was already
- * finalized as `304` and the caller should stop further work; otherwise sets
- * the `ETag` response header and returns `false` so the caller proceeds to
- * write the body.
+ * Sets ETag before checking Express freshness (including tag lists, HEAD and
+ * Cache-Control). Returns `true` after `304 Not Modified`; otherwise the caller
+ * proceeds to write the body. Both 200 and 304 retain the response validator.
  */
 export const sendIfNoneMatch = (request: Request, response: Response, etag: string): boolean => {
-  const ifNoneMatch = request.headers["if-none-match"];
-  if (typeof ifNoneMatch === "string" && ifNoneMatch === etag) {
+  response.setHeader("ETag", etag);
+  if (request.fresh) {
     response.status(304).end();
     return true;
   }
-  response.setHeader("ETag", etag);
   return false;
 };
 

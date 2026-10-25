@@ -26,6 +26,8 @@ export const clientSocketEventUpload = multer({
   limits: {
     fileSize: env.restSocketEventFileMaxBytes,
     files: env.restSocketEventMaxFiles,
+    fields: 1,
+    parts: env.restSocketEventMaxFiles + 1,
     fieldSize: env.restSocketEventPayloadJsonMaxBytes + 2048,
   },
 });
@@ -38,7 +40,12 @@ export const wrapClientSocketEventMulterErrors = (handler: RequestHandler): Requ
         return;
       }
       if (error instanceof MulterError) {
-        if (error.code === "LIMIT_FILE_SIZE" || error.code === "LIMIT_FILE_COUNT") {
+        if (
+          error.code === "LIMIT_FILE_SIZE" ||
+          error.code === "LIMIT_FILE_COUNT" ||
+          error.code === "LIMIT_FIELD_COUNT" ||
+          error.code === "LIMIT_PART_COUNT"
+        ) {
           next(
             payloadTooLarge(`socket event upload rejected: ${error.code}`, {
               multerCode: error.code,

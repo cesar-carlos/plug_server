@@ -4,9 +4,14 @@
  */
 
 import { percentile } from "../../shared/utils/percentile";
+import {
+  createLatencyRingBuffer,
+  pushLatencyRingBuffer,
+  latencyRingBufferValues,
+} from "../../shared/utils/latency_ring_buffer";
 
 const latencySamplesMax = 256;
-const latencySamples: number[] = [];
+let latencySamples = createLatencyRingBuffer(latencySamplesMax);
 let latencyCount = 0;
 let latencyTotalMs = 0;
 let latencyMaxMs = 0;
@@ -32,10 +37,7 @@ export const observeRestBridgeLatency = (elapsedMs: number): void => {
   latencyCount += 1;
   latencyTotalMs += safeMs;
   latencyMaxMs = Math.max(latencyMaxMs, safeMs);
-  latencySamples.push(safeMs);
-  if (latencySamples.length > latencySamplesMax) {
-    latencySamples.shift();
-  }
+  pushLatencyRingBuffer(latencySamples, safeMs);
 };
 
 export const getRestBridgeMetricsSnapshot = (): {
@@ -47,22 +49,25 @@ export const getRestBridgeMetricsSnapshot = (): {
   latencyMaxMs: number;
   latencyP95Ms: number;
   latencyP99Ms: number;
-} => ({
-  requestsTotal: restBridgeRequestsTotal,
-  requestsSuccessTotal: restBridgeRequestsSuccessTotal,
-  requestsFailedTotal: restBridgeRequestsFailedTotal,
-  latencyCount,
-  latencyAvgMs: latencyCount > 0 ? Number((latencyTotalMs / latencyCount).toFixed(2)) : 0,
-  latencyMaxMs,
-  latencyP95Ms: Number(percentile(latencySamples, 95).toFixed(2)),
-  latencyP99Ms: Number(percentile(latencySamples, 99).toFixed(2)),
-});
+} => {
+  const samples = latencyRingBufferValues(latencySamples);
+  return {
+    requestsTotal: restBridgeRequestsTotal,
+    requestsSuccessTotal: restBridgeRequestsSuccessTotal,
+    requestsFailedTotal: restBridgeRequestsFailedTotal,
+    latencyCount,
+    latencyAvgMs: latencyCount > 0 ? Number((latencyTotalMs / latencyCount).toFixed(2)) : 0,
+    latencyMaxMs,
+    latencyP95Ms: Number(percentile(samples, 95).toFixed(2)),
+    latencyP99Ms: Number(percentile(samples, 99).toFixed(2)),
+  };
+};
 
 export const resetRestBridgeMetrics = (): void => {
   restBridgeRequestsTotal = 0;
   restBridgeRequestsSuccessTotal = 0;
   restBridgeRequestsFailedTotal = 0;
-  latencySamples.length = 0;
+  latencySamples = createLatencyRingBuffer(latencySamplesMax);
   latencyCount = 0;
   latencyTotalMs = 0;
   latencyMaxMs = 0;

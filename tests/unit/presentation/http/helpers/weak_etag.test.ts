@@ -34,6 +34,27 @@ const create = (custom?: { readonly key: string; readonly value: unknown }): exp
 };
 
 describe("JSON ETag serialization compatibility", () => {
+  it("should include ETag on 304 responses and honor Express freshness semantics", async () => {
+    const app = create();
+    const etag = buildWeakETag(payload);
+    for (const method of ["get", "head"] as const) {
+      for (const header of [etag, `W/"other", ${etag}`, "*"]) {
+        const response = await request(app)
+          [method]("/new")
+          .set("Authorization", "test")
+          .set("If-None-Match", header);
+        expect(response.status).toBe(304);
+        expect(response.headers.etag).toBe(etag);
+      }
+    }
+    const response = await request(app)
+      .get("/new")
+      .set("Authorization", "test")
+      .set("If-None-Match", etag)
+      .set("Cache-Control", "no-cache");
+    expect(response.status).toBe(200);
+  });
+
   for (const custom of [
     undefined,
     { key: "json spaces", value: 2 },

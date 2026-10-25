@@ -3,7 +3,8 @@ import express from "express";
 
 import { env } from "../../../shared/config/env";
 
-const SOCKET_EVENTS_JSON_PATH = "/api/v1/client/me/socket-events";
+// Match Express's default case-insensitive, non-strict route semantics.
+const SOCKET_EVENTS_JSON_PATH = /^\/api\/v1\/client\/me\/socket-events\/?$/i;
 
 const socketEventsJsonParser: RequestHandler = express.json({
   limit: env.restSocketEventHttpJsonBodyLimit,
@@ -26,7 +27,7 @@ export const jsonBodyParserForRoute: RequestHandler = (
 ): void => {
   if (
     request.method === "POST" &&
-    request.path === SOCKET_EVENTS_JSON_PATH &&
+    SOCKET_EVENTS_JSON_PATH.test(request.path) &&
     isApplicationJson(request)
   ) {
     socketEventsJsonParser(request, response, next);

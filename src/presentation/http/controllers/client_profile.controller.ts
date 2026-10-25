@@ -21,6 +21,8 @@ export const clientThumbnailUpload = multer({
   limits: {
     fileSize: env.clientThumbnailMaxBytes,
     files: 1,
+    fields: 0,
+    parts: 1,
   },
 });
 
