@@ -193,6 +193,9 @@ export const popRelayStreamBufferedChunk = (
 
   const chunk = entry.bufferedChunks[entry.bufferedChunkHead] ?? null;
   const byteLength = entry.bufferedChunkBytes[entry.bufferedChunkHead] ?? 0;
+  // A slow consumer can pause before compaction; release delivered payloads immediately.
+  entry.bufferedChunks[entry.bufferedChunkHead] = null;
+  entry.bufferedChunkRawForward[entry.bufferedChunkHead] = undefined;
   entry.bufferedChunkHead += 1;
   entry.bufferedBytes = Math.max(0, entry.bufferedBytes - byteLength);
   globalTotalBufferedChunks = Math.max(0, globalTotalBufferedChunks - 1);

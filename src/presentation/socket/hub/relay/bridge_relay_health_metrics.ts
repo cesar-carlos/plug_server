@@ -29,6 +29,7 @@ interface AgentLatencyStats {
   maxMs: number;
   ring: LatencyRingBuffer;
   lastTouchedAtMs: number;
+  snapshot: RelayHubMetricsSnapshot["latencyByAgent"][number] | undefined;
 }
 
 type RelayCircuitState = {
@@ -266,6 +267,7 @@ export const observeAgentLatency = (agentId: string, elapsedMs: number): void =>
     existing.maxMs = Math.max(existing.maxMs, safeElapsedMs);
     existing.lastTouchedAtMs = nowMs;
     pushLatencyRingBuffer(existing.ring, safeElapsedMs);
+    existing.snapshot = undefined;
     // No need to re-set: the Map already holds a reference to this mutable object.
     latencyByAgentCacheDirty = true;
     return;
@@ -279,6 +281,7 @@ export const observeAgentLatency = (agentId: string, elapsedMs: number): void =>
     maxMs: safeElapsedMs,
     ring,
     lastTouchedAtMs: nowMs,
+    snapshot: undefined,
   });
   latencyByAgentCacheDirty = true;
 };
@@ -417,8 +420,10 @@ export const buildRelayHubMetricsSnapshot = (input: {
 
   if (latencyByAgentCacheDirty) {
     latencyByAgentCache = Array.from(latencyByAgentId.entries()).map(([agentId, stats]) => {
+      // An observation invalidates only its agent's percentiles, not every tracked ring.
+      if (stats.snapshot) return stats.snapshot;
       const sampleSlice = latencyRingBufferValues(stats.ring);
-      return {
+      stats.snapshot = {
         agentId,
         count: stats.count,
         avgMs: stats.count > 0 ? Number((stats.totalMs / stats.count).toFixed(2)) : 0,
@@ -426,6 +431,7 @@ export const buildRelayHubMetricsSnapshot = (input: {
         p95Ms: Number(percentile(sampleSlice, 95).toFixed(2)),
         p99Ms: Number(percentile(sampleSlice, 99).toFixed(2)),
       };
+      return stats.snapshot;
     });
     latencyByAgentCacheDirty = false;
   }

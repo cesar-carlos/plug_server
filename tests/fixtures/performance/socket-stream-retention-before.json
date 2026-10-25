@@ -1,0 +1,46 @@
+{
+  "nodeVersion": "v24.18.0",
+  "platform": "win32",
+  "chunks": 256,
+  "drained": 96,
+  "decodedBytes": 131072,
+  "wireBytes": 32768,
+  "measurement": "Buffer bytes reachable from the queue; excludes allocator/RSS overhead",
+  "samples": [
+    {
+      "retainedBytes": 41943040,
+      "obsoleteBytes": 15728640,
+      "drainMs": 0.1511000000000422
+    },
+    {
+      "retainedBytes": 41943040,
+      "obsoleteBytes": 15728640,
+      "drainMs": 0.10740000000032524
+    },
+    {
+      "retainedBytes": 41943040,
+      "obsoleteBytes": 15728640,
+      "drainMs": 0.1752000000001317
+    },
+    {
+      "retainedBytes": 41943040,
+      "obsoleteBytes": 15728640,
+      "drainMs": 0.41010000000005675
+    },
+    {
+      "retainedBytes": 41943040,
+      "obsoleteBytes": 15728640,
+      "drainMs": 0.06410000000005311
+    },
+    {
+      "retainedBytes": 41943040,
+      "obsoleteBytes": 15728640,
+      "drainMs": 0.13510000000042055
+    },
+    {
+      "retainedBytes": 41943040,
+      "obsoleteBytes": 15728640,
+      "drainMs": 0.12080000000014479
+    }
+  ]
+}

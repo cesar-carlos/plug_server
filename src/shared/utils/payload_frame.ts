@@ -275,7 +275,8 @@ const buildCanonicalSignatureFrame = (frame: PayloadFrameEnvelope, binaryPayload
     `"contentType":${JSON.stringify(frame.contentType)},`,
     `"enc":${JSON.stringify(frame.enc)},`,
     `"originalSize":${JSON.stringify(frame.originalSize)},`,
-    `"payload":${JSON.stringify(binaryPayload.toString("base64"))},`,
+    // Buffer's Base64 alphabet contains no JSON escapes; keep identical canonical bytes without rescanning it.
+    `"payload":"${binaryPayload.toString("base64")}",`,
     `"requestId":${JSON.stringify(frame.requestId ?? null)},`,
     `"schemaVersion":${JSON.stringify(frame.schemaVersion)},`,
     `"traceId":${JSON.stringify(frame.traceId ?? null)}`,

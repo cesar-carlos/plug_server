@@ -69,6 +69,31 @@ describe("validateFrameSignature key_id enforcement (PAYLOAD_SIGNING_KEY_ID)", (
     return import("../../../../src/shared/utils/payload_frame");
   };
 
+  it("preserves canonical signatures for every byte value, Base64 padding and escaped correlation ids", async () => {
+    const mod = await loadModuleWithEnv({
+      payloadSignOutbound: true,
+      payloadSigningKey: SIGNING_KEY,
+      payloadSigningKeyId: SIGNING_KEY_ID,
+    });
+    for (const size of [0, 1, 2, 3, 256, 257, 258, 65536, 65537]) {
+      const bytes = Buffer.alloc(size);
+      for (let i = 0; i < size; i += 1) bytes[i] = i % 256;
+      for (const cmp of ["none", "gzip"] as const) {
+        const frame = mod.encodePayloadFrameFromPreencodedWire(
+          { originalSize: size, wireBytes: bytes, cmp },
+          { requestId: 'request-"\\\n😀', traceId: 'trace-"\\\t' },
+        );
+        expect(frame.signature?.value).toBe(
+          buildSignatureValue(
+            { ...frame, requestId: frame.requestId ?? null, traceId: frame.traceId ?? null },
+            bytes,
+            SIGNING_KEY,
+          ),
+        );
+      }
+    }
+  });
+
   it("accepts a frame without key_id when PAYLOAD_SIGNING_KEY_ID is unset (single-key deployment)", async () => {
     const mod = await loadModuleWithEnv({ payloadSigningKey: SIGNING_KEY });
     const frameWithoutSig = mod.encodePayloadFrame({ ok: true }, { omitTraceId: true });

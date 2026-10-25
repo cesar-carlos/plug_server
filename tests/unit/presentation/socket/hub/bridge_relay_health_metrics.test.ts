@@ -26,6 +26,7 @@ import {
   observeRelayBridgeEncode,
   observeRelayFrameDecode,
   observeRelayOverloadCheck,
+  observeAgentLatency,
   registerAgentFailure,
   relayMetrics,
   resetRelayHubHealthAndMetrics,
@@ -45,6 +46,51 @@ afterEach(() => {
 });
 
 describe("bridge_relay_health_metrics", () => {
+  it("should refresh only changed agent values while preserving earlier snapshots and ring rollover", () => {
+    const snapshot = (): ReturnType<typeof buildRelayHubMetricsSnapshot> =>
+      buildRelayHubMetricsSnapshot({ activeStreams: 0, restMaterializeStreamsInFlight: 0 });
+    observeAgentLatency("stable", 7);
+    for (let i = 0; i < 256; i += 1) observeAgentLatency("active", 10);
+    const before = snapshot();
+    for (let i = 0; i < 256; i += 1) observeAgentLatency("active", 20);
+    const after = snapshot();
+    expect(after.latencyByAgent[0]).toEqual(before.latencyByAgent[0]);
+    expect(after.latencyByAgent[1]).toEqual({
+      agentId: "active",
+      count: 512,
+      avgMs: 15,
+      maxMs: 20,
+      p95Ms: 20,
+      p99Ms: 20,
+    });
+    expect(before.latencyByAgent[1]).toEqual({
+      agentId: "active",
+      count: 256,
+      avgMs: 10,
+      maxMs: 10,
+      p95Ms: 10,
+      p99Ms: 10,
+    });
+    resetRelayHubHealthAndMetrics();
+    observeAgentLatency("active", 1);
+    expect(snapshot().latencyByAgent).toEqual([
+      { agentId: "active", count: 1, avgMs: 1, maxMs: 1, p95Ms: 1, p99Ms: 1 },
+    ]);
+  });
+
+  it("should expire cached agent metrics without returning old snapshots after re-registration", () => {
+    let now = 2_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const snapshot = (): ReturnType<typeof buildRelayHubMetricsSnapshot> =>
+      buildRelayHubMetricsSnapshot({ activeStreams: 0, restMaterializeStreamsInFlight: 0 });
+    observeAgentLatency("expired", 10);
+    expect(snapshot().latencyByAgent).toHaveLength(1);
+    now += 30 * 60 * 1000;
+    expect(snapshot().latencyByAgent).toHaveLength(0);
+    observeAgentLatency("expired", 3);
+    expect(snapshot().latencyByAgent[0]?.p95Ms).toBe(3);
+  });
+
   it("buildRelayHubMetricsSnapshot passes through activeStreams and aggregates counters", () => {
     relayMetrics.requestsAccepted = 2;
     const snap = buildRelayHubMetricsSnapshot({

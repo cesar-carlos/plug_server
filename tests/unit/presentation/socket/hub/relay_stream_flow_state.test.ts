@@ -19,6 +19,8 @@ import {
   drainRelayStreamBuffer,
   getRelayStreamForwardedRows,
   getRelayStreamBufferedChunkCount,
+  getRelayStreamFlowEntry,
+  popRelayStreamBufferedChunk,
 } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
 
 afterEach(() => {
@@ -26,6 +28,34 @@ afterEach(() => {
 });
 
 describe("relay_stream_flow_state", () => {
+  it("should release consumed records and frame buffers before queue compaction", () => {
+    const record = { rows: [{ id: 1 }] };
+    addRelayStreamBufferedChunk("r1", record, 10);
+    addRelayStreamBufferedChunk("r1", { rows: [{ id: 2 }] }, 20, {
+      bytes: Buffer.alloc(20),
+      wireBytes: Buffer.alloc(10),
+      cmp: "gzip",
+      originalSize: 20,
+    });
+    for (let i = 0; i < 8; i += 1) {
+      addRelayStreamBufferedChunk("r1", { rows: [{ id: i + 3 }] }, 30);
+    }
+
+    expect(popRelayStreamBufferedChunk("r1")).toBe(record);
+    expect(popRelayStreamBufferedChunk("r1")).toBeNull();
+
+    const entry = getRelayStreamFlowEntry("r1")!;
+    expect(entry.bufferedChunkHead).toBe(2);
+    expect(entry.bufferedChunks[0]).toBeNull();
+    expect(entry.bufferedChunkRawForward[1]).toBeUndefined();
+    expect(getRelayStreamBufferedChunkCount("r1")).toBe(8);
+    expect(getRelayStreamBufferedBytes("r1")).toBe(240);
+    expect(popRelayStreamBufferedChunk("r1")).toEqual({ rows: [{ id: 3 }] });
+    clearRelayStreamFlowState("r1");
+    expect(getRelayStreamTotalBufferedBytes()).toBe(0);
+    expect(getRelayStreamTotalBufferedChunks()).toBe(0);
+  });
+
   it("clearRelayStreamFlowState subtracts buffered length from total", () => {
     addRelayStreamBufferedChunk("r1", { a: 1 }, 10);
     addRelayStreamBufferedChunk("r1", { b: 2 }, 20);
