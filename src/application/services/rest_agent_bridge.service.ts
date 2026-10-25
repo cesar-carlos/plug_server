@@ -51,8 +51,17 @@ export class RestAgentBridgeService {
     return caps && isRecord(caps.extensions) && caps.extensions[name] === 1 ? 1 : null;
   }
 
-  listConnectedAgents(): readonly ConnectedAgentSnapshot[] {
-    return this.connectedAgentsRegistry.listAll();
+  listConnectedAgents(allowedIds?: ReadonlySet<string>): readonly ConnectedAgentSnapshot[] {
+    if (allowedIds === undefined) return this.connectedAgentsRegistry.listAll();
+    if (allowedIds.size === 0) return [];
+    const agents: ConnectedAgentSnapshot[] = [];
+    // Preserve registry order while avoiding snapshot/date projection for invisible agents.
+    for (const agentId of this.connectedAgentsRegistry.listIds()) {
+      if (!allowedIds.has(agentId)) continue;
+      const agent = this.connectedAgentsRegistry.findById(agentId);
+      if (agent !== null) agents.push(agent);
+    }
+    return agents;
   }
 
   isAgentConnected(agentId: string): boolean {

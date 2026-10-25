@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { agentRegistry } from "../../../../src/presentation/socket/hub/registries/agent_registry";
 
 import type { AgentCommandDispatcher } from "../../../../src/application/agent_commands/execute_agent_command";
 import { RestAgentBridgeService } from "../../../../src/application/services/rest_agent_bridge.service";
@@ -9,6 +10,46 @@ import type {
 } from "../../../../src/domain/ports/connected_agents_registry.port";
 
 describe("RestAgentBridgeService", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    agentRegistry.clear();
+  });
+
+  it("should project only visible connected agents in registry order and reflect disconnects", () => {
+    for (let i = 0; i < 1000; i += 1)
+      agentRegistry.upsert({
+        agentId: `agent-${i}`,
+        socketId: `socket-${i}`,
+        userId: null,
+        capabilities: {},
+      });
+    const registry: IConnectedAgentsRegistryPort = {
+      listAll: () => agentRegistry.listAll(),
+      listIds: () => agentRegistry.listIds(),
+      listPage: (options) => agentRegistry.listPage(options),
+      isConnected: (id) => agentRegistry.isRegistered(id),
+      findById: (id) => agentRegistry.findByAgentId(id),
+    };
+    const service = new RestAgentBridgeService(
+      registry,
+      { getAgentsNamespaceConnectionCount: () => 1000 },
+      vi.fn() as AgentCommandDispatcher,
+    );
+    const allowed = new Set(["agent-99", "offline", "agent-3"]);
+    const expected = agentRegistry.listAll().filter((agent) => allowed.has(agent.agentId));
+    const iso = vi.spyOn(Date.prototype, "toISOString");
+    expect(service.listConnectedAgents(allowed)).toEqual(expected);
+    expect(iso).toHaveBeenCalledTimes(2);
+    iso.mockClear();
+    expect(service.listConnectedAgents(new Set())).toEqual([]);
+    expect(iso).not.toHaveBeenCalled();
+    agentRegistry.removeBySocketId("socket-3");
+    expect(service.listConnectedAgents(allowed).map((agent) => agent.agentId)).toEqual([
+      "agent-99",
+    ]);
+    expect(service.listConnectedAgents()).toHaveLength(999);
+  });
+
   it("should delegate connected agent listing and dispatch to injected ports", () => {
     const agents: ConnectedAgentSnapshot[] = [
       {

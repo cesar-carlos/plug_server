@@ -83,6 +83,7 @@ describe("agents.controller", () => {
       await listConnectedAgents(request, response);
 
       expect(mockListConnectedAgents).toHaveBeenCalledOnce();
+      expect(mockListConnectedAgents).toHaveBeenCalledWith(new Set(["agent-a"]));
       expect(mockListAgentIdsByUserId).toHaveBeenCalledWith("user-1");
       expect(response.status).toHaveBeenCalledWith(200);
       expect(JSON.parse(vi.mocked(response.send).mock.calls[0]![0] as string)).toEqual({

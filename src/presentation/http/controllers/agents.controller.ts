@@ -71,7 +71,7 @@ export const listConnectedAgents = async (request: Request, response: Response):
         pageSize,
       })
     : (() => {
-        let all = container.restAgentBridgeService.listConnectedAgents();
+        let all = container.restAgentBridgeService.listConnectedAgents(allowedIdSet);
         if (allowedIdSet !== undefined) {
           all = all.filter((a) => allowedIdSet.has(a.agentId));
         }
