@@ -557,7 +557,7 @@ export const runRestApiBench = async (): Promise<{
     // Neither worker may disconnect shared services while its peer is still timed.
     await waitForTurn("complete");
     return {
-      harnessVersion: 6,
+      harnessVersion: 7,
       versions,
       config,
       configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),
