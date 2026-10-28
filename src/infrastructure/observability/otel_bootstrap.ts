@@ -3,7 +3,7 @@ import type * as AutoInstrumentationsNode from "@opentelemetry/auto-instrumentat
 import type * as ExporterTraceOtlpHttp from "@opentelemetry/exporter-trace-otlp-http";
 import type * as Resources from "@opentelemetry/resources";
 import type * as SdkNode from "@opentelemetry/sdk-node";
-import type * as SdkTraceBase from "@opentelemetry/sdk-trace-base";
+import type * as SdkTrace from "@opentelemetry/sdk-trace";
 import type * as SemanticConventions from "@opentelemetry/semantic-conventions";
 
 import { env } from "../../shared/config/env";
@@ -40,7 +40,7 @@ export const initOpenTelemetry = async (): Promise<void> => {
     const { OTLPTraceExporter } =
       require("@opentelemetry/exporter-trace-otlp-http") as typeof ExporterTraceOtlpHttp;
     const { ParentBasedSampler, TraceIdRatioBasedSampler } =
-      require("@opentelemetry/sdk-trace-base") as typeof SdkTraceBase;
+      require("@opentelemetry/sdk-trace") as typeof SdkTrace;
     const { resourceFromAttributes } = require("@opentelemetry/resources") as typeof Resources;
     const { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } =
       require("@opentelemetry/semantic-conventions") as typeof SemanticConventions;
