@@ -12,6 +12,7 @@ import { agentRegistry } from "../../src/presentation/socket/hub/registries/agen
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { percentile } from "../../src/shared/utils/percentile";
 import { isRecord } from "../../src/shared/utils/rpc_types";
+import { restBenchConditionalRequest } from "./rest_api_bench_http";
 import { createRestBenchTurnWaiter, readRestBenchCpuAffinity } from "./rest_api_bench_coordination";
 import { getAgentHubPresenceRedisMetricsSnapshot } from "../../src/application/services/agent_hub_presence_redis_metrics.service";
 import { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../src/application/services/client_socket_event_idempotency_redis_metrics.service";
@@ -387,9 +388,11 @@ export const runRestApiBench = async (): Promise<{
           name: "etag_poll",
           expectedStatus: 304,
           run: () =>
-            request("/api/v1/agents/catalog?pageSize=20", adminToken, {
-              headers: { "If-None-Match": etag },
-            }),
+            request(
+              "/api/v1/agents/catalog?pageSize=20",
+              adminToken,
+              restBenchConditionalRequest(etag),
+            ),
         },
         {
           name: "remote_presence",
