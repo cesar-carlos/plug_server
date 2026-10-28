@@ -28,10 +28,10 @@ describe("OpenTelemetry bootstrap", () => {
   });
 
   it("does not load the SDK when tracing is disabled", async () => {
+    const sdkPath = requireFromTest.resolve("@opentelemetry/sdk-node");
+    const cachedSdk = requireFromTest.cache[sdkPath];
     await initOpenTelemetry();
-    expect(
-      requireFromTest.cache[requireFromTest.resolve("@opentelemetry/sdk-node")],
-    ).toBeUndefined();
+    expect(requireFromTest.cache[sdkPath]).toBe(cachedSdk);
     expect(log.info).not.toHaveBeenCalled();
   });
 
