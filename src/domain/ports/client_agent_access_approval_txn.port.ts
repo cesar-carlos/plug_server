@@ -7,6 +7,7 @@ export interface ClientAgentAccessApproveTxnInput {
   readonly clientId: string;
   readonly agentId: string;
   readonly approvedAt: Date;
+  readonly pushEventId?: string;
   /** When set, removes this approval token row; otherwise removes tokens by `requestId`. */
   readonly consumeTokenId?: string;
 }
@@ -18,7 +19,15 @@ export interface ClientAgentAccessRejectTxnInput {
   readonly consumeTokenId?: string;
 }
 
+export interface ClientAgentAccessRevokeTxnInput {
+  readonly clientId: string;
+  readonly agentId: string;
+  readonly reason: string;
+  readonly pushEventId?: string;
+}
+
 export interface IClientAgentAccessApprovalTxn {
+  revokeAccess(input: ClientAgentAccessRevokeTxnInput): Promise<boolean>;
   /**
    * If the request is still `pending`: set `approved`, upsert `client_agent_access`,
    * delete approval token(s). Returns false if the row was not pending (race / already decided).

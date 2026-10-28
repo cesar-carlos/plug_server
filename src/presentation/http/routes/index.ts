@@ -1,3 +1,4 @@
+import { pwaRouter } from "./pwa.routes";
 import { clientDelegationRouter } from "./client_delegation.routes";
 import { Router } from "express";
 
@@ -20,6 +21,8 @@ import { clientSocketEventsRouter } from "./client_socket_events.routes";
 import { userClientsRouter } from "./user_clients.routes";
 
 export const httpRouter = Router();
+
+httpRouter.use("/client/me/pwa", pwaRouter);
 
 httpRouter.use("/auth", authRouter);
 httpRouter.use("/client-auth/persona-delegations", clientDelegationRouter);

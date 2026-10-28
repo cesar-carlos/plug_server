@@ -109,3 +109,7 @@ artefato paralelo `plug-mcp-rest-vN.json`; não reescreva o major anterior.
   exemplo em Markdown.
 - ADRs, estudos e spikes registram decisoes e hipoteses historicas; nao devem
   duplicar contratos ou instrucoes operacionais atuais.
+
+## PWA
+
+- [Colmeia PWA contracts and Web Push](pwa.md)

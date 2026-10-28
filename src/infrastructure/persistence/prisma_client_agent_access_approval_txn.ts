@@ -1,6 +1,8 @@
+import { enqueuePwaDeliveries } from "./enqueue_pwa_deliveries";
 import type {
   ClientAgentAccessApproveTxnInput,
   ClientAgentAccessRejectTxnInput,
+  ClientAgentAccessRevokeTxnInput,
   IClientAgentAccessApprovalTxn,
 } from "../../domain/ports/client_agent_access_approval_txn.port";
 import { prismaClient } from "../database/prisma/client";
@@ -49,7 +51,34 @@ export class PrismaClientAgentAccessApprovalTxn implements IClientAgentAccessApp
           });
         }
 
+        if (input.pushEventId) {
+          await enqueuePwaDeliveries(tx, input.clientId, {
+            type: "access-approved",
+            eventId: input.pushEventId,
+          });
+        }
         return true;
+      }),
+    );
+  }
+
+  async revokeAccess(input: ClientAgentAccessRevokeTxnInput): Promise<boolean> {
+    return runPrismaTransactionWithRetry("client_agent_access_revoke", () =>
+      prismaClient.$transaction(async (tx) => {
+        const removed = await tx.clientAgentAccess.deleteMany({
+          where: { clientId: input.clientId, agentId: input.agentId },
+        });
+        await tx.clientAgentAccessRequest.updateMany({
+          where: { clientId: input.clientId, agentId: input.agentId, status: "approved" },
+          data: { status: "revoked", decisionReason: input.reason, decidedAt: new Date() },
+        });
+        if (removed.count > 0 && input.pushEventId) {
+          await enqueuePwaDeliveries(tx, input.clientId, {
+            type: "access-revoked",
+            eventId: input.pushEventId,
+          });
+        }
+        return removed.count > 0;
       }),
     );
   }

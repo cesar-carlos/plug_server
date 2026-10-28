@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IAgentIdentityRepository } from "../../domain/repositories/agent_identity.repository.interface";
 import type { IAgentRepository } from "../../domain/repositories/agent.repository.interface";
 import type { IClientAgentAccessRepository } from "../../domain/repositories/client_agent_access.repository.interface";
@@ -68,6 +69,7 @@ export class ClientAgentAccessDecisionService {
     private readonly emailSender: IEmailSender,
     private readonly approvalTxn: IClientAgentAccessApprovalTxn,
     private readonly liveProfileDeps?: ClientAgentLiveProfileDeps,
+    private readonly pushEnabled = false,
   ) {}
 
   async getReviewSummaryByToken(tokenId: string): Promise<ClientAgentAccessReviewSummary | null> {
@@ -247,6 +249,9 @@ export class ClientAgentAccessDecisionService {
           clientId: request.clientId,
           agentId: request.agentId,
           approvedAt,
+          ...(this.pushEnabled
+            ? { pushEventId: `approved:${request.id}:${request.requestedAt.toISOString()}` }
+            : {}),
           consumeTokenId: tokenId,
         });
       } catch (error: unknown) {
@@ -564,6 +569,9 @@ export class ClientAgentAccessDecisionService {
         clientId: request.clientId,
         agentId: request.agentId,
         approvedAt,
+        ...(this.pushEnabled
+          ? { pushEventId: `approved:${request.id}:${request.requestedAt.toISOString()}` }
+          : {}),
       });
     } catch (error: unknown) {
       this.logAccessTxnFailure("approve_by_owner", error);
@@ -715,18 +723,19 @@ export class ClientAgentAccessDecisionService {
     if (!client) {
       return err(notFound("Client"));
     }
-    const hadAccess = await this.clientAgentAccessRepository.hasAccess(clientId, agentId);
-    await this.clientAgentAccessRepository.removeAccess(clientId, agentId);
-    this.liveProfileDeps?.onAccessRevoked?.(clientId, agentId);
-    const request = await this.clientAgentAccessRequestRepository.findByClientAndAgent(
-      clientId,
-      agentId,
-    );
-    if (request?.status === "approved") {
-      await this.clientAgentAccessRequestRepository.setStatus(request.id, "revoked", {
+    let hadAccess: boolean;
+    try {
+      hadAccess = await this.approvalTxn.revokeAccess({
+        clientId,
+        agentId,
         reason: clientAgentAccessRevokedByOwnerDecisionReason,
+        ...(this.pushEnabled ? { pushEventId: `revoked:${randomUUID()}` } : {}),
       });
+    } catch (error: unknown) {
+      this.logAccessTxnFailure("revoke_by_owner", error);
+      return err(serviceUnavailable("Unable to revoke access. Try again shortly."));
     }
+    this.liveProfileDeps?.onAccessRevoked?.(clientId, agentId);
     if (hadAccess) {
       await revokeConsumerClientAccessSockets({
         clientId,

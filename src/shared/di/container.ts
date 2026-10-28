@@ -1,3 +1,8 @@
+import { PwaPushService } from "../../application/services/pwa_push.service";
+import { PrismaPwaPushStore } from "../../infrastructure/repositories/prisma_pwa_push_store";
+import { WebPushSender } from "../../infrastructure/notifications/web_push_sender";
+import { readPwaConfig } from "../config/pwa";
+import { PwaOfflineAuthorizationService } from "../../application/services/pwa_offline_authorization.service";
 import { ClientDelegationService } from "../../application/services/client_delegation.service";
 import { InMemoryClientDelegationRepository } from "../../infrastructure/repositories/in_memory_client_delegation.repository";
 import { PrismaClientDelegationRepository } from "../../infrastructure/repositories/prisma_client_delegation.repository";
@@ -387,6 +392,13 @@ const clientAgentAccessRequestService = new ClientAgentAccessRequestService(
   clientAgentLiveProfileDeps,
 );
 
+const pwaConfig = readPwaConfig();
+const pwaPushService = new PwaPushService(
+  new PrismaPwaPushStore(),
+  new WebPushSender(pwaConfig),
+  pwaConfig,
+);
+
 const clientAgentAccessDecisionService = new ClientAgentAccessDecisionService(
   agentRepository,
   agentIdentityRepository,
@@ -397,6 +409,7 @@ const clientAgentAccessDecisionService = new ClientAgentAccessDecisionService(
   emailSender,
   clientAgentAccessApprovalTxn,
   clientAgentLiveProfileDeps,
+  pwaConfig.enabled && !shouldUseInMemoryPersistence,
 );
 
 const clientAgentTokenService = new ClientAgentTokenService(clientAgentAccessRepository);
@@ -427,7 +440,14 @@ const userAccountService = new UserAccountService(
   authService,
 );
 
+const pwaOfflineAuthorizationService = new PwaOfflineAuthorizationService(
+  clientAgentAccessRepository,
+  agentRepository,
+);
+
 export const container = {
+  pwaPushService,
+  pwaOfflineAuthorizationService,
   authService,
   userRegistrationService,
   userAccountService,

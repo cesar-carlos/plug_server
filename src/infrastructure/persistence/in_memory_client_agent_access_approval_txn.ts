@@ -2,6 +2,7 @@ import { ClientAgentAccessRequest } from "../../domain/entities/client_agent_acc
 import type {
   ClientAgentAccessApproveTxnInput,
   ClientAgentAccessRejectTxnInput,
+  ClientAgentAccessRevokeTxnInput,
   IClientAgentAccessApprovalTxn,
 } from "../../domain/ports/client_agent_access_approval_txn.port";
 import type { InMemoryClientAgentAccessApprovalTokenRepository } from "../repositories/in_memory_client_agent_access_approval_token.repository";
@@ -47,6 +48,19 @@ export class InMemoryClientAgentAccessApprovalTxn implements IClientAgentAccessA
     }
 
     return true;
+  }
+
+  async revokeAccess(input: ClientAgentAccessRevokeTxnInput): Promise<boolean> {
+    const hadAccess = await this.accessRepository.hasAccess(input.clientId, input.agentId);
+    await this.accessRepository.removeAccess(input.clientId, input.agentId);
+    const request = await this.requestRepository.findByClientAndAgent(
+      input.clientId,
+      input.agentId,
+    );
+    if (request?.status === "approved") {
+      await this.requestRepository.setStatus(request.id, "revoked", { reason: input.reason });
+    }
+    return hadAccess;
   }
 
   async rejectPendingAndConsumeToken(input: ClientAgentAccessRejectTxnInput): Promise<boolean> {

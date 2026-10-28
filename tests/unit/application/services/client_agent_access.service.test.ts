@@ -1280,6 +1280,9 @@ describe("Client agent access services", () => {
 
   describe("approval transaction failures", () => {
     class BoomTxn implements IClientAgentAccessApprovalTxn {
+      async revokeAccess(): Promise<boolean> {
+        throw new Error("simulated txn failure");
+      }
       async approvePendingAndGrantAccess(
         _input: ClientAgentAccessApproveTxnInput,
       ): Promise<boolean> {

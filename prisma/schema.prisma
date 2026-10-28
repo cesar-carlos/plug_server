@@ -413,3 +413,25 @@ model ClientPersonaDelegation {
   @@index([expiresAt])
   @@map("client_persona_delegations")
 }
+
+model PwaSubscription {
+  installationId String @id @db.Uuid
+  clientId String @db.Uuid
+  endpoint String @unique
+  p256dh String
+  auth String
+  updatedAt DateTime @updatedAt
+  @@index([clientId])
+}
+model PwaDelivery {
+  id String @id @db.Uuid
+  installationId String @db.Uuid
+  clientId String @db.Uuid
+  eventId String
+  type String
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  done Boolean @default(false)
+  @@unique([installationId, eventId])
+  @@index([done, availableAt])
+}

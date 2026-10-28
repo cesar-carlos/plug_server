@@ -66,6 +66,7 @@ const makeService = (deps: {
       sendClientAccessRejected: vi.fn(),
     } as never,
     {
+      revokeAccess: vi.fn().mockResolvedValue(true),
       approvePendingAndGrantAccess: vi.fn().mockResolvedValue(true),
       rejectPendingAndConsumeToken: vi.fn().mockResolvedValue(true),
       ...deps.approvalTxn,

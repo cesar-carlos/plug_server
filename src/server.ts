@@ -80,6 +80,15 @@ import { dispatchRpcCommandToAgent } from "./presentation/socket/hub/relay/rpc_b
 import { closeSocketServer, createSocketServer } from "./socket";
 import { SOCKET_NAMESPACES } from "./shared/constants/socket_events";
 import { container } from "./shared/di/container";
+
+let pwaPushTimer: ReturnType<typeof setInterval> | undefined;
+const startPwaPushWorker = (): void => {
+  if (!container.pwaPushService.publicKey().enabled || pwaPushTimer) return;
+  pwaPushTimer = setInterval(() => {
+    void container.pwaPushService.drain();
+  }, 15_000);
+  pwaPushTimer.unref();
+};
 import { env } from "./shared/config/env";
 import { logEnvRestSocketEventHints } from "./shared/config/log_env_rest_socket_event_hints";
 import { logEnvWorldAlignmentHints } from "./shared/config/log_env_world_alignment";
@@ -236,6 +245,7 @@ const bootstrap = async (): Promise<void> => {
   bootSafe("registration_email_outbox_worker", () =>
     startRegistrationEmailOutboxWorker(container.emailSender),
   );
+  bootSafe("pwa_push_worker", startPwaPushWorker);
   bootSafe("registration_email_outbox_dead_letter", () =>
     startRegistrationEmailOutboxDeadLetterScheduler(),
   );
@@ -310,6 +320,7 @@ const shutdown = async (signal: string): Promise<void> => {
     stopClientAgentAccessExpiryScheduler();
     stopAgentAutoUpdateDiagnosticsRetentionScheduler();
     stopRegistrationEmailOutboxWorker();
+    if (pwaPushTimer) clearInterval(pwaPushTimer);
     stopRegistrationEmailOutboxDeadLetterScheduler();
     stopAgentIdleTimeoutScheduler();
     await stopAgentHealthPollScheduler();
