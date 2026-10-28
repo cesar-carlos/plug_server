@@ -19,6 +19,28 @@ const median = (values: readonly number[]): number => {
   return sorted.length % 2 === 0 ? (sorted[middle - 1]! + sorted[middle]!) / 2 : sorted[middle]!;
 };
 
+/** Diagnostic only: retain every trial and keep pass/fail limits independent of dispersion. */
+export const restApiBenchVariability = (
+  report: RestApiBenchReport,
+): Array<{
+  name: string;
+  p95ByTrialMs: number[];
+  medianP95Ms: number;
+  medianAbsoluteDeviationMs: number;
+  rangeMs: number;
+}> =>
+  report.scenarios.map((scenario) => {
+    const p95ByTrialMs = (scenario.repetitions ?? [scenario]).map((trial) => trial.p95Ms);
+    const medianP95Ms = median(p95ByTrialMs);
+    return {
+      name: scenario.name,
+      p95ByTrialMs,
+      medianP95Ms,
+      medianAbsoluteDeviationMs: median(p95ByTrialMs.map((value) => Math.abs(value - medianP95Ms))),
+      rangeMs: Math.max(...p95ByTrialMs) - Math.min(...p95ByTrialMs),
+    };
+  });
+
 const hasCompleteLatencyTree = (
   scenario: ScenarioResult,
   iterations: number,

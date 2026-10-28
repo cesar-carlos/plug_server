@@ -1,0 +1,89 @@
+name: Native agent fixtures
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/native-agent-tests.yml
+      - .github/actions/setup-node-project/**
+      - src/**
+      - tests/integration/*desktop_bootstrap*
+      - vitest.desktop-bootstrap.config.mjs
+      - vitest.sql-recovery.config.mjs
+      - package.json
+      - package-lock.json
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/native-agent-tests.yml
+      - .github/actions/setup-node-project/**
+      - src/**
+      - tests/integration/*desktop_bootstrap*
+      - vitest.desktop-bootstrap.config.mjs
+      - vitest.sql-recovery.config.mjs
+      - package.json
+      - package-lock.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-agent-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  desktop:
+    name: Windows private desktop bootstrap
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      DATABASE_URL: postgresql://fixture:fixture@127.0.0.1:1/unused_bootstrap_test
+      NODE_ENV: test
+      PLUG_AGENTE_ROOT: ${{ github.workspace }}/plug_agente
+      REQUIRE_PLUG_AGENTE_CONTRACT: "true"
+      RUN_NATIVE_DESKTOP_BOOTSTRAP: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cesar-carlos/plug_agente
+          ref: main
+          path: plug_agente
+          token: ${{ secrets.PLUG_AGENTE_CHECKOUT_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-project
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+          cache: true
+      - name: Build and stage isolated desktop fixture
+        working-directory: plug_agente
+        shell: pwsh
+        run: |
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          flutter build windows --debug --target tool/homologation/desktop_bootstrap_fixture.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force build/homologation/desktop-bootstrap | Out-Null
+          Copy-Item -Path build/windows/x64/runner/Debug/* -Destination build/homologation/desktop-bootstrap -Recurse -Force
+          if (!(Test-Path build/homologation/desktop-bootstrap/plug_agente.exe)) { throw 'Missing native fixture executable' }
+      - name: Record exact fixture revisions
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force tmp | Out-Null
+          "hub=$(git rev-parse HEAD)" | Set-Content tmp/native-agent-revisions.txt
+          "agent=$(git -C plug_agente rev-parse HEAD)" | Add-Content tmp/native-agent-revisions.txt
+      - name: Cold start, restart and configured private profile
+        run: npx vitest run --config vitest.desktop-bootstrap.config.mjs --reporter=default --reporter=json --outputFile.json=tmp/native-agent-results.json
+      - name: Preserve native test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-agent-evidence
+          path: |
+            tmp/native-agent-revisions.txt
+            tmp/native-agent-results.json
+          if-no-files-found: error

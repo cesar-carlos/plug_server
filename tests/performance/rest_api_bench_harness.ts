@@ -106,6 +106,7 @@ export const runRestApiBench = async (): Promise<{
   const scenarioProfiles: Readonly<
     Record<string, { readonly warmup: number; readonly iterations: number }>
   > = {
+    catalog_many: { warmup: 256, iterations: 1024 },
     registry_page: { warmup: 256, iterations: 1024 },
     refresh_mixed: { warmup: 128, iterations: 256 },
     etag_poll: { warmup: 128, iterations: 256 },
@@ -557,7 +558,7 @@ export const runRestApiBench = async (): Promise<{
     // Neither worker may disconnect shared services while its peer is still timed.
     await waitForTurn("complete");
     return {
-      harnessVersion: 7,
+      harnessVersion: 8,
       versions,
       config,
       configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),

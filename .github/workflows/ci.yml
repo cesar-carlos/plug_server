@@ -53,7 +53,7 @@ jobs:
           rest_bench=false
           while IFS= read -r file; do
             case "$file" in
-              .github/workflows/ci.yml|.github/actions/*|src/presentation/socket/*|src/shared/constants/socket_events*|src/shared/utils/payload_frame*|tests/fixtures/socket/*|tests/contract/socket*|tests/integration/agent_dart_socket_bridge*)
+              .github/workflows/ci.yml|.github/actions/*|package.json|package-lock.json|src/presentation/socket/*|src/shared/constants/socket_events*|src/shared/utils/payload_frame*|tests/fixtures/socket/*|tests/contract/*|tests/integration/agent_dart_socket_bridge*|tests/integration/sql_operation_dart*)
                 socket=true
                 ;;
             esac
@@ -151,6 +151,29 @@ jobs:
 
       - name: Tests with critical coverage
         run: npm run test:coverage:critical
+
+      - name: Audit skipped tests and their execution stages
+        run: node scripts/check-test-skips.mjs
+
+      - name: Preserve full suite results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-suite-results
+          path: tmp/test-results.json
+          if-no-files-found: error
+
+      - name: PostgreSQL read projections (required infrastructure)
+        env:
+          CONTAINER_PERSISTENCE_MODE: prisma
+        run: npx vitest run tests/integration/infrastructure/repositories/rest_read_projections.integration.test.ts
+
+      # Run after the suite: CLIENT KILL must only affect this job's private Redis.
+      - name: Redis disconnect and recovery (isolated broker)
+        env:
+          INTEGRATION_REDIS_CHAOS_TESTS_ENABLED: "true"
+          AGENT_EVENT_STREAM_REDIS_URL: redis://127.0.0.1:6379
+        run: npx vitest run tests/integration/redis_chaos.integration.test.ts
 
       - name: Build
         run: npm run build
@@ -453,6 +476,13 @@ jobs:
           RUN_DART_SOCKET_E2E: "true"
           RUN_DART_PRODUCTION_TRANSPORT: ${{ matrix.agent_ref == 'main' && 'true' || 'false' }}
         run: npx vitest run tests/integration/agent_dart_socket_bridge.integration.test.ts
+
+      - name: SQL operation transport and synthetic crash recovery
+        if: steps.checkout_agente.outcome == 'success' && matrix.agent_ref == 'main'
+        env:
+          RUN_DART_SQL_OPERATION_TRANSPORT: "true"
+          FLUTTER_BIN: flutter
+        run: npx vitest run --config vitest.sql-recovery.config.mjs
 
       - name: Upload cross-project revisions
         if: always()

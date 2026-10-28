@@ -6,6 +6,7 @@ import type { RestApiBenchReport } from "../../performance/rest_api_bench_harnes
 import {
   aggregateRestApiBenchReports,
   restApiBenchComparisonErrors,
+  restApiBenchVariability,
   REST_BENCH_COMPARISON_SCHEDULE,
 } from "../../performance/rest_api_bench_reports";
 
@@ -76,6 +77,25 @@ const report = (): RestApiBenchReport => {
 };
 
 describe("REST benchmark comparison", () => {
+  it("reports trial dispersion without discarding the slow trial or relaxing the gate", () => {
+    const base = report();
+    const trials = [10, 10, 12, 20].map((p95Ms) => {
+      const trial = report();
+      trial.scenarios[0] = { ...trial.scenarios[0]!, p95Ms };
+      return trial;
+    });
+    const head = aggregateRestApiBenchReports(trials);
+    expect(restApiBenchVariability(head)[0]).toEqual({
+      name: "catalog_many",
+      p95ByTrialMs: [10, 10, 12, 20],
+      medianP95Ms: 11,
+      medianAbsoluteDeviationMs: 1,
+      rangeMs: 10,
+    });
+    expect(
+      restApiBenchComparisonErrors(head, aggregateRestApiBenchReports([base, base, base, base])),
+    ).toContain("catalog_many: p95 11 > 10.5");
+  });
   it("should compare a Prisma dependency update while preserving each revision's version evidence", () => {
     const base = report();
     const head = report();
