@@ -6,6 +6,11 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Changed — application version history
+
+- Reconstruct the initial Git baseline and enforce changelog checks before release.
+
+
 ### Fixed — faithful I/O validation and diagnostics
 
 - Reject inconsistent per-stream byte offsets and unsafe end offsets.
@@ -706,6 +711,18 @@ caps, rate-limits criticos permanecem ativos).
 - Variavel de ambiente **`BRIDGE_LOG_JSONRPC_AUTO_ID`**: quando `true`, log **INFO** estruturado ao auto-atribuir `id`.
 - Em **`NODE_ENV=development`**, o mesmo evento e emitido em nivel **DEBUG** (sem variavel).
 
-## Roadmap tecnico
+### Historical roadmap notes
 
 - **Modularizar `rpc_bridge.ts`**: _feito_ — modulos acima + `rpc_bridge_stream_pull.ts`, `rpc_bridge_dispatch_relay.ts`, `rpc_bridge_dispatch_command.ts`, `rpc_bridge_lifecycle.ts`; `rpc_bridge.ts` concentra namespaces Socket.IO, `emitToConsumer`, metricas e composicao das factories.
+
+## [1.0.0] - 2026-01-16
+
+Status: baseline
+Build: 1.0.0
+Source: 60d2fbc646c1baf56de458c4b2a97f1eaf2f9130
+
+- Initial backend baseline, recorded as plug_backend in the first Git commit.
+
+This is a reconstructed source baseline, not evidence of publication. No semantic
+release tags exist. Later changes remain Unreleased because Git does not establish
+a release boundary. REST/RPC contract versions are independent of this package.

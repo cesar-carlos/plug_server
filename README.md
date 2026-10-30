@@ -38,6 +38,16 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - `npm run test:e2e` - Vitest e2e (HTTP + Socket.IO), só local. Com `E2E_TESTS_ENABLED=true` no `.env` e `DATABASE_URL` acessível (ver `.env.example`); se estiver desligado, termina com exit 0 sem correr a suíte. Não há workflow E2E no GitHub Actions.
 - `npm run build` - build de producao
 
+## Application release history
+
+Run `npm run changelog:check` to validate package/lock agreement, dated descending
+version entries, status and change notes. `release:check` additionally requires
+`Status: prepared` on the current version and an empty Unreleased section.
+Before release, assign pending changes to the reviewed version and update both
+package files; do not relabel the historical 1.0.0 baseline as a publication.
+Contract versions are independent. This check does not override persona gates.
+The initial baseline was reconstructed from Git; no semantic release tags exist.
+
 ## Client-access e base de dados (produção)
 
 - Manter a **mesma versão** da API em todos os nós.

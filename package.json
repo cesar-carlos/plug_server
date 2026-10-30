@@ -39,7 +39,7 @@
     "test": "vitest run",
     "check:image-pins": "python3 scripts/check_ci_image_pins.py",
     "persona:release-check": "node scripts/check-persona-release.mjs",
-    "release:check": "npm run persona:release-check && npm run check:image-pins && npm run format:check && npm run lint && npm run typecheck && npm run contract:check && npm run test:contract && npm run test && npm run build",
+    "release:check": "node scripts/check-changelog.mjs --release && npm run persona:release-check && npm run check:image-pins && npm run format:check && npm run lint && npm run typecheck && npm run contract:check && npm run test:contract && npm run test && npm run build",
     "test:access-flow": "vitest run tests/integration/client_auth.integration.test.ts tests/integration/user_clients.integration.test.ts tests/integration/client_agents.integration.test.ts tests/unit/application/services/client_agent_access.service.test.ts tests/unit/application/services/client_agent_access.service.client_token.test.ts tests/unit/application/services/client_agent_access_query.service.test.ts tests/unit/application/services/client_agent_access_decision.service.test.ts tests/unit/domain/policies/client_agent_access_request.policy.test.ts",
     "test:contract": "vitest run tests/contract",
     "test:watch": "vitest",
@@ -57,7 +57,8 @@
     "check:swagger-flaky": "LOOPS=30 BURST=10 bash scripts/check_swagger_edge.sh",
     "contract:generate": "tsx scripts/generate-plug-mcp-contract.ts --major=2",
     "contract:check": "tsx scripts/generate-plug-mcp-contract.ts --check --major=2",
-    "contract:baseline": "tsx scripts/generate-plug-mcp-contract.ts --update-baseline --major=2 --accept-breaking"
+    "contract:baseline": "tsx scripts/generate-plug-mcp-contract.ts --update-baseline --major=2 --accept-breaking",
+    "changelog:check": "node scripts/check-changelog.mjs"
   },
   "repository": {
     "type": "git",

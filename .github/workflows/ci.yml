@@ -94,6 +94,8 @@ jobs:
 
       - name: Format, lint, types, image pins, and MCP contract
         run: |
+          npm run changelog:check
+          node --test scripts/check-changelog.test.mjs
           npm run format:check
           npm run lint
           npm run typecheck
