@@ -1,3 +1,4 @@
+import { actionIoBridgeSchemas } from "./swagger/action_io_schemas";
 import { agentCatalogSchemas } from "./swagger/agent_catalog_schemas";
 import { sqlOperationBridgeSchemas } from "./swagger/sql_operation_schemas";
 import { sourceDiscoveryBridgeSchemas } from "./swagger/source_discovery_schemas";
@@ -512,6 +513,7 @@ const swaggerDefinition = {
               action_id: { type: "string", minLength: 1 },
               idempotency_key: { type: "string", minLength: 1 },
               trigger_id: { type: "string", minLength: 1 },
+              io: { $ref: "#/components/schemas/ActionIoConfiguration" },
             },
             additionalProperties: false,
           },
@@ -526,6 +528,8 @@ const swaggerDefinition = {
             properties: {
               action_id: { type: "string", minLength: 1 },
               idempotency_key: { type: "string", minLength: 1 },
+              trigger_id: { type: "string", minLength: 1 },
+              io: { $ref: "#/components/schemas/ActionIoConfiguration" },
             },
             additionalProperties: false,
           },
@@ -698,6 +702,7 @@ const swaggerDefinition = {
         },
         additionalProperties: true,
       },
+      ...actionIoBridgeSchemas,
       RpcAgentActionGetExecutionCommand: {
         type: "object",
         required: ["method", "params"],
@@ -732,6 +737,11 @@ const swaggerDefinition = {
           { $ref: "#/components/schemas/RpcAgentActionValidateRunCommand" },
           { $ref: "#/components/schemas/RpcAgentActionCancelCommand" },
           { $ref: "#/components/schemas/RpcAgentActionGetExecutionCommand" },
+          { $ref: "#/components/schemas/RpcActionIoSendInputCommand" },
+          { $ref: "#/components/schemas/RpcActionIoCloseInputCommand" },
+          { $ref: "#/components/schemas/RpcActionIoGetInputStatusCommand" },
+          { $ref: "#/components/schemas/RpcActionIoReadIoCommand" },
+          { $ref: "#/components/schemas/RpcActionIoFindExecutionCommand" },
           { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
           { $ref: "#/components/schemas/RpcSourceDiscoveryCommand" },
           { $ref: "#/components/schemas/RpcSourceSchemaCommand" },

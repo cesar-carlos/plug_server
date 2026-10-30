@@ -1,3 +1,5 @@
+import type { ActionIoBatchExpectation } from "../../../../shared/validators/action_io_response_expectation";
+import type { ActionIoResponseExpectation } from "../../../../shared/validators/action_io_response_expectation";
 import type { BridgeLatencyTraceSession } from "../../../../application/services/bridge_latency_trace_builder";
 import type { StreamChunkMetadata } from "../relay/stream_chunk_metadata";
 import type { RelayChunkRawForward } from "../relay/relay_stream_flow_state";
@@ -26,6 +28,9 @@ export interface StreamEventHandlers {
 }
 
 export interface PendingRequest {
+  readonly actionIoBatch?: readonly ActionIoBatchExpectation[];
+  readonly jsonRpcMethod?: string;
+  readonly actionIoExpectation?: ActionIoResponseExpectation;
   readonly primaryRequestId: string;
   readonly correlationIds: readonly string[];
   readonly socketId: string;

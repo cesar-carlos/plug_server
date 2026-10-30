@@ -395,6 +395,47 @@ describe("rpc_bridge_agent_inbound", () => {
     await vi.waitFor(() => expect(ack).toHaveBeenCalledTimes(1));
   });
 
+  it("rejects a read page returned as a sendInput receipt before resolving REST", async () => {
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    registerRestPendingRequest({
+      primaryRequestId: "io-response",
+      correlationIds: ["io-response"],
+      jsonRpcMethod: "agent.action.sendInput",
+      socketId: "socket-test",
+      agentId: "agent-1",
+      createdAtMs: Date.now(),
+      resolve,
+      reject,
+      timeoutHandle: createTimeoutHandle(),
+      acked: false,
+    });
+    const h = createRpcBridgeAgentInboundHandlers({
+      emitToConsumer: vi.fn(),
+      emitRpcStreamPullForRoute: vi.fn(),
+    });
+    h.handleAgentRpcResponse(
+      "socket-test",
+      encodePayloadFrame(
+        {
+          jsonrpc: "2.0",
+          id: "io-response",
+          result: {
+            execution_id: "e",
+            events: [],
+            next_sequence: 0,
+            terminal: false,
+            output_complete: false,
+          },
+        },
+        { requestId: "io-response" },
+      ),
+      vi.fn(),
+    );
+    await vi.waitFor(() => expect(reject).toHaveBeenCalledOnce());
+    expect(resolve).not.toHaveBeenCalled();
+    expect(getRestPendingRequestByCorrelationId("io-response")).toBeUndefined();
+  });
   it("should resolve a pending rest request and ack a valid rpc:response", async () => {
     const ack = vi.fn();
     const resolve = vi.fn();

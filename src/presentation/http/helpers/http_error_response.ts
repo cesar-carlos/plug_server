@@ -1,3 +1,5 @@
+import { actionIoErrorDetails } from "../../../shared/utils/action_io_error_details";
+
 export interface HttpErrorResponseBody {
   readonly success: false;
   readonly message: string;
@@ -20,7 +22,18 @@ export const buildHttpErrorResponseBody = (input: {
   readonly exposeDetails?: boolean | undefined;
   readonly issues?: ReadonlyArray<{ readonly field: string; readonly message: string }> | undefined;
 }): HttpErrorResponseBody => {
-  const exposedDetails = input.exposeDetails === true ? input.details : undefined;
+  const actionDetails =
+    input.code.startsWith("ACTION_") || input.code === "OUTPUT_EXPIRED"
+      ? actionIoErrorDetails(input.details)
+      : undefined;
+  const exposedDetails =
+    actionDetails !== undefined
+      ? Object.keys(actionDetails).length > 0
+        ? actionDetails
+        : undefined
+      : input.exposeDetails === true
+        ? input.details
+        : undefined;
   const validationDetails = input.issues !== undefined ? { issues: input.issues } : undefined;
   const errorDetails = validationDetails ?? exposedDetails;
 

@@ -512,6 +512,14 @@ interno do runtime e nao muda o envelope do hub.
 
 ### `agent.action.*`
 
+REST/`agents:command` e relay nao reenviam automaticamente `run`/`cancel`
+por perda de ACK, mesmo com chave de idempotencia. Timeout ou desconexao apos
+dispatch pode deixar o resultado incerto: `ACTION_OUTCOME_UNKNOWN`,
+`retryable:false`, `outcome_unknown:true`, `recovery:reconcile_execution`.
+Consulte `getExecution` se possuir `execution_id`; caso contrario reconcilie
+com o historico do agente. Nao presuma ausencia de efeitos nem reenvie
+automaticamente. Recusas anteriores ao dispatch preservam o erro original.
+
 O bridge aceita `agent.action.run`, `agent.action.validateRun`,
 `agent.action.cancel` e `agent.action.getExecution` em REST, `agents:command`
 e relay. O hub valida o shape e repassa. A feature flag
@@ -525,8 +533,8 @@ para saber se uma acao concreta pode ser iniciada.
 
 | Metodo                      | Side effect | Params obrigatorios            | Notas                                                                                                                                                                                         |
 | --------------------------- | ----------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent.action.run`          | sim         | `action_id`, `idempotency_key` | `trigger_id` opcional. Gatilho `remote` ausente ou ambiguo falha antes de consumir cota de rate limit                                                                                         |
-| `agent.action.validateRun`  | nao         | `action_id`, `idempotency_key` | Preflight sem persistir execucao nem iniciar processo. Mesmo gate de gatilho `remote`                                                                                                         |
+| `agent.action.run`          | sim         | `action_id`, `idempotency_key` | `trigger_id` opcional. Exige gatilho `remote` habilitado; no codigo revisado, o rate limit antecede a resolucao do gatilho. A resposta identifica a execucao, nao sua conclusao |
+| `agent.action.validateRun`  | nao         | `action_id`, `idempotency_key` | Preflight sem persistir execucao nem iniciar processo. O hub aceita `trigger_id` opcional; suporte do agente em alinhamento coordenado |
 | `agent.action.cancel`       | sim         | `execution_id`                 | No Windows, processo associado a Job Object e encerrado como arvore. Rate limit e auditoria usam `action_id` da execucao, nao `execution_id`                                                  |
 | `agent.action.getExecution` | nao         | `execution_id`                 | Leitura redigida. Paginacao UTF-8 de stdout/stderr via `stdout_offset`, `stderr_offset` e `max_output_bytes` (defeito 65536, teto 524288 por stream). Prefetch nao hidrata o output capturado |
 
@@ -537,6 +545,16 @@ token: `-32001` / `missing_client_token`. Feature desligada: `-32002` /
 `agent_action_remote_rate_limited` com `retry_after_ms` (o hub propaga
 `Retry-After`). Detalhe normativo:
 `plug_agente/docs/communication/socket_agent_actions.md`.
+
+**Legacy versus negotiated I/O:** arbitrary `runtimeParameters`, inline business
+context and remote commands remain rejected. Legacy getExecution output is text,
+not a faithful byte representation. With exact `agentActions.io` v1 and explicit
+homologation opt-in, the bridge also accepts the generic byte I/O methods.
+run and validateRun both accept optional trigger_id and negotiated io configuration.
+Use the [integration reference](../plug_agente/remote_action_io_specification.md)
+and [examples](../plug_agente/remote_action_io_examples.md) to distinguish legacy
+fields, runtime extensions and draft examples. Neither route availability nor
+these documents enable production. Unknown mutations must be reconciled, not retried.
 
 ---
 

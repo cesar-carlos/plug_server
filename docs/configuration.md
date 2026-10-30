@@ -252,7 +252,7 @@ Migração do wire format de `agents:stream_pull` no namespace `/consumers` (pla
 | `BRIDGE_LATENCY_TRACE_PHASES_MISMATCH_WARN_MS` | `0` | Aciona métrica e log DEBUG quando a soma das fases diverge do tempo total; `0` desativa. |
 | `BRIDGE_LATENCY_TRACE_REDACT_USER_ID` / `BRIDGE_LATENCY_TRACE_TRUNCATE_REQUEST_ID_CHARS` | `false` / `0` | Reduz PII persistida: remove `user_id` e limita `request_id`; `0` mantém o identificador completo. |
 
-Consulte [observabilidade do bridge](observability/observability.md#tabela-postgresql-bridge_latency_traces-latencia-por-fase) para métricas, consultas e o dashboard; o comportamento de `requestServerTimings` está no [contrato REST](api/api_rest_bridge.md#server-side-phase-diagnostics).
+Consulte [observabilidade do bridge](observability/observability.md#tabela-postgresql-bridge_latency_traces-latencia-por-fase) para métricas, consultas e o dashboard; o comportamento de `requestServerTimings` está no [contrato REST](api/api_rest_bridge.md#server-side-phase-diagnostics-requestservertimings).
 
 ### Byte caps do buffer relay
 
@@ -446,7 +446,7 @@ teste ou quando a tabela não existe, o código cai para envio direto.
 | `CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_INTERVAL_MINUTES` | `60`    | Cadencia do sweep que fecha pedidos `pending` cujo token de aprovacao expirou.             |
 | `CLIENT_AGENT_ACCESS_EXPIRY_SWEEP_BATCH_SIZE`       | `1000`  | Batch do sweep de expiracao `Client -> Agent`.                                             |
 
-## Socket.IO ([Engine.IO](http://Engine.IO))
+## Socket.IO ([Engine.IO](https://socket.io/docs/v4/engine-io-protocol/))
 
 | Variável                                                   | Defeito                                            | Notas                                                                 |
 | ---------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------- |
@@ -728,3 +728,16 @@ passa a ser:
 2. se funcionar, aplicar `REST_SOCKET_EVENT_MAX_RECIPIENTS` normalmente;
 3. se falhar, permitir publish degradado apenas abaixo do teto local;
 4. se as falhas se repetirem, abrir o circuito e devolver `503` ate a janela expirar.
+
+## Faithful action I/O homologation
+
+`ENABLE_ACTION_IO_HOMOLOGATION` defaults to `false` and accepts only `true` or
+`false`. It advertises `agentActions.io` v1 only outside `NODE_ENV=production`;
+production ignores the opt-in and continues refusing faithful I/O dispatch.
+This flag is intended for isolated acceptance fixtures while implementation is
+in progress. It does not grant Client permissions or local action approval.
+Restart the hub and reconnect the agent after changing it. Both peers must
+advertise the exact v1 agreement. Dispatch rechecks the current hub opt-in and
+live authenticated agent capability before emission. No operational environment
+was enabled by this implementation. Remaining acceptance and limits are tracked
+in `docs/plug_agente/remote_action_io_specification.md`.

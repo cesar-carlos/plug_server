@@ -1,0 +1,1480 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:plug:draft:action-io:1",
+  "title": "PROPOSED action I/O v1 â€” not a runtime contract",
+  "description": "Documentation-only proposal. Does not enable methods or capabilities.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    },
+    {
+      "$ref": "#/$defs/error"
+    },
+    {
+      "$ref": "#/$defs/capability"
+    }
+  ],
+  "$defs": {
+    "io": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "mode": {
+          "const": "faithful"
+        },
+        "initial_input_base64": {
+          "type": "string",
+          "maxLength": 87384,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "close_input": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "version",
+        "mode",
+        "close_input"
+      ],
+      "additionalProperties": false
+    },
+    "request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "method": {
+              "const": "agent.action.run"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "client_token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clientToken": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "auth": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trace_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "action_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "idempotency_key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trigger_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "io": {
+                  "$ref": "#/$defs/io"
+                }
+              },
+              "required": [
+                "action_id",
+                "idempotency_key",
+                "io"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "method": {
+              "const": "agent.action.validateRun"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "client_token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clientToken": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "auth": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trace_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "action_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "idempotency_key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trigger_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "io": {
+                  "$ref": "#/$defs/io"
+                }
+              },
+              "required": [
+                "action_id",
+                "idempotency_key",
+                "io"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "method": {
+              "const": "agent.action.sendInput"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "client_token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clientToken": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "auth": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trace_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "execution_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "data_base64": {
+                  "type": "string",
+                  "maxLength": 87384,
+                  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+                }
+              },
+              "required": [
+                "execution_id",
+                "message_id",
+                "sequence",
+                "data_base64"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "method": {
+              "const": "agent.action.closeInput"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "client_token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clientToken": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "auth": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trace_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "execution_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "execution_id",
+                "message_id",
+                "sequence"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "method": {
+              "const": "agent.action.getInputStatus"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "client_token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clientToken": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "auth": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trace_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "execution_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "execution_id",
+                "message_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "method": {
+              "const": "agent.action.readIo"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "client_token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clientToken": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "auth": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trace_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "execution_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "after_sequence": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "max_bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 262144
+                },
+                "wait_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 20000
+                }
+              },
+              "required": [
+                "execution_id",
+                "after_sequence",
+                "max_bytes",
+                "wait_ms"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "jsonrpc": {
+              "const": "2.0"
+            },
+            "id": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "method": {
+              "const": "agent.action.findExecution"
+            },
+            "params": {
+              "type": "object",
+              "properties": {
+                "client_token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "clientToken": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "auth": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "trace_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested_by": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "action_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "idempotency_key": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "action_id",
+                "idempotency_key"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "jsonrpc",
+            "id",
+            "method",
+            "params"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "deliveryState": {
+      "enum": [
+        "accepted",
+        "writing",
+        "written",
+        "failed",
+        "unknown"
+      ]
+    },
+    "stdinState": {
+      "enum": [
+        "pending",
+        "open",
+        "closing",
+        "closed",
+        "failed"
+      ]
+    },
+    "errorData": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "ACTION_OUTCOME_UNKNOWN",
+            "ACTION_STDIN_WRITE_TIMEOUT",
+            "ACTION_STDIN_PARTIAL_WRITE",
+            "ACTION_INPUT_CONFLICT",
+            "ACTION_INPUT_SEQUENCE_INVALID",
+            "ACTION_INPUT_QUEUE_FULL",
+            "ACTION_STDIN_CLOSED",
+            "ACTION_IO_UNSUPPORTED",
+            "ACTION_IO_INVALID_INPUT",
+            "ACTION_OUTPUT_LIMIT_EXCEEDED",
+            "ACTION_IO_STORAGE_FAILED",
+            "ACTION_IO_INTEGRITY_FAILED",
+            "ACTION_IO_KEY_UNAVAILABLE",
+            "ACTION_IO_TERMINATION_FAILED",
+            "OUTPUT_EXPIRED",
+            "ACTION_IO_CURSOR_INVALID"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "admission",
+            "stdin_write",
+            "capture",
+            "persist",
+            "read",
+            "terminate",
+            "await_response"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "hub",
+            "agent",
+            "runner",
+            "storage"
+          ]
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "diagnostic_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "delivery_state": {
+          "$ref": "#/$defs/deliveryState"
+        },
+        "confirmed_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "effects_possible": {
+          "type": "boolean"
+        },
+        "retryable": {
+          "const": false
+        },
+        "recovery": {
+          "enum": [
+            "correct_request",
+            "wait_capacity",
+            "query_message",
+            "query_execution",
+            "reconcile_execution",
+            "local_intervention"
+          ]
+        },
+        "hint": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "code",
+        "phase",
+        "origin",
+        "diagnostic_id",
+        "effects_possible",
+        "retryable",
+        "recovery"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "integer"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "data": {
+              "$ref": "#/$defs/errorData"
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "data"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "sequence": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "output"
+            },
+            "stream": {
+              "enum": [
+                "stdout",
+                "stderr"
+              ]
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "data_base64": {
+              "type": "string",
+              "maxLength": 87384,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+            }
+          },
+          "required": [
+            "sequence",
+            "type",
+            "stream",
+            "offset",
+            "data_base64"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sequence": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "process_exited"
+            },
+            "exit_code": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "sequence",
+            "type",
+            "exit_code"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sequence": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "const": "completed"
+            },
+            "output_complete": {
+              "type": "boolean"
+            },
+            "failure": {
+              "$ref": "#/$defs/errorData"
+            }
+          },
+          "required": [
+            "sequence",
+            "type",
+            "output_complete"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "runResult": {
+      "title": "agent.action.getExecution result",
+      "type": "object",
+      "required": [
+        "execution_id",
+        "action_id",
+        "action_type",
+        "status",
+        "source",
+        "requested_at",
+        "timestamps",
+        "process",
+        "output",
+        "flags",
+        "io"
+      ],
+      "properties": {
+        "execution_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "type": "string",
+          "enum": [
+            "commandLine",
+            "executable",
+            "script",
+            "jar",
+            "email",
+            "comObject",
+            "developer"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "skipped",
+            "cancelled",
+            "killed",
+            "timedOut",
+            "interrupted",
+            "unknown"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "localUi",
+            "scheduler",
+            "remoteHub",
+            "appLifecycle"
+          ]
+        },
+        "requested_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requested_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable per-installation identifier of the agent process that accepted the execution."
+        },
+        "runtime_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Identifier of the current agent boot session when the execution was created."
+        },
+        "trigger": {
+          "type": "object",
+          "properties": {
+            "trigger_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "trigger_type": {
+              "type": "string",
+              "enum": [
+                "manual",
+                "remote",
+                "once",
+                "interval",
+                "daily",
+                "weekly",
+                "monthly",
+                "appStart",
+                "appClose",
+                "actionSucceeded",
+                "actionFailed"
+              ]
+            },
+            "scheduled_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "triggered_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false
+        },
+        "timestamps": {
+          "type": "object",
+          "properties": {
+            "queue_started_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "process_started_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "finished_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "timeout_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false
+        },
+        "process": {
+          "type": "object",
+          "properties": {
+            "pid": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "exit_code": {
+              "type": "integer"
+            },
+            "executable": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Safe executable identity only. The raw command is never returned."
+            },
+            "argument_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "command_preview": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Redacted preview suitable for diagnostics. It must not contain raw sensitive command arguments."
+            }
+          },
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "stdout",
+            "stderr"
+          ],
+          "properties": {
+            "stdout": {
+              "$ref": "#/$defs/runResult/$defs/capturedOutput"
+            },
+            "stderr": {
+              "$ref": "#/$defs/runResult/$defs/capturedOutput"
+            }
+          },
+          "additionalProperties": false
+        },
+        "flags": {
+          "type": "object",
+          "required": [
+            "terminal",
+            "skipped",
+            "timed_out",
+            "cancelled",
+            "killed",
+            "redaction_applied"
+          ],
+          "properties": {
+            "terminal": {
+              "type": "boolean"
+            },
+            "skipped": {
+              "type": "boolean"
+            },
+            "timed_out": {
+              "type": "boolean"
+            },
+            "cancelled": {
+              "type": "boolean"
+            },
+            "killed": {
+              "type": "boolean"
+            },
+            "redaction_applied": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "context_hash": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Redacted context hash, usually sha256:<hex>."
+        },
+        "definition_snapshot_hash": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Redacted definition snapshot hash."
+        },
+        "failure": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "phase": {
+              "type": "string",
+              "minLength": 1
+            },
+            "corrective_action": {
+              "type": "string",
+              "enum": [
+                "review_path",
+                "review_runner",
+                "review_exit_code",
+                "review_queue",
+                "review_timeout",
+                "retry_kill",
+                "review_definition_validation",
+                "review_preflight",
+                "review_start_process",
+                "review_runtime"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "io": {
+          "type": "object",
+          "required": [
+            "version",
+            "mode",
+            "process_state",
+            "stdin_state",
+            "capture_state",
+            "output_expired",
+            "next_input_sequence"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "mode": {
+              "const": "faithful"
+            },
+            "process_state": {
+              "enum": [
+                "queued",
+                "starting",
+                "running",
+                "finished",
+                "unknown"
+              ]
+            },
+            "stdin_state": {
+              "enum": [
+                "pending",
+                "open",
+                "closing",
+                "closed",
+                "failed"
+              ]
+            },
+            "capture_state": {
+              "enum": [
+                "capturing",
+                "draining",
+                "complete",
+                "incomplete",
+                "expired"
+              ]
+            },
+            "output_expired": {
+              "type": "boolean"
+            },
+            "initial_message_id": {
+              "const": "system:initial"
+            },
+            "close_message_id": {
+              "const": "system:close"
+            },
+            "next_input_sequence": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "capturedOutput": {
+          "type": "object",
+          "required": [
+            "captured",
+            "truncated",
+            "utf8_total_bytes",
+            "offset",
+            "next_offset",
+            "response_truncated"
+          ],
+          "properties": {
+            "captured": {
+              "type": "boolean"
+            },
+            "text": {
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "utf8_total_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "next_offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "response_truncated": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "validateResult": {
+      "title": "agent.action.validateRun result",
+      "type": "object",
+      "required": [
+        "valid",
+        "action_id",
+        "action_type",
+        "would_replay_existing_execution"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean",
+          "const": true,
+          "description": "True when the action would be accepted for agent.action.run at validation time (subject to races)."
+        },
+        "action_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definition_snapshot_hash": {
+          "type": "string",
+          "description": "Redacted snapshot hash of the action definition at validation time, when available."
+        },
+        "would_replay_existing_execution": {
+          "type": "boolean",
+          "description": "True when the same action_id and idempotency_key would return an existing execution on run without enqueueing a new one."
+        },
+        "existing_execution_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Present when would_replay_existing_execution is true and a persisted execution was found."
+        }
+      },
+      "additionalProperties": false
+    },
+    "sendResult": {
+      "$ref": "#/$defs/inputReceipt"
+    },
+    "closeResult": {
+      "$ref": "#/$defs/inputReceipt"
+    },
+    "statusResult": {
+      "$ref": "#/$defs/inputReceipt"
+    },
+    "readResult": {
+      "type": "object",
+      "properties": {
+        "execution_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "next_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "terminal": {
+          "type": "boolean"
+        },
+        "output_complete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "execution_id",
+        "events",
+        "next_sequence",
+        "terminal",
+        "output_complete"
+      ],
+      "additionalProperties": false
+    },
+    "findResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "found": {
+              "const": false
+            },
+            "reason": {
+              "const": "not_found_in_retention_window"
+            },
+            "execution_id": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "found",
+            "reason",
+            "execution_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "found": {
+              "const": true
+            },
+            "execution_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "found",
+            "execution_id"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/runResult"
+            },
+            {
+              "$ref": "#/$defs/validateResult"
+            },
+            {
+              "$ref": "#/$defs/sendResult"
+            },
+            {
+              "$ref": "#/$defs/closeResult"
+            },
+            {
+              "$ref": "#/$defs/statusResult"
+            },
+            {
+              "$ref": "#/$defs/readResult"
+            },
+            {
+              "$ref": "#/$defs/findResult"
+            }
+          ]
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "properties": {
+        "io": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "max_block_bytes": {
+              "const": 65536
+            },
+            "max_read_bytes": {
+              "const": 262144
+            },
+            "max_execution_bytes": {
+              "const": 67108864
+            },
+            "output_retention_seconds": {
+              "const": 86400
+            },
+            "supports_interactive_input": {
+              "const": true
+            }
+          },
+          "required": [
+            "version",
+            "max_block_bytes",
+            "max_read_bytes",
+            "max_execution_bytes",
+            "output_retention_seconds",
+            "supports_interactive_input"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "io"
+      ],
+      "additionalProperties": false
+    },
+    "inputReceipt": {
+      "type": "object",
+      "properties": {
+        "execution_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "writing",
+            "written",
+            "failed",
+            "unknown"
+          ]
+        },
+        "confirmed_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "next_input_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "stdin_state": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "open",
+            "closing",
+            "closed",
+            "failed"
+          ]
+        }
+      },
+      "required": [
+        "execution_id",
+        "message_id",
+        "sequence",
+        "state",
+        "confirmed_bytes",
+        "next_input_sequence",
+        "stdin_state"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "state": {
+            "const": "written"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "properties": {
+          "confirmed_bytes": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}

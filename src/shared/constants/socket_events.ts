@@ -22,6 +22,7 @@ export const socketEvents = {
   agentProfileUpdated: "agent:profile.updated",
   hubHeartbeatAck: "hub:heartbeat_ack",
   rpcRequest: "rpc:request",
+  rpcReadCancel: "rpc:read.cancel",
   rpcResponse: "rpc:response",
   rpcRequestAck: "rpc:request_ack",
   rpcBatchAck: "rpc:batch_ack",

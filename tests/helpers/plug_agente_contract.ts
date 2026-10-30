@@ -5,6 +5,18 @@ import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 
 export const PLUG_AGENTE_SCHEMA_FILES = [
+  "action-io.configuration.schema.json",
+  "action-io.capability.schema.json",
+  "rpc.params.agent-action-send-input.schema.json",
+  "rpc.result.agent-action-send-input.schema.json",
+  "rpc.params.agent-action-close-input.schema.json",
+  "rpc.result.agent-action-close-input.schema.json",
+  "rpc.params.agent-action-get-input-status.schema.json",
+  "rpc.result.agent-action-get-input-status.schema.json",
+  "rpc.params.agent-action-read-io.schema.json",
+  "rpc.result.agent-action-read-io.schema.json",
+  "rpc.params.agent-action-find-execution.schema.json",
+  "rpc.result.agent-action-find-execution.schema.json",
   "rpc.request.schema.json",
   "rpc.response.schema.json",
   "rpc.error.schema.json",
@@ -124,7 +136,8 @@ export const registerPlugAgenteSchemas = (ajv: PlugAgenteAjv, schemasDir: string
     }
     const schema = read(name);
     ajv.addSchema(schema);
-    ajv.addSchema(withId(schema, `https://plugagente.dev/schemas/${name}`));
+    const alias = `https://plugagente.dev/schemas/${name}`;
+    if (schema.$id !== alias) ajv.addSchema(withId(schema, alias));
   }
 };
 

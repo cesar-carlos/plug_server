@@ -1,3 +1,4 @@
+import { actionIoBridgeSchemas } from "./action_io_schemas";
 import { sqlOperationBridgeSchemas } from "./sql_operation_schemas";
 import { sourceDiscoveryBridgeSchemas } from "./source_discovery_schemas";
 import {
@@ -297,6 +298,7 @@ export const bridgeSchemas = {
           action_id: { type: "string", minLength: 1 },
           idempotency_key: { type: "string", minLength: 1 },
           trigger_id: { type: "string", minLength: 1 },
+          io: { $ref: "#/components/schemas/ActionIoConfiguration" },
         },
         additionalProperties: false,
       },
@@ -311,6 +313,8 @@ export const bridgeSchemas = {
         properties: {
           action_id: { type: "string", minLength: 1 },
           idempotency_key: { type: "string", minLength: 1 },
+          trigger_id: { type: "string", minLength: 1 },
+          io: { $ref: "#/components/schemas/ActionIoConfiguration" },
         },
         additionalProperties: false,
       },
@@ -483,6 +487,7 @@ export const bridgeSchemas = {
     },
     additionalProperties: true,
   },
+  ...actionIoBridgeSchemas,
   RpcAgentActionGetExecutionCommand: {
     type: "object",
     required: ["method", "params"],
@@ -517,6 +522,11 @@ export const bridgeSchemas = {
       { $ref: "#/components/schemas/RpcAgentActionValidateRunCommand" },
       { $ref: "#/components/schemas/RpcAgentActionCancelCommand" },
       { $ref: "#/components/schemas/RpcAgentActionGetExecutionCommand" },
+      { $ref: "#/components/schemas/RpcActionIoSendInputCommand" },
+      { $ref: "#/components/schemas/RpcActionIoCloseInputCommand" },
+      { $ref: "#/components/schemas/RpcActionIoGetInputStatusCommand" },
+      { $ref: "#/components/schemas/RpcActionIoReadIoCommand" },
+      { $ref: "#/components/schemas/RpcActionIoFindExecutionCommand" },
       { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
       { $ref: "#/components/schemas/RpcSourceDiscoveryCommand" },
       { $ref: "#/components/schemas/RpcSourceSchemaCommand" },

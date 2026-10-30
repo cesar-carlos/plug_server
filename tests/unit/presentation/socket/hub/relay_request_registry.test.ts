@@ -36,6 +36,31 @@ const makeRoute = (
 });
 
 describe("relay_request_registry", () => {
+  it.each([
+    { settled: false, timedOut: false, expected: 1 },
+    { settled: true, timedOut: false, expected: 0 },
+    { settled: true, timedOut: true, expected: 1 },
+  ])("read cleanup is once-only for $settled/$timedOut", ({ settled, timedOut, expected }) => {
+    const cancelReadWait = vi.fn();
+    registerRelayRequestRoute(makeRoute({ requestId: "read", settled, timedOut, cancelReadWait }));
+    removeRelayRequestRoute("read");
+    removeRelayRequestRoute("read");
+    resetRelayRequestRegistry();
+    expect(cancelReadWait).toHaveBeenCalledTimes(expected);
+  });
+
+  it("reset abandons unresolved read waits while preserving settled responses", () => {
+    const abandoned = vi.fn();
+    const completed = vi.fn();
+    registerRelayRequestRoute(makeRoute({ requestId: "pending", cancelReadWait: abandoned }));
+    registerRelayRequestRoute(
+      makeRoute({ requestId: "complete", settled: true, cancelReadWait: completed }),
+    );
+    resetRelayRequestRegistry();
+    resetRelayRequestRegistry();
+    expect(abandoned).toHaveBeenCalledOnce();
+    expect(completed).not.toHaveBeenCalled();
+  });
   it("register and remove update pending counts and indexes", () => {
     const r = makeRoute({ requestId: "r1" });
     registerRelayRequestRoute(r);

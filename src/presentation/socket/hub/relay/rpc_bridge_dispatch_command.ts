@@ -1,7 +1,20 @@
+import { createActionIoReadCancellation } from "./action_io_read_cancellation";
+import { actionIoReadCapacity } from "../../../../shared/di/action_io_read_capacity";
+import { actionIoQueueSignal } from "../../../../application/agent_commands/action_io_deadline";
 import {
-  assertSqlOperationTransport,
-  requiresLiveSqlCapability,
-} from "../../../../application/agent_commands/sql_operation_transport_guard";
+  remainingActionIoWaitMs,
+  applyActionIoDeadline,
+  assertActionIoDeadline,
+} from "../../../../application/agent_commands/action_io_deadline";
+import {
+  captureActionIoBatch,
+  captureActionIoExpectation,
+} from "../../../../shared/validators/action_io_response_expectation";
+import { isActionMutationMethod } from "../../../../application/agent_commands/action_io_method_policy";
+import {
+  assertCommandTransport,
+  requiresLiveCommandCapability,
+} from "../../../../application/agent_commands/command_transport_guard";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -64,7 +77,10 @@ import {
   tryRegisterRestPendingRequest,
 } from "../registries/rest_pending_requests";
 import { hasRelayRequestRoute } from "../registries/relay_request_registry";
-import { BRIDGE_DEFAULT_WAIT_TIMEOUT_MS } from "../../../../application/agent_commands/command_transformers";
+import {
+  BRIDGE_DEFAULT_WAIT_TIMEOUT_MS,
+  computeBridgeWaitTimeoutMs,
+} from "../../../../application/agent_commands/command_transformers";
 import {
   clampCommandMaxRows,
   countBatchItems,
@@ -121,6 +137,7 @@ export const createDispatchRpcCommandToAgent = (
     const channel = input.latencyTrace?.channel ?? "unknown";
     let metricOutcome: BridgeRpcMethodMetricOutcome = "error";
     let operationEmitted = false;
+    let actionEmitted = false;
 
     try {
       if (input.signal?.aborted) {
@@ -169,10 +186,7 @@ export const createDispatchRpcCommandToAgent = (
         throw badRequest("Command must be a JSON object or JSON-RPC batch array");
       }
 
-      assertSqlOperationTransport(
-        input.command,
-        agentRegistry.getCapabilitiesByAgentId(input.agentId),
-      );
+      assertCommandTransport(input.command, agentRegistry.getCapabilitiesByAgentId(input.agentId));
       const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(input.agentId);
       const effectiveCompressionPreference = resolveAgentCompressionPreference({
         preference: input.payloadFrameCompression,
@@ -211,7 +225,10 @@ export const createDispatchRpcCommandToAgent = (
         jsonRpcMethod: inferBridgeCommandMethod(command),
         agentId: input.agentId,
       });
-      const timeoutMs = input.timeoutMs ?? defaultRequestTimeoutMs;
+      const timeoutMs = computeBridgeWaitTimeoutMs(
+        command,
+        input.timeoutMs ?? defaultRequestTimeoutMs,
+      );
       const payloadFrameEncodeOpts = payloadFrameEncodeOptionsFromPreference(
         effectiveCompressionPreference,
       );
@@ -275,15 +292,32 @@ export const createDispatchRpcCommandToAgent = (
           performance.now() - dispatchWallStart,
         );
         const tQueue = performance.now();
-        const releaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
+        const releaseAgentSlot = await actionIoReadCapacity.acquire({
+          command,
+          agentId: input.agentId,
+          signal: actionIoQueueSignal(command, timeoutMs, dispatchWallStart, input.signal),
+          configuredLimit: env.socketRestAgentMaxInflight,
+          acquireControl: () =>
+            acquireRestAgentDispatchSlot(
+              input.agentId,
+              actionIoQueueSignal(command, timeoutMs, dispatchWallStart, input.signal),
+            ),
+        });
         input.latencyTrace?.addPhaseMs("queue_wait_ms", performance.now() - tQueue);
         try {
           const tEnc = performance.now();
-          const wire = await encodePayloadFrameBridge(commandPayload, {
-            requestId,
-            omitTraceId: true,
-            ...payloadFrameEncodeOpts,
-          });
+          const wire = await encodePayloadFrameBridge(
+            applyActionIoDeadline(
+              command,
+              commandPayload,
+              remainingActionIoWaitMs(command, timeoutMs, dispatchWallStart),
+            ),
+            {
+              requestId,
+              omitTraceId: true,
+              ...payloadFrameEncodeOpts,
+            },
+          );
           input.latencyTrace?.addPhaseMs("encode_ms", performance.now() - tEnc);
           const tEmit = performance.now();
           agentSocket.emit(socketEvents.rpcRequest, wire);
@@ -338,6 +372,13 @@ export const createDispatchRpcCommandToAgent = (
       let pendingRegistered = false;
       let pendingRequest!: PendingRequest;
       let pendingSignalListener: (() => void) | null = null;
+      const readCancellation = createActionIoReadCancellation({
+        command,
+        logicalRequestId: Array.isArray(command) ? null : command.id,
+        agentId: input.agentId,
+        socket: agentSocket,
+        socketId: registeredAgentSocketId,
+      });
       let pendingSettled = false;
 
       const finalizePendingLatencyTrace = (error: Error): void => {
@@ -428,6 +469,7 @@ export const createDispatchRpcCommandToAgent = (
           if (pendingSignalListener) {
             input.signal?.removeEventListener("abort", pendingSignalListener);
           }
+          readCancellation.cancel();
           finalizePendingLatencyTrace(error);
           reject(error);
         };
@@ -443,31 +485,34 @@ export const createDispatchRpcCommandToAgent = (
           resolve(payload);
         };
 
-        const timeoutHandle = setTimeout(() => {
-          // When SOCKET_AGENT_ACK_* is enabled, eligible commands may already have
-          // been re-emitted via scheduleAckRetry before this terminal timeout.
-          // Timeout remains the final safeguard after ack retries are exhausted.
-          const hadAck = pendingRequest.acked;
-          clearPendingRegistration();
-          const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
-          if (existingStream && existingStream.agentSocketId === registeredAgentSocketId) {
-            removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
-          }
-          if (!hadAck) {
-            if (
-              ackRetryEligible &&
-              (pendingRequest.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries
-            ) {
-              noteBridgeAckRetryExhausted("rest");
+        const timeoutHandle = setTimeout(
+          () => {
+            // When SOCKET_AGENT_ACK_* is enabled, eligible commands may already have
+            // been re-emitted via scheduleAckRetry before this terminal timeout.
+            // Timeout remains the final safeguard after ack retries are exhausted.
+            const hadAck = pendingRequest.acked;
+            clearPendingRegistration();
+            const existingStream = getActiveStreamRouteByRequestId(pendingRequest.primaryRequestId);
+            if (existingStream && existingStream.agentSocketId === registeredAgentSocketId) {
+              removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
             }
-            logger.info("rpc_timeout_without_ack", {
-              requestId: pendingRequest.primaryRequestId,
-              socketId: registeredAgentSocketId,
-            });
-          }
-          registerAgentFailure(input.agentId, "rest");
-          rejectOnce(serviceUnavailable("Timed out waiting for agent response"));
-        }, timeoutMs);
+            if (!hadAck) {
+              if (
+                ackRetryEligible &&
+                (pendingRequest.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries
+              ) {
+                noteBridgeAckRetryExhausted("rest");
+              }
+              logger.info("rpc_timeout_without_ack", {
+                requestId: pendingRequest.primaryRequestId,
+                socketId: registeredAgentSocketId,
+              });
+            }
+            registerAgentFailure(input.agentId, "rest");
+            rejectOnce(serviceUnavailable("Timed out waiting for agent response"));
+          },
+          remainingActionIoWaitMs(command, timeoutMs, dispatchWallStart),
+        );
 
         const restStreamAggregate =
           input.streamHandlers === undefined &&
@@ -477,6 +522,9 @@ export const createDispatchRpcCommandToAgent = (
 
         pendingRequest = {
           primaryRequestId: requestId,
+          jsonRpcMethod: method,
+          actionIoExpectation: captureActionIoExpectation(command),
+          actionIoBatch: captureActionIoBatch(command),
           correlationIds,
           socketId: registeredAgentSocketId,
           agentId: input.agentId,
@@ -536,7 +584,17 @@ export const createDispatchRpcCommandToAgent = (
 
       const tQueuePending = performance.now();
       try {
-        rawReleaseAgentSlot = await acquireRestAgentDispatchSlot(input.agentId, input.signal);
+        rawReleaseAgentSlot = await actionIoReadCapacity.acquire({
+          command,
+          agentId: input.agentId,
+          signal: actionIoQueueSignal(command, timeoutMs, dispatchWallStart, input.signal),
+          configuredLimit: env.socketRestAgentMaxInflight,
+          acquireControl: () =>
+            acquireRestAgentDispatchSlot(
+              input.agentId,
+              actionIoQueueSignal(command, timeoutMs, dispatchWallStart, input.signal),
+            ),
+        });
       } catch (error: unknown) {
         clearPendingRegistration();
         if (!pendingSettled) {
@@ -554,11 +612,18 @@ export const createDispatchRpcCommandToAgent = (
         let wireFrame: PayloadFrameEnvelope;
         try {
           const tEncPending = performance.now();
-          wireFrame = await encodePayloadFrameBridge(commandPayload, {
-            requestId,
-            omitTraceId: true,
-            ...payloadFrameEncodeOpts,
-          });
+          wireFrame = await encodePayloadFrameBridge(
+            applyActionIoDeadline(
+              command,
+              commandPayload,
+              remainingActionIoWaitMs(command, timeoutMs, dispatchWallStart),
+            ),
+            {
+              requestId,
+              omitTraceId: true,
+              ...payloadFrameEncodeOpts,
+            },
+          );
           input.latencyTrace?.addPhaseMs("encode_ms", performance.now() - tEncPending);
         } catch (error: unknown) {
           clearPendingRegistration();
@@ -582,7 +647,7 @@ export const createDispatchRpcCommandToAgent = (
 
         try {
           const tEmitPending = performance.now();
-          if (requiresLiveSqlCapability(command)) {
+          if (requiresLiveCommandCapability(command)) {
             if (
               agentRegistry.getSocketIdByAgentId(input.agentId) !== registeredAgentSocketId ||
               !agentRegistry.getProtocolReadiness(input.agentId).ready
@@ -593,14 +658,17 @@ export const createDispatchRpcCommandToAgent = (
                 details: { retryable: false },
               });
             }
-            assertSqlOperationTransport(
-              command,
-              agentRegistry.getCapabilitiesByAgentId(input.agentId),
-            );
+            assertCommandTransport(command, agentRegistry.getCapabilitiesByAgentId(input.agentId));
           }
+          assertActionIoDeadline(command, timeoutMs, dispatchWallStart);
           operationEmitted = (Array.isArray(command) ? command : [command]).some(
             (c) => c.method === "sql.operation.execute",
           );
+          actionEmitted = (Array.isArray(command) ? command : [command]).some((c) =>
+            isActionMutationMethod(c.method),
+          );
+
+          readCancellation.markDispatched();
           agentSocket.emit(socketEvents.rpcRequest, wireFrame);
           const emitEndedPending = performance.now();
           input.latencyTrace?.markEmitComplete(emitEndedPending - tEmitPending, emitEndedPending);
@@ -656,6 +724,20 @@ export const createDispatchRpcCommandToAgent = (
             details: { retryable: false, outcome_unknown: true },
           },
         );
+      }
+      if (actionEmitted) {
+        throw new AppError("Action delivery is uncertain; reconcile before another execution.", {
+          statusCode: 503,
+          code: "ACTION_OUTCOME_UNKNOWN",
+          details: {
+            retryable: false,
+            outcome_unknown: true,
+            phase: "await_response",
+            origin: "hub",
+            recovery: "reconcile_execution",
+            hint: "Reconcile input using agent.action.getInputStatus; reconcile execution using agent.action.getExecution or agent.action.findExecution. Do not resend automatically.",
+          },
+        });
       }
       throw error;
     } finally {

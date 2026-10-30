@@ -268,6 +268,31 @@ describe("rpc_bridge_command_helpers", () => {
     expect(hasNotificationCommand(batch)).toBe(true);
   });
 
+  it("does not replay an action after a lost ACK even with an idempotency key", () => {
+    const action = {
+      jsonrpc: "2.0" as const,
+      method: "agent.action.run" as const,
+      id: "action-1",
+      params: { action_id: "saved-action", idempotency_key: "intent-1" },
+    };
+    expect(isAckRetryEligibleCommand(action)).toBe(false);
+    expect(isAckRetryEligibleCommand([action])).toBe(false);
+    expect(
+      isAckRetryEligibleCommand([
+        action,
+        { jsonrpc: "2.0", method: "agent.action.validateRun", id: "check", params: action.params },
+      ]),
+    ).toBe(false);
+    expect(
+      isAckRetryEligibleCommand({
+        jsonrpc: "2.0",
+        method: "agent.action.validateRun",
+        id: "check",
+        params: action.params,
+      }),
+    ).toBe(true);
+  });
+
   it("identifies commands eligible for ACK retry", () => {
     expect(
       isAckRetryEligibleCommand({

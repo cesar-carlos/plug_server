@@ -266,7 +266,11 @@ Valores publicos documentados:
 Quando o agente desconecta com RPCs relay pendentes ou streams abertos, o hub
 notifica o consumer **antes** de limpar rotas:
 
-- unary pendente → `relay:rpc.response` com erro JSON-RPC (`error.data.code = "AGENT_DISCONNECTED"`, `retryable: true`)
+- unary pendente → `relay:rpc.response` com erro JSON-RPC. `agent.action.run` e
+  `agent.action.cancel` retornam `ACTION_OUTCOME_UNKNOWN`, `retryable:false` e
+  `outcome_unknown:true`; reconciliar, sem reenvio automático. `sql.operation.execute`
+  mantém `SQL_OPERATION_OUTCOME_UNKNOWN`. Outras chamadas usam `AGENT_DISCONNECTED`;
+  não inferir permissão de retry apenas desse código.
 - stream ativo → `relay:rpc.complete` terminal (`terminal_status: "error"`,
   `error_code: "AGENT_DISCONNECTED"`)
 
@@ -275,7 +279,11 @@ ao consumer e tambem ao agente ligado, em modo best-effort.
 
 No disconnect e no reconnect L0 o agente invalida a geracao da sessao antes do
 novo `agent:register`. Respostas da sessao perdida nao sao reenviadas. O hub
-encerra o relay pendente com `AGENT_DISCONNECTED` e nao espera replay.
+encerra o relay pendente com o erro correspondente acima e nao espera replay.
+
+Exemplos de entrada, saída e recuperação de ações:
+[guia de integração](../plug_agente/remote_action_io_examples.md). Os exemplos da
+ponte binária preservam o rótulo histórico de draft; consulte o estado de desenvolvimento negociado no início do guia.
 
 `consumer_disconnected` é emitido ao **agente** (namespace `/agents`) quando o consumer
 desconecta enquanto a conversa está ativa. Não é enviado ao consumer como evento de retorno.
@@ -288,6 +296,15 @@ O consumer deve enviar payloads que sigam o contrato do plug_agente. Referencia:
 `plug_agente/docs/communication/socket_communication_standard.md`.
 
 **Metodos suportados:** `sql.execute`, `sql.executeBatch`, `sql.bulkInsert`, `sql.cancel`, `rpc.discover`, `agent.getHealth`, `agent.getProfile`, `agent.action.run`, `agent.action.validateRun`, `agent.action.cancel`, `agent.action.getExecution`, `client_token.getPolicy`.
+
+For `agent.action.*`, legacy run/getExecution behavior remains available.
+Exact `agentActions.io` v1 negotiation and explicit homologation opt-in additionally
+enable sendInput, closeInput, getInputStatus, readIo and findExecution, plus optional
+I/O on run/validateRun. The relay preserves base64 bytes and method-specific
+responses/errors. Mutations never use ACK retry; a lost response requires
+reconciliation. Abandoning a waiting read releases its reader slot without
+automatically cancelling the process. See the [integration reference](../plug_agente/remote_action_io_specification.md).
+This does not enable production or arbitrary remote commands.
 
 **Opcoes relevantes em** `sql.execute`**:** `execution_mode` (`managed` | `preserve`),
 `preserve_sql` (alias legado), `page`, `page_size`, `cursor`, `multi_result`,

@@ -16,6 +16,11 @@ Entregas históricas não comprovam homologação nem autorizam publicação.
 
 ## Contratos canonicos
 
+- [Remote action I/O](remote_action_io_specification.md) — implemented negotiated bridge, authorization, transport and reference clients; disabled by default.
+
+Guia complementar: [exemplos de input/output e erros de ações](remote_action_io_examples.md).
+Includes validated documentation fixtures; canonical runtime schemas remain in the agent OpenRPC.
+
 - [`socket_relay_protocol.md`](../socket/socket_relay_protocol.md) — `relay:*`
 - [`api_rest_bridge.md`](../api/api_rest_bridge.md) — REST + `agents:*`
 - [`docs/adrs/`](../adrs/) — 0008 batch, 0009 echo, 0011 health, 0012 phases

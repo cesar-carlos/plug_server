@@ -258,6 +258,79 @@ describe("rpc_bridge_dispatch_command", () => {
     await expect(pendingPromise).resolves.toMatchObject({ requestId: "write-no-retry" });
   });
 
+  it("does not resend an action with an idempotency key after ACK loss", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-action-no-retry";
+    const socketId = "socket-action-no-retry";
+    const emit = vi.fn();
+    registerReadyAgent(agentId, socketId);
+
+    const dispatch = createDispatchRpcCommandToAgent({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (id) => (id === socketId ? { emit } : null),
+    });
+
+    const pendingPromise = dispatch({
+      agentId,
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.run",
+        id: "write-action-no-retry",
+        params: { action_id: "saved", idempotency_key: "intent" },
+      },
+      timeoutMs: 60_000,
+    });
+
+    await waitForInitialEmit(emit);
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+    expect(emit).toHaveBeenCalledTimes(1);
+
+    getRestPendingRequestByCorrelationId("write-action-no-retry")?.resolve({
+      jsonrpc: "2.0",
+      id: "write-action-no-retry",
+      result: {},
+    });
+    await expect(pendingPromise).resolves.toMatchObject({ requestId: "write-action-no-retry" });
+  });
+
+  it("reports an unknown action outcome after dispatch timeout", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-action-unknown";
+    const socketId = "socket-action-unknown";
+    const emit = vi.fn();
+    registerReadyAgent(agentId, socketId);
+
+    const dispatch = createDispatchRpcCommandToAgent({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (id) => (id === socketId ? { emit } : null),
+    });
+
+    const pendingPromise = dispatch({
+      agentId,
+      command: {
+        jsonrpc: "2.0",
+        method: "agent.action.run",
+        id: "write-action-unknown",
+        params: { action_id: "saved", idempotency_key: "intent" },
+      },
+      timeoutMs: 60_000,
+    });
+
+    await waitForInitialEmit(emit);
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+    expect(emit).toHaveBeenCalledTimes(1);
+
+    const assertion = expect(pendingPromise).rejects.toMatchObject({
+      code: "ACTION_OUTCOME_UNKNOWN",
+      details: { retryable: false, outcome_unknown: true, recovery: "reconcile_execution" },
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await assertion;
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
   it("retries an eligible command once using the same frame when the ACK is missing", async () => {
     vi.useFakeTimers();
     enableFastAckRetry();

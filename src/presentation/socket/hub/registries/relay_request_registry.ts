@@ -1,3 +1,4 @@
+import type { ActionIoResponseExpectation } from "../../../../shared/validators/action_io_response_expectation";
 import type { BridgeLatencyTraceSession } from "../../../../application/services/bridge_latency_trace_builder";
 import { env } from "../../../../shared/config/env";
 
@@ -5,11 +6,13 @@ import { clearRelayStreamFlowState } from "../relay/relay_stream_flow_state";
 
 export interface RelayRequestRoute {
   readonly requestId: string;
+  readonly cancelReadWait?: () => void;
   readonly conversationId: string;
   readonly consumerSocketId: string;
   readonly agentSocketId: string;
   readonly agentId: string;
   readonly jsonRpcMethod?: string;
+  readonly actionIoExpectation?: ActionIoResponseExpectation;
   readonly timeoutHandle: NodeJS.Timeout;
   readonly createdAtMs: number;
   readonly clientRequestId?: string;
@@ -203,6 +206,7 @@ export const removeRelayRequestRoute = (requestId: string): RelayRequestRoute | 
     clearTimeout(route.ackRetryTimer);
     delete route.ackRetryTimer;
   }
+  if (!route.settled || route.timedOut) route.cancelReadWait?.();
   clearTimeout(route.timeoutHandle);
   route.releaseAgentDispatchSlot?.();
   relayRequestsByRequestId.delete(requestId);
@@ -221,6 +225,7 @@ export const resetRelayRequestRegistry = (): void => {
       clearTimeout(route.ackRetryTimer);
       delete route.ackRetryTimer;
     }
+    if (!route.settled || route.timedOut) route.cancelReadWait?.();
     clearTimeout(route.timeoutHandle);
     route.releaseAgentDispatchSlot?.();
     clearRelayStreamFlowState(route.requestId);

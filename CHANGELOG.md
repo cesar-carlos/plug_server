@@ -6,6 +6,18 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Added — faithful remote action I/O
+
+- Relay negotiated agentActions.io v1 over REST, consumer socket and relay with
+  method-specific validation, original binary payloads and typed unknown outcomes.
+- Enforce deadline propagation, isolated read capacity, cancellation of abandoned
+  waits and no ACK retry for mutations; preserve existing action contracts.
+- Provide reference clients, shared agent fixtures and contract/integration tests.
+  Consolidate integration documentation and correct internal/external links.
+- Keep ENABLE_ACTION_IO_HOMOLOGATION disabled by default and preserve production
+  release gates; completed development acceptance is not production activation.
+
+
 - Isolated persona-v2 manual fixtures accept an explicit UTC lifetime up to two
   hours and stop cooperatively. Automated watchdog, authentication, SQL and
   approval limits remain unchanged; production deployment stays blocked.

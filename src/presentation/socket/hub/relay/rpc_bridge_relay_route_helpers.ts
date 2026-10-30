@@ -1,3 +1,4 @@
+import { mayCacheActionResponse } from "../../../../application/agent_commands/action_io_method_policy";
 import {
   observeBridgeRpcMethod,
   type BridgeRpcMethodMetricOutcome,
@@ -65,7 +66,7 @@ export const persistRelayIdempotentResponseFrame = (
   route: RelayRequestRoute,
   responseFrame: unknown,
 ): ReadonlySet<string> | undefined => {
-  if (!route.clientRequestId) {
+  if (!route.clientRequestId || !mayCacheActionResponse(route.jsonRpcMethod)) {
     return undefined;
   }
 

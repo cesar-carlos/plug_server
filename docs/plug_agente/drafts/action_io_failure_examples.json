@@ -1,0 +1,141 @@
+[
+  {
+    "name": "partial-write",
+    "payload": {
+      "jsonrpc": "2.0",
+      "id": "failure-example",
+      "error": {
+        "code": -32000,
+        "message": "Consulte o diagnóstico e a orientação de recuperação.",
+        "data": {
+          "code": "ACTION_STDIN_PARTIAL_WRITE",
+          "phase": "stdin_write",
+          "origin": "runner",
+          "diagnostic_id": "diag-example",
+          "execution_id": "exec-2",
+          "effects_possible": true,
+          "retryable": false,
+          "recovery": "query_message",
+          "message_id": "msg-1",
+          "delivery_state": "unknown",
+          "confirmed_bytes": 2
+        }
+      }
+    }
+  },
+  {
+    "name": "duplicate-written-message",
+    "payload": {
+      "jsonrpc": "2.0",
+      "id": "duplicate",
+      "result": {
+        "execution_id": "exec-2",
+        "message_id": "msg-1",
+        "sequence": 1,
+        "state": "written",
+        "next_input_sequence": 2,
+        "confirmed_bytes": 3,
+        "stdin_state": "open"
+      }
+    }
+  },
+  {
+    "name": "out-of-order",
+    "payload": {
+      "jsonrpc": "2.0",
+      "id": "failure-example",
+      "error": {
+        "code": -32000,
+        "message": "Consulte o diagnóstico e a orientação de recuperação.",
+        "data": {
+          "code": "ACTION_INPUT_SEQUENCE_INVALID",
+          "phase": "admission",
+          "origin": "agent",
+          "diagnostic_id": "diag-example",
+          "execution_id": "exec-2",
+          "effects_possible": false,
+          "retryable": false,
+          "recovery": "query_message",
+          "message_id": "msg-3"
+        }
+      }
+    }
+  },
+  {
+    "name": "expired-output",
+    "payload": {
+      "jsonrpc": "2.0",
+      "id": "failure-example",
+      "error": {
+        "code": -32000,
+        "message": "Consulte o diagnóstico e a orientação de recuperação.",
+        "data": {
+          "code": "OUTPUT_EXPIRED",
+          "phase": "read",
+          "origin": "agent",
+          "diagnostic_id": "diag-example",
+          "execution_id": "exec-2",
+          "effects_possible": true,
+          "retryable": false,
+          "recovery": "query_execution"
+        }
+      }
+    }
+  },
+  {
+    "name": "disk-full",
+    "payload": {
+      "jsonrpc": "2.0",
+      "id": "failure-example",
+      "error": {
+        "code": -32000,
+        "message": "Consulte o diagnóstico e a orientação de recuperação.",
+        "data": {
+          "code": "ACTION_IO_STORAGE_FAILED",
+          "phase": "persist",
+          "origin": "storage",
+          "diagnostic_id": "diag-example",
+          "execution_id": "exec-2",
+          "effects_possible": true,
+          "retryable": false,
+          "recovery": "local_intervention"
+        }
+      }
+    }
+  },
+  {
+    "name": "zero-exit-incomplete-capture",
+    "payload": {
+      "jsonrpc": "2.0",
+      "id": "read-final",
+      "result": {
+        "execution_id": "exec-2",
+        "events": [
+          {
+            "sequence": 3,
+            "type": "process_exited",
+            "exit_code": 0
+          },
+          {
+            "sequence": 4,
+            "type": "completed",
+            "output_complete": false,
+            "failure": {
+              "code": "ACTION_OUTPUT_LIMIT_EXCEEDED",
+              "phase": "capture",
+              "origin": "agent",
+              "diagnostic_id": "diag-example",
+              "execution_id": "exec-2",
+              "effects_possible": true,
+              "retryable": false,
+              "recovery": "query_execution"
+            }
+          }
+        ],
+        "next_sequence": 4,
+        "terminal": true,
+        "output_complete": false
+      }
+    }
+  }
+]

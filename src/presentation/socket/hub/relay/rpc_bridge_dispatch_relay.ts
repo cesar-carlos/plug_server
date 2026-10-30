@@ -1,7 +1,17 @@
+import { createActionIoReadCancellation } from "./action_io_read_cancellation";
+import { actionIoReadCapacity } from "../../../../shared/di/action_io_read_capacity";
+import { actionIoQueueSignal } from "../../../../application/agent_commands/action_io_deadline";
 import {
-  assertSqlOperationTransport,
-  requiresLiveSqlCapability,
-} from "../../../../application/agent_commands/sql_operation_transport_guard";
+  remainingActionIoWaitMs,
+  applyActionIoDeadline,
+  assertActionIoDeadline,
+} from "../../../../application/agent_commands/action_io_deadline";
+import { mayCacheActionResponse } from "../../../../application/agent_commands/action_io_method_policy";
+import { captureActionIoExpectation } from "../../../../shared/validators/action_io_response_expectation";
+import {
+  assertCommandTransport,
+  requiresLiveCommandCapability,
+} from "../../../../application/agent_commands/command_transport_guard";
 import { randomUUID } from "node:crypto";
 
 import type { BridgeLatencyTraceSession } from "../../../../application/services/bridge_latency_trace_builder";
@@ -62,7 +72,11 @@ import {
   removeRelayRequestRoute,
   reserveRelayPendingSlot,
 } from "../registries/relay_request_registry";
-import { applyRelayOutboundCommandFields, clampCommandMaxRows } from "./rpc_bridge_command_helpers";
+import {
+  applyRelayOutboundCommandFields,
+  clampCommandMaxRows,
+  isAckRetryEligibleCommand,
+} from "./rpc_bridge_command_helpers";
 import { emitRelayTimeoutResponse, type EmitToConsumerFn } from "./rpc_bridge_relay_stream";
 import {
   relayRpcRefundableBadRequest,
@@ -235,10 +249,7 @@ export const createRpcBridgeRelayDispatch = (
       if (!conversation || conversation.consumerSocketId !== input.consumerSocketId) {
         throw notFound("Conversation");
       }
-      assertSqlOperationTransport(
-        command,
-        agentRegistry.getCapabilitiesByAgentId(conversation.agentId),
-      );
+      assertCommandTransport(command, agentRegistry.getCapabilitiesByAgentId(conversation.agentId));
       const effectivePolicy = agentRegistry.resolveEffectiveDispatchPolicy(conversation.agentId);
       const clamped = clampCommandMaxRows(normalizedCommand, effectivePolicy.maxRows);
       const normalizedAndClamped = clamped.command as typeof normalizedCommand;
@@ -298,10 +309,12 @@ export const createRpcBridgeRelayDispatch = (
 
         const cmdRecord = normalizedAndClamped as Record<string, unknown>;
         const clientRequestId = toRequestId(cmdRecord.id) ?? peekedClientRequestId;
-        const idempotencyMap = clientRequestId
-          ? getOrCreateRelayIdempotencyMap(conversation.conversationId)
-          : null;
-        if (clientRequestId) {
+        const cacheResponse = mayCacheActionResponse(inferBridgeCommandMethod(command));
+        const idempotencyMap =
+          clientRequestId && cacheResponse
+            ? getOrCreateRelayIdempotencyMap(conversation.conversationId)
+            : null;
+        if (clientRequestId && cacheResponse) {
           const existing = idempotencyMap?.get(clientRequestId);
           if (existing && existing.expiresAtMs > Date.now()) {
             relayMetrics.requestsDeduplicated += 1;
@@ -342,7 +355,7 @@ export const createRpcBridgeRelayDispatch = (
 
         const requestId = randomUUID();
 
-        if (clientRequestId) {
+        if (clientRequestId && cacheResponse) {
           const idempotencyResult = setRelayIdempotencyEntry(
             conversation.conversationId,
             clientRequestId,
@@ -377,6 +390,7 @@ export const createRpcBridgeRelayDispatch = (
           requestId,
           traceId,
           jsonRpcMethod: inferBridgeCommandMethod(command),
+
           agentId: conversation.agentId,
         });
 
@@ -388,76 +402,114 @@ export const createRpcBridgeRelayDispatch = (
             badRequest("Agent capabilities do not support any advertised PayloadFrame compression"),
         });
 
-        const releaseAgentDispatchSlot = await acquireRelayAgentDispatchSlot(
-          conversation.agentId,
-          input.signal,
-        ).catch((error: unknown) => {
-          if (clientRequestId) {
-            removeRelayIdempotencyEntry(conversation.conversationId, clientRequestId);
-          }
-          throw error;
-        });
+        const releaseAgentDispatchSlot = await actionIoReadCapacity
+          .acquire({
+            command,
+            agentId: conversation.agentId,
+            signal: actionIoQueueSignal(
+              command,
+              computeBridgeWaitTimeoutMs(
+                command,
+                input.timeoutMs ?? env.socketRelayRequestTimeoutMs,
+              ),
+              relayWallStart,
+              input.signal,
+            ),
+            configuredLimit: env.socketRelayAgentMaxInflight,
+            acquireControl: () =>
+              acquireRelayAgentDispatchSlot(
+                conversation.agentId,
+                actionIoQueueSignal(
+                  command,
+                  computeBridgeWaitTimeoutMs(
+                    command,
+                    input.timeoutMs ?? env.socketRelayRequestTimeoutMs,
+                  ),
+                  relayWallStart,
+                  input.signal,
+                ),
+              ),
+          })
+          .catch((error: unknown) => {
+            if (clientRequestId && cacheResponse) {
+              removeRelayIdempotencyEntry(conversation.conversationId, clientRequestId);
+            }
+            throw error;
+          });
 
         const effectiveTimeoutMs = computeBridgeWaitTimeoutMs(
           command,
           input.timeoutMs ?? env.socketRelayRequestTimeoutMs,
         );
 
-        const timeoutHandle = setTimeout(() => {
-          const route = getRelayRequestRoute(requestId);
-          if (!route || !trySettleRelayRoute(route)) {
-            return;
-          }
+        const timeoutHandle = setTimeout(
+          () => {
+            const route = getRelayRequestRoute(requestId);
+            if (!route || !trySettleRelayRoute(route)) {
+              return;
+            }
 
-          route.timedOut = true;
-          recordRelayTimeoutTombstone(route.requestId, route.conversationId);
-          removeRelayRequestRoute(requestId);
-          const existingStream = getActiveStreamRouteByRequestId(requestId);
-          if (existingStream) {
-            removeActiveStreamRoute(existingStream);
-          }
-          relayMetrics.requestTimeouts += 1;
-          registerAgentFailure(route.agentId, "relay");
-          logger.warn("relay_request_timeout", {
-            requestId: route.requestId,
-            conversationId: route.conversationId,
-            agentId: route.agentId,
-            clientRequestId: route.clientRequestId ?? null,
-            timeoutMs: effectiveTimeoutMs,
-            waitedMs: Date.now() - route.createdAtMs,
-            jsonRpcMethod: route.jsonRpcMethod ?? null,
-          });
-          if (route.latencyTrace && !route.latencyTrace.isFinalized()) {
-            route.latencyTrace.finalizeOnce({
-              outcome: "timeout",
-              httpStatus: 503,
-              errorCode: "RELAY_REQUEST_TIMEOUT",
+            route.timedOut = true;
+            recordRelayTimeoutTombstone(route.requestId, route.conversationId);
+            removeRelayRequestRoute(requestId);
+            const existingStream = getActiveStreamRouteByRequestId(requestId);
+            if (existingStream) {
+              removeActiveStreamRoute(existingStream);
+            }
+            relayMetrics.requestTimeouts += 1;
+            registerAgentFailure(route.agentId, "relay");
+            logger.warn("relay_request_timeout", {
+              requestId: route.requestId,
+              conversationId: route.conversationId,
+              agentId: route.agentId,
+              clientRequestId: route.clientRequestId ?? null,
+              timeoutMs: effectiveTimeoutMs,
+              waitedMs: Date.now() - route.createdAtMs,
+              jsonRpcMethod: route.jsonRpcMethod ?? null,
             });
-          }
-          if (
-            !isRouteAcked(route) &&
-            clientRequestId !== null &&
-            env.socketAgentAckRetryEnabled &&
-            (route.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries
-          ) {
-            noteBridgeAckRetryExhausted("relay");
-          }
-          observeBridgeRpcMethod({
-            channel: "relay",
-            method: route.jsonRpcMethod ?? "unknown",
-            outcome: "timeout",
-            elapsedMs: Date.now() - route.createdAtMs,
-          });
-          emitRelayTimeoutResponse(route, emitToConsumer);
-        }, effectiveTimeoutMs);
+            if (route.latencyTrace && !route.latencyTrace.isFinalized()) {
+              route.latencyTrace.finalizeOnce({
+                outcome: "timeout",
+                httpStatus: 503,
+                errorCode: "RELAY_REQUEST_TIMEOUT",
+              });
+            }
+            if (
+              !isRouteAcked(route) &&
+              isAckRetryEligibleCommand(command) &&
+              clientRequestId !== null &&
+              env.socketAgentAckRetryEnabled &&
+              (route.ackRetriesAttempted ?? 0) >= env.socketAgentAckMaxRetries
+            ) {
+              noteBridgeAckRetryExhausted("relay");
+            }
+            observeBridgeRpcMethod({
+              channel: "relay",
+              method: route.jsonRpcMethod ?? "unknown",
+              outcome: "timeout",
+              elapsedMs: Date.now() - route.createdAtMs,
+            });
+            emitRelayTimeoutResponse(route, emitToConsumer);
+          },
+          remainingActionIoWaitMs(command, effectiveTimeoutMs, relayWallStart),
+        );
 
+        const readCancellation = createActionIoReadCancellation({
+          command,
+          logicalRequestId: rpcBodyId,
+          agentId: conversation.agentId,
+          socket: agentSocket,
+          socketId: conversation.agentSocketId,
+        });
         const relayRoute: RelayRequestRoute = {
+          cancelReadWait: readCancellation.cancel,
           requestId,
           conversationId: conversation.conversationId,
           consumerSocketId: conversation.consumerSocketId,
           agentSocketId: conversation.agentSocketId,
           agentId: conversation.agentId,
           jsonRpcMethod: inferBridgeCommandMethod(command),
+          actionIoExpectation: captureActionIoExpectation(command),
           timeoutHandle,
           createdAtMs: Date.now(),
           ...(clientRequestId !== null && { clientRequestId }),
@@ -473,7 +525,8 @@ export const createRpcBridgeRelayDispatch = (
         };
 
         const scheduleAckRetry = (wireFrame: PayloadFrameEnvelope): void => {
-          if (requiresLiveSqlCapability(command)) return;
+          if (!isAckRetryEligibleCommand(command)) return;
+          if (requiresLiveCommandCapability(command)) return;
           if (
             !env.socketAgentAckRetryEnabled ||
             env.socketAgentAckMaxRetries <= 0 ||
@@ -530,17 +583,24 @@ export const createRpcBridgeRelayDispatch = (
         try {
           assertNotAborted();
           const tEnc = performance.now();
-          const wireFrame = await encodePayloadFrameBridge(commandPayload, {
-            requestId,
-            omitTraceId: true,
-            ...relayPayloadFrameOpts,
-          });
+          const wireFrame = await encodePayloadFrameBridge(
+            applyActionIoDeadline(
+              command,
+              commandPayload,
+              remainingActionIoWaitMs(command, effectiveTimeoutMs, relayWallStart),
+            ),
+            {
+              requestId,
+              omitTraceId: true,
+              ...relayPayloadFrameOpts,
+            },
+          );
           assertNotAborted();
           const encodeElapsed = performance.now() - tEnc;
           trace?.addPhaseMs("encode_ms", encodeElapsed);
           observeRelayBridgeEncode(encodeElapsed);
           const tEmit = performance.now();
-          if (requiresLiveSqlCapability(command)) {
+          if (requiresLiveCommandCapability(command)) {
             if (
               agentRegistry.getSocketIdByAgentId(conversation.agentId) !==
                 conversation.agentSocketId ||
@@ -552,11 +612,13 @@ export const createRpcBridgeRelayDispatch = (
                 details: { retryable: false },
               });
             }
-            assertSqlOperationTransport(
+            assertCommandTransport(
               command,
               agentRegistry.getCapabilitiesByAgentId(conversation.agentId),
             );
           }
+          assertActionIoDeadline(command, effectiveTimeoutMs, relayWallStart);
+          readCancellation.markDispatched();
           agentSocket.emit(socketEvents.rpcRequest, wireFrame);
           const emitEnd = performance.now();
           trace?.markEmitComplete(emitEnd - tEmit, emitEnd);
@@ -587,7 +649,7 @@ export const createRpcBridgeRelayDispatch = (
             outcome: aborted ? "abort" : "error",
             elapsedMs: Date.now() - relayRoute.createdAtMs,
           });
-          if (clientRequestId) {
+          if (clientRequestId && cacheResponse) {
             const idempotencyMap = getRelayIdempotencyMap(conversation.conversationId);
             const entry = idempotencyMap?.get(clientRequestId);
             const waiters = entry?.pendingReplayConsumerSocketIds;

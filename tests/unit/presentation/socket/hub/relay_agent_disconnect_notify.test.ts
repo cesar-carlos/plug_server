@@ -1,3 +1,4 @@
+import { decodePayloadFrame } from "../../../../../src/shared/utils/payload_frame";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -66,6 +67,48 @@ describe("cleanupAgentStreamSubscriptions agent disconnect notify", () => {
     await flushRelayOutbound();
     expect(getRelayRequestRoute("req-unary")).toBeUndefined();
     expect(emitToConsumer).toHaveBeenCalledOnce();
+    expect(emitToConsumer.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcResponse);
+  });
+
+  it.each([
+    "agent.action.run",
+    "agent.action.cancel",
+    "agent.action.sendInput",
+    "agent.action.closeInput",
+  ])("reports unknown outcome for %s on agent disconnect", async (method) => {
+    const emitToConsumer = vi.fn<
+      (consumerSocketId: string, eventName: string, payload: unknown) => boolean
+    >(() => true);
+    wireRelayConsumerEmit(emitToConsumer);
+
+    registerRelayRequestRoute({
+      requestId: "req-unary",
+      jsonRpcMethod: method,
+      conversationId: "conv-1",
+      consumerSocketId: "consumer-1",
+      agentSocketId: "agent-socket-1",
+      agentId: "agent-1",
+      timeoutHandle: createTimeoutHandle(),
+      createdAtMs: Date.now(),
+      clientRequestId: "client-req-1",
+    });
+
+    cleanupAgentStreamSubscriptions("agent-socket-1");
+    await flushRelayOutbound();
+    expect(getRelayRequestRoute("req-unary")).toBeUndefined();
+    expect(emitToConsumer).toHaveBeenCalledOnce();
+    const decoded = decodePayloadFrame(emitToConsumer.mock.calls[0]?.[2]);
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok)
+      expect(decoded.value.data).toMatchObject({
+        error: {
+          data: {
+            code: "ACTION_OUTCOME_UNKNOWN",
+            retryable: false,
+            outcome_unknown: true,
+          },
+        },
+      });
     expect(emitToConsumer.mock.calls[0]?.[1]).toBe(socketEvents.relayRpcResponse);
   });
 

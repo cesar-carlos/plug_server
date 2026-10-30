@@ -24,6 +24,31 @@ const operationReference = {
   client_token: "token",
 };
 const sampleCommandByMethod = {
+  "agent.action.sendInput": {
+    id: "input",
+    method: "agent.action.sendInput",
+    params: { execution_id: "e", message_id: "m", sequence: 0, data_base64: "" },
+  },
+  "agent.action.closeInput": {
+    id: "close",
+    method: "agent.action.closeInput",
+    params: { execution_id: "e", message_id: "c", sequence: 1 },
+  },
+  "agent.action.getInputStatus": {
+    id: "status",
+    method: "agent.action.getInputStatus",
+    params: { execution_id: "e", message_id: "m" },
+  },
+  "agent.action.readIo": {
+    id: "read",
+    method: "agent.action.readIo",
+    params: { execution_id: "e", after_sequence: 0, max_bytes: 65536, wait_ms: 0 },
+  },
+  "agent.action.findExecution": {
+    id: "find",
+    method: "agent.action.findExecution",
+    params: { action_id: "a", idempotency_key: "k" },
+  },
   "sql.describeSchema": {
     id: "schema",
     method: "sql.describeSchema",

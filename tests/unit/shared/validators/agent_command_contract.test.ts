@@ -9,6 +9,28 @@ import { describe, expect, it } from "vitest";
 import { agentCommandBodySchema } from "../../../../src/shared/validators/agent_command";
 
 describe("agent_command contract (plug_agente compatibility)", () => {
+  it("preserves an explicit remote trigger in validateRun and rejects an empty trigger", () => {
+    const body = {
+      agentId: "agent-01",
+      command: {
+        jsonrpc: "2.0",
+        id: "preflight",
+        method: "agent.action.validateRun",
+        params: { action_id: "saved", idempotency_key: "intent", trigger_id: "remote-trigger" },
+      },
+    };
+    expect(agentCommandBodySchema.parse(body)).toMatchObject(body);
+    expect(
+      agentCommandBodySchema.safeParse({
+        ...body,
+        command: {
+          ...body.command,
+          params: { ...body.command.params, trigger_id: "" },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("should accept sql.execute with all optional params per plug_agente schema", () => {
     const payload = {
       agentId: "agent-01",

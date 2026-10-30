@@ -3,6 +3,7 @@
  * Keep these values aligned with plug_agente docs and runtime enforcement.
  */
 
+import { ACTION_IO_TRANSPORT } from "./action_io_transport";
 import { env } from "../config/env";
 import { SQL_OPERATION_TRANSPORT } from "./sql_operation_transport";
 
@@ -146,6 +147,9 @@ export const buildHubServerCapabilities = (
   readonly limits: typeof HUB_TRANSPORT_LIMITS;
 } => {
   const extensions: Record<string, unknown> = { ...HUB_TRANSPORT_EXTENSIONS };
+  if (env.enableActionIoHomologation && env.nodeEnv !== "production") {
+    extensions.agentActions = { enabled: true, version: 1, io: ACTION_IO_TRANSPORT };
+  }
   if (!env.payloadSigningKey || env.payloadSigningKey.trim() === "") {
     extensions.signatureAlgorithms = [];
   }

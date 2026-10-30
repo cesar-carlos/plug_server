@@ -181,7 +181,7 @@ const validateRpcResponseError = (
   if (typeof error.message !== "string") {
     return reject("rpc:response error.message must be a string");
   }
-  if (error.data !== undefined && !isRecord(error.data)) {
+  if (error.data !== undefined && (!isRecord(error.data) || Array.isArray(error.data))) {
     return reject("rpc:response error.data must be an object");
   }
   return null;

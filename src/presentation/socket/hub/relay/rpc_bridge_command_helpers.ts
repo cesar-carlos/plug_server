@@ -396,6 +396,18 @@ const isReadSafeRpcCommand = (command: Record<string, unknown>): boolean => {
 };
 
 export const isAckRetryEligibleCommand = (command: BridgeCommand): boolean => {
+  // Action delivery may have external effects. An idempotency key does not
+  // prove that repeating a request is safe after its acknowledgement is lost.
+  const itemsForRetry = isBatchCommand(command) ? command : [command];
+  if (
+    itemsForRetry.some(
+      (item) =>
+        item.method.startsWith("agent.action.") &&
+        item.method !== "agent.action.validateRun" &&
+        item.method !== "agent.action.getExecution",
+    )
+  )
+    return false;
   if (isBatchCommand(command)) {
     if (command.length === 0 || command.some((item) => item.id === null || item.id === undefined)) {
       return false;

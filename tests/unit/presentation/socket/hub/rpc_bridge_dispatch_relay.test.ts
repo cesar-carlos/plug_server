@@ -273,6 +273,76 @@ describe("rpc_bridge_dispatch_relay", () => {
     expect(agentEmit.mock.calls[1]?.[1]).toBe(firstFrame);
   });
 
+  it("does not resend an action when its ACK is lost", async () => {
+    vi.useFakeTimers();
+    enableFastAckRetry();
+    const agentId = "agent-relay-retry";
+    const agentSocketId = "agent-socket-relay-retry";
+    const consumerSocketId = "consumer-relay-retry";
+    const conversationId = "conversation-relay-retry";
+    const agentEmit = vi.fn();
+
+    agentRegistry.registerAgentSession({
+      agentId,
+      socketId: agentSocketId,
+      userId: "user-1",
+      capabilities: {
+        protocols: ["jsonrpc-v2"],
+        encodings: ["json"],
+        compressions: ["none"],
+      },
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    agentRegistry.touch(agentId, { markProtocolReady: true, socketId: agentSocketId });
+    conversationRegistry.create({
+      conversationId,
+      consumerSocketId,
+      agentSocketId,
+      agentId,
+    });
+
+    const handlers = createRpcBridgeRelayDispatch({
+      hasRegisteredAgentSocketBridge: () => true,
+      findAgentSocketById: (socketId) =>
+        socketId === agentSocketId
+          ? {
+              emit: agentEmit,
+            }
+          : null,
+      emitToConsumer: vi.fn(),
+      prepareAgentStreamPull: () => ({
+        requestId: "req-1",
+        streamId: "stream-1",
+        windowSize: 1,
+        execute: () => ({
+          requestId: "req-1",
+          streamId: "stream-1",
+          windowSize: 1,
+        }),
+      }),
+    });
+
+    const result = await handlers.dispatchRelayRpcToAgent({
+      conversationId,
+      consumerSocketId,
+      rawFramePayload: encodePayloadFrame({
+        jsonrpc: "2.0",
+        method: "agent.action.run",
+        id: "client-request-retry",
+        params: { action_id: "saved", idempotency_key: "intent" },
+      }),
+    });
+
+    expect(result.clientRequestId).toBe("client-request-retry");
+    expect(agentEmit).toHaveBeenCalledTimes(1);
+    expect(agentEmit.mock.calls[0]?.[0]).toBe(socketEvents.rpcRequest);
+
+    await vi.advanceTimersByTimeAsync(env.socketAgentAckTimeoutMs);
+
+    expect(agentEmit).toHaveBeenCalledTimes(1);
+  });
+
   it("does not retry relay when the agent socket disappears before the ACK timeout", async () => {
     vi.useFakeTimers();
     enableFastAckRetry();

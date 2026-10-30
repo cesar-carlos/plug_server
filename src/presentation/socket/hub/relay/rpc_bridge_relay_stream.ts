@@ -1,3 +1,4 @@
+import { isActionMutationMethod } from "../../../../application/agent_commands/action_io_method_policy";
 import { recordSocketAuditEvent } from "../../../../application/services/socket_audit.service";
 import { observeBridgeRpcMethod } from "../../../../application/services/bridge_rpc_method_metrics.service";
 import { env } from "../../../../shared/config/env";
@@ -266,6 +267,7 @@ export const emitRelayTimeoutResponse = (
   // the response is routable on `fastPath: true` (no `relay:rpc.accepted` to
   // anchor the mapping). See `docs/plug_agente/01_relay_body_id_echo.md`.
   const outboundBodyId = route.clientRequestId ?? route.requestId;
+  const actionOutcomeUnknown = isActionMutationMethod(route.jsonRpcMethod);
   if (outboundBodyId !== route.requestId) {
     noteRelayBodyIdEcho();
   }
@@ -279,7 +281,19 @@ export const emitRelayTimeoutResponse = (
         code:
           route.jsonRpcMethod === "sql.operation.execute"
             ? "SQL_OPERATION_OUTCOME_UNKNOWN"
-            : "RELAY_REQUEST_TIMEOUT",
+            : actionOutcomeUnknown
+              ? "ACTION_OUTCOME_UNKNOWN"
+              : "RELAY_REQUEST_TIMEOUT",
+        ...(actionOutcomeUnknown
+          ? {
+              retryable: false,
+              outcome_unknown: true,
+              phase: "await_response",
+              origin: "hub",
+              recovery: "reconcile_execution",
+              hint: "Reconcile input using agent.action.getInputStatus; reconcile execution using agent.action.getExecution or agent.action.findExecution. Do not resend automatically.",
+            }
+          : {}),
         ...(route.jsonRpcMethod?.startsWith("sql.operation.") ? { retryable: false } : {}),
         ...(route.jsonRpcMethod === "sql.operation.execute"
           ? { outcome_unknown: true, hint: "Query sql.operation.get; never resend automatically." }

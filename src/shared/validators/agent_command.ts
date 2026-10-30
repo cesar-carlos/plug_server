@@ -1,3 +1,11 @@
+import {
+  actionIoConfigurationSchema,
+  actionIoSendInputParamsSchema,
+  actionIoCloseInputParamsSchema,
+  actionIoGetInputStatusParamsSchema,
+  actionIoReadParamsSchema,
+  actionIoFindExecutionParamsSchema,
+} from "./action_io";
 import { legacyArray } from "./legacy_array";
 /**
  * Transport-agnostic schemas for agent RPC commands.
@@ -409,12 +417,15 @@ const agentActionRunParamsSchema = agentActionTokenCarrierSchema
     action_id: nonEmptyStringSchema,
     idempotency_key: nonEmptyStringSchema,
     trigger_id: nonEmptyStringSchema.optional(),
+    io: actionIoConfigurationSchema.optional(),
   })
   .strict();
 const agentActionValidateRunParamsSchema = agentActionTokenCarrierSchema
   .extend({
     action_id: nonEmptyStringSchema,
     idempotency_key: nonEmptyStringSchema,
+    trigger_id: nonEmptyStringSchema.optional(),
+    io: actionIoConfigurationSchema.optional(),
   })
   .strict();
 const agentActionCancelParamsSchema = agentActionTokenCarrierSchema
@@ -577,6 +588,29 @@ const sqlOperationCancelCommandSchema = operationEnvelope.extend({
   params: sqlOperationReferenceParamsSchema,
 });
 
+const actionIoEnvelope = operationEnvelope.extend({
+  id: z.union([nonEmptyStringSchema, z.number().finite()]),
+});
+const actionIoSendInputCommandSchema = actionIoEnvelope.extend({
+  method: z.literal("agent.action.sendInput"),
+  params: actionIoSendInputParamsSchema,
+});
+const actionIoCloseInputCommandSchema = actionIoEnvelope.extend({
+  method: z.literal("agent.action.closeInput"),
+  params: actionIoCloseInputParamsSchema,
+});
+const actionIoGetInputStatusCommandSchema = actionIoEnvelope.extend({
+  method: z.literal("agent.action.getInputStatus"),
+  params: actionIoGetInputStatusParamsSchema,
+});
+const actionIoReadCommandSchema = actionIoEnvelope.extend({
+  method: z.literal("agent.action.readIo"),
+  params: actionIoReadParamsSchema,
+});
+const actionIoFindExecutionCommandSchema = actionIoEnvelope.extend({
+  method: z.literal("agent.action.findExecution"),
+  params: actionIoFindExecutionParamsSchema,
+});
 export const supportedAgentRpcMethods = [
   "agent.getHealth",
   "agent.getProfile",
@@ -584,6 +618,11 @@ export const supportedAgentRpcMethods = [
   "agent.action.validateRun",
   "agent.action.cancel",
   "agent.action.getExecution",
+  "agent.action.sendInput",
+  "agent.action.closeInput",
+  "agent.action.getInputStatus",
+  "agent.action.readIo",
+  "agent.action.findExecution",
   "client_token.getPolicy",
   "rpc.discover",
   "sql.describeSchema",
@@ -604,6 +643,11 @@ export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
   agentActionValidateRunCommandSchema,
   agentActionCancelCommandSchema,
   agentActionGetExecutionCommandSchema,
+  actionIoSendInputCommandSchema,
+  actionIoCloseInputCommandSchema,
+  actionIoGetInputStatusCommandSchema,
+  actionIoReadCommandSchema,
+  actionIoFindExecutionCommandSchema,
   clientTokenGetPolicyCommandSchema,
   sourceSchemaCommandSchema,
   sourceDiscoveryCommandSchema,

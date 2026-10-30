@@ -1,3 +1,4 @@
+import { isActionMutationMethod } from "../../../../application/agent_commands/action_io_method_policy";
 import { observeBridgeRpcMethod } from "../../../../application/services/bridge_rpc_method_metrics.service";
 import { recordSocketAuditEvent } from "../../../../application/services/socket_audit.service";
 import { env } from "../../../../shared/config/env";
@@ -75,6 +76,7 @@ export const emitRelayAgentDisconnectedUnary = (
   }
 
   const outboundBodyId = route.clientRequestId ?? route.requestId;
+  const actionOutcomeUnknown = isActionMutationMethod(route.jsonRpcMethod);
   if (outboundBodyId !== route.requestId) {
     noteRelayBodyIdEcho();
   }
@@ -89,7 +91,19 @@ export const emitRelayAgentDisconnectedUnary = (
         code:
           route.jsonRpcMethod === "sql.operation.execute"
             ? "SQL_OPERATION_OUTCOME_UNKNOWN"
-            : "AGENT_DISCONNECTED",
+            : actionOutcomeUnknown
+              ? "ACTION_OUTCOME_UNKNOWN"
+              : "AGENT_DISCONNECTED",
+        ...(actionOutcomeUnknown
+          ? {
+              retryable: false,
+              outcome_unknown: true,
+              phase: "await_response",
+              origin: "hub",
+              recovery: "reconcile_execution",
+              hint: "Reconcile input using agent.action.getInputStatus; reconcile execution using agent.action.getExecution or agent.action.findExecution. Do not resend automatically.",
+            }
+          : {}),
         ...(route.jsonRpcMethod?.startsWith("sql.operation.") ? { retryable: false } : {}),
         ...(route.jsonRpcMethod === "sql.operation.execute"
           ? { outcome_unknown: true, hint: "Query sql.operation.get; never resend automatically." }

@@ -1,3 +1,5 @@
+import { actionIoQueueSignal } from "../../../../../src/application/agent_commands/action_io_deadline";
+import { bridgeSingleCommandSchema } from "../../../../../src/shared/validators/agent_command";
 import type * as EnvModule from "../../../../../src/shared/config/env";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +25,32 @@ import {
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 
 describe("rest_agent_dispatch_queue", () => {
+  it("removes an I/O waiter at its deadline without claiming a released slot later", async () => {
+    const command = bridgeSingleCommandSchema.parse({
+      method: "agent.action.findExecution",
+      id: "i",
+      params: { action_id: "a", idempotency_key: "k" },
+    });
+    const releases: Array<() => void> = [];
+    try {
+      for (let i = 0; i < 32; i++)
+        releases.push(await acquireRestAgentDispatchSlot("io-saturated"));
+      const deadlineSignal = actionIoQueueSignal(command, 5, performance.now());
+      const waiting = acquireRestAgentDispatchSlot("io-saturated", deadlineSignal);
+      expect(getRestAgentDispatchQueueMetricsSnapshot().totalQueuedWaiters).toBe(1);
+      await expect(waiting).rejects.toThrow();
+      expect(deadlineSignal?.aborted).toBe(true);
+      expect(getRestAgentDispatchQueueMetricsSnapshot().totalQueuedWaiters).toBe(0);
+      expect(getRestAgentDispatchQueueMetricsSnapshot().totalInflight).toBe(32);
+    } finally {
+      releases.forEach((release) => release());
+    }
+    expect(getRestAgentDispatchQueueMetricsSnapshot().totalInflight).toBe(0);
+    const next = await acquireRestAgentDispatchSlot("io-saturated");
+    next();
+    expect(getRestAgentDispatchQueueMetricsSnapshot().totalQueuedWaiters).toBe(0);
+  });
+
   afterEach(() => {
     resetRestAgentDispatchQueue(serviceUnavailable("test reset"));
     wireRestAgentDispatchQueueMetrics(() => {});

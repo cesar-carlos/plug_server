@@ -118,6 +118,29 @@ describe("rpc_bridge_relay_stream", () => {
     expect(getSocketConsumerMetricsSnapshot().relayOptIns.bodyIdEchoTotal).toBe(1);
   });
 
+  it.each(["agent.action.run", "agent.action.cancel"])(
+    "reports uncertain delivery for %s timeout",
+    async (jsonRpcMethod) => {
+      const emit = createEmit();
+      emitRelayTimeoutResponse(makeRoute({ jsonRpcMethod }), emit);
+      await flushRelayOutbound();
+      const decoded = decodePayloadFrame(emit.mock.calls[0]?.[2]);
+      expect(decoded.ok).toBe(true);
+      if (decoded.ok) {
+        expect(decoded.value.data).toMatchObject({
+          error: {
+            data: {
+              code: "ACTION_OUTCOME_UNKNOWN",
+              retryable: false,
+              outcome_unknown: true,
+              recovery: "reconcile_execution",
+            },
+          },
+        });
+      }
+    },
+  );
+
   it("createRelayStreamHandlers emits terminal complete on backpressure overflow", async () => {
     const emit = createEmit();
     const route = makeRoute({ requestId: "r-overflow" });

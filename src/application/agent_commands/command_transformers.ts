@@ -1,3 +1,4 @@
+import { requiresActionIoCapability } from "./action_io_transport_guard";
 /**
  * Pure transformers for agent RPC commands.
  * Shared between HTTP controller and Socket consumer handler.
@@ -170,6 +171,7 @@ export const computeBridgeWaitTimeoutMs = (
   const defaultMs = BRIDGE_DEFAULT_WAIT_TIMEOUT_MS;
   const sqlTimeout = extractSqlStatementTimeoutMs(command);
   const base = explicitTimeoutMs ?? defaultMs;
+  if (requiresActionIoCapability(command)) return Math.min(base, 30_000);
   if (sqlTimeout === undefined) {
     return base;
   }

@@ -79,6 +79,10 @@ const payloadSigningPreviousKeysSchema = z
 
 const envSchema = z.object({
   APP_NAME: z.string().default("plug_server"),
+  ENABLE_ACTION_IO_HOMOLOGATION: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   /**
    * Root landing (`GET /`) language: fixed `pt` / `en`, or `auto` from the request
    * `Accept-Language` header (defaults to Portuguese when ambiguous).
@@ -1844,6 +1848,7 @@ const agentHubPresenceEnabled =
 
 export const env = {
   appName: parsedEnv.APP_NAME,
+  enableActionIoHomologation: parsedEnv.ENABLE_ACTION_IO_HOMOLOGATION,
   rootLandingLang: parsedEnv.ROOT_LANDING_LANG as RootLandingLangConfig,
   hubInstanceId: parsedEnv.HUB_INSTANCE_ID,
   nodeEnv: parsedEnv.NODE_ENV,

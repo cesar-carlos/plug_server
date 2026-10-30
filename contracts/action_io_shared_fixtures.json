@@ -1,0 +1,1009 @@
+{
+  "format": "action-io-shared-fixtures-v1",
+  "cases": [
+    {
+      "name": "binary input",
+      "kind": "params",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "data_base64": "AP8NGg=="
+      },
+      "valid": true
+    },
+    {
+      "name": "empty input",
+      "kind": "params",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "data_base64": ""
+      },
+      "valid": true
+    },
+    {
+      "name": "invalid base64",
+      "kind": "params",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "data_base64": "_w=="
+      },
+      "valid": false
+    },
+    {
+      "name": "negative sequence",
+      "kind": "params",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": -1,
+        "data_base64": "AP8NGg=="
+      },
+      "valid": false
+    },
+    {
+      "name": "ordered close",
+      "kind": "params",
+      "method": "agent.action.closeInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "close",
+        "sequence": 1
+      },
+      "valid": true
+    },
+    {
+      "name": "close refuses payload",
+      "kind": "params",
+      "method": "agent.action.closeInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "close",
+        "sequence": 1,
+        "data_base64": ""
+      },
+      "valid": false
+    },
+    {
+      "name": "receipt lookup",
+      "kind": "params",
+      "method": "agent.action.getInputStatus",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m"
+      },
+      "valid": true
+    },
+    {
+      "name": "find execution",
+      "kind": "params",
+      "method": "agent.action.findExecution",
+      "payload": {
+        "action_id": "a",
+        "idempotency_key": "k"
+      },
+      "valid": true
+    },
+    {
+      "name": "bounded read",
+      "kind": "params",
+      "method": "agent.action.readIo",
+      "payload": {
+        "execution_id": "e",
+        "after_sequence": 0,
+        "max_bytes": 65536,
+        "wait_ms": 20000
+      },
+      "valid": true
+    },
+    {
+      "name": "undersized page",
+      "kind": "params",
+      "method": "agent.action.readIo",
+      "payload": {
+        "execution_id": "e",
+        "after_sequence": 0,
+        "max_bytes": 1,
+        "wait_ms": 20000
+      },
+      "valid": false
+    },
+    {
+      "name": "overlong wait",
+      "kind": "params",
+      "method": "agent.action.readIo",
+      "payload": {
+        "execution_id": "e",
+        "after_sequence": 0,
+        "max_bytes": 65536,
+        "wait_ms": 20001
+      },
+      "valid": false
+    },
+    {
+      "name": "sendInput unknown bytes",
+      "kind": "result",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "confirmed_bytes": null,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": true
+    },
+    {
+      "name": "sendInput block boundary",
+      "kind": "result",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": 65536,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": true
+    },
+    {
+      "name": "sendInput beyond block",
+      "kind": "result",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "confirmed_bytes": 65537,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": false
+    },
+    {
+      "name": "sendInput missing byte count",
+      "kind": "result",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": false
+    },
+    {
+      "name": "closeInput unknown bytes",
+      "kind": "result",
+      "method": "agent.action.closeInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "confirmed_bytes": null,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": true
+    },
+    {
+      "name": "closeInput block boundary",
+      "kind": "result",
+      "method": "agent.action.closeInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": 65536,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": true
+    },
+    {
+      "name": "closeInput beyond block",
+      "kind": "result",
+      "method": "agent.action.closeInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "confirmed_bytes": 65537,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": false
+    },
+    {
+      "name": "closeInput missing byte count",
+      "kind": "result",
+      "method": "agent.action.closeInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": false
+    },
+    {
+      "name": "getInputStatus unknown bytes",
+      "kind": "result",
+      "method": "agent.action.getInputStatus",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "confirmed_bytes": null,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": true
+    },
+    {
+      "name": "getInputStatus block boundary",
+      "kind": "result",
+      "method": "agent.action.getInputStatus",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": 65536,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": true
+    },
+    {
+      "name": "getInputStatus beyond block",
+      "kind": "result",
+      "method": "agent.action.getInputStatus",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "confirmed_bytes": 65537,
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": false
+    },
+    {
+      "name": "getInputStatus missing byte count",
+      "kind": "result",
+      "method": "agent.action.getInputStatus",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "unknown",
+        "next_input_sequence": 1,
+        "stdin_state": "failed"
+      },
+      "valid": false
+    },
+    {
+      "name": "found",
+      "kind": "result",
+      "method": "agent.action.findExecution",
+      "payload": {
+        "found": true,
+        "execution_id": "e"
+      },
+      "valid": true
+    },
+    {
+      "name": "not found",
+      "kind": "result",
+      "method": "agent.action.findExecution",
+      "payload": {
+        "found": false,
+        "execution_id": null,
+        "reason": "not_found_in_retention_window"
+      },
+      "valid": true
+    },
+    {
+      "name": "not found missing null",
+      "kind": "result",
+      "method": "agent.action.findExecution",
+      "payload": {
+        "found": false,
+        "reason": "not_found_in_retention_window"
+      },
+      "valid": false
+    },
+    {
+      "name": "binary output",
+      "kind": "result",
+      "method": "agent.action.readIo",
+      "payload": {
+        "execution_id": "e",
+        "events": [
+          {
+            "sequence": 1,
+            "type": "output",
+            "stream": "stderr",
+            "offset": 0,
+            "data_base64": "AP8NGg=="
+          }
+        ],
+        "next_sequence": 1,
+        "terminal": false,
+        "output_complete": false
+      },
+      "valid": true
+    },
+    {
+      "name": "empty output",
+      "kind": "result",
+      "method": "agent.action.readIo",
+      "payload": {
+        "execution_id": "e",
+        "events": [],
+        "next_sequence": 0,
+        "terminal": false,
+        "output_complete": false
+      },
+      "valid": true
+    },
+    {
+      "name": "wrong method result",
+      "kind": "result",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "events": [
+          {
+            "sequence": 1,
+            "type": "output",
+            "stream": "stderr",
+            "offset": 0,
+            "data_base64": "AP8NGg=="
+          }
+        ],
+        "next_sequence": 1,
+        "terminal": false,
+        "output_complete": false
+      },
+      "valid": false
+    },
+    {
+      "name": "exact capability",
+      "kind": "capability",
+      "method": "",
+      "payload": {
+        "version": 1,
+        "max_block_bytes": 65536,
+        "max_read_bytes": 262144,
+        "max_page_events": 256,
+        "max_json_bytes": 524288,
+        "max_execution_bytes": 67108864,
+        "max_queued_messages": 16,
+        "max_queued_bytes": 1048576,
+        "max_execution_messages": 8192,
+        "max_execution_events": 65536,
+        "max_wait_ms": 20000,
+        "request_timeout_ms": 30000,
+        "output_retention_seconds": 86400,
+        "deduplication_retention_seconds": 259200,
+        "max_readers_per_execution": 1,
+        "max_readers_per_client": 8,
+        "max_readers_per_connection": 16,
+        "max_readers_per_agent": 32,
+        "supports_interactive_input": true,
+        "requires_local_credential": true,
+        "automatic_replay": false
+      },
+      "valid": true
+    },
+    {
+      "name": "absent capability",
+      "kind": "capability",
+      "method": "",
+      "payload": null,
+      "valid": false
+    },
+    {
+      "name": "old peer",
+      "kind": "capability",
+      "method": "",
+      "payload": {
+        "version": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "incompatible limit",
+      "kind": "capability",
+      "method": "",
+      "payload": {
+        "version": 1,
+        "max_block_bytes": 32768,
+        "max_read_bytes": 262144,
+        "max_page_events": 256,
+        "max_json_bytes": 524288,
+        "max_execution_bytes": 67108864,
+        "max_queued_messages": 16,
+        "max_queued_bytes": 1048576,
+        "max_execution_messages": 8192,
+        "max_execution_events": 65536,
+        "max_wait_ms": 20000,
+        "request_timeout_ms": 30000,
+        "output_retention_seconds": 86400,
+        "deduplication_retention_seconds": 259200,
+        "max_readers_per_execution": 1,
+        "max_readers_per_client": 8,
+        "max_readers_per_connection": 16,
+        "max_readers_per_agent": 32,
+        "supports_interactive_input": true,
+        "requires_local_credential": true,
+        "automatic_replay": false
+      },
+      "valid": false
+    },
+    {
+      "name": "replay forbidden",
+      "kind": "capability",
+      "method": "",
+      "payload": {
+        "version": 1,
+        "max_block_bytes": 65536,
+        "max_read_bytes": 262144,
+        "max_page_events": 256,
+        "max_json_bytes": 524288,
+        "max_execution_bytes": 67108864,
+        "max_queued_messages": 16,
+        "max_queued_bytes": 1048576,
+        "max_execution_messages": 8192,
+        "max_execution_events": 65536,
+        "max_wait_ms": 20000,
+        "request_timeout_ms": 30000,
+        "output_retention_seconds": 86400,
+        "deduplication_retention_seconds": 259200,
+        "max_readers_per_execution": 1,
+        "max_readers_per_client": 8,
+        "max_readers_per_connection": 16,
+        "max_readers_per_agent": 32,
+        "supports_interactive_input": true,
+        "requires_local_credential": true,
+        "automatic_replay": true
+      },
+      "valid": false
+    },
+    {
+      "name": "legacy run",
+      "kind": "params",
+      "method": "agent.action.run",
+      "payload": {
+        "action_id": "a",
+        "idempotency_key": "k",
+        "trigger_id": "t"
+      },
+      "valid": true
+    },
+    {
+      "name": "faithful run",
+      "kind": "params",
+      "method": "agent.action.run",
+      "payload": {
+        "action_id": "a",
+        "idempotency_key": "k",
+        "trigger_id": "t",
+        "io": {
+          "version": 1,
+          "mode": "faithful",
+          "close_input": false,
+          "initial_input_base64": ""
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "unknown I/O version run",
+      "kind": "params",
+      "method": "agent.action.run",
+      "payload": {
+        "action_id": "a",
+        "idempotency_key": "k",
+        "trigger_id": "t",
+        "io": {
+          "version": 2,
+          "mode": "faithful",
+          "close_input": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "legacy validateRun",
+      "kind": "params",
+      "method": "agent.action.validateRun",
+      "payload": {
+        "action_id": "a",
+        "idempotency_key": "k",
+        "trigger_id": "t"
+      },
+      "valid": true
+    },
+    {
+      "name": "faithful validateRun",
+      "kind": "params",
+      "method": "agent.action.validateRun",
+      "payload": {
+        "action_id": "a",
+        "idempotency_key": "k",
+        "trigger_id": "t",
+        "io": {
+          "version": 1,
+          "mode": "faithful",
+          "close_input": false,
+          "initial_input_base64": ""
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "unknown I/O version validateRun",
+      "kind": "params",
+      "method": "agent.action.validateRun",
+      "payload": {
+        "action_id": "a",
+        "idempotency_key": "k",
+        "trigger_id": "t",
+        "io": {
+          "version": 2,
+          "mode": "faithful",
+          "close_input": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "validation preserves replay field",
+      "kind": "result",
+      "method": "agent.action.validateRun",
+      "payload": {
+        "valid": true,
+        "action_id": "a",
+        "action_type": "executable",
+        "would_replay_existing_execution": true,
+        "existing_execution_id": "e"
+      },
+      "valid": true
+    },
+    {
+      "name": "validation refuses renamed replay field",
+      "kind": "result",
+      "method": "agent.action.validateRun",
+      "payload": {
+        "valid": true,
+        "action_id": "a",
+        "action_type": "executable",
+        "would_replay": true
+      },
+      "valid": false
+    },
+    {
+      "name": "legacy terminal execution",
+      "kind": "result",
+      "method": "agent.action.run",
+      "payload": {
+        "execution_id": "e",
+        "action_id": "a",
+        "action_type": "executable",
+        "status": "succeeded",
+        "source": "remoteHub",
+        "requested_at": "2026-10-28T12:00:00Z",
+        "timestamps": {},
+        "process": {},
+        "output": {
+          "stdout": {
+            "captured": false,
+            "truncated": false,
+            "utf8_total_bytes": 0,
+            "offset": 0,
+            "next_offset": 0,
+            "response_truncated": false
+          },
+          "stderr": {
+            "captured": false,
+            "truncated": false,
+            "utf8_total_bytes": 0,
+            "offset": 0,
+            "next_offset": 0,
+            "response_truncated": false
+          }
+        },
+        "flags": {
+          "terminal": true,
+          "skipped": false,
+          "timed_out": false,
+          "cancelled": false,
+          "killed": false,
+          "redaction_applied": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "faithful terminal duplicate",
+      "kind": "result",
+      "method": "agent.action.run",
+      "payload": {
+        "execution_id": "e",
+        "action_id": "a",
+        "action_type": "executable",
+        "status": "succeeded",
+        "source": "remoteHub",
+        "requested_at": "2026-10-28T12:00:00Z",
+        "timestamps": {},
+        "process": {},
+        "output": {
+          "stdout": {
+            "captured": false,
+            "truncated": false,
+            "utf8_total_bytes": 0,
+            "offset": 0,
+            "next_offset": 0,
+            "response_truncated": false
+          },
+          "stderr": {
+            "captured": false,
+            "truncated": false,
+            "utf8_total_bytes": 0,
+            "offset": 0,
+            "next_offset": 0,
+            "response_truncated": false
+          }
+        },
+        "flags": {
+          "terminal": true,
+          "skipped": false,
+          "timed_out": false,
+          "cancelled": false,
+          "killed": false,
+          "redaction_applied": false
+        },
+        "io": {
+          "version": 1,
+          "mode": "faithful",
+          "process_state": "finished",
+          "stdin_state": "closed",
+          "capture_state": "complete",
+          "output_expired": false,
+          "next_input_sequence": 2
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "authentication error envelope",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {
+          "code": -32001,
+          "message": "Operation could not be completed.",
+          "data": {
+            "reason": "UNAUTHORIZED",
+            "category": "action",
+            "retryable": false,
+            "user_message": "Check the execution status.",
+            "technical_message": "Operation refused.",
+            "correlation_id": "fixture",
+            "timestamp": "2026-10-29T12:00:00Z",
+            "effects_possible": false,
+            "confirmed_bytes": null
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "authorization error envelope",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {
+          "code": -32001,
+          "message": "Operation could not be completed.",
+          "data": {
+            "reason": "ACTION_IO_SCOPE_REQUIRED",
+            "category": "action",
+            "retryable": false,
+            "user_message": "Check the execution status.",
+            "technical_message": "Operation refused.",
+            "correlation_id": "fixture",
+            "timestamp": "2026-10-29T12:00:00Z",
+            "effects_possible": false,
+            "confirmed_bytes": null
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "transport error envelope",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {
+          "code": -32000,
+          "message": "Operation could not be completed.",
+          "data": {
+            "reason": "ACTION_IO_UNAVAILABLE",
+            "category": "action",
+            "retryable": false,
+            "user_message": "Check the execution status.",
+            "technical_message": "Operation refused.",
+            "correlation_id": "fixture",
+            "timestamp": "2026-10-29T12:00:00Z",
+            "effects_possible": false,
+            "confirmed_bytes": null
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "unknown delivery error envelope",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {
+          "code": -32603,
+          "message": "Operation could not be completed.",
+          "data": {
+            "reason": "ACTION_OUTCOME_UNKNOWN",
+            "category": "action",
+            "retryable": false,
+            "user_message": "Check the execution status.",
+            "technical_message": "Operation refused.",
+            "correlation_id": "fixture",
+            "timestamp": "2026-10-29T12:00:00Z",
+            "effects_possible": true,
+            "confirmed_bytes": null
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "error code must be integer",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {
+          "code": "-32603",
+          "message": "Operation could not be completed.",
+          "data": {
+            "reason": "ACTION_OUTCOME_UNKNOWN",
+            "category": "action",
+            "retryable": false,
+            "user_message": "Check the execution status.",
+            "technical_message": "Operation refused.",
+            "correlation_id": "fixture",
+            "timestamp": "2026-10-29T12:00:00Z",
+            "effects_possible": true,
+            "confirmed_bytes": null
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "error message must be text",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {
+          "code": -32603,
+          "message": 0,
+          "data": {
+            "reason": "ACTION_OUTCOME_UNKNOWN",
+            "category": "action",
+            "retryable": false,
+            "user_message": "Check the execution status.",
+            "technical_message": "Operation refused.",
+            "correlation_id": "fixture",
+            "timestamp": "2026-10-29T12:00:00Z",
+            "effects_possible": true,
+            "confirmed_bytes": null
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "error data must be object",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {
+          "code": -32603,
+          "message": "Operation could not be completed.",
+          "data": []
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "error and result cannot coexist",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": "fixture",
+        "error": {
+          "code": -32603,
+          "message": "Operation could not be completed.",
+          "data": {
+            "reason": "ACTION_OUTCOME_UNKNOWN",
+            "category": "action",
+            "retryable": false,
+            "user_message": "Check the execution status.",
+            "technical_message": "Operation refused.",
+            "correlation_id": "fixture",
+            "timestamp": "2026-10-29T12:00:00Z",
+            "effects_possible": true,
+            "confirmed_bytes": null
+          }
+        },
+        "result": {}
+      },
+      "valid": false
+    },
+    {
+      "name": "error requires response id",
+      "kind": "error",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32603,
+          "message": "Operation could not be completed.",
+          "data": {
+            "reason": "ACTION_OUTCOME_UNKNOWN",
+            "category": "action",
+            "retryable": false,
+            "user_message": "Check the execution status.",
+            "technical_message": "Operation refused.",
+            "correlation_id": "fixture",
+            "timestamp": "2026-10-29T12:00:00Z",
+            "effects_possible": true,
+            "confirmed_bytes": null
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "sendInput written receipt with None confirmed bytes",
+      "kind": "result",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": null,
+        "next_input_sequence": 1,
+        "stdin_state": "closed"
+      },
+      "valid": false
+    },
+    {
+      "name": "sendInput written receipt with 0 confirmed bytes",
+      "kind": "result",
+      "method": "agent.action.sendInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": 0,
+        "next_input_sequence": 1,
+        "stdin_state": "closed"
+      },
+      "valid": true
+    },
+    {
+      "name": "closeInput written receipt with None confirmed bytes",
+      "kind": "result",
+      "method": "agent.action.closeInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": null,
+        "next_input_sequence": 1,
+        "stdin_state": "closed"
+      },
+      "valid": false
+    },
+    {
+      "name": "closeInput written receipt with 0 confirmed bytes",
+      "kind": "result",
+      "method": "agent.action.closeInput",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": 0,
+        "next_input_sequence": 1,
+        "stdin_state": "closed"
+      },
+      "valid": true
+    },
+    {
+      "name": "getInputStatus written receipt with None confirmed bytes",
+      "kind": "result",
+      "method": "agent.action.getInputStatus",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": null,
+        "next_input_sequence": 1,
+        "stdin_state": "closed"
+      },
+      "valid": false
+    },
+    {
+      "name": "getInputStatus written receipt with 0 confirmed bytes",
+      "kind": "result",
+      "method": "agent.action.getInputStatus",
+      "payload": {
+        "execution_id": "e",
+        "message_id": "m",
+        "sequence": 0,
+        "state": "written",
+        "confirmed_bytes": 0,
+        "next_input_sequence": 1,
+        "stdin_state": "closed"
+      },
+      "valid": true
+    }
+  ]
+}

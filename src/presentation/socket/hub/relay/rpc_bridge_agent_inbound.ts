@@ -1,4 +1,8 @@
 import {
+  isValidActionIoBatchResponse,
+  isValidActionIoResponse,
+} from "../../../../shared/validators/action_io_result";
+import {
   HUB_MAX_BATCH_SIZE,
   HUB_MAX_DECODED_PAYLOAD_BYTES,
 } from "../../../../shared/constants/agent_transport_contract";
@@ -277,6 +281,32 @@ export const createRpcBridgeAgentInboundHandlers = (
 
             const streamId = extractStreamIdFromRpcResponse(decoded.data);
             const pendingRequest = findRestPendingRequestByIds(socketId, candidateIds);
+            const ioRelayRoute = candidateIds
+              .map((id) => getRelayRequestRoute(id))
+              .find((route) => route?.agentSocketId === socketId);
+            const responseMethod = pendingRequest?.jsonRpcMethod ?? ioRelayRoute?.jsonRpcMethod;
+            if (!isValidActionIoBatchResponse(pendingRequest?.actionIoBatch, decoded.data)) {
+              failFastInvalidAgentResponseFrame(
+                socketId,
+                rawPayload,
+                "Invalid action I/O batch response correlation",
+              );
+              return;
+            }
+            if (
+              !isValidActionIoResponse(
+                responseMethod,
+                decoded.data,
+                pendingRequest?.actionIoExpectation ?? ioRelayRoute?.actionIoExpectation,
+              )
+            ) {
+              failFastInvalidAgentResponseFrame(
+                socketId,
+                rawPayload,
+                "Invalid method-specific action I/O response",
+              );
+              return;
+            }
             if (pendingRequest) {
               pendingRequest.latencyTrace?.markInboundArrival(inboundSyncStart);
               pendingRequest.latencyTrace?.recordInboundDecodeMs(decodeMs);

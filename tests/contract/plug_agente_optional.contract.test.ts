@@ -82,6 +82,11 @@ const PUBLIC_V186_METHODS = [
   "sql.executeBatch",
 ] as const;
 const NEGOTIATED_METHODS = [
+  "agent.action.sendInput",
+  "agent.action.closeInput",
+  "agent.action.getInputStatus",
+  "agent.action.readIo",
+  "agent.action.findExecution",
   "sql.describeSchema",
   "sql.describeSource",
   "sql.operation.execute",
