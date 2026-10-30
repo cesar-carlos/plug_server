@@ -8,12 +8,26 @@ const command = {
 };
 it("returns a safe typed error for malformed HTTP JSON instead of exposing response content", async () => {
   const transport = createRestActionIoTransport({
-    endpoint: "https://fixture.invalid", agentId: "agent", bearerToken: () => "token",
+    endpoint: "https://fixture.invalid",
+    agentId: "agent",
+    bearerToken: () => "token",
     fetch: async () => new Response("private-invalid-response"),
   });
   const failure = await transport(command).catch((error: unknown) => error);
   expect(failure).toMatchObject({ code: "INVALID_HTTP_JSON", outcomeUnknown: true });
   expect(String(failure)).not.toContain("private-invalid-response");
+});
+it("rejects invalid UTF-8 instead of silently substituting bytes in JSON", async () => {
+  const transport = createRestActionIoTransport({
+    endpoint: "https://fixture.invalid",
+    agentId: "agent",
+    bearerToken: () => "token",
+    fetch: async () => new Response(new Uint8Array([123, 34, 120, 34, 58, 34, 255, 34, 125])),
+  });
+  await expect(transport(command)).rejects.toMatchObject({
+    code: "INVALID_HTTP_JSON",
+    outcomeUnknown: true,
+  });
 });
 it("preserves the response size failure when stream cleanup also fails", async () => {
   const transport = createRestActionIoTransport({

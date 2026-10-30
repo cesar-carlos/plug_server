@@ -4,6 +4,7 @@ import { captureActionIoExpectation } from "../../src/shared/validators/action_i
 import { isValidActionIoResponse } from "../../src/shared/validators/action_io_result";
 import { isRecord } from "../../src/shared/utils/rpc_types";
 import { actionIoErrorDetails } from "../../src/shared/utils/action_io_error_details";
+import { ACTION_IO_BLOCK_BYTES } from "../../src/shared/validators/action_io";
 
 export interface ActionIoCommand {
   readonly jsonrpc: "2.0";
@@ -38,6 +39,8 @@ export class ActionIoReferenceClient {
     key: string,
     options: { initial?: Uint8Array; closeInput?: boolean; triggerId?: string } = {},
   ): Promise<Record<string, unknown>> {
+    if (options.initial !== undefined && options.initial.byteLength > ACTION_IO_BLOCK_BYTES)
+      return Promise.reject(new ActionIoClientError("INVALID_REQUEST", false));
     return this.call(
       "run",
       {
@@ -63,6 +66,8 @@ export class ActionIoReferenceClient {
     sequence: number,
     bytes: Uint8Array,
   ): Promise<Record<string, unknown>> {
+    if (bytes.byteLength > ACTION_IO_BLOCK_BYTES)
+      return Promise.reject(new ActionIoClientError("INVALID_REQUEST", false));
     return this.call(
       "sendInput",
       {

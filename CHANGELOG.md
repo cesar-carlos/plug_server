@@ -9,6 +9,8 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 ### Fixed — faithful I/O validation and diagnostics
 
 - Reject inconsistent per-stream byte offsets and unsafe end offsets.
+- Reject oversized reference-client input before encoding and reject malformed
+  HTTP JSON/UTF-8 without exposing response contents or retrying mutations.
 - Preserve canonical agent failure_code and the primary response-size failure
   when response-stream cleanup also fails; extend regression coverage.
 

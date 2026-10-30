@@ -101,10 +101,15 @@ from dispatched requests with unknown effects. No automatic replay is offered.
 If an oversized HTTP response also fails stream cleanup, the adapter preserves
 HTTP_RESPONSE_TOO_LARGE as the primary error and records cleanup_failed:true
 without exposing the native exception or response content.
+The reference client checks the 64 KiB initial/interactive input ceiling before
+copying or base64-encoding the caller's buffer. Oversized input fails locally as
+INVALID_REQUEST with outcomeUnknown:false. The REST adapter rejects malformed
+JSON or invalid UTF-8 as INVALID_HTTP_JSON without exposing response excerpts;
+after dispatch it preserves uncertainty and never retries the request.
 
 ## Verification
 
-Latest runtime review: hub lint/typecheck pass; full suite: 2,551 passed and 25
+Latest runtime review: hub lint/typecheck pass; full suite: 2,556 passed and 25
 unrelated optional skips. The earlier dedicated I/O acceptance covered 208 tests
 in 24 suites, no skips. Shared fixtures have SHA-256
 804a7ed26f8d8f742701bcd085a2bbfcce571f51f6a82e8d5edd595e6d1d5b5f in both repos.
@@ -157,3 +162,12 @@ Controller logs are retained locally in the system temporary directory as
 `action-io-e2e-{rest,socket,relay}-current.log`; every controller exited zero.
 These fixtures do not certify public TLS, distributed deployments, the installed
 desktop bootstrap or a new full disk/crash acceptance run. Production remains off.
+
+The matrix was repeated after the final input-size precheck and strict HTTP
+JSON/UTF-8 decoding corrections: REST, socket and relay controllers all exited
+zero, including their embedded reference-client matrices. The current full hub
+suite passed 2,556 tests with 25 optional skips; lint and typecheck passed.
+No additional code correction was needed during this repeat. Logs for this
+round are `action-io-final-{rest,socket,relay}.log` and
+`action-io-final-server-suite.log` in the local system temporary directory.
+These local logs are retained evidence, not portable versioned reports.

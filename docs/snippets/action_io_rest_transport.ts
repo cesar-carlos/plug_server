@@ -52,7 +52,12 @@ export const createRestActionIoTransport =
     } finally {
       reader.releaseLock();
     }
-    const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    let body: unknown;
+    try {
+      body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+    } catch {
+      throw new ActionIoClientError("INVALID_HTTP_JSON", true);
+    }
     if (
       !response.ok &&
       isRecord(body) &&

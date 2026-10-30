@@ -19,11 +19,19 @@ it("rejects oversized blocks before copying or encoding them", async () => {
   const transport = vi.fn();
   const client = new ActionIoReferenceClient(transport, () => "credential");
   try {
-    await expect(client.sendInput("e", "m", 0, bytes)).rejects.toMatchObject({ code: "INVALID_REQUEST", outcomeUnknown: false });
-    await expect(client.run("a", "k", { initial: bytes })).rejects.toMatchObject({ code: "INVALID_REQUEST", outcomeUnknown: false });
+    await expect(client.sendInput("e", "m", 0, bytes)).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+      outcomeUnknown: false,
+    });
+    await expect(client.run("a", "k", { initial: bytes })).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+      outcomeUnknown: false,
+    });
     expect(copy.mock.calls.some((args) => args[0] === bytes)).toBe(false);
     expect(transport).not.toHaveBeenCalled();
-  } finally { copy.mockRestore(); }
+  } finally {
+    copy.mockRestore();
+  }
 });
 it("preserves binary input including empty blocks without appending newlines", async () => {
   const commands: ActionIoCommand[] = [];
