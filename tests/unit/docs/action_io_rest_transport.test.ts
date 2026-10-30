@@ -6,6 +6,38 @@ const command = {
   method: "agent.action.findExecution",
   params: { action_id: "a", idempotency_key: "k" },
 };
+it("returns a safe typed error for malformed HTTP JSON instead of exposing response content", async () => {
+  const transport = createRestActionIoTransport({
+    endpoint: "https://fixture.invalid", agentId: "agent", bearerToken: () => "token",
+    fetch: async () => new Response("private-invalid-response"),
+  });
+  const failure = await transport(command).catch((error: unknown) => error);
+  expect(failure).toMatchObject({ code: "INVALID_HTTP_JSON", outcomeUnknown: true });
+  expect(String(failure)).not.toContain("private-invalid-response");
+});
+it("preserves the response size failure when stream cleanup also fails", async () => {
+  const transport = createRestActionIoTransport({
+    endpoint: "https://fixture.invalid",
+    agentId: "agent",
+    bearerToken: () => "token",
+    fetch: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(1024 * 1024 + 1));
+          },
+          cancel() {
+            throw new Error("private cleanup detail");
+          },
+        }),
+      ),
+  });
+  await expect(transport(command)).rejects.toMatchObject({
+    code: "HTTP_RESPONSE_TOO_LARGE",
+    outcomeUnknown: true,
+    details: { cleanup_failed: true },
+  });
+});
 it("uses the normalized REST bridge envelope without changing the RPC result", async () => {
   const result = { found: false, execution_id: null, reason: "not_found_in_retention_window" };
   const transport = createRestActionIoTransport({

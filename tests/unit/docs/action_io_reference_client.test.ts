@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   ActionIoReferenceClient,
   ActionIoClientError,
@@ -13,6 +13,18 @@ const receipt = {
   next_input_sequence: 1,
   stdin_state: "open",
 };
+it("rejects oversized blocks before copying or encoding them", async () => {
+  const bytes = new Uint8Array(65537);
+  const copy = vi.spyOn(Buffer, "from");
+  const transport = vi.fn();
+  const client = new ActionIoReferenceClient(transport, () => "credential");
+  try {
+    await expect(client.sendInput("e", "m", 0, bytes)).rejects.toMatchObject({ code: "INVALID_REQUEST", outcomeUnknown: false });
+    await expect(client.run("a", "k", { initial: bytes })).rejects.toMatchObject({ code: "INVALID_REQUEST", outcomeUnknown: false });
+    expect(copy.mock.calls.some((args) => args[0] === bytes)).toBe(false);
+    expect(transport).not.toHaveBeenCalled();
+  } finally { copy.mockRestore(); }
+});
 it("preserves binary input including empty blocks without appending newlines", async () => {
   const commands: ActionIoCommand[] = [];
   const client = new ActionIoReferenceClient(
@@ -165,4 +177,30 @@ it("keeps structured remote diagnostics and recovery without copying arbitrary d
   });
   expect(JSON.stringify(failure)).not.toContain("never expose");
   expect(String(failure)).not.toContain("private command line");
+});
+
+it("preserves the canonical agent failure_code on a refused input", async () => {
+  const client = new ActionIoReferenceClient(
+    async (command) => ({
+      jsonrpc: "2.0",
+      id: command.id,
+      error: {
+        code: -32602,
+        message: "Refused",
+        data: {
+          failure_code: "ACTION_IO_CONTENT_CONFLICT",
+          effects_possible: false,
+          diagnostic_id: "diag",
+          recovery: "query_message",
+        },
+      },
+    }),
+    () => "credential",
+  );
+  await expect(client.sendInput("e", "m", 0, new Uint8Array())).rejects.toMatchObject({
+    code: "ACTION_IO_CONTENT_CONFLICT",
+    rpcCode: -32602,
+    outcomeUnknown: false,
+    details: { failure_code: "ACTION_IO_CONTENT_CONFLICT", diagnostic_id: "diag" },
+  });
 });

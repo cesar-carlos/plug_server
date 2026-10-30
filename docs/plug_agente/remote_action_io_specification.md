@@ -45,6 +45,11 @@ requires confirmed_bytes to equal the submitted decoded byte count (zero for
 closeInput or an empty block). Partial progress remains valid in uncertain or
 failed receipts; it cannot be presented as a complete write. getInputStatus
 does not infer the original length when it is unavailable to the hub.
+Within each readIo page, consecutive fragments of the same stream must have
+contiguous byte offsets, even when stdout/stderr events interleave. The hub
+rejects overlaps, gaps and offset arithmetic outside safe integers. The first
+offset per stream may be nonzero for cursor resumption; continuity across pages
+still requires the consumer's persisted stream offsets.
 
 The complete request budget is 30 seconds. The hub overwrites caller deadline
 metadata and propagates both remaining and absolute budgets; decoding and queueing
@@ -93,11 +98,15 @@ Their credentials are resolved per call. Preserve action/key, execution ID,
 message IDs/sequences and committed read cursor across reconnects. Adapter errors
 retain safe correlation and action diagnostics; unsent failures are distinguished
 from dispatched requests with unknown effects. No automatic replay is offered.
+If an oversized HTTP response also fails stream cleanup, the adapter preserves
+HTTP_RESPONSE_TOO_LARGE as the primary error and records cleanup_failed:true
+without exposing the native exception or response content.
 
 ## Verification
 
-Final hub lint/typecheck pass. Full suite: 2,537 passed and 25 unrelated optional
-skips. Dedicated I/O: 208 tests in 24 suites, no skips. Shared fixtures have SHA-256
+Latest runtime review: hub lint/typecheck pass; full suite: 2,551 passed and 25
+unrelated optional skips. The earlier dedicated I/O acceptance covered 208 tests
+in 24 suites, no skips. Shared fixtures have SHA-256
 804a7ed26f8d8f742701bcd085a2bbfcce571f51f6a82e8d5edd595e6d1d5b5f in both repos.
 Agent analyzer and 1,373-contract/264-UI gate pass. Private authenticated
 REST/socket/relay runs traverse the real Windows process; desktop, revocation,
@@ -111,3 +120,40 @@ write/output recovery, all three transports and physical-volume exhaustion.
 The volume result explicitly records successful dismount. The current RPC
 response-preparer regression suite was also rerun after its later file update.
 This recheck does not claim a new complete desktop/native run or enable production.
+
+The final example review additionally validates the complete documented capability
+with the runtime negotiator and each request/result pair with method-specific
+hub validators and request correlation. This catches omissions and mismatched
+execution/action/message identities that the documentation union schema alone
+cannot detect. Documentation fixtures do not advertise or activate the extension.
+
+### End-to-end revalidation — 2026-10-30
+
+Three sequential executions of the agent's `tool/homologation/action_io_hub_smoke.mjs`
+completed successfully against the current server: native REST (default),
+`--socket` and `--relay`. Each creates an isolated loopback hub with fresh
+identities, local approval and credentials, then uses production RPC/journal/pipes
+to execute a real Windows process. Each also exercises the TypeScript reference
+client over REST, socket and relay. The final relay execution includes the client
+correction preserving the agent's `error.data.failure_code` alongside `rpcCode`.
+
+Verified assertions include initial/empty/interactive input, explicit stdin close,
+byte equality of stdout and stderr, input receipts, terminal duplicate execution,
+authorization refusals, content conflicts, cancellation and blocked-write unknown
+delivery without replay. REST abandons an HTTP read and establishes a new caller;
+socket disconnects/reconnects. Both find the same active execution and resume from
+the retained cursor without process cancellation. The socket path also reconnects
+between output pages. No automatic action/input replay is introduced.
+
+Reproduce from the agent checkout, sequentially, with explicit absolute paths:
+
+```text
+node tool/homologation/action_io_hub_smoke.mjs <server-root> --native <flutter-dart-executable>
+node tool/homologation/action_io_hub_smoke.mjs <server-root> --native <flutter-dart-executable> --socket
+node tool/homologation/action_io_hub_smoke.mjs <server-root> --native <flutter-dart-executable> --relay
+```
+
+Controller logs are retained locally in the system temporary directory as
+`action-io-e2e-{rest,socket,relay}-current.log`; every controller exited zero.
+These fixtures do not certify public TLS, distributed deployments, the installed
+desktop bootstrap or a new full disk/crash acceptance run. Production remains off.

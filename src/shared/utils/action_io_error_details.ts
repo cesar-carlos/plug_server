@@ -8,6 +8,7 @@ export const actionIoErrorDetails = (
   if (!isRecord(value)) return details;
   for (const key of [
     "code",
+    "failure_code",
     "phase",
     "origin",
     "diagnostic_id",

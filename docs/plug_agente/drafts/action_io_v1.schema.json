@@ -1372,23 +1372,83 @@
             "max_read_bytes": {
               "const": 262144
             },
+            "max_page_events": {
+              "const": 256
+            },
+            "max_json_bytes": {
+              "const": 524288
+            },
             "max_execution_bytes": {
               "const": 67108864
+            },
+            "max_queued_messages": {
+              "const": 16
+            },
+            "max_queued_bytes": {
+              "const": 1048576
+            },
+            "max_execution_messages": {
+              "const": 8192
+            },
+            "max_execution_events": {
+              "const": 65536
+            },
+            "max_wait_ms": {
+              "const": 20000
+            },
+            "request_timeout_ms": {
+              "const": 30000
             },
             "output_retention_seconds": {
               "const": 86400
             },
+            "deduplication_retention_seconds": {
+              "const": 259200
+            },
+            "max_readers_per_execution": {
+              "const": 1
+            },
+            "max_readers_per_client": {
+              "const": 8
+            },
+            "max_readers_per_connection": {
+              "const": 16
+            },
+            "max_readers_per_agent": {
+              "const": 32
+            },
             "supports_interactive_input": {
               "const": true
+            },
+            "requires_local_credential": {
+              "const": true
+            },
+            "automatic_replay": {
+              "const": false
             }
           },
           "required": [
             "version",
             "max_block_bytes",
             "max_read_bytes",
+            "max_page_events",
+            "max_json_bytes",
             "max_execution_bytes",
+            "max_queued_messages",
+            "max_queued_bytes",
+            "max_execution_messages",
+            "max_execution_events",
+            "max_wait_ms",
+            "request_timeout_ms",
             "output_retention_seconds",
-            "supports_interactive_input"
+            "deduplication_retention_seconds",
+            "max_readers_per_execution",
+            "max_readers_per_client",
+            "max_readers_per_connection",
+            "max_readers_per_agent",
+            "supports_interactive_input",
+            "requires_local_credential",
+            "automatic_replay"
           ],
           "additionalProperties": false
         }

@@ -6,6 +6,12 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — faithful I/O validation and diagnostics
+
+- Reject inconsistent per-stream byte offsets and unsafe end offsets.
+- Preserve canonical agent failure_code and the primary response-size failure
+  when response-stream cleanup also fails; extend regression coverage.
+
 ### Added — faithful remote action I/O
 
 - Relay negotiated agentActions.io v1 over REST, consumer socket and relay with

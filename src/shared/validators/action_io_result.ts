@@ -77,11 +77,23 @@ const page = z
   .superRefine((value, ctx) => {
     let bytes = 0;
     let previous = 0;
+    const offsets = new Map<"stdout" | "stderr", number>();
     for (const item of value.events) {
       if (item.sequence <= previous)
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Non-increasing event sequence" });
       previous = item.sequence;
-      if (item.type === "output") bytes += Buffer.from(item.data_base64, "base64").length;
+      if (item.type === "output") {
+        const length = Buffer.byteLength(item.data_base64, "base64");
+        const expectedOffset = offsets.get(item.stream);
+        const end = item.offset + length;
+        if (
+          (expectedOffset !== undefined && item.offset !== expectedOffset) ||
+          !Number.isSafeInteger(end)
+        )
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid stream byte offsets" });
+        offsets.set(item.stream, end);
+        bytes += length;
+      }
     }
     if (
       bytes > ACTION_IO_PAGE_BYTES ||

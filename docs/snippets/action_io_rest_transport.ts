@@ -35,8 +35,17 @@ export const createRestActionIoTransport =
         if (item.done) break;
         size += item.value.byteLength;
         if (size > 1024 * 1024) {
-          await reader.cancel();
-          throw new ActionIoClientError("HTTP_RESPONSE_TOO_LARGE", true);
+          let cleanupFailed = false;
+          try {
+            await reader.cancel();
+          } catch {
+            cleanupFailed = true;
+          }
+          throw new ActionIoClientError(
+            "HTTP_RESPONSE_TOO_LARGE",
+            true,
+            cleanupFailed ? { cleanup_failed: true } : {},
+          );
         }
         chunks.push(item.value);
       }

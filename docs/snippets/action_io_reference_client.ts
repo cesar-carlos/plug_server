@@ -146,9 +146,11 @@ export class ActionIoReferenceClient {
       throw new ActionIoClientError(
         typeof details.code === "string"
           ? details.code
-          : typeof code === "string" || typeof code === "number"
-            ? code
-            : "REMOTE_ERROR",
+          : typeof details.failure_code === "string"
+            ? details.failure_code
+            : typeof code === "string" || typeof code === "number"
+              ? code
+              : "REMOTE_ERROR",
         data?.effects_possible === true || (mutation && data?.effects_possible !== false),
         details,
         typeof code === "string" || typeof code === "number" ? code : undefined,

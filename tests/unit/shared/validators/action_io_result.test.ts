@@ -20,6 +20,32 @@ const page = {
   output_complete: false,
 };
 describe("method-specific I/O results", () => {
+  it("rejects overlapping or missing bytes within a stream while allowing interleaving and resumed offsets", () => {
+    const events = [
+      { sequence: 4, type: "output", stream: "stdout", offset: 20, data_base64: "AP8=" },
+      { sequence: 5, type: "output", stream: "stderr", offset: 8, data_base64: "AA==" },
+      { sequence: 6, type: "output", stream: "stdout", offset: 22, data_base64: "" },
+    ];
+    expect(
+      isValidActionIoResult("agent.action.readIo", { ...page, events, next_sequence: 6 }),
+    ).toBe(true);
+    for (const offset of [21, 23, Number.MAX_SAFE_INTEGER]) {
+      expect(
+        isValidActionIoResult("agent.action.readIo", {
+          ...page,
+          events: [...events.slice(0, 2), { ...events[2], offset }],
+          next_sequence: 6,
+        }),
+      ).toBe(false);
+    }
+    expect(
+      isValidActionIoResult("agent.action.readIo", {
+        ...page,
+        events: [{ ...events[0], offset: Number.MAX_SAFE_INTEGER }],
+        next_sequence: 4,
+      }),
+    ).toBe(false);
+  });
   it("refuses cross-method results", () => {
     expect(isValidActionIoResult("agent.action.sendInput", receipt)).toBe(true);
     expect(isValidActionIoResult("agent.action.readIo", page)).toBe(true);

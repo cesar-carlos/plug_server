@@ -1,6 +1,6 @@
 # Guia de integração de ações: entrada, saída e erros
 
-Revisão: 2026-10-28. Os exemplos mostram o JSON lógico dentro do transporte
+Revisão: 2026-10-30. Os exemplos mostram o JSON lógico dentro do transporte
 existente, não substituem `PayloadFrame` nem a autenticação do canal. Credenciais
 foram omitidas; chamadas reais precisam da autorização aplicável.
 
@@ -18,7 +18,8 @@ output below is distinct from the faithful byte streams in section 2.
 ```
 
 O resultado de `run` contém o snapshot da execução, incluindo `execution_id`.
-Essa resposta confirma admissão, não conclusão. A resposta completa é definida
+Uma nova execução confirma admissão, não conclusão; uma chave duplicada pode
+retornar a execução original já concluída. A resposta completa é definida
 no OpenRPC do agente; não presumir que stdout esteja pronto ao receber `run`.
 
 ```json
@@ -79,7 +80,7 @@ not interpret business content or alter encoding/framing.
 Negotiated representation inside `extensions.agentActions`:
 
 ```json
-{"io":{"version":1,"max_block_bytes":65536,"max_read_bytes":262144,"max_execution_bytes":67108864,"output_retention_seconds":86400,"supports_interactive_input":true}}
+{"io":{"version":1,"max_block_bytes":65536,"max_read_bytes":262144,"max_page_events":256,"max_json_bytes":524288,"max_execution_bytes":67108864,"max_queued_messages":16,"max_queued_bytes":1048576,"max_execution_messages":8192,"max_execution_events":65536,"max_wait_ms":20000,"request_timeout_ms":30000,"output_retention_seconds":86400,"deduplication_retention_seconds":259200,"max_readers_per_execution":1,"max_readers_per_client":8,"max_readers_per_connection":16,"max_readers_per_agent":32,"supports_interactive_input":true,"requires_local_credential":true,"automatic_replay":false}}
 ```
 
 O suporte efetivo também depende do runner e da aprovação local para modo fiel.
@@ -105,14 +106,14 @@ Admission response example:
   "id": "run-2",
   "result": {
     "execution_id": "exec-2",
-    "action_id": "action-1",
+    "action_id": "acao-salva",
     "action_type": "executable",
     "status": "queued",
     "source": "remoteHub",
     "requested_at": "2026-10-28T12:00:00.000Z",
-    "idempotency_key": "key-2",
+    "idempotency_key": "intencao-unica-2",
     "trigger": {
-      "trigger_id": "trigger-1",
+      "trigger_id": "gatilho-remoto",
       "trigger_type": "remote"
     },
     "timestamps": {},
@@ -157,8 +158,8 @@ Admission response example:
 }
 ```
 
-Entrada adicional espera sessão pronta. `validateRun` deverá aceitar o mesmo
-`io` e `trigger_id`, validando sem executar; both are supported by the negotiated extension.
+Entrada adicional espera sessão pronta. `validateRun` aceita o mesmo
+`io` e `trigger_id`, validando sem executar. Ambos exigem a extensão negociada.
 
 ### Enviar entrada e confirmar entrega
 
@@ -232,6 +233,10 @@ blocos. Não inferir erro apenas por haver stderr. `output_complete:false` duran
 a execução significa captura em andamento, não necessariamente perda.
 
 ```json
+{"jsonrpc":"2.0","id":"read-2","method":"agent.action.readIo","params":{"execution_id":"exec-2","after_sequence":2,"max_bytes":262144,"wait_ms":20000}}
+```
+
+```json
 {"jsonrpc":"2.0","id":"read-2","result":{"execution_id":"exec-2","events":[{"sequence":3,"type":"process_exited","exit_code":0},{"sequence":4,"type":"completed","output_complete":true}],"next_sequence":4,"terminal":true,"output_complete":true}}
 ```
 
@@ -252,8 +257,9 @@ manter cursor. Reconexão retoma pelo cursor, sem iniciar processo novamente.
 
 Essa resposta não prova que a execução nunca ocorreu. Saída expira após
 24 horas; deduplicação tem janela própria de pelo menos três dias e não expira
-execução ativa. Não reutilizar chaves após expiração. Até este método existir,
-recorrer ao histórico local quando não houver `execution_id`.
+execução ativa. Não reutilizar chaves após expiração. Use `findExecution` com a ação e a chave
+originais quando não houver `execution_id`; consulte o histórico local quando a
+janela de consulta já não estiver disponível.
 
 ## 3. Bridge failure examples
 
@@ -294,9 +300,9 @@ substitui a causa primária.
 | Cursor inválido/expirado | Consultar disponibilidade e indicar lacuna | Não cego |
 | Código de saída não aceito | Interpretar resultado do processo, não erro de transporte | Não |
 
-Os nomes específicos das falhas futuras devem ser definidos em catálogo único e
-sincronizados nos schemas. `ACTION_OUTCOME_UNKNOWN` já existe; os demais exemplos
-desta seção não afirmam disponibilidade no runtime.
+Os exemplos de falha ilustram recuperação e entrega. Os códigos e campos
+canônicos são definidos pelo agente; a validação destes exemplos não substitui
+a aceitação dos cenários de falha no runtime.
 
 ## 4. Checklist do consumidor
 
@@ -316,7 +322,8 @@ desta seção não afirmam disponibilidade no runtime.
 
 O cliente preserva falhas tipadas do transporte, incluindo recusas anteriores ao
 envio. `ActionIoClientError.code` contém o código específico de `error.data.code`
-quando disponível; `rpcCode` preserva o código do envelope JSON-RPC. `details`
+quando disponível, seguido pelo `error.data.failure_code` canônico do agente;
+`rpcCode` preserva o código do envelope JSON-RPC. `details`
 expõe somente metadados selecionados: fase, origem, identificadores, estado de
 entrega, bytes confirmados, efeitos possíveis e orientação de recuperação.
 Mensagens nativas, payloads e campos arbitrários não são copiados para o erro.
