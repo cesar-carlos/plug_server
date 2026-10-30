@@ -131,6 +131,10 @@ with the runtime negotiator and each request/result pair with method-specific
 hub validators and request correlation. This catches omissions and mismatched
 execution/action/message identities that the documentation union schema alone
 cannot detect. Documentation fixtures do not advertise or activate the extension.
+The agent OpenRPC descriptions for run, validateRun, getExecution and cancel
+also distinguish mandatory faithful authorization from legacy conditional token
+authorization. The general RPC-cache description excludes faithful I/O and
+durable SQL operations; neither may inherit session-cache replay semantics.
 
 ### End-to-end revalidation — 2026-10-30
 
