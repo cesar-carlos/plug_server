@@ -12,6 +12,7 @@ import { agentRegistry } from "../../src/presentation/socket/hub/registries/agen
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { percentile } from "../../src/shared/utils/percentile";
 import { isRecord } from "../../src/shared/utils/rpc_types";
+import { restBenchConditionalRequest } from "./rest_api_bench_http";
 import { createRestBenchTurnWaiter, readRestBenchCpuAffinity } from "./rest_api_bench_coordination";
 import { getAgentHubPresenceRedisMetricsSnapshot } from "../../src/application/services/agent_hub_presence_redis_metrics.service";
 import { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../src/application/services/client_socket_event_idempotency_redis_metrics.service";
@@ -105,6 +106,7 @@ export const runRestApiBench = async (): Promise<{
   const scenarioProfiles: Readonly<
     Record<string, { readonly warmup: number; readonly iterations: number }>
   > = {
+    catalog_many: { warmup: 256, iterations: 1024 },
     registry_page: { warmup: 256, iterations: 1024 },
     refresh_mixed: { warmup: 128, iterations: 256 },
     etag_poll: { warmup: 128, iterations: 256 },
@@ -387,9 +389,11 @@ export const runRestApiBench = async (): Promise<{
           name: "etag_poll",
           expectedStatus: 304,
           run: () =>
-            request("/api/v1/agents/catalog?pageSize=20", adminToken, {
-              headers: { "If-None-Match": etag },
-            }),
+            request(
+              "/api/v1/agents/catalog?pageSize=20",
+              adminToken,
+              restBenchConditionalRequest(etag),
+            ),
         },
         {
           name: "remote_presence",
@@ -554,7 +558,7 @@ export const runRestApiBench = async (): Promise<{
     // Neither worker may disconnect shared services while its peer is still timed.
     await waitForTurn("complete");
     return {
-      harnessVersion: 6,
+      harnessVersion: 8,
       versions,
       config,
       configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),

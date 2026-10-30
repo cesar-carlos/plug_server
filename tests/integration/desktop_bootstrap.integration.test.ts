@@ -225,7 +225,7 @@ liveTest(
             timer.unref();
           }),
         ]);
-        expect(status).toBe(0);
+        expect(status, `Native ${phase} shutdown failed: ${output}`).toBe(0);
         expect(await readFile(join(root, "boot-closed"), "utf8")).toBe("verified");
       }
     } finally {

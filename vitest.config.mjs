@@ -4,6 +4,8 @@ const isCi = Boolean(process.env.CI);
 
 export default defineConfig({
   test: {
+    reporters: ["default", "json"],
+    outputFile: { json: "tmp/test-results.json" },
     setupFiles: [
       "tests/setup/vitest.socket_snapshot_ttl.ts",
       "tests/setup/vitest.rate_limits.ts",

@@ -20,6 +20,7 @@ import {
 import {
   aggregateRestApiBenchReports,
   restApiBenchComparisonErrors,
+  restApiBenchVariability,
   REST_BENCH_COMPARISON_SCHEDULE,
 } from "../tests/performance/rest_api_bench_reports.ts";
 
@@ -204,6 +205,9 @@ for (const [label, root] of Object.entries(roots)) {
 }
 const base = aggregateRestApiBenchReports(reports.base);
 const head = aggregateRestApiBenchReports(reports.head);
+const variability = { base: restApiBenchVariability(base), head: restApiBenchVariability(head) };
+writeFileSync(path.join(output, "variability.json"), JSON.stringify(variability, null, 2));
+console.log("REST p95 variability (all trials retained):", JSON.stringify(variability));
 writeFileSync(path.join(output, "base.json"), JSON.stringify(base, null, 2));
 writeFileSync(path.join(output, "head.json"), JSON.stringify(head, null, 2));
 writeFileSync("tmp/rest-api-bench.json", JSON.stringify(head, null, 2));

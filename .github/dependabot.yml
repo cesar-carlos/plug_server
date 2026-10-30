@@ -7,8 +7,11 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     groups:
+      opentelemetry:
+        patterns: ["@opentelemetry/*"]
       production-dependencies:
         dependency-type: production
+        exclude-patterns: ["@opentelemetry/*"]
       development-dependencies:
         dependency-type: development
     ignore:
@@ -25,6 +28,9 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 3
+    groups:
+      codeql:
+        patterns: ["github/codeql-action/*"]
 
   - package-ecosystem: docker
     directory: /

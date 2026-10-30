@@ -10,7 +10,10 @@ export default defineConfig({
       CONTAINER_PERSISTENCE_MODE: "memory",
     },
     environment: "node",
-    include: ["tests/integration/sql_operation_dart_recovery.integration.test.ts"],
+    include: [
+      "tests/integration/sql_operation_dart_transport.integration.test.ts",
+      "tests/integration/sql_operation_dart_recovery.integration.test.ts",
+    ],
     fileParallelism: false,
     testTimeout: 90000,
   },
