@@ -10,7 +10,7 @@ export class ActionIoReadCapacity {
     readonly agentId: string;
     readonly signal: AbortSignal | undefined;
     readonly configuredLimit: number;
-    readonly acquireControl: () => Promise<() => void>;
+    readonly acquireControl: (signal: AbortSignal | undefined) => Promise<() => void>;
   }): Promise<() => void> {
     const command = input.command;
     if (
@@ -19,7 +19,7 @@ export class ActionIoReadCapacity {
       typeof command.params?.wait_ms !== "number" ||
       command.params.wait_ms <= 0
     ) {
-      return input.acquireControl();
+      return input.acquireControl(input.signal);
     }
     if (input.signal?.aborted) {
       throw new AppError("The read request was cancelled before dispatch.", {

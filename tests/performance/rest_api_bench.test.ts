@@ -12,7 +12,8 @@ vi.mock("morgan", () => ({
 }));
 
 describe("REST API transport benchmark", () => {
-  it("preserves responses and compares identical profiles", async () => {
+  // The full REST profile includes nine repetitions of 1,024 requests for each large catalog scenario.
+  it("preserves responses and compares identical profiles", { timeout: 900_000 }, async () => {
     const report = await runRestApiBench();
     const reportPath = process.env.REST_API_BENCH_REPORT_PATH ?? "tmp/rest-api-bench.json";
     await mkdir(dirname(reportPath), { recursive: true });

@@ -148,7 +148,7 @@ export const buildHubServerCapabilities = (
 } => {
   const extensions: Record<string, unknown> = { ...HUB_TRANSPORT_EXTENSIONS };
   if (env.enableActionIoHomologation && env.nodeEnv !== "production") {
-    extensions.agentActions = { enabled: true, version: 1, io: ACTION_IO_TRANSPORT };
+    extensions.agentActions = { enabled: true, version: 1, catalogVersion: 1, io: ACTION_IO_TRANSPORT };
   }
   if (!env.payloadSigningKey || env.payloadSigningKey.trim() === "") {
     extensions.signatureAlgorithms = [];

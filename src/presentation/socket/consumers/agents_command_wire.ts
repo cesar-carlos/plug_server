@@ -59,6 +59,7 @@ export type AgentsCommandResponsePayload =
         message: string;
         statusCode?: number;
         retryAfterMs?: number;
+        details?: Readonly<Record<string, string | number | boolean | null>>;
       };
       /** Opt-in per-phase latency snapshot — emitted on failure when available. */
       serverTimings?: ServerTimingsEnvelope;

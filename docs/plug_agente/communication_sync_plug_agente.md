@@ -26,13 +26,17 @@ principais:
 - `../plug_agente/docs/communication/socket_communication_standard.md`
 - `../plug_agente/docs/communication/socket_communication_roadmap.md`
 - `../plug_agente/docs/communication/socket_communication_backlog.md`
+- `../plug_agente/docs/communication/action_io.md`
+- `../plug_agente/docs/communication/socket_agent_actions.md`
 - `../plug_agente/docs/communication/source_discovery.md`
 - `../plug_agente/docs/communication/sql_operations.md`
 - `../plug_agente/docs/communication/socketio_client_binary_transport.md`
 - `../plug_agente/docs/communication/openrpc.json`
 - `../plug_agente/docs/communication/schemas/`
 
-Validacao automatizada no hub: `npm run test:contract`.
+Validação automatizada no hub: `npm run test:contract`. Em gates entre projetos,
+defina `REQUIRE_PLUG_AGENTE_CONTRACT=true`; ausência do checkout deve falhar,
+não ser interpretada como paridade comprovada.
 
 ## Documentos canonicos no `plug_server`
 
@@ -63,6 +67,12 @@ isoladamente, cobertura completa de integração ou homologação.
 
 ## Alinhamento atual
 
+Revisão documental de 30/10/2026: OpenRPC do checkout irmão permanece em
+**2.11.2**. Os 156 testes de contrato do hub passaram com
+`REQUIRE_PLUG_AGENTE_CONTRACT=true`, incluindo paridade dos schemas, fixtures
+compartilhadas de I/O e exemplos REST/JSON-RPC. Essa verificação não é uma nova
+execução nativa ponta a ponta nem comprovação dos gates de produção.
+
 Revisão de comunicação de 2026-10-03: profile **2.11.2** preservado.
 As correções abaixo são de implementação, sem métodos novos no discover ou
 endurecimento incidental dos schemas públicos.
@@ -91,24 +101,13 @@ a configuração existente do agente após validar as revisions dos dois lados.
 ADRs e estudos permanecem registros históricos; este documento e os contratos
 Socket/REST descrevem a implementação atual.
 
-### Estado da validação da candidata
+### Evidências e escopo da revisão
 
-Revisions de referência: hub `f39752f` e agente `55da4490`, acrescidas das
-alterações locais de comunicação ainda não publicadas. Os relatórios locais
-separam microbenchmarks, relay real, Dart e ODBC. A aprovação de rollout
-permanece bloqueada pelos gates de desempenho; seus limites não foram alterados.
-
-| Verificação | Evidência / limite |
-| --- | --- |
-| Hub funcional e contratos | Suíte completa, formatação, lint, tipos, contratos, OpenRPC e build; verificações Prisma, auditoria persistida e duas réplicas executadas com PostgreSQL/Redis isolados |
-| Dart ↔ hub | Três variantes passaram: codecs/socket, transporte de produção com gateway determinístico e smoke ODBC real; fixtures e regressões de lifecycle/controle passaram |
-| Agente completo | A última execução offline teve 4.723 testes aprovados, 14 falhas em ODBC/Agent Actions e 5 skips; análise e formatação globais também encontraram problemas fora dos arquivos de comunicação em alteração concorrente. Análise dos arquivos de comunicação passou; isso não substitui os gates globais |
-| Performance | REST/Prisma e correção dos cenários colunares passaram; comparações relativas Socket e Dart falharam em p95. Heap Dart, carga conjunta com ODBC, erros/timeouts sob carga representativa e homologação de 15 minutos permanecem pendentes |
-| CI remota | Workflows atualizados e YAML validado localmente; não executados remotamente nesta entrega sem push |
-
-Os testes live/perf opt-in e as leituras Prisma que a suíte em memória ignora
-foram exercitados separadamente onde indicado. Não interpretar skips restantes
-ou um benchmark sem baseline compatível como aprovação integral.
+O [snapshot da candidata anterior](../archive/communication_candidate_validation.md)
+preserva resultados e limitações das revisions f39752f/55da4490. Ele não é o
+resultado dos testes atuais do agente. A aceitação de I/O e suas limitações estão
+na [referência de integração](remote_action_io_specification.md#verification).
+Gates de desempenho, publicação e aceitação coordenada permanecem independentes.
 
 | Area | Estado no hub | Fonte principal |
 | ---- | ------------- | --------------- |
@@ -157,22 +156,20 @@ ou um benchmark sem baseline compatível como aprovação integral.
 
 ## Fontes inversas (`plug_agente` → hub)
 
-Quando o agente passa a depender de comportamento novo no hub, o time do
-agente mantem orientacoes em `../plug_agente/docs/plug_server/`:
+As fontes atuais do agente estão em `../plug_agente/docs/communication/`,
+listadas acima. A antiga pasta `docs/plug_server/` é referência histórica; não
+deve orientar novas implementações. Consulte `readme.md`, o standard, OpenRPC,
+schemas e os guias específicos de I/O e operações SQL.
 
-- `plug_agente/docs/plug_server/readme.md` — resumo das extensoes
-- `plug_agente/docs/plug_server/01_transport_extensions.md` — contrato tecnico
-
-O checklist de homologacao passou a ser mantido junto aos contract tests do
-`plug_agente`; consulte o repositorio irmao antes de uma mudanca de protocolo.
-
-Espelho hub → agente: [esta pasta](./).
+Espelho hub → agente: [índice de integração](README.md).
 
 ## Diferencas intencionais
 
 Estas diferencas nao sao gaps acidentais; fazem parte do desenho atual do hub:
 
-- REST continua sem streaming progressivo para o cliente HTTP.
+- REST continua sem streaming progressivo para o cliente HTTP. I/O de processos
+  usa páginas persistidas por `readIo`, com espera longa e retomada por cursor,
+  sem materializar a saída inteira como um stream SQL.
 - O hub materializa streams SQL no REST e recomenda Socket para baixa latencia.
 - Parte do estado do bridge e do relay continua em memoria por processo.
 - O hub pode preencher `id` omitido no bridge REST e em `agents:command` para

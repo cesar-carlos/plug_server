@@ -242,6 +242,42 @@ describe("handleRelayRpcRequest", () => {
     });
   });
 
+  it("retains safe capability diagnostics in relay refusals", async () => {
+    const socket = buildSocket();
+    mockedDispatchRelayRpcToAgent.mockRejectedValue(
+      new AppError("Recurso indisponível", {
+        code: "CAPABILITY_UNAVAILABLE",
+        statusCode: 409,
+        details: {
+          capability: "sqlOperations v1",
+          reason: "not_advertised",
+          effects_possible: false,
+          token: "secret",
+        },
+      }),
+    );
+    handleRelayRpcRequest(socket as never, {
+      conversationId: "conv-1",
+      frame: buildUnaryRelayFrame(),
+    });
+    await vi.waitFor(() =>
+      expect(socket.emit).toHaveBeenCalledWith(
+        socketEvents.relayRpcAccepted,
+        expect.objectContaining({
+          success: false,
+          error: expect.objectContaining({
+            code: "CAPABILITY_UNAVAILABLE",
+            details: {
+              capability: "sqlOperations v1",
+              reason: "not_advertised",
+              effects_possible: false,
+            },
+          }),
+        }),
+      ),
+    );
+  });
+
   it("refunds quota on 503 when dispatch fails transiently", async () => {
     const socket = buildSocket();
     mockedDispatchRelayRpcToAgent.mockRejectedValue(

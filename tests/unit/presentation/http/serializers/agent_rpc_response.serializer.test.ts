@@ -3,6 +3,29 @@ import { describe, expect, it } from "vitest";
 import { normalizeAgentRpcResponse } from "../../../../../src/presentation/http/serializers/agent_rpc_response.serializer";
 
 describe("normalizeAgentRpcResponse", () => {
+  it("explains method-not-found while preserving the RPC code and diagnostic data", () => {
+    const data = { reason: "method_not_found", correlation_id: "diag-1" };
+    expect(
+      normalizeAgentRpcResponse({
+        jsonrpc: "2.0",
+        id: "req-1",
+        error: {
+          code: -32601,
+          message: "Method not found",
+          data,
+        },
+      }),
+    ).toMatchObject({
+      success: false,
+      item: {
+        error: {
+          code: -32601,
+          message: expect.stringContaining("Método não implementado"),
+          data,
+        },
+      },
+    });
+  });
   it("returns a normalized single success response with envelope metadata", () => {
     const normalized = normalizeAgentRpcResponse({
       jsonrpc: "2.0",

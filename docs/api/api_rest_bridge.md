@@ -1,5 +1,209 @@
 # REST Bridge - POST /api/v1/agents/commands
 
+Para integração de processos remotos, veja o [fluxo REST completo de I/O fiel](#fluxo-rest-completo-de-io-fiel).
+
+## Fluxo REST completo de I/O fiel
+
+O cliente usa HTTP; apenas o hub mantém o canal com o agente. Este fluxo exige
+`agentActions.io` v1 negociado, `ENABLE_ACTION_IO_HOMOLOGATION=true` no ambiente
+de desenvolvimento autorizado, opt-in local no agente e ação salva/aprovada.
+O padrão permanece desabilitado; os exemplos não autorizam ativação em produção.
+Troque os valores ilustrativos pelos seus identificadores. O programa executado
+deve aceitar pipes; a ponte não interpreta conteúdo nem oferece terminal/PTY.
+
+### 1. Autenticar o Client no hub
+
+O Client deve estar ativo e possuir acesso aprovado ao agente.
+
+```http
+POST /api/v1/client-auth/login HTTP/1.1
+Host: hub.example.com
+Content-Type: application/json
+
+{"email":"integracao@example.com","password":"SUBSTITUA_PELA_SENHA"}
+```
+
+Na resposta HTTP 200, obtenha `accessToken`; `token` é seu alias legado.
+O login também emite `refreshToken` e cookie HttpOnly `client_refresh_token`.
+Não registre senha, tokens ou payloads em logs.
+
+| Credencial | Onde enviar | Responsabilidade |
+| --- | --- | --- |
+| `accessToken` do login | `Authorization: Bearer <accessToken>` | Autenticação e acesso ao hub |
+| Credencial local do agente | `command.params.client_token` | Identidade Client, vínculo ao agente, scopes e allowlist da ação |
+
+O login do hub não cria a credencial local. Ela deve ser provisionada no agente
+e autorizar I/O fiel e a operação desejada. Não use o JWT do hub como substituto.
+
+Renove o acesso com `POST /api/v1/client-auth/refresh`, `Content-Type: application/json`
+e corpo `{}` usando o cookie HttpOnly. Clientes não navegador podem enviar
+`{"refreshToken":"SUBSTITUA_PELO_REFRESH_TOKEN"}`; o body tem precedência sobre
+o cookie. Guarde o novo par de tokens retornado. Uma renovação não autoriza
+reexecutar comandos cuja resposta se perdeu. Se a renovação falhar, autentique
+novamente e reconcilie usando os identificadores originais.
+
+### 2. Iniciar a execução com input
+
+Todas as chamadas abaixo usam `POST /api/v1/agents/commands`, os headers
+`Authorization: Bearer <accessToken>` e `Content-Type: application/json`.
+O body REST contém `agentId`, `timeoutMs` e `command`; não envie um PayloadFrame
+nem apenas o JSON-RPC diretamente à rota HTTP. Este exemplo usa uma chave de
+idempotência já persistida pelo cliente para esta intenção de execução.
+
+```json
+{"agentId":"agente-exemplo","timeoutMs":30000,"command":{"jsonrpc":"2.0","id":"io-run-1","method":"agent.action.run","params":{"client_token":"CREDENCIAL_LOCAL_DO_AGENTE","action_id":"acao-exemplo","trigger_id":"gatilho-remoto","idempotency_key":"intencao-io-001","io":{"version":1,"mode":"faithful","initial_input_base64":"b2kK","close_input":false}}}}
+```
+
+`b2kK` representa exatamente `oi\n`; a ponte não acrescenta newline. Ausência
+de `initial_input_base64` significa nenhuma mensagem inicial; `""` é uma mensagem
+vazia válida. `trigger_id` seleciona um gatilho remoto aprovado; pode ser omitido
+quando o agente puder selecionar um único gatilho habilitado.
+
+A resposta HTTP 200 usa `response.type="single"`, `response.success` e
+`response.item.success`. Em sucesso, `response.item.result` contém o snapshot
+completo, incluindo `execution_id`, `action_id`, `status` e `io` — não apenas um ID.
+Use `io.next_input_sequence`, `io.initial_message_id` e, quando existente,
+`io.close_message_id`; não invente IDs reservados. O [exemplo completo do snapshot](../plug_agente/remote_action_io_examples.md#capacidade-e-abertura)
+mostra seus campos. Uma chave duplicada pode retornar a execução original terminal.
+Para preflight, use `agent.action.validateRun` com os mesmos params; não inicia processo.
+
+### 3. Enviar input adicional e consultar entrega
+
+Suponha `execution_id="exec-exemplo"` e `next_input_sequence=1` retornados na
+abertura. Aguarde a sessão ficar pronta. Serialize os envios e persista
+message ID, sequência e bytes pretendidos antes de enviá-los.
+
+```json
+{"agentId":"agente-exemplo","timeoutMs":30000,"command":{"jsonrpc":"2.0","id":"io-send-1","method":"agent.action.sendInput","params":{"client_token":"CREDENCIAL_LOCAL_DO_AGENTE","execution_id":"exec-exemplo","message_id":"mensagem-001","sequence":1,"data_base64":"AP+A"}}}
+```
+
+`AP+A` representa os bytes `00 ff 80`. Exemplo completo do envelope de admissão
+(requestId ilustrativo; metadados adicionais podem ser retornados):
+
+```json
+{"mode":"bridge","agentId":"agente-exemplo","requestId":"hub-send-1","response":{"type":"single","success":true,"item":{"id":"io-send-1","success":true,"result":{"execution_id":"exec-exemplo","message_id":"mensagem-001","sequence":1,"state":"accepted","confirmed_bytes":0,"next_input_sequence":2,"stdin_state":"open"}}}}
+```
+
+`accepted` é admissão durável, não escrita. Consulte sem repetir o envio:
+
+```json
+{"agentId":"agente-exemplo","timeoutMs":30000,"command":{"jsonrpc":"2.0","id":"io-status-1","method":"agent.action.getInputStatus","params":{"client_token":"CREDENCIAL_LOCAL_DO_AGENTE","execution_id":"exec-exemplo","message_id":"mensagem-001"}}}
+```
+
+O resultado tem o mesmo formato de recibo. `written` com `confirmed_bytes=3`
+confirma entrega ao pipe, não consumo ou efeito de negócio. `writing` exige
+aguardar/consultar; `unknown` exige reconciliação. `confirmed_bytes:null` nunca
+deve ser convertido em zero. Não repetir automaticamente uma escrita incerta.
+
+Feche stdin quando o protocolo do programa exigir EOF, usando a sequência
+seguinte efetivamente retornada pelo agente:
+
+```json
+{"agentId":"agente-exemplo","timeoutMs":30000,"command":{"jsonrpc":"2.0","id":"io-close-1","method":"agent.action.closeInput","params":{"client_token":"CREDENCIAL_LOCAL_DO_AGENTE","execution_id":"exec-exemplo","message_id":"fechamento-001","sequence":2}}}
+```
+
+`closing` aguarda as escritas anteriores e impede novas entradas; `closed` é
+EOF de stdin, não término do processo. Consulte o fechamento por seu message ID.
+
+### 4. Ler stdout e stderr sem alterar bytes
+
+Leia em paralelo com a entrada para não bloquear protocolos bidirecionais.
+O cursor inicial é zero; long polling espera até 20 segundos dentro do orçamento
+total de 30 segundos, reservando tempo para autorização e resposta.
+
+```json
+{"agentId":"agente-exemplo","timeoutMs":30000,"command":{"jsonrpc":"2.0","id":"io-read-1","method":"agent.action.readIo","params":{"client_token":"CREDENCIAL_LOCAL_DO_AGENTE","execution_id":"exec-exemplo","after_sequence":0,"max_bytes":262144,"wait_ms":20000}}}
+```
+
+```json
+{"mode":"bridge","agentId":"agente-exemplo","requestId":"hub-read-1","response":{"type":"single","success":true,"item":{"id":"io-read-1","success":true,"result":{"execution_id":"exec-exemplo","events":[{"sequence":1,"type":"output","stream":"stdout","offset":0,"data_base64":"AP+A"},{"sequence":2,"type":"output","stream":"stderr","offset":0,"data_base64":"YXZpc28K"}],"next_sequence":2,"terminal":false,"output_complete":false}}}}
+```
+
+Decodifique cada `data_base64` em bytes e grave no stream indicado, respeitando
+offsets. Não acrescente newline nem converta para texto durante reconstrução.
+Após processar a página, persista cursor 2 e offsets dos dois streams; a próxima
+chamada usa novo ID RPC e `after_sequence:2`. Página vazia mantém o cursor.
+Uma página relida pode repetir eventos: deduplique por sequência/offset sem
+duplicar bytes. Caracteres podem atravessar blocos; decodificação textual é opcional.
+
+`process_exited` informa o exit code; `completed` informa fim da captura.
+Só conclua a coleta após `completed`, verificando `output_complete` e eventual
+falha. `terminal:true` isolado não prova que todos os eventos foram lidos.
+stderr não implica falha, e exit code zero não corrige captura incompleta.
+
+### 5. Erros HTTP e erros RPC são camadas diferentes
+
+HTTP 200 não significa sucesso da ação: confira `response.item.success`.
+Quando falso, leia `response.item.error.code` e `.data`. O código específico do
+agente costuma estar em `data.failure_code`; erros do hub podem usar `data.code`.
+Preserve diagnostic_id/correlation_id e a orientação de recuperação disponível,
+sem registrar conteúdo ou mensagens nativas sensíveis. Veja os
+[exemplos de erros RPC](../plug_agente/remote_action_io_examples.md#3-bridge-failure-examples).
+
+Uma falha HTTP do hub usa outro envelope. Exemplo de resposta HTTP 503 após
+possível dispatch; os metadados disponíveis dependem do ponto da falha:
+
+```json
+{"success":false,"message":"Action outcome is unknown","code":"ACTION_OUTCOME_UNKNOWN","requestId":"hub-run-1","error":{"code":"ACTION_OUTCOME_UNKNOWN","message":"Action outcome is unknown","details":{"retryable":false,"outcome_unknown":true,"phase":"await_response","origin":"hub","recovery":"reconcile_execution"}}}
+```
+
+| Situação | Ação do consumidor |
+| --- | --- |
+| HTTP 401 do hub | Renovar login; não reenviar mutação automaticamente |
+| Credencial/allowlist/aprovação recusada pelo agente | Corrigir autorização local; renovar JWT do hub não resolve essa credencial |
+| Capacidade ou fila cheia antes de admissão | Respeitar espera informada; confirmar não admissão antes de decidir novo envio |
+| Timeout, desconexão, resposta inválida após envio | Consultar execução/mensagem original; não presumir ausência de efeitos |
+| Entrega parcial ou `unknown` | Preservar bytes confirmados e reconciliar efeitos com o programa |
+| `OUTPUT_EXPIRED` | Informar expiração; não executar novamente para recriar saída |
+| Limite de saída, disco cheio ou captura incompleta | Preservar prefixo disponível e diagnóstico; verificar término e intervenção local |
+
+O cliente de referência não faz retries. Ele preserva códigos e metadados seguros
+em `ActionIoClientError`; JSON/UTF-8 inválido gera `INVALID_HTTP_JSON`, e falhas
+de cleanup não substituem a causa primária.
+
+### 6. Retomar após interrupção HTTP
+
+REST não exige uma sessão socket do consumidor. Abortar uma leitura HTTP não
+cancela o processo. Reabra a conexão, renove apenas as credenciais necessárias e
+continue consultando os mesmos IDs. Permissões atuais continuam sendo verificadas.
+
+Se a resposta de `run` se perdeu, procure pela ação e chave originais:
+
+```json
+{"agentId":"agente-exemplo","timeoutMs":30000,"command":{"jsonrpc":"2.0","id":"io-find-1","method":"agent.action.findExecution","params":{"client_token":"CREDENCIAL_LOCAL_DO_AGENTE","action_id":"acao-exemplo","idempotency_key":"intencao-io-001"}}}
+```
+
+```json
+{"mode":"bridge","agentId":"agente-exemplo","requestId":"hub-find-1","response":{"type":"single","success":true,"item":{"id":"io-find-1","success":true,"result":{"found":true,"execution_id":"exec-exemplo"}}}}
+```
+
+Se um envio perdeu a resposta, consulte `getInputStatus` com seu message ID.
+Para conferir o estado da execução recuperada:
+
+```json
+{"agentId":"agente-exemplo","timeoutMs":30000,"command":{"jsonrpc":"2.0","id":"io-get-1","method":"agent.action.getExecution","params":{"client_token":"CREDENCIAL_LOCAL_DO_AGENTE","execution_id":"exec-exemplo"}}}
+```
+
+Se uma leitura foi interrompida, repita `readIo` a partir do último cursor
+persistido, deduplicando eventos já gravados. `found:false` com
+`reason:not_found_in_retention_window` não prova que nunca houve execução.
+Retenção de saída: 24 horas após término; deduplicação: pelo menos três dias.
+Não reutilize chaves. Reinício do agente não restaura pipes nem repete entrada.
+
+### Limites e implementação de referência
+
+- Bloco de entrada: até 64 KiB decodificados; página: até 256 KiB/256 eventos.
+- Entrada + saída acumuladas: até 64 MiB por execução; não é limite por chamada.
+- Uma leitura pendente por execução/identidade; mantenha controle e entrada disponíveis.
+- Não envie mutações em batch; use chamadas individuais com IDs RPC distintos.
+
+Use [ActionIoReferenceClient](../snippets/action_io_reference_client.ts) com
+[createRestActionIoTransport](../snippets/action_io_rest_transport.ts), endpoint
+completo `/api/v1/agents/commands`, callback do Bearer e callback da credencial
+local. Esses módulos são exemplos TypeScript para uso a partir do checkout,
+não um SDK publicado. O chamador mantém sequências/cursor duráveis e serializa
+envios. Consulte o [contrato e evidências ponta a ponta](../plug_agente/remote_action_io_specification.md).
+
 ## Chunks colunares do agente (profile 2.11.2)
 
 O hub aceita o `columnar` opcional já emitido pelo agente, inclusive com
@@ -1830,6 +2034,56 @@ REST/agents:command (including batches) and relay enforce this before dispatch a
 again after queues/encoding, refusing socket replacement or capability downgrade.
 CAPABILITY_UNAVAILABLE is fail-closed for old/missing/incompatible agents.
 
+### Mensagem para recurso indisponível
+
+As extensões I/O fiel e SQL verificam a conexão autenticada atual antes do dispatch.
+Ausência de capacidade não comprova versão antiga: também pode indicar recurso
+não anunciado ou desativado. HTTP retorna 409 e `CAPABILITY_UNAVAILABLE`.
+REST, `agents:command` e `relay:rpc.accepted` preservam os metadados seguros em
+`error.details`, inclusive em produção. Exemplo do objeto `error`:
+
+```json
+{
+  "code": "CAPABILITY_UNAVAILABLE",
+  "message": "Recurso agentActions.io v1 indisponível: o plug_agente consultado não anunciou suporte a este recurso. A solicitação não foi encaminhada para execução. Verifique a versão instalada, a habilitação e as aprovações locais do recurso; após corrigir, reconecte o agente. Não há reenvio automático nem alternativa que remova as garantias solicitadas.",
+  "details": {
+    "capability": "agentActions.io v1",
+    "reason": "not_advertised",
+    "origin": "agent",
+    "phase": "preflight",
+    "recovery": "local_intervention",
+    "retryable": false,
+    "effects_possible": false,
+    "outcome_unknown": false
+  }
+}
+```
+
+`reason` distingue `not_advertised`, `disabled` (desativação explícita) e
+`incompatible` (contrato, versão ou limites incompatíveis), além de
+`session_changed` quando a conexão muda ou deixa de estar pronta antes do dispatch.
+`origin:hub` indica
+que a correção está no servidor. Após intervenção local e nova negociação,
+o chamador decide se envia uma nova solicitação. Não há habilitação automática.
+
+Uma resposta explícita JSON-RPC `-32601` significa método não implementado pelo
+agente consultado. Preserve o código e oriente a verificar versão e suporte.
+Não confunda essa recusa com timeout após dispatch, cujo resultado pode ser
+incerto e exige consulta/reconciliação. Falta de autorização, aprovação local
+ou ação inexistente também não comprova versão antiga.
+
+Se a configuração local mudar **após a negociação**, o hub já pode ter encaminhado
+a chamada. Nesse caso, leia `response.item.error.data` no resultado RPC. O agente
+informa `failure_code: CAPABILITY_UNAVAILABLE`, `reason: disabled`, `origin: agent`
+e `phase: preflight`. `user_message` orienta verificar a habilitação local e
+reconectar. `effects_possible: false` e `outcome_unknown: false` se referem à
+recusa desta chamada antes de acessar a ação. Uma capacidade omitida no registro
+resulta em `not_advertised` no hub, inclusive quando a omissão decorre de uma flag.
+
+No relay, uma recusa do hub chega em `relay:rpc.accepted` com `success: false`.
+Correlacione `conversationId` e `clientRequestId` e encerre a espera nessa resposta.
+Se a chamada foi aceita, aguarde `relay:rpc.response` para receber o resultado do agente.
+
 The negotiated descriptor requires enabled:true, durableJournal:true,
 singleSourceTransaction:true, automaticReplay:false and positive integer maxSteps,
 maxAffectedRows, timeoutMs. Effective ceilings are the minima of agent and hub
@@ -2037,94 +2291,10 @@ Production release stays blocked by all persona-v2 gates.
 
 SqlOperationStatus accepts optional enumerated failureCode on cancelled, rolled-back or unknown outcomes. Preserve agent metadata; do not infer causes for older receipts, expose native diagnostic text, interpret SQL or repeat effects. The code is not a commit/rollback proof. Agent journal migration is additive; hub data is preserved. Production remains blocked.
 
-## Direct agent recovery with real ODBC (2026-10-15)
+## Evidências históricas de aceitação nativa
 
-The opt-in `vitest.sql-recovery.config.mjs` runs the direct Socket.IO recovery
-harness without global HTTP/Prisma setup or checkout dotenv loading. Set
-`RUN_DART_SQL_OPERATION_TRANSPORT=true`, `FLUTTER_BIN` and
-`PLUG_SQL_OPERATION_NATIVE_MANIFEST` to an isolated three-engine fixture manifest;
-include the private PostgreSQL driver and SQL Anywhere Bin64 in PATH.
-Without the native manifest it runs the synthetic regression instead.
-
-Six real-ODBC cases passed: PostgreSQL, SQL Server and SQL Anywhere, each with
-abrupt agent-process exit before commit and after native commit but before
-journal completion. The hub returns non-retryable unknown outcome. Restarted
-get/duplicate execute/cancel preserve the same unknown receipt and null count;
-the agent verifies zero physical rows before commit, one after commit, and zero
-reopened transactions. The fixture uses fixed test authority, not Client approval
-or least-privilege acceptance. Native in-flight commit interruption, power loss,
-production bootstrap and remaining coordinated gates are still pending.
-Production release remains blocked. No MCP implementation is involved in this test.
-
-## Native commit in flight, restricted login and desktop bootstrap (2026-10-15)
-
-The direct recovery matrix now passes nine real-ODBC cases (three engines times
-before/after/in-flight commit). In-flight testing uses a private loopback TCP
-proxy: after the pre-commit barrier, native request bytes reach the database and
-server bytes are withheld. The controller proves no native-call return, then
-kills only its owned agent tree. Recovery returns the same unknown receipt and
-null count with no reopened transaction; independent physical verification sees
-zero rows before commit and one after commit/withheld confirmation. This covers
-an ODBC call awaiting confirmation, not server power loss or all storage windows.
-
-Each native case uses SELECT/INSERT on one exact fixture table plus required
-identity metadata access. UPDATE/DELETE, DDL, unrelated data and insertion after
-REVOKE are refused by the actual engines. Provisioning/observation use only the
-private DBA fixture. Client/transport authorization remains separate chain evidence.
-
-The explicit vitest.desktop-bootstrap.config.mjs, with
-RUN_NATIVE_DESKTOP_BOOTSTRAP=true, launches the agent debug target
- tool/homologation/desktop_bootstrap_fixture.dart from its staged complete bundle
-at build/homologation/desktop-bootstrap. Both cold startup and restart passed:
-real AppInitializer/DI, native window/tray and AppRoot first frame, DPAPI roundtrip,
-SQLite integrity/journal, default-disabled SQL operations, ready negotiation,
-rpc.discover and clean shutdown. Installation identity persists; boot identity
-changes. Ready-file publication is atomic and RPC waits for agent:ready.
-
-Paths point exclusively to temporary data/support/documents; the default production
-storage resolver remains unchanged unless explicitly injected by the fixture.
-The existing --installation-check native mode allows coexistence with the running
-installed app. Machine auto-start repair, notifications and updater registrations
-are locally excluded because they share that app's OS identity. Installer startup
-with configured credentials, system integrations, power loss and coordinated
-release gates remain pending. Production installer/appcast remain blocked.
-
-Validation: nine native cases, 61 agent bootstrap/journal tests, native desktop
-cold/restart integration, synthetic recovery, Dart analysis, server lint and type
-checks. The private database fixture and temporary app profiles were removed.
-
-## Configured native desktop acceptance (2026-10-15)
-
-The opt-in desktop runner now also includes
-`configured_desktop_bootstrap.integration.test.ts`. It uses the production test
-server with real registration approval, owner binding, agent login, refresh and
-Socket.IO ready negotiation. The Windows debug target runs AppInitializer/AppRoot,
-real repositories and DPAPI in an exclusive temporary profile. Cold boot and restart
-both restore/rotate the Hub session automatically; restart receives no bootstrap
-credential seed or credential environment. Stable config/installation identity and
-new boot identity are checked; SQL operations remain disabled and SQLite metadata
-contains no raw credentials. The configured ODBC target is deliberately offline;
-Hub auto-connect succeeds after native pool warm-up fails. This does not replace
-the three-engine native ODBC matrix or durable hub restart acceptance.
-
-Both native desktop cases passed, alongside 29 agent bootstrap/session regressions,
-four real temporary HKCU adapter tests, 31 installer/repair tests and the approved
-real-host optional repair. The repair corrected inheritance of updater authorization
-when /AUTOUPDATE=0; the accepted run preserved updater policy/binaries, profile,
-vault, app EXEs, startup/protocol registrations and authorization. Non-elevated data
-access passed. Server source/test lint and TypeScript test checks passed. Temporary
-profiles/Run entries were removed; real-host backups remain private and local.
-Full installer lifecycle, shell activation, notifications, updater migration/recovery,
-signing and remaining coordinated gates are still pending. Production stays blocked.
-
-## Native Windows integrations follow-up — 2026-10-15
-
-The native desktop test now accepts RUN_NATIVE_WINDOWS_NOTIFICATIONS=true to
-exercise production NotificationService with an exclusive AppUserModelId/GUID.
-Cold/restart passed registration, show/cancel calls, activator registry binding,
-normal RPC readiness/discovery and cleanup of temporary notification keys.
-Production identity defaults are unchanged. This is API/registry acceptance, not
-visual delivery, notification-click, Windows logon or protocol-shell acceptance.
-The agent's isolated installer/service lifecycle and recovery-contract-2 IPC
-correction are documented in its updater plan; no REST or business RPC changed.
-All production and coordinated release gates stay blocked.
+Os registros de ODBC, recuperação e bootstrap Windows de 15/10/2026 foram
+reunidos no [arquivo de aceitação nativa](../archive/native_acceptance_2026-10-15.md).
+São evidências datadas, não requisitos adicionais do contrato REST nem autorização
+de publicação. Consulte a [matriz de sincronização](../plug_agente/communication_sync_plug_agente.md)
+para o estado de alinhamento.

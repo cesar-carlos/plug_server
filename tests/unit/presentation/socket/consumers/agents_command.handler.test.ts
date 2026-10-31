@@ -494,6 +494,86 @@ describe("handleAgentsCommand", () => {
     });
   });
 
+  it("preserves capability diagnostics in socket refusals", async () => {
+    const socket = buildSocket();
+    mockedExecuteAuthorizedAgentCommand.mockRejectedValue(
+      new AppError("Recurso indisponível", {
+        code: "CAPABILITY_UNAVAILABLE",
+        statusCode: 409,
+        details: {
+          capability: "agentActions.io v1",
+          reason: "disabled",
+          effects_possible: false,
+          token: "secret",
+        },
+      }),
+    );
+    await handleAgentsCommand(socket as never, validPayload);
+    await vi.waitFor(() =>
+      expectAgentsCommandResponse(socket.emit, {
+        success: false,
+        requestId: "req-1",
+        error: {
+          code: "CAPABILITY_UNAVAILABLE",
+          details: {
+            capability: "agentActions.io v1",
+            reason: "disabled",
+            effects_possible: false,
+          },
+        },
+      }),
+    );
+  });
+
+  it("preserves only safe action reconciliation details in socket failures", async () => {
+    const socket = buildSocket();
+    mockedExecuteAuthorizedAgentCommand.mockRejectedValue(
+      new AppError("Reconcile execution", {
+        statusCode: 503,
+        code: "ACTION_OUTCOME_UNKNOWN",
+        details: {
+          diagnostic_id: "diag",
+          effects_possible: true,
+          recovery: "query_execution",
+          payload: "private",
+        },
+      }),
+    );
+    await handleAgentsCommand(socket as never, validPayload);
+    await vi.waitFor(() => {
+      expectAgentsCommandResponse(socket.emit, {
+        success: false,
+        requestId: "req-1",
+        error: {
+          code: "ACTION_OUTCOME_UNKNOWN",
+          details: {
+            diagnostic_id: "diag",
+            effects_possible: true,
+            recovery: "query_execution",
+          },
+        },
+      });
+      const wire = socket.emit.mock.calls.find(
+        (call) => call[0] === socketEvents.agentsCommandResponse,
+      )?.[1];
+      const decoded = decodePayloadFrame(wire);
+      expect(decoded.ok && JSON.stringify(decoded.value.data)).not.toContain("private");
+    });
+  });
+
+  it("does not expose unexpected native exception messages to the consumer", async () => {
+    const socket = buildSocket();
+    mockedExecuteAuthorizedAgentCommand.mockRejectedValue(new Error("private command payload"));
+    await handleAgentsCommand(socket as never, validPayload);
+    await vi.waitFor(() => {
+      expectAgentsCommandResponse(socket.emit, {
+        success: false,
+        requestId: "req-1",
+        error: { code: "COMMAND_FAILED", message: "Command execution failed" },
+      });
+    });
+  });
+
   describe("requestServerTimings opt-in", () => {
     it("does not include serverTimings on the response when the flag is absent", async () => {
       const socket = buildSocket();

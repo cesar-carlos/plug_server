@@ -1,3 +1,5 @@
+import { capabilityUnavailable } from "../../../../shared/errors/capability_unavailable";
+import { actionIoErrorDetails } from "../../../../shared/utils/action_io_error_details";
 import { createActionIoReadCancellation } from "./action_io_read_cancellation";
 import { actionIoReadCapacity } from "../../../../shared/di/action_io_read_capacity";
 import { actionIoQueueSignal } from "../../../../application/agent_commands/action_io_deadline";
@@ -402,33 +404,17 @@ export const createRpcBridgeRelayDispatch = (
             badRequest("Agent capabilities do not support any advertised PayloadFrame compression"),
         });
 
+        const effectiveTimeoutMs = computeBridgeWaitTimeoutMs(
+          command,
+          input.timeoutMs ?? env.socketRelayRequestTimeoutMs,
+        );
         const releaseAgentDispatchSlot = await actionIoReadCapacity
           .acquire({
             command,
             agentId: conversation.agentId,
-            signal: actionIoQueueSignal(
-              command,
-              computeBridgeWaitTimeoutMs(
-                command,
-                input.timeoutMs ?? env.socketRelayRequestTimeoutMs,
-              ),
-              relayWallStart,
-              input.signal,
-            ),
+            signal: actionIoQueueSignal(command, effectiveTimeoutMs, relayWallStart, input.signal),
             configuredLimit: env.socketRelayAgentMaxInflight,
-            acquireControl: () =>
-              acquireRelayAgentDispatchSlot(
-                conversation.agentId,
-                actionIoQueueSignal(
-                  command,
-                  computeBridgeWaitTimeoutMs(
-                    command,
-                    input.timeoutMs ?? env.socketRelayRequestTimeoutMs,
-                  ),
-                  relayWallStart,
-                  input.signal,
-                ),
-              ),
+            acquireControl: (signal) => acquireRelayAgentDispatchSlot(conversation.agentId, signal),
           })
           .catch((error: unknown) => {
             if (clientRequestId && cacheResponse) {
@@ -436,11 +422,6 @@ export const createRpcBridgeRelayDispatch = (
             }
             throw error;
           });
-
-        const effectiveTimeoutMs = computeBridgeWaitTimeoutMs(
-          command,
-          input.timeoutMs ?? env.socketRelayRequestTimeoutMs,
-        );
 
         const timeoutHandle = setTimeout(
           () => {
@@ -606,11 +587,7 @@ export const createRpcBridgeRelayDispatch = (
                 conversation.agentSocketId ||
               !agentRegistry.getProtocolReadiness(conversation.agentId).ready
             ) {
-              throw new AppError("Agent session changed before SQL operation dispatch.", {
-                statusCode: 409,
-                code: "CAPABILITY_UNAVAILABLE",
-                details: { retryable: false },
-              });
+              throw capabilityUnavailable("conexão autenticada", "session_changed");
             }
             assertCommandTransport(
               command,
@@ -631,7 +608,7 @@ export const createRpcBridgeRelayDispatch = (
           }
           const aborted = input.signal?.aborted === true;
           if (!aborted) {
-            registerAgentFailure(conversation.agentId, "relay");
+            registerAgentFailure(conversation.agentId, "relay", error);
           }
           const err =
             error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
@@ -664,7 +641,12 @@ export const createRpcBridgeRelayDispatch = (
                 error: {
                   code: -32000,
                   message: err.message,
-                  data: { code: appErr?.code ?? "BRIDGE_ERROR" },
+                  data: {
+                    code: appErr?.code ?? "BRIDGE_ERROR",
+                    ...(appErr?.code === "CAPABILITY_UNAVAILABLE"
+                      ? actionIoErrorDetails(appErr.details)
+                      : {}),
+                  },
                 },
               };
               noteRelayBodyIdEcho();

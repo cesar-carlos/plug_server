@@ -32,6 +32,7 @@ import {
   resetRelayHubHealthAndMetrics,
 } from "../../../../../src/presentation/socket/hub/relay/bridge_relay_health_metrics";
 import { env } from "../../../../../src/shared/config/env";
+import { AppError } from "../../../../../src/shared/errors/app_error";
 import { resetRelayRequestRegistry } from "../../../../../src/presentation/socket/hub/registries/relay_request_registry";
 import { resetRestPendingRequestsStore } from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
 import { resetRelayStreamFlowState } from "../../../../../src/presentation/socket/hub/relay/relay_stream_flow_state";
@@ -144,6 +145,18 @@ describe("bridge_relay_health_metrics", () => {
     expect(() => ensureAgentCircuitClosed("agent-iso", "relay")).toThrow(/circuit is open/);
     expect(() => ensureAgentCircuitClosed("agent-iso", "rest")).not.toThrow();
   });
+
+  it.each(["CAPABILITY_UNAVAILABLE", "ACTION_IO_REQUEST_EXPIRED"])(
+    "does not open agent circuits for local %s refusals",
+    (code) => {
+      const error = new AppError("Preflight refused", { code });
+      for (const channel of ["rest", "relay"] as const) {
+        for (let i = 0; i < Math.max(1, env.socketRelayCircuitFailureThreshold); i++)
+          registerAgentFailure("refused", channel, error);
+        expect(() => ensureAgentCircuitClosed("refused", channel)).not.toThrow();
+      }
+    },
+  );
 
   it("records hot-path observe metrics exactly when SOCKET_METRICS_SAMPLE_RATE is 1", () => {
     mockSampleRate.value = 1;

@@ -67,3 +67,14 @@ it("overwrites caller budgets with the remaining hub deadline without mutating b
   const legacy = bridgeSingleCommandSchema.parse({ method: "agent.getHealth", id: "h" });
   expect(applyActionIoDeadline(legacy, legacy, 10)).toBe(legacy);
 });
+
+it("charges the same remaining budget to each I/O item in a mixed batch", () => {
+  const legacy = bridgeSingleCommandSchema.parse({ method: "agent.getHealth", id: "legacy" });
+  const batch = [legacy, command];
+  const result = applyActionIoDeadline(batch, batch, 150, 1000);
+  expect(result).toEqual([
+    legacy,
+    { ...command, meta: { action_io_remaining_ms: 150, action_io_deadline_unix_ms: 1150 } },
+  ]);
+  expect(command).not.toHaveProperty("meta.action_io_remaining_ms");
+});

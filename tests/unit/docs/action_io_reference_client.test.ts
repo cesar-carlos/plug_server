@@ -212,3 +212,24 @@ it("preserves the canonical agent failure_code on a refused input", async () => 
     details: { failure_code: "ACTION_IO_CONTENT_CONFLICT", diagnostic_id: "diag" },
   });
 });
+it("explains unavailable resources without suggesting reconciliation of an unsent command", () => {
+  expect(new ActionIoClientError("CAPABILITY_UNAVAILABLE", false).message).toContain(
+    "Recurso indisponível",
+  );
+  expect(new ActionIoClientError(-32601, false).message).toContain("Método não implementado");
+  expect(new ActionIoClientError("ACTION_OUTCOME_UNKNOWN", true).message).toContain("reconcile");
+});
+
+it("recognizes an explicit method refusal on a mutation without replay", async () => {
+  const transport = vi.fn(async (command: ActionIoCommand) => ({
+    jsonrpc: "2.0",
+    id: command.id,
+    error: { code: -32601, message: "Method not found" },
+  }));
+  const client = new ActionIoReferenceClient(transport, () => "credential");
+  await expect(client.sendInput("e", "m", 0, new Uint8Array())).rejects.toMatchObject({
+    rpcCode: -32601,
+    outcomeUnknown: false,
+  });
+  expect(transport).toHaveBeenCalledTimes(1);
+});

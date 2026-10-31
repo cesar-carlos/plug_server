@@ -22,7 +22,13 @@ export class ActionIoClientError extends Error {
     readonly details: Readonly<Record<string, string | number | boolean | null>> = {},
     readonly rpcCode?: string | number,
   ) {
-    super(`Remote action I/O failed (${code}); reconcile before any new mutation.`);
+    super(
+      code === "CAPABILITY_UNAVAILABLE"
+        ? "Recurso indisponível no agente ou servidor. Verifique capability, reason e origin nos detalhes, a versão instalada e a habilitação local; reconecte após corrigir. Não há reenvio automático."
+        : code === -32601 || rpcCode === -32601
+          ? "Método não implementado pelo agente consultado. Verifique a versão e o suporte ao recurso; não há reenvio automático."
+          : `Remote action I/O failed (${code}); reconcile before any new mutation.`,
+    );
     this.name = "ActionIoClientError";
   }
 }
@@ -33,6 +39,51 @@ export class ActionIoReferenceClient {
     private readonly transport: ActionIoTransport,
     private readonly credential: () => string,
   ) {}
+
+  /** Check the current connection, credential, approval and trigger without launching. */
+  validateRun(actionId: string, triggerId?: string): Promise<Record<string, unknown>> {
+    return this.call("validateRun", {
+      action_id: actionId,
+      idempotency_key: randomUUID(),
+      ...(triggerId === undefined ? {} : { trigger_id: triggerId }),
+      io: { version: 1, mode: "faithful", close_input: false },
+    });
+  }
+
+  async *listAvailable(pageSize = 20): AsyncGenerator<Record<string, unknown>> {
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    do {
+      const page = await this.call("listAvailable", { page_size: pageSize, ...(cursor ? { cursor } : {}) });
+      for (const entry of page.actions as Record<string, unknown>[]) yield entry;
+      cursor = page.next_cursor as string | undefined;
+      if (cursor && seen.has(cursor)) throw new ActionIoClientError("INVALID_RESPONSE", false);
+      if (cursor) seen.add(cursor);
+    } while (cursor);
+  }
+
+  /** Filter an operator-provided catalog using this Client's live authorization. */
+  async availableActions(
+    candidates: readonly {
+      actionId: string;
+      triggerId?: string;
+      name: string;
+      input: string;
+      output: string;
+    }[],
+  ) {
+    const available = [];
+    for (const candidate of candidates) {
+      try {
+        const validation = await this.validateRun(candidate.actionId, candidate.triggerId);
+        if (validation.valid === true) available.push({ ...candidate });
+      } catch (error) {
+        if (!(error instanceof ActionIoClientError)) throw error;
+        if (error.code !== "ACTION_IO_UNAUTHORIZED" || error.details.reason !== "scope_or_action_denied") throw error;
+      }
+    }
+    return available;
+  }
 
   run(
     actionId: string,
@@ -156,7 +207,10 @@ export class ActionIoReferenceClient {
             : typeof code === "string" || typeof code === "number"
               ? code
               : "REMOTE_ERROR",
-        data?.effects_possible === true || (mutation && data?.effects_possible !== false),
+        code !== -32601 &&
+          (details.outcome_unknown === true ||
+            details.effects_possible === true ||
+            (mutation && details.effects_possible !== false)),
         details,
         typeof code === "string" || typeof code === "number" ? code : undefined,
       );

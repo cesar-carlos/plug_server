@@ -741,6 +741,7 @@ const swaggerDefinition = {
           { $ref: "#/components/schemas/RpcActionIoCloseInputCommand" },
           { $ref: "#/components/schemas/RpcActionIoGetInputStatusCommand" },
           { $ref: "#/components/schemas/RpcActionIoReadIoCommand" },
+          { $ref: "#/components/schemas/RpcActionCatalogCommand" },
           { $ref: "#/components/schemas/RpcActionIoFindExecutionCommand" },
           { $ref: "#/components/schemas/RpcClientTokenGetPolicyCommand" },
           { $ref: "#/components/schemas/RpcSourceDiscoveryCommand" },

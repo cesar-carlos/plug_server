@@ -18,7 +18,7 @@ import { resetSocketAgentMetrics } from "../../src/shared/metrics/socket_agent.m
 import {
   createPlugAgenteAjv,
   getPlugAgenteContractPaths,
-  PLUG_AGENTE_SCHEMA_FILES,
+  requiredPlugAgenteSchemas,
 } from "../helpers/plug_agente_contract";
 
 const plugAgentePaths = getPlugAgenteContractPaths();
@@ -86,6 +86,7 @@ const NEGOTIATED_METHODS = [
   "agent.action.closeInput",
   "agent.action.getInputStatus",
   "agent.action.readIo",
+  "agent.action.listAvailable",
   "agent.action.findExecution",
   "sql.describeSchema",
   "sql.describeSource",
@@ -147,7 +148,7 @@ contractDescribe("plug_agente contract (OpenRPC + JSON Schema vs hub Zod)", () =
   });
 
   it("includes all published schema files under docs/communication/schemas", () => {
-    for (const name of PLUG_AGENTE_SCHEMA_FILES) {
+    for (const name of requiredPlugAgenteSchemas(schemasDir)) {
       const p = join(schemasDir, name);
       expect(existsSync(p), `missing schema ${name}`).toBe(true);
     }

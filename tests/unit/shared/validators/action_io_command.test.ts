@@ -29,7 +29,7 @@ describe("I/O bridge command registration", () => {
     expect(requiresLiveCommandCapability(parsed)).toBe(true);
     expect(isAckRetryEligibleCommand(parsed)).toBe(false);
     expect(isAckRetryEligibleCommand([parsed])).toBe(false);
-    expect(() => assertCommandTransport(parsed, null)).toThrow(/not been negotiated/);
+    expect(() => assertCommandTransport(parsed, null)).toThrow(/indisponível/);
     expect(bridgeSingleCommandSchema.safeParse(request).success).toBe(false);
     expect(
       bridgeSingleCommandSchema.safeParse({

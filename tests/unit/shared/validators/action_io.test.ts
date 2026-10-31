@@ -8,6 +8,14 @@ import {
 } from "../../../../src/shared/validators/action_io";
 
 describe("faithful action I/O boundaries", () => {
+  it("accepts only canonical padding bits for every possible final sextet", () => {
+    for (const c of "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") {
+      for (const value of [`Z${c}==`, `Zm${c}=`]) {
+        const canonical = Buffer.from(value, "base64").toString("base64") === value;
+        expect(actionIoBlockSchema.safeParse(value).success).toBe(canonical);
+      }
+    }
+  });
   it("preserves every byte and accepts the decoded limit", () => {
     const bytes = Buffer.from(Array.from({ length: ACTION_IO_BLOCK_BYTES }, (_, i) => i % 256));
     const value = bytes.toString("base64");

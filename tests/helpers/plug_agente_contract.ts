@@ -4,7 +4,7 @@ import { join } from "node:path";
 import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 
-export const PLUG_AGENTE_SCHEMA_FILES = [
+export const ACTION_IO_SCHEMA_FILES = [
   "action-io.configuration.schema.json",
   "action-io.capability.schema.json",
   "rpc.params.agent-action-send-input.schema.json",
@@ -17,6 +17,9 @@ export const PLUG_AGENTE_SCHEMA_FILES = [
   "rpc.result.agent-action-read-io.schema.json",
   "rpc.params.agent-action-find-execution.schema.json",
   "rpc.result.agent-action-find-execution.schema.json",
+] as const;
+
+export const PLUG_AGENTE_SCHEMA_FILES = [
   "rpc.request.schema.json",
   "rpc.response.schema.json",
   "rpc.error.schema.json",
@@ -52,6 +55,23 @@ export const PLUG_AGENTE_SCHEMA_FILES = [
   "rpc.result.client-token-get-policy.schema.json",
   "auto_update_diagnostics.schema.json",
 ] as const;
+
+export function requiredPlugAgenteSchemas(schemasDir: string): readonly string[] {
+  const document = JSON.parse(readFileSync(join(schemasDir, "..", "openrpc.json"), "utf8")) as {
+    methods: readonly { name: string }[];
+  };
+  const ioMethods = new Set([
+    "agent.action.sendInput",
+    "agent.action.closeInput",
+    "agent.action.getInputStatus",
+    "agent.action.readIo",
+    "agent.action.findExecution",
+  ]);
+  // A declared extension requires its entire schema family, even if files are missing.
+  return document.methods.some(({ name }) => ioMethods.has(name))
+    ? [...PLUG_AGENTE_SCHEMA_FILES, ...ACTION_IO_SCHEMA_FILES]
+    : PLUG_AGENTE_SCHEMA_FILES;
+}
 
 export interface PlugAgenteContractPaths {
   readonly root: string;
@@ -122,7 +142,7 @@ export const registerPlugAgenteSchemas = (ajv: PlugAgenteAjv, schemasDir: string
   ajv.addSchema(read("rpc.batch.request.schema.json"));
   ajv.addSchema(read("rpc.batch.response.schema.json"));
 
-  for (const name of PLUG_AGENTE_SCHEMA_FILES) {
+  for (const name of requiredPlugAgenteSchemas(schemasDir)) {
     // The diagnostics push schema is agent->hub and draft-07; hub->agent AJV checks do not use it.
     if (
       name.startsWith("rpc.error") ||

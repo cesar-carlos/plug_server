@@ -1,6 +1,7 @@
 import { ActionIoClientError, type ActionIoTransport } from "./action_io_reference_client";
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { isRecord } from "../../src/shared/utils/rpc_types";
+import { actionIoErrorDetails } from "../../src/shared/utils/action_io_error_details";
 
 export interface ActionIoSocket {
   readonly connected: boolean;
@@ -55,6 +56,29 @@ export const createSocketActionIoTransport = (options: {
     pending.clear();
   };
   const disconnected = (): void => failAll("SOCKET_DISCONNECTED");
+  const relayAccepted = (body: unknown): void => {
+    if (
+      !isRecord(body) ||
+      body.success !== false ||
+      body.conversationId !== options.relayConversationId ||
+      typeof body.clientRequestId !== "string" ||
+      !isRecord(body.error) ||
+      typeof body.error.code !== "string"
+    )
+      return;
+    const item = pending.get(body.clientRequestId);
+    if (!item || item.send) return;
+    pending.delete(body.clientRequestId);
+    clearTimeout(item.timer);
+    const details = actionIoErrorDetails(body.error.details);
+    item.reject(
+      new ActionIoClientError(
+        body.error.code,
+        details.outcome_unknown === true || details.effects_possible !== false,
+        { ...details, request_id: body.clientRequestId },
+      ),
+    );
+  };
   const received = (wire: unknown): void => {
     if (pending.size === 0) return;
     try {
@@ -104,7 +128,21 @@ export const createSocketActionIoTransport = (options: {
             if (item) {
               pending.delete(id);
               clearTimeout(item.timer);
-              item.reject(new ActionIoClientError("INVALID_SOCKET_ENVELOPE", true));
+              if (
+                body.success === false &&
+                isRecord(body.error) &&
+                typeof body.error.code === "string"
+              ) {
+                const details = actionIoErrorDetails(body.error.details);
+                item.reject(
+                  new ActionIoClientError(body.error.code, details.effects_possible !== false, {
+                    ...details,
+                    request_id: id,
+                  }),
+                );
+              } else {
+                item.reject(new ActionIoClientError("INVALID_SOCKET_ENVELOPE", true));
+              }
             }
           }
           return;
@@ -141,6 +179,7 @@ export const createSocketActionIoTransport = (options: {
     }
   };
   options.socket.on(event, received);
+  if (relay) options.socket.on("relay:rpc.accepted", relayAccepted);
   options.socket.on("disconnect", disconnected);
   const transport: ActionIoTransport = async (command) => {
     if (disposed || !options.socket.connected)
@@ -191,6 +230,7 @@ export const createSocketActionIoTransport = (options: {
       if (disposed) return;
       disposed = true;
       options.socket.off(event, received);
+      if (relay) options.socket.off("relay:rpc.accepted", relayAccepted);
       options.socket.off("disconnect", disconnected);
       failAll("SOCKET_TRANSPORT_DISPOSED");
     },

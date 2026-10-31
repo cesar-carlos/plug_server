@@ -9,6 +9,7 @@ export const bridgeParityMethods = [
   "agent.action.closeInput",
   "agent.action.getInputStatus",
   "agent.action.readIo",
+  "agent.action.listAvailable",
   "agent.action.findExecution",
   "client_token.getPolicy",
   "rpc.discover",

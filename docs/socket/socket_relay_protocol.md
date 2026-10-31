@@ -381,6 +381,8 @@ Regras atuais no servidor:
   `SOCKET_AGENT_INBOUND_CONTRACT_VALIDATION` (`strict`, `warn`, `off`).
 - o ACK Socket.IO de `rpc:response` (`emitWithAck`) ocorre **depois** da decisao
   de decode, assinatura e validacao logica, e da admissao no sequenciador inbound.
+  O callback recebe exatamente um argumento `null`, compatível com
+  `emitWithAckAsync` do cliente Dart usado pelo plug_agente 1.8.6.
   Por compatibilidade, o hub tambem confirma o recebimento de frames que a
   validacao rejeita; o ACK e de transporte, nao um sinal de sucesso da RPC nem
   de entrega ao consumer. Um frame barrado pelo ingress guard antes do decode

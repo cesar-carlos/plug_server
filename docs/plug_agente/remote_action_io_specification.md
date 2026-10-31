@@ -23,10 +23,37 @@ alone must never validate a response to an unrelated method.
 
 ## Dispatch and security
 
+Unavailable capabilities fail before dispatch with `CAPABILITY_UNAVAILABLE` and
+safe reason/origin/recovery metadata. See [REST error example](../api/api_rest_bridge.md#mensagem-para-recurso-indisponível)
+for the shared REST/socket/relay contract. Missing capability alone does not prove
+an old installed version. Explicit JSON-RPC `-32601` remains distinct from an
+unknown outcome after dispatch; never retry or remove requested guarantees automatically.
+
+For a slow or reconnecting reader, `terminal` describes the execution. Drain
+the remaining pages from the saved cursor through the `completed` event. The
+[duplex load test](plug_node_alignment.md#carga-bidirecional-com-consumidor-lento-e-retomada-por-cursor)
+checks both stream hashes and measures latency and process memory for this case.
+
 REST, agents:command and relay support run/validateRun with optional io plus
 sendInput, closeInput, getInputStatus, readIo and findExecution. Existing
 cancel/getExecution semantics and legacy run/validate fields are preserved.
 Terminal duplicate run calls return the original execution.
+
+Faithful run and validation require a correlated response. Explicit `id: null`
+is refused before dispatch with `ACTION_IO_INVALID_REQUEST`. In an allowed mixed
+batch the hub applies its remaining deadline to each faithful I/O item. Unrelated
+items retain their own metadata. A preflight capability refusal or expired I/O
+budget does not count toward the agent circuit breaker.
+
+The hub checks a base64 block's alphabet, padding bits and decoded length before
+forwarding the original string. In a local Node 24.18.0 microbenchmark on
+2026-10-31, the median of seven rounds validating 400 canonical 64 KiB blocks
+fell from 100.9 ms to 81.3 ms after removing the decode/re-encode step. This
+measurement covers elapsed validation time only, excluding transport and execution.
+
+`agent.action.listAvailable` additionally requires catalog version 1. Omitting
+that advertisement produces `not_advertised`. An explicitly disabled capability
+produces `disabled`, and an unsupported version produces `incompatible`.
 
 Require authenticated current agent capability, exact v1 agreement and sufficient
 uncompressed frame/connection capacity before dispatch. The agent additionally
@@ -109,8 +136,9 @@ after dispatch it preserves uncertainty and never retries the request.
 
 ## Verification
 
-Latest runtime review: hub lint/typecheck pass; full suite: 2,556 passed and 25
-unrelated optional skips. The earlier dedicated I/O acceptance covered 208 tests
+Recorded runtime review on 2026-10-30: hub lint/typecheck pass; full suite: 2,556
+passed and 25 unrelated optional skips. These are dated results, not a claim
+about every later checkout. The earlier dedicated I/O acceptance covered 208 tests
 in 24 suites, no skips. Shared fixtures have SHA-256
 804a7ed26f8d8f742701bcd085a2bbfcce571f51f6a82e8d5edd595e6d1d5b5f in both repos.
 Agent analyzer and 1,373-contract/264-UI gate pass. Private authenticated
@@ -118,9 +146,7 @@ REST/socket/relay runs traverse the real Windows process; desktop, revocation,
 interruption, bounded readers and physical disk-full acceptance are recorded in
 the agent reference. Skips and schema-only tests never substitute for live cases.
 
-Independent recheck on 2026-10-30 repeated the current hub full suite (2,537
-passed, 25 skipped), lint and typecheck successfully. Retained agent evidence
-was inspected for the 18 journal interruption boundaries, interrupted native
+Retained agent evidence was inspected for the 18 journal interruption boundaries, interrupted native
 write/output recovery, all three transports and physical-volume exhaustion.
 The volume result explicitly records successful dismount. The current RPC
 response-preparer regression suite was also rerun after its later file update.
@@ -162,15 +188,13 @@ node tool/homologation/action_io_hub_smoke.mjs <server-root> --native <flutter-d
 node tool/homologation/action_io_hub_smoke.mjs <server-root> --native <flutter-dart-executable> --relay
 ```
 
-Controller logs are retained locally in the system temporary directory as
-`action-io-e2e-{rest,socket,relay}-current.log`; every controller exited zero.
 These fixtures do not certify public TLS, distributed deployments, the installed
 desktop bootstrap or a new full disk/crash acceptance run. Production remains off.
 
 The matrix was repeated after the final input-size precheck and strict HTTP
 JSON/UTF-8 decoding corrections: REST, socket and relay controllers all exited
-zero, including their embedded reference-client matrices. The current full hub
-suite passed 2,556 tests with 25 optional skips; lint and typecheck passed.
+zero, including their embedded reference-client matrices. The full hub suite
+and static checks for this round are recorded in Verification above.
 No additional code correction was needed during this repeat. Logs for this
 round are `action-io-final-{rest,socket,relay}.log` and
 `action-io-final-server-suite.log` in the local system temporary directory.

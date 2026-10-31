@@ -41,7 +41,8 @@ const baseline = JSON.parse(
 ) as BaselineFile;
 
 describe("socket bridge performance bench", () => {
-  it("keeps stream order and stays within relative SLO gates", async () => {
+  // Three median runs each execute nine repetitions per scenario.
+  it("keeps stream order and stays within relative SLO gates", { timeout: 600_000 }, async () => {
     const report = await runStableSocketBridgeBench(SOCKET_BRIDGE_BENCH_CI_OPTIONS);
     mkdirSync(path.join(process.cwd(), "tmp"), { recursive: true });
     writeFileSync(

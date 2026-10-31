@@ -23,7 +23,9 @@ export const buildHttpErrorResponseBody = (input: {
   readonly issues?: ReadonlyArray<{ readonly field: string; readonly message: string }> | undefined;
 }): HttpErrorResponseBody => {
   const actionDetails =
-    input.code.startsWith("ACTION_") || input.code === "OUTPUT_EXPIRED"
+    input.code.startsWith("ACTION_") ||
+    input.code === "OUTPUT_EXPIRED" ||
+    input.code === "CAPABILITY_UNAVAILABLE"
       ? actionIoErrorDetails(input.details)
       : undefined;
   const exposedDetails =

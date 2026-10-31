@@ -1,3 +1,4 @@
+import { actionIoErrorDetails } from "../../../shared/utils/action_io_error_details";
 import type { Socket } from "socket.io";
 import { z } from "zod";
 
@@ -342,7 +343,10 @@ export const handleRelayRpcRequest = (
         ...(clientRequestId && { clientRequestId }),
         error: {
           code: appError?.code ?? "RELAY_RPC_REQUEST_FAILED",
-          message: err instanceof Error ? err.message : "Failed to relay request",
+          message: appError?.message ?? "Failed to relay request",
+          ...(appError?.code === "CAPABILITY_UNAVAILABLE"
+            ? { details: actionIoErrorDetails(appError.details) }
+            : {}),
           ...(typeof appError?.statusCode === "number" && { statusCode: appError.statusCode }),
           ...(retryAfterMs !== undefined && { retryAfterMs }),
         },

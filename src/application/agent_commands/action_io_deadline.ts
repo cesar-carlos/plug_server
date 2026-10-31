@@ -67,6 +67,11 @@ export const applyActionIoDeadline = (
   now = Date.now(),
 ): unknown => {
   if (!requiresActionIoCapability(command)) return payload;
+  if (Array.isArray(command) && Array.isArray(payload)) {
+    return command.map((item, index) =>
+      applyActionIoDeadline(item, payload[index], remainingMs, now),
+    );
+  }
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return payload;
   const bounded = limitActionIoReadWait(payload, remainingMs) as Record<string, unknown>;
   const remaining = Math.max(0, Math.min(30000, Math.floor(remainingMs)));

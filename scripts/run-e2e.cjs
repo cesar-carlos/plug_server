@@ -7,6 +7,7 @@
 
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { PrismaPg } = require("@prisma/adapter-pg");
 const { PrismaClient } = require("@prisma/client");
 
 const root = path.resolve(__dirname, "..");
@@ -60,6 +61,7 @@ const logLiveSuiteStatus = async () => {
 
 const ensureDatabaseIsReady = async () => {
   const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
     log: ["error"],
   });
   try {

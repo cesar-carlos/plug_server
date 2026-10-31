@@ -393,6 +393,7 @@ describe("rpc_bridge_agent_inbound", () => {
     });
     h.handleAgentRpcResponse("socket-test", "not-a-payload-frame", ack);
     await vi.waitFor(() => expect(ack).toHaveBeenCalledTimes(1));
+    expect(ack).toHaveBeenCalledWith(null);
   });
 
   it("rejects a read page returned as a sendInput receipt before resolving REST", async () => {

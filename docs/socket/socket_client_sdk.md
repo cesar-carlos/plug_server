@@ -26,6 +26,32 @@ acima de alguns MiB), preferir Socket/relay e sinalizar
 
 **Catalogo de metodos RPC no bridge** (`sql.execute`, `client_token.getPolicy`, `rpc.discover`, etc.), limites UTF-8 e exemplos: `docs/api/api_rest_bridge.md` (fonte normativa partilhada com o REST).
 
+### I/O fiel de processos
+
+No relay, trate `relay:rpc.accepted` com `success: false` como recusa terminal da
+chamada identificada por `conversationId` e `clientRequestId`. Esperar pelo evento
+de resultado nesse caso transforma a recusa em timeout. Veja o [exemplo de erro](../api/api_rest_bridge.md#mensagem-para-recurso-indisponível).
+
+`agentActions.io` v1 permite entrada inicial em `run`, entrada adicional por
+`sendInput`, EOF por `closeInput`, consulta por `getInputStatus` e saída paginada
+por `readIo`. Requer negociação e autorização específicas. Use o
+[contrato de integração](../plug_agente/remote_action_io_specification.md), os
+[exemplos JSON-RPC](../plug_agente/remote_action_io_examples.md) e o
+[adaptador Socket/relay](../snippets/action_io_socket_transport.ts).
+
+A saída não usa chunks SQL. Persista chave de idempotência, execution_id,
+identidades/sequências de entrada e cursor confirmado. Após reconectar com a
+mesma identidade autorizada, consulte `findExecution`/`getExecution` e mensagens
+incertas antes de retomar a leitura. Desconectar não fecha stdin nem cancela o
+processo. Não repita automaticamente run, sendInput ou closeInput.
+
+Falhas do hub em `agents:command_response` usam `success:false` e
+`error:{code,message,details?}`, fora de `response.item`. Para `ACTION_*` e
+`OUTPUT_EXPIRED`, `details` preserva os campos seguros de reconciliação
+(diagnóstico, fase/origem, entrega, efeitos e recuperação). O consumidor deve
+tratar esse envelope além dos erros JSON-RPC do agente; não substituí-lo por
+um erro genérico de formato nem usar o conteúdo como permissão para replay.
+
 ### Producao — alinhamento Colmeia (smoke)
 
 - `SOCKET_CONSUMER_ROLES`: o default em `env.ts` e `user,admin,client`. Se a env listar apenas `user,admin` (sem o literal `client`), o parse **acrescenta** `client` automaticamente (`parseSocketConsumerRolesValue`); o arranque pode registar `INFO` `socket_consumer_roles_ensured_client`. Para Colmeia, garantir que o JWT de `Client` usa `role=client` e que esse papel nao foi removido por configuracao anomala (o runtime nunca remove `client` apos o parse).
@@ -172,6 +198,11 @@ reencode e nova assinatura no hub; eventos, correlações e créditos não mudam
 - **Rate limits**: relay (`relay:conversation.start`, `relay:rpc.request`, creditos de `relay:rpc.stream.pull`), `agents:command`, `agents:stream_pull` e `agent:register` tem tetos por janela. Quando `SOCKET_RATE_LIMIT_REDIS_URL` esta configurado, esses limitadores Socket usam Redis com fallback fail-open para memoria; caso contrario ficam locais ao processo. Respostas **429** quando excedido. No relay, dedupe (`deduplicated: true`) e falhas profundas de validacao `400` marcadas como refundaveis nao devem consumir quota final da janela; o hub faz rollback do contador.
 - **Retry-After**: erros Socket de overload podem incluir `retryAfterMs`. Em `agents:command_response`, se o agente retornar erro JSON-RPC `-32013` com `error.data.retry_after_ms`, o hub adiciona `retryAfterSeconds`, espelhando o header `Retry-After` do REST. No relay, o frame JSON-RPC do agente continua sendo fonte de verdade; leia `error.data.retry_after_ms`.
 - **Helper recomendado**: clientes podem copiar a politica pura de `src/shared/utils/socket_retry_after_policy.ts` para normalizar todos os formatos publicos de retry em milissegundos antes de aplicar backoff com jitter.
+
+`Retry-After` informa uma espera, não prova ausência de efeitos. Para ações I/O
+e operações SQL duráveis, respeite a recuperação estruturada do erro e consulte
+o registro quando o dispatch puder ter ocorrido. A política de backoff não
+autoriza replay de mutações nem substitui a reconciliação de resultado desconhecido.
 - **Streaming relay**: o consumer deve emitir `relay:rpc.stream.pull` com `window_size` para conceder créditos; sem créditos, o hub pode **bufferizar** chunks ate um teto e depois encerrar o stream com `relay:rpc.complete` terminal (`terminal_status: "aborted"`). Se o agente abrir `stream_id` e nunca enviar `rpc:complete`, o hub encerra por idle timeout ou lifetime maximo com `relay:rpc.complete` (`terminal_status: "error"`, `error_code: "RELAY_STREAM_TIMEOUT"`).
 - **Consumer idle timeout**: sweeps desligam sockets `/consumers` inactivos apos `SOCKET_CONSUMER_IDLE_TIMEOUT_MS` (defeito 30 min); emite `app:error` com `code: CONSUMER_IDLE_TIMEOUT` antes do disconnect. Apenas eventos **inbound validos iniciados pelo cliente** refrescam `lastSeenAt` (`consumer_idle_touch_events.ts`): `agents:command`, `agents:stream_pull`, `relay:conversation.start/end`, `relay:rpc.request`, `relay:rpc.request.batch`, `relay:rpc.stream.pull`, `socket:event.subscribe/unsubscribe/publish`. Payloads malformados, rejeicoes de overload (`503`) e envelopes invalidos **nao** renovam o relogio. Trafego hub→consumer de alta frequencia (`agents:command_response`, `agents:command_stream_`*, chunks/respostas relay reflectidas, `client:agent.profile.updated`, etc.) **nao** reinicia o relogio idle — receber stream passivo nao mantem a sessao viva. Para sessoes longas com pouco trafego de comando, emitir periodicamente um evento significativo (ex. heartbeat de aplicacao via `agents:command` ou `relay:rpc.request`). Config: `docs/configuration.md` (*Idle enforcement\*). Metrica: `plug_consumer_idle_timeout_disconnect_total` — ver `docs/observability/observability.md`.
 - **REST vs Socket**: o REST **materializa** streams SQL num único JSON; para muitas linhas ou baixa latência por chunk, usar Socket (legado ou relay).

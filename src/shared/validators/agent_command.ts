@@ -4,6 +4,7 @@ import {
   actionIoCloseInputParamsSchema,
   actionIoGetInputStatusParamsSchema,
   actionIoReadParamsSchema,
+  actionCatalogParamsSchema,
   actionIoFindExecutionParamsSchema,
 } from "./action_io";
 import { legacyArray } from "./legacy_array";
@@ -607,6 +608,10 @@ const actionIoReadCommandSchema = actionIoEnvelope.extend({
   method: z.literal("agent.action.readIo"),
   params: actionIoReadParamsSchema,
 });
+const actionCatalogCommandSchema = actionIoEnvelope.extend({
+  method: z.literal("agent.action.listAvailable"),
+  params: actionCatalogParamsSchema,
+});
 const actionIoFindExecutionCommandSchema = actionIoEnvelope.extend({
   method: z.literal("agent.action.findExecution"),
   params: actionIoFindExecutionParamsSchema,
@@ -622,6 +627,7 @@ export const supportedAgentRpcMethods = [
   "agent.action.closeInput",
   "agent.action.getInputStatus",
   "agent.action.readIo",
+  "agent.action.listAvailable",
   "agent.action.findExecution",
   "client_token.getPolicy",
   "rpc.discover",
@@ -647,6 +653,7 @@ export const bridgeSingleCommandSchema = z.discriminatedUnion("method", [
   actionIoCloseInputCommandSchema,
   actionIoGetInputStatusCommandSchema,
   actionIoReadCommandSchema,
+  actionCatalogCommandSchema,
   actionIoFindExecutionCommandSchema,
   clientTokenGetPolicyCommandSchema,
   sourceSchemaCommandSchema,

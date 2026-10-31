@@ -40,6 +40,7 @@ it("advertises the exact agreement in an opted-in isolated test and rechecks dis
   expect(buildHubServerCapabilities().extensions.agentActions).toEqual({
     enabled: true,
     version: 1,
+    catalogVersion: 1,
     io: ACTION_IO_TRANSPORT,
   });
   expect(() => assertActionIoTransport(command, peer)).not.toThrow();

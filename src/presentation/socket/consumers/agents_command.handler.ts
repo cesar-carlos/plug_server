@@ -25,6 +25,7 @@ import { socketEvents } from "../../../shared/constants/socket_events";
 import { isRecord, toRequestId } from "../../../shared/utils/rpc_types";
 import { AgentDisconnectedBeforeDispatchError } from "../../../shared/errors/agent_disconnected_before_dispatch.error";
 import { AppError } from "../../../shared/errors/app_error";
+import { actionIoErrorDetails } from "../../../shared/utils/action_io_error_details";
 import {
   allowAgentsCommandSocketAsync,
   estimateAgentsCommandRateLimitCost,
@@ -371,7 +372,11 @@ const runAgentsCommand = async (
 
       const appError = err instanceof AppError ? err : undefined;
       const code = appError?.code ?? "COMMAND_FAILED";
-      const message = err instanceof Error ? err.message : "Command execution failed";
+      const details =
+        code.startsWith("ACTION_") || code === "OUTPUT_EXPIRED" || code === "CAPABILITY_UNAVAILABLE"
+          ? actionIoErrorDetails(appError?.details)
+          : {};
+      const message = appError?.message ?? "Command execution failed";
       const statusCode = appError?.statusCode;
       const retryAfterMs = resolveAppErrorRetryAfterMs(err);
       if (retryAfterMs !== undefined) {
@@ -394,6 +399,7 @@ const runAgentsCommand = async (
           error: {
             code,
             message,
+            ...(Object.keys(details).length > 0 ? { details } : {}),
             ...(typeof statusCode === "number" ? { statusCode } : {}),
             ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
           },

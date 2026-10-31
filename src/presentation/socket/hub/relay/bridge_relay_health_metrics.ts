@@ -1,6 +1,7 @@
 import { env } from "../../../../shared/config/env";
 import { sampledMetricDelta } from "../../../../shared/metrics/metrics_sample";
 import { serviceUnavailableWithRetry } from "../../../../shared/errors/http_errors";
+import { AppError } from "../../../../shared/errors/app_error";
 import { logger } from "../../../../shared/utils/logger";
 import {
   createLatencyRingBuffer,
@@ -229,7 +230,17 @@ export const ensureAgentCircuitClosed = (agentId: string, channel: AgentCircuitC
   }
 };
 
-export const registerAgentFailure = (agentId: string, channel: AgentCircuitChannel): void => {
+export const registerAgentFailure = (
+  agentId: string,
+  channel: AgentCircuitChannel,
+  cause?: unknown,
+): void => {
+  // A local preflight refusal provides no evidence that the agent is unhealthy.
+  if (
+    cause instanceof AppError &&
+    (cause.code === "CAPABILITY_UNAVAILABLE" || cause.code === "ACTION_IO_REQUEST_EXPIRED")
+  )
+    return;
   const key = circuitStateKey(agentId, channel);
   const state = getCircuitState(key);
   // getCircuitState already set lastTouchedAtMs = Date.now(); reuse it for openUntilMs.

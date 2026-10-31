@@ -31,7 +31,8 @@ const CONTRACT_MAJOR = Number.parseInt(majorArg ?? process.env.PLUG_MCP_CONTRACT
 if (!Number.isInteger(CONTRACT_MAJOR) || CONTRACT_MAJOR < 1)
   throw new Error("--major must be a positive integer");
 const CONTRACT_VERSION =
-  process.env.PLUG_MCP_CONTRACT_VERSION ?? `${CONTRACT_MAJOR}.${CONTRACT_MAJOR === 1 ? 15 : 0}.0`;
+  process.env.PLUG_MCP_CONTRACT_VERSION ??
+  `${CONTRACT_MAJOR}.${CONTRACT_MAJOR === 1 ? 15 : CONTRACT_MAJOR === 2 ? 2 : 0}.0`;
 const target = resolve(process.cwd(), "contracts", `plug-mcp-rest-v${CONTRACT_MAJOR}.json`);
 const baselineTarget = resolve(
   process.cwd(),

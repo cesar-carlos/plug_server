@@ -1,3 +1,7 @@
+import {
+  capabilityReason,
+  capabilityUnavailable,
+} from "../../shared/errors/capability_unavailable";
 import { buildHubServerCapabilities } from "../../shared/constants/agent_transport_contract";
 import { ACTION_IO_TRANSPORT, supportsActionIo } from "../../shared/constants/action_io_transport";
 import { AppError } from "../../shared/errors/app_error";
@@ -6,12 +10,14 @@ import { isRecord } from "../../shared/utils/rpc_types";
 interface IoCommand {
   readonly method: string;
   readonly params?: unknown;
+  readonly id?: unknown;
 }
 const ioMethods = new Set([
   "agent.action.sendInput",
   "agent.action.closeInput",
   "agent.action.getInputStatus",
   "agent.action.readIo",
+  "agent.action.listAvailable",
   "agent.action.findExecution",
 ]);
 export const requiresActionIoCapability = (command: IoCommand | readonly IoCommand[]): boolean =>
@@ -30,6 +36,14 @@ export const assertActionIoTransport = (
   hubExtensions: Readonly<Record<string, unknown>> = buildHubServerCapabilities().extensions,
 ): void => {
   if (!requiresActionIoCapability(command)) return;
+  const items: readonly IoCommand[] = Array.isArray(command) ? command : [command];
+  if (items.some((item) => item.id === null && requiresActionIoCapability(item))) {
+    throw new AppError("O I/O remoto exige uma resposta. Envie um identificador JSON-RPC válido.", {
+      statusCode: 400,
+      code: "ACTION_IO_INVALID_REQUEST",
+      details: { retryable: false, effects_possible: false },
+    });
+  }
   const extensions =
     capabilities && isRecord(capabilities.extensions) ? capabilities.extensions : null;
   const compatible = (value: unknown): boolean => {
@@ -66,13 +80,29 @@ export const assertActionIoTransport = (
         );
       },
     );
-  if (!compatible(extensions) || !compatible(hubExtensions) || !supportsUncompressedJson) {
-    throw new AppError("Faithful action I/O has not been negotiated by both peers.", {
-      statusCode: 409,
-      code: "CAPABILITY_UNAVAILABLE",
-      details: { retryable: false },
-    });
+  const needsCatalog = items.some((item) => item.method === "agent.action.listAvailable");
+  for (const [origin, value] of [
+    ["hub", hubExtensions],
+    ["agent", extensions],
+  ] as const) {
+    if (needsCatalog) {
+      const actions = isRecord(value) ? value.agentActions : undefined;
+      const catalog =
+        isRecord(actions) && actions.enabled !== false ? actions.catalogVersion : actions;
+      if (catalog !== 1) {
+        throw capabilityUnavailable("agentActions.catalog v1", capabilityReason(catalog), origin);
+      }
+    }
+    if (!compatible(value)) {
+      const actions = isRecord(value) ? value.agentActions : undefined;
+      const advertised =
+        isRecord(actions) && actions.enabled === true && actions.version === 1
+          ? actions.io
+          : actions;
+      throw capabilityUnavailable("agentActions.io v1", capabilityReason(advertised), origin);
+    }
   }
+  if (!supportsUncompressedJson) throw capabilityUnavailable("agentActions.io v1", "incompatible");
   if (
     Array.isArray(command) &&
     command.some(

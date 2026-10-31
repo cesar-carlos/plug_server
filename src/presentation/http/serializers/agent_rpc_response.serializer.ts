@@ -47,6 +47,14 @@ const normalizeRpcError = (value: unknown): NormalizedRpcError => {
   }
 
   const code = typeof value.code === "number" ? value.code : -32603;
+  if (code === -32601) {
+    return {
+      code,
+      message:
+        "Método não implementado pelo agente consultado. Verifique a versão instalada e o suporte ao recurso; não há reenvio automático.",
+      ...(value.data !== undefined ? { data: value.data } : {}),
+    };
+  }
   const message =
     typeof value.message === "string" && value.message.trim() !== ""
       ? value.message

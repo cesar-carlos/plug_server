@@ -1,3 +1,4 @@
+import { actionIoErrorDetails } from "../../../shared/utils/action_io_error_details";
 /**
  * Socket handler for `relay:rpc.request.batch` — the consumer-facing batch
  * variant of `relay:rpc.request`. See `docs/adrs/0008-relay-batch-protocol.md`
@@ -492,6 +493,9 @@ export const handleRelayRpcRequestBatch = (
             clientRequestId: item.clientRequestId,
             error: {
               code: appError?.code ?? "BATCH_ITEM_DISPATCH_FAILED",
+              ...(appError?.code === "CAPABILITY_UNAVAILABLE"
+                ? { details: actionIoErrorDetails(appError.details) }
+                : {}),
               message: reason instanceof Error ? reason.message : "Failed to dispatch batch item",
               ...(typeof appError?.statusCode === "number"
                 ? { statusCode: appError.statusCode }
@@ -548,6 +552,9 @@ export const handleRelayRpcRequestBatch = (
         conversationId: envelope.conversationId,
         error: {
           code: appError?.code ?? "RELAY_BATCH_REQUEST_FAILED",
+          ...(appError?.code === "CAPABILITY_UNAVAILABLE"
+            ? { details: actionIoErrorDetails(appError.details) }
+            : {}),
           message: err instanceof Error ? err.message : "Failed to relay batch request",
           ...(typeof appError?.statusCode === "number" ? { statusCode: appError.statusCode } : {}),
         },

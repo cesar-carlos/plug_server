@@ -93,7 +93,7 @@ export type RpcBridgeAgentInboundHandlers = {
   readonly handleAgentRpcResponse: (
     socketId: string,
     rawPayload: unknown,
-    ack?: () => void,
+    ack?: (receipt: null) => void,
   ) => void;
   readonly handleAgentRpcChunk: (socketId: string, rawPayload: unknown) => void;
   readonly handleAgentRpcComplete: (socketId: string, rawPayload: unknown) => void;
@@ -192,7 +192,7 @@ export const createRpcBridgeAgentInboundHandlers = (
   const handleAgentRpcResponse = (
     socketId: string,
     rawPayload: unknown,
-    ack?: () => void,
+    ack?: (receipt: null) => void,
   ): void => {
     const inboundSyncStart = performance.now();
     const decodeStart = inboundSyncStart;
@@ -203,7 +203,8 @@ export const createRpcBridgeAgentInboundHandlers = (
       }
       ackInvoked = true;
       try {
-        ack();
+        // Dart emitWithAckAsync expects one argument, even for an empty receipt.
+        ack(null);
       } catch {
         /* ignore: consumer disconnected */
       }

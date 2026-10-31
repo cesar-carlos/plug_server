@@ -1,7 +1,7 @@
 ﻿# Plug Server - Visao Geral do Projeto
 
-Este e o ponto de entrada da documentacao. Para navegar por escopo, ver
-`docs/README.md`.
+Esta página apresenta os papéis e canais do produto. O ponto de entrada da
+documentação é o [índice por assunto](README.md).
 
 Para rotas HTTP, use `/api/v1` como prefixo canonico. O servico mantem aliases de
 compatibilidade para `/auth/*` (tambem sob `/api/v1/auth/*`). O `GET /metrics`
@@ -79,6 +79,12 @@ Entrada principal: `POST /api/v1/agents/commands`.
 Quando a carga for alta ou o payload for grande/streaming, preferir Socket
 (`relay:*`) em vez de escalar apenas limites do canal REST.
 
+A saída de processos em I/O fiel usa páginas persistidas por `readIo`, inclusive
+via REST com espera longa; não usa o streaming SQL acima. O cliente pode enviar
+entrada inicial e adicional, fechar stdin e retomar a leitura por cursor.
+Veja o [fluxo REST completo](api/api_rest_bridge.md#fluxo-rest-completo-de-io-fiel)
+e o [contrato de integração I/O](plug_agente/remote_action_io_specification.md).
+
 Detalhes normativos: `docs/api/api_rest_bridge.md`.
 
 ### Socket em `/consumers`
@@ -124,6 +130,11 @@ no bridge do consumer. Ver `docs/configuration.md`.
 No disconnect e no reconnect L0 o agente descarta capabilities, ACKs e trabalho
 pendente da geracao anterior. Respostas da sessao perdida nao sao reenviadas;
 o hub encerra pendencias REST com 503 e relay com `AGENT_DISCONNECTED`.
+
+Para mutações duráveis de ações e operações SQL, uma perda após dispatch pode
+significar resultado desconhecido e exige consulta/reconciliação. Não se deve
+inferir ausência de efeitos desses erros nem repetir automaticamente a mutação.
+Desconexão do consumidor não cancela a execução de uma ação I/O fiel.
 
 ## Fluxo resumido
 

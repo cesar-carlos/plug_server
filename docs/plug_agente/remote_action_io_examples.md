@@ -353,3 +353,72 @@ and now pass with two concurrent requests and configured ACK retries. Desktop
 fixture `sql-operation-bootstrap-FUadcE` also passed REST/socket/relay concurrent
 same-key runs, terminal validation, content-conflict refusal and restart. This is
 private fixture evidence, not production activation or full acceptance.
+
+### Executar e retomar o exemplo de eco
+
+Configure a ação com o script `tool/homologation/action_io_echo.ps1` do agente.
+No terminal do cliente, configure `PLUG_HUB_URL`, `PLUG_AGENT_ID`,
+`PLUG_CLIENT_ID`, `PLUG_ACTION_NAME`, `PLUG_HUB_TOKEN` e `PLUG_AGENT_TOKEN`.
+O nome precisa identificar uma única ação autorizada para esse Client.
+A partir do repositório do servidor, execute:
+
+```sh
+npx --no-install tsx docs/snippets/action_io_echo_client.ts rest ./echo-rest --stop-after-input
+npx --no-install tsx docs/snippets/action_io_echo_client.ts rest ./echo-rest
+npx --no-install tsx docs/snippets/action_io_echo_client.ts socket ./echo-socket
+```
+
+Para reutilizar a sessão no seu cliente, abra `ActionIoSession.open(client,
+directory, target, initial)` e use `write("passo-1", bytes)`, `close("fim")` e
+`consume(initialState, consumePage)`. O rótulo identifica a operação lógica
+após reinício. A sessão recusa outro conteúdo para o mesmo rótulo. O callback
+recebe os bytes decodificados e retorna o estado JSON mínimo que confirma a
+página. Se escrever em outro banco, deduplique pelo ID da execução e sequência
+do evento para cobrir interrupções entre o efeito externo e o checkpoint local.
+Use um consumidor por diretório e não inclua segredos no estado do callback.
+
+O primeiro comando confirma a escrita e deixa stdin aberto. O segundo recupera
+a mesma execução, fecha stdin e verifica stdout, stderr, saída zero e captura
+completa. O terceiro inicia um teste independente via socket. Use um diretório
+privado, local e exclusivo por teste. Preserve os arquivos após falhas:
+eles contêm os IDs de reconciliação e os offsets confirmados. Uma intenção
+sem confirmação exige investigação antes de iniciar outro teste.
+
+### Descobrir ações sem conhecer o ID
+
+Com a credencial do Client e o transporte REST ou socket já configurados,
+use o iterador do cliente de referência. Ele avança por páginas e propaga
+falhas de autorização ou de negociação.
+
+```ts
+for await (const action of client.listAvailable()) {
+  console.log(action.name, action.action_id, action.trigger_ids);
+}
+```
+
+São exigidos os escopos de listagem, execução e I/O. Descrições nulas
+significam formato não informado. Após escolher a ação, execute
+`validateRun(actionId, triggerId)` antes de iniciar a sessão.
+
+### Catálogo e diagnóstico antes da execução
+
+O integrador prepara uma lista de ações conhecidas pelo Client com nome, ID,
+descrição da entrada e descrição da saída. Passe somente o catálogo destinado
+a esse Client. O cliente de referência consulta o agente pela conexão atual
+antes de retornar as entradas. A consulta é sequencial e não inicia processos.
+
+```ts
+const actions = await client.availableActions([{
+  actionId,
+  name: "Eco binário",
+  input: "Bytes em stdin até o fechamento",
+  output: "Os mesmos bytes em stdout",
+}]);
+```
+
+Para diagnosticar uma ação específica, use `await client.validateRun(actionId, triggerId)`.
+Um resultado válido confirma a validação naquele instante. A execução exige sua
+própria autorização. Falhas de conexão, credencial ou capability devem ser
+tratadas pelos detalhes do erro do cliente de referência. A descrição do formato
+de negócio pertence ao integrador. O hub continua transportando os bytes.
+For an action with several remote triggers, set `PLUG_TRIGGER_ID` to a trigger ID from its catalog entry. The example validates and runs the same trigger. Use the same selection when resuming its checkpoint.

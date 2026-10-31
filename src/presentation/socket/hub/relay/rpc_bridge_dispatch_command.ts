@@ -1,3 +1,4 @@
+import { capabilityUnavailable } from "../../../../shared/errors/capability_unavailable";
 import { createActionIoReadCancellation } from "./action_io_read_cancellation";
 import { actionIoReadCapacity } from "../../../../shared/di/action_io_read_capacity";
 import { actionIoQueueSignal } from "../../../../application/agent_commands/action_io_deadline";
@@ -297,11 +298,7 @@ export const createDispatchRpcCommandToAgent = (
           agentId: input.agentId,
           signal: actionIoQueueSignal(command, timeoutMs, dispatchWallStart, input.signal),
           configuredLimit: env.socketRestAgentMaxInflight,
-          acquireControl: () =>
-            acquireRestAgentDispatchSlot(
-              input.agentId,
-              actionIoQueueSignal(command, timeoutMs, dispatchWallStart, input.signal),
-            ),
+          acquireControl: (signal) => acquireRestAgentDispatchSlot(input.agentId, signal),
         });
         input.latencyTrace?.addPhaseMs("queue_wait_ms", performance.now() - tQueue);
         try {
@@ -589,11 +586,7 @@ export const createDispatchRpcCommandToAgent = (
           agentId: input.agentId,
           signal: actionIoQueueSignal(command, timeoutMs, dispatchWallStart, input.signal),
           configuredLimit: env.socketRestAgentMaxInflight,
-          acquireControl: () =>
-            acquireRestAgentDispatchSlot(
-              input.agentId,
-              actionIoQueueSignal(command, timeoutMs, dispatchWallStart, input.signal),
-            ),
+          acquireControl: (signal) => acquireRestAgentDispatchSlot(input.agentId, signal),
         });
       } catch (error: unknown) {
         clearPendingRegistration();
@@ -652,11 +645,7 @@ export const createDispatchRpcCommandToAgent = (
               agentRegistry.getSocketIdByAgentId(input.agentId) !== registeredAgentSocketId ||
               !agentRegistry.getProtocolReadiness(input.agentId).ready
             ) {
-              throw new AppError("Agent session changed before SQL operation dispatch.", {
-                statusCode: 409,
-                code: "CAPABILITY_UNAVAILABLE",
-                details: { retryable: false },
-              });
+              throw capabilityUnavailable("conexão autenticada", "session_changed");
             }
             assertCommandTransport(command, agentRegistry.getCapabilitiesByAgentId(input.agentId));
           }
@@ -679,7 +668,7 @@ export const createDispatchRpcCommandToAgent = (
           if (existingStream && existingStream.agentSocketId === registeredAgentSocketId) {
             removeActiveStreamRoute(existingStream, { restMaterialize: "detach" });
           }
-          registerAgentFailure(input.agentId, "rest");
+          registerAgentFailure(input.agentId, "rest", error);
           const emitError =
             error instanceof Error ? error : serviceUnavailable("Failed to emit rpc:request");
           if (!pendingSettled) {

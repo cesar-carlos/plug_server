@@ -44,6 +44,72 @@ const result = {
   stdin_state: "failed",
 };
 afterEach(() => vi.useRealTimers());
+it("correlates a relay preflight refusal and avoids waiting for an RPC response", async () => {
+  const socket = new SocketFixture();
+  const transport = createSocketActionIoTransport({
+    socket,
+    agentId: "a",
+    relayConversationId: "c",
+  });
+  try {
+    const pending = transport(command);
+    const refusal = {
+      success: false,
+      clientRequestId: command.id,
+      error: {
+        code: "CAPABILITY_UNAVAILABLE",
+        details: { effects_possible: false, reason: "not_advertised" },
+      },
+    };
+    socket.receive("relay:rpc.accepted", {
+      ...refusal,
+      conversationId: "other",
+      error: { code: "OTHER" },
+    });
+    socket.receive("relay:rpc.accepted", { ...refusal, conversationId: "c" });
+    await expect(pending).rejects.toMatchObject({
+      code: "CAPABILITY_UNAVAILABLE",
+      outcomeUnknown: false,
+      details: { reason: "not_advertised" },
+    });
+    expect(socket.sent).toHaveLength(1);
+  } finally {
+    transport.dispose();
+  }
+  expect(socket.listeners.get("relay:rpc.accepted")?.size).toBe(0);
+});
+it("preserves hub failure reconciliation instead of replacing it with an envelope error", async () => {
+  const socket = new SocketFixture();
+  const transport = createSocketActionIoTransport({ socket, agentId: "a" });
+  try {
+    const pending = transport(command);
+    const assertion = expect(pending).rejects.toMatchObject({
+      code: "ACTION_OUTCOME_UNKNOWN",
+      outcomeUnknown: true,
+      details: { diagnostic_id: "diag", recovery: "query_execution", request_id: command.id },
+    });
+    socket.receive(
+      "agents:command_response",
+      encodePayloadFrame({
+        success: false,
+        requestId: command.id,
+        error: {
+          code: "ACTION_OUTCOME_UNKNOWN",
+          details: {
+            diagnostic_id: "diag",
+            recovery: "query_execution",
+            effects_possible: true,
+            payload: "private",
+          },
+        },
+      }),
+    );
+    await assertion;
+    expect(socket.sent).toHaveLength(1);
+  } finally {
+    transport.dispose();
+  }
+});
 for (const relay of [false, true]) {
   it(`preserves binary requests and unknown receipts over ${relay ? "relay" : "socket"}`, async () => {
     const socket = new SocketFixture();

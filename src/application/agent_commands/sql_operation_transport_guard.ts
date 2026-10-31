@@ -1,3 +1,7 @@
+import {
+  capabilityReason,
+  capabilityUnavailable,
+} from "../../shared/errors/capability_unavailable";
 import { negotiateSqlOperations } from "../../shared/constants/sql_operation_transport";
 import { AppError } from "../../shared/errors/app_error";
 import { isRecord } from "../../shared/utils/rpc_types";
@@ -25,6 +29,8 @@ export const assertSqlOperationTransport = (
   capabilities: Record<string, unknown> | null,
 ): void => {
   const items = Array.isArray(command) ? command : [command];
+  const advertised =
+    capabilities && isRecord(capabilities.extensions) ? capabilities.extensions : {};
   const needsConstraints = items.some((item) => {
     if (
       !isRecord(item.params) ||
@@ -44,11 +50,10 @@ export const assertSqlOperationTransport = (
       !isRecord(capabilities.extensions) ||
       capabilities.extensions.sourceConstraints !== 1)
   )
-    throw new AppError("Agent has not negotiated sourceConstraints v1.", {
-      statusCode: 409,
-      code: "CAPABILITY_UNAVAILABLE",
-      details: { retryable: false },
-    });
+    throw capabilityUnavailable(
+      "sourceConstraints v1",
+      capabilityReason(advertised.sourceConstraints),
+    );
   if (
     items.some(
       (item) =>
@@ -61,22 +66,14 @@ export const assertSqlOperationTransport = (
       !isRecord(capabilities.extensions) ||
       capabilities.extensions.sourceSchema !== 1)
   )
-    throw new AppError("Agent has not negotiated sourceSchema v1.", {
-      statusCode: 409,
-      code: "CAPABILITY_UNAVAILABLE",
-      details: { retryable: false },
-    });
+    throw capabilityUnavailable("sourceSchema v1", capabilityReason(advertised.sourceSchema));
   if (
     items.some((item) => item.method === "sql.describeSource") &&
     (!capabilities ||
       !isRecord(capabilities.extensions) ||
       capabilities.extensions.sourceDiscovery !== 1)
   )
-    throw new AppError("Agent has not negotiated source discovery v1.", {
-      statusCode: 409,
-      code: "CAPABILITY_UNAVAILABLE",
-      details: { retryable: false },
-    });
+    throw capabilityUnavailable("sourceDiscovery v1", capabilityReason(advertised.sourceDiscovery));
   if (
     items.some(
       (item) =>
@@ -88,30 +85,21 @@ export const assertSqlOperationTransport = (
       !isRecord(capabilities.extensions) ||
       capabilities.extensions.sourceIdentity !== 1)
   ) {
-    throw new AppError("Agent has not negotiated executing-connection source identity v1.", {
-      statusCode: 409,
-      code: "CAPABILITY_UNAVAILABLE",
-      details: { retryable: false },
-    });
+    throw capabilityUnavailable("sourceIdentity v1", capabilityReason(advertised.sourceIdentity));
   }
   if (!hasSqlOperation(command)) return;
   const extensions =
     capabilities && isRecord(capabilities.extensions) ? capabilities.extensions : null;
   const negotiated = negotiateSqlOperations(extensions?.sqlOperations);
   if (!negotiated)
-    throw new AppError("Agent has not negotiated SQL operations version 1.", {
-      statusCode: 409,
-      code: "CAPABILITY_UNAVAILABLE",
-      details: { retryable: false, contractVersion: 1 },
-    });
+    throw capabilityUnavailable("sqlOperations v1", capabilityReason(advertised.sqlOperations));
   for (const item of Array.isArray(command) ? command : [command]) {
     if (item.method !== "sql.operation.execute") continue;
     if (item.params.expectedStructure && negotiated.structureGuard !== 1)
-      throw new AppError("Agent has not negotiated sqlOperations.structureGuard v1.", {
-        statusCode: 409,
-        code: "CAPABILITY_UNAVAILABLE",
-        details: { retryable: false },
-      });
+      throw capabilityUnavailable(
+        "sqlOperations.structureGuard v1",
+        capabilityReason(negotiated.structureGuard),
+      );
     if (
       item.params.steps.length > negotiated.maxSteps ||
       item.params.maxAffectedRows > negotiated.maxAffectedRows ||

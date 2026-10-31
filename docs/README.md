@@ -27,6 +27,10 @@ na CI para detectar drift, remoções, estreitamentos e campos ainda não rastre
 mudança incompatível exige também major novo, `--accept-breaking` e um
 artefato paralelo `plug-mcp-rest-vN.json`; não reescreva o major anterior.
 
+A revisão **2.1.0** inclui os campos da ponte I/O já publicados pelo runtime
+e pelo OpenAPI. Ela é aditiva ao contrato 2.0.0; o perfil OpenRPC do agente
+continua 2.11.2 e a capacidade `agentActions.io` continua na versão 1.
+
 ## Por assunto
 
 ### Produto e regras
@@ -40,6 +44,10 @@ artefato paralelo `plug-mcp-rest-vN.json`; não reescreva o major anterior.
 - [api/api_rest_bridge.md](api/api_rest_bridge.md)
 - [socket/socket_relay_protocol.md](socket/socket_relay_protocol.md)
 - [socket/socket_client_sdk.md](socket/socket_client_sdk.md)
+- [Fluxo REST completo de I/O fiel](api/api_rest_bridge.md#fluxo-rest-completo-de-io-fiel) — autenticação, input, output, erros e reconexão.
+- [Integração I/O com o agente](plug_agente/remote_action_io_specification.md) — contrato e clientes de referência.
+- [Exemplos JSON-RPC de I/O](plug_agente/remote_action_io_examples.md) — exemplos validados, independentes do envelope HTTP.
+- [Colmeia PWA e Web Push](pwa.md)
 
 ### Operacao
 
@@ -99,6 +107,8 @@ artefato paralelo `plug-mcp-rest-vN.json`; não reescreva o major anterior.
 ### Planos históricos
 
 - [Revisão da comunicação Socket.IO de 27/09/2026](archive/plano_revisao_comunicacao_socket_agentes.md) — achados e desenho originais; não é uma lista atual de pendências.
+- [Aceitação nativa de 15/10/2026](archive/native_acceptance_2026-10-15.md) — evidências datadas de ODBC, recuperação e bootstrap Windows.
+- [Candidata anterior de comunicação](archive/communication_candidate_validation.md) — resultados das revisions f39752f/55da4490, sem representar os testes atuais.
 
 ## Manutencao
 
@@ -109,7 +119,8 @@ artefato paralelo `plug-mcp-rest-vN.json`; não reescreva o major anterior.
   exemplo em Markdown.
 - ADRs, estudos e spikes registram decisoes e hipoteses historicas; nao devem
   duplicar contratos ou instrucoes operacionais atuais.
-
-## PWA
-
-- [Colmeia PWA contracts and Web Push](pwa.md)
+- Antes de criar uma página, procure o documento responsável pelo assunto neste
+  índice. Acrescente exemplos ao guia correspondente e use links nos resumos;
+  não replique tabelas de contrato, limites ou listas de pendências nos índices.
+- Preserve decisões e evidências datadas em `decisions/`, `adrs/` ou `archive/`.
+  Ao mover conteúdo, atualize links e mantenha uma indicação no local de origem.

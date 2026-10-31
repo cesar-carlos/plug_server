@@ -578,7 +578,7 @@ export const registerAgentSocketConnectionHandlers = ({
       );
     });
 
-    socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: () => void) => {
+    socket.on(socketEvents.rpcResponse, (rawPayload: unknown, ack?: (receipt: null) => void) => {
       handleAgentRpcResponse(socket.id, rawPayload, ack);
     });
 

@@ -6,6 +6,10 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+- Provide an executable binary echo client with persistent intent and read checkpoints for REST and socket recovery.
+
+- Add negotiated, authenticated action discovery to the REST/socket bridge and reference client.
+
 ### Changed — application version history
 
 - Reconstruct the initial Git baseline and enforce changelog checks before release.
@@ -13,7 +17,26 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ### Fixed — faithful I/O validation and diagnostics
 
+- Apply the remaining hub deadline to each I/O item of a permitted mixed batch.
+  Catalog refusals distinguish absent, disabled and incompatible advertisements.
+- Reuse the queue admission signal across the bridge, validate canonical base64
+  without decoding and re-encoding the block, and measure the JSON response
+  envelope once when enforcing the negotiated byte limit.
+
+- Return an explicit null Socket.IO receipt for `rpc:response` so the Dart
+  callback in plug_agente 1.8.6 accepts it. Handle correlated relay refusals
+  and explicit method-not-found errors in the reference client without replay.
+
+- Explain unavailable I/O and SQL capabilities in Portuguese with explicit reason,
+  origin and preflight recovery metadata retained by REST, socket and relay.
+
+- Preserve safe action reconciliation details in consumer Socket failures and
+  recognize that error envelope in the reference adapter without replay;
+  do not expose unexpected native exception messages to the consumer.
+- Synchronize the generated REST contract and compatibility baseline as additive
+  version 2.1.0, including the already implemented I/O request fields.
 - Reject inconsistent per-stream byte offsets and unsafe end offsets.
+- Reject undefined faithful session objects while preserving legacy execution responses.
 - Reject oversized reference-client input before encoding and reject malformed
   HTTP JSON/UTF-8 without exposing response contents or retrying mutations.
 - Preserve canonical agent failure_code and the primary response-size failure

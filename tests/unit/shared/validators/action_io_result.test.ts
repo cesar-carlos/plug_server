@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   isValidActionIoResponse,
   isValidActionIoResult,
@@ -12,6 +13,9 @@ const receipt = {
   next_input_sequence: 1,
   stdin_state: "open",
 };
+it("rejects inherited object properties as result methods without throwing", () => {
+  expect(isValidActionIoResult("toString", receipt)).toBe(false);
+});
 const page = {
   execution_id: "e",
   events: [],
@@ -20,6 +24,27 @@ const page = {
   output_complete: false,
 };
 describe("method-specific I/O results", () => {
+  it("rejects an undefined faithful session without tightening legacy execution responses", () => {
+    const corpus = JSON.parse(readFileSync("contracts/action_io_shared_fixtures.json", "utf8")) as {
+      cases: Array<{ name: string; payload: Record<string, unknown> }>;
+    };
+    const execution = corpus.cases.find(
+      (item) => item.name === "faithful terminal duplicate",
+    )!.payload;
+    expect(
+      isValidActionIoResponse("agent.action.run", { result: execution }, { faithfulIo: true }),
+    ).toBe(true);
+    expect(
+      isValidActionIoResponse(
+        "agent.action.run",
+        { result: { ...execution, io: undefined } },
+        { faithfulIo: true },
+      ),
+    ).toBe(false);
+    const legacy = { ...execution };
+    delete legacy.io;
+    expect(isValidActionIoResponse("agent.action.run", { result: legacy })).toBe(true);
+  });
   it("rejects overlapping or missing bytes within a stream while allowing interleaving and resumed offsets", () => {
     const events = [
       { sequence: 4, type: "output", stream: "stdout", offset: 20, data_base64: "AP8=" },

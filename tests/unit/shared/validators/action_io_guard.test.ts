@@ -20,6 +20,31 @@ const transport = {
   },
 };
 const command = { method: "agent.action.run", params: { io: { version: 1 } } };
+it("refuses explicit notifications only for requests that require faithful I/O", () => {
+  for (const method of ["agent.action.run", "agent.action.validateRun"]) {
+    expect(() => assertActionIoTransport({ ...command, method, id: null }, null)).toThrow(
+      expect.objectContaining({ code: "ACTION_IO_INVALID_REQUEST", statusCode: 400 }),
+    );
+    expect(() => assertActionIoTransport({ method, id: null }, null)).not.toThrow();
+  }
+});
+it.each([
+  [undefined, "not_advertised"],
+  [2, "incompatible"],
+  [false, "disabled"],
+])("reports the advertised catalog version %s accurately", (catalogVersion, reason) => {
+  const hub = { ...extensions, agentActions: { ...extensions.agentActions, catalogVersion: 1 } };
+  const peer = { ...extensions, agentActions: { ...extensions.agentActions, catalogVersion } };
+  expect(() =>
+    assertActionIoTransport(
+      { method: "agent.action.listAvailable" },
+      { ...transport, extensions: peer },
+      hub,
+    ),
+  ).toThrow(
+    expect.objectContaining({ details: expect.objectContaining({ reason, origin: "agent" }) }),
+  );
+});
 describe("live action I/O transport guard", () => {
   it("keeps legacy actions independent of I/O negotiation", () => {
     expect(requiresActionIoCapability({ method: "agent.action.run", params: {} })).toBe(false);
@@ -29,7 +54,7 @@ describe("live action I/O transport guard", () => {
   });
   it("remains disabled by the actual hub advertisement", () => {
     expect(() => assertActionIoTransport(command, { ...transport, extensions })).toThrow(
-      /not been negotiated/,
+      /indisponível/,
     );
   });
   it("requires both peers and detects lost capability on recheck", () => {
@@ -87,3 +112,32 @@ it("refuses incompatible encodings and insufficient uncompressed capacity", () =
   ])
     expect(() => assertActionIoTransport(command, invalid, extensions)).toThrow();
 });
+
+it.each([
+  [undefined, "not_advertised"],
+  [{ enabled: false }, "disabled"],
+  [{ enabled: true, version: 2 }, "incompatible"],
+])(
+  "reports unavailable agent capability without guessing installed version",
+  (agentActions, reason) => {
+    expect(() =>
+      assertActionIoTransport(
+        command,
+        { ...transport, extensions: { ...extensions, agentActions } },
+        extensions,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: "CAPABILITY_UNAVAILABLE",
+        statusCode: 409,
+        details: expect.objectContaining({
+          capability: "agentActions.io v1",
+          reason,
+          origin: "agent",
+          effects_possible: false,
+          recovery: "local_intervention",
+        }),
+      }),
+    );
+  },
+);
