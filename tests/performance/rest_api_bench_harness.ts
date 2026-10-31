@@ -106,6 +106,7 @@ export const runRestApiBench = async (): Promise<{
   const scenarioProfiles: Readonly<
     Record<string, { readonly warmup: number; readonly iterations: number }>
   > = {
+    catalog_small: { warmup: 128, iterations: 256 },
     catalog_many: { warmup: 256, iterations: 1024 },
     registry_page: { warmup: 256, iterations: 1024 },
     refresh_mixed: { warmup: 128, iterations: 256 },

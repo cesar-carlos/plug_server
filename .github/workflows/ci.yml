@@ -251,15 +251,14 @@ jobs:
 
       - name: Socket bridge performance bench
         id: bench
-        # GitHub-hosted runners are noisy; keep the PR mergeable and surface the delta in the comment.
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: npm run test:perf:socket-bridge -- tests/performance/socket_bridge_bench.test.ts
 
       - name: Columnar and materialization correctness and performance
+        if: ${{ !cancelled() && (steps.bench.outcome == 'success' || steps.bench.outcome == 'failure') }}
         run: npm run test:perf:socket-bridge -- tests/performance/socket_columnar_bench.test.ts tests/performance/sql_materialization_bench.test.ts
 
       - name: Comment bench summary
-        if: github.event_name == 'pull_request' && hashFiles('tmp/socket-bridge-bench.json') != ''
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && hashFiles('tmp/socket-bridge-bench.json') != '' }}
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}

@@ -453,8 +453,8 @@ export const runSocketBridgeBench = async (options?: {
       runStream(Math.max(2, Math.floor(iterations / 8)), streamChunks, true),
     ),
     await repeatMeasured(repeats, () =>
-      // Eight observations made p95 the maximum, amplifying one scheduler delay.
-      runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 8)), streamChunks, false),
+      // At 128 observations the p95 has six observations above it, versus one at 32.
+      runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 2)), streamChunks, false),
     ),
     await repeatMeasured(repeats, () =>
       runLoopbackRelayBench(Math.max(2, Math.floor(iterations / 8)), streamChunks, true),
@@ -462,7 +462,7 @@ export const runSocketBridgeBench = async (options?: {
   ];
   resetBenchState();
   return {
-    harnessVersion: 4,
+    harnessVersion: 5,
     // Hash only runtime numeric/boolean settings; never include URLs, signing keys or credentials.
     configFingerprint: createHash("sha256")
       .update(
