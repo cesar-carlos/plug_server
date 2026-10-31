@@ -19,18 +19,23 @@ describe("persistent session", () => {
       const write = vi.spyOn(client, "sendInput").mockResolvedValue({});
       const close = vi.spyOn(client, "closeInput").mockResolvedValue({});
       vi.spyOn(client, "getInputStatus").mockResolvedValue({ state: "written" });
-      const read = vi
-        .spyOn(client, "readIo")
-        .mockResolvedValue({
-          next_sequence: 1,
-          events: [{ type: "completed", sequence: 1, output_complete: true }],
-        });
-      const target = { url: "http://localhost", agentId: "a", clientId: "c", name: "echo", triggerId: "interactive" };
+      const read = vi.spyOn(client, "readIo").mockResolvedValue({
+        next_sequence: 1,
+        events: [{ type: "completed", sequence: 1, output_complete: true }],
+      });
+      const target = {
+        url: "http://localhost",
+        agentId: "a",
+        clientId: "c",
+        name: "echo",
+        triggerId: "interactive",
+      };
       const first = await ActionIoSession.open(client, directory, target);
       expect(client.validateRun).toHaveBeenCalledWith("a", "interactive");
       expect(run).toHaveBeenCalledWith("a", expect.any(String), { triggerId: "interactive" });
-      await expect(ActionIoSession.open(client, directory, { ...target, triggerId: "other" }))
-        .rejects.toThrow("different target");
+      await expect(
+        ActionIoSession.open(client, directory, { ...target, triggerId: "other" }),
+      ).rejects.toThrow("different target");
       await first.write("empty", new Uint8Array());
       const resumed = await ActionIoSession.open(client, directory, target);
       await resumed.write("empty", new Uint8Array());

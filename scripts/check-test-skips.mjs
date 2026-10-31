@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 // Every optional suite has an owning execution stage; new skips require an explicit decision.
 const owners = {
+  "tests/contract/agent_communication_docs.contract.test.ts": "Dart contract matrix (main)",
   "tests/contract/columnar_agent.contract.test.ts": "Dart contract matrix",
   "tests/contract/plug_agente_optional.contract.test.ts": "Dart contract matrix",
   "tests/contract/socket_agent_inbound_fixtures.contract.test.ts": "Dart contract matrix",

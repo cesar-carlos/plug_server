@@ -121,15 +121,27 @@ const results: Readonly<Record<string, z.ZodType>> = {
   "agent.action.closeInput": receipt,
   "agent.action.getInputStatus": receipt,
   "agent.action.readIo": page,
-  "agent.action.listAvailable": z.object({
-    actions: z.array(z.object({
-      action_id: identity, name: z.string().min(1), trigger_ids: z.array(identity),
-      io_eligible: z.boolean(), public_description: z.string().max(512).nullable(),
-      stdin_description: z.string().max(512).nullable(), stdout_description: z.string().max(512).nullable(),
-      stderr_description: z.string().max(512).nullable(),
-    }).strict()).max(50),
-    next_cursor: z.string().min(1).max(128).nullable(),
-  }).strict(),
+  "agent.action.listAvailable": z
+    .object({
+      actions: z
+        .array(
+          z
+            .object({
+              action_id: identity,
+              name: z.string().min(1),
+              trigger_ids: z.array(identity),
+              io_eligible: z.boolean(),
+              public_description: z.string().max(512).nullable(),
+              stdin_description: z.string().max(512).nullable(),
+              stdout_description: z.string().max(512).nullable(),
+              stderr_description: z.string().max(512).nullable(),
+            })
+            .strict(),
+        )
+        .max(50),
+      next_cursor: z.string().min(1).max(128).nullable(),
+    })
+    .strict(),
   "agent.action.findExecution": found,
 };
 /** Validate the selected method only; never accept another method's result union. */

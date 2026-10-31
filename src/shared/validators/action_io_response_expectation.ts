@@ -97,7 +97,7 @@ export const captureActionIoBatch = (command: unknown): readonly ActionIoBatchEx
             "agent.action.readIo",
             "agent.action.getInputStatus",
             "agent.action.listAvailable",
-  "agent.action.findExecution",
+            "agent.action.findExecution",
           ].includes(item.method)),
     )
   )

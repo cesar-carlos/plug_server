@@ -152,6 +152,8 @@ jobs:
         run: npm run db:migrate:deploy
 
       - name: Tests with critical coverage
+        env:
+          PWA_DATABASE_TEST: "true"
         run: npm run test:coverage:critical
 
       - name: Audit skipped tests and their execution stages
@@ -456,6 +458,10 @@ jobs:
           mkdir -p tmp
           printf 'hub=%s\nagent=%s\n' "$(git rev-parse HEAD)" "$(git -C plug_agente rev-parse HEAD)" | tee tmp/communication-revisions.txt
           npx vitest run tests/contract/plug_agente_optional.contract.test.ts tests/contract/socket_agent_inbound_fixtures.contract.test.ts tests/contract/columnar_agent.contract.test.ts
+
+      - name: Verify current agent communication documentation
+        if: steps.checkout_agente.outcome == 'success' && matrix.agent_ref == 'main'
+        run: npx vitest run tests/contract/agent_communication_docs.contract.test.ts
 
       - name: Set up Flutter
         if: steps.checkout_agente.outcome == 'success'

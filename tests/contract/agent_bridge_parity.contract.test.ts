@@ -44,7 +44,11 @@ const sampleCommandByMethod = {
     method: "agent.action.readIo",
     params: { execution_id: "e", after_sequence: 0, max_bytes: 65536, wait_ms: 0 },
   },
-  "agent.action.listAvailable": { id: "list", method: "agent.action.listAvailable", params: { page_size: 1 } },
+  "agent.action.listAvailable": {
+    id: "list",
+    method: "agent.action.listAvailable",
+    params: { page_size: 1 },
+  },
   "agent.action.findExecution": {
     id: "find",
     method: "agent.action.findExecution",

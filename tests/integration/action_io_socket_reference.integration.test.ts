@@ -69,17 +69,15 @@ for (const relay of [false, true]) {
       socket.connect();
       await connected;
       const client = new ActionIoReferenceClient(transport, () => "isolated-test-credential");
-      const send = (): Promise<Record<string, unknown>> => client.sendInput(
-        "e",
-        "m",
-        0,
-        Uint8Array.from([0, 255, 13, 10, 26, 128]),
-      );
+      const send = (): Promise<Record<string, unknown>> =>
+        client.sendInput("e", "m", 0, Uint8Array.from([0, 255, 13, 10, 26, 128]));
       const receipts = await Promise.race([
         Promise.all([send(), send()]),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Concurrent send was dropped")), 1000)),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Concurrent send was dropped")), 1000),
+        ),
       ]);
-      expect(receipts.map(receipt => receipt.state)).toEqual(["accepted", "accepted"]);
+      expect(receipts.map((receipt) => receipt.state)).toEqual(["accepted", "accepted"]);
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(received).toHaveLength(2);
       expect(received[0]).toMatchObject({

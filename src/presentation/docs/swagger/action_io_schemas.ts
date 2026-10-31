@@ -5,10 +5,12 @@ export const actionIoBridgeSchemas = {
     type: "object",
     properties: {
       version: {
-        type: "integer", enum: [1],
+        type: "integer",
+        enum: [1],
       },
       mode: {
-        type: "string", enum: ["faithful"],
+        type: "string",
+        enum: ["faithful"],
       },
       close_input: {
         type: "boolean",
@@ -322,17 +324,25 @@ export const actionIoBridgeSchemas = {
   },
   RpcActionCatalogCommand: {
     type: "object",
-    description: "Requires negotiated catalog v1 and authorized Client. Read one page without executing any action.",
+    description:
+      "Requires negotiated catalog v1 and authorized Client. Read one page without executing any action.",
     required: ["id", "method", "params"],
     properties: {
-      id: { oneOf: [{type:"string",minLength:1},{type:"number"}] },
-      method: {type:"string",enum:["agent.action.listAvailable"]},
-      params: {type:"object",additionalProperties:false,properties:{
-        client_token:{type:"string",minLength:1,writeOnly:true}, clientToken:{type:"string",minLength:1,writeOnly:true},
-        auth:{type:"string",minLength:1,writeOnly:true}, trace_id:{type:"string",minLength:1}, requested_by:{type:"string",minLength:1},
-        page_size:{type:"integer",minimum:1,maximum:50},
-        cursor:{type:"string",minLength:1,maxLength:128},
-      }},
+      id: { oneOf: [{ type: "string", minLength: 1 }, { type: "number" }] },
+      method: { type: "string", enum: ["agent.action.listAvailable"] },
+      params: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          client_token: { type: "string", minLength: 1, writeOnly: true },
+          clientToken: { type: "string", minLength: 1, writeOnly: true },
+          auth: { type: "string", minLength: 1, writeOnly: true },
+          trace_id: { type: "string", minLength: 1 },
+          requested_by: { type: "string", minLength: 1 },
+          page_size: { type: "integer", minimum: 1, maximum: 50 },
+          cursor: { type: "string", minLength: 1, maxLength: 128 },
+        },
+      },
     },
   },
   ActionIoFindExecutionParams: {

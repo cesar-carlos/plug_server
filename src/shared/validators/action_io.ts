@@ -4,7 +4,8 @@ export const ACTION_IO_BLOCK_BYTES = 64 * 1024;
 export const ACTION_IO_PAGE_BYTES = 256 * 1024;
 const encodedBlockLength = 4 * Math.ceil(ACTION_IO_BLOCK_BYTES / 3);
 // Only sextets with zero unused bits may precede padding in canonical base64.
-const base64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$/;
+const base64Pattern =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$/;
 
 /** Validate without normalizing: an empty block remains a message, not EOF. */
 export const actionIoBlockSchema = z
@@ -65,11 +66,13 @@ export const actionIoReadParamsSchema = z
     wait_ms: z.number().int().min(0).max(20000),
   })
   .strict();
-export const actionCatalogParamsSchema = z.object({
-  ...contextShape,
-  page_size: z.number().int().min(1).max(50).optional(),
-  cursor: z.string().min(1).max(128).optional(),
-}).strict();
+export const actionCatalogParamsSchema = z
+  .object({
+    ...contextShape,
+    page_size: z.number().int().min(1).max(50).optional(),
+    cursor: z.string().min(1).max(128).optional(),
+  })
+  .strict();
 export const actionIoFindExecutionParamsSchema = z
   .object({
     ...contextShape,

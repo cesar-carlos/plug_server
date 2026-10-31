@@ -149,18 +149,24 @@ liveTest(
         }
         previous = evidence;
         await writeFile(join(root, "stop"), "finish");
-        expect(
-          await Promise.race([
-            exited,
-            new Promise<never>((_, reject) => {
-              const timer = setTimeout(
-                () => reject(new Error("Configured native shutdown timed out")),
-                15000,
-              );
-              timer.unref();
-            }),
-          ]),
-        ).toBe(0);
+        const exitCode = await Promise.race([
+          exited,
+          new Promise<never>((_, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error("Configured native shutdown timed out")),
+              15000,
+            );
+            timer.unref();
+          }),
+        ]);
+        if (exitCode !== 0) {
+          const evidence = await readFile(join(root, "boot-failed.json"), "utf8").catch(
+            () => "unavailable",
+          );
+          throw new Error(
+            `Configured desktop exited with ${exitCode} during ${phase}: ${evidence}`,
+          );
+        }
         expect(await readFile(join(root, "boot-closed"), "utf8")).toBe("verified");
         await rm(join(root, "profile-bootstrap.json"), { force: true });
       }
