@@ -2034,6 +2034,20 @@ REST/agents:command (including batches) and relay enforce this before dispatch a
 again after queues/encoding, refusing socket replacement or capability downgrade.
 CAPABILITY_UNAVAILABLE is fail-closed for old/missing/incompatible agents.
 
+The 2026-10-31 homologation of agent 1.9.0+1 exercised this contract with the
+persistent hub and all three database engines. The transport/recovery suite
+passed ten tests: one synthetic socket case and nine native cases covering
+interruption before, during and after commit for each engine. When running
+both suites together, the synthetic child must receive only its loopback E2E
+URL from the SQL-operation fixture settings. Keep the native manifest and crash
+phase variables scoped to the recovery child.
+
+The MCP checkout holds the report and revision inventory at
+`docs/persona-v2/validation/2026-10-31-agente-1-9-0.md` and the adjacent JSON
+file. Its recorded local source hashes include test changes beyond the Git
+commits. Production acceptance remains governed by the
+[coordinated release manifest](../../contracts/persona-v2-release.json).
+
 ### Mensagem para recurso indisponível
 
 As extensões I/O fiel e SQL verificam a conexão autenticada atual antes do dispatch.

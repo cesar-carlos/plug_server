@@ -6,6 +6,8 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+- Advertise `agentActions.io` v1 in production when `ENABLE_ACTION_IO_HOMOLOGATION=true`. The default remains `false`.
+
 - Provide an executable binary echo client with persistent intent and read checkpoints for REST and socket recovery.
 
 - Add negotiated, authenticated action discovery to the REST/socket bridge and reference client.

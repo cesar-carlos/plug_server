@@ -219,7 +219,16 @@ liveTest(
         : ["test", fixture, "--reporter", "compact"],
       {
         cwd: agent.root,
-        env: { ...process.env, PLUG_SQL_OPERATION_E2E_URL: `http://127.0.0.1:${address.port}` },
+        // This process exercises the synthetic transport fixture. Native recovery
+        // configuration belongs exclusively to the separate crash-test process.
+        env: {
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(
+              ([key]) => !key.toUpperCase().startsWith("PLUG_SQL_OPERATION_"),
+            ),
+          ),
+          PLUG_SQL_OPERATION_E2E_URL: `http://127.0.0.1:${address.port}`,
+        },
       },
     );
     let output = "";

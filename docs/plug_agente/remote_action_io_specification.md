@@ -1,7 +1,7 @@
 # Remote action I/O integration
 
 Implemented `agentActions.io` v1; development acceptance completed on 2026-10-30.
-`ENABLE_ACTION_IO_HOMOLOGATION` defaults to false and production remains disabled.
+`ENABLE_ACTION_IO_HOMOLOGATION` defaults to false. `true` advertises `agentActions.io` v1, including when `NODE_ENV=production`.
 No release or activation is authorized by this document.
 
 ## Documentation ownership

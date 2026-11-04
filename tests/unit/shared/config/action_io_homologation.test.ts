@@ -48,9 +48,17 @@ it("advertises the exact agreement in an opted-in isolated test and rechecks dis
   overrideEnv("enableActionIoHomologation", false);
   expect(() => assertActionIoTransport(command, peer)).toThrow();
 });
-it("does not activate production even with the homologation flag", () => {
+it("advertises production only when the homologation flag is explicit", () => {
   overrideEnv("nodeEnv", "production");
-  overrideEnv("enableActionIoHomologation", true);
+  overrideEnv("enableActionIoHomologation", false);
   expect(buildHubServerCapabilities().extensions).not.toHaveProperty("agentActions");
   expect(() => assertActionIoTransport(command, peer)).toThrow();
+  overrideEnv("enableActionIoHomologation", true);
+  expect(buildHubServerCapabilities().extensions.agentActions).toEqual({
+    enabled: true,
+    version: 1,
+    catalogVersion: 1,
+    io: ACTION_IO_TRANSPORT,
+  });
+  expect(() => assertActionIoTransport(command, peer)).not.toThrow();
 });

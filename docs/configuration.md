@@ -732,10 +732,10 @@ passa a ser:
 ## Faithful action I/O homologation
 
 `ENABLE_ACTION_IO_HOMOLOGATION` defaults to `false` and accepts only `true` or
-`false`. It advertises `agentActions.io` v1 only outside `NODE_ENV=production`;
-production ignores the opt-in and continues refusing faithful I/O dispatch.
-This flag is intended for isolated acceptance fixtures while implementation is
-in progress. It does not grant Client permissions or local action approval.
+`false`. When `true`, the hub advertises `agentActions.io` v1 in every
+`NODE_ENV`, including production. With the default, production does not
+advertise the capability and continues refusing faithful I/O dispatch.
+It does not grant Client permissions or local action approval.
 Restart the hub and reconnect the agent after changing it. Both peers must
 advertise the exact v1 agreement. Dispatch rechecks the current hub opt-in and
 live authenticated agent capability before emission. No operational environment

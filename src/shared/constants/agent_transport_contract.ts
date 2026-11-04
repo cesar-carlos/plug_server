@@ -147,7 +147,7 @@ export const buildHubServerCapabilities = (
   readonly limits: typeof HUB_TRANSPORT_LIMITS;
 } => {
   const extensions: Record<string, unknown> = { ...HUB_TRANSPORT_EXTENSIONS };
-  if (env.enableActionIoHomologation && env.nodeEnv !== "production") {
+  if (env.enableActionIoHomologation) {
     extensions.agentActions = {
       enabled: true,
       version: 1,
