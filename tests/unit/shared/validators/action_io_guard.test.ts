@@ -4,6 +4,8 @@ import {
   requiresActionIoCapability,
 } from "../../../../src/application/agent_commands/action_io_transport_guard";
 import { ACTION_IO_TRANSPORT } from "../../../../src/shared/constants/action_io_transport";
+import { env } from "../../../../src/shared/config/env";
+import { overrideEnv } from "../../../helpers/override_env";
 const extensions = {
   binaryPayload: true,
   transportFrame: "payload-frame/1.0",
@@ -53,9 +55,15 @@ describe("live action I/O transport guard", () => {
     ).not.toThrow();
   });
   it("remains disabled by the actual hub advertisement", () => {
-    expect(() => assertActionIoTransport(command, { ...transport, extensions })).toThrow(
-      /indisponível/,
-    );
+    const enabled = env.enableActionIoHomologation;
+    overrideEnv("enableActionIoHomologation", false);
+    try {
+      expect(() => assertActionIoTransport(command, { ...transport, extensions })).toThrow(
+        /indisponível/,
+      );
+    } finally {
+      overrideEnv("enableActionIoHomologation", enabled);
+    }
   });
   it("requires both peers and detects lost capability on recheck", () => {
     expect(() =>
