@@ -2,6 +2,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { NodemailerEmailSender } from "../../../../src/infrastructure/adapters/nodemailer_email_sender";
+import { describeEmailDeliveryFailure } from "../../../../src/shared/utils/email_delivery_failure";
 
 describe("NodemailerEmailSender SMTP integration", () => {
   let server: Server;
@@ -118,10 +119,14 @@ describe("NodemailerEmailSender SMTP integration", () => {
   it("should propagate recipient rejection and still deliver a later message", async () => {
     const sender = buildSender();
 
-    await expect(sender.sendUserApproved({ email: "blocked@example.com" })).rejects.toMatchObject({
-      code: "EENVELOPE",
-      responseCode: 550,
-    });
+    await expect(sender.sendUserApproved({ email: "blocked@example.com" })).rejects.toSatisfy(
+      (error: unknown) => {
+        expect(error).toMatchObject({ code: "EENVELOPE", responseCode: 550, command: "RCPT TO" });
+        expect(describeEmailDeliveryFailure(error).permanentRecipientRejection).toBe(true);
+        expect(describeEmailDeliveryFailure(error).message).not.toContain("blocked@example.com");
+        return true;
+      },
+    );
     expect(messages).toHaveLength(0);
 
     await sender.sendUserApproved({ email: "accepted@example.com" });

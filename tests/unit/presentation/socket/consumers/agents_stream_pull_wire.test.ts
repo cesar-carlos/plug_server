@@ -147,6 +147,19 @@ describe("agents_stream_pull_wire", () => {
     warnSpy.mockRestore();
   });
 
+  it("should not warn after the deadline when payload_frame is already configured", () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    try {
+      warnIfAgentsStreamPullLegacyCompatExpired(
+        Date.parse("2026-11-06T00:00:00Z"),
+        "payload_frame",
+      );
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("does not warn before the legacy compat removal date", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
 

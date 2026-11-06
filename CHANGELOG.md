@@ -6,6 +6,24 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — dependências, compatibilidade e falhas de e-mail
+
+- Atualiza `glob` apenas sob `swagger-jsdoc` para 14.0.4 e `gaxios` apenas sob
+  `gcp-metadata` para 7.3.1, eliminando as duas cadeias dos seis alertas moderados
+  de produção. Fixa `minimatch` 11.0.5 também para a cadeia de lint. Overrides
+  temporários: remover quando os pacotes pais adotarem versões corrigidas;
+  validar geração OpenAPI, coleta GCP, lint e contratos antes da remoção.
+- Emite os avisos de prazo vencido de compatibilidade Socket somente quando
+  `raw_json` está efetivamente selecionado. Mantém prazo, formatos públicos e
+  bloqueio de `raw_json` em produção.
+- Rejeição SMTP definitiva de destinatário (`EENVELOPE`, `RCPT TO`, 5xx)
+  esgota imediatamente o orçamento existente da outbox; `attempts=maxAttempts`
+  representa o estado terminal, não dez transmissões efetivas. Falhas temporárias
+  e rejeições mistas preservam backoff. Logs registram a tentativa efetiva.
+- Persiste somente metadados SMTP permitidos e orientação de recuperação,
+  sem texto livre do provedor, endereços ou tokens; evita também exceder o limite
+  de 1000 caracteres de `last_error`. Nenhum reenvio automático de dead letters.
+
 - Advertise `agentActions.io` v1 in production when `ENABLE_ACTION_IO_HOMOLOGATION=true`. The default remains `false`.
 
 - Provide an executable binary echo client with persistent intent and read checkpoints for REST and socket recovery.

@@ -19,7 +19,7 @@ export const warnIfConnectionReadyLegacyCompatExpired = (
   nowMs: number = Date.now(),
   compatMode: typeof env.socketConnectionReadyCompatMode = env.socketConnectionReadyCompatMode,
 ): void => {
-  if (nowMs <= connectionReadyLegacyCompatRemovalInstant()) {
+  if (compatMode !== "raw_json" || nowMs <= connectionReadyLegacyCompatRemovalInstant()) {
     return;
   }
 

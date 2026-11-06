@@ -25,7 +25,7 @@ export const warnIfAgentsCommandLegacyCompatExpired = (
   nowMs: number = Date.now(),
   compatMode: typeof env.socketAgentsCommandCompatMode = env.socketAgentsCommandCompatMode,
 ): void => {
-  if (nowMs <= agentsCommandLegacyCompatRemovalInstant()) {
+  if (compatMode !== "raw_json" || nowMs <= agentsCommandLegacyCompatRemovalInstant()) {
     return;
   }
 

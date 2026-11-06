@@ -10,6 +10,7 @@ import {
 } from "../../infrastructure/database/advisory_lock";
 import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
+import { describeEmailDeliveryFailure } from "../../shared/utils/email_delivery_failure";
 
 type RegistrationOutboxKind =
   | "admin_approval_request"
@@ -383,8 +384,16 @@ const markDelivered = async (id: string): Promise<void> => {
   `;
 };
 
-const markFailed = async (row: RegistrationOutboxRow, errorMessage: string): Promise<void> => {
-  const nextAttempts = row.attempts + 1;
+const markFailed = async (
+  row: RegistrationOutboxRow,
+  errorMessage: string,
+  permanentRecipientRejection = false,
+): Promise<void> => {
+  // Exhaust the existing retry budget to retain terminal rows under the same
+  // claim/prune contract, without pretending the message was delivered.
+  const nextAttempts = permanentRecipientRejection
+    ? env.registrationEmailOutboxMaxAttempts
+    : row.attempts + 1;
   const shouldDeadLetter = nextAttempts >= env.registrationEmailOutboxMaxAttempts;
   const backoffMs = computeBackoffMs(nextAttempts);
 
@@ -393,7 +402,7 @@ const markFailed = async (row: RegistrationOutboxRow, errorMessage: string): Pro
       UPDATE registration_email_outbox
       SET
         attempts = ${nextAttempts},
-        last_error = ${`max_attempts_reached: ${errorMessage}`},
+        last_error = ${permanentRecipientRejection ? errorMessage : `max_attempts_reached: ${errorMessage}`},
         locked_at = NULL,
         updated_at = NOW()
       WHERE id = ${row.id}
@@ -469,13 +478,14 @@ const processOutboxBatch = async (emailSender: IEmailSender): Promise<void> => {
     try {
       await deliverRow(emailSender, row);
     } catch (error: unknown) {
-      const message = toErrorMessage(error);
-      await markFailed(row, message);
+      const failure = describeEmailDeliveryFailure(error);
+      await markFailed(row, failure.message, failure.permanentRecipientRejection);
       logger.warn("registration_email_outbox_delivery_failed", {
         outboxId: row.id,
         kind: row.kind,
         attempts: row.attempts + 1,
-        message,
+        permanentRecipientRejection: failure.permanentRecipientRejection,
+        message: failure.message,
       });
     }
   };

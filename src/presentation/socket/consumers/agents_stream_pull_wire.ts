@@ -22,7 +22,7 @@ export const warnIfAgentsStreamPullLegacyCompatExpired = (
   nowMs: number = Date.now(),
   compatMode: typeof env.socketAgentsStreamPullCompatMode = env.socketAgentsStreamPullCompatMode,
 ): void => {
-  if (nowMs <= agentsStreamPullLegacyCompatRemovalInstant()) {
+  if (compatMode !== "raw_json" || nowMs <= agentsStreamPullLegacyCompatRemovalInstant()) {
     return;
   }
 
