@@ -22,6 +22,7 @@ const getMaxQueue = (): number => env.socketRelayAgentMaxQueue;
 const getQueueWaitMs = (): number => env.socketRelayAgentQueueWaitMs;
 
 const agentInflightById = new Map<string, number>();
+let queueGeneration = 0;
 /**
  * Per-agent FIFO wait queue backed by a `Set` so removal at any position is O(1)
  * (vs the previous `Array.indexOf + splice` which was O(queue depth)).
@@ -94,9 +95,10 @@ const releaseAgentDispatchSlot = (agentId: string): void => {
 };
 
 const idempotentRelease = (agentId: string): (() => void) => {
+  const generation = queueGeneration;
   let released = false;
   return () => {
-    if (released) {
+    if (released || generation !== queueGeneration) {
       return;
     }
     released = true;
@@ -224,6 +226,7 @@ export const getRelayAgentDispatchQueueMetricsSnapshot = (): {
 };
 
 export const resetRelayAgentDispatchQueue = (rejectReason: Error): void => {
+  queueGeneration += 1;
   agentInflightById.clear();
   for (const queue of agentQueueById.values()) {
     for (const waiter of queue) {

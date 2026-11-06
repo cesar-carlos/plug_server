@@ -154,6 +154,9 @@ describe("date helpers", () => {
   });
 
   describe("isExpired", () => {
+    it("rejects a token at the exact expiration instant", () => {
+      expect(isExpired(FIXED_DATE)).toBe(true);
+    });
     beforeEach(() => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(FIXED_DATE));

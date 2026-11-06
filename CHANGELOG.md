@@ -12,6 +12,79 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 - Add negotiated, authenticated action discovery to the REST/socket bridge and reference client.
 
+### Fixed — revisão interna de concorrência, caches e autenticação
+
+- Investiga a reprovação de `catalog_small` e corrige a ausência de afinidade de
+  CPU no benchmark Windows: o coordenador fixa a CPU herdada pelos workers e
+  verifica a afinidade real em cada relatório, como já ocorria no Linux.
+- Com CPU controlada, a otimização TTL voltou a reprovar (`catalog_small`
+  1,3899 ms → 1,4683 ms, +5,64%). Retira o controle de primeira expiração da
+  otimização, preservando as correções funcionais de expiração e capacidade.
+  Os dados não isolam a causa de baixo nível da variação; a mudança foi retirada
+  por falhar repetidamente no critério de aceite.
+- Validação final REST completa aprovada: oito ensaios, quatro por versão, com
+  todos os limites originais. `catalog_small` 1,4306 ms → 1,4187 ms (-0,83%);
+  throughput -0,75% a +1,57% e crescimento de heap -0,30% a +1,14% nos cenários.
+  Os fingerprints de runtime finais são idênticos ao baseline: esta rodada valida
+  a retirada, sem reivindicar ganho de performance. Evidências finais em
+  `tmp/rest-bench-comparison/`, rejeição com CPU fixa em
+  `tmp/cache-rest-pinned-rejected/` e série sem afinidade em
+  `tmp/cache-rest-unpinned-reports/`.
+
+- Corrige a causa dos timeouts REST no gerador de carga em Windows. Uma resposta
+  HTTP vazia em loopback apresentou p50 de 15,44 ms com `fetch` e 0,23 ms com
+  `node:http`, enquanto PostgreSQL/Redis triviais ficaram perto de 0,5 ms. O harness
+  v9 usa `node:http` nas duas versões e preserva autenticação, JSON, ETag/304,
+  cancelamento, cenários, repetições e limites. Relatórios v8 e v9 são incompatíveis.
+- Conclui os oito ensaios REST v9 (quatro por versão) sem timeouts. O primeiro par
+  levou cerca de 185 segundos, contra aproximadamente 900 segundos no v8.
+  A comparação agregada **reprovou** em `catalog_small`: p95 de 1,01535 ms para
+  1,07160 ms (+5,54%, limite +5%). Os demais limites passaram. Throughput variou
+  entre -3,85% e +1,43%, e crescimento de heap entre -0,81% e +0,38%.
+  Todas as medições foram mantidas; a otimização TTL foi posteriormente retirada,
+  conforme validação final acima. Evidências em `tmp/cache-rest-unpinned-reports/` e histórico v8 em
+  `tmp/cache-rest-old-reports/`.
+
+- Avaliou evitar a varredura do cache TTL cheio antes da primeira expiração possível, preservando
+  a política de descarte e os prazos. Microbenchmark local com 2.048 entradas e
+  20 mil inserções, em oito rodadas alternadas após aquecimento, passou de
+  254–303 ms para 11–14 ms. A medição cobre inserções com cache cheio e entradas
+  válidas. Essa otimização foi posteriormente retirada por reprovar no gate REST.
+- Compara o TTL anterior e otimizado em Windows/Node 24.18.0 com os mesmos
+  limites dos benchmarks. Socket completo aprovado nas duas versões (oito testes
+  por versão), com variação de p95 entre -20,35% e +0,10%, throughput entre +0,09%
+  e +10,29% e crescimento de heap +0,02%. As diferenças observadas em um par
+  completo não comprovam que todo o ganho decorre do cache.
+- No REST com PostgreSQL 16 e Redis 7 descartáveis, um par completo passou nos
+  limites originais (p95 -2,86% a +1,29%, throughput -1,23% a +1,65%). Os dois
+  ensaios seguintes atingiram o timeout de 900 segundos, deixando essa primeira
+  tentativa v8 incompleta. A conclusão com v9 está registrada acima.
+  Relatórios locais da tentativa v8 em `tmp/cache-rest-old-reports/` e
+  `tmp/cache-socket-before.json` / `tmp/cache-socket-after.json`.
+- Corrige o watchdog do coordenador REST, que encerrava workers após 240 segundos
+  apesar do prazo de 900 segundos do teste completo. O watchdog passa a 960 segundos
+  para incluir inicialização e encerramento. O timeout do teste e os limites de
+  regressão de latência, throughput e memória são preservados.
+
+- Protege os contadores de concorrência REST e Socket contra liberações anteriores
+  ao reset das filas e torna a liberação de vagas REST idempotente.
+- Preserva o instante de cálculo dos percentis ao atualizar os contadores da fila,
+  permitindo renovar as amostras usadas na detecção de sobrecarga por latência.
+- Elimina colisões nas chaves do catálogo entre escopos, filtros ausentes, listas
+  vazias e IDs com delimitadores. Normaliza ordem e duplicatas para reutilizar
+  páginas de consultas equivalentes.
+- Aplica a expiração do cache TTL no instante exato do vencimento e respeita sua
+  capacidade quando a chave mais antiga é `undefined`.
+- Rejeita tokens no instante exato da expiração, tanto na verificação compartilhada
+  dos serviços quanto na transação Prisma de recuperação de senha.
+- Reserva uma conexão PostgreSQL durante cada tarefa de manutenção para adquirir
+  e liberar o advisory lock na mesma sessão. Descarta a conexão ao terminar e
+  preserva a falha original da tarefa quando a limpeza também falha.
+- Adiciona testes de regressão para as correções internas, preservando os contratos
+  públicos. Validação local em 2026-11-06 com 2.608 testes aprovados e 25 ignorados,
+  além de lint, análise de tipos e conferência dos contratos aprovados. A disputa
+  dos locks entre réplicas em PostgreSQL real permanece pendente de validação.
+
 ### Changed — application version history
 
 - Reconstruct the initial Git baseline and enforce changelog checks before release.

@@ -3,6 +3,21 @@ import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { TtlCache } from "../../../../src/shared/utils/ttl_cache";
 
 describe("TtlCache", () => {
+  it("expires at the exact TTL boundary", () => {
+    const cache = new TtlCache<string, number>(1000);
+    cache.set("key", 1);
+    vi.advanceTimersByTime(1000);
+    expect(cache.get("key")).toBeUndefined();
+  });
+
+  it("enforces capacity when the oldest key is undefined", () => {
+    const cache = new TtlCache<string | undefined, number>(1000, 1);
+    cache.set(undefined, 1);
+    cache.set("next", 2);
+    expect(cache.size).toBe(1);
+    expect(cache.get(undefined)).toBeUndefined();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -72,6 +87,36 @@ describe("TtlCache", () => {
   });
 
   describe("maxSize eviction", () => {
+    it("removes expired entries after refreshing the oldest insertion", () => {
+      const cache = new TtlCache<string, number>(1000, 2);
+      cache.set("oldest", 1);
+      vi.advanceTimersByTime(100);
+      cache.set("expires-first", 2);
+      vi.advanceTimersByTime(800);
+      cache.set("oldest", 3);
+      vi.advanceTimersByTime(200);
+      cache.set("new", 4);
+      expect(cache.get("oldest")).toBe(3);
+      expect(cache.get("expires-first")).toBeUndefined();
+      expect(cache.size).toBe(2);
+    });
+
+    it("handles earlier expirations after a clock rollback and clear", () => {
+      const cache = new TtlCache<string, number>(1000, 2);
+      const start = Date.now();
+      cache.set("later", 1);
+      vi.setSystemTime(start - 2000);
+      cache.set("earlier", 2);
+      vi.advanceTimersByTime(1000);
+      cache.set("new", 3);
+      expect(cache.get("later")).toBe(1);
+      expect(cache.get("earlier")).toBeUndefined();
+      cache.clear();
+      cache.set("reset", 4);
+      vi.advanceTimersByTime(1000);
+      expect(cache.get("reset")).toBeUndefined();
+    });
+
     it("evicts the oldest stale entry when at capacity", () => {
       const cache = new TtlCache<string, number>(1_000, 2);
       cache.set("a", 1);

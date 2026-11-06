@@ -97,7 +97,7 @@ export const isAfter = (date: DateInput, reference: DateInput): boolean => {
  * Returns whether a date has already expired relative to now.
  */
 export const isExpired = (date: DateInput): boolean => {
-  return moment(date).isBefore(moment.utc());
+  return moment(date).isSameOrBefore(moment.utc());
 };
 
 /**

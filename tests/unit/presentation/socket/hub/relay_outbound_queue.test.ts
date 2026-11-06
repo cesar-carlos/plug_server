@@ -19,6 +19,26 @@ const flush = async (): Promise<void> => {
 };
 
 describe("relay_outbound_queue", () => {
+  it("refreshes stale percentiles despite frequent backlog updates", () => {
+    vi.useFakeTimers();
+    const originalThreshold = env.socketRelayOutboundOverloadP95Ms;
+    Object.defineProperty(env, "socketRelayOutboundOverloadP95Ms", { value: 100 });
+    try {
+      const initial = getRelayOutboundQueueMetricsSnapshot();
+      for (let i = 0; i < 4; i++) {
+        vi.advanceTimersByTime(250);
+        getRelayOutboundQueueOverloadState();
+      }
+      expect(getRelayOutboundQueueOverloadState().snapshot.overloadStateRefreshTotal).toBe(
+        initial.overloadStateRefreshTotal + 1,
+      );
+    } finally {
+      Object.defineProperty(env, "socketRelayOutboundOverloadP95Ms", {
+        value: originalThreshold,
+      });
+    }
+  });
+
   it("does not sweep a request chain while a job is still running", () => {
     enqueueRelayOutbound("req-zombie", async () => {
       await new Promise<void>(() => undefined);

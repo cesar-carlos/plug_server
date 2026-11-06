@@ -12,7 +12,7 @@ import { agentRegistry } from "../../src/presentation/socket/hub/registries/agen
 import { decodePayloadFrame, encodePayloadFrame } from "../../src/shared/utils/payload_frame";
 import { percentile } from "../../src/shared/utils/percentile";
 import { isRecord } from "../../src/shared/utils/rpc_types";
-import { restBenchConditionalRequest } from "./rest_api_bench_http";
+import { restBenchConditionalRequest, restBenchRequest } from "./rest_api_bench_http";
 import { createRestBenchTurnWaiter, readRestBenchCpuAffinity } from "./rest_api_bench_coordination";
 import { getAgentHubPresenceRedisMetricsSnapshot } from "../../src/application/services/agent_hub_presence_redis_metrics.service";
 import { getClientSocketEventIdempotencyRedisMetricsSnapshot } from "../../src/application/services/client_socket_event_idempotency_redis_metrics.service";
@@ -351,16 +351,11 @@ export const runRestApiBench = async (): Promise<{
       token: string,
       init?: RequestInit,
     ): Promise<{ status: number; data: unknown; etag: string | null }> => {
-      const response = await fetch(`${url}${route}`, {
+      return restBenchRequest(`${url}${route}`, {
         signal: AbortSignal.timeout(30000),
         ...init,
         headers: { Authorization: `Bearer ${token}`, "x-no-compression": "1", ...init?.headers },
       });
-      return {
-        status: response.status,
-        data: response.status === 304 ? null : await response.json(),
-        etag: response.headers.get("etag"),
-      };
     };
     const etag = (await request("/api/v1/agents/catalog?pageSize=20", adminToken)).etag!;
     let publishIndex = 0;
@@ -559,7 +554,7 @@ export const runRestApiBench = async (): Promise<{
     // Neither worker may disconnect shared services while its peer is still timed.
     await waitForTurn("complete");
     return {
-      harnessVersion: 8,
+      harnessVersion: 9,
       versions,
       config,
       configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),

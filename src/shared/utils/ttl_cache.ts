@@ -25,7 +25,7 @@ export class TtlCache<K, V> {
   get(key: K): V | undefined {
     const entry = this.map.get(key);
     if (!entry) return undefined;
-    if (Date.now() > entry.expiresAtMs) {
+    if (Date.now() >= entry.expiresAtMs) {
       this.map.delete(key);
       return undefined;
     }
@@ -36,9 +36,9 @@ export class TtlCache<K, V> {
     if (this.maxSize > 0 && !this.map.has(key) && this.map.size >= this.maxSize) {
       this.evictStale();
       if (this.map.size >= this.maxSize) {
-        const firstKey = this.map.keys().next().value;
-        if (firstKey !== undefined) {
-          this.map.delete(firstKey);
+        const firstKey = this.map.keys().next();
+        if (!firstKey.done) {
+          this.map.delete(firstKey.value);
         }
       }
     }
@@ -69,7 +69,7 @@ export class TtlCache<K, V> {
   private evictStale(): void {
     const nowMs = Date.now();
     for (const [key, entry] of this.map) {
-      if (nowMs > entry.expiresAtMs) {
+      if (nowMs >= entry.expiresAtMs) {
         this.map.delete(key);
       }
     }

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentCatalogGeneration } from "../../../../src/application/ports/agent_catalog_generation.port";
-import { AgentCatalogPageCache } from "../../../../src/application/services/agent_catalog_page_cache";
+import {
+  AgentCatalogPageCache,
+  agentCatalogPageKey,
+} from "../../../../src/application/services/agent_catalog_page_cache";
 import { AgentCatalogService } from "../../../../src/application/services/agent_catalog.service";
 import { MemoryAgentCatalogGeneration } from "../../../../src/application/services/memory_agent_catalog_generation";
 import { Agent } from "../../../../src/domain/entities/agent.entity";
@@ -35,6 +38,25 @@ const catalogService = (
 };
 
 describe("agent catalog page cache", () => {
+  it("distinguishes unrestricted, empty and delimiter-containing filters", () => {
+    const scope = { kind: "all" } as const;
+    expect(agentCatalogPageKey(scope)).not.toBe(agentCatalogPageKey(scope, { agentIds: [] }));
+    expect(agentCatalogPageKey(scope, { agentIds: ["a,b"] })).not.toBe(
+      agentCatalogPageKey(scope, { agentIds: ["a", "b"] }),
+    );
+    expect(agentCatalogPageKey(scope)).not.toBe(
+      agentCatalogPageKey({ kind: "user", userId: "all" }),
+    );
+  });
+
+  it("reuses keys for equivalent ID sets without mutating the filter", () => {
+    const agentIds = ["b", "a", "a"];
+    expect(agentCatalogPageKey({ kind: "all" }, { agentIds })).toBe(
+      agentCatalogPageKey({ kind: "all" }, { agentIds: ["a", "b"] }),
+    );
+    expect(agentIds).toEqual(["b", "a", "a"]);
+  });
+
   it("reuses a page for the same principal and filter and misses otherwise", async () => {
     const findCatalogPage = vi.fn(async () => emptyPage());
     const { service, pages } = catalogService(new MemoryAgentCatalogGeneration(), findCatalogPage);

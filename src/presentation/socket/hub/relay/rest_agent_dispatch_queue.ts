@@ -27,6 +27,7 @@ const getMaxQueue = (): number => env.socketRestAgentMaxQueue;
 const getQueueWaitMs = (): number => env.socketRestAgentQueueWaitMs;
 
 const agentInflightById = new Map<string, number>();
+let queueGeneration = 0;
 /**
  * Per-agent FIFO wait queue backed by a `Set` so removal at any position is O(1)
  * (vs the previous `Array.indexOf + splice` which was O(queue depth)).
@@ -122,6 +123,16 @@ const releaseAgentDispatchSlot = (agentId: string): void => {
   drainAgentQueue(agentId);
 };
 
+const idempotentRelease = (agentId: string): (() => void) => {
+  const generation = queueGeneration;
+  let released = false;
+  return () => {
+    if (released || generation !== queueGeneration) return;
+    released = true;
+    releaseAgentDispatchSlot(agentId);
+  };
+};
+
 const removeQueuedWaiter = (agentId: string, waiter: AgentQueueWaiter): void => {
   const queue = agentQueueById.get(agentId);
   if (!queue) {
@@ -151,9 +162,7 @@ export const acquireRestAgentDispatchSlot = async (
   const inflight = getAgentInflight(agentId);
   if (inflight < getMaxInflight()) {
     setAgentInflight(agentId, inflight + 1);
-    return () => {
-      releaseAgentDispatchSlot(agentId);
-    };
+    return idempotentRelease(agentId);
   }
 
   const queue = agentQueueById.get(agentId) ?? new Set<AgentQueueWaiter>();
@@ -187,9 +196,7 @@ export const acquireRestAgentDispatchSlot = async (
       if (signalListener) {
         signal?.removeEventListener("abort", signalListener);
       }
-      resolve(() => {
-        releaseAgentDispatchSlot(agentId);
-      });
+      resolve(idempotentRelease(agentId));
     };
 
     const waiterHolder: { current?: AgentQueueWaiter } = {};
@@ -235,6 +242,7 @@ export const acquireRestAgentDispatchSlot = async (
 
 /** Rejects all queued waiters and clears inflight (e.g. bridge reset). */
 export const resetRestAgentDispatchQueue = (rejectReason: Error): void => {
+  queueGeneration += 1;
   agentInflightById.clear();
   for (const queue of agentQueueById.values()) {
     for (const waiter of queue) {

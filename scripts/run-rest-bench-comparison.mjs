@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { cpus } from "node:os";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import pg from "pg";
 import {
   readRestBenchCpuAffinity,
@@ -68,12 +68,29 @@ const fingerprints = Object.fromEntries(
 );
 const reports = { base: [], head: [] };
 const allowedCpus = readRestBenchCpuAffinity();
-const selectedCpu = process.platform === "linux" ? Number(allowedCpus.match(/^\d+/)?.[0]) : null;
+const selectedCpu = ["linux", "win32"].includes(process.platform)
+  ? Number(allowedCpus.match(/^\d+/)?.[0])
+  : null;
 if (selectedCpu !== null && !Number.isSafeInteger(selectedCpu))
   throw new Error("Invalid benchmark CPU affinity");
 // Both revisions inherit the same CPU, avoiding migration across unlike cores.
 // The affinity is also read back from the actual Vitest worker into its report.
 const cpuMask = selectedCpu === null ? null : (1n << BigInt(selectedCpu)).toString(16);
+if (process.platform === "win32" && selectedCpu !== null) {
+  // Child processes inherit this affinity before Vitest starts its worker.
+  execFileSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `$process = [System.Diagnostics.Process]::GetProcessById(${process.pid}); $process.ProcessorAffinity = [IntPtr]${1n << BigInt(selectedCpu)}`,
+    ],
+    { windowsHide: true },
+  );
+  if (readRestBenchCpuAffinity() !== String(selectedCpu))
+    throw new Error("Cannot pin benchmark CPU");
+}
 const ledger = {
   schedule,
   fingerprints,
@@ -129,9 +146,11 @@ try {
         const descriptor = openSync(log, "w");
         const started = new Date().toISOString();
         const child = spawn(
-          cpuMask === null ? process.execPath : "taskset",
+          cpuMask === null || process.platform === "win32" ? process.execPath : "taskset",
           [
-            ...(cpuMask === null ? [] : [cpuMask, process.execPath]),
+            ...(cpuMask === null || process.platform === "win32"
+              ? []
+              : [cpuMask, process.execPath]),
             "--expose-gc",
             "node_modules/vitest/vitest.mjs",
             "run",
@@ -147,10 +166,12 @@ try {
         closeSync(descriptor);
         const trial = (async () => {
           let timedOut = false;
+          // The full test allows 900s, including coordinated waits. Leave time
+          // for worker startup and report teardown before enforcing the watchdog.
           const timer = setTimeout(() => {
             timedOut = true;
             child.kill();
-          }, 240_000);
+          }, 960_000);
           const result = await new Promise((resolve) => {
             child.once("error", (error) => resolve({ status: null, error }));
             child.once("exit", (status, signal) => resolve({ status, signal }));

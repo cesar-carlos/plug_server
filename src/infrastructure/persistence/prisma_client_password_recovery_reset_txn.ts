@@ -37,7 +37,7 @@ export class PrismaClientPasswordRecoveryResetTxn implements IClientPasswordReco
           return { status: "not_found" };
         }
 
-        if (token.expiresAt.getTime() < Date.now()) {
+        if (token.expiresAt.getTime() <= Date.now()) {
           await tx.clientPasswordRecoveryToken.deleteMany({ where: { id: token.id } });
           return { status: "expired" };
         }

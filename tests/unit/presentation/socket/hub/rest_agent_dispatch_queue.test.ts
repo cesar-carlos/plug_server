@@ -25,6 +25,24 @@ import {
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 
 describe("rest_agent_dispatch_queue", () => {
+  it("ignores releases from before the queue reset", async () => {
+    const oldRelease = await acquireRestAgentDispatchSlot("reset-agent");
+    resetRestAgentDispatchQueue(serviceUnavailable("reset"));
+    const current = await acquireRestAgentDispatchSlot("reset-agent");
+    oldRelease();
+    expect(getRestAgentDispatchQueueMetricsSnapshot().totalInflight).toBe(1);
+    current();
+  });
+
+  it("does not release another active request when cleanup runs twice", async () => {
+    const current = await acquireRestAgentDispatchSlot("reset-agent");
+    const second = await acquireRestAgentDispatchSlot("reset-agent");
+    current();
+    current();
+    expect(getRestAgentDispatchQueueMetricsSnapshot().totalInflight).toBe(1);
+    second();
+  });
+
   it("removes an I/O waiter at its deadline without claiming a released slot later", async () => {
     const command = bridgeSingleCommandSchema.parse({
       method: "agent.action.findExecution",

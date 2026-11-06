@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRestBenchTurnWaiter,
+  restBenchCpuListFromMask,
   RestBenchTurnCoordinator,
   startRestBenchCoordinator,
   type RestBenchLabel,
@@ -11,6 +12,11 @@ import {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("REST benchmark paired repetitions", () => {
+  it("decodes sparse Windows affinity masks without truncating high bits", () => {
+    expect(restBenchCpuListFromMask(5n)).toBe("0,2");
+    expect(restBenchCpuListFromMask(1n << 40n)).toBe("40");
+    expect(() => restBenchCpuListFromMask(0n)).toThrow("Invalid");
+  });
   it.each(["base", "head"] as const)(
     "should wait for both workers and serialize every sample with %s first",
     async (first) => {

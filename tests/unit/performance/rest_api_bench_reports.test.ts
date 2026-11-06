@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import type { RestApiBenchReport } from "../../performance/rest_api_bench_harness";
@@ -265,6 +266,18 @@ describe("REST benchmark comparison", () => {
     );
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("explicit isolated database opt-in");
+  });
+
+  it("allows the complete REST test to finish before the worker watchdog fires", () => {
+    const runner = readFileSync("scripts/run-rest-bench-comparison.mjs", "utf8");
+    const test = readFileSync("tests/performance/rest_api_bench.test.ts", "utf8");
+    const watchdog = runner.match(/\}, ([\d_]+)\);/);
+    const testTimeout = test.match(/timeout: ([\d_]+)/);
+    expect(watchdog).not.toBeNull();
+    expect(testTimeout).not.toBeNull();
+    expect(Number(watchdog![1]!.replaceAll("_", ""))).toBeGreaterThan(
+      Number(testTimeout![1]!.replaceAll("_", "")),
+    );
   });
 
   it("should refuse paired workers without a dedicated Redis service", () => {

@@ -18,7 +18,8 @@
  * we use small monotonically-assigned numbers (no collision risk).
  */
 
-import { prismaClient } from "./prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { env } from "../../shared/config/env";
 import { logger } from "../../shared/utils/logger";
 
 /**
@@ -53,12 +54,54 @@ export const runWithAdvisoryLock = async <T>(
   jobName: string,
   fn: () => Promise<T>,
 ): Promise<AdvisoryLockOutcome<T>> => {
+  // A private single-connection pool keeps the session lock pinned to this job.
+  let adapter: Awaited<ReturnType<PrismaPg["connect"]>>;
+  try {
+    adapter = await new PrismaPg({ connectionString: env.databaseUrl, max: 1 }).connect();
+  } catch {
+    logger.warn("advisory_lock_acquire_failed", { jobName, lockId: lockId.toString() });
+    return { acquired: false, result: null };
+  }
+  const pool = adapter.underlyingDriver();
+  try {
+    let connection;
+    try {
+      connection = await pool.connect();
+    } catch {
+      logger.warn("advisory_lock_acquire_failed", { jobName, lockId: lockId.toString() });
+      return { acquired: false, result: null };
+    }
+    try {
+      return await runLockedJob(connection, lockId, jobName, fn);
+    } finally {
+      connection.release(true);
+    }
+  } finally {
+    try {
+      await adapter.dispose();
+    } catch {
+      logger.warn("advisory_lock_connection_cleanup_failed", {
+        jobName,
+        lockId: lockId.toString(),
+      });
+    }
+  }
+};
+
+const runLockedJob = async <T>(
+  connection: {
+    query(sql: string, values: string[]): Promise<{ rows: Array<{ acquired?: boolean }> }>;
+  },
+  lockId: bigint,
+  jobName: string,
+  fn: () => Promise<T>,
+): Promise<AdvisoryLockOutcome<T>> => {
   let acquired = false;
   try {
-    const rows = await prismaClient.$queryRaw<Array<{ acquired: boolean }>>`
-      SELECT pg_try_advisory_lock(${lockId}) AS "acquired"
-    `;
-    acquired = rows[0]?.acquired === true;
+    const result = await connection.query('SELECT pg_try_advisory_lock($1::bigint) AS "acquired"', [
+      lockId.toString(),
+    ]);
+    acquired = result.rows[0]?.acquired === true;
   } catch (error: unknown) {
     logger.warn("advisory_lock_acquire_failed", {
       jobName,
@@ -82,7 +125,7 @@ export const runWithAdvisoryLock = async <T>(
     return { acquired: true, result };
   } finally {
     try {
-      await prismaClient.$queryRaw`SELECT pg_advisory_unlock(${lockId})`;
+      await connection.query("SELECT pg_advisory_unlock($1::bigint)", [lockId.toString()]);
     } catch (error: unknown) {
       logger.warn("advisory_lock_release_failed", {
         jobName,

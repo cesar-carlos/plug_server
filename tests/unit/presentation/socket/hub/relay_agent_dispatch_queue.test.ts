@@ -24,6 +24,15 @@ import {
 import { serviceUnavailable } from "../../../../../src/shared/errors/http_errors";
 
 describe("relay_agent_dispatch_queue", () => {
+  it("ignores releases from before the queue reset", async () => {
+    const oldRelease = await acquireRelayAgentDispatchSlot("reset-agent");
+    resetRelayAgentDispatchQueue(serviceUnavailable("reset"));
+    const current = await acquireRelayAgentDispatchSlot("reset-agent");
+    oldRelease();
+    expect(getRelayAgentDispatchQueueMetricsSnapshot().totalInflight).toBe(1);
+    current();
+  });
+
   it("removes an I/O waiter at its deadline without claiming a released slot later", async () => {
     const command = bridgeSingleCommandSchema.parse({
       method: "agent.action.findExecution",

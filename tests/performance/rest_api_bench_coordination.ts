@@ -1,10 +1,33 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { execFileSync } from "node:child_process";
 
 export type RestBenchLabel = "base" | "head";
 
+export const restBenchCpuListFromMask = (mask: bigint): string => {
+  if (mask <= 0n) throw new Error("Invalid benchmark CPU affinity mask");
+  const cpus: number[] = [];
+  for (let cpu = 0; mask > 0n; cpu++, mask >>= 1n) {
+    if (mask & 1n) cpus.push(cpu);
+  }
+  return cpus.join(",");
+};
+
 export const readRestBenchCpuAffinity = (): string => {
+  if (process.platform === "win32") {
+    const mask = execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `([System.Diagnostics.Process]::GetProcessById(${process.pid})).ProcessorAffinity.ToInt64()`,
+      ],
+      { encoding: "utf8", windowsHide: true },
+    ).trim();
+    return restBenchCpuListFromMask(BigInt(mask));
+  }
   if (process.platform !== "linux") return "unavailable";
   const allowed = readFileSync("/proc/self/status", "utf8").match(
     /^Cpus_allowed_list:\s*(.+)$/m,

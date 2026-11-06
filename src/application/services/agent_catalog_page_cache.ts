@@ -9,9 +9,9 @@ import type { AgentCatalogGeneration } from "../ports/agent_catalog_generation.p
 const MAX_CATALOG_PAGES = 64;
 
 export const agentCatalogPageKey = (scope: AgentCatalogScope, filter?: AgentListFilter): string => {
-  const agentIds = filter?.agentIds === undefined ? "" : [...filter.agentIds].sort().join(",");
+  const agentIds = filter?.agentIds === undefined ? null : [...new Set(filter.agentIds)].sort();
   return JSON.stringify({
-    scope: scope.kind === "all" ? "all" : scope.userId,
+    scope: scope.kind === "all" ? { kind: "all" } : { kind: "user", userId: scope.userId },
     status: filter?.status ?? null,
     search: filter?.search ?? null,
     page: filter?.page ?? null,

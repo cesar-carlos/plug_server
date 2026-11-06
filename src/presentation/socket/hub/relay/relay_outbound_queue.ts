@@ -201,7 +201,7 @@ const updateOverloadStateCache = (input: {
   overloadStateCache.computedAtMs = nowMs;
 };
 
-const updateBacklogOnlyOverloadStateCache = (nowMs = Date.now()): void => {
+const updateBacklogOnlyOverloadStateCache = (): void => {
   const backlog = deriveBacklog();
   const wasOverloaded = overloadStateCache.overloaded;
   const { overloadedByBacklog, overloadedByP95 } = computeOverloadSignals(
@@ -218,7 +218,6 @@ const updateBacklogOnlyOverloadStateCache = (nowMs = Date.now()): void => {
       : null;
   overloadStateCache.retryAfterMs = isOverloaded ? retryAfterFromSweep() : 0;
   overloadStateCache.backlog = backlog;
-  overloadStateCache.computedAtMs = nowMs;
 };
 
 export const getRelayOutboundQueueMetricsSnapshot = (): RelayOutboundQueueMetricsSnapshot => {
@@ -327,7 +326,7 @@ export const getRelayOutboundQueueOverloadState = (): {
   readonly snapshot: RelayOutboundQueueMetricsSnapshot;
 } => {
   const nowMs = Date.now();
-  updateBacklogOnlyOverloadStateCache(nowMs);
+  updateBacklogOnlyOverloadStateCache();
   if (overloadStateCache.reason !== "backlog") {
     // Lazy refresh: if the percentile cache is older than the staleness budget,
     // recompute now. This keeps shedding-by-p95 reactive (within 1s) without
@@ -524,7 +523,7 @@ export const enqueueRelayOutbound = (
   }
   metrics.jobsEnqueuedTotal += 1;
   const nowMs = Date.now();
-  updateBacklogOnlyOverloadStateCache(nowMs);
+  updateBacklogOnlyOverloadStateCache();
   addPendingBytes(consumerSocketId, pendingBytes);
   trackRequestId(consumerSocketId, requestId);
   const entry = tailByRequestId.get(requestId) ?? {
@@ -559,7 +558,7 @@ export const enqueueRelayOutbound = (
       metrics.jobDurationSumMs += ms;
       metrics.jobDurationMaxMs = Math.max(metrics.jobDurationMaxMs, ms);
       pushLatencyRingBuffer(metrics.durationRing, ms);
-      updateBacklogOnlyOverloadStateCache(doneMs);
+      updateBacklogOnlyOverloadStateCache();
       entry.activeJobs = Math.max(0, entry.activeJobs - 1);
       entry.pendingJobs = Math.max(0, entry.pendingJobs - 1);
       entry.lastActivityAtMs = doneMs;
