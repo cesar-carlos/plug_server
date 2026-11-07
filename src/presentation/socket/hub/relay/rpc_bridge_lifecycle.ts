@@ -1,4 +1,5 @@
 import { serviceUnavailable } from "../../../../shared/errors/http_errors";
+import { logger } from "../../../../shared/utils/logger";
 import type {
   ConversationCloseReason,
   RelayConversation,
@@ -115,6 +116,14 @@ export const cleanupPendingRequestsForAgentSocket = (agentSocketId: string): num
     }
     registerAgentFailure(pending.agentId, "rest");
     pending.reject(serviceUnavailable("Agent disconnected while waiting for response"));
+    // ACK is transport receipt, never proof of process completion or permission to replay.
+    logger.warn("agent_pending_request_disconnected", {
+      requestId: pending.primaryRequestId,
+      agentId: pending.agentId,
+      socketId: agentSocketId,
+      method: pending.jsonRpcMethod ?? "unknown",
+      acked: pending.acked,
+    });
     cleaned += 1;
   }
 

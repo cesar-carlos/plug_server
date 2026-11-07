@@ -17,6 +17,7 @@ import {
   runExpiredConversationCleanup,
 } from "../../src/socket";
 import { socketEvents } from "../../src/shared/constants/socket_events";
+import { logger } from "../../src/shared/utils/logger";
 import type { HubSocket as ConsumerHubSocket } from "../../src/socket_state";
 
 type HubSocket = {
@@ -42,6 +43,36 @@ const createMockNamespace = (
   >;
 
 describe("socket disconnect cleanup wiring", () => {
+  it.each([
+    "ping timeout",
+    "transport close",
+    "client namespace disconnect",
+    "server namespace disconnect",
+    "untrusted-secret",
+  ])("records a safe disconnect reason: %s", (reason) => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+    agentRegistry.registerAgentSession({
+      agentId: "reason-agent",
+      socketId: "reason-socket",
+      userId: "reason-user",
+      capabilities: {},
+      policy: "legacy_silent_takeover",
+      isPeerConnected: () => true,
+    });
+    runAgentSocketDisconnectCleanup(
+      createHubSocket("reason-socket") as unknown as AgentHubSocket,
+      createMockNamespace(),
+      reason,
+    );
+    expect(info).toHaveBeenCalledWith(
+      "Agent disconnected from hub",
+      expect.objectContaining({
+        reason: reason === "untrusted-secret" ? "unknown" : reason,
+        cleanedPendingRequests: 0,
+      }),
+    );
+  });
+
   afterEach(() => {
     agentRegistry.clear();
     conversationRegistry.clear();

@@ -30,11 +30,13 @@ import {
   resetRestPendingRequestsStore,
 } from "../../../../../src/presentation/socket/hub/registries/rest_pending_requests";
 import { env } from "../../../../../src/shared/config/env";
+import { logger } from "../../../../../src/shared/utils/logger";
 
 describe("rpc_bridge_lifecycle", () => {
   const timeoutHandles: NodeJS.Timeout[] = [];
 
   afterEach(() => {
+    vi.restoreAllMocks();
     resetActiveStreamRegistry();
     resetRelayRequestRegistry();
     resetRelayIdempotencyStore();
@@ -83,9 +85,11 @@ describe("rpc_bridge_lifecycle", () => {
   });
 
   it("cleans relay routes, active streams, and pending REST requests for a disconnected agent socket", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     const reject = vi.fn();
     registerRestPendingRequest({
       primaryRequestId: "req-agent",
+      jsonRpcMethod: "agent.action.readIo",
       correlationIds: ["req-agent"],
       socketId: "agent-socket-1",
       agentId: "agent-1",
@@ -116,6 +120,16 @@ describe("rpc_bridge_lifecycle", () => {
     cleanupAgentStreamSubscriptions("agent-socket-1");
 
     expect(cleaned).toBe(1);
+    expect(warn).toHaveBeenCalledWith(
+      "agent_pending_request_disconnected",
+      expect.objectContaining({
+        requestId: "req-agent",
+        agentId: "agent-1",
+        socketId: "agent-socket-1",
+        method: "agent.action.readIo",
+        acked: false,
+      }),
+    );
     expect(reject).toHaveBeenCalledOnce();
     expect(getRestPendingRequestCount()).toBe(0);
     expect(getActiveStreamRouteByRequestId("req-agent")).toBeUndefined();

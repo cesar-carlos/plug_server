@@ -220,9 +220,23 @@ const runAgentSocketAsyncHandler = (
 
 // ─── Disconnect cleanup ───────────────────────────────────────────────────────
 
+// Only Socket.IO's fixed reason vocabulary is safe; descriptions may contain payloads.
+const agentDisconnectReasons = new Set([
+  "transport error",
+  "transport close",
+  "forced close",
+  "ping timeout",
+  "parse error",
+  "server shutting down",
+  "forced server close",
+  "client namespace disconnect",
+  "server namespace disconnect",
+]);
+
 export const runAgentSocketDisconnectCleanup = (
   socket: AgentHubSocket,
   consumersNsp: Namespace,
+  reason: unknown = "unknown",
 ): void => {
   markAgentRegisterSocketDisconnected(socket);
   cleanupAgentHeartbeatState(socket);
@@ -261,6 +275,7 @@ export const runAgentSocketDisconnectCleanup = (
       agentId: removedAgent.agentId,
       userId: removedAgent.userId,
       cleanedPendingRequests,
+      reason: typeof reason === "string" && agentDisconnectReasons.has(reason) ? reason : "unknown",
     });
   }
 };
@@ -518,8 +533,8 @@ export const registerAgentSocketConnectionHandlers = ({
 
     // Register disconnect early so identity-room join failures still run full cleanup
     // exactly once (avoids leaving bridge/registry state behind on early disconnect).
-    socket.on("disconnect", () => {
-      runAgentSocketDisconnectCleanup(socket, consumersNsp);
+    socket.on("disconnect", (reason) => {
+      runAgentSocketDisconnectCleanup(socket, consumersNsp, reason);
     });
 
     try {

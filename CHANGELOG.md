@@ -6,6 +6,18 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — diagnóstico de desconexões de agentes
+
+- Preserva nos logs o motivo de desconexão do Socket.IO usando uma lista fechada
+  de valores seguros; descrições livres e payloads não são registrados.
+- Correlaciona pedidos interrompidos com agente, socket, request ID, método e
+  recebimento de ACK. ACK não comprova execução ou consumo; não altera respostas,
+  política de reconciliação ou proibição de replay automático.
+- Mantém a proteção que recusa perfil remoto com versão inferior à do servidor.
+  Na ocorrência investigada em 2026-11-07, o agente reconectou em cerca de 150 ms
+  e enviou perfil v8 diante do v9 no hub. Os logs antigos não permitem determinar
+  a causa da desconexão; não há evidência de que esse aviso seja perda de dados.
+
 ### Fixed — prazos de I/O remoto
 
 - Negocia `agentActions.deadlineClock: 1` com o agente e consulta uma amostra
