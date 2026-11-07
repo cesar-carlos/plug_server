@@ -41,6 +41,7 @@ it("advertises the exact agreement in an opted-in isolated test and rechecks dis
     enabled: true,
     version: 1,
     catalogVersion: 1,
+    deadlineClock: 1,
     io: ACTION_IO_TRANSPORT,
   });
   expect(() => assertActionIoTransport(command, peer)).not.toThrow();
@@ -58,6 +59,7 @@ it("advertises production only when the homologation flag is explicit", () => {
     enabled: true,
     version: 1,
     catalogVersion: 1,
+    deadlineClock: 1,
     io: ACTION_IO_TRANSPORT,
   });
   expect(() => assertActionIoTransport(command, peer)).not.toThrow();

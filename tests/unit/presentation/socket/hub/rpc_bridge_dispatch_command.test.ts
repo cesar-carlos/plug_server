@@ -1,3 +1,4 @@
+import { buildHubServerCapabilities } from "../../../../../src/shared/constants/agent_transport_contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createDispatchRpcCommandToAgent } from "../../../../../src/presentation/socket/hub/relay/rpc_bridge_dispatch_command";
@@ -54,6 +55,60 @@ const registerReadyAgent = (agentId: string, socketId: string): void => {
 };
 
 describe("rpc_bridge_dispatch_command", () => {
+  it("puts the negotiated agent deadline into the actual bridge frame", async () => {
+    const previous = env.enableActionIoHomologation;
+    overrideEnv("enableActionIoHomologation", true);
+    try {
+      agentRegistry.registerAgentSession({
+        agentId: "clock-agent",
+        socketId: "clock-socket",
+        userId: "user",
+        capabilities: buildHubServerCapabilities(),
+        policy: "legacy_silent_takeover",
+        isPeerConnected: () => true,
+      });
+      agentRegistry.touch("clock-agent", { markProtocolReady: true, socketId: "clock-socket" });
+      const emit = vi.fn();
+      const emitWithAck = vi.fn(async () => ({
+        version: 1,
+        clock_id: "agent-session",
+        monotonic_ms: 10000,
+      }));
+      const dispatch = createDispatchRpcCommandToAgent({
+        hasRegisteredAgentSocketBridge: () => true,
+        findAgentSocketById: () => ({ emit, timeout: () => ({ emitWithAck }) }),
+      });
+      const pending = dispatch({
+        agentId: "clock-agent",
+        command: {
+          jsonrpc: "2.0",
+          method: "agent.action.listAvailable",
+          id: "clock-request",
+          params: {},
+        },
+      });
+      await vi.waitFor(() => expect(emit).toHaveBeenCalledOnce());
+      expect(emitWithAck).toHaveBeenCalledOnce();
+      const decodedClockFrame = decodePayloadFrame(emit.mock.calls[0]![1]);
+      expect(decodedClockFrame.ok).toBe(true);
+      if (!decodedClockFrame.ok) throw new Error("Invalid frame");
+      expect(decodedClockFrame.value.data).toMatchObject({
+        meta: {
+          action_io_clock_id: "agent-session",
+          action_io_monotonic_deadline_ms: expect.any(Number),
+        },
+      });
+      getRestPendingRequestByCorrelationId("clock-request")?.resolve({
+        jsonrpc: "2.0",
+        id: "clock-request",
+        result: {},
+      });
+      await expect(pending).resolves.toMatchObject({ requestId: "clock-request" });
+    } finally {
+      overrideEnv("enableActionIoHomologation", previous);
+    }
+  });
+
   afterEach(() => {
     agentRegistry.clear();
     resetRestPendingRequestsStore();

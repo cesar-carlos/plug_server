@@ -199,3 +199,38 @@ No additional code correction was needed during this repeat. Logs for this
 round are `action-io-final-{rest,socket,relay}.log` and
 `action-io-final-server-suite.log` in the local system temporary directory.
 These local logs are retained evidence, not portable versioned reports.
+### Prazos Action I/O independentes do relógio civil
+
+Quando ambos anunciam `agentActions.deadlineClock: 1`, o hub consulta
+o agente da conexão autenticada via `rpc:clock.probe`, controle Socket.IO
+JSON com ACK (não é comando JSON-RPC nem executa ações). Envia
+`{version: 1}` e recebe `{version: 1, clock_id, monotonic_ms}`.
+O identificador pertence à sessão atual; não é credencial nem autorização.
+
+Após o ACK, o hub soma ao instante monotônico do agente somente o orçamento
+original ainda restante, limitado a 30 segundos, e envia o resultado fixo em
+`meta.action_io_monotonic_deadline_ms` com `meta.action_io_clock_id`.
+A amostra precede o recebimento do ACK: o tempo de retorno é descontado
+conservadoramente, nunca adicionado ao prazo. Fila, codificação, trânsito e
+decodificação posteriores consomem o mesmo prazo. Não há cache de amostras,
+reenvio automático ou renovação na chegada. O custo é uma ida e volta extra
+por requisição Action I/O (uma por lote). Timeout ou cancelamento da consulta
+impede o envio do comando; não cancela um processo já iniciado.
+
+O agente usa relógio monotônico para admissão e espera de leitura; rejeita
+metadados ausentes/inválidos e referência de outra sessão quando negociado.
+Desconexão e cancelamento de leitura continuam invalidando o contexto.
+Os limites de execução, retenção, autorização e bytes permanecem inalterados.
+Isso tolera diferenças e ajustes do relógio civil, não suspensão arbitrária
+da máquina nem falhas do relógio monotônico do sistema operacional.
+
+Sem a extensão em qualquer ponta, o hub não envia consulta nem novos campos:
+preserva `action_io_remaining_ms` e `action_io_deadline_unix_ms`.
+Agentes novos aceitam esse caminho legado; pares antigos continuam dependendo
+da sincronização de horário. Não há downgrade após falha de uma consulta
+negociada. Mantenha NTP para tokens, certificados, auditoria e outros protocolos.
+
+Falha, timeout, cancelamento ou amostra inválida na consulta retorna
+`ACTION_IO_REQUEST_EXPIRED` (HTTP 408), com `retryable: false` e
+`effects_possible: false`: o comando desta requisição não foi enviado.
+Isso não determina o resultado de tentativas anteriores nem autoriza replay.

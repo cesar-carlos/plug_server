@@ -65,11 +65,12 @@ export const applyActionIoDeadline = (
   payload: unknown,
   remainingMs: number,
   now = Date.now(),
+  clockBudget?: Readonly<Record<string, string | number>>,
 ): unknown => {
   if (!requiresActionIoCapability(command)) return payload;
   if (Array.isArray(command) && Array.isArray(payload)) {
     return command.map((item, index) =>
-      applyActionIoDeadline(item, payload[index], remainingMs, now),
+      applyActionIoDeadline(item, payload[index], remainingMs, now, clockBudget),
     );
   }
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return payload;
@@ -82,6 +83,7 @@ export const applyActionIoDeadline = (
       ...(meta !== null && typeof meta === "object" && !Array.isArray(meta) ? meta : {}),
       action_io_remaining_ms: remaining,
       action_io_deadline_unix_ms: now + remaining,
+      ...clockBudget,
     },
   };
 };

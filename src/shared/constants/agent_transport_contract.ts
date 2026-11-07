@@ -152,6 +152,7 @@ export const buildHubServerCapabilities = (
       enabled: true,
       version: 1,
       catalogVersion: 1,
+      deadlineClock: 1,
       io: ACTION_IO_TRANSPORT,
     };
   }

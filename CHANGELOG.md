@@ -6,6 +6,19 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — prazos de I/O remoto
+
+- Negocia `agentActions.deadlineClock: 1` com o agente e consulta uma amostra
+  monotônica da sessão autenticada via `rpc:clock.probe`, evitando que diferenças
+  de horário civil alterem o prazo de requisições Action I/O.
+- Mantém o orçamento original (até 30 segundos), descontando a espera pelo ACK;
+  não renova prazos, repete comandos ou faz downgrade após falha da consulta.
+  Pares sem a extensão preservam o contrato legado. Há uma ida e volta adicional
+  por requisição ou lote; isto não representa uma otimização de latência.
+- Valida a amostra recebida e rejeita orçamentos não finitos antes do envio.
+  Inclui testes de compatibilidade, cancelamento, expiração, frame efetivo e
+  negociação com ACK em conexão Socket.IO real.
+
 ### Fixed — dependências, compatibilidade e falhas de e-mail
 
 - Atualiza `glob` apenas sob `swagger-jsdoc` para 14.0.4 e `gaxios` apenas sob

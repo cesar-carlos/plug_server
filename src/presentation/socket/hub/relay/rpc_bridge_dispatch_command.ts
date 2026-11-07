@@ -1,3 +1,4 @@
+import { probeActionIoClock, type ActionIoClockSocket } from "./action_io_clock_probe";
 import { capabilityUnavailable } from "../../../../shared/errors/capability_unavailable";
 import { createActionIoReadCancellation } from "./action_io_read_cancellation";
 import { actionIoReadCapacity } from "../../../../shared/di/action_io_read_capacity";
@@ -118,7 +119,7 @@ interface DispatchRpcCommandNotificationResult {
 export type DispatchRpcCommandResult =
   DispatchRpcCommandResponseResult | DispatchRpcCommandNotificationResult;
 
-type AgentSocketEmitter = {
+type AgentSocketEmitter = ActionIoClockSocket & {
   emit: (eventName: string, payload: unknown) => void;
 };
 
@@ -302,12 +303,21 @@ export const createDispatchRpcCommandToAgent = (
         });
         input.latencyTrace?.addPhaseMs("queue_wait_ms", performance.now() - tQueue);
         try {
+          const clockBudget = await probeActionIoClock(
+            command,
+            agentRegistry.getCapabilitiesByAgentId(input.agentId),
+            agentSocket,
+            () => Math.min(timeoutMs, 30000) - (performance.now() - dispatchWallStart),
+            input.signal,
+          );
           const tEnc = performance.now();
           const wire = await encodePayloadFrameBridge(
             applyActionIoDeadline(
               command,
               commandPayload,
               remainingActionIoWaitMs(command, timeoutMs, dispatchWallStart),
+              Date.now(),
+              clockBudget ? { ...clockBudget } : undefined,
             ),
             {
               requestId,
@@ -604,12 +614,21 @@ export const createDispatchRpcCommandToAgent = (
       try {
         let wireFrame: PayloadFrameEnvelope;
         try {
+          const clockBudget = await probeActionIoClock(
+            command,
+            agentRegistry.getCapabilitiesByAgentId(input.agentId),
+            agentSocket,
+            () => Math.min(timeoutMs, 30000) - (performance.now() - dispatchWallStart),
+            input.signal,
+          );
           const tEncPending = performance.now();
           wireFrame = await encodePayloadFrameBridge(
             applyActionIoDeadline(
               command,
               commandPayload,
               remainingActionIoWaitMs(command, timeoutMs, dispatchWallStart),
+              Date.now(),
+              clockBudget ? { ...clockBudget } : undefined,
             ),
             {
               requestId,

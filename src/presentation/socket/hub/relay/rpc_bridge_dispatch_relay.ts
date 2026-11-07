@@ -1,3 +1,4 @@
+import { probeActionIoClock, type ActionIoClockSocket } from "./action_io_clock_probe";
 import { capabilityUnavailable } from "../../../../shared/errors/capability_unavailable";
 import { actionIoErrorDetails } from "../../../../shared/utils/action_io_error_details";
 import { createActionIoReadCancellation } from "./action_io_read_cancellation";
@@ -162,7 +163,7 @@ export interface RequestRelayStreamPullInput {
   readonly rawFramePayload: unknown;
 }
 
-type AgentSocketEmitter = {
+type AgentSocketEmitter = ActionIoClockSocket & {
   emit: (eventName: string, payload: unknown) => void;
 };
 
@@ -563,12 +564,21 @@ export const createRpcBridgeRelayDispatch = (
 
         try {
           assertNotAborted();
+          const clockBudget = await probeActionIoClock(
+            command,
+            agentRegistry.getCapabilitiesByAgentId(conversation.agentId),
+            agentSocket,
+            () => Math.min(effectiveTimeoutMs, 30000) - (performance.now() - relayWallStart),
+            input.signal,
+          );
           const tEnc = performance.now();
           const wireFrame = await encodePayloadFrameBridge(
             applyActionIoDeadline(
               command,
               commandPayload,
               remainingActionIoWaitMs(command, effectiveTimeoutMs, relayWallStart),
+              Date.now(),
+              clockBudget ? { ...clockBudget } : undefined,
             ),
             {
               requestId,
