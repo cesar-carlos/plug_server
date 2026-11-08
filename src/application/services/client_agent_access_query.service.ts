@@ -159,8 +159,11 @@ export class ClientAgentAccessQueryService {
 
   /** Convenience for single-agent detail endpoints (`findApprovedAgent` companion). */
   async hasClientTokenForAgent(clientId: string, agentId: string): Promise<boolean> {
-    const access = await this.clientAgentAccessRepository.findByClientAndAgent(clientId, agentId);
-    return access !== null && typeof access.clientToken === "string" && access.clientToken !== "";
+    const presence = await this.clientAgentAccessRepository.listClientTokenPresenceForClientIn(
+      clientId,
+      [agentId],
+    );
+    return presence.get(agentId) === true;
   }
 
   async listRequests(clientId: string): Promise<ClientAgentAccessRequestRecord[]> {

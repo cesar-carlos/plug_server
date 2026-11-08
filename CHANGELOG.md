@@ -6,6 +6,27 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — progresso de Web Push e consultas internas
+
+- O worker Web Push continua a busca após perder uma disputa de lease ou
+  descartar uma entrega sem assinatura válida, de outro cliente ou com tipo
+  inválido. A busca é limitada a 20 candidatos por chamada; preserva tentativas,
+  leases e isolamento de clientes. Testes reproduziram a interrupção antes da
+  correção e verificaram progresso e aquisição concorrente em PostgreSQL isolado.
+- A consulta de presença de token calcula o booleano no PostgreSQL sem trazer
+  o segredo para a aplicação. O detalhe reutiliza essa projeção, preservando
+  tokens nulos/vazios, acesso inexistente e atualização imediata do resultado.
+- Pedidos de acesso usam `Set` para excluir agentes já aprovados e removem
+  filtros redundantes, mantendo ordem, deduplicação, debounce e notificações.
+- Medição local em 08/11/2026 contra `d07dd07`, PostgreSQL 16 isolado, nove
+  repetições alternadas após aquecimento: médias por repetição tiveram medianas
+  de 4,178 → 3,423 ms para presença de 100 tokens e 2,728 → 2,586 ms para um
+  token (50 consultas/repetição). A variação se sobrepõe; especialmente no caso
+  unitário, não há conclusão de ganho estável de latência. O microbenchmark dos
+  filtros com 100 IDs/50 aprovados passou de 120,16 → 5,27 µs por operação
+  (10.000 operações/repetição). Essas medidas não comprovam ganho REST/Socket
+  ponta a ponta; nenhum limite de aceite ou contrato público foi alterado.
+
 ### Documentation — evidências de revisão e regressão
 
 - Reforça nas rules a comprovação de bugs corrigidos com testes que falham antes

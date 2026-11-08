@@ -233,16 +233,21 @@ describe("ClientAgentAccessQueryService", () => {
   });
 
   it("treats missing or empty client tokens as absent", async () => {
-    const findByClientAndAgent = vi
+    const listClientTokenPresenceForClientIn = vi
       .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(makeAccess(clientId, agentId, ""))
-      .mockResolvedValueOnce(makeAccess(clientId, agentId, "opaque-token"));
-    const service = makeService({ accessRepository: { findByClientAndAgent } });
+      .mockResolvedValueOnce(new Map())
+      .mockResolvedValueOnce(new Map([[agentId, false]]))
+      .mockResolvedValueOnce(new Map([[agentId, true]]));
+    const findByClientAndAgent = vi.fn();
+    const service = makeService({
+      accessRepository: { findByClientAndAgent, listClientTokenPresenceForClientIn },
+    });
 
     await expect(service.hasClientTokenForAgent(clientId, agentId)).resolves.toBe(false);
     await expect(service.hasClientTokenForAgent(clientId, agentId)).resolves.toBe(false);
     await expect(service.hasClientTokenForAgent(clientId, agentId)).resolves.toBe(true);
+    expect(findByClientAndAgent).not.toHaveBeenCalled();
+    expect(listClientTokenPresenceForClientIn).toHaveBeenCalledWith(clientId, [agentId]);
   });
 
   it("includes agent names on request records when the catalog has them", async () => {

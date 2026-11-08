@@ -116,7 +116,8 @@ export class ClientAgentAccessRequestService {
       clientId,
       uniqueAgentIds,
     );
-    const workAgentIds = uniqueAgentIds.filter((id) => !alreadyApproved.includes(id));
+    const approvedIds = new Set(alreadyApproved);
+    const workAgentIds = uniqueAgentIds.filter((id) => !approvedIds.has(id));
 
     if (workAgentIds.length === 0) {
       recordClientAgentAccessRequestPost({
@@ -264,8 +265,9 @@ export class ClientAgentAccessRequestService {
     }
 
     const requested = pendingRows.map((row) => row.agentId);
-    const newRequests = newRequestIds.filter((id) => requested.includes(id));
-    const reopened = reopenedIds.filter((id) => requested.includes(id));
+    // These IDs are added only when the corresponding pending row is created.
+    const newRequests = newRequestIds;
+    const reopened = reopenedIds;
 
     recordClientAgentAccessRequestPost({
       requestedCount: requested.length,

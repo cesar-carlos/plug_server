@@ -6,6 +6,7 @@ import { env } from "../../../../src/shared/config/env";
 import { prismaClient } from "../../../../src/infrastructure/database/prisma/client";
 import { PrismaAgentRepository } from "../../../../src/infrastructure/repositories/prisma_agent.repository";
 import { PrismaClientRepository } from "../../../../src/infrastructure/repositories/prisma_client.repository";
+import { PrismaClientAgentAccessRepository } from "../../../../src/infrastructure/repositories/prisma_client_agent_access.repository";
 
 describe.skipIf(env.persistenceMode !== "prisma")(
   "REST Prisma scopes and fresh projections",
@@ -102,6 +103,54 @@ describe.skipIf(env.persistenceMode !== "prisma")(
         await writeFile("tmp/rest-query-plans.json", JSON.stringify(plan, null, 2));
       } finally {
         pg.Client.prototype.query = original;
+      }
+    });
+
+    it("projects token presence with null, empty, nonempty and missing access semantics", async () => {
+      const repository = new PrismaClientAgentAccessRepository();
+      const tokens = [null, "", " "];
+      await prismaClient.clientAgentAccess.createMany({
+        data: agentIds.map((agentId, index) => ({
+          clientId,
+          agentId,
+          clientToken: tokens[index] ?? null,
+        })),
+      });
+      try {
+        const missing = randomUUID();
+        expect(
+          await repository.listClientTokenPresenceForClientIn(clientId, [
+            ...agentIds,
+            agentIds[0]!,
+            missing,
+          ]),
+        ).toEqual(
+          new Map([
+            [agentIds[0], false],
+            [agentIds[1], false],
+            [agentIds[2], true],
+          ]),
+        );
+        expect(await repository.listClientTokenPresenceForClientIn(randomUUID(), agentIds)).toEqual(
+          new Map(),
+        );
+        expect(await repository.listClientTokenPresenceForClientIn(clientId, [])).toEqual(
+          new Map(),
+        );
+        expect(
+          await repository.listClientTokenPresenceForClientIn("' OR 1=1 --", agentIds),
+        ).toEqual(new Map());
+        await prismaClient.clientAgentAccess.update({
+          where: { clientId_agentId: { clientId, agentId: agentIds[2]! } },
+          data: { clientToken: null },
+        });
+        expect(
+          (await repository.listClientTokenPresenceForClientIn(clientId, agentIds)).get(
+            agentIds[2]!,
+          ),
+        ).toBe(false);
+      } finally {
+        await prismaClient.clientAgentAccess.deleteMany({ where: { clientId } });
       }
     });
 

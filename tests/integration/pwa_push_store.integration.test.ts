@@ -36,6 +36,44 @@ describe.skipIf(process.env.PWA_DATABASE_TEST !== "true")("PWA PostgreSQL persis
       await prismaClient.pwaDelivery.count({ where: { clientId, eventId: "rolled-back" } }),
     ).toBe(0);
   });
+  it("skips an orphan and leases distinct ready jobs to concurrent workers", async () => {
+    await store.save(subscription);
+    const now = new Date();
+    await prismaClient.pwaDelivery.createMany({
+      data: [
+        {
+          id: randomUUID(),
+          clientId,
+          installationId: randomUUID(),
+          eventId: "orphan",
+          type: "access-approved",
+          availableAt: new Date(now.getTime() - 2000),
+        },
+        ...["ready-1", "ready-2"].map((eventId) => ({
+          id: randomUUID(),
+          clientId,
+          installationId,
+          eventId,
+          type: "access-approved",
+          availableAt: new Date(now.getTime() - 1000),
+        })),
+      ],
+    });
+    try {
+      const jobs = await Promise.all([store.claim(now), store.claim(now)]);
+      expect(jobs.every((job) => job !== null)).toBe(true);
+      expect(new Set(jobs.map((job) => job?.id)).size).toBe(2);
+      expect(jobs.map((job) => job?.message.eventId).sort()).toEqual(["ready-1", "ready-2"]);
+      expect(
+        await prismaClient.pwaDelivery.count({
+          where: { clientId, eventId: "orphan", done: true },
+        }),
+      ).toBe(1);
+    } finally {
+      await prismaClient.pwaDelivery.deleteMany({ where: { clientId } });
+      await store.remove(clientId, installationId);
+    }
+  });
   it("deduplicates events, claims once, and preserves subscription ownership", async () => {
     await store.save(subscription);
     await expect(store.save({ ...subscription, clientId: randomUUID() })).rejects.toMatchObject({

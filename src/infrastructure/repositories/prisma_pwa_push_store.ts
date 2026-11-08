@@ -8,6 +8,7 @@ import type {
   PwaPushSubscription,
 } from "../../domain/ports/pwa_push.port";
 export class PrismaPwaPushStore implements PwaPushStore {
+  private static readonly MAX_CLAIM_SCANS = 20;
   async save(input: PwaPushSubscription): Promise<void> {
     try {
       const updated = await prismaClient.pwaSubscription.updateMany({
@@ -36,34 +37,39 @@ export class PrismaPwaPushStore implements PwaPushStore {
   }
 
   async claim(now: Date): Promise<PwaPushJob | null> {
-    const row = await prismaClient.pwaDelivery.findFirst({
-      where: { done: false, attempts: { lt: 3 }, availableAt: { lte: now } },
-      orderBy: { availableAt: "asc" },
-    });
-    if (!row) return null;
-    const lease = await prismaClient.pwaDelivery.updateMany({
-      where: { id: row.id, done: false, attempts: row.attempts, availableAt: { lte: now } },
-      data: { attempts: { increment: 1 }, availableAt: new Date(now.getTime() + 60_000) },
-    });
-    if (!lease.count) return null;
-    const subscription = await prismaClient.pwaSubscription.findUnique({
-      where: { installationId: row.installationId },
-    });
-    if (!subscription || subscription.clientId !== row.clientId) {
-      await this.complete(row.id);
-      return null;
+    // Bound scanning so contention or invalid rows cannot monopolize the worker.
+    for (let scanned = 0; scanned < PrismaPwaPushStore.MAX_CLAIM_SCANS; scanned++) {
+      const row = await prismaClient.pwaDelivery.findFirst({
+        where: { done: false, attempts: { lt: 3 }, availableAt: { lte: now } },
+        orderBy: { availableAt: "asc" },
+      });
+      if (!row) return null;
+      const lease = await prismaClient.pwaDelivery.updateMany({
+        where: { id: row.id, done: false, attempts: row.attempts, availableAt: { lte: now } },
+        data: { attempts: { increment: 1 }, availableAt: new Date(now.getTime() + 60_000) },
+      });
+      if (!lease.count) continue;
+      const subscription = await prismaClient.pwaSubscription.findUnique({
+        where: { installationId: row.installationId },
+      });
+      if (!subscription || subscription.clientId !== row.clientId) {
+        await this.complete(row.id);
+        continue;
+      }
+      if (row.type !== "access-approved" && row.type !== "access-revoked") {
+        await this.complete(row.id);
+        continue;
+      }
+      return {
+        id: row.id,
+        subscription,
+        attempts: row.attempts + 1,
+        message: { eventId: row.eventId, type: row.type },
+      };
     }
-    if (row.type !== "access-approved" && row.type !== "access-revoked") {
-      await this.complete(row.id);
-      return null;
-    }
-    return {
-      id: row.id,
-      subscription,
-      attempts: row.attempts + 1,
-      message: { eventId: row.eventId, type: row.type },
-    };
+    return null;
   }
+
   async complete(id: string): Promise<void> {
     await prismaClient.pwaDelivery.updateMany({ where: { id }, data: { done: true } });
   }

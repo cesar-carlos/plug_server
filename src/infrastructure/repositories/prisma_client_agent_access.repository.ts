@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { Agent } from "../../domain/entities/agent.entity";
 import type {
@@ -57,16 +57,13 @@ export class PrismaClientAgentAccessRepository implements IClientAgentAccessRepo
       return new Map();
     }
     const unique = [...new Set(agentIds)];
-    const rows = await prismaClient.clientAgentAccess.findMany({
-      where: { clientId, agentId: { in: unique } },
-      select: { agentId: true, clientToken: true },
-    });
-    return new Map(
-      rows.map(
-        (row) =>
-          [row.agentId, typeof row.clientToken === "string" && row.clientToken !== ""] as const,
-      ),
+    const rows = await prismaClient.$queryRaw<{ agentId: string; hasClientToken: boolean }[]>(
+      Prisma.sql`SELECT agent_id AS "agentId",
+        (client_token IS NOT NULL AND client_token <> '') AS "hasClientToken"
+        FROM client_agent_accesses
+        WHERE client_id = ${clientId} AND agent_id IN (${Prisma.join(unique)})`,
     );
+    return new Map(rows.map((row) => [row.agentId, row.hasClientToken]));
   }
 
   async listApprovedAgentsPageByClient(

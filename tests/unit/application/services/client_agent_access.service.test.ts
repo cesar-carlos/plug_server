@@ -232,6 +232,25 @@ describe("Client agent access services", () => {
     expect(emailSender.ownerAccessRequests[0]?.clientEmail).toBe("client@example.com");
   });
 
+  it("preserves order and deduplicates a maximum-size batch without duplicate notifications", async () => {
+    const ids = Array.from({ length: 50 }, (_, index) => `batch-agent-${index}`);
+    for (const id of ids) {
+      await agentRepository.save(Agent.create({ agentId: id, name: id }));
+      await identityRepository.bindIfUnbound(id, ownerUserId);
+    }
+    const result = await requestService.requestAccess(clientId, [...ids, ...ids]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("Expected batch success");
+    expect(result.value).toEqual({
+      requested: ids,
+      alreadyApproved: [],
+      newRequests: ids,
+      reopened: [],
+      debounced: [],
+    });
+    expect(emailSender.ownerAccessRequests.map((item) => item.agentId)).toEqual(ids);
+  });
+
   it("should approve request and notify client", async () => {
     const requestResult = await requestService.requestAccess(clientId, [agentId]);
     expect(requestResult.ok).toBe(true);
