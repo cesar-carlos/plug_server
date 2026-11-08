@@ -9,9 +9,6 @@ no hub antes de comparar o runtime ODBC do agente.
 
 ## Baseline e auditoria de env (plano P0–P1)
 
-```bash
-# P0 — snapshot Prometheus (hub a correr)
-
 Para a revisão de comunicação, execute também `npm run test:perf:socket-bridge`
 e `npm run test:perf:rest-api`. O primeiro separa handlers de relay Socket.IO
 real e consumidor lento; o segundo requer Prisma, PostgreSQL e Redis isolados.
@@ -19,6 +16,9 @@ Casos colunares novos têm relatório separado e checam row maps, ordem, perdas,
 duplicações e cleanup. Transporte Dart e ODBC real usam o gate cruzado descrito
 em [E2E hub/agente](e2e_benchmark_hub_agent.md). Não execute benchmarks junto
 com suítes de teste e não compare cenários antes rejeitados com latências antigas.
+
+```bash
+# P0 — snapshot Prometheus (hub a correr)
 HUB_URL=http://localhost:3000 npm run perf:baseline
 HUB_URL=http://localhost:3000 npm run perf:baseline -- --out baseline-snapshot.txt
 
@@ -28,6 +28,26 @@ npm run perf:audit-env -- --strict
 ```
 
 Ver tabela de indicadores em `docs/performance/performance_hub_agent.md` § Baseline antes/depois.
+
+## Evidência de uma melhoria
+
+As exigências de medição estão em [performance.mdc](../../.cursor/rules/performance.mdc);
+testes de correção e regressão seguem [testing.mdc](../../.cursor/rules/testing.mdc).
+Use o [runbook de investigação](../runbooks/socket_perf_investigation.md)
+para preparar comparações e diagnosticar os cenários afetados.
+
+Registre baseline e candidata, comandos, versões de runtime e serviços,
+configuração, carga, aquecimento e número de repetições. Compare os mesmos
+cenários e preserve os relatórios de todas as execuções, inclusive falhas.
+Apresente latência por percentil, throughput e memória conforme a hipótese
+avaliada, junto da variação entre execuções. Resultado dentro do ruído é
+inconclusivo; ganho em microbenchmark não comprova ganho ponta a ponta.
+
+Execute os benchmarks em ambiente isolado, sem outras suítes concorrentes,
+mantendo os limites de aceite. Identifique se cada resultado veio de mocks,
+loopback real ou agente nativo: uma validação do hub não substitui o teste
+cruzado com o agente. Testes ignorados por falta de infraestrutura devem ser
+registrados como pendentes, nunca como aprovados.
 
 ## Escopo
 

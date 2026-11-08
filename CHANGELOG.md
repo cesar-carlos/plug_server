@@ -6,6 +6,14 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Documentation — evidências de revisão e regressão
+
+- Reforça nas rules a comprovação de bugs corrigidos com testes que falham antes
+  e passam depois, a cobertura de melhorias e a medição reproduzível de desempenho,
+  sem relaxar limites de aceite.
+- Alinha o guia de contribuição e de carga às rules, orienta o registro de
+  validações pendentes e corrige um parágrafo inserido em um bloco Bash.
+
 ### Fixed — diagnóstico de perfil divergente
 
 - Snapshots de registro mais antigos que o catálogo preservado pelo servidor

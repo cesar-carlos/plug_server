@@ -38,6 +38,33 @@ liga-se sempre ao hub em `/agents`. Resumo e tabela em
 - `npm run test:e2e` - Vitest e2e (HTTP + Socket.IO), só local. Com `E2E_TESTS_ENABLED=true` no `.env` e `DATABASE_URL` acessível (ver `.env.example`); se estiver desligado, termina com exit 0 sem correr a suíte. Não há workflow E2E no GitHub Actions.
 - `npm run build` - build de producao
 
+## Revisões, correções e evidências
+
+As exigências são mantidas em [testing.mdc](.cursor/rules/testing.mdc),
+[performance.mdc](.cursor/rules/performance.mdc) e
+[governance.mdc](.cursor/rules/governance.mdc). Para aplicar essas regras:
+
+1. Identifique o comportamento ou risco revisado e os testes que o exercitam.
+   Em correções de bugs, execute o teste de regressão no comportamento defeituoso
+   e confirme a falha esperada; depois confirme que passa com a correção.
+2. Execute os testes afetados. Use integração ou transporte quando mocks
+   esconderiam a falha e confira REST e Socket quando ambos forem afetados.
+   Melhorias e refatorações podem aproveitar testes existentes se eles comprovarem
+   os resultados e invariantes relevantes.
+3. Execute lint, tipos e suíte completa conforme o alcance definido na governança.
+   Registre falhas, testes ignorados e bloqueios; um comando que termina sem
+   executar a suíte não comprova validação, inclusive no E2E opcional acima.
+4. Para alegações de desempenho, siga o [guia de carga](docs/performance/load_testing.md)
+   e compare baseline e candidata sem alterar limites de aceite.
+
+Na entrega, relacione cada correção ou melhoria ao arquivo/caso de teste,
+comandos executados e resultados. Para bugs, registre a evidência de falha antes
+e sucesso depois; para desempenho, inclua revisões, ambiente, repetições e
+medidas por cenário. Não inclua credenciais ou payloads sensíveis nos registros.
+Revisões sem mudanças podem usar cobertura existente; alterações apenas de
+documentação exigem conferir consistência, referências e formatação, sem
+alegar validação de runtime.
+
 ## Application release history
 
 Run `npm run changelog:check` to validate package/lock agreement, dated descending

@@ -17,6 +17,7 @@ alwaysApply: true
 - Every intentional exception must be local, named, covered by tests, and documented with its reason plus a removal condition.
 - Avoid spreading one compatibility concern across multiple layers.
 - Prefer static enforcement in CI for architectural boundaries using ESLint import rules, dependency-cruiser, or equivalent tooling.
+- Apply the review, regression-test, and improvement-evidence requirements in `testing.mdc` to every implementation review or change, including internal refactors and optimizations. Use `performance.mdc` for measurement requirements; do not declare verification complete when required evidence is missing.
 - Before concluding a long, multi-file, or refactoring task, run `npm run lint` plus the relevant automated tests, resolve errors and warnings caused by the current work, and escalate to `npm run test` when shared contracts, core infrastructure, or cross-cutting behavior changed.
 - Run `npm run typecheck` when shared types, transport contracts, tsconfig-sensitive behavior, or broad refactors change TypeScript assumptions across files.
 - If lint or tests cannot be run, or if failures remain outside the current scope, say so explicitly in the final handoff.

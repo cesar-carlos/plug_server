@@ -14,10 +14,21 @@ alwaysApply: true
 - Add contract tests for critical public interfaces and compatibility shims.
 - Mock infrastructure boundaries in unit tests, but prefer real entities and value objects.
 - Every intentional compatibility alias or migration shim must have a regression test so the exception stays localized.
-- Whenever a bug is found, add a regression test that reproduces the failure before treating the fix as complete. The test must fail on the defective behavior and pass after the fix, so the same defect cannot return unnoticed. Name it after the observed failure and place it at the lowest layer that can reproduce the bug.
+- Every bug fix must include an automated regression test that reproduces the observed failure. Run it against the defective behavior and confirm that it fails for the expected reason, then run it against the fix and confirm that it passes. Name it after the observed failure and place it at the lowest layer that can reproduce the bug. If the fix already exists, use an isolated baseline or controlled reproduction without reverting unrelated work.
 - Update or add tests whenever behavior, contracts, or compatibility shims change.
 - Use AAA naming and structure: `should return 404 when user does not exist`.
 - Reset data and mocks between tests; no test may depend on execution order.
+
+## Evidence for reviews, fixes, and improvements
+
+- Every implementation review must identify the behavior, risk, or invariant being checked and run the automated tests that cover it. A review with no changes may reuse existing tests; do not add redundant tests merely to report activity. Report untested paths as limitations, not as verified behavior.
+- Every implemented improvement must have relevant automated coverage demonstrating its intended result and preserving affected behavior. Add or extend tests when existing coverage does not establish those properties. Refactors may reuse existing tests only when their assertions cover the affected behavior.
+- Keep bug regression tests in the repository and in the appropriate automated suite. Manual checks, logs, type checking, lint, or a passing unrelated suite do not replace a regression test. If reproduction or execution is blocked, report the missing evidence and do not claim that the fix is fully verified.
+- Test observable outcomes and invariants, not a copy of implementation logic. Cover the failure path and relevant boundaries; for concurrency, transactions, cleanup, or reconnection bugs, exercise the ordering or fault that caused the defect. Prefer controlled scheduling and fault injection over arbitrary sleeps.
+- Use integration or transport tests when mocks would hide the defect. For behavior shared by REST and Socket, verify both entry points when affected; preserve public contracts and error semantics.
+- Never obtain a green result by skipping failing tests, removing meaningful assertions, loosening timeouts or acceptance limits, or accepting changed snapshots without checking the intended behavior. Test corrections must have an independent explanation and preserve the regression signal.
+- The final handoff must link each corrected bug or claimed improvement to its test evidence, identify commands and results, and state any skipped or blocked checks. Include the failing-before/passing-after evidence for bug fixes and measurements for performance claims, following `performance.mdc`.
+- Documentation-only and rule-only edits require consistency, reference, and formatting checks appropriate to the changed files; do not create artificial runtime tests or imply that runtime behavior was exercised.
 
 
 ## Explicit persona chain companion

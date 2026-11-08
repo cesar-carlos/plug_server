@@ -13,3 +13,7 @@ alwaysApply: true
 - Reuse shared serializers, validators, and transport helpers on hot paths instead of rebuilding equivalent logic per feature.
 - Avoid accidental quadratic work in controllers, handlers, serializers, and mappers when processing lists or streams.
 - When a change targets performance-sensitive behavior, document the assumption being optimized and verify the result with measurement or profiling.
+- Compare the baseline and candidate using the same workload, limits, runtime, environment, warm-up, and concurrency. Record revisions, commands, sample counts, and relevant latency distributions, throughput, memory, or resource measurements so the comparison can be reproduced.
+- Repeat measurements sufficiently to distinguish the claimed gain from run-to-run variation; report inconclusive results as inconclusive. Investigate regressions in individual scenarios rather than hiding them in aggregate averages or selecting only favorable runs.
+- Keep benchmark acceptance limits unchanged when evaluating an optimization. Run the affected end-to-end REST and Socket benchmarks when claiming a gain on those paths; a microbenchmark alone does not establish end-to-end improvement.
+- Performance evidence supplements, rather than replaces, correctness and regression tests required by `testing.mdc`.

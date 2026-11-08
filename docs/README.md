@@ -35,6 +35,7 @@ continua 2.11.2 e a capacidade `agentActions.io` continua na versão 1.
 
 ### Produto e regras
 
+- [Revisões, correções e evidências](../README.md#revisões-correções-e-evidências) — aplicação das rules, testes e registro de resultados.
 - [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 - [api/client_agent_business_rules.md](api/client_agent_business_rules.md)
 - [api/user_status.md](api/user_status.md)
