@@ -81,6 +81,31 @@ describe("AgentProfileSyncService", () => {
     expect(agentProfileReliabilityMetrics.profileSyncFallbackRpcTotal).toBe(0);
   });
 
+  it("should preserve server version 9 and its content when repeated register snapshots carry version 8", async () => {
+    await agentRepository.save(
+      Agent.create({
+        agentId,
+        name: "Newer server profile",
+        profileVersion: 9,
+        profileUpdatedAt: new Date("2026-09-09T12:26:11.774Z"),
+      }),
+    );
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await service.syncFromRegisterSnapshot({
+        agentId,
+        snapshot: {
+          profileVersion: 8,
+          profileUpdatedAt: new Date("2026-11-08T12:00:00Z"),
+          profile: { name: "Older local content" },
+        },
+      });
+      expect(result.profileVersion).toBe(9);
+      expect(result.name).toBe("Newer server profile");
+      expect(result.profileUpdatedAt?.toISOString()).toBe("2026-09-09T12:26:11.774Z");
+    }
+    expect(agentProfileReliabilityMetrics.profileWritesCommittedTotal).toBe(0);
+  });
+
   it("should fall back to monotonic server version when rpc result omits profile_version", async () => {
     const dispatch: AgentCommandDispatcher = async () => ({
       requestId: "req-legacy",

@@ -6,6 +6,16 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — diagnóstico de perfil divergente
+
+- Snapshots de registro mais antigos que o catálogo preservado pelo servidor
+  passam a registrar `agent_profile_sync_requires_reconciliation`, com as duas
+  versões e orientação de comparação. Não são tratados como sincronização bem
+  sucedida nem armazenados no cache de sucesso; não há repetição automática.
+- Documentada a recuperação de conteúdo e versão juntos no agente, preservando
+  edições locais e concorrência otimista. A proteção contra sobrescrita de
+  perfis mais novos e os contratos públicos permanecem inalterados.
+
 ### Fixed — diagnóstico de desconexões de agentes
 
 - Preserva nos logs o motivo de desconexão do Socket.IO usando uma lista fechada

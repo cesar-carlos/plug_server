@@ -191,8 +191,9 @@ export class AgentProfileSyncScheduler {
     const syncPromise = (async (): Promise<void> => {
       try {
         releaseSlot = await this.acquireSlot();
+        let syncedProfile: unknown;
         if (input.snapshot !== undefined) {
-          await this.syncFromRegisterSnapshot({
+          syncedProfile = await this.syncFromRegisterSnapshot({
             agentId: input.agentId,
             ...(input.userId !== null ? { userId: input.userId } : {}),
             snapshot: input.snapshot,
@@ -212,6 +213,26 @@ export class AgentProfileSyncScheduler {
             userId: input.userId,
             attempt,
             reason: "stale_session",
+          });
+          return;
+        }
+        // Persistence can preserve a newer server profile without applying the
+        // register snapshot. That is protection, not successful reconciliation.
+        if (
+          input.snapshot !== undefined &&
+          typeof syncedProfile === "object" &&
+          syncedProfile !== null &&
+          "profileVersion" in syncedProfile &&
+          typeof syncedProfile.profileVersion === "number" &&
+          syncedProfile.profileVersion > input.snapshot.profileVersion
+        ) {
+          this.attempts.delete(input.agentId);
+          this.logger.warn("agent_profile_sync_requires_reconciliation", {
+            agentId: input.agentId,
+            remoteProfileVersion: input.snapshot.profileVersion,
+            currentProfileVersion: syncedProfile.profileVersion,
+            reason: "server_profile_newer",
+            recoveryAction: "compare_profiles_before_reload",
           });
           return;
         }

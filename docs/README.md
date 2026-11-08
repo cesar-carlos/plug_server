@@ -41,6 +41,7 @@ continua 2.11.2 e a capacidade `agentActions.io` continua na versão 1.
 
 ### Transporte e integracao
 
+- [Reconciliação de versões do perfil do agente](runbooks/agent_profile_reconciliation.md)
 - [api/api_rest_bridge.md](api/api_rest_bridge.md)
 - [socket/socket_relay_protocol.md](socket/socket_relay_protocol.md)
 - [socket/socket_client_sdk.md](socket/socket_client_sdk.md)

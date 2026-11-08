@@ -112,6 +112,40 @@ describe("AgentProfileSyncScheduler", () => {
     expect(syncFromRegisterSnapshot).toHaveBeenCalledTimes(2);
   });
 
+  it("should report a newer server profile as unresolved without success caching or automatic retries", async () => {
+    const syncFromRegisterSnapshot = vi.fn().mockResolvedValue({ profileVersion: 9 });
+    const scheduler = new AgentProfileSyncScheduler({
+      syncFromRegisterSnapshot,
+      syncFromConnectedAgent: vi.fn(),
+      acquireSlot: async () => releaseSlot,
+      metrics,
+      logger,
+      now: () => nowMs,
+    });
+    const input = {
+      agentId: "agent-1",
+      userId: "user-1",
+      snapshot: { ...snapshot, profileVersion: 8 },
+    };
+    scheduler.schedule(input, 0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(syncFromRegisterSnapshot).toHaveBeenCalledTimes(1);
+    expect(releaseSlot).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "agent_profile_sync_requires_reconciliation",
+      expect.objectContaining({
+        remoteProfileVersion: 8,
+        currentProfileVersion: 9,
+        recoveryAction: "compare_profiles_before_reload",
+      }),
+    );
+    expect(logger.info).not.toHaveBeenCalledWith("agent_profile_sync_success", expect.anything());
+    scheduler.schedule(input, 0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(syncFromRegisterSnapshot).toHaveBeenCalledTimes(2);
+    expect(metrics.profileSyncSkippedRecentDuplicateTotal).toBe(0);
+  });
+
   it("should retry retryable protocol-window failures and then succeed", async () => {
     const syncFromConnectedAgent = vi
       .fn()
