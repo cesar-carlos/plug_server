@@ -6,6 +6,14 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Changed — integração das atualizações de dependências
+
+- Integra as PRs #46–#49: CodeQL 4.39.3, express-rate-limit 8.7.3,
+  OpenTelemetry (auto-instrumentações 0.83, SDK/exportador 0.301 e resources 3.1)
+  e ferramentas de desenvolvimento (ESLint 10.14 e Vitest/coverage 5.1).
+- Mantém Node 24 e seus pins atuais; a PR #42 (Node 26) permanece pendente
+  por decisão explícita do responsável. Sem mudança de contratos públicos.
+
 ### Fixed — prazo de consulta e cancelamento de execução remota
 
 - `agent.action.getExecution` e `agent.action.cancel` enviam o prazo monotônico
