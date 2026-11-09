@@ -327,6 +327,15 @@ export const createDispatchRpcCommandToAgent = (
           );
           input.latencyTrace?.addPhaseMs("encode_ms", performance.now() - tEnc);
           const tEmit = performance.now();
+          if (requiresLiveCommandCapability(command)) {
+            if (
+              agentRegistry.getSocketIdByAgentId(input.agentId) !== registeredAgentSocketId ||
+              !agentRegistry.getProtocolReadiness(input.agentId).ready
+            ) {
+              throw capabilityUnavailable("conexão autenticada", "session_changed");
+            }
+            assertCommandTransport(command, agentRegistry.getCapabilitiesByAgentId(input.agentId));
+          }
           agentSocket.emit(socketEvents.rpcRequest, wire);
           const emitEnded = performance.now();
           input.latencyTrace?.addPhaseMs("emit_to_socket_ms", emitEnded - tEmit);

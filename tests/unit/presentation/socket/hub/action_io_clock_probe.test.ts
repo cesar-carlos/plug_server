@@ -10,6 +10,77 @@ const command = bridgeSingleCommandSchema.parse({
 const extensions = { agentActions: { deadlineClock: 1 } };
 const capabilities = { extensions };
 describe("connection monotonic deadline", () => {
+  it("samples each control request again after reconnect without renewing a batch budget", async () => {
+    const control = bridgeSingleCommandSchema.parse({
+      method: "agent.action.getExecution",
+      id: "control",
+      params: { execution_id: "e" },
+    });
+    let session = "first";
+    const emitWithAck = vi.fn(async () => ({ version: 1, clock_id: session, monotonic_ms: 100 }));
+    const socket = { timeout: () => ({ emitWithAck }) };
+    const first = await probeActionIoClock(
+      control,
+      capabilities,
+      socket,
+      () => 500,
+      undefined,
+      extensions,
+    );
+    session = "second";
+    const second = await probeActionIoClock(
+      [control, control],
+      capabilities,
+      socket,
+      () => 400,
+      undefined,
+      extensions,
+    );
+    expect(first?.action_io_clock_id).toBe("first");
+    expect(second).toEqual({ action_io_clock_id: "second", action_io_monotonic_deadline_ms: 500 });
+    expect(emitWithAck).toHaveBeenCalledTimes(2);
+    expect(
+      applyActionIoDeadline([control, control], [control, control], 100, 1000, { ...second }),
+    ).toEqual([
+      {
+        ...control,
+        meta: { ...second, action_io_remaining_ms: 100, action_io_deadline_unix_ms: 1100 },
+      },
+      {
+        ...control,
+        meta: { ...second, action_io_remaining_ms: 100, action_io_deadline_unix_ms: 1100 },
+      },
+    ]);
+  });
+  it.each(["getExecution", "cancel"])("probes %s even without I/O capability", async (method) => {
+    const control = bridgeSingleCommandSchema.parse({
+      method: `agent.action.${method}`,
+      id: "control",
+      params: { execution_id: "e" },
+    });
+    const timeout = vi.fn(() => ({
+      emitWithAck: async () => ({ version: 1, clock_id: "s", monotonic_ms: 100 }),
+    }));
+    for (const request of [control, [control]]) {
+      expect(
+        await probeActionIoClock(
+          request,
+          capabilities,
+          { timeout },
+          () => 500,
+          undefined,
+          extensions,
+        ),
+      ).toEqual({ action_io_clock_id: "s", action_io_monotonic_deadline_ms: 600 });
+      await expect(
+        probeActionIoClock(request, capabilities, { timeout }, () => 0, undefined, extensions),
+      ).rejects.toMatchObject({ code: "ACTION_IO_REQUEST_EXPIRED" });
+      expect(
+        await probeActionIoClock(request, null, { timeout }, () => 500, undefined, extensions),
+      ).toBeUndefined();
+    }
+    expect(timeout).toHaveBeenCalledTimes(2);
+  });
   it.each([NaN, Infinity, -Infinity, 0, -1])(
     "refuses invalid budget %s before probing",
     async (budget) => {

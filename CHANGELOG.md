@@ -6,6 +6,17 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — prazo de consulta e cancelamento de execução remota
+
+- `agent.action.getExecution` e `agent.action.cancel` enviam o prazo monotônico
+  quando `deadlineClock: 1` é negociado, evitando `ACTION_IO_REQUEST_EXPIRED`
+  imediato inclusive após o processo terminar. A exigência de capacidade I/O
+  permanece separada: agentes antigos continuam atendendo esses controles.
+- Revalida a sessão autenticada após a consulta de relógio antes do dispatch.
+  Mantém assinatura, limites, erros, ausência de replay e o prazo fixo por lote.
+  Regressões cobrem REST, Socket e relay, relógio inválido, legado e lotes;
+  quatro casos reproduziram a ausência de prazo antes da correção.
+
 ### Fixed — progresso de Web Push e consultas internas
 
 - O worker Web Push continua a busca após perder uma disputa de lease ou

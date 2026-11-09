@@ -6,11 +6,34 @@ import {
   assertActionIoDeadline,
 } from "../../../../src/application/agent_commands/action_io_deadline";
 import { bridgeSingleCommandSchema } from "../../../../src/shared/validators/agent_command";
+import { assertActionIoTransport } from "../../../../src/application/agent_commands/action_io_transport_guard";
 const command = bridgeSingleCommandSchema.parse({
   method: "agent.action.findExecution",
   id: "i",
   params: { action_id: "a", idempotency_key: "k" },
 });
+it.each(["getExecution", "cancel"])(
+  "budgets negotiated %s without requiring faithful I/O on legacy peers",
+  (method) => {
+    const control = bridgeSingleCommandSchema.parse({
+      method: `agent.action.${method}`,
+      id: "control",
+      params: { execution_id: "e" },
+    });
+    const clock = { action_io_clock_id: "session", action_io_monotonic_deadline_ms: 2500 };
+    expect(applyActionIoDeadline(control, control, 500, 1000, clock)).toMatchObject({
+      meta: { ...clock, action_io_remaining_ms: 500, action_io_deadline_unix_ms: 1500 },
+    });
+    expect(applyActionIoDeadline([control, command], [control, command], 500, 1000, clock)).toEqual(
+      [
+        applyActionIoDeadline(control, control, 500, 1000, clock),
+        applyActionIoDeadline(command, command, 500, 1000, clock),
+      ],
+    );
+    expect(applyActionIoDeadline(control, control, 500)).toBe(control);
+    expect(() => assertActionIoTransport(control, null, {})).not.toThrow();
+  },
+);
 describe("I/O dispatch deadline", () => {
   it("charges preparation time and rejects dispatch at expiry", () => {
     expect(remainingActionIoWaitMs(command, 30000, 100, 5100)).toBe(25000);

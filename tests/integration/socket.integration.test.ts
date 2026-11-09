@@ -15,6 +15,7 @@ import {
 } from "../../src/shared/utils/payload_frame";
 import { isRecord, toRequestId } from "../../src/shared/utils/rpc_types";
 import { env } from "../../src/shared/config/env";
+import { overrideEnv } from "../helpers/override_env";
 import { agentProfileReliabilityMetrics } from "../../src/application/services/agent_profile_reliability_metrics.service";
 import { container, getTestRepositoryAccess } from "../../src/shared/di/container";
 import { hasRestPendingCorrelationId } from "../../src/presentation/socket/hub/registries/rest_pending_requests";
@@ -370,6 +371,173 @@ describe("Socket namespaces", () => {
   });
 
   describe("/consumers namespace", () => {
+    for (const transport of ["REST", "Socket", "relay"] as const) {
+      it.each(["negotiated", "legacy", "invalid-clock"])(
+        `preserves execution control deadlines through ${transport} (%s)`,
+        async (mode) => {
+          const previous = env.enableActionIoHomologation;
+          const signing = {
+            enabled: env.payloadSignOutbound,
+            key: env.payloadSigningKey,
+            id: env.payloadSigningKeyId,
+          };
+          overrideEnv("enableActionIoHomologation", true);
+          overrideEnv("payloadSignOutbound", true);
+          overrideEnv("payloadSigningKey", randomBytes(32).toString("hex"));
+          overrideEnv("payloadSigningKeyId", "control-test");
+          const agent = await connectAgent(baseUrl, agentAccessToken);
+          // A distinct actor avoids consuming the shared suite's relay rate budget.
+          const controlAccessToken = await createAdminAccessToken(baseUrl);
+          const consumer = await connectConsumer(baseUrl, controlAccessToken);
+          const received: Record<string, unknown>[] = [];
+          let probes = 0;
+          agent.on("rpc:clock.probe", (_payload: unknown, ack: (value: unknown) => void) => {
+            probes++;
+            ack(
+              mode === "invalid-clock"
+                ? {}
+                : { version: 1, clock_id: "control-session", monotonic_ms: 1000 },
+            );
+          });
+          agent.on("rpc:request", (wire: unknown) => {
+            expect(isPayloadFrameEnvelope(wire) && wire.signature?.alg).toBe("hmac-sha256");
+            const decoded = decodePayloadFrame(wire);
+            if (!decoded.ok) return;
+            const items = Array.isArray(decoded.value.data)
+              ? decoded.value.data
+              : [decoded.value.data];
+            const responses = items.map((item: Record<string, unknown>) => {
+              received.push(item);
+              const meta = isRecord(item.meta) ? item.meta : {};
+              const valid =
+                mode === "legacy" ||
+                item.method === "agent.getHealth" ||
+                (meta.action_io_clock_id === "control-session" &&
+                  Number(meta.action_io_remaining_ms) > 0 &&
+                  Number(meta.action_io_monotonic_deadline_ms) > 1000);
+              return {
+                jsonrpc: "2.0",
+                id: item.id,
+                ...(valid
+                  ? {
+                      result: {
+                        execution_id: "fixture-execution",
+                        status: "completed",
+                        exit_code: 0,
+                      },
+                    }
+                  : {
+                      error: {
+                        code: -32000,
+                        message: "Missing negotiated deadline",
+                        data: { code: "ACTION_IO_REQUEST_EXPIRED" },
+                      },
+                    }),
+              };
+            });
+            agent.emit(
+              "rpc:response",
+              encodePayloadFrame(Array.isArray(decoded.value.data) ? responses : responses[0]),
+            );
+          });
+          try {
+            await registerAgentAndWaitReady(agent, {
+              protocols: ["jsonrpc-v2"],
+              encodings: ["json"],
+              compressions: ["none"],
+              extensions: {
+                agentActions: {
+                  enabled: true,
+                  version: 1,
+                  ...(mode !== "legacy" ? { deadlineClock: 1 } : {}),
+                },
+              },
+            });
+            let conversationId: string | undefined;
+            if (transport === "relay") {
+              const started = waitForEvent<{ success: boolean; conversationId: string }>(
+                consumer,
+                "relay:conversation.started",
+              );
+              consumer.emit("relay:conversation.start", { agentId: testAgentId });
+              const receipt = await started;
+              expect(receipt.success).toBe(true);
+              conversationId = receipt.conversationId;
+            }
+            for (const method of ["getExecution", "cancel", "batch"]) {
+              const control = {
+                jsonrpc: "2.0",
+                method: `agent.action.${method === "batch" ? "getExecution" : method}`,
+                id: randomUUID(),
+                params: { execution_id: "fixture-execution" },
+              };
+              const command =
+                method === "batch"
+                  ? [
+                      control,
+                      { jsonrpc: "2.0", method: "agent.getHealth", id: randomUUID(), params: {} },
+                    ]
+                  : control;
+              let response: unknown;
+              if (transport === "REST") {
+                const http = await request(baseUrl)
+                  .post("/api/v1/agents/commands")
+                  .set("Authorization", `Bearer ${controlAccessToken}`)
+                  .send({ agentId: testAgentId, command });
+                expect(http.status).toBe(mode === "invalid-clock" ? 408 : 200);
+                response = http.body;
+              } else if (transport === "Socket") {
+                const pending = waitForEvent<unknown>(consumer, "agents:command_response");
+                consumer.emit("agents:command", { agentId: testAgentId, command });
+                response = decodeAgentsCommandWirePayload(await pending);
+              } else {
+                const pending = waitForEvent<unknown>(
+                  consumer,
+                  mode === "invalid-clock" || method === "batch"
+                    ? "relay:rpc.accepted"
+                    : "relay:rpc.response",
+                );
+                consumer.emit("relay:rpc.request", {
+                  conversationId,
+                  frame: encodePayloadFrame(command),
+                });
+                const raw = await pending;
+                response = isPayloadFrameEnvelope(raw) ? decodeAgentsCommandWirePayload(raw) : raw;
+              }
+              const serialized = JSON.stringify(response);
+              if (transport === "relay" && method === "batch")
+                expect(serialized).toContain("does not support batch");
+              else if (mode === "invalid-clock")
+                expect(serialized).toContain("ACTION_IO_REQUEST_EXPIRED");
+              else {
+                expect(serialized).toContain("fixture-execution");
+                expect(serialized).not.toContain("ACTION_IO_REQUEST_EXPIRED");
+              }
+            }
+            expect(probes).toBe(mode === "legacy" ? 0 : transport === "relay" ? 2 : 3);
+            expect(received).toHaveLength(
+              mode === "invalid-clock" ? 0 : transport === "relay" ? 2 : 4,
+            );
+            for (const item of received) {
+              const meta = item.meta as Record<string, unknown>;
+              if (mode === "legacy" || item.method === "agent.getHealth")
+                expect(meta.action_io_clock_id).toBeUndefined();
+              else {
+                expect(meta.action_io_clock_id).toBe("control-session");
+                expect(Number(meta.action_io_monotonic_deadline_ms)).toBeLessThanOrEqual(31000);
+              }
+            }
+          } finally {
+            consumer.disconnect();
+            agent.disconnect();
+            overrideEnv("enableActionIoHomologation", previous);
+            overrideEnv("payloadSignOutbound", signing.enabled);
+            overrideEnv("payloadSigningKey", signing.key);
+            overrideEnv("payloadSigningKeyId", signing.id);
+          }
+        },
+      );
+    }
     it("should connect with valid user token and receive connection:ready", async () => {
       const socket = await connectConsumer(baseUrl, accessToken);
       expect(socket.connected).toBe(true);

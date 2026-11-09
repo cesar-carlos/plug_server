@@ -2,6 +2,15 @@ import type { BridgeCommand } from "../../shared/validators/agent_command";
 import { AppError } from "../../shared/errors/app_error";
 import { requiresActionIoCapability } from "./action_io_transport_guard";
 
+/** Execution controls can address either a legacy or a faithful execution.
+ * A negotiated clock applies to both; I/O capability must not gate legacy controls.
+ */
+export const requiresActionIoDeadline = (command: BridgeCommand): boolean =>
+  requiresActionIoCapability(command) ||
+  (Array.isArray(command) ? command : [command]).some(
+    (item) => item.method === "agent.action.getExecution" || item.method === "agent.action.cancel",
+  );
+
 export const remainingActionIoWaitMs = (
   command: BridgeCommand,
   timeoutMs: number,
@@ -59,7 +68,7 @@ export const limitActionIoReadWait = (payload: unknown, remainingMs: number): un
   return { ...command, params: { ...input, wait_ms: wait } };
 };
 
-/** Hub-owned request budget, applied only after capability validation. */
+/** Hub-owned budget. Legacy execution controls receive it only with a negotiated clock. */
 export const applyActionIoDeadline = (
   command: BridgeCommand,
   payload: unknown,
@@ -67,7 +76,8 @@ export const applyActionIoDeadline = (
   now = Date.now(),
   clockBudget?: Readonly<Record<string, string | number>>,
 ): unknown => {
-  if (!requiresActionIoCapability(command)) return payload;
+  if (!requiresActionIoCapability(command) && !(clockBudget && requiresActionIoDeadline(command)))
+    return payload;
   if (Array.isArray(command) && Array.isArray(payload)) {
     return command.map((item, index) =>
       applyActionIoDeadline(item, payload[index], remainingMs, now, clockBudget),

@@ -4,7 +4,7 @@ import type { BridgeCommand } from "../../../../shared/validators/agent_command"
 import { AppError } from "../../../../shared/errors/app_error";
 import { isRecord } from "../../../../shared/utils/rpc_types";
 import { buildHubServerCapabilities } from "../../../../shared/constants/agent_transport_contract";
-import { requiresActionIoCapability } from "../../../../application/agent_commands/action_io_transport_guard";
+import { requiresActionIoDeadline } from "../../../../application/agent_commands/action_io_deadline";
 
 export interface ActionIoClockBudget {
   readonly action_io_clock_id: string;
@@ -44,7 +44,7 @@ export const probeActionIoClock = async (
   const actions = isRecord(extensions) ? extensions.agentActions : undefined;
   const hubActions = hubExtensions.agentActions;
   if (
-    !requiresActionIoCapability(command) ||
+    !requiresActionIoDeadline(command) ||
     !isRecord(actions) ||
     actions.deadlineClock !== 1 ||
     !isRecord(hubActions) ||

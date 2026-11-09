@@ -207,6 +207,16 @@ JSON com ACK (não é comando JSON-RPC nem executa ações). Envia
 `{version: 1}` e recebe `{version: 1, clock_id, monotonic_ms}`.
 O identificador pertence à sessão atual; não é credencial nem autorização.
 
+Isso inclui `agent.action.getExecution` e `agent.action.cancel`: o agente pode
+roteá-los para uma execução fiel pelo ownership persistido, mesmo sem `io` nos
+parâmetros. Esses controles não passam a exigir capacidade I/O. Sem negociação
+do relógio, o hub preserva o envio legado; com negociação, probe inválido falha
+antes do dispatch, sem fallback. Cada consulta, inclusive após o processo terminar,
+recebe um prazo novo de transporte; isso não reinicia a execução. A sessão é
+revalidada após esperas assíncronas. Consultas em lote REST/Socket recebem o mesmo
+prazo fixo por item; `relay:rpc.request` continua recusando lotes. Nenhum desses
+ajustes altera os campos públicos, assinatura ou autoriza replay de cancelamento.
+
 Após o ACK, o hub soma ao instante monotônico do agente somente o orçamento
 original ainda restante, limitado a 30 segundos, e envia o resultado fixo em
 `meta.action_io_monotonic_deadline_ms` com `meta.action_io_clock_id`.
