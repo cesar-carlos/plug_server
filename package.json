@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "tsc": "node ./node_modules/@typescript/native/bin/tsc",
+    "tsc": "node ./node_modules/typescript-build/bin/tsc",
     "build": "npm run tsc -- -p tsconfig.json",
     "postinstall": "node scripts/sync-swagger-ui-static.cjs",
     "start": "node dist/server.js",
@@ -143,7 +143,7 @@
     "@types/web-push": "^3.6.4",
     "@typescript-eslint/eslint-plugin": "^8.73.0",
     "@typescript-eslint/parser": "^8.73.0",
-    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript-build": "npm:typescript@^7.0.2",
     "@vitest/coverage-v8": "^5.1.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

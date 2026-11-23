@@ -17,7 +17,7 @@ updates:
     ignore:
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
-      - dependency-name: "@typescript/native"
+      - dependency-name: "typescript-build"
         update-types: ["version-update:semver-major"]
       - dependency-name: dotenv
         update-types: ["version-update:semver-major"]

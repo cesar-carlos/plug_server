@@ -25,6 +25,10 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
   A auditoria passou de três alertas altos transitivos para zero.
 - A revisão preserva os limites de timeout, filas e benchmarks. Não atribui
   ganho de desempenho REST/Socket à atualização das bibliotecas.
+- Separa o alias do compilador estável TypeScript 7.0.2 (`typescript-build`)
+  do peer opcional experimental `@typescript/native` introduzido no ESLint.
+  Mantém TypeScript 6 para lint; a validação existente `npm ls --all`
+  reproduziu a incompatibilidade na CI e permanece obrigatória.
 
 ### Changed — integração das atualizações de dependências
 
