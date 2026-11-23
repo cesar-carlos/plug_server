@@ -6,6 +6,16 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Changed — dependências de produção #56
+
+- Atualiza express-rate-limit 8.7.5, libphonenumber-js 1.13.17 e Nodemailer
+  10.6.1, mantendo Node 24 e os contratos públicos.
+- Validação isolada: 2.707 testes passaram e 27 testes condicionados à
+  infraestrutura foram ignorados; lint, tipos e árvore de dependências passaram,
+  com zero vulnerabilidades na auditoria. Inclui cobertura de SMTP local,
+  validação de telefones e proteção REST. Benchmarks permanecem com os mesmos
+  limites; não se atribui ganho de desempenho à atualização.
+
 ### Fixed — revisão das atualizações #51, #52, #54 e #55
 
 - Integra OpenTelemetry, dependências de produção/desenvolvimento e CodeQL
@@ -217,7 +227,6 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 - Reconstruct the initial Git baseline and enforce changelog checks before release.
 
-
 ### Fixed — faithful I/O validation and diagnostics
 
 - Apply the remaining hub deadline to each I/O item of a permitted mixed batch.
@@ -255,7 +264,6 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
   Consolidate integration documentation and correct internal/external links.
 - Keep ENABLE_ACTION_IO_HOMOLOGATION disabled by default and preserve production
   release gates; completed development acceptance is not production activation.
-
 
 - Isolated persona-v2 manual fixtures accept an explicit UTC lifetime up to two
   hours and stop cooperatively. Automated watchdog, authentication, SQL and
