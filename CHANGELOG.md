@@ -29,6 +29,9 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
   do peer opcional experimental `@typescript/native` introduzido no ESLint.
   Mantém TypeScript 6 para lint; a validação existente `npm ls --all`
   reproduziu a incompatibilidade na CI e permanece obrigatória.
+- Alinha a CI do agente atual ao Flutter 3.50.0 usado pelo `plug_agente/main`,
+  resolvendo o conflito de `test_api` na preparação. Mantém Flutter 3.47.5
+  para as versões instaladas v1.8.5/v1.8.6 e todos os testes da matriz.
 
 ### Changed — integração das atualizações de dependências
 
