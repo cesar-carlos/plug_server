@@ -6,6 +6,26 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — revisão das atualizações #51, #52, #54 e #55
+
+- Integra OpenTelemetry, dependências de produção/desenvolvimento e CodeQL
+  4.39.4, mantendo Node 24 e contratos públicos. A PR #50 (Node 26) permanece
+  pendente conforme a decisão de manter a versão atual do runtime.
+- Adapta Web Push 4 aos exports nomeados. O import padrão antigo quebrava o
+  envio e o tratamento de erros; seis regressões reproduziram a falha antes
+  da correção. Testes usam criptografia e erros reais da biblioteca, cobrindo
+  sucesso, 404/410, 429/500, timeout e bloqueio de endpoints não permitidos.
+- Encerra recursos do SDK OpenTelemetry após inicialização parcial malsucedida,
+  antes de permitir nova tentativa. Preserva a causa primária e registra falha
+  de cleanup separadamente; duas regressões falharam antes e passaram depois.
+- Fixa `effect` 3.22.5 somente na dependência de `@prisma/config`, corrigindo
+  GHSA-7589-6fvf-x4pw sem downgrade de Prisma. O caso de backtracking foi
+  interrompido pelo limite de cinco segundos na versão 3.20.0 e concluiu na
+  corrigida; o teste usa processo isolado e entradas válidas e inválidas.
+  A auditoria passou de três alertas altos transitivos para zero.
+- A revisão preserva os limites de timeout, filas e benchmarks. Não atribui
+  ganho de desempenho REST/Socket à atualização das bibliotecas.
+
 ### Changed — integração das atualizações de dependências
 
 - Integra as PRs #46–#49: CodeQL 4.39.3, express-rate-limit 8.7.3,

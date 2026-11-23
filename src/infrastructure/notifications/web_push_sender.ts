@@ -1,4 +1,4 @@
-import webPush from "web-push";
+import { sendNotification, WebPushError } from "web-push";
 import type {
   PwaPushMessage,
   PwaPushSender,
@@ -15,7 +15,7 @@ export class WebPushSender implements PwaPushSender {
   ): Promise<"sent" | "expired" | "retry"> {
     if (!isAllowedPwaPushEndpoint(subscription.endpoint)) return "expired";
     try {
-      await webPush.sendNotification(
+      await sendNotification(
         {
           endpoint: subscription.endpoint,
           keys: { p256dh: subscription.p256dh, auth: subscription.auth },
@@ -29,8 +29,7 @@ export class WebPushSender implements PwaPushSender {
       );
       return "sent";
     } catch (error: unknown) {
-      if (error instanceof webPush.WebPushError && [404, 410].includes(error.statusCode))
-        return "expired";
+      if (error instanceof WebPushError && [404, 410].includes(error.statusCode)) return "expired";
       return "retry";
     }
   }

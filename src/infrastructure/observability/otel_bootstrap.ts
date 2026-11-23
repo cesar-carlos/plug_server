@@ -81,6 +81,15 @@ export const initOpenTelemetry = async (): Promise<void> => {
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
+    // A failed start may already own exporters and background resources.
+    // Keep the instance guarded until cleanup finishes, before allowing a retry.
+    try {
+      await sdkInstance?.shutdown();
+    } catch (cleanupError: unknown) {
+      logger.warn("otel_tracing_init_cleanup_failed", {
+        message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      });
+    }
     sdkInstance = undefined;
   }
 };

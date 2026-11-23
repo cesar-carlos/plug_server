@@ -81,6 +81,39 @@ describe("OpenTelemetry bootstrap", () => {
     expect(log.info).toHaveBeenCalledTimes(2);
   });
 
+  it("cleans up a partially started SDK before allowing a retry", async () => {
+    const { NodeSDK } = requireFromTest("@opentelemetry/sdk-node") as typeof OtelSdk;
+    vi.spyOn(NodeSDK.prototype, "start").mockImplementationOnce(() => {
+      throw new Error("partial startup");
+    });
+    const shutdown = vi.spyOn(NodeSDK.prototype, "shutdown");
+    config.otelTracesEnabled = true;
+    await initOpenTelemetry();
+    expect(shutdown).toHaveBeenCalledOnce();
+    await initOpenTelemetry();
+    expect(log.info).toHaveBeenCalledOnce();
+  });
+
+  it("preserves startup failure and records cleanup failure separately", async () => {
+    const { NodeSDK } = requireFromTest("@opentelemetry/sdk-node") as typeof OtelSdk;
+    vi.spyOn(NodeSDK.prototype, "start").mockImplementationOnce(() => {
+      throw new Error("primary startup failure");
+    });
+    vi.spyOn(NodeSDK.prototype, "shutdown").mockRejectedValueOnce(new Error("cleanup failure"));
+    config.otelTracesEnabled = true;
+    await expect(initOpenTelemetry()).resolves.toBeUndefined();
+    expect(log.error).toHaveBeenCalledWith(
+      "otel_tracing_init_failed",
+      expect.objectContaining({ message: "primary startup failure" }),
+    );
+    expect(log.warn).toHaveBeenCalledWith(
+      "otel_tracing_init_cleanup_failed",
+      expect.objectContaining({ message: "cleanup failure" }),
+    );
+    await initOpenTelemetry();
+    expect(log.info).toHaveBeenCalledOnce();
+  });
+
   it("drops root spans at zero sampling and preserves a sampled remote parent", async () => {
     config.otelTracesEnabled = true;
     config.otelTracesSamplerArg = 0;
