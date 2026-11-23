@@ -2,6 +2,26 @@
 
 ## Objetivo
 
+### Diagnóstico do REST bench (2026-11-23)
+
+A CI `45187700859` reprovou em duas tentativas ao comparar `66b7985` com
+`0da5243`, que diferem somente no CHANGELOG. Os fingerprints de código,
+dependências e harness eram idênticos. A primeira tentativa excedeu p95 em
+`catalog_small` e `etag_poll`; a segunda, somente em `etag_poll`.
+Esses resultados foram preservados e não autorizam ignorar o gate de publicação.
+
+Foi reproduzido trabalho residual do gerador HTTP: 32 respostas concluídas
+deixavam 32 timers de `AbortSignal.timeout(30000)` pendentes. O harness versão 10
+possui o prazo e o cancela em `finally`, inclusive em erro de JSON e cancelamento.
+O prazo de 30 segundos, amostras, repetições, agregação e limites não mudaram.
+O teste de regressão usa HTTP real local e observa os recursos `Timeout` via
+`async_hooks`; cobre também resposta incompleta encerrada pelo prazo.
+
+Isso comprova a correção do acúmulo de timers, não que toda a dispersão anterior
+tenha essa causa. A comparação completa deve ser repetida com o mesmo harness
+nos dois checkouts, preservando todos os resultados; não repetir até obter verde
+nem tratar os testes unitários como medição ponta a ponta.
+
 Este documento alinha **dois níveis** de teste/carga:
 
 1. **Benchmark ODBC no agente** — mede `sql.execute`, `multi_result`, batches e streaming **dentro do processo** do `plug_agente` (sem Socket.IO nem HTTP do hub). Pool ODBC, leases e tamanhos de pool são **só** documentados e configurados no repositório `plug_agente`.

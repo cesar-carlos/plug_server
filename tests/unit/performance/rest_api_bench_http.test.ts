@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { createHook } from "node:async_hooks";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import express from "express";
 import { expect, it } from "vitest";
 import {
@@ -6,6 +8,72 @@ import {
   restBenchRequest,
 } from "../../performance/rest_api_bench_http";
 import { sendJsonWithWeakETag } from "../../../src/presentation/http/helpers/weak_etag";
+
+it("releases request deadlines after completed HTTP responses instead of accumulating timers", async () => {
+  const pending = new Set<number>();
+  let allocated = 0;
+  const hook = createHook({
+    init(id, type, _trigger, resource: object) {
+      if (type === "Timeout" && Reflect.get(resource, "_idleTimeout") === 30000) {
+        allocated++;
+        pending.add(id);
+      }
+    },
+    destroy(id) {
+      pending.delete(id);
+    },
+  });
+  const server = createServer((request, response) =>
+    response.end(request.url === "/invalid" ? "invalid-json" : '{"ok":true}'),
+  );
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  hook.enable();
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing test server port");
+    for (let index = 0; index < 32; index++) {
+      await restBenchRequest(`http://127.0.0.1:${address.port}`, {});
+    }
+    await nextTurn();
+    await nextTurn();
+    await expect(
+      restBenchRequest(`http://127.0.0.1:${address.port}/invalid`, {}),
+    ).rejects.toThrow();
+    await expect(
+      restBenchRequest(`http://127.0.0.1:${address.port}`, { signal: AbortSignal.abort() }),
+    ).rejects.toThrow();
+    await nextTurn();
+    await nextTurn();
+    expect(allocated).toBe(34);
+    expect(pending.size).toBe(0);
+  } finally {
+    hook.disable();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+it("aborts a stalled HTTP response at its deadline and closes its socket", async () => {
+  let closed!: () => void;
+  const disconnected = new Promise<void>((resolve) => {
+    closed = resolve;
+  });
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.write('{"incomplete":');
+  });
+  server.on("connection", (socket) => socket.once("close", closed));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing test server port");
+    await expect(restBenchRequest(`http://127.0.0.1:${address.port}`, {}, 100)).rejects.toThrow();
+    await disconnected;
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 
 it("preserves JSON, ETag and conditional 304 responses in the load generator", async () => {
   const app = express();

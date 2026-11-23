@@ -10,8 +10,14 @@ import { request } from "node:http";
 export const restBenchRequest = (
   url: string,
   init: RequestInit,
-): Promise<{ status: number; data: unknown; etag: string | null }> =>
-  new Promise((resolve, reject) => {
+  timeoutMs = 30000,
+): Promise<{ status: number; data: unknown; etag: string | null }> => {
+  const controller = new AbortController();
+  // A completed request must not leave an unref'ed AbortSignal.timeout timer
+  // running during later repetitions (or during the other worker's turn).
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  timer.unref();
+  return new Promise<{ status: number; data: unknown; etag: string | null }>((resolve, reject) => {
     if (init.body !== undefined && init.body !== null && typeof init.body !== "string") {
       reject(new Error("REST benchmark requires a string request body"));
       return;
@@ -22,7 +28,7 @@ export const restBenchRequest = (
       {
         method: init.method ?? "GET",
         headers,
-        signal: init.signal ?? undefined,
+        signal: init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal,
       },
       (response) => {
         const chunks: Buffer[] = [];
@@ -44,4 +50,5 @@ export const restBenchRequest = (
     );
     req.once("error", reject);
     req.end(init.body ?? undefined);
-  });
+  }).finally(() => clearTimeout(timer));
+};

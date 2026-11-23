@@ -6,6 +6,17 @@ O formato segue orientacoes de [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Fixed — prazos do gerador de carga REST
+
+- Libera o timer de prazo de cada requisição do benchmark ao concluir ou falhar,
+  em vez de acumular `AbortSignal.timeout` de 30 segundos entre as repetições.
+  A regressão reproduziu 32 timers pendentes após 32 respostas; a correção
+  preserva o prazo e o cancelamento externo, sem alterar contratos do servidor.
+- Harness REST versão 10; limites, amostras e agregação permanecem iguais.
+  A correção elimina uma fonte comprovada de trabalho residual do gerador;
+  não constitui, por si só, evidência de estabilidade ponta a ponta ou de ganho
+  de desempenho da aplicação.
+
 ### Changed — dependências de produção #56
 
 - Atualiza express-rate-limit 8.7.5, libphonenumber-js 1.13.17 e Nodemailer

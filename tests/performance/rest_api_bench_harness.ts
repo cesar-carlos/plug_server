@@ -352,7 +352,6 @@ export const runRestApiBench = async (): Promise<{
       init?: RequestInit,
     ): Promise<{ status: number; data: unknown; etag: string | null }> => {
       return restBenchRequest(`${url}${route}`, {
-        signal: AbortSignal.timeout(30000),
         ...init,
         headers: { Authorization: `Bearer ${token}`, "x-no-compression": "1", ...init?.headers },
       });
@@ -554,7 +553,7 @@ export const runRestApiBench = async (): Promise<{
     // Neither worker may disconnect shared services while its peer is still timed.
     await waitForTurn("complete");
     return {
-      harnessVersion: 9,
+      harnessVersion: 10,
       versions,
       config,
       configFingerprint: createHash("sha256").update(JSON.stringify(config)).digest("hex"),
